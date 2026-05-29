@@ -44,6 +44,15 @@ export const knotFromArray = (
   return knot(vec2(ex, ey), vec2(px, py), vec2(nx, ny), continuous, other);
 };
 
+/** Scale all three points about the origin (legacy BezierKnot.scale). */
+export const scaleKnot = (k: Knot, sx: number, sy: number): Knot => ({
+  end: vec2(k.end.x * sx, k.end.y * sy),
+  tangentToPrev: vec2(k.tangentToPrev.x * sx, k.tangentToPrev.y * sy),
+  tangentToNext: vec2(k.tangentToNext.x * sx, k.tangentToNext.y * sy),
+  continuous: k.continuous,
+  other: k.other,
+});
+
 export const tangentToPrevLength = (k: Knot): number =>
   Math.hypot(k.tangentToPrev.x - k.end.x, k.tangentToPrev.y - k.end.y);
 

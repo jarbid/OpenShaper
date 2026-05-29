@@ -16,3 +16,5 @@ export * from './math';
 export * from './knot';
 export * from './bezier-curve';
 export * from './bezier-spline';
+export * from './cross-section';
+export * from './board';

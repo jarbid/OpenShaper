@@ -32,6 +32,30 @@ export const simpsonIntegral = (func: Fn, min: number, max: number, splits: numb
   return result;
 };
 
+/**
+ * Trapezoid rule over a parametric XY curve (legacy
+ * `MathUtils.Integral.TrapezoidRuleIntegral`): integrates y dx by summing
+ * ((y0+y1)/2)·|x1-x0| over `splits` samples. Used for cross-section area.
+ */
+export const trapezoidIntegralXY = (
+  func: (t: number) => { x: number; y: number },
+  min: number,
+  max: number,
+  splits: number,
+): number => {
+  let result = 0;
+  const m = (max - min) / splits;
+  let an = min;
+  let x0 = func(an);
+  for (let n = 0; n < splits; n++) {
+    an = an + m;
+    const x1 = func(an);
+    result += ((x0.y + x1.y) / 2) * Math.abs(x1.x - x0.x);
+    x0 = x1;
+  }
+  return result;
+};
+
 const ROOT_VALUE_TOLERANCE = 0.005;
 
 const secantRoot = (f: Fn, target: number, lo: number, hi: number): number => {

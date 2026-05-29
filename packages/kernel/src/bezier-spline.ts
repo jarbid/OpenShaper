@@ -9,13 +9,15 @@ import {
   tangent,
   tForMinMaxNumerical,
   tForX,
+  value,
   xValue,
   yForX,
   type Coeffs,
   type CubicBezier,
 } from './bezier-curve';
-import { simpsonIntegral } from './math';
-import type { Knot } from './knot';
+import { T_ONE } from './constants';
+import { getRoot, simpsonIntegral } from './math';
+import { scaleKnot, type Knot } from './knot';
 import type { Vec2 } from './vec2';
 import { vec2 } from './vec2';
 
@@ -44,6 +46,38 @@ export const splineFromKnots = (knots: readonly Knot[]): Spline => {
 };
 
 export const nrOfCurves = (s: Spline): number => s.curves.length;
+export const nrOfControlPoints = (s: Spline): number => s.knots.length;
+
+/** Scale the whole spline (legacy order: vertical=y, horizontal=x). Returns a new spline. */
+export const scaleSpline = (s: Spline, verticalScale: number, horizontalScale: number): Spline =>
+  splineFromKnots(s.knots.map((k) => scaleKnot(k, horizontalScale, verticalScale)));
+
+// --- TT (global 0..1 over all segments) lookups, legacy getPointByTT/getNormalByTT ---
+
+const ttToSegment = (s: Spline, tt: number): { index: number; t: number } => {
+  const n = nrOfCurves(s);
+  let index = Math.floor(tt * n);
+  let t = tt * n - index;
+  if (tt >= 1) {
+    index = n - 1;
+    t = T_ONE;
+  }
+  return { index, t };
+};
+
+export const pointByTT = (s: Spline, tt: number): Vec2 => {
+  const { index, t } = ttToSegment(s, tt);
+  return value(s.coeffs[index]!, t);
+};
+
+export const normalByTT = (s: Spline, tt: number): number => {
+  const { index, t } = ttToSegment(s, tt);
+  return tangent(s.coeffs[index]!, t) + Math.PI / 2;
+};
+
+/** Global tt whose normal angle equals `angle` (legacy getTTByNormal via root find). */
+export const ttByNormal = (s: Spline, angle: number): number =>
+  getRoot((tt) => normalByTT(s, tt), angle, 0, 1);
 
 // --- segment lookup (legacy findMatchingBezierSegment: simple then min/max) ---
 
@@ -84,6 +118,27 @@ export const splineLength = (s: Spline): number =>
 export const maxX = (s: Spline): number => {
   let m = -1e5;
   for (const k of s.coeffs) m = Math.max(m, curveMaxX(k));
+  return m;
+};
+
+// NOTE: legacy uses inconsistent loop bounds across these — maxX/minY scan all
+// segments, while minX/maxY skip the last segment. Reproduced for golden fidelity.
+export const minX = (s: Spline): number => {
+  let m = Number.MAX_VALUE;
+  for (let i = 0; i < s.coeffs.length - 1; i++) m = Math.min(m, curveMinX(s.coeffs[i]!));
+  return m;
+};
+
+export const maxY = (s: Spline): number => {
+  let m = -Number.MAX_VALUE;
+  for (let i = 0; i < s.coeffs.length - 1; i++)
+    m = Math.max(m, minMaxNumerical(s.coeffs[i]!, 'y', 'max'));
+  return m;
+};
+
+export const minY = (s: Spline): number => {
+  let m = 1e5;
+  for (const k of s.coeffs) m = Math.min(m, minMaxNumerical(k, 'y', 'min'));
   return m;
 };
 
