@@ -16,3 +16,18 @@ Rust build is intentionally deferred until the web MVP stabilizes.
 4. Build installers (MSI/DMG/DEB): `pnpm --filter @board-studio/desktop tauri build`
 
 Requires the Rust toolchain (`cargo`) and, on Windows, the WebView2 runtime.
+
+## Status
+
+Init is complete: brand icons generated (`src-tauri/icons/`, source `icon-source.png`),
+`capabilities/default.json` added, icons + the `main` window registered in
+`tauri.conf.json`, and the entry point split into the idiomatic `src/lib.rs` (`run()`) +
+thin `src/main.rs`.
+
+**Build prerequisite (not yet satisfied on this dev box):** compiling the shell needs the
+**Visual Studio "Desktop development with C++" (C++ build tools) workload** — the MSVC
+`link.exe`. Without it `cargo check`/`build` fails on dependency build scripts with
+`linking with link.exe failed`. Install via the VS Installer (or `winget install
+Microsoft.VisualStudio.2022.BuildTools` with the C++ workload), then `cargo build`
+succeeds. The Rust sources and Tauri config themselves are correct and the crate graph
+resolves; only the native link step is blocked by the missing toolchain.
