@@ -8,8 +8,10 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "turbo run dev",
-    "build": "turbo run build",
+    "dev": "turbo run dev --filter=@board-studio/web",
+    "dev:desktop": "turbo run dev --filter=@board-studio/desktop",
+    "build": "turbo run build --filter=!@board-studio/desktop",
+    "build:desktop": "turbo run build --filter=@board-studio/desktop",
     "test": "turbo run test",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
