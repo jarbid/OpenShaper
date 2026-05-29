@@ -212,13 +212,13 @@ export const tForMinMaxNumerical = (
   return tForMinMaxNumerical(k, axis, extreme, bestT - seg, bestT + seg, Math.floor(nrOfSplits / 2));
 };
 
-export const minX = (k: Coeffs): number => minMaxNumerical(k, 'x', 'min');
-export const maxX = (k: Coeffs): number => minMaxNumerical(k, 'x', 'max');
-export const minY = (k: Coeffs): number => minMaxNumerical(k, 'y', 'min');
-export const maxY = (k: Coeffs): number => minMaxNumerical(k, 'y', 'max');
+export const curveMinX = (k: Coeffs): number => minMaxNumerical(k, 'x', 'min');
+export const curveMaxX = (k: Coeffs): number => minMaxNumerical(k, 'x', 'max');
+export const curveMinY = (k: Coeffs): number => minMaxNumerical(k, 'y', 'min');
+export const curveMaxY = (k: Coeffs): number => minMaxNumerical(k, 'y', 'max');
 
 /** Recursive arc length over [t0, t1] (legacy chord-vs-polyline subdivision). */
-export const length = (k: Coeffs, t0 = 0, t1 = 1): number => {
+export const curveLength = (k: Coeffs, t0 = 0, t1 = 1): number => {
   const x0 = xValue(k, t0);
   const y0 = yValue(k, t0);
   const x1 = xValue(k, t1);
@@ -229,7 +229,7 @@ export const length = (k: Coeffs, t0 = 0, t1 = 1): number => {
   const poly = Math.hypot(sx - x0, sy - y0) + Math.hypot(x1 - sx, y1 - sy);
   const chord = Math.hypot(x1 - x0, y1 - y0);
   if (poly - chord > LENGTH_TOLERANCE && t1 - t0 > 0.001) {
-    return length(k, t0, ts) + length(k, ts, t1);
+    return curveLength(k, t0, ts) + curveLength(k, ts, t1);
   }
   return poly;
 };

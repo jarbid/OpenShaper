@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   coeffsOf,
   curveFromPoints,
-  length,
+  curveLength,
   tangent,
   tForX,
   value,
@@ -28,7 +28,7 @@ describe('bezier-curve (straight diagonal)', () => {
   });
 
   it('measures arc length (linear case = chord)', () => {
-    expect(length(diagonal)).toBeCloseTo(Math.hypot(3, 3), 9);
+    expect(curveLength(diagonal)).toBeCloseTo(Math.hypot(3, 3), 9);
   });
 });
 

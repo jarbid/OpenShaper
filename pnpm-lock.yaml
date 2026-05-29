@@ -68,6 +68,10 @@ importers:
         version: 2.1.9(@types/node@22.19.19)
 
   packages/io:
+    dependencies:
+      '@board-studio/kernel':
+        specifier: workspace:*
+        version: link:../kernel
     devDependencies:
       typescript:
         specifier: ^5.7.2

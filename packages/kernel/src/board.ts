@@ -1,7 +1,6 @@
 import {
   maxY as splineMaxY,
   pointByTT,
-  scaleSpline as _scaleSpline,
   splineLength,
   ttByNormal,
   valueAt,
@@ -11,14 +10,11 @@ import {
 import { T_ZERO } from './constants';
 import {
   crossSection as makeCrossSection,
-  csWidth,
   interpolateCrossSection,
   scaleCrossSection,
   type CrossSection,
 } from './cross-section';
 import { simpsonIntegral, trapezoidIntegralXY } from './math';
-
-void _scaleSpline; // re-exported via index; referenced to keep import side-effect explicit
 
 /**
  * Cross-section interpolation strategy (legacy AbstractBezierBoardSurfaceModel.ModelType).
