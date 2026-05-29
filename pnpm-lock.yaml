@@ -82,6 +82,19 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.19)(lightningcss@1.32.0)
 
+  packages/export:
+    dependencies:
+      '@board-studio/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+    devDependencies:
+      typescript:
+        specifier: ^5.7.2
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.19)(lightningcss@1.32.0)
+
   packages/io:
     dependencies:
       '@board-studio/kernel':
