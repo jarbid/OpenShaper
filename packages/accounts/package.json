@@ -1,0 +1,29 @@
+{
+  "name": "@board-studio/accounts",
+  "version": "0.1.0",
+  "description": "Accounts, auth, and the single Free/Pro/Team entitlement seam (Supabase)",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo \"(eslint todo)\""
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.106.2"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.17",
+    "react": "^18.3.1",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,3 +1,4 @@
+import { useEntitlements, type Feature } from '@board-studio/accounts';
 import { parseBrd } from '@board-studio/io';
 import { SplineEditor } from '@board-studio/render2d';
 import { Board3DView } from '@board-studio/render3d';
@@ -12,6 +13,7 @@ import {
   ToolbarSeparator,
 } from '@board-studio/ui';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { AccountControl } from './AccountControl';
 import { downloadBoard, exportBoard, openBoardFile, type ExportFormat } from './file-io';
 import { fmtLen, fmtVol, type UnitSystem } from './format';
 import sampleBrd from './sample-board.brd?raw';
@@ -45,7 +47,15 @@ function paneProps(kind: EditorKind, csIndex: number) {
   };
 }
 
-function EditorPane({ title, kind, csIndex }: { title: string; kind: EditorKind; csIndex: number }) {
+function EditorPane({
+  title,
+  kind,
+  csIndex,
+}: {
+  title: string;
+  kind: EditorKind;
+  csIndex: number;
+}) {
   const p = paneProps(kind, csIndex);
   return (
     <Panel className="flex min-h-0 flex-col">
@@ -85,6 +95,7 @@ export function App() {
   const [view, setView] = useState<View>('quad');
   const [csIndex, setCsIndex] = useState(1);
   const [units, setUnits] = useState<UnitSystem>('imperial');
+  const { can } = useEntitlements();
 
   // Keyboard shortcuts: undo/redo, save, and view switching (1-5).
   useEffect(() => {
@@ -191,22 +202,38 @@ export function App() {
         <Button size="sm" variant="ghost" onClick={() => fileInput.current?.click()}>
           Open
         </Button>
-        <Button size="sm" variant="ghost" disabled={!board} onClick={() => board && downloadBoard(board)}>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={!board}
+          onClick={() => board && downloadBoard(board)}
+        >
           Save
         </Button>
         <ToolbarSeparator />
-        {(['stl', 'dxf', 'pdf'] as ExportFormat[]).map((f) => (
-          <Button
-            key={f}
-            size="sm"
-            variant="ghost"
-            disabled={!board}
-            onClick={() => board && exportBoard(board, f)}
-            title={`Export ${f.toUpperCase()}`}
-          >
-            {f.toUpperCase()}
-          </Button>
-        ))}
+        {(['stl', 'dxf', 'pdf'] as ExportFormat[]).map((f) => {
+          const allowed = can(`export.${f}` as Feature);
+          return (
+            <Button
+              key={f}
+              size="sm"
+              variant="ghost"
+              disabled={!board}
+              onClick={() => {
+                if (!board) return;
+                if (allowed) exportBoard(board, f);
+                else
+                  alert(
+                    `${f.toUpperCase()} export is a Pro feature. Upgrade to export manufacturing formats.`,
+                  );
+              }}
+              title={allowed ? `Export ${f.toUpperCase()}` : `${f.toUpperCase()} export — Pro`}
+            >
+              {f.toUpperCase()}
+              {allowed ? '' : ' 🔒'}
+            </Button>
+          );
+        })}
         <ToolbarSeparator />
         <Button
           size="sm"
@@ -216,6 +243,8 @@ export function App() {
         >
           {units === 'imperial' ? 'in' : 'cm'}
         </Button>
+        <ToolbarSeparator />
+        <AccountControl />
       </Toolbar>
 
       <div className="flex min-h-0 flex-1 gap-3 p-3">
@@ -238,7 +267,9 @@ export function App() {
             <Panel className="flex h-full flex-col">
               <PanelHeader>
                 <PanelTitle>3D</PanelTitle>
-                <span className="text-xs text-muted-foreground">drag to orbit • scroll to zoom</span>
+                <span className="text-xs text-muted-foreground">
+                  drag to orbit • scroll to zoom
+                </span>
               </PanelHeader>
               <PanelBody className="min-h-0 flex-1 p-0">
                 <Board3DView store={boardStore} />
@@ -274,8 +305,8 @@ export function App() {
                 <SpecRow label="Volume" value={fmtVol(specs.volume)} />
                 <SpecRow label="Center of mass" value={fmtLen(specs.centerOfMass, units)} />
                 <p className="pt-2 text-xs text-muted-foreground">
-                  Live from the kernel — every pane edits the same board, so changes sync
-                  across views and the specs update instantly.
+                  Live from the kernel — every pane edits the same board, so changes sync across
+                  views and the specs update instantly.
                 </p>
               </>
             ) : (

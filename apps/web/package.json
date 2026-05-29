@@ -12,6 +12,7 @@
     "lint": "echo \"(eslint todo)\""
   },
   "dependencies": {
+    "@board-studio/accounts": "workspace:*",
     "@board-studio/export": "workspace:*",
     "@board-studio/io": "workspace:*",
     "@board-studio/kernel": "workspace:*",
