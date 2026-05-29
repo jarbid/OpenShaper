@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Board Studio",
+  "version": "0.1.0",
+  "identifier": "app.boardstudio.desktop",
+  "build": {
+    "frontendDist": "../../web/dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "pnpm --filter @board-studio/web dev",
+    "beforeBuildCommand": "pnpm --filter @board-studio/web build"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Board Studio",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 700
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all"
+  }
+}

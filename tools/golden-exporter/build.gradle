@@ -1,0 +1,83 @@
+/*
+ * Golden-data exporter — recompiles the UNMODIFIED legacy BoardCAD-LE sources
+ * (../../../boardcad-le/src) together with GoldenExporter and runs the real kernel
+ * to emit authoritative computed specs as JSON.
+ *
+ * This project never edits boardcad-le; it only points a source set at its src/ tree
+ * and replicates its dependency list. Run:
+ *
+ *   gradle run --args="../../docs/specs/golden ../../docs/specs/golden/golden.json"
+ *
+ * (Use the boardcad-le gradle wrapper if you don't have a system gradle:
+ *   ../../../boardcad-le/gradlew -p . run --args="..." )
+ */
+plugins {
+    id 'java'
+    id 'application'
+}
+
+def legacySrc = file('../../../boardcad-le/src')
+
+java {
+    toolchain {
+        // Legacy build.gradle targets 25, but the sources use no >21 syntax and only
+        // JDK 21 is installed here, so we compile on 21 (no --release flag).
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+sourceSets {
+    main {
+        java {
+            srcDirs = ['src', legacySrc]
+        }
+        resources {
+            srcDirs = [legacySrc]
+            include '**/*.properties', '**/*.png', '**/*.gif', '**/*.bmp', '**/*.ico', '**/*.svg', '**/*.icns'
+        }
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url = uri('https://jogamp.org/deployment/maven') }
+    maven { url = uri('https://jogamp.org/deployment/maven-java3d') }
+}
+
+def os = org.gradle.internal.os.OperatingSystem.current()
+def nativeClassifier =
+        os.isWindows() ? 'natives-windows-amd64' :
+        os.isLinux()   ? 'natives-linux-amd64' :
+        os.isMacOsX()  ? 'natives-macosx-universal' :
+        null
+
+dependencies {
+    // Mirrors boardcad-le/build.gradle so the legacy sources resolve.
+    implementation 'org.jogamp.java3d:java3d-core:1.7.2'
+    implementation 'org.jogamp.java3d:java3d-utils:1.7.2'
+    implementation 'org.jogamp.java3d:vecmath:1.7.2'
+    implementation 'org.jogamp.jogl:jogl-all:2.6.0'
+    implementation 'org.jogamp.gluegen:gluegen-rt:2.6.0'
+    runtimeOnly "org.jogamp.jogl:jogl-all:2.6.0:${nativeClassifier}"
+    runtimeOnly "org.jogamp.gluegen:gluegen-rt:2.6.0:${nativeClassifier}"
+
+    implementation 'com.github.weisj:darklaf-core:3.0.2'
+    implementation 'com.formdev:flatlaf:3.5.4'
+    implementation 'com.formdev:flatlaf-intellij-themes:3.5.4'
+    implementation 'org.javassist:javassist:3.30.2-GA'
+    implementation 'org.pushing-pixels:radiance-neon:3.5.1'
+    implementation 'org.pushing-pixels:radiance-substance:3.5.1'
+    implementation 'org.pushing-pixels:radiance-trident:3.5.1'
+    implementation 'org.reflections:reflections:0.9.12'
+    implementation 'org.ujmp:ujmp-complete:0.3.0'
+}
+
+application {
+    mainClass = 'goldenexport.GoldenExporter'
+    applicationDefaultJvmArgs = [
+            '--enable-native-access=ALL-UNNAMED',
+            '--add-exports', 'java.base/java.lang=ALL-UNNAMED',
+            '--add-exports', 'java.desktop/sun.awt=ALL-UNNAMED',
+            '--add-exports', 'java.desktop/sun.java2d=ALL-UNNAMED'
+    ]
+}

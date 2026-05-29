@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.turbo/
+*.tsbuildinfo
+.env
+.env.local
+coverage/
+# Tauri
+apps/desktop/src-tauri/target/
+# Gradle (golden-exporter recompiles legacy sources)
+tools/**/build/
+tools/**/.gradle/
+.gradle/
+# OS
+.DS_Store
+Thumbs.db

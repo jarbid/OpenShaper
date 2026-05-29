@@ -1,0 +1,60 @@
+graph TD
+  subgraph Foundation
+    A[A. cadcore Math Kernel]
+    K[K. Settings + i18n]
+  end
+  subgraph Model
+    B[B. Board Model + I/O]
+  end
+  subgraph App
+    D[D. Swing GUI Core / BoardCAD hub]
+    C[C. Commands / Undo]
+    E[E. GUI Actions]
+    F[F. Plugin Framework]
+    G[G. 3D Visualization]
+  end
+  subgraph Output
+    H[H. Print / Templates]
+    I[I. Export DXF/STL/GCode]
+  end
+  subgraph CAM
+    J[J. CAM / CNC Toolchain]
+  end
+
+  B --> A
+  B --> K
+  C --> A
+  C --> B
+  C --> D
+  D --> A
+  D --> B
+  D --> C
+  D --> K
+  D --> G
+  D --> H
+  D --> I
+  D --> J
+  E --> C
+  E --> D
+  E --> B
+  E --> H
+  F --> D
+  F --> B
+  G --> A
+  G --> B
+  G --> D
+  G --> J
+  H --> A
+  H --> B
+  H --> D
+  H --> K
+  I --> A
+  I --> B
+  I --> D
+  I --> J
+  J --> A
+  J --> B
+  J --> K
+  J --> D
+  A -.back-edge.-> B
+  A -.back-edge.-> D

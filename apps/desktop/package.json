@@ -1,0 +1,14 @@
+{
+  "name": "@board-studio/desktop",
+  "version": "0.1.0",
+  "description": "Board Studio desktop shell (Tauri) wrapping the web app",
+  "private": true,
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0"
+  }
+}
