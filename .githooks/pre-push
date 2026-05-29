@@ -1,0 +1,29 @@
+#!/bin/sh
+# Block direct pushes to protected branches — changes must land via a PR.
+#
+# This repo is a private GitHub repo on the free plan, where server-side branch
+# protection (rulesets) is unavailable. This client-side hook enforces the same
+# "no direct pushes to main" rule locally. It is installed via the package.json
+# `prepare` script (git config core.hooksPath .githooks).
+#
+# Emergency override (use sparingly): git push --no-verify
+
+protected_branches="main"
+
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+	case "$remote_ref" in
+	refs/heads/*)
+		branch=${remote_ref#refs/heads/}
+		for protected in $protected_branches; do
+			if [ "$branch" = "$protected" ]; then
+				echo "✗ Direct pushes to '$protected' are blocked." >&2
+				echo "  Open a pull request from a feature branch instead." >&2
+				echo "  (Emergency override: git push --no-verify)" >&2
+				exit 1
+			fi
+		done
+		;;
+	esac
+done
+
+exit 0
