@@ -1,0 +1,227 @@
+/**
+ * Marketing / content-page styling — a warm "shaping-bay editorial" skin.
+ *
+ * The `.marketing` root locally re-maps the shadcn design tokens to a warm
+ * paper/ink palette, so every Tailwind token utility (`bg-background`,
+ * `text-muted-foreground`, `border-border`, …) shifts automatically while the
+ * clay `--primary` (shared with the app) stays the accent. Display type is
+ * Fraunces; body is Hanken Grotesk (both loaded in index.html).
+ */
+
+.marketing {
+  --background: oklch(0.976 0.012 83); /* warm sand paper */
+  --foreground: oklch(0.24 0.018 55); /* warm charcoal ink */
+  --card: oklch(0.995 0.006 83);
+  --card-foreground: oklch(0.24 0.018 55);
+  --popover: oklch(0.995 0.006 83);
+  --popover-foreground: oklch(0.24 0.018 55);
+  --secondary: oklch(0.93 0.014 80);
+  --secondary-foreground: oklch(0.28 0.02 55);
+  --muted: oklch(0.93 0.014 80);
+  --muted-foreground: oklch(0.46 0.02 58);
+  --accent: oklch(0.9 0.04 58);
+  --accent-foreground: oklch(0.32 0.06 48);
+  --border: oklch(0.88 0.016 75);
+  --input: oklch(0.88 0.016 75);
+
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.dark .marketing {
+  --background: oklch(0.21 0.018 60); /* deep wet-sand / ocean night */
+  --foreground: oklch(0.93 0.012 80);
+  --card: oklch(0.25 0.018 60);
+  --card-foreground: oklch(0.93 0.012 80);
+  --popover: oklch(0.25 0.018 60);
+  --popover-foreground: oklch(0.93 0.012 80);
+  --secondary: oklch(0.3 0.018 60);
+  --secondary-foreground: oklch(0.93 0.012 80);
+  --muted: oklch(0.3 0.018 60);
+  --muted-foreground: oklch(0.68 0.018 70);
+  --accent: oklch(0.34 0.04 50);
+  --accent-foreground: oklch(0.92 0.03 60);
+  --border: oklch(0.33 0.018 60);
+  --input: oklch(0.33 0.018 60);
+}
+
+/* Display + technical type ------------------------------------------------ */
+
+.font-display {
+  font-family: 'Fraunces', ui-serif, Georgia, 'Times New Roman', serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.04;
+}
+
+.label-tech {
+  font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--primary);
+}
+
+/* Paper grain + atmosphere ------------------------------------------------ */
+
+.grain {
+  position: relative;
+}
+.grain::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.04;
+  /* fine noise via fractal turbulence */
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Hairline technical rule, like a CAD construction line */
+.rule-tech {
+  height: 1px;
+  background: repeating-linear-gradient(
+    to right,
+    var(--border) 0,
+    var(--border) 6px,
+    transparent 6px,
+    transparent 12px
+  );
+}
+
+/* Editorial long-form prose ---------------------------------------------- */
+
+.prose-shaper {
+  color: var(--foreground);
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  max-width: 44rem;
+}
+.prose-shaper h2 {
+  font-family: 'Fraunces', ui-serif, Georgia, serif;
+  font-optical-sizing: auto;
+  font-weight: 600;
+  font-size: clamp(1.6rem, 1.2rem + 1.4vw, 2.1rem);
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  margin-top: 3rem;
+  margin-bottom: 0.85rem;
+  scroll-margin-top: 6rem;
+}
+.prose-shaper h3 {
+  font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 1.18rem;
+  margin-top: 1.85rem;
+  margin-bottom: 0.5rem;
+  scroll-margin-top: 6rem;
+}
+.prose-shaper p {
+  margin-bottom: 1.1rem;
+}
+.prose-shaper ul,
+.prose-shaper ol {
+  margin: 0 0 1.2rem 1.15rem;
+}
+.prose-shaper li {
+  margin-bottom: 0.4rem;
+}
+.prose-shaper ul {
+  list-style: none;
+  margin-left: 0;
+}
+.prose-shaper ul > li {
+  position: relative;
+  padding-left: 1.4rem;
+}
+.prose-shaper ul > li::before {
+  content: '';
+  position: absolute;
+  left: 0.1rem;
+  top: 0.72em;
+  width: 0.5rem;
+  height: 1px;
+  background: var(--primary);
+}
+.prose-shaper a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+  text-decoration-thickness: 1px;
+}
+.prose-shaper a:hover {
+  text-decoration-thickness: 2px;
+}
+.prose-shaper strong {
+  font-weight: 700;
+  color: var(--foreground);
+}
+.prose-shaper table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1.5rem 0 2rem;
+  font-size: 0.95rem;
+}
+.prose-shaper th,
+.prose-shaper td {
+  text-align: left;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.prose-shaper thead th {
+  font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.7rem;
+  color: var(--muted-foreground);
+  border-bottom: 1.5px solid var(--foreground);
+}
+.prose-shaper tbody tr:hover {
+  background: color-mix(in oklch, var(--accent) 45%, transparent);
+}
+
+/* One-shot page-load reveal (respects reduced motion) -------------------- */
+
+@keyframes shaper-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.reveal {
+  animation: shaper-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    animation: none;
+  }
+}
+
+/* Slow draw for the hero board outline */
+@keyframes shaper-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+.draw-line {
+  stroke-dasharray: var(--len, 2000);
+  stroke-dashoffset: var(--len, 2000);
+  animation: shaper-draw 2.4s cubic-bezier(0.6, 0, 0.2, 1) 0.2s forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .draw-line {
+    stroke-dashoffset: 0;
+    animation: none;
+  }
+}

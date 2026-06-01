@@ -1,0 +1,9 @@
+# Cloudflare Pages configuration.
+#
+# `name` MUST match the Pages project name in your Cloudflare dashboard.
+# `pages_build_output_dir` is the directory `pnpm build` publishes — Cloudflare
+# reads it from here, so you only need to set the *build command* (`pnpm build`)
+# in the dashboard. Node version is pinned by the repo's .node-version file.
+name = "openshaper"
+pages_build_output_dir = "apps/web/dist"
+compatibility_date = "2026-06-01"

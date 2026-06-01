@@ -7,7 +7,7 @@ import {
   valueAt,
   vec2,
   type BezierBoard,
-} from '@board-studio/kernel';
+} from '@openshaper/kernel';
 import { createBoardStore } from './board-store';
 import { canDeleteKnot, moveKnotTangent } from './edits';
 import { selectSpecs } from './selectors';

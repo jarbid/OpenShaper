@@ -1,7 +1,7 @@
 /**
  * Unit constants ported from the legacy `cadcore.UnitUtils` (BoardCAD-LE).
  *
- * The internal length unit of Board Studio is the CENTIMETER, matching the
+ * The internal length unit of OpenShaper is the CENTIMETER, matching the
  * legacy engine. All conversion factors below are expressed relative to that
  * internal unit unless otherwise noted.
  */

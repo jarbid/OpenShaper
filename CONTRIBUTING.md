@@ -1,12 +1,12 @@
-# Contributing to Board Studio
+# Contributing to OpenShaper
 
-Thanks for your interest! Board Studio is a free, open-source surfboard CAD for the
+Thanks for your interest! OpenShaper is a free, open-source surfboard CAD for the
 shaping community. Bug reports, board templates, file-format fixes, and shaping-domain
 feedback are all especially welcome.
 
 ## Ground rules
 
-- **License.** Board Studio is **GPL-3.0-or-later**. By contributing, you agree your
+- **License.** OpenShaper is **GPL-3.0-or-later**. By contributing, you agree your
   work is licensed under the same terms. See [`LICENSE`](./LICENSE) and [`NOTICE.md`](./NOTICE.md).
 - **Never modify `../boardcad-le`.** The legacy Java BoardCAD-LE is read-only reference
   used to mine behavior and golden data — it is not part of this repo and is never edited.

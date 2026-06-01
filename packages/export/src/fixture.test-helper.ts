@@ -1,5 +1,5 @@
-import { board, crossSection, knot, splineFromKnots, vec2 } from '@board-studio/kernel';
-import type { BezierBoard, CrossSection, Knot } from '@board-studio/kernel';
+import { board, crossSection, knot, splineFromKnots, vec2 } from '@openshaper/kernel';
+import type { BezierBoard, CrossSection, Knot } from '@openshaper/kernel';
 
 /**
  * Build a small, well-formed test board with kernel builders only (no test-support

@@ -5,7 +5,7 @@ import {
   valueAt,
   type BezierBoard,
   type Spline,
-} from '@board-studio/kernel';
+} from '@openshaper/kernel';
 
 /** Options for {@link exportDxf}. */
 export interface DxfOptions {
@@ -75,7 +75,7 @@ export const exportDxf = (board: BezierBoard, opts: DxfOptions = {}): string => 
   const eps = Math.min(0.01, length / (lengthSteps * 4));
 
   const out: string[] = [];
-  out.push('999', 'DXF export from Board Studio');
+  out.push('999', 'DXF export from OpenShaper');
   out.push('0', 'SECTION', '2', 'ENTITIES');
 
   // --- Plan-view outline: half-width vs length, both rails as one closed loop. ---

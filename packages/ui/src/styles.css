@@ -1,10 +1,10 @@
 /**
- * Board Studio design tokens (Tailwind v4 + shadcn-style CSS variables).
+ * OpenShaper design tokens (Tailwind v4 + shadcn-style CSS variables).
  *
  * Apps import this once (see apps/web/src/index.css) AFTER `@import "tailwindcss"`.
  * Light + dark palettes are defined as CSS variables and mapped into Tailwind's
  * theme via `@theme inline` so utilities like `bg-background`, `text-foreground`,
- * `bg-primary` resolve. The accent matches the Board Studio brand (warm clay).
+ * `bg-primary` resolve. The accent matches the OpenShaper brand (warm clay).
  */
 
 @theme inline {

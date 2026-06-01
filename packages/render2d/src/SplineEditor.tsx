@@ -4,8 +4,8 @@ import {
   type BezierBoard,
   type Spline,
   type Vec2,
-} from '@board-studio/kernel';
-import { type BoardState, type SplineTarget, getTargetSpline } from '@board-studio/store';
+} from '@openshaper/kernel';
+import { type BoardState, type SplineTarget, getTargetSpline } from '@openshaper/store';
 import {
   useCallback,
   useEffect,

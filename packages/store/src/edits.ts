@@ -17,7 +17,7 @@ import {
   type Knot,
   type Spline,
   type Vec2,
-} from '@board-studio/kernel';
+} from '@openshaper/kernel';
 
 /**
  * Pure editing helpers. The kernel is immutable, so every edit returns a NEW

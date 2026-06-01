@@ -1,4 +1,4 @@
-/** @board-studio/render3d — Three.js board mesh + 3D scene. */
+/** @openshaper/render3d — Three.js board mesh + 3D scene. */
 export { boardGeometry, boardSpan } from './geometry';
 export {
   Board3DView,

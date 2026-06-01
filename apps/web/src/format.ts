@@ -4,7 +4,7 @@ import {
   convertLengthToUnitNumber,
   convertVolumeToUnit,
   Unit,
-} from '@board-studio/units';
+} from '@openshaper/units';
 
 /**
  * A user-selectable length unit for display + input across the app. Wraps the

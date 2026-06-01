@@ -1,4 +1,4 @@
-/** @board-studio/store — board document, command/undo, derived-spec selectors. */
+/** @openshaper/store — board document, command/undo, derived-spec selectors. */
 export { createBoardStore, type BoardState, type Selection } from './board-store';
 export {
   canDeleteKnot,

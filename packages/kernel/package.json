@@ -1,5 +1,5 @@
 {
-  "name": "@board-studio/kernel",
+  "name": "@openshaper/kernel",
   "version": "0.1.0",
   "description": "Pure geometry + board model kernel (port of legacy cadcore + board)",
   "license": "GPL-3.0-or-later",

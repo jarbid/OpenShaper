@@ -1,4 +1,4 @@
-import type { Spline, Vec2 } from '@board-studio/kernel';
+import type { Spline, Vec2 } from '@openshaper/kernel';
 import { worldToScreen, type Viewport } from './viewport';
 
 export type HandleKind = 'end' | 'prev' | 'next';

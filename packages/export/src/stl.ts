@@ -4,7 +4,7 @@ import {
   getRockerAtPos,
   pointByTT,
   type BezierBoard,
-} from '@board-studio/kernel';
+} from '@openshaper/kernel';
 
 /** Options for {@link exportStl}. */
 export interface StlOptions {
@@ -12,7 +12,7 @@ export interface StlOptions {
   lengthSteps?: number;
   /** Number of profile samples around each cross-section ring (per side). Default 48. */
   ringSteps?: number;
-  /** `solid` name written into the STL. Default `boardstudio`. */
+  /** `solid` name written into the STL. Default `openshaper`. */
   name?: string;
 }
 
@@ -90,7 +90,7 @@ const writeFacet = (out: string[], a: P3, b: P3, c: P3): void => {
 export const exportStl = (board: BezierBoard, opts: StlOptions = {}): string => {
   const lengthSteps = Math.max(2, opts.lengthSteps ?? DEFAULT_LENGTH_STEPS);
   const ringSteps = Math.max(3, opts.ringSteps ?? DEFAULT_RING_STEPS);
-  const name = opts.name ?? 'boardstudio';
+  const name = opts.name ?? 'openshaper';
   const length = getLength(board);
 
   // Build rings at interior stations (avoid the exact 0/length dummy sections,

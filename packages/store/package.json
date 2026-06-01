@@ -1,5 +1,5 @@
 {
-  "name": "@board-studio/store",
+  "name": "@openshaper/store",
   "version": "0.1.0",
   "description": "Board document store, command/undo stack, derived-spec selectors",
   "license": "GPL-3.0-or-later",
@@ -10,7 +10,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@board-studio/kernel": "workspace:*",
+    "@openshaper/kernel": "workspace:*",
     "zustand": "^5.0.2"
   },
   "scripts": {

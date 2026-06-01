@@ -1,4 +1,4 @@
-import { tessellateBoard, type BezierBoard, type BoardMesh } from '@board-studio/kernel';
+import { tessellateBoard, type BezierBoard, type BoardMesh } from '@openshaper/kernel';
 import { BufferAttribute, BufferGeometry } from 'three';
 
 // Tessellation walks ~120 stations, each interpolating a cross-section — the

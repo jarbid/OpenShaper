@@ -15,10 +15,10 @@ Responsibilities:
   toolbar, command palette, menus.
 - Interaction model: select/drag control points & tangent handles, multi-select,
   add/delete points, cross-section navigation, zoom/pan/life-size, ghost-board compare.
-- Units display (metric/imperial + fractions) via `@board-studio/units`.
+- Units display (metric/imperial + fractions) via `@openshaper/units`.
 - Theming (light/dark), keyboard shortcuts, accessibility (Radix primitives).
 
-Rules: keep components presentational; all board state flows through `@board-studio/store`.
+Rules: keep components presentational; all board state flows through `@openshaper/store`.
 Wire heavy actions through worker-backed selectors so the UI stays responsive. Mount 2D/3D
 via the render packages — don't draw board geometry directly in components. Gate Pro-only
 features through the single entitlement hook, never ad-hoc checks.

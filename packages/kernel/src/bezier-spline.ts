@@ -31,7 +31,7 @@ import { vec2 } from './vec2';
  *
  * Built from an ordered list of knots; segment i spans knots[i]..knots[i+1].
  * Per-segment coefficients are precomputed once (the legacy recomputed lazily with
- * dirty flags). Immutable: editing produces a new spline in `@board-studio/store`.
+ * dirty flags). Immutable: editing produces a new spline in `@openshaper/store`.
  */
 export interface Spline {
   readonly knots: readonly Knot[];

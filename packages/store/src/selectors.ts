@@ -11,7 +11,7 @@ import {
   getThickness,
   getVolume,
   type BezierBoard,
-} from '@board-studio/kernel';
+} from '@openshaper/kernel';
 
 /**
  * Derived board specs for the spec sidebar. Thin wrappers over the kernel getters

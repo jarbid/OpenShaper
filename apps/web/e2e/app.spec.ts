@@ -16,12 +16,30 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-test.describe('Board Studio shell', () => {
+test.describe('OpenShaper marketing', () => {
+  test('landing renders and links into the app', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByRole('heading', { level: 1, name: /Design surfboards/i })).toBeVisible();
+    // Primary CTA points at the editor route.
+    await expect(page.getByRole('link', { name: 'Open the app' })).toHaveAttribute('href', '/app');
+  });
+
+  test('content pages load with their own headings', async ({ page }) => {
+    await page.goto('/about');
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/building things/i);
+
+    await page.goto('/surfboard-design-guide');
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/Surfboard design/i);
+
+    await page.goto('/surfboard-construction-methods');
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/built/i);
+  });
+});
+
+test.describe('OpenShaper editor', () => {
   test('loads the default board and shows live specs', async ({ page }) => {
     const errors = trackErrors(page);
-    await page.goto('/');
-
-    await expect(page.getByText('Board Studio')).toBeVisible();
+    await page.goto('/app');
 
     // The sample board loads on mount; the Specs panel should show real values.
     await expect(page.getByText('Length')).toBeVisible();
@@ -34,7 +52,7 @@ test.describe('Board Studio shell', () => {
 
   test('switches through all five views via tab buttons and number keys', async ({ page }) => {
     const errors = trackErrors(page);
-    await page.goto('/');
+    await page.goto('/app');
 
     for (const name of ['Quad', 'Outline', 'Rocker', 'Cross-section', '3D']) {
       await page.getByRole('button', { name, exact: true }).click();
@@ -48,7 +66,7 @@ test.describe('Board Studio shell', () => {
 
   test('switches all four 3D render modes without errors', async ({ page }) => {
     const errors = trackErrors(page);
-    await page.goto('/');
+    await page.goto('/app');
     await page.getByRole('button', { name: '3D', exact: true }).click();
 
     for (const mode of ['Shaded', '+Wire', 'Wire', 'Normals']) {
@@ -58,7 +76,7 @@ test.describe('Board Studio shell', () => {
   });
 
   test('toggles units between inches and centimetres', async ({ page }) => {
-    await page.goto('/');
+    await page.goto('/app');
     const toggle = page.getByRole('button', { name: 'in', exact: true });
     await expect(toggle).toBeVisible();
     await toggle.click();
@@ -67,7 +85,7 @@ test.describe('Board Studio shell', () => {
 
   test('drag on the outline canvas does not crash the app', async ({ page }) => {
     const errors = trackErrors(page);
-    await page.goto('/');
+    await page.goto('/app');
     await page.getByRole('button', { name: 'Outline', exact: true }).click();
 
     const canvas = page.locator('canvas').first();

@@ -1,7 +1,7 @@
 /**
- * @board-studio/io — file readers/writers for Board Studio.
+ * @openshaper/io — file readers/writers for OpenShaper.
  *
- * Readers parse legacy/native board files into the pure `@board-studio/kernel`
+ * Readers parse legacy/native board files into the pure `@openshaper/kernel`
  * board model; writers (DXF/STL/GCode/PDF/.board.json) are added in later phases.
  *
  * Implemented so far: the legacy BoardCAD-LE native `.brd` reader.

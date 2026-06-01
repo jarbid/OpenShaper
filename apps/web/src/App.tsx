@@ -1,5 +1,5 @@
-import { specSheetHtml } from '@board-studio/export';
-import { parseBrd } from '@board-studio/io';
+import { specSheetHtml } from '@openshaper/export';
+import { parseBrd } from '@openshaper/io';
 import {
   getArea,
   getCrossSectionAreaAt,
@@ -7,19 +7,20 @@ import {
   getLength,
   type BezierBoard,
   type Spline,
-} from '@board-studio/kernel';
-import { type EditorOverlays } from '@board-studio/render2d';
-import type { Board3DViewProps } from '@board-studio/render3d';
-import { selectSpecs } from '@board-studio/store';
+} from '@openshaper/kernel';
+import { type EditorOverlays } from '@openshaper/render2d';
+import type { Board3DViewProps } from '@openshaper/render3d';
+import { selectSpecs } from '@openshaper/store';
 import {
   Button,
+  buttonVariants,
   Panel,
   PanelBody,
   PanelHeader,
   PanelTitle,
   Toolbar,
   ToolbarSeparator,
-} from '@board-studio/ui';
+} from '@openshaper/ui';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
   downloadBoard,
@@ -40,6 +41,7 @@ import { finsFor, type FinSetup } from './fins';
 import { Sidebar, type OverlayToggles, type ResizeFields } from './Sidebar';
 import sampleBrd from './sample-board.brd?raw';
 import { boardStore } from './store';
+import { SUPPORT_LABEL, SUPPORT_URL } from './support';
 import { BOARD_TEMPLATES } from './templates';
 import { useKeyboardShortcuts } from './use-keyboard-shortcuts';
 import {
@@ -55,7 +57,7 @@ import { estimateWeight, type FoamType, type GlassSchedule } from './weights';
 // pane is shown, so load Board3DView as its own chunk. The 2D editor becomes
 // interactive without waiting on the 3D stack, and 2D-only views never fetch it.
 const Board3DView = lazy(() =>
-  import('@board-studio/render3d').then((m) => ({ default: m.Board3DView })),
+  import('@openshaper/render3d').then((m) => ({ default: m.Board3DView })),
 );
 
 /** Board3DView behind a Suspense boundary, so the lazy 3D chunk can stream in. */
@@ -374,7 +376,13 @@ function AppShell() {
   return (
     <div className="flex h-full flex-col">
       <Toolbar>
-        <span className="px-2 font-semibold">Board Studio</span>
+        <a
+          href="/"
+          className="px-2 font-semibold transition-colors hover:text-primary"
+          title="OpenShaper home"
+        >
+          OpenShaper
+        </a>
         <ToolbarSeparator />
         {tab('quad', 'Quad')}
         {tab('outline', 'Outline')}
@@ -521,6 +529,24 @@ function AppShell() {
             </option>
           ))}
         </select>
+        <a
+          href="/about"
+          className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+          title="About OpenShaper & guides"
+        >
+          About
+        </a>
+        {SUPPORT_URL && (
+          <a
+            href={SUPPORT_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+            title="Support OpenShaper — it's free and open-source"
+          >
+            {SUPPORT_LABEL}
+          </a>
+        )}
       </Toolbar>
 
       <div className="flex min-h-0 flex-1 gap-3 p-3">

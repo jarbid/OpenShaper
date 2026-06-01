@@ -1,6 +1,6 @@
-import { exportDxf, exportPdf, exportStl } from '@board-studio/export';
-import { parseBrd, readBoardJson, writeBoardJson } from '@board-studio/io';
-import type { BezierBoard } from '@board-studio/kernel';
+import { exportDxf, exportPdf, exportStl } from '@openshaper/export';
+import { parseBrd, readBoardJson, writeBoardJson } from '@openshaper/io';
+import type { BezierBoard } from '@openshaper/kernel';
 
 function download(data: BlobPart, filename: string, type: string): void {
   const blob = new Blob([data], { type });

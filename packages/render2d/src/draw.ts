@@ -1,4 +1,4 @@
-import { curvature, value, xDeriv, yDeriv, type Spline, type Vec2 } from '@board-studio/kernel';
+import { curvature, value, xDeriv, yDeriv, type Spline, type Vec2 } from '@openshaper/kernel';
 import { boundsOf, sampleSpline } from './sample';
 import { worldToScreen, type Viewport } from './viewport';
 import type { Hit } from './hit';

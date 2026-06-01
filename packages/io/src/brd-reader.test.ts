@@ -7,7 +7,7 @@ import {
   getMaxWidth,
   getThickness,
   getVolume,
-} from '@board-studio/kernel';
+} from '@openshaper/kernel';
 import { parseBrd } from './brd-reader';
 
 const HERE = dirname(fileURLToPath(import.meta.url));

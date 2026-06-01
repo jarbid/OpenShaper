@@ -3,8 +3,8 @@ import {
   getTargetSpline,
   type BoardState,
   type SplineTarget,
-} from '@board-studio/store';
-import { Button, Input } from '@board-studio/ui';
+} from '@openshaper/store';
+import { Button, Input } from '@openshaper/ui';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
 import { cmToUnitNumber, parseLen, unitDecimals, unitSuffix, type LengthUnit } from './format';

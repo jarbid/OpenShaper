@@ -15,7 +15,7 @@ Responsibilities:
   commands), adding **command grouping/transactions** the legacy lacked, with correct redo
   pruning.
 - **Memoized selectors** for derived specs (length, widths, thicknesses, rocker, wide/thick
-  points, volume, area, center of mass) computed via `@board-studio/kernel`. Heavy ones
+  points, volume, area, center of mass) computed via `@openshaper/kernel`. Heavy ones
   delegate to a Web Worker so the UI never blocks.
 
 Rules: depend only on `kernel` (never on React/DOM). Keep actions small and pure; every

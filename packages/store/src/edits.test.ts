@@ -20,7 +20,7 @@ import {
   splineFromKnots,
   vec2,
   type BezierBoard,
-} from '@board-studio/kernel';
+} from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
 import {
   enforceJunctions,

@@ -1,18 +1,18 @@
 {
-  "name": "board-studio",
+  "name": "openshaper",
   "version": "0.1.0",
   "private": true,
-  "description": "Board Studio — modern surfboard CAD/CAM (rebuild of BoardCAD-LE)",
+  "description": "OpenShaper — modern surfboard CAD/CAM (rebuild of BoardCAD-LE)",
   "license": "GPL-3.0-or-later",
   "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "dev": "turbo run dev --filter=@board-studio/web",
-    "dev:desktop": "turbo run dev --filter=@board-studio/desktop",
-    "build": "turbo run build --filter=!@board-studio/desktop",
-    "build:desktop": "turbo run build --filter=@board-studio/desktop",
+    "dev": "turbo run dev --filter=@openshaper/web",
+    "dev:desktop": "turbo run dev --filter=@openshaper/desktop",
+    "build": "turbo run build --filter=!@openshaper/desktop",
+    "build:desktop": "turbo run build --filter=@openshaper/desktop",
     "test": "turbo run test",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",

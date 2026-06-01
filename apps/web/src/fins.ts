@@ -6,7 +6,7 @@
  * positions are derived, scaled to the board's tail.
  */
 
-import { getLength, getWidthAtPos, type BezierBoard } from '@board-studio/kernel';
+import { getLength, getWidthAtPos, type BezierBoard } from '@openshaper/kernel';
 
 export type FinSetup = 'none' | 'single' | 'twin' | 'thruster' | 'quad' | '2+1';
 

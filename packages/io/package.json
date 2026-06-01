@@ -1,5 +1,5 @@
 {
-  "name": "@board-studio/io",
+  "name": "@openshaper/io",
   "version": "0.1.0",
   "description": "Board file readers (.brd/.srf/.s3d) and writers (.board.json, DXF/STL/GCode/PDF)",
   "license": "GPL-3.0-or-later",
@@ -10,7 +10,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@board-studio/kernel": "workspace:*"
+    "@openshaper/kernel": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

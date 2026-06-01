@@ -1,5 +1,5 @@
-import type { BezierBoard } from '@board-studio/kernel';
-import type { BoardState } from '@board-studio/store';
+import type { BezierBoard } from '@openshaper/kernel';
+import type { BoardState } from '@openshaper/store';
 import { GizmoHelper, GizmoViewport, OrbitControls } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
 import { useEffect, useMemo, useSyncExternalStore } from 'react';

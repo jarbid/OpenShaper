@@ -1,4 +1,4 @@
-/** @board-studio/render2d — canvas viewport + 2D editor draw layer. */
+/** @openshaper/render2d — canvas viewport + 2D editor draw layer. */
 export {
   worldToScreen,
   screenToWorld,

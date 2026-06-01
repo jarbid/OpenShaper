@@ -1,5 +1,5 @@
 {
-  "name": "@board-studio/render3d",
+  "name": "@openshaper/render3d",
   "version": "0.1.0",
   "description": "Three.js board mesh + 3D scene",
   "license": "GPL-3.0-or-later",
@@ -16,8 +16,8 @@
     "lint": "echo \"(eslint todo)\""
   },
   "dependencies": {
-    "@board-studio/kernel": "workspace:*",
-    "@board-studio/store": "workspace:*"
+    "@openshaper/kernel": "workspace:*",
+    "@openshaper/store": "workspace:*"
   },
   "peerDependencies": {
     "@react-three/drei": "^9.114.0",

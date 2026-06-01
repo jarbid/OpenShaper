@@ -11,16 +11,16 @@ import {
   getWidthAtPos,
   type Spline,
   type Vec2,
-} from '@board-studio/kernel';
-import { SplineEditor, type EditorOverlays, type SectionMarker } from '@board-studio/render2d';
+} from '@openshaper/kernel';
+import { SplineEditor, type EditorOverlays, type SectionMarker } from '@openshaper/render2d';
 import type {
   AnalysisMode,
   Board3DMode,
   LightingPreset,
   MaterialPreset,
-} from '@board-studio/render3d';
-import type { SplineTarget } from '@board-studio/store';
-import { Button, Panel, PanelBody, PanelHeader, PanelTitle } from '@board-studio/ui';
+} from '@openshaper/render3d';
+import type { SplineTarget } from '@openshaper/store';
+import { Button, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { useMemo } from 'react';
 import { fmtLen, type LengthUnit } from './format';
 import { boardStore } from './store';

@@ -1,12 +1,12 @@
 [package]
-name = "board-studio-desktop"
+name = "openshaper-desktop"
 version = "0.1.0"
-description = "Board Studio desktop shell"
+description = "OpenShaper desktop shell"
 edition = "2021"
 rust-version = "1.77"
 
 [lib]
-name = "board_studio_lib"
+name = "openshaper_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

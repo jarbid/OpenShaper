@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * @board-studio/kernel — pure geometry + board model.
+ * @openshaper/kernel — pure geometry + board model.
  *
  * Port target (Task #5) of the legacy Java packages:
  *   - cadcore: BezierCurve, BezierSpline, BezierKnot, BezierFit, MathUtils, VecMath

@@ -1,7 +1,7 @@
 @import 'tailwindcss';
 
-/* Board Studio design tokens (light/dark CSS vars + @theme mapping). */
-@import '@board-studio/ui/styles.css';
+/* OpenShaper design tokens (light/dark CSS vars + @theme mapping). */
+@import '@openshaper/ui/styles.css';
 
 /* Scan the design-system package for utility classes used by its components. */
 @source '../../../packages/ui/src';

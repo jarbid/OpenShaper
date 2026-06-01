@@ -1,4 +1,4 @@
-import type { Vec2 } from '@board-studio/kernel';
+import type { Vec2 } from '@openshaper/kernel';
 
 /**
  * Maps world coordinates (board centimeters, y-up) to screen pixels (y-down).

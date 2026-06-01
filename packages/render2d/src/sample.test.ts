@@ -1,4 +1,4 @@
-import { knot, splineFromKnots, vec2 } from '@board-studio/kernel';
+import { knot, splineFromKnots, vec2 } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
 import { boundsOf, sampleSpline } from './sample';
 

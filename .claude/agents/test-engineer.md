@@ -12,7 +12,7 @@ You make correctness verifiable. Two layers:
      (`../boardcad-le` via gradle) to emit reference values (volume, length/width/
      thickness/rocker, control points, cross-section areas at known stations) for a set of
      reference boards into `docs/specs/golden/`.
-   - Write Vitest tests asserting `@board-studio/kernel` and `@board-studio/io` match those
+   - Write Vitest tests asserting `@openshaper/kernel` and `@openshaper/io` match those
      fixtures within explicit, documented tolerances.
    - I/O round-trip tests: load every legacy sample, re-save `.board.json`, reload, assert
      identical.

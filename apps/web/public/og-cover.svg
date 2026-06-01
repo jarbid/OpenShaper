@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" fill="none">
+  <defs>
+    <linearGradient id="paper" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f6efe3" />
+      <stop offset="1" stop-color="#efe5d3" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#paper)" />
+
+  <!-- construction grid -->
+  <g stroke="#c9b89a" stroke-width="1" opacity="0.35">
+    <line x1="0" y1="157" x2="1200" y2="157" />
+    <line x1="0" y1="472" x2="1200" y2="472" />
+    <line x1="80" y1="0" x2="80" y2="630" />
+    <line x1="1120" y1="0" x2="1120" y2="630" />
+  </g>
+
+  <!-- board outline motif -->
+  <g transform="translate(80,470)" stroke="#cc785c" fill="none">
+    <line x1="0" y1="0" x2="1040" y2="0" stroke-width="2" stroke-dasharray="3 9" opacity="0.6" />
+    <path d="M0 0 C 150 -34, 430 -50, 660 -26 C 850 -8, 960 -5, 1040 0" stroke-width="3" />
+    <path d="M0 0 C 150 34, 430 50, 660 26 C 850 8, 960 5, 1040 0" stroke-width="3" />
+    <g stroke-width="1.5" opacity="0.5">
+      <line x1="220" y1="-30" x2="220" y2="30" />
+      <line x1="430" y1="-38" x2="430" y2="38" />
+      <line x1="660" y1="-26" x2="660" y2="26" />
+      <line x1="850" y1="-12" x2="850" y2="12" />
+    </g>
+  </g>
+
+  <!-- type -->
+  <text x="80" y="210" font-family="Georgia, 'Times New Roman', serif" font-size="44" fill="#cc785c" letter-spacing="8">OPEN SOURCE · SURFBOARD CAD</text>
+  <text x="76" y="320" font-family="Georgia, 'Times New Roman', serif" font-weight="700" font-size="128" fill="#2b2118">OpenShaper</text>
+  <text x="80" y="392" font-family="'Helvetica Neue', Arial, sans-serif" font-size="38" fill="#5b4f3f">Free surfboard design software, right in your browser.</text>
+  <text x="80" y="600" font-family="'Helvetica Neue', Arial, sans-serif" font-size="28" fill="#8a7a63">openshaper.com</text>
+</svg>

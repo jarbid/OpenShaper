@@ -1,6 +1,6 @@
-# Board Studio — Project Guide
+# OpenShaper — Project Guide
 
-Board Studio is a modern surfboard CAD/CAM app: a from-scratch rebuild of the legacy
+OpenShaper is a modern surfboard CAD/CAM app: a from-scratch rebuild of the legacy
 Java/Swing **BoardCAD-LE** (`../boardcad-le`, kept **untouched** as the reference spec
 source). It runs in the browser (static SPA) and as a Tauri desktop app from one codebase.
 It is a **free, open-source** project licensed **GPL-3.0-or-later** — the same copyleft as
@@ -51,7 +51,7 @@ pnpm test         # turbo: all package tests (kernel golden tests must pass)
 pnpm typecheck
 pnpm dev          # web app dev server
 pnpm build
-pnpm --filter @board-studio/kernel test:watch   # focus one package
+pnpm --filter @openshaper/kernel test:watch   # focus one package
 ```
 
 pnpm is provided via the user's npm global prefix (`%APPDATA%\npm`), not corepack

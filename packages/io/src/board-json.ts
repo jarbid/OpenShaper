@@ -7,12 +7,15 @@ import {
   type BezierBoard,
   type Knot,
   type Spline,
-} from '@board-studio/kernel';
+} from '@openshaper/kernel';
 
 /**
- * Native Board Studio document format (`.board.json`) — a clean, versioned,
+ * Native OpenShaper document format (`.board.json`) — a clean, versioned,
  * lossless serialization of a kernel BezierBoard. Unlike the legacy `.brd` text
  * format this is schema-stable and round-trips exactly.
+ *
+ * The `format` marker is written as `'openshaper'`; documents written by the
+ * project's former name (`'board-studio'`) are still accepted on read.
  */
 export const BOARD_JSON_VERSION = 1;
 
@@ -29,7 +32,7 @@ interface CrossSectionJson {
   knots: KnotJson[];
 }
 export interface BoardJson {
-  format: 'board-studio';
+  format: 'openshaper' | 'board-studio';
   version: number;
   interpolationType: BezierBoard['interpolationType'];
   outline: KnotJson[];
@@ -54,12 +57,9 @@ const splineToJson = (s: Spline): KnotJson[] => s.knots.map(knotToJson);
 const splineFromJson = (ks: KnotJson[]): Spline => splineFromKnots(ks.map(knotFromJson));
 
 /** Serialize a board to a `.board.json` string. */
-export const writeBoardJson = (
-  b: BezierBoard,
-  metadata?: Record<string, unknown>,
-): string => {
+export const writeBoardJson = (b: BezierBoard, metadata?: Record<string, unknown>): string => {
   const doc: BoardJson = {
-    format: 'board-studio',
+    format: 'openshaper',
     version: BOARD_JSON_VERSION,
     interpolationType: b.interpolationType,
     outline: splineToJson(b.outline),
@@ -77,18 +77,22 @@ export const writeBoardJson = (
 export class BoardJsonError extends Error {}
 
 /** Parse a `.board.json` string back into a board (+ any metadata). */
-export const readBoardJson = (text: string): { board: BezierBoard; metadata?: Record<string, unknown> } => {
+export const readBoardJson = (
+  text: string,
+): { board: BezierBoard; metadata?: Record<string, unknown> } => {
   let doc: BoardJson;
   try {
     doc = JSON.parse(text) as BoardJson;
   } catch (e) {
     throw new BoardJsonError(`Not valid JSON: ${(e as Error).message}`);
   }
-  if (doc.format !== 'board-studio') {
-    throw new BoardJsonError('Not a Board Studio document (missing format marker)');
+  if (doc.format !== 'openshaper' && doc.format !== 'board-studio') {
+    throw new BoardJsonError('Not an OpenShaper document (missing format marker)');
   }
   if (doc.version > BOARD_JSON_VERSION) {
-    throw new BoardJsonError(`Document version ${doc.version} is newer than supported (${BOARD_JSON_VERSION})`);
+    throw new BoardJsonError(
+      `Document version ${doc.version} is newer than supported (${BOARD_JSON_VERSION})`,
+    );
   }
   const b = board(
     splineFromJson(doc.outline),

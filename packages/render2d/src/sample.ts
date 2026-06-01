@@ -1,4 +1,4 @@
-import { value, type Spline, type Vec2 } from '@board-studio/kernel';
+import { value, type Spline, type Vec2 } from '@openshaper/kernel';
 
 /** Sample a spline into a polyline of world points (perCurve points per segment). */
 export const sampleSpline = (spline: Spline, perCurve = 24): Vec2[] => {

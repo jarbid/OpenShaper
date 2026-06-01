@@ -8,7 +8,7 @@ describe('exportStl', () => {
   it('produces a valid ASCII STL solid', () => {
     const stl = exportStl(board, { lengthSteps: 40, ringSteps: 16 });
     expect(stl.startsWith('solid ')).toBe(true);
-    expect(stl.trimEnd().endsWith('endsolid boardstudio')).toBe(true);
+    expect(stl.trimEnd().endsWith('endsolid openshaper')).toBe(true);
   });
 
   it('emits a positive facet count', () => {

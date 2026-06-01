@@ -7,7 +7,7 @@
  * with a minimal stub that records calls, without needing a real canvas / jsdom.
  * `defaultStyle` is tested as a pure value.
  */
-import { knot, splineFromKnots, vec2 } from '@board-studio/kernel';
+import { knot, splineFromKnots, vec2 } from '@openshaper/kernel';
 import { describe, expect, it, vi } from 'vitest';
 import { clear, defaultStyle, drawControlPoints, drawSpline } from './draw';
 import type { Viewport } from './viewport';

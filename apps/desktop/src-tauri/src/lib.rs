@@ -1,4 +1,4 @@
-/// Board Studio desktop shell entry point.
+/// OpenShaper desktop shell entry point.
 ///
 /// Tauri 2 keeps the run logic in a library (so mobile targets can call it too)
 /// and `main.rs` is a thin wrapper. `tauri::generate_context!()` reads
@@ -7,5 +7,5 @@
 pub fn run() {
     tauri::Builder::default()
         .run(tauri::generate_context!())
-        .expect("error while running Board Studio");
+        .expect("error while running OpenShaper");
 }

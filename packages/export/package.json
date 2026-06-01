@@ -1,5 +1,5 @@
 {
-  "name": "@board-studio/export",
+  "name": "@openshaper/export",
   "version": "0.1.0",
   "description": "STL / DXF / PDF exporters",
   "license": "GPL-3.0-or-later",
@@ -10,7 +10,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@board-studio/kernel": "workspace:*"
+    "@openshaper/kernel": "workspace:*"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

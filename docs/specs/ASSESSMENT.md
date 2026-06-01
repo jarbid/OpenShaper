@@ -1,6 +1,6 @@
 # BoardCAD-LE — Modernization Assessment
 
-_Discovery phase for the Board Studio rebuild. Source of record: `../boardcad-le`
+_Discovery phase for the OpenShaper rebuild. Source of record: `../boardcad-le`
 (read-only). Tooling note: `scc`/`cloc`/`lizard` are not installed on this machine; LOC was
 measured with `find`+`wc` and complexity with decision-keyword counts. Figures are
 reproducible via the commands in this repo's history._
@@ -15,7 +15,7 @@ architecturally legacy: a `BoardCAD` god-object singleton referenced by 72 files
 kernel reaching up into Swing, AWT `Graphics2D` rendering with full repaints, fixed-resolution
 numerical integration, and untrusted-file parsers with XXE and unbounded-allocation flaws.
 **Headline recommendation: Rebuild** (not refactor) on a modern web+desktop stack, mining the
-legacy for exact behavior and pinning the port to golden data — which is the Board Studio plan
+legacy for exact behavior and pinning the port to golden data — which is the OpenShaper plan
 already underway.
 
 ## System Inventory
@@ -61,7 +61,7 @@ already underway.
 **Coupling hotspots:** `BoardCAD` (D) is a god-object hub directly wiring C, G, H, I, J, F;
 Commands (C) imports `boardcad.gui.jdk` 33×; and the kernel back-edge
 `cadcore/BezierBoardCrossSection.java` → `board.BezierBoard` + `gui.jdk.BezierBoardDrawUtil`
-violates the foundation layer (blocks clean kernel extraction — exactly what the Board Studio
+violates the foundation layer (blocks clean kernel extraction — exactly what the OpenShaper
 pure-`kernel` package fixes).
 
 ## Production Runtime Profile
@@ -72,7 +72,7 @@ are the heaviest compute paths and the first candidates for the Phase-2 Rust/WAS
 
 ## Technical Debt (top 10, ranked by remediation value)
 
-1. **`BoardCAD` god-object singleton** referenced by 72 files (`gui/jdk/BoardCAD.java`) — no GUI/domain layering. → Replace with an explicit document store (Board Studio `packages/store`).
+1. **`BoardCAD` god-object singleton** referenced by 72 files (`gui/jdk/BoardCAD.java`) — no GUI/domain layering. → Replace with an explicit document store (OpenShaper `packages/store`).
 2. **Kernel→GUI back-edge** (`cadcore/BezierBoardCrossSection.java` imports `gui.jdk.BezierBoardDrawUtil`) — math can't be reused headless. → Pure `kernel` with zero UI imports.
 3. **God classes**: `MenuBar` 3,575, `BoardCAD` 2,985, `BezierBoardDrawUtil` 2,705 lines mixing construction/business logic/painting. → Decompose by concern (actions, draw layer, viewport).
 4. **Full-repaint 2D rendering** (`BoardEdit`/`BezierBoardDrawUtil` AWT `paintComponent`) on every edit. → Dirty-region canvas rendering (`packages/render2d`).
@@ -99,7 +99,7 @@ are the heaviest compute paths and the first candidates for the Phase-2 Rust/WAS
 | SEC-007 | Reflection classpath scan pulls old `reflections` lib | CWE-1104 | Low | `src/boardcad/settings/BoardCADSettings.java:223-224` |
 | SEC-011 | Outdated/EOL dependencies (`reflections`, `ujmp`, JOGL forks) | CWE-1104/1035 | Low | `build.gradle:57-67` |
 
-**Rebuild implication:** Board Studio's `packages/io` must harden every importer — disable XXE,
+**Rebuild implication:** OpenShaper's `packages/io` must harden every importer — disable XXE,
 bound all allocations against remaining buffer size, validate fields, and treat embedded paths
 as untrusted. The weak `.brd` "encryption" is cosmetic; support read-only legacy import, do not
 reproduce it as a security control.
@@ -119,7 +119,7 @@ COCOMO-II basic, nominal scale factors, on code SLOC: `PM = 2.94 × KSLOC^1.10`.
 - KSLOC = 36.6 → **≈ 154 person-months** (full from-scratch-equivalent baseline).
 - On total SLOC (51.4 KSLOC): ≈ 224 PM (upper bound).
 
-**Range: ~150–225 person-months equivalent** of functionality. The Board Studio plan reduces
+**Range: ~150–225 person-months equivalent** of functionality. The OpenShaper plan reduces
 calendar time well below this by: (a) AI-assisted porting of the well-bounded kernel, (b)
 reusing modern libraries for 3D/printing/PDF/DXF that the legacy hand-rolled, and (c) shipping
 a design-first MVP before CAM. Key cost drivers: the bezier surface math, CAM toolpath
@@ -131,6 +131,6 @@ generators, and achieving file-format parity with golden tests.
 but the implementation is fused to Swing/Java3D/AWT and a god-object singleton with no tests —
 a Refactor/Replatform would carry the architecture forward. Rearchitecting in place is blocked
 by the kernel→GUI back-edge and the absence of tests. A clean **Rebuild** on a web+desktop
-stack, with behavior mined into golden specs and pinned by regression tests (the Board Studio
+stack, with behavior mined into golden specs and pinned by regression tests (the OpenShaper
 plan), captures the valuable math while shedding every legacy constraint and opening the
 freemium/Pro monetization path.

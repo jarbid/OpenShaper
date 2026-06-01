@@ -1,5 +1,5 @@
 {
-  "name": "@board-studio/units",
+  "name": "@openshaper/units",
   "version": "0.1.0",
   "description": "Metric/imperial units + fraction formatting (port of UnitUtils)",
   "license": "GPL-3.0-or-later",

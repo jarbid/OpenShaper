@@ -8,7 +8,7 @@ import java.io.PrintWriter;
 import java.util.Locale;
 
 /**
- * Golden-data exporter for the Board Studio rebuild.
+ * Golden-data exporter for the OpenShaper rebuild.
  *
  * Loads reference .brd files through the UNMODIFIED legacy kernel (board.BezierBoard +
  * board.readers.BrdReader, recompiled from ../../../boardcad-le/src via this project's

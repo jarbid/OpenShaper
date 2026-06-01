@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    board_studio_lib::run()
+    openshaper_lib::run()
 }

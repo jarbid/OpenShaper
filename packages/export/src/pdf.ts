@@ -5,7 +5,7 @@ import {
   getVolume,
   valueAt,
   type BezierBoard,
-} from '@board-studio/kernel';
+} from '@openshaper/kernel';
 
 /** Options for {@link exportPdf}. */
 export interface PdfOptions {
@@ -15,7 +15,7 @@ export interface PdfOptions {
   pageWidth?: number;
   /** Page height in PDF points. Default 792 (US Letter). */
   pageHeight?: number;
-  /** Document title shown at the top of the page. Default `Board Studio Export`. */
+  /** Document title shown at the top of the page. Default `OpenShaper Export`. */
   title?: string;
 }
 
@@ -44,7 +44,7 @@ export const exportPdf = (board: BezierBoard, opts: PdfOptions = {}): Uint8Array
   const lengthSteps = Math.max(2, opts.lengthSteps ?? DEFAULT_LENGTH_STEPS);
   const pageW = opts.pageWidth ?? DEFAULT_PAGE_W;
   const pageH = opts.pageHeight ?? DEFAULT_PAGE_H;
-  const title = opts.title ?? 'Board Studio Export';
+  const title = opts.title ?? 'OpenShaper Export';
 
   const length = getLength(board);
   const maxWidth = getMaxWidth(board);

@@ -8,7 +8,7 @@ import { vec2 } from './vec2';
  * A knot carries its on-curve endpoint plus two tangent handles: one toward the
  * previous segment and one toward the next. In the legacy this was a mutable class
  * with locks, slaves, and change-listeners (editing concerns). Here it is plain
- * immutable geometry; editing/locking lives in `@board-studio/store`.
+ * immutable geometry; editing/locking lives in `@openshaper/store`.
  *
  * The legacy serialization order (in `.brd` `cp` records) is:
  *   [endX, endY, prevX, prevY, nextX, nextY]  (followed by continuous, other flags)

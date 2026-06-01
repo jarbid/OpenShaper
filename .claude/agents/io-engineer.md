@@ -5,7 +5,7 @@ model: sonnet
 tools: Read, Glob, Grep, Edit, Write, Bash
 ---
 
-You own `packages/io`. Board Studio must **read real legacy files** and export the formats
+You own `packages/io`. OpenShaper must **read real legacy files** and export the formats
 shapers depend on.
 
 Readers (port legacy `board/readers`):

@@ -1,7 +1,7 @@
 /**
- * @board-studio/export — STL / DXF / PDF exporters.
+ * @openshaper/export — STL / DXF / PDF exporters.
  *
- * Pure functions over a `BezierBoard` from `@board-studio/kernel`. No I/O: each
+ * Pure functions over a `BezierBoard` from `@openshaper/kernel`. No I/O: each
  * returns the encoded document (string for the text formats, bytes for PDF) so the
  * caller decides how to persist or download it.
  */

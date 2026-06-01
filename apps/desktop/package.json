@@ -1,7 +1,7 @@
 {
-  "name": "@board-studio/desktop",
+  "name": "@openshaper/desktop",
   "version": "0.1.0",
-  "description": "Board Studio desktop shell (Tauri) wrapping the web app",
+  "description": "OpenShaper desktop shell (Tauri) wrapping the web app",
   "license": "GPL-3.0-or-later",
   "private": true,
   "scripts": {

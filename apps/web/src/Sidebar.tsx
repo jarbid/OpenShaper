@@ -5,9 +5,9 @@
  * this component is purely presentational so the shell stays the single source of
  * truth (several of these values also drive the editor overlays).
  */
-import type { InterpolationType } from '@board-studio/kernel';
-import type { BoardSpecs } from '@board-studio/store';
-import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@board-studio/ui';
+import type { InterpolationType } from '@openshaper/kernel';
+import type { BoardSpecs } from '@openshaper/store';
+import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { ControlPointInspector } from './ControlPointInspector';
 import type { BoardMeta } from './file-io';

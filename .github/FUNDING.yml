@@ -1,0 +1,7 @@
+# Adds a "Sponsor" button to the repo, linking to buymeacoffee.com/jaredg.
+buy_me_a_coffee: jaredg
+
+# Other platforms you could add later:
+# github: [jarbid]            # requires enrolling in GitHub Sponsors
+# ko_fi: <your-handle>
+# custom: ["https://www.paypal.me/<your-handle>"]

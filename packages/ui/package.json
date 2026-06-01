@@ -1,7 +1,7 @@
 {
-  "name": "@board-studio/ui",
+  "name": "@openshaper/ui",
   "version": "0.1.0",
-  "description": "Board Studio design-system components",
+  "description": "OpenShaper design-system components",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "main": "./src/index.ts",

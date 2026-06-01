@@ -1,6 +1,6 @@
-import type { BezierBoard, Vec2 } from '@board-studio/kernel';
+import type { BezierBoard, Vec2 } from '@openshaper/kernel';
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { InterpolationType, Spline } from '@board-studio/kernel';
+import type { InterpolationType, Spline } from '@openshaper/kernel';
 import {
   canDeleteKnot,
   deleteKnot,

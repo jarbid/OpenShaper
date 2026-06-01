@@ -6,7 +6,7 @@ import {
   type BezierBoard,
   type CrossSection,
   type Knot,
-} from '@board-studio/kernel';
+} from '@openshaper/kernel';
 
 /**
  * Full, hardened reader for the legacy BoardCAD-LE native `.brd` text format.
@@ -24,7 +24,7 @@ import {
  * Each control point is a `(cp [endX,endY,prevX,prevY,nextX,nextY] <cont> <other>)`
  * record matching the kernel `knotFromArray` order.
  *
- * Geometry is built with the golden-validated `@board-studio/kernel` builders. The
+ * Geometry is built with the golden-validated `@openshaper/kernel` builders. The
  * reader is line/iteration-bounded (no recursion, no eval) and fails loudly on
  * genuinely malformed geometry while tolerating the known `shortboard.brd` quirk:
  * a `p35` group whose final closing `)` is missing (truncated trailing group). In

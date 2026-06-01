@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { getLength, getMaxWidth, getVolume } from '@board-studio/kernel';
+import { getLength, getMaxWidth, getVolume } from '@openshaper/kernel';
 import { parseBrd } from './brd-reader';
 import { BoardJsonError, readBoardJson, writeBoardJson } from './board-json';
 
