@@ -251,6 +251,7 @@ export function EditorPane({
   overlays,
   ghostSplines,
   background,
+  headerActions,
 }: {
   title: string;
   kind: EditorKind;
@@ -261,14 +262,18 @@ export function EditorPane({
   overlays?: EditorOverlays;
   ghostSplines?: Spline[];
   background?: React.ComponentProps<typeof SplineEditor>['background'];
+  headerActions?: React.ReactNode;
 }) {
   // Stable across re-renders so the editor's target set (and the SplineEditor
   // re-fit/draw effects keyed on it) only changes when the pane actually changes.
   const p = useMemo(() => paneProps(kind, csIndex), [kind, csIndex]);
   return (
     <Panel className="flex min-h-0 flex-col">
-      <PanelHeader>
+      <PanelHeader
+        className={headerActions ? 'flex items-center justify-between gap-2' : undefined}
+      >
         <PanelTitle>{title}</PanelTitle>
+        {headerActions}
       </PanelHeader>
       <PanelBody className="min-h-0 flex-1 p-0">
         <SplineEditor
