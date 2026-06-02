@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom';
 import { ArticleHero, Container, CtaBand } from '../components/content';
+import { SupportCallout } from '../components/Support';
+import { SUPPORT_URL } from '../support';
 import { JsonLd } from '../seo/JsonLd';
 import { Seo } from '../seo/Seo';
 import { absUrl, AUTHOR_NAME, GITHUB_URL, SITE_NAME } from '../seo/site';
@@ -102,11 +104,18 @@ export default function About() {
           </ul>
           <p>
             If you like making things as much as I do, I hope it helps you build something
-            you&apos;re proud to paddle out on. New to all this? Start with the{' '}
+            you&apos;re proud to paddle out on. It&apos;s free and always will be — but if it earns
+            a spot in your shaping bay, you can{' '}
+            <a href={SUPPORT_URL} target="_blank" rel="noopener noreferrer">
+              buy me a coffee
+            </a>{' '}
+            to keep it growing. New to all this? Start with the{' '}
             <Link to="/surfboard-design-guide">surfboard design guide</Link> or read up on{' '}
             <Link to="/surfboard-construction-methods">construction methods</Link>.
           </p>
         </div>
+
+        <SupportCallout />
       </Container>
 
       <CtaBand

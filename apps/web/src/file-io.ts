@@ -46,15 +46,34 @@ export async function openBoardFile(file: File): Promise<{ board: BezierBoard; m
 
 export type ExportFormat = 'stl' | 'dxf' | 'pdf';
 
-/** Export the board to STL / DXF / PDF and download it. */
-export function exportBoard(board: BezierBoard, format: ExportFormat): void {
+/**
+ * Export the board to STL / DXF / PDF and download it. `meta` + `units` feed the
+ * PDF spec sheet (designer / model / surfer / comments, and dimension units).
+ */
+export function exportBoard(
+  board: BezierBoard,
+  format: ExportFormat,
+  meta?: BoardMeta,
+  units: 'cm' | 'in' = 'cm',
+): void {
   switch (format) {
     case 'stl':
       return download(exportStl(board), 'board.stl', 'model/stl');
     case 'dxf':
       return download(exportDxf(board), 'board.dxf', 'application/dxf');
-    case 'pdf':
+    case 'pdf': {
       // exportPdf returns a Uint8Array; cast for the DOM BlobPart type (runtime is fine).
-      return download(exportPdf(board) as unknown as BlobPart, 'board.pdf', 'application/pdf');
+      const pdf = exportPdf(board, {
+        title: meta?.model,
+        meta: {
+          designer: meta?.designer,
+          model: meta?.model,
+          surfer: meta?.surfer,
+          comments: meta?.comments,
+        },
+        units,
+      });
+      return download(pdf as unknown as BlobPart, 'board.pdf', 'application/pdf');
+    }
   }
 }

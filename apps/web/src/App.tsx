@@ -11,6 +11,7 @@ import {
 import { type EditorOverlays } from '@openshaper/render2d';
 import type { Board3DViewProps } from '@openshaper/render3d';
 import { selectSpecs } from '@openshaper/store';
+import { Unit } from '@openshaper/units';
 import {
   Button,
   buttonVariants,
@@ -51,6 +52,7 @@ import { BOARD_TEMPLATES } from './templates';
 import { useKeyboardShortcuts } from './use-keyboard-shortcuts';
 import {
   EditorPane,
+  faceSizeFor,
   ThreeDControls,
   type EditorKind,
   type View,
@@ -135,6 +137,7 @@ function AppShell() {
     material: 'gloss',
     color: '#E8EEF5',
     analysis: 'none',
+    meshQuality: 'standard',
   });
   const patchView3d = (patch: Partial<View3DSettings>) => setView3d((s) => ({ ...s, ...patch }));
   const [csClipboard, setCsClipboard] = useState<Spline | null>(null);
@@ -403,7 +406,14 @@ function AppShell() {
       kind: 'action' as const,
       label: f.toUpperCase(),
       disabled: !board,
-      onSelect: () => board && exportBoard(board as Parameters<typeof exportBoard>[0], f),
+      onSelect: () =>
+        board &&
+        exportBoard(
+          board as Parameters<typeof exportBoard>[0],
+          f,
+          meta,
+          units.unit === Unit.INCHES ? 'in' : 'cm',
+        ),
     })),
     { kind: 'action', label: 'Spec sheet…', disabled: !specs, onSelect: openSpecSheet },
   ];
@@ -616,6 +626,7 @@ function AppShell() {
                     material={view3d.material}
                     color={view3d.color}
                     analysis={view3d.analysis}
+                    targetFaceSize={faceSizeFor(view3d.meshQuality)}
                   />
                 </PanelBody>
               </Panel>
@@ -639,6 +650,7 @@ function AppShell() {
                   material={view3d.material}
                   color={view3d.color}
                   analysis={view3d.analysis}
+                  targetFaceSize={faceSizeFor(view3d.meshQuality)}
                 />
               </PanelBody>
             </Panel>

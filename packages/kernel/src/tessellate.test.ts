@@ -4,7 +4,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { getLength } from './board';
-import { tessellateBoard } from './tessellate';
+import { tessellateBoard, tessellationSteps } from './tessellate';
 import { parseBrdGeometry } from './test-support/brd-geometry';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -120,5 +120,35 @@ describe('tessellateBoard: options and robustness', () => {
       expect(noNaN(mesh.positions)).toBe(true);
       expect(noNaN(mesh.normals)).toBe(true);
     }
+  });
+});
+
+describe('tessellateBoard: target face size', () => {
+  const board = loadBoard('shortboard');
+
+  it('derives more steps for a smaller target face size', () => {
+    const coarse = tessellationSteps(board, 2.0);
+    const fine = tessellationSteps(board, 0.5);
+    expect(fine.lengthSteps).toBeGreaterThan(coarse.lengthSteps);
+    expect(fine.ringSteps).toBeGreaterThan(coarse.ringSteps);
+  });
+
+  it('length steps scale ~linearly with board length', () => {
+    const short = tessellationSteps(loadBoard('shortboard'), 1.0).lengthSteps;
+    const long = tessellationSteps(loadBoard('longboard'), 1.0).lengthSteps;
+    expect(long).toBeGreaterThan(short);
+  });
+
+  it('a finer target face size yields a denser mesh', () => {
+    const coarse = tessellateBoard(board, { targetFaceSize: 2.0 });
+    const fine = tessellateBoard(board, { targetFaceSize: 0.5 });
+    expect(fine.positions.length).toBeGreaterThan(coarse.positions.length);
+    expect(noNaN(fine.positions)).toBe(true);
+  });
+
+  it('explicit step counts override the target face size', () => {
+    const mesh = tessellateBoard(board, { targetFaceSize: 0.5, lengthSteps: 10, ringSteps: 8 });
+    // 10 stations (some end sections may drop) → vertex count near 10*8 plus caps.
+    expect(mesh.positions.length / 3).toBeLessThan(10 * 8 + 10);
   });
 });

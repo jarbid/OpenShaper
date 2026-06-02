@@ -8,7 +8,7 @@
  * `<handle>` in buymeacoffee.com/<handle>. Leave it '' (empty) and the Support
  * link is hidden, so nothing broken ships before you've filled in a real handle.
  */
-export const BMC_HANDLE = 'jaredg';
+export const BMC_HANDLE = 'Jaredg';
 
 /** Donation URL, derived from the handle. Empty when no handle is set. */
 export const SUPPORT_URL = BMC_HANDLE ? `https://www.buymeacoffee.com/${BMC_HANDLE}` : '';

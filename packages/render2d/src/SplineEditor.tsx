@@ -69,7 +69,7 @@ type DragState =
   | { mode: 'pan'; lastX: number; lastY: number }
   | null;
 
-const PALETTE = ['#cc785c', '#6ca0cc', '#8fbf73', '#c08fcf'];
+const PALETTE = ['#22D3EE', '#38BDF8', '#2DD4BF', '#A78BFA'];
 
 const useBoard = (store: StoreApi<BoardState>): BezierBoard | null =>
   useSyncExternalStore(store.subscribe, () => store.getState().board);
@@ -107,8 +107,39 @@ export function SplineEditor({
   const [vp, setVp] = useState<Viewport | null>(null);
   const [hover, setHover] = useState<Vec2 | null>(null);
   const drag = useRef<DragState>(null);
+  const spaceHeld = useRef(false);
+  const [cursor, setCursor] = useState<'crosshair' | 'grab' | 'grabbing'>('crosshair');
   const selection = useSyncExternalStore(store.subscribe, () => store.getState().selection);
   const key = JSON.stringify(targets);
+
+  // Space-bar pan (CAD standard): holding Space turns any left-drag into a pan,
+  // shown by a grab cursor. Ignore key events while typing in a form field, and
+  // only swallow the default (page scroll) when not typing.
+  useEffect(() => {
+    const isTyping = (t: EventTarget | null): boolean => {
+      const el = t as HTMLElement | null;
+      return (
+        !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
+      );
+    };
+    const down = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || e.repeat || isTyping(e.target)) return;
+      spaceHeld.current = true;
+      setCursor((c) => (c === 'grabbing' ? c : 'grab'));
+      e.preventDefault();
+    };
+    const up = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return;
+      spaceHeld.current = false;
+      setCursor((c) => (c === 'grabbing' ? c : 'crosshair'));
+    };
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    return () => {
+      window.removeEventListener('keydown', down);
+      window.removeEventListener('keyup', up);
+    };
+  }, []);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -194,8 +225,12 @@ export function SplineEditor({
       if (!vp || !board) return;
       canvasRef.current!.setPointerCapture(e.pointerId);
       const p = localPoint(e);
-      if (e.button === 1) {
+      // Space-held or middle-button => pan, regardless of what's under the cursor.
+      // preventDefault on the middle button stops the browser's autoscroll bubble.
+      if (spaceHeld.current || e.button === 1) {
+        e.preventDefault();
         drag.current = { mode: 'pan', lastX: p.x, lastY: p.y };
+        setCursor('grabbing');
         return;
       }
       for (const t of targets) {
@@ -217,6 +252,7 @@ export function SplineEditor({
       }
       store.getState().select(null);
       drag.current = { mode: 'pan', lastX: p.x, lastY: p.y };
+      setCursor('grabbing');
     },
     [vp, board, store, targets, sectionMarkers, onPickSection],
   );
@@ -249,6 +285,7 @@ export function SplineEditor({
       if (drag.current?.mode === 'edit') store.getState().endEdit();
       drag.current = null;
       canvasRef.current?.releasePointerCapture(e.pointerId);
+      setCursor(spaceHeld.current ? 'grab' : 'crosshair');
     },
     [store],
   );
@@ -283,9 +320,20 @@ export function SplineEditor({
         const dist = splineDistance(getTargetSpline(board, t), world);
         if (!best || dist < best.dist) best = { target: t, dist };
       }
-      if (best && best.dist <= tolWorld) store.getState().addControlPoint(best.target, world);
+      if (best && best.dist <= tolWorld) {
+        store.getState().addControlPoint(best.target, world);
+        return;
+      }
+      // Empty space (no nearby curve): re-home the view to fit the curves.
+      if (size.w === 0) return;
+      const all = targets.flatMap((t) => sampleSpline(getTargetSpline(board, t)));
+      if (all.length === 0) return;
+      let fitPts = all;
+      if (mirrorY) fitPts = fitPts.flatMap((p) => [p, { x: p.x, y: -p.y }]);
+      if (mirrorX) fitPts = fitPts.flatMap((p) => [p, { x: -p.x, y: p.y }]);
+      setVp(fitToBounds(boundsOf(fitPts), size.w, size.h));
     },
-    [vp, board, store, targets, mirrorX, mirrorY],
+    [vp, board, store, targets, mirrorX, mirrorY, size.w, size.h],
   );
 
   return (
@@ -301,7 +349,7 @@ export function SplineEditor({
           height: '100%',
           display: 'block',
           touchAction: 'none',
-          cursor: 'crosshair',
+          cursor,
         }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -325,8 +373,8 @@ function ReadoutHud({ rows }: { rows: { label: string; value: string }[] }) {
         top: 8,
         left: 8,
         pointerEvents: 'none',
-        background: 'rgba(20,20,24,0.72)',
-        color: '#e8e3dd',
+        background: 'rgba(15,28,48,0.78)',
+        color: '#E6EDF5',
         font: '11px ui-monospace, SFMono-Regular, Menlo, monospace',
         padding: '4px 8px',
         borderRadius: 4,

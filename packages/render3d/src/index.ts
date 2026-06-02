@@ -1,5 +1,5 @@
 /** @openshaper/render3d — Three.js board mesh + 3D scene. */
-export { boardGeometry, boardSpan } from './geometry';
+export { boardGeometry, boardSpan, tessellateAsync, meshToGeometry } from './geometry';
 export {
   Board3DView,
   type Board3DViewProps,

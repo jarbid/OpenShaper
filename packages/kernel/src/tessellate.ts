@@ -1,5 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { getInterpolatedCrossSection, getLength, getRockerAtPos, type BezierBoard } from './board';
+import {
+  getInterpolatedCrossSection,
+  getLength,
+  getMaxThickness,
+  getMaxWidth,
+  getRockerAtPos,
+  type BezierBoard,
+} from './board';
 import { pointByTT } from './bezier-spline';
 
 /**
@@ -20,10 +27,45 @@ export interface TessellateOptions {
   lengthSteps?: number;
   /** Number of points around each cross-section ring (default 48). */
   ringSteps?: number;
+  /**
+   * Target edge length per face, in cm. When set (and explicit `lengthSteps` /
+   * `ringSteps` are not), the step counts are derived from the board's dimensions
+   * so faces are ~uniform regardless of board size — finer values give denser meshes.
+   */
+  targetFaceSize?: number;
 }
 
 const DEFAULT_LENGTH_STEPS = 120;
 const DEFAULT_RING_STEPS = 48;
+
+const MIN_LENGTH_STEPS = 8;
+const MAX_LENGTH_STEPS = 1200;
+const MIN_RING_STEPS = 12;
+const MAX_RING_STEPS = 400;
+
+const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
+
+/**
+ * Derive `(lengthSteps, ringSteps)` so that each quad edge is roughly
+ * `targetFaceSize` cm. The length axis is straightforward; the ring count is sized
+ * from an estimate of the section perimeter (a half-ellipse from max width + max
+ * thickness, doubled for the closed loop). Results are clamped to sane bounds.
+ */
+export const tessellationSteps = (
+  board: BezierBoard,
+  targetFaceSize: number,
+): { lengthSteps: number; ringSteps: number } => {
+  const face = Math.max(0.05, targetFaceSize);
+  const length = getLength(board);
+  const a = getMaxWidth(board) / 2; // semi-axis across
+  const b = Math.max(getMaxThickness(board), 1e-3); // semi-axis up
+  // Ramanujan's ellipse-perimeter approximation; the ring is the full closed loop.
+  const perimeter = Math.PI * (3 * (a + b) - Math.sqrt((3 * a + b) * (a + 3 * b)));
+  return {
+    lengthSteps: clamp(Math.ceil(length / face), MIN_LENGTH_STEPS, MAX_LENGTH_STEPS),
+    ringSteps: clamp(Math.ceil(perimeter / face), MIN_RING_STEPS, MAX_RING_STEPS),
+  };
+};
 
 const isFinite3 = (x: number, y: number, z: number): boolean =>
   Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z);
@@ -97,8 +139,17 @@ const addVert = (positions: number[], v: Vert3): number => {
  * Robust against null/degenerate sections (skipped) and NaN samples.
  */
 export const tessellateBoard = (board: BezierBoard, opts: TessellateOptions = {}): BoardMesh => {
-  const lengthSteps = Math.max(2, Math.floor(opts.lengthSteps ?? DEFAULT_LENGTH_STEPS));
-  const ringSteps = Math.max(4, Math.floor(opts.ringSteps ?? DEFAULT_RING_STEPS));
+  // A target face size derives step counts unless explicit counts are given.
+  const derived =
+    opts.targetFaceSize !== undefined ? tessellationSteps(board, opts.targetFaceSize) : null;
+  const lengthSteps = Math.max(
+    2,
+    Math.floor(opts.lengthSteps ?? derived?.lengthSteps ?? DEFAULT_LENGTH_STEPS),
+  );
+  const ringSteps = Math.max(
+    4,
+    Math.floor(opts.ringSteps ?? derived?.ringSteps ?? DEFAULT_RING_STEPS),
+  );
 
   const length = getLength(board);
   const empty = (): BoardMesh => ({

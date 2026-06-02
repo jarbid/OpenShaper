@@ -1,76 +1,82 @@
 /**
- * Marketing / content-page styling — a warm "shaping-bay editorial" skin.
+ * Marketing / content-page styling — "Deep Ocean Tech", elevated.
  *
- * The `.marketing` root locally re-maps the shadcn design tokens to a warm
- * paper/ink palette, so every Tailwind token utility (`bg-background`,
- * `text-muted-foreground`, `border-border`, …) shifts automatically while the
- * clay `--primary` (shared with the app) stays the accent. Display type is
- * Fraunces; body is Hanken Grotesk (both loaded in index.html).
+ * The global tokens (packages/ui/src/styles.css) carry the deep-ocean palette,
+ * so the `.marketing` root layers on the editorial system: a CAD **blueprint**
+ * atmosphere (minor/major construction grid + contour glow + crop marks),
+ * a characterful display face (Bricolage Grotesque), an instrument body face
+ * (Instrument Sans), mono data (JetBrains Mono), an orchestrated page-load
+ * stagger, and technical annotation helpers (figure labels, dimension lines).
  */
 
 .marketing {
-  --background: oklch(0.976 0.012 83); /* warm sand paper */
-  --foreground: oklch(0.24 0.018 55); /* warm charcoal ink */
-  --card: oklch(0.995 0.006 83);
-  --card-foreground: oklch(0.24 0.018 55);
-  --popover: oklch(0.995 0.006 83);
-  --popover-foreground: oklch(0.24 0.018 55);
-  --secondary: oklch(0.93 0.014 80);
-  --secondary-foreground: oklch(0.28 0.02 55);
-  --muted: oklch(0.93 0.014 80);
-  --muted-foreground: oklch(0.46 0.02 58);
-  --accent: oklch(0.9 0.04 58);
-  --accent-foreground: oklch(0.32 0.06 48);
-  --border: oklch(0.88 0.016 75);
-  --input: oklch(0.88 0.016 75);
-
-  background-color: var(--background);
-  color: var(--foreground);
-  font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+  letter-spacing: -0.005em;
 }
 
-.dark .marketing {
-  --background: oklch(0.21 0.018 60); /* deep wet-sand / ocean night */
-  --foreground: oklch(0.93 0.012 80);
-  --card: oklch(0.25 0.018 60);
-  --card-foreground: oklch(0.93 0.012 80);
-  --popover: oklch(0.25 0.018 60);
-  --popover-foreground: oklch(0.93 0.012 80);
-  --secondary: oklch(0.3 0.018 60);
-  --secondary-foreground: oklch(0.93 0.012 80);
-  --muted: oklch(0.3 0.018 60);
-  --muted-foreground: oklch(0.68 0.018 70);
-  --accent: oklch(0.34 0.04 50);
-  --accent-foreground: oklch(0.92 0.03 60);
-  --border: oklch(0.33 0.018 60);
-  --input: oklch(0.33 0.018 60);
-}
-
-/* Display + technical type ------------------------------------------------ */
+/* ── Type ──────────────────────────────────────────────────────────────── */
 
 .font-display {
-  font-family: 'Fraunces', ui-serif, Georgia, 'Times New Roman', serif;
+  font-family: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 0.98;
   font-optical-sizing: auto;
-  font-weight: 600;
-  letter-spacing: -0.015em;
-  line-height: 1.04;
 }
 
+.font-mono-tech {
+  font-family: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
+  font-feature-settings: 'tnum';
+}
+
+/* Mono technical eyebrow / kicker. */
 .label-tech {
-  font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', monospace;
   text-transform: uppercase;
-  letter-spacing: 0.2em;
-  font-size: 0.72rem;
-  font-weight: 600;
+  letter-spacing: 0.26em;
+  font-size: 0.7rem;
+  font-weight: 500;
   color: var(--primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+/* Leading cyan tick on eyebrows. */
+.label-tech::before {
+  content: '';
+  width: 1.4rem;
+  height: 1px;
+  background: var(--primary);
+  opacity: 0.8;
 }
 
-/* Paper grain + atmosphere ------------------------------------------------ */
+/* Figure / plate label, e.g. "FIG.01". */
+.fig-label {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  font-size: 0.64rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+
+/* Oversized faint blueprint index numeral. */
+.plate-index {
+  font-family: 'Bricolage Grotesque', ui-sans-serif, sans-serif;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: transparent;
+  -webkit-text-stroke: 1px color-mix(in oklch, var(--primary) 55%, transparent);
+}
+
+/* ── Blueprint atmosphere ──────────────────────────────────────────────── */
 
 .grain {
   position: relative;
+  isolation: isolate;
 }
 .grain::after {
   content: '';
@@ -78,12 +84,45 @@
   inset: 0;
   pointer-events: none;
   z-index: 0;
-  opacity: 0.04;
-  /* fine noise via fractal turbulence */
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-image:
+    /* ocean-depth glow up top */
+    radial-gradient(
+      80% 50% at 50% -10%,
+      color-mix(in oklch, var(--primary) 14%, transparent),
+      transparent 68%
+    ),
+    /* MAJOR grid */
+    linear-gradient(
+        to right,
+        color-mix(in oklch, var(--border) 80%, transparent) 0 1px,
+        transparent 1px
+      ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklch, var(--border) 80%, transparent) 0 1px,
+      transparent 1px
+    ),
+    /* MINOR grid */
+    linear-gradient(
+        to right,
+        color-mix(in oklch, var(--border) 38%, transparent) 0 1px,
+        transparent 1px
+      ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklch, var(--border) 38%, transparent) 0 1px,
+      transparent 1px
+    );
+  background-size:
+    100% 100%,
+    140px 140px,
+    140px 140px,
+    28px 28px,
+    28px 28px;
+  mask-image: linear-gradient(to bottom, black, black 38%, transparent 92%);
 }
 
-/* Hairline technical rule, like a CAD construction line */
+/* Hairline technical rule, like a CAD construction line. */
 .rule-tech {
   height: 1px;
   background: repeating-linear-gradient(
@@ -95,7 +134,63 @@
   );
 }
 
-/* Editorial long-form prose ---------------------------------------------- */
+/* Corner crop / registration marks for blueprint frames. */
+.crop-frame {
+  position: relative;
+}
+.crop-frame::before,
+.crop-frame::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border: 1px solid color-mix(in oklch, var(--primary) 60%, transparent);
+  pointer-events: none;
+}
+.crop-frame::before {
+  top: -1px;
+  left: -1px;
+  border-right: 0;
+  border-bottom: 0;
+}
+.crop-frame::after {
+  bottom: -1px;
+  right: -1px;
+  border-left: 0;
+  border-top: 0;
+}
+
+/* Soft cyan glow for hero "instrument" surfaces. */
+.glow-ocean {
+  box-shadow:
+    0 0 0 1px color-mix(in oklch, var(--primary) 16%, transparent),
+    0 30px 80px -34px color-mix(in oklch, var(--primary) 50%, transparent),
+    0 10px 36px -20px rgb(0 0 0 / 0.65);
+}
+
+/* Dimension line: a thin rule with end ticks (for spec callouts). */
+.dim-line {
+  position: relative;
+  height: 1px;
+  background: color-mix(in oklch, var(--primary) 55%, transparent);
+}
+.dim-line::before,
+.dim-line::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  width: 1px;
+  height: 7px;
+  background: color-mix(in oklch, var(--primary) 70%, transparent);
+}
+.dim-line::before {
+  left: 0;
+}
+.dim-line::after {
+  right: 0;
+}
+
+/* ── Editorial long-form prose ─────────────────────────────────────────── */
 
 .prose-shaper {
   color: var(--foreground);
@@ -104,20 +199,20 @@
   max-width: 44rem;
 }
 .prose-shaper h2 {
-  font-family: 'Fraunces', ui-serif, Georgia, serif;
-  font-optical-sizing: auto;
-  font-weight: 600;
-  font-size: clamp(1.6rem, 1.2rem + 1.4vw, 2.1rem);
-  line-height: 1.12;
-  letter-spacing: -0.01em;
+  font-family: 'Bricolage Grotesque', ui-sans-serif, sans-serif;
+  font-weight: 700;
+  font-size: clamp(1.7rem, 1.2rem + 1.6vw, 2.25rem);
+  line-height: 1.05;
+  letter-spacing: -0.025em;
   margin-top: 3rem;
   margin-bottom: 0.85rem;
   scroll-margin-top: 6rem;
 }
 .prose-shaper h3 {
-  font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
-  font-weight: 700;
-  font-size: 1.18rem;
+  font-family: 'Bricolage Grotesque', ui-sans-serif, sans-serif;
+  font-weight: 600;
+  font-size: 1.2rem;
+  letter-spacing: -0.015em;
   margin-top: 1.85rem;
   margin-bottom: 0.5rem;
   scroll-margin-top: 6rem;
@@ -176,23 +271,23 @@
   vertical-align: top;
 }
 .prose-shaper thead th {
-  font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   font-size: 0.7rem;
   color: var(--muted-foreground);
-  border-bottom: 1.5px solid var(--foreground);
+  border-bottom: 1.5px solid var(--primary);
 }
 .prose-shaper tbody tr:hover {
   background: color-mix(in oklch, var(--accent) 45%, transparent);
 }
 
-/* One-shot page-load reveal (respects reduced motion) -------------------- */
+/* ── Motion: one orchestrated page-load stagger ────────────────────────── */
 
 @keyframes shaper-rise {
   from {
     opacity: 0;
-    transform: translateY(14px);
+    transform: translateY(16px);
   }
   to {
     opacity: 1;
@@ -200,15 +295,40 @@
   }
 }
 .reveal {
-  animation: shaper-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: shaper-rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+
+/* Stagger children: set animation-delay by source order. */
+.stagger > * {
+  animation: shaper-rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.stagger > *:nth-child(1) {
+  animation-delay: 0.05s;
+}
+.stagger > *:nth-child(2) {
+  animation-delay: 0.14s;
+}
+.stagger > *:nth-child(3) {
+  animation-delay: 0.23s;
+}
+.stagger > *:nth-child(4) {
+  animation-delay: 0.32s;
+}
+.stagger > *:nth-child(5) {
+  animation-delay: 0.41s;
+}
+.stagger > *:nth-child(6) {
+  animation-delay: 0.5s;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .reveal {
+  .reveal,
+  .stagger > * {
     animation: none;
   }
 }
 
-/* Slow draw for the hero board outline */
+/* Slow draw for the hero board outline. */
 @keyframes shaper-draw {
   to {
     stroke-dashoffset: 0;
@@ -217,11 +337,68 @@
 .draw-line {
   stroke-dasharray: var(--len, 2000);
   stroke-dashoffset: var(--len, 2000);
-  animation: shaper-draw 2.4s cubic-bezier(0.6, 0, 0.2, 1) 0.2s forwards;
+  animation: shaper-draw 2.6s cubic-bezier(0.6, 0, 0.2, 1) 0.35s forwards;
 }
 @media (prefers-reduced-motion: reduce) {
   .draw-line {
     stroke-dashoffset: 0;
+    animation: none;
+  }
+}
+
+/* Calm swell: each layer gently bobs up/down with a slight sway and back,
+   slightly out of phase — like small waves on a still day. Returns to origin
+   each cycle, so it's seamless and never drifts away. */
+@keyframes wave-bob {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(-3px, -2px);
+  }
+  50% {
+    transform: translate(0, 1px);
+  }
+  75% {
+    transform: translate(3px, -2px);
+  }
+}
+.wave-bob > path {
+  will-change: transform;
+}
+.wave-bob > path:nth-child(1) {
+  animation: wave-bob 9s ease-in-out 0s infinite;
+}
+.wave-bob > path:nth-child(2) {
+  animation: wave-bob 7.5s ease-in-out -1.2s infinite;
+}
+.wave-bob > path:nth-child(3) {
+  animation: wave-bob 8.2s ease-in-out -2.4s infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wave-bob > path {
+    animation: none;
+  }
+}
+
+/* Slow cyan pulse for the live "instrument" status dot. */
+@keyframes ocean-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 55%, transparent);
+  }
+  50% {
+    opacity: 0.4;
+    box-shadow: 0 0 0 4px color-mix(in oklch, var(--primary) 0%, transparent);
+  }
+}
+.pulse-ocean {
+  animation: ocean-pulse 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-ocean {
     animation: none;
   }
 }
