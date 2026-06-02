@@ -269,9 +269,7 @@ export function EditorPane({
   const p = useMemo(() => paneProps(kind, csIndex), [kind, csIndex]);
   return (
     <Panel className="flex min-h-0 flex-col">
-      <PanelHeader
-        className={headerActions ? 'flex items-center justify-between gap-2' : undefined}
-      >
+      <PanelHeader className={headerActions ? 'gap-2' : undefined}>
         <PanelTitle>{title}</PanelTitle>
         {headerActions}
       </PanelHeader>

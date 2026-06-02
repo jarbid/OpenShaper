@@ -168,7 +168,7 @@ function AppShell() {
       }))
     : [];
 
-  // Cross-section management (legacy Cross-sections menu), inline on the toolbar.
+  // Cross-section management (legacy Cross-sections menu), shown in the cross-section pane header.
   const addSection = () => {
     const b = boardStore.getState().board;
     if (!b) return;
