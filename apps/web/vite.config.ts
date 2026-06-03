@@ -38,7 +38,11 @@ export default defineConfig({
   base: process.env.TAURI_ENV_PLATFORM ? './' : '/',
   ssgOptions: {
     dirStyle: 'nested',
-    script: 'async',
+    // Keep the default 'sync' (deferred module). Do NOT use 'async': it lets the
+    // app module execute before vite-react-ssg's inline __VITE_REACT_SSG_HASH__
+    // script runs, so the static-loader-data manifest URL becomes
+    // `...-undefined.json` (404) behind a fast CDN — a race that passes locally
+    // but crashes in production.
     formatting: 'none',
     onFinished: (outDir: string) => writeSitemap(outDir),
   },
