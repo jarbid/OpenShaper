@@ -17,7 +17,8 @@
   },
   "dependencies": {
     "@openshaper/kernel": "workspace:*",
-    "@openshaper/store": "workspace:*"
+    "@openshaper/store": "workspace:*",
+    "@openshaper/ui": "workspace:*"
   },
   "peerDependencies": {
     "react": "^18.3.1",

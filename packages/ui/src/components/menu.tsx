@@ -18,6 +18,51 @@ export type MenuItem =
   | { kind: 'label'; label: string }
   | { kind: 'separator' };
 
+/**
+ * Render a flat `MenuItem[]` as menu rows. Shared by the menubar `Menu` and the
+ * `ContextMenu` so both look and behave identically. `onAfterAction` fires after an
+ * `action` item is chosen (e.g. to close the menu); checkbox toggles keep it open.
+ */
+export function renderMenuItems(items: MenuItem[], onAfterAction: () => void): ReactNode {
+  return items.map((item, idx) => {
+    if (item.kind === 'separator')
+      return <div key={idx} role="separator" className="my-1 h-px bg-border" />;
+    if (item.kind === 'label')
+      return (
+        <div
+          key={idx}
+          role="presentation"
+          className="px-2 pb-1 pt-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+        >
+          {item.label}
+        </div>
+      );
+    const isCheckbox = item.kind === 'checkbox';
+    return (
+      <button
+        key={idx}
+        type="button"
+        role={isCheckbox ? 'menuitemcheckbox' : 'menuitem'}
+        aria-checked={isCheckbox ? item.checked : undefined}
+        disabled={item.kind === 'action' && item.disabled}
+        onClick={() => {
+          item.onSelect();
+          if (item.kind === 'action') onAfterAction();
+        }}
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+      >
+        <span className="flex w-4 shrink-0 justify-center">
+          {isCheckbox && item.checked && <Check className="size-3.5" />}
+        </span>
+        <span className="flex-1">{item.label}</span>
+        {item.kind === 'action' && item.shortcut && (
+          <span className="text-xs text-muted-foreground">{item.shortcut}</span>
+        )}
+      </button>
+    );
+  });
+}
+
 interface MenuBarCtx {
   openId: string | null;
   open: (id: string | null) => void;
@@ -101,43 +146,7 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
           onKeyDown={onKeyDown}
           className="absolute left-0 top-full z-50 mt-1 min-w-48 rounded-md border border-border bg-card p-1 text-card-foreground shadow-lg"
         >
-          {items.map((item, idx) => {
-            if (item.kind === 'separator')
-              return <div key={idx} role="separator" className="my-1 h-px bg-border" />;
-            if (item.kind === 'label')
-              return (
-                <div
-                  key={idx}
-                  role="presentation"
-                  className="px-2 pb-1 pt-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground"
-                >
-                  {item.label}
-                </div>
-              );
-            const isCheckbox = item.kind === 'checkbox';
-            return (
-              <button
-                key={idx}
-                type="button"
-                role={isCheckbox ? 'menuitemcheckbox' : 'menuitem'}
-                aria-checked={isCheckbox ? item.checked : undefined}
-                disabled={item.kind === 'action' && item.disabled}
-                onClick={() => {
-                  item.onSelect();
-                  if (item.kind === 'action') ctx?.open(null);
-                }}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
-              >
-                <span className="flex w-4 shrink-0 justify-center">
-                  {isCheckbox && item.checked && <Check className="size-3.5" />}
-                </span>
-                <span className="flex-1">{item.label}</span>
-                {item.kind === 'action' && item.shortcut && (
-                  <span className="text-xs text-muted-foreground">{item.shortcut}</span>
-                )}
-              </button>
-            );
-          })}
+          {renderMenuItems(items, () => ctx?.open(null))}
         </div>
       )}
     </div>

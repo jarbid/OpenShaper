@@ -6,6 +6,7 @@ import {
   type Vec2,
 } from '@openshaper/kernel';
 import { type BoardState, type SplineTarget, getTargetSpline } from '@openshaper/store';
+import { ContextMenu, type MenuItem } from '@openshaper/ui';
 import {
   useCallback,
   useEffect,
@@ -15,6 +16,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
+import { buildContextMenuItems } from './context-menu-items';
 import {
   clear,
   defaultStyle,
@@ -66,8 +68,21 @@ export interface SplineEditorProps {
 
 type DragState =
   | { mode: 'edit'; target: SplineTarget; hit: Hit }
+  // Middle-button / Space+left pan.
   | { mode: 'pan'; lastX: number; lastY: number }
+  // Right button: a tap opens the context menu, a drag pans (tracked via `moved`).
+  | {
+      mode: 'rightpan';
+      lastX: number;
+      lastY: number;
+      startX: number;
+      startY: number;
+      moved: boolean;
+    }
   | null;
+
+/** Max pointer travel (px) for a right-button press+release to count as a tap, not a pan. */
+const TAP_SLOP = 4;
 
 const PALETTE = ['#22D3EE', '#38BDF8', '#2DD4BF', '#A78BFA'];
 
@@ -109,6 +124,7 @@ export function SplineEditor({
   const drag = useRef<DragState>(null);
   const spaceHeld = useRef(false);
   const [cursor, setCursor] = useState<'crosshair' | 'grab' | 'grabbing'>('crosshair');
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const selection = useSyncExternalStore(store.subscribe, () => store.getState().selection);
   const key = JSON.stringify(targets);
 
@@ -118,9 +134,7 @@ export function SplineEditor({
   useEffect(() => {
     const isTyping = (t: EventTarget | null): boolean => {
       const el = t as HTMLElement | null;
-      return (
-        !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
-      );
+      return !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
     };
     const down = (e: KeyboardEvent) => {
       if (e.code !== 'Space' || e.repeat || isTyping(e.target)) return;
@@ -220,41 +234,80 @@ export function SplineEditor({
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
 
+  // Re-home the view to fit the curves (shared by double-click and the context menu).
+  const fitView = useCallback(() => {
+    if (!board || size.w === 0) return;
+    const all = targets.flatMap((t) => sampleSpline(getTargetSpline(board, t)));
+    if (all.length === 0) return;
+    let pts = all;
+    if (mirrorY) pts = pts.flatMap((p) => [p, { x: p.x, y: -p.y }]);
+    if (mirrorX) pts = pts.flatMap((p) => [p, { x: -p.x, y: p.y }]);
+    setVp(fitToBounds(boundsOf(pts), size.w, size.h));
+  }, [board, targets, mirrorX, mirrorY, size.w, size.h]);
+
+  // Nearest control-point handle under a screen point, across all target splines.
+  const hitAny = useCallback(
+    (p: { x: number; y: number }): { target: SplineTarget; hit: Hit } | null => {
+      if (!vp || !board) return null;
+      for (const t of targets) {
+        const hit = hitTest(getTargetSpline(board, t), vp, p);
+        if (hit) return { target: t, hit };
+      }
+      return null;
+    },
+    [vp, board, targets],
+  );
+
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (!vp || !board) return;
-      canvasRef.current!.setPointerCapture(e.pointerId);
+      setMenu(null);
       const p = localPoint(e);
-      // Space-held or middle-button => pan, regardless of what's under the cursor.
-      // preventDefault on the middle button stops the browser's autoscroll bubble.
-      if (spaceHeld.current || e.button === 1) {
+      // Right button => pan-or-menu. A drag pans; a tap (no drag) opens the context menu
+      // on pointer-up. `preventDefault` here plus the canvas-level `contextmenu` blocker
+      // stops the browser claiming the gesture (which otherwise fires `pointercancel` and
+      // kills the drag, so right-drag never pans).
+      if (e.button === 2) {
+        e.preventDefault();
+        canvasRef.current!.setPointerCapture(e.pointerId);
+        drag.current = {
+          mode: 'rightpan',
+          lastX: p.x,
+          lastY: p.y,
+          startX: p.x,
+          startY: p.y,
+          moved: false,
+        };
+        return;
+      }
+      canvasRef.current!.setPointerCapture(e.pointerId);
+      // Middle-button or Space+left => pan. preventDefault stops middle-click autoscroll.
+      if (e.button === 1 || spaceHeld.current) {
         e.preventDefault();
         drag.current = { mode: 'pan', lastX: p.x, lastY: p.y };
         setCursor('grabbing');
         return;
       }
-      for (const t of targets) {
-        const hit = hitTest(getTargetSpline(board, t), vp, p);
-        if (hit) {
-          store.getState().select({ target: t, index: hit.index });
-          store.getState().beginEdit();
-          drag.current = { mode: 'edit', target: t, hit };
-          return;
-        }
+      // Left button is select/edit only — never pans.
+      const picked = hitAny(p);
+      if (picked) {
+        store.getState().select({ target: picked.target, index: picked.hit.index });
+        store.getState().beginEdit();
+        drag.current = { mode: 'edit', target: picked.target, hit: picked.hit };
+        return;
       }
-      // Picking a section marker (outline view) doesn't start a drag or deselect.
+      // Clicking a section marker (outline view) picks that section.
       if (sectionMarkers && onPickSection) {
-        const picked = hitSectionMarker(sectionMarkers, vp, p.x);
-        if (picked !== null) {
-          onPickSection(picked);
+        const marker = hitSectionMarker(sectionMarkers, vp, p.x);
+        if (marker !== null) {
+          onPickSection(marker);
           return;
         }
       }
+      // Empty space: just deselect.
       store.getState().select(null);
-      drag.current = { mode: 'pan', lastX: p.x, lastY: p.y };
-      setCursor('grabbing');
     },
-    [vp, board, store, targets, sectionMarkers, onPickSection],
+    [vp, board, store, hitAny, sectionMarkers, onPickSection],
   );
 
   const onPointerMove = useCallback(
@@ -268,9 +321,29 @@ export function SplineEditor({
         return;
       }
       if (d.mode === 'pan') {
-        setVp((cur) => (cur ? pan(cur, p.x - d.lastX, p.y - d.lastY) : cur));
+        // Compute the delta from the ref BEFORE mutating it, and pass primitives into the
+        // setVp updater. React may defer the updater past these lines, so it must not read
+        // d.lastX/lastY (which we're about to overwrite) — otherwise the delta is always 0.
+        const dx = p.x - d.lastX;
+        const dy = p.y - d.lastY;
         d.lastX = p.x;
         d.lastY = p.y;
+        setVp((cur) => (cur ? pan(cur, dx, dy) : cur));
+        return;
+      }
+      if (d.mode === 'rightpan') {
+        // Past a small threshold the right-button gesture becomes a pan (not a menu tap).
+        if (!d.moved && Math.hypot(p.x - d.startX, p.y - d.startY) > TAP_SLOP) {
+          d.moved = true;
+          setCursor('grabbing');
+        }
+        if (d.moved) {
+          const dx = p.x - d.lastX;
+          const dy = p.y - d.lastY;
+          d.lastX = p.x;
+          d.lastY = p.y;
+          setVp((cur) => (cur ? pan(cur, dx, dy) : cur));
+        }
         return;
       }
       const world = screenToWorld(vp, p);
@@ -282,22 +355,61 @@ export function SplineEditor({
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
-      if (drag.current?.mode === 'edit') store.getState().endEdit();
+      const d = drag.current;
+      if (d?.mode === 'edit') store.getState().endEdit();
+      // A right-button tap (no pan) opens the context menu at the cursor.
+      if (d?.mode === 'rightpan' && !d.moved && vp && board) {
+        const p = localPoint(e);
+        const picked = hitAny(p);
+        if (picked) store.getState().select({ target: picked.target, index: picked.hit.index });
+        const items = buildContextMenuItems({
+          board,
+          targets,
+          vp,
+          screen: p,
+          mirrorX,
+          mirrorY,
+          store,
+          onFitView: fitView,
+        });
+        setMenu({ x: e.clientX, y: e.clientY, items });
+      }
       drag.current = null;
       canvasRef.current?.releasePointerCapture(e.pointerId);
       setCursor(spaceHeld.current ? 'grab' : 'crosshair');
     },
-    [store],
+    [store, vp, board, targets, mirrorX, mirrorY, hitAny, fitView],
   );
+
+  // A cancelled pointer (browser claimed the gesture, palm-rejection, etc.) ends any drag
+  // cleanly without firing a context menu, so state never gets stuck mid-pan.
+  const onPointerCancel = useCallback(() => {
+    if (drag.current?.mode === 'edit') store.getState().endEdit();
+    drag.current = null;
+    setCursor(spaceHeld.current ? 'grab' : 'crosshair');
+  }, [store]);
 
   const onWheel = useCallback(
     (e: React.WheelEvent) => {
       if (!vp) return;
+      setMenu(null);
       const p = localPoint(e);
       setVp(zoomAt(vp, p, e.deltaY < 0 ? 1.1 : 1 / 1.1));
     },
     [vp],
   );
+
+  // Suppress the browser's native context menu on the canvas (ours opens from the
+  // right-tap). A native non-passive listener is more reliable than React's onContextMenu:
+  // it guarantees the default is cancelled so the right-button gesture stays ours and a
+  // right-drag pans instead of the browser cancelling it for its own menu.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const block = (e: Event) => e.preventDefault();
+    canvas.addEventListener('contextmenu', block);
+    return () => canvas.removeEventListener('contextmenu', block);
+  }, []);
 
   // Double-click on a curve inserts a control point there (legacy add-point tool).
   const onDoubleClick = useCallback(
@@ -325,15 +437,9 @@ export function SplineEditor({
         return;
       }
       // Empty space (no nearby curve): re-home the view to fit the curves.
-      if (size.w === 0) return;
-      const all = targets.flatMap((t) => sampleSpline(getTargetSpline(board, t)));
-      if (all.length === 0) return;
-      let fitPts = all;
-      if (mirrorY) fitPts = fitPts.flatMap((p) => [p, { x: p.x, y: -p.y }]);
-      if (mirrorX) fitPts = fitPts.flatMap((p) => [p, { x: -p.x, y: p.y }]);
-      setVp(fitToBounds(boundsOf(fitPts), size.w, size.h));
+      fitView();
     },
-    [vp, board, store, targets, mirrorX, mirrorY, size.w, size.h],
+    [vp, board, store, targets, mirrorX, mirrorY, fitView],
   );
 
   return (
@@ -354,11 +460,15 @@ export function SplineEditor({
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
         onPointerLeave={() => setHover(null)}
         onDoubleClick={onDoubleClick}
         onWheel={onWheel}
       />
       {readout && hover && <ReadoutHud rows={readout(hover)} />}
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />
+      )}
     </div>
   );
 }
