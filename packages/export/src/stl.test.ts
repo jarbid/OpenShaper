@@ -30,4 +30,13 @@ describe('exportStl', () => {
     expect(stl.startsWith('solid mytest')).toBe(true);
     expect(stl.trimEnd().endsWith('endsolid mytest')).toBe(true);
   });
+
+  it('defaults to a fine, dense mesh and a finer target gives more facets', () => {
+    const fine = exportStl(board, { targetFaceSize: 0.5 });
+    const coarse = exportStl(board, { targetFaceSize: 4 });
+    const count = (s: string) => s.match(/facet normal/g)?.length ?? 0;
+    expect(count(fine)).toBeGreaterThan(count(coarse));
+    // The default (no options) is fine, so plenty of facets for a 100cm test board.
+    expect(count(exportStl(board))).toBeGreaterThan(500);
+  });
 });

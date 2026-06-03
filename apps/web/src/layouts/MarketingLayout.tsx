@@ -1,9 +1,10 @@
 import { buttonVariants, cn } from '@openshaper/ui';
 import { useEffect } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
-import { BoardOutline } from '../components/marks';
+import { Brandmark, WaveLines } from '../components/marks';
+import { CoffeeIcon } from '../components/Support';
 import { GITHUB_URL, SITE_NAME } from '../seo/site';
-import { SUPPORT_LABEL, SUPPORT_URL } from '../support';
+import { SUPPORT_URL } from '../support';
 import '../marketing.css';
 
 const NAV = [
@@ -23,8 +24,10 @@ function GithubIcon({ className }: { className?: string }) {
 function Brand() {
   return (
     <Link to="/" className="group flex items-center gap-2.5" aria-label={`${SITE_NAME} home`}>
-      <BoardOutline className="h-4 w-16 text-primary transition-transform group-hover:-translate-y-px" />
-      <span className="font-display text-xl tracking-tight">{SITE_NAME}</span>
+      <Brandmark className="h-7 w-7 transition-transform duration-300 group-hover:-translate-y-px group-hover:rotate-3" />
+      <span className="font-display text-xl tracking-tight">
+        Open<span className="text-primary">Shaper</span>
+      </span>
     </Link>
   );
 }
@@ -41,7 +44,9 @@ export function MarketingLayout() {
   return (
     <div className="marketing grain flex min-h-screen flex-col">
       {/* ---- Header ---- */}
-      <header className="sticky top-0 z-30 border-b border-border/70 bg-background/80 backdrop-blur-md">
+      <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-md">
+        {/* swell-line bottom edge in place of a flat hairline */}
+        <WaveLines className="pointer-events-none absolute inset-x-0 -bottom-[7px] h-3.5 text-primary/40" />
         <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-4 px-5">
           <Brand />
 
@@ -103,8 +108,9 @@ export function MarketingLayout() {
       </main>
 
       {/* ---- Footer ---- */}
-      <footer className="relative z-10 mt-20 border-t border-border/70">
-        <BoardOutline className="h-6 w-full text-border" />
+      <footer className="relative z-10 mt-20">
+        {/* swell band as the footer crest */}
+        <WaveLines className="h-12 w-full text-primary/30" />
         <div className="mx-auto grid w-full max-w-6xl gap-10 px-5 py-14 sm:grid-cols-2 lg:grid-cols-4">
           <div className="lg:col-span-2">
             <Brand />
@@ -165,9 +171,10 @@ export function MarketingLayout() {
                     href={SUPPORT_URL}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-muted-foreground hover:text-foreground"
+                    className="group inline-flex items-center gap-2 text-muted-foreground transition-colors hover:text-primary"
                   >
-                    {SUPPORT_LABEL}
+                    <CoffeeIcon className="size-4 transition-transform group-hover:-translate-y-px" />
+                    Buy me a coffee
                   </a>
                 </li>
               )}

@@ -11,15 +11,18 @@ import {
 import { type EditorOverlays } from '@openshaper/render2d';
 import type { Board3DViewProps } from '@openshaper/render3d';
 import { selectSpecs } from '@openshaper/store';
+import { Unit } from '@openshaper/units';
 import {
   Button,
   buttonVariants,
+  Menu,
+  MenuBar,
   Panel,
   PanelBody,
   PanelHeader,
   PanelTitle,
-  Toolbar,
   ToolbarSeparator,
+  type MenuItem,
 } from '@openshaper/ui';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import {
@@ -37,15 +40,19 @@ import {
   lengthUnitByKey,
   parseLen,
 } from './format';
+import { Brandmark } from './components/marks';
+import { CrossSectionControls } from './CrossSectionControls';
+import { CoffeeIcon } from './components/Support';
 import { finsFor, type FinSetup } from './fins';
 import { Sidebar, type OverlayToggles, type ResizeFields } from './Sidebar';
 import sampleBrd from './sample-board.brd?raw';
 import { boardStore } from './store';
-import { SUPPORT_LABEL, SUPPORT_URL } from './support';
+import { SUPPORT_URL } from './support';
 import { BOARD_TEMPLATES } from './templates';
 import { useKeyboardShortcuts } from './use-keyboard-shortcuts';
 import {
   EditorPane,
+  faceSizeFor,
   ThreeDControls,
   type EditorKind,
   type View,
@@ -92,21 +99,6 @@ function useSettledBoard(): BezierBoard | null {
   return ref.current;
 }
 
-/** Export button — every format is free. */
-function ExportButton({ format, board }: { format: ExportFormat; board: object | null }) {
-  return (
-    <Button
-      size="sm"
-      variant="ghost"
-      disabled={!board}
-      onClick={() => board && exportBoard(board as Parameters<typeof exportBoard>[0], format)}
-      title={`Export ${format.toUpperCase()}`}
-    >
-      {format.toUpperCase()}
-    </Button>
-  );
-}
-
 function AppShell() {
   const board = useSyncExternalStore(boardStore.subscribe, () => boardStore.getState().board);
   // Subscribe to history depth so the undo/redo buttons re-render with the right
@@ -143,8 +135,9 @@ function AppShell() {
     mode: 'shaded',
     lighting: 'studio',
     material: 'gloss',
-    color: '#cc785c',
+    color: '#E8EEF5',
     analysis: 'none',
+    meshQuality: 'standard',
   });
   const patchView3d = (patch: Partial<View3DSettings>) => setView3d((s) => ({ ...s, ...patch }));
   const [csClipboard, setCsClipboard] = useState<Spline | null>(null);
@@ -178,7 +171,7 @@ function AppShell() {
       }))
     : [];
 
-  // Cross-section management (legacy Cross-sections menu), inline on the toolbar.
+  // Cross-section management (legacy Cross-sections menu), shown in the cross-section pane header.
   const addSection = () => {
     const b = boardStore.getState().board;
     if (!b) return;
@@ -267,7 +260,7 @@ function AppShell() {
       curvatureComb: overlayToggles.comb,
       verticalMarkers:
         longitudinal && overlayToggles.com && specs
-          ? [{ x: specs.centerOfMass, color: '#cc785c', label: 'CoM' }]
+          ? [{ x: specs.centerOfMass, color: '#22D3EE', label: 'CoM' }]
           : undefined,
       distribution: longitudinal ? volumeDist : undefined,
       fins: kind === 'outline' ? finMarkers : undefined,
@@ -371,92 +364,207 @@ function AppShell() {
     </Button>
   );
 
-  const csTitle = `Cross-section ${clampedCs} / ${lastReal}`;
+  const csTitle = 'Cross-section';
+
+  const csControls = (
+    <CrossSectionControls
+      index={clampedCs}
+      total={lastReal}
+      onPrev={() => setCsIndex(clampedCs - 1)}
+      onNext={() => setCsIndex(clampedCs + 1)}
+      onAdd={addSection}
+      onDelete={deleteSection}
+      onCopy={copySection}
+      onPaste={pasteSection}
+      canPaste={!!csClipboard}
+    />
+  );
+
+  const interp = board?.interpolationType ?? 'controlPoint';
+
+  const fileMenu: MenuItem[] = [
+    { kind: 'label', label: 'New' },
+    ...BOARD_TEMPLATES.map((t) => ({
+      kind: 'action' as const,
+      label: t.name,
+      onSelect: () => newFromTemplate(t.name),
+    })),
+    { kind: 'separator' },
+    { kind: 'action', label: 'Open…', onSelect: () => fileInput.current?.click() },
+    {
+      kind: 'action',
+      label: 'Save',
+      shortcut: 'Ctrl S',
+      disabled: !board,
+      onSelect: () => board && downloadBoard(board, meta),
+    },
+    { kind: 'separator' },
+    { kind: 'action', label: 'Load trace image…', onSelect: () => traceInput.current?.click() },
+    { kind: 'separator' },
+    { kind: 'label', label: 'Export' },
+    ...(['stl', 'dxf', 'pdf'] as ExportFormat[]).map((f) => ({
+      kind: 'action' as const,
+      label: f.toUpperCase(),
+      disabled: !board,
+      onSelect: () =>
+        board &&
+        exportBoard(
+          board as Parameters<typeof exportBoard>[0],
+          f,
+          meta,
+          units.unit === Unit.INCHES ? 'in' : 'cm',
+        ),
+    })),
+    { kind: 'action', label: 'Spec sheet…', disabled: !specs, onSelect: openSpecSheet },
+  ];
+
+  const editMenu: MenuItem[] = [
+    {
+      kind: 'action',
+      label: 'Undo',
+      shortcut: 'Ctrl Z',
+      disabled: !canUndo,
+      onSelect: () => boardStore.getState().undo(),
+    },
+    {
+      kind: 'action',
+      label: 'Redo',
+      shortcut: 'Ctrl Y',
+      disabled: !canRedo,
+      onSelect: () => boardStore.getState().redo(),
+    },
+  ];
+
+  const viewMenu: MenuItem[] = [
+    { kind: 'label', label: 'Overlays' },
+    {
+      kind: 'checkbox',
+      label: 'Curvature comb',
+      checked: overlayToggles.comb,
+      onSelect: () => setOverlayToggles((s) => ({ ...s, comb: !s.comb })),
+    },
+    {
+      kind: 'checkbox',
+      label: 'Center of mass',
+      checked: overlayToggles.com,
+      onSelect: () => setOverlayToggles((s) => ({ ...s, com: !s.com })),
+    },
+    {
+      kind: 'checkbox',
+      label: 'Volume distribution',
+      checked: overlayToggles.dist,
+      onSelect: () => setOverlayToggles((s) => ({ ...s, dist: !s.dist })),
+    },
+    { kind: 'separator' },
+    { kind: 'label', label: 'Units' },
+    ...LENGTH_UNITS.map((u) => ({
+      kind: 'checkbox' as const,
+      label: u.label,
+      checked: unitKey === u.key,
+      onSelect: () => setUnitKey(u.key),
+    })),
+  ];
+
+  const boardMenu: MenuItem[] = [
+    ghost
+      ? { kind: 'action', label: 'Clear ghost', onSelect: () => setGhost(null) }
+      : { kind: 'action', label: 'Open ghost…', onSelect: () => ghostInput.current?.click() },
+    { kind: 'separator' },
+    { kind: 'label', label: 'Interpolation' },
+    {
+      kind: 'checkbox',
+      label: 'Control point',
+      checked: interp === 'controlPoint',
+      onSelect: () => boardStore.getState().setInterpolationType('controlPoint'),
+    },
+    {
+      kind: 'checkbox',
+      label: 'S-blend',
+      checked: interp === 'sLinear',
+      onSelect: () => boardStore.getState().setInterpolationType('sLinear'),
+    },
+  ];
+
+  const helpMenu: MenuItem[] = [
+    {
+      kind: 'action',
+      label: 'About & guides',
+      onSelect: () => {
+        window.location.href = '/about';
+      },
+    },
+    ...(SUPPORT_URL
+      ? [
+          {
+            kind: 'action' as const,
+            label: 'Buy me a coffee',
+            onSelect: () => window.open(SUPPORT_URL, '_blank', 'noopener'),
+          },
+        ]
+      : []),
+  ];
 
   return (
     <div className="flex h-full flex-col">
-      <Toolbar>
-        <a
-          href="/"
-          className="px-2 font-semibold transition-colors hover:text-primary"
-          title="OpenShaper home"
-        >
-          OpenShaper
-        </a>
-        <ToolbarSeparator />
-        {tab('quad', 'Quad')}
-        {tab('outline', 'Outline')}
-        {tab('rocker', 'Rocker')}
-        {tab('crossSection', 'Cross-section')}
-        {tab('3d', '3D')}
-        <ToolbarSeparator />
-        {(view === 'crossSection' || view === 'quad') && (
-          <>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={clampedCs <= 1}
-              onClick={() => setCsIndex(clampedCs - 1)}
-              title="Previous cross-section ( [ )"
-            >
-              ‹ Prev
-            </Button>
-            <span className="px-1 text-xs tabular-nums text-muted-foreground">
-              {clampedCs}/{lastReal}
+      <div className="flex flex-col border-b border-border bg-card text-card-foreground">
+        {/* Row 1 — application menubar */}
+        <div className="flex h-11 items-center gap-2 px-2">
+          <a
+            href="/"
+            className="group flex items-center gap-2 px-1.5 font-semibold transition-colors hover:text-primary"
+            title="OpenShaper home"
+          >
+            <Brandmark className="h-6 w-6 transition-transform duration-300 group-hover:rotate-3" />
+            <span>
+              Open<span className="text-primary">Shaper</span>
             </span>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={clampedCs >= lastReal}
-              onClick={() => setCsIndex(clampedCs + 1)}
-              title="Next cross-section ( ] )"
+          </a>
+          <ToolbarSeparator />
+          <MenuBar>
+            <Menu label="File" items={fileMenu} />
+            <Menu label="Edit" items={editMenu} />
+            <Menu label="View" items={viewMenu} />
+            <Menu label="Board" items={boardMenu} />
+            <Menu label="Help" items={helpMenu} />
+          </MenuBar>
+          <div className="flex-1" />
+          {SUPPORT_URL && (
+            <a
+              href={SUPPORT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`${buttonVariants({ variant: 'ghost', size: 'sm' })} text-primary hover:text-primary`}
+              title="Buy me a coffee — OpenShaper is free & open-source"
             >
-              Next ›
-            </Button>
-            <Button size="sm" variant="ghost" onClick={addSection} title="Add a cross-section here">
-              + Add
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={lastReal <= 1}
-              onClick={deleteSection}
-              title="Delete this cross-section"
-            >
-              Delete
-            </Button>
-            <Button size="sm" variant="ghost" onClick={copySection} title="Copy this cross-section">
-              Copy
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={!csClipboard}
-              onClick={pasteSection}
-              title="Paste the copied cross-section shape here"
-            >
-              Paste
-            </Button>
-            <ToolbarSeparator />
-          </>
-        )}
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={!canUndo}
-          onClick={() => boardStore.getState().undo()}
-        >
-          Undo
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={!canRedo}
-          onClick={() => boardStore.getState().redo()}
-        >
-          Redo
-        </Button>
-        <div className="flex-1" />
+              <CoffeeIcon className="size-4" />
+              Coffee
+            </a>
+          )}
+        </div>
+
+        {/* Row 2 — view tabs */}
+        <div className="flex h-11 items-center gap-1 border-t border-border px-2">
+          {tab('quad', 'Quad')}
+          {tab('outline', 'Outline')}
+          {tab('rocker', 'Rocker')}
+          {tab('crossSection', 'Cross-section')}
+          {tab('3d', '3D')}
+          <div className="flex-1" />
+          <select
+            value={unitKey}
+            onChange={(e) => setUnitKey(e.target.value)}
+            title="Display units"
+            className="h-8 rounded-md border border-border bg-transparent px-2 text-sm"
+          >
+            {LENGTH_UNITS.map((u) => (
+              <option key={u.key} value={u.key}>
+                {u.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {/* Hidden file inputs (the trace input lives in the Sidebar, sharing traceInput). */}
         <input
           ref={fileInput}
           type="file"
@@ -464,30 +572,6 @@ function AppShell() {
           className="hidden"
           onChange={onOpenFile}
         />
-        <select
-          value=""
-          onChange={(e) => e.target.value && newFromTemplate(e.target.value)}
-          title="New board from a type template"
-          className="h-8 rounded-md border border-border bg-transparent px-2 text-sm"
-        >
-          <option value="">New ▾</option>
-          {BOARD_TEMPLATES.map((t) => (
-            <option key={t.name} value={t.name}>
-              {t.name}
-            </option>
-          ))}
-        </select>
-        <Button size="sm" variant="ghost" onClick={() => fileInput.current?.click()}>
-          Open
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={!board}
-          onClick={() => board && downloadBoard(board, meta)}
-        >
-          Save
-        </Button>
         <input
           ref={ghostInput}
           type="file"
@@ -495,59 +579,7 @@ function AppShell() {
           className="hidden"
           onChange={onOpenGhost}
         />
-        <Button
-          size="sm"
-          variant={ghost ? 'secondary' : 'ghost'}
-          onClick={() => (ghost ? setGhost(null) : ghostInput.current?.click())}
-          title={ghost ? 'Clear the ghost board' : 'Load a ghost board to compare against'}
-        >
-          {ghost ? 'Ghost ✕' : 'Ghost'}
-        </Button>
-        <ToolbarSeparator />
-        {(['stl', 'dxf', 'pdf'] as ExportFormat[]).map((f) => (
-          <ExportButton key={f} format={f} board={board} />
-        ))}
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={!specs}
-          onClick={openSpecSheet}
-          title="Open a printable spec sheet"
-        >
-          Spec sheet
-        </Button>
-        <ToolbarSeparator />
-        <select
-          value={unitKey}
-          onChange={(e) => setUnitKey(e.target.value)}
-          title="Display units"
-          className="h-8 rounded-md border border-border bg-transparent px-2 text-sm"
-        >
-          {LENGTH_UNITS.map((u) => (
-            <option key={u.key} value={u.key}>
-              {u.label}
-            </option>
-          ))}
-        </select>
-        <a
-          href="/about"
-          className={buttonVariants({ variant: 'ghost', size: 'sm' })}
-          title="About OpenShaper & guides"
-        >
-          About
-        </a>
-        {SUPPORT_URL && (
-          <a
-            href={SUPPORT_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={buttonVariants({ variant: 'ghost', size: 'sm' })}
-            title="Support OpenShaper — it's free and open-source"
-          >
-            {SUPPORT_LABEL}
-          </a>
-        )}
-      </Toolbar>
+      </div>
 
       <div className="flex min-h-0 flex-1 gap-3 p-3">
         <div className="min-h-0 flex-1">
@@ -571,6 +603,7 @@ function AppShell() {
                 units={units}
                 overlays={overlaysFor('crossSection')}
                 ghostSplines={ghostSplinesFor('crossSection')}
+                headerActions={csControls}
               />
               <EditorPane
                 title="Rocker (deck + bottom)"
@@ -593,6 +626,7 @@ function AppShell() {
                     material={view3d.material}
                     color={view3d.color}
                     analysis={view3d.analysis}
+                    targetFaceSize={faceSizeFor(view3d.meshQuality)}
                   />
                 </PanelBody>
               </Panel>
@@ -616,6 +650,7 @@ function AppShell() {
                   material={view3d.material}
                   color={view3d.color}
                   analysis={view3d.analysis}
+                  targetFaceSize={faceSizeFor(view3d.meshQuality)}
                 />
               </PanelBody>
             </Panel>
@@ -636,6 +671,7 @@ function AppShell() {
               overlays={overlaysFor(view)}
               ghostSplines={ghostSplinesFor(view)}
               background={traceBg}
+              headerActions={view === 'crossSection' ? csControls : undefined}
             />
           )}
         </div>

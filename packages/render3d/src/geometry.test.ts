@@ -108,7 +108,7 @@ describe('tessellateBoard (kernel)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// boardSpan — pure numeric, uses tessellateBoard internally.
+// boardSpan — pure numeric, derived directly from kernel dimension getters.
 // ---------------------------------------------------------------------------
 describe('boardSpan', () => {
   it('returns a positive finite span for a valid board', () => {
@@ -124,16 +124,14 @@ describe('boardSpan', () => {
     expect(span).toBeLessThan(200);
   });
 
-  it('falls back to 200 when the board produces no geometry', () => {
-    const outline = splineFromKnots([
-      knot(vec2(0, 0), vec2(0, 0), vec2(10, 0)),
-      knot(vec2(100, 0), vec2(90, 0), vec2(100, 0)),
+  it('falls back to 200 when the board has no finite dimensions', () => {
+    // A zero-extent board (all knots collapsed to a point) has length 0, so the
+    // span helper falls back to the default framing distance.
+    const dot = splineFromKnots([
+      knot(vec2(0, 0), vec2(0, 0), vec2(0, 0)),
+      knot(vec2(0, 0), vec2(0, 0), vec2(0, 0)),
     ]);
-    const flat = splineFromKnots([
-      knot(vec2(0, 5), vec2(0, 5), vec2(10, 5)),
-      knot(vec2(100, 5), vec2(90, 5), vec2(100, 5)),
-    ]);
-    const b = board(outline, flat, flat, []);
+    const b = board(dot, dot, dot, []);
     expect(boardSpan(b)).toBe(200);
   });
 });

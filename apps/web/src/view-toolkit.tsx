@@ -116,6 +116,24 @@ const ANALYSIS_3D: { value: AnalysisMode; label: string }[] = [
   { value: 'slope', label: 'Slope' },
 ];
 
+/** Viewport mesh density. Maps to a kernel target face size (cm) — smaller = finer. */
+export type MeshQuality = 'draft' | 'standard' | 'fine';
+
+const QUALITY_3D: { value: MeshQuality; label: string }[] = [
+  { value: 'draft', label: 'Draft' },
+  { value: 'standard', label: 'Standard' },
+  { value: 'fine', label: 'Fine' },
+];
+
+const FACE_SIZE: Record<MeshQuality, number> = {
+  draft: 1.5,
+  standard: 0.9,
+  fine: 0.5,
+};
+
+/** Resolve a mesh-quality setting to a kernel target face size in cm. */
+export const faceSizeFor = (q: MeshQuality): number => FACE_SIZE[q];
+
 /** All 3D-view appearance + analysis settings, lifted so quad + full views share them. */
 export interface View3DSettings {
   mode: Board3DMode;
@@ -123,6 +141,7 @@ export interface View3DSettings {
   material: MaterialPreset;
   color: string;
   analysis: AnalysisMode;
+  meshQuality: MeshQuality;
 }
 
 /**
@@ -182,6 +201,12 @@ export function ThreeDControls({
         onChange={(analysis) => set({ analysis })}
         options={ANALYSIS_3D}
         title="Surface analysis"
+      />
+      <Sel
+        value={settings.meshQuality}
+        onChange={(meshQuality) => set({ meshQuality })}
+        options={QUALITY_3D}
+        title="Mesh quality"
       />
     </div>
   );
@@ -251,6 +276,7 @@ export function EditorPane({
   overlays,
   ghostSplines,
   background,
+  headerActions,
 }: {
   title: string;
   kind: EditorKind;
@@ -261,14 +287,16 @@ export function EditorPane({
   overlays?: EditorOverlays;
   ghostSplines?: Spline[];
   background?: React.ComponentProps<typeof SplineEditor>['background'];
+  headerActions?: React.ReactNode;
 }) {
   // Stable across re-renders so the editor's target set (and the SplineEditor
   // re-fit/draw effects keyed on it) only changes when the pane actually changes.
   const p = useMemo(() => paneProps(kind, csIndex), [kind, csIndex]);
   return (
     <Panel className="flex min-h-0 flex-col">
-      <PanelHeader>
+      <PanelHeader className={headerActions ? 'gap-2' : undefined}>
         <PanelTitle>{title}</PanelTitle>
+        {headerActions}
       </PanelHeader>
       <PanelBody className="min-h-0 flex-1 p-0">
         <SplineEditor

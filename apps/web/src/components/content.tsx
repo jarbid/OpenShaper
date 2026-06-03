@@ -2,7 +2,7 @@ import { buttonVariants, cn } from '@openshaper/ui';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { JsonLd } from '../seo/JsonLd';
-import { RockerCurve } from './marks';
+import { WaveLines } from './marks';
 
 /** Centered max-width container. */
 export function Container({ children, className }: { children: ReactNode; className?: string }) {
@@ -31,7 +31,7 @@ export function ArticleHero({
         <h1 className="font-display mt-4 max-w-3xl text-4xl leading-[1.05] sm:text-5xl">{title}</h1>
         <p className="mt-5 max-w-2xl text-lg leading-relaxed text-muted-foreground">{lede}</p>
       </Container>
-      <RockerCurve className="absolute -bottom-2 left-0 h-16 w-full text-border" />
+      <WaveLines className="absolute -bottom-1 left-0 h-14 w-full text-primary/25" />
     </header>
   );
 }
@@ -137,7 +137,7 @@ export function CtaBand({
     <section className="mt-20">
       <Container>
         <div className="relative overflow-hidden rounded-2xl border border-border bg-card px-6 py-12 text-center sm:px-12">
-          <RockerCurve className="absolute inset-x-0 top-0 h-10 w-full text-border" />
+          <WaveLines className="absolute inset-x-0 top-0 h-10 w-full text-primary/25" />
           <h2 className="font-display text-3xl sm:text-4xl">{heading}</h2>
           <p className="mx-auto mt-3 max-w-xl text-muted-foreground">{body}</p>
           <div className="mt-7 flex flex-wrap items-center justify-center gap-3">

@@ -3,27 +3,33 @@ import {
   getLength,
   getRockerAtPos,
   pointByTT,
+  tessellationSteps,
   type BezierBoard,
 } from '@openshaper/kernel';
 
 /** Options for {@link exportStl}. */
 export interface StlOptions {
-  /** Number of longitudinal stations sampled along the board length. Default 120. */
+  /** Number of longitudinal stations sampled along the board length. Overrides `targetFaceSize`. */
   lengthSteps?: number;
-  /** Number of profile samples around each cross-section ring (per side). Default 48. */
+  /** Number of profile samples around each cross-section ring (per side). Overrides `targetFaceSize`. */
   ringSteps?: number;
+  /**
+   * Target face edge length in cm; the default ~0.5 cm yields a dense, non-faceted
+   * mesh suitable for CNC/print, independent of any lighter viewport setting.
+   */
+  targetFaceSize?: number;
   /** `solid` name written into the STL. Default `openshaper`. */
   name?: string;
 }
+
+/** Fine default so exported parts are smooth on rails / nose / tail. */
+const DEFAULT_FACE_SIZE = 0.5;
 
 interface P3 {
   readonly x: number;
   readonly y: number;
   readonly z: number;
 }
-
-const DEFAULT_LENGTH_STEPS = 120;
-const DEFAULT_RING_STEPS = 48;
 
 /** ASCII-STL float format (sign-mantissa-e-sign-exponent), matching the legacy STL writer. */
 const f = (n: number): string => (Number.isFinite(n) ? n : 0).toExponential(6);
@@ -88,8 +94,12 @@ const writeFacet = (out: string[], a: P3, b: P3, c: P3): void => {
  * tail rings are fanned to a centre point to cap the ends.
  */
 export const exportStl = (board: BezierBoard, opts: StlOptions = {}): string => {
-  const lengthSteps = Math.max(2, opts.lengthSteps ?? DEFAULT_LENGTH_STEPS);
-  const ringSteps = Math.max(3, opts.ringSteps ?? DEFAULT_RING_STEPS);
+  // Derive density from a fine target face size unless explicit counts are given.
+  // The kernel ring count covers the full closed loop; STL samples one rail (per
+  // side) and mirrors it, so use half the loop count.
+  const derived = tessellationSteps(board, opts.targetFaceSize ?? DEFAULT_FACE_SIZE);
+  const lengthSteps = Math.max(2, opts.lengthSteps ?? derived.lengthSteps);
+  const ringSteps = Math.max(3, opts.ringSteps ?? Math.ceil(derived.ringSteps / 2));
   const name = opts.name ?? 'openshaper';
   const length = getLength(board);
 

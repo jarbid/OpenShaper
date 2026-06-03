@@ -1,10 +1,12 @@
 node_modules/
 dist/
 .turbo/
+.wrangler/
 *.tsbuildinfo
 .env
 .env.local
 coverage/
+.vite-react-ssg-temp/
 # Tauri
 apps/desktop/src-tauri/target/
 # Gradle (golden-exporter recompiles legacy sources)

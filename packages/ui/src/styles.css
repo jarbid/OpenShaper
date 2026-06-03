@@ -2,9 +2,13 @@
  * OpenShaper design tokens (Tailwind v4 + shadcn-style CSS variables).
  *
  * Apps import this once (see apps/web/src/index.css) AFTER `@import "tailwindcss"`.
- * Light + dark palettes are defined as CSS variables and mapped into Tailwind's
- * theme via `@theme inline` so utilities like `bg-background`, `text-foreground`,
- * `bg-primary` resolve. The accent matches the OpenShaper brand (warm clay).
+ * The palette is mapped into Tailwind's theme via `@theme inline` so utilities
+ * like `bg-background`, `text-foreground`, `bg-primary` resolve.
+ *
+ * Brand: "Deep Ocean Tech" — a nightmode-first identity. Deep ink-navy canvas,
+ * electric-cyan accent and a teal secondary highlight, reading like a precise
+ * CAD/CAM instrument. The editor has no theme toggle, so `:root` and `.dark`
+ * carry the same ocean palette (the app is dark by design).
  */
 
 @theme inline {
@@ -32,47 +36,34 @@
   --radius-lg: calc(var(--radius) + 2px);
 }
 
-:root {
-  --radius: 0.5rem;
-  --background: oklch(0.99 0 0);
-  --foreground: oklch(0.2 0.01 260);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.2 0.01 260);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.2 0.01 260);
-  --primary: oklch(0.62 0.13 40); /* warm clay (#cc785c-ish) */
-  --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.96 0.005 260);
-  --secondary-foreground: oklch(0.25 0.01 260);
-  --muted: oklch(0.96 0.005 260);
-  --muted-foreground: oklch(0.55 0.01 260);
-  --accent: oklch(0.95 0.02 40);
-  --accent-foreground: oklch(0.25 0.04 40);
-  --destructive: oklch(0.58 0.21 27);
-  --destructive-foreground: oklch(0.99 0 0);
-  --border: oklch(0.9 0.005 260);
-  --input: oklch(0.9 0.005 260);
-  --ring: oklch(0.62 0.13 40);
-}
-
+/* Deep Ocean palette. Hex references in comments are the design targets. */
+:root,
 .dark {
-  --background: oklch(0.2 0.01 260);
-  --foreground: oklch(0.95 0.005 260);
-  --card: oklch(0.24 0.01 260);
-  --card-foreground: oklch(0.95 0.005 260);
-  --popover: oklch(0.24 0.01 260);
-  --popover-foreground: oklch(0.95 0.005 260);
-  --primary: oklch(0.68 0.13 40);
-  --primary-foreground: oklch(0.18 0.01 260);
-  --secondary: oklch(0.3 0.01 260);
-  --secondary-foreground: oklch(0.95 0.005 260);
-  --muted: oklch(0.3 0.01 260);
-  --muted-foreground: oklch(0.65 0.01 260);
-  --accent: oklch(0.34 0.03 40);
-  --accent-foreground: oklch(0.95 0.02 40);
-  --destructive: oklch(0.62 0.2 27);
-  --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.32 0.01 260);
-  --input: oklch(0.32 0.01 260);
-  --ring: oklch(0.68 0.13 40);
+  --radius: 0.6rem;
+
+  --background: oklch(0.18 0.03 255); /* #0A1424 deep ink navy */
+  --foreground: oklch(0.94 0.008 240); /* #E6EDF5 near-white ink */
+
+  --card: oklch(0.235 0.035 252); /* #0F1C30 raised panel */
+  --card-foreground: oklch(0.94 0.008 240);
+  --popover: oklch(0.235 0.035 252);
+  --popover-foreground: oklch(0.94 0.008 240);
+
+  --primary: oklch(0.8 0.12 205); /* #22D3EE electric cyan */
+  --primary-foreground: oklch(0.16 0.03 252); /* #061018 deep navy on cyan */
+
+  --secondary: oklch(0.28 0.04 252); /* #14233A inset / control bg */
+  --secondary-foreground: oklch(0.94 0.008 240);
+  --muted: oklch(0.28 0.04 252);
+  --muted-foreground: oklch(0.7 0.03 245); /* #8A9BB3 slate */
+
+  --accent: oklch(0.33 0.06 222); /* cyan-tinted hover wash */
+  --accent-foreground: oklch(0.86 0.11 188); /* #2DD4BF teal highlight */
+
+  --destructive: oklch(0.62 0.2 27); /* tuned warm red */
+  --destructive-foreground: oklch(0.97 0.01 240);
+
+  --border: oklch(0.36 0.045 248); /* #1E3149 hairline */
+  --input: oklch(0.36 0.045 248);
+  --ring: oklch(0.8 0.12 205);
 }

@@ -2,10 +2,10 @@ import type { BezierBoard } from '@openshaper/kernel';
 import type { BoardState } from '@openshaper/store';
 import { GizmoHelper, GizmoViewport, OrbitControls } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
-import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { DoubleSide, ShaderMaterial, type BufferGeometry } from 'three';
 import type { StoreApi } from 'zustand/vanilla';
-import { boardGeometry, boardSpan } from './geometry';
+import { boardSpan, meshToGeometry, tessellateAsync } from './geometry';
 
 /** How the board surface is drawn. */
 export type Board3DMode = 'shaded' | 'wireframe' | 'shaded-wire' | 'normals';
@@ -28,18 +28,23 @@ export interface Board3DViewProps {
   color?: string;
   /** Surface-analysis overlay (defaults to 'none'). */
   analysis?: AnalysisMode;
+  /** Target tessellation face size in cm (smaller = finer mesh). Defaults to ~0.9 cm. */
+  targetFaceSize?: number;
   /** @deprecated use `mode="wireframe"`. Kept for back-compat. */
   wireframe?: boolean;
   className?: string;
 }
 
-const BOARD_COLOR = '#cc785c';
+/** Default viewport mesh density (cm per face) — noticeably finer than the legacy 120×48. */
+const DEFAULT_FACE_SIZE = 0.9;
+
+const BOARD_COLOR = '#E8EEF5';
 
 /** Background color per lighting preset (dark room makes side-lit rails pop). */
 const BACKGROUND: Record<LightingPreset, string> = {
-  studio: '#1b1b1f',
-  'shaping-bay': '#08080a',
-  neutral: '#2a2d33',
+  studio: '#0A1424',
+  'shaping-bay': '#06101A',
+  neutral: '#14233A',
 };
 
 // --- analysis shader (zebra / curvature / slope) ---------------------------
@@ -131,7 +136,7 @@ function Lights({ preset, span }: { preset: LightingPreset; span: number }) {
   // studio (default)
   return (
     <>
-      <hemisphereLight args={['#cfd6e4', '#2a2622', 0.55]} />
+      <hemisphereLight args={['#cfd6e4', '#0F1C30', 0.55]} />
       <ambientLight intensity={0.35} />
       <directionalLight position={[span, -span, span * 1.5]} intensity={1.1} />
       <directionalLight position={[-span, span, span]} intensity={0.4} />
@@ -180,22 +185,36 @@ function BoardMesh({
   material,
   color,
   analysis,
+  targetFaceSize,
 }: {
   board: BezierBoard;
   mode: Board3DMode;
   material: MaterialPreset;
   color: string;
   analysis: AnalysisMode;
+  targetFaceSize: number;
 }) {
-  const geometry = useMemo<BufferGeometry | null>(() => {
-    try {
-      return boardGeometry(board);
-    } catch {
-      return null;
-    }
-  }, [board]);
+  // Tessellation runs in a worker; while a new mesh computes we keep showing the
+  // previous geometry so dragging control points stays smooth. A monotonically
+  // increasing request token guards against out-of-order worker responses
+  // (rapid edits enqueue many requests — only the latest may win).
+  const [geometry, setGeometry] = useState<BufferGeometry | null>(null);
 
-  // Free the previous geometry when it changes / unmounts.
+  useEffect(() => {
+    let cancelled = false;
+    tessellateAsync(board, targetFaceSize)
+      .then((mesh) => {
+        if (!cancelled) setGeometry(meshToGeometry(mesh));
+      })
+      .catch(() => {
+        /* leave the last good geometry in place on failure */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [board, targetFaceSize]);
+
+  // Free the previous geometry when it changes, and on unmount.
   useEffect(() => () => geometry?.dispose(), [geometry]);
 
   const analysisMaterial = useMemo(() => {
@@ -239,7 +258,7 @@ function BoardMesh({
       {/* Shaded + an overlaid wireframe: a second pass in a contrasting color. */}
       {mode === 'shaded-wire' && (
         <mesh geometry={geometry}>
-          <meshBasicMaterial color="#1b1b1f" wireframe transparent opacity={0.25} />
+          <meshBasicMaterial color="#0A1424" wireframe transparent opacity={0.25} />
         </mesh>
       )}
     </>
@@ -254,6 +273,7 @@ export function Board3DView({
   material = 'gloss',
   color = BOARD_COLOR,
   analysis = 'none',
+  targetFaceSize = DEFAULT_FACE_SIZE,
   wireframe = false,
   className,
 }: Board3DViewProps) {
@@ -277,11 +297,12 @@ export function Board3DView({
             material={material}
             color={color}
             analysis={analysis}
+            targetFaceSize={targetFaceSize}
           />
         )}
         <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
         <GizmoHelper alignment="bottom-right" margin={[56, 56]}>
-          <GizmoViewport axisColors={['#cc785c', '#8fbf73', '#6ca0cc']} labelColor="#e8e3dd" />
+          <GizmoViewport axisColors={['#22D3EE', '#2DD4BF', '#A78BFA']} labelColor="#E6EDF5" />
         </GizmoHelper>
       </Canvas>
     </div>

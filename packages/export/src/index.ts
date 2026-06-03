@@ -7,5 +7,5 @@
  */
 export { exportStl, type StlOptions } from './stl';
 export { exportDxf, type DxfOptions } from './dxf';
-export { exportPdf, type PdfOptions } from './pdf';
+export { exportPdf, type PdfOptions, type PdfMeta } from './pdf';
 export { specSheetHtml, type SpecSheetDoc } from './spec-sheet';

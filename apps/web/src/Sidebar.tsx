@@ -10,6 +10,8 @@ import type { BoardSpecs } from '@openshaper/store';
 import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 import { ControlPointInspector } from './ControlPointInspector';
+import { CoffeeIcon } from './components/Support';
+import { SUPPORT_URL } from './support';
 import type { BoardMeta } from './file-io';
 import { fmtLen, fmtVol, type LengthUnit } from './format';
 import { FIN_SETUP_LABELS, FIN_SETUPS, type FinSetup } from './fins';
@@ -112,7 +114,7 @@ export function Sidebar({
   ghostSpecs,
 }: SidebarProps) {
   return (
-    <div className="flex w-72 shrink-0 flex-col gap-3">
+    <div className="flex w-72 min-h-0 shrink-0 flex-col gap-3 overflow-y-auto pr-0.5">
       <Panel>
         <PanelHeader>
           <PanelTitle>Specs</PanelTitle>
@@ -387,6 +389,26 @@ export function Sidebar({
             </p>
           </PanelBody>
         </Panel>
+      )}
+
+      {SUPPORT_URL && (
+        <a
+          href={SUPPORT_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="group flex items-center gap-3 rounded-lg border border-border bg-card p-3 text-sm shadow-sm transition-colors hover:border-primary/50 hover:bg-accent/30"
+          title="Buy me a coffee — support OpenShaper"
+        >
+          <span className="grid size-9 shrink-0 place-items-center rounded-md border border-border bg-secondary text-primary transition-transform group-hover:-translate-y-px">
+            <CoffeeIcon className="size-4" />
+          </span>
+          <span className="min-w-0">
+            <span className="block font-medium">Buy me a coffee</span>
+            <span className="block text-xs text-muted-foreground">
+              Free &amp; open-source — chip in if it helps
+            </span>
+          </span>
+        </a>
       )}
     </div>
   );

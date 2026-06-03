@@ -9,7 +9,7 @@
  */
 import { knot, splineFromKnots, vec2 } from '@openshaper/kernel';
 import { describe, expect, it, vi } from 'vitest';
-import { clear, defaultStyle, drawControlPoints, drawSpline } from './draw';
+import { clear, defaultStyle, drawControlPoints, drawCurvatureComb, drawSpline } from './draw';
 import type { Viewport } from './viewport';
 
 // ---------------------------------------------------------------------------
@@ -73,7 +73,7 @@ describe('clear', () => {
   it('sets fillStyle to the default background', () => {
     const { ctx } = makeCtx();
     clear(ctx, 100, 100);
-    expect(ctx.fillStyle).toBe('#1b1b1f');
+    expect(ctx.fillStyle).toBe('#0A1424');
   });
 
   it('accepts a custom background color', () => {
@@ -152,5 +152,73 @@ describe('drawControlPoints', () => {
     drawControlPoints(ctx, makeSpline(), VP, defaultStyle, null);
     // 3 knots × 1 line per knot (prev-end-next) → 3 stroke() calls
     expect(ctx.stroke).toHaveBeenCalledTimes(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// drawCurvatureComb
+// ---------------------------------------------------------------------------
+
+/** Records the (x,y) of every moveTo/lineTo so quill geometry can be inspected. */
+function makeRecordingCtx() {
+  const moves: { x: number; y: number }[] = [];
+  const lines: { x: number; y: number }[] = [];
+  const ctx = {
+    strokeStyle: '',
+    fillStyle: '',
+    lineWidth: 0,
+    globalAlpha: 1,
+    beginPath: vi.fn(),
+    moveTo: vi.fn((x: number, y: number) => moves.push({ x, y })),
+    lineTo: vi.fn((x: number, y: number) => lines.push({ x, y })),
+    stroke: vi.fn(),
+  } as unknown as CanvasRenderingContext2D;
+  return { ctx, moves, lines };
+}
+
+describe('drawCurvatureComb', () => {
+  // An arc-like outline half (half-width vs length): the bounding-box centroid is
+  // below the curve, so an outward-blooming comb puts quill tips ABOVE the curve.
+  const arc = () =>
+    splineFromKnots([
+      knot(vec2(0, 0), vec2(0, 0), vec2(10, 8)),
+      knot(vec2(50, 20), vec2(35, 20), vec2(65, 20)),
+      knot(vec2(100, 0), vec2(90, 8), vec2(100, 0)),
+    ]);
+
+  it('runs without throwing and emits quill segments', () => {
+    const { ctx, moves } = makeRecordingCtx();
+    expect(() => drawCurvatureComb(ctx, arc(), VP)).not.toThrow();
+    expect(ctx.stroke).toHaveBeenCalled();
+    expect(moves.length).toBeGreaterThan(0);
+  });
+
+  it('blooms outward: tips sit on the far side of the curve from its centroid', () => {
+    // VP has y-down screen mapping, so "above the curve in world" => smaller screen y.
+    // Compare each quill base (moveTo, on the curve) to its tip (lineTo): with the
+    // centroid below, outward tips should be above (screen y_tip <= y_base) for the
+    // vast majority of non-flat samples.
+    const { ctx, moves, lines } = makeRecordingCtx();
+    drawCurvatureComb(ctx, arc(), VP, '#38BDF8', 14);
+    // The first pts.length moveTo/lineTo pairs are the quills (envelope adds only lineTo).
+    const n = Math.min(moves.length, lines.length);
+    let outward = 0;
+    let counted = 0;
+    for (let i = 0; i < n; i++) {
+      const dy = lines[i]!.y - moves[i]!.y;
+      if (Math.abs(dy) < 1e-6) continue; // flat sample, no quill
+      counted++;
+      if (dy <= 0) outward++; // tip above base in screen space => outward
+    }
+    expect(counted).toBeGreaterThan(0);
+    expect(outward).toBeGreaterThan(counted * 0.8);
+  });
+
+  it('adapts sample count to on-screen length (more quills when zoomed in)', () => {
+    const zoomedOut = makeRecordingCtx();
+    drawCurvatureComb(zoomedOut.ctx, arc(), { scale: 0.5, originX: 0, originY: 0 });
+    const zoomedIn = makeRecordingCtx();
+    drawCurvatureComb(zoomedIn.ctx, arc(), { scale: 8, originX: 0, originY: 0 });
+    expect(zoomedIn.moves.length).toBeGreaterThan(zoomedOut.moves.length);
   });
 });

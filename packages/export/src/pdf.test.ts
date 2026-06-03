@@ -37,8 +37,27 @@ describe('exportPdf', () => {
     const pdf = exportPdf(board, { title: 'Spec Test' });
     const text = decode(pdf);
     expect(text).toContain('Spec Test');
-    expect(text).toContain('Length:');
-    expect(text).toContain('Volume:');
+    expect(text).toContain('Length');
+    expect(text).toContain('Volume');
+    expect(text).toContain('Wide point');
+    expect(text).toContain('Max rocker');
+  });
+
+  it('renders metadata and honours the units flag', () => {
+    const pdf = exportPdf(board, {
+      meta: { designer: 'Jane Shaper', surfer: 'Sam', comments: 'thin foiled rails' },
+      units: 'in',
+    });
+    const text = decode(pdf);
+    expect(text).toContain('Jane Shaper');
+    expect(text).toContain('Sam');
+    expect(text).toContain('thin foiled rails');
+    expect(text).toContain('in'); // inch unit label present
+  });
+
+  it('falls back to the model name (then "Surfboard") for the title', () => {
+    expect(decode(exportPdf(board, { meta: { model: 'Fish 5\'10"' } }))).toContain('Fish');
+    expect(decode(exportPdf(board))).toContain('Surfboard');
   });
 
   it('xref entries match the declared object count', () => {

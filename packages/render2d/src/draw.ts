@@ -13,12 +13,12 @@ export interface DrawStyle {
 }
 
 export const defaultStyle: DrawStyle = {
-  curve: '#cc785c',
+  curve: '#22D3EE',
   curveWidth: 2,
-  handleLine: 'rgba(140,140,150,0.6)',
-  point: '#e8e3dd',
-  pointSelected: '#cc785c',
-  tangent: '#8a8a93',
+  handleLine: 'rgba(138,155,179,0.55)',
+  point: '#C7D2E0',
+  pointSelected: '#22D3EE',
+  tangent: '#8A9BB3',
 };
 
 /** Reflection options: outline mirrors across y=0; cross-sections across x=0. */
@@ -159,7 +159,7 @@ export const drawSectionMarkers = (
 ): void => {
   for (const m of markers) {
     const x = worldToScreen(vp, { x: m.pos, y: 0 }).x;
-    ctx.strokeStyle = m.active ? '#cc785c' : 'rgba(140,140,150,0.35)';
+    ctx.strokeStyle = m.active ? '#22D3EE' : 'rgba(138,155,179,0.35)';
     ctx.lineWidth = m.active ? 2 : 1;
     ctx.beginPath();
     ctx.moveTo(x, 0);
@@ -185,25 +185,53 @@ export const hitSectionMarker = (
 };
 
 /**
+ * Pick a uniform per-segment sample count adaptive to the curve's on-screen
+ * length: roughly one sample per `PX_PER_SAMPLE` screen pixels, clamped, and
+ * capped so the total quill count stays bounded for perf.
+ */
+const adaptiveCombSamples = (spline: Spline, vp: Viewport): number => {
+  const PX_PER_SAMPLE = 8;
+  const MIN = 12;
+  const MAX = 40;
+  const MAX_TOTAL = 400;
+  const segCount = spline.coeffs.length;
+  let screenLen = 0;
+  for (const k of spline.coeffs) {
+    const a = value(k, 0);
+    const b = value(k, 1);
+    screenLen += Math.hypot(b.x - a.x, b.y - a.y) * vp.scale;
+  }
+  const perSeg = Math.round(screenLen / PX_PER_SAMPLE / Math.max(1, segCount));
+  const capped = Math.floor(MAX_TOTAL / Math.max(1, segCount));
+  return Math.max(MIN, Math.min(MAX, capped, perSeg));
+};
+
+/**
  * Draw a curvature comb ("porcupine") for a spline: at samples along each
- * segment, a quill normal to the curve scaled by signed curvature, with the
+ * segment, a quill normal to the curve scaled by curvature magnitude, with the
  * quill tips joined into an envelope. The classic fairing aid — kinks and flat
  * spots that are invisible on the curve jump out on the comb. Auto-scaled so the
  * largest quill is a fixed fraction of the curve's extent.
+ *
+ * Quills always bloom *outward* (away from the curve's bounding-box centroid)
+ * rather than flipping to the inside at inflections, so the comb reads
+ * consistently on outline / rocker / cross-section views. `samplesPerSegment`
+ * defaults to an on-screen-length-adaptive count.
  */
 export const drawCurvatureComb = (
   ctx: CanvasRenderingContext2D,
   spline: Spline,
   vp: Viewport,
-  color = '#6ca0cc',
-  samplesPerSegment = 14,
+  color = '#38BDF8',
+  samplesPerSegment?: number,
 ): void => {
   if (spline.coeffs.length === 0) return;
+  const nSamples = samplesPerSegment ?? adaptiveCombSamples(spline, vp);
   const pts: Vec2[] = [];
   const curvs: number[] = [];
   for (const k of spline.coeffs) {
-    for (let i = 0; i <= samplesPerSegment; i++) {
-      const t = i / samplesPerSegment;
+    for (let i = 0; i <= nSamples; i++) {
+      const t = i / nSamples;
       pts.push(value(k, t));
       curvs.push(curvature(k, t));
     }
@@ -213,17 +241,23 @@ export const drawCurvatureComb = (
   const b = boundsOf(pts);
   const diag = Math.hypot(b.maxX - b.minX, b.maxY - b.minY) || 1;
   const scale = (diag * 0.12) / maxAbs; // world cm per unit curvature
+  const cx = (b.minX + b.maxX) / 2;
+  const cy = (b.minY + b.maxY) / 2;
 
   const tips: Vec2[] = pts.map((p, i) => {
-    const k =
-      spline.coeffs[Math.min(Math.floor(i / (samplesPerSegment + 1)), spline.coeffs.length - 1)]!;
-    const t = (i % (samplesPerSegment + 1)) / samplesPerSegment;
+    const k = spline.coeffs[Math.min(Math.floor(i / (nSamples + 1)), spline.coeffs.length - 1)]!;
+    const t = (i % (nSamples + 1)) / nSamples;
     const dx = xDeriv(k, t);
     const dy = yDeriv(k, t);
     const len = Math.hypot(dx, dy) || 1;
-    const nx = -dy / len; // unit normal to the curve direction
-    const ny = dx / len;
-    const d = curvs[i]! * scale;
+    let nx = -dy / len; // unit normal to the curve direction
+    let ny = dx / len;
+    // Orient the quill outward: away from the curve interior (its centroid).
+    if (nx * (p.x - cx) + ny * (p.y - cy) < 0) {
+      nx = -nx;
+      ny = -ny;
+    }
+    const d = Math.abs(curvs[i]!) * scale; // magnitude only — never flips inward
     return { x: p.x + nx * d, y: p.y + ny * d };
   });
 
@@ -284,7 +318,7 @@ export const drawDistribution = (
   data: readonly { x: number; value: number }[],
   vp: Viewport,
   height: number,
-  color = '#8fbf73',
+  color = '#2DD4BF',
 ): void => {
   if (data.length < 2) return;
   const maxV = data.reduce((m, d) => Math.max(m, d.value), 1e-9);
@@ -317,7 +351,7 @@ export const drawFins = (
   ctx: CanvasRenderingContext2D,
   fins: readonly { x: number; offset: number; base: number }[],
   vp: Viewport,
-  color = '#c08fcf',
+  color = '#A78BFA',
 ): void => {
   ctx.save();
   ctx.strokeStyle = color;
@@ -338,7 +372,7 @@ export const drawFins = (
   ctx.restore();
 };
 
-export const clear = (ctx: CanvasRenderingContext2D, w: number, h: number, bg = '#1b1b1f') => {
+export const clear = (ctx: CanvasRenderingContext2D, w: number, h: number, bg = '#0A1424') => {
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
 };

@@ -1,4 +1,5 @@
 import { buttonVariants, cn } from '@openshaper/ui';
+import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { BoardOutline } from '../components/marks';
 import { Container, CtaBand, Eyebrow, Faq } from '../components/content';
@@ -123,20 +124,47 @@ export default function Landing() {
 
       {/* ---- Hero ---- */}
       <section className="relative overflow-hidden border-b border-border">
-        <Container className="grid gap-12 py-16 sm:py-24 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
-          <div className="reveal">
+        {/* oversized faint blueprint plate index */}
+        <span
+          aria-hidden
+          className="plate-index pointer-events-none absolute -right-6 -top-16 select-none text-[13rem] opacity-[0.07] sm:text-[20rem]"
+        >
+          01
+        </span>
+
+        <Container className="grid gap-12 py-16 sm:py-24 lg:grid-cols-[1.08fr_0.92fr] lg:items-center">
+          <div className="stagger">
             <Eyebrow>Open-source surfboard CAD</Eyebrow>
-            <h1 className="font-display mt-4 text-5xl leading-[1.02] sm:text-6xl">
+            <h1 className="font-display mt-6 text-[3.25rem] leading-[0.92] sm:text-[4.75rem]">
               Design surfboards,
               <br />
-              right in your browser.
+              right in your{' '}
+              <span className="relative whitespace-nowrap text-primary">
+                browser
+                <svg
+                  className="absolute -bottom-1 left-0 h-2 w-full text-primary/70"
+                  viewBox="0 0 200 8"
+                  fill="none"
+                  preserveAspectRatio="none"
+                  aria-hidden
+                >
+                  <path
+                    d="M1 5 C 40 2, 160 2, 199 5"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="draw-line"
+                    style={{ ['--len' as string]: 220 } as CSSProperties}
+                  />
+                </svg>
+              </span>
+              .
             </h1>
-            <p className="mt-6 max-w-xl text-lg leading-relaxed text-muted-foreground">
+            <p className="mt-7 max-w-xl text-lg leading-relaxed text-muted-foreground">
               OpenShaper is a free, open-source design app for shaping surfboards — outline, rocker,
               cross-sections and a live 3D model, with volume and weight as you go. No account, no
               paywall, nothing to install.
             </p>
-            <div className="mt-8 flex flex-wrap items-center gap-3">
+            <div className="mt-9 flex flex-wrap items-center gap-3">
               <Link to="/app" className={cn(buttonVariants({ size: 'lg' }), 'shadow-sm')}>
                 Open the design app
               </Link>
@@ -149,28 +177,42 @@ export default function Landing() {
                 View source
               </a>
             </div>
-            <p className="mt-5 text-sm text-muted-foreground">
-              Free forever · GPL-3.0 · Runs 100% in your browser
+            <p className="font-mono-tech mt-6 text-xs tracking-wider text-muted-foreground">
+              FREE FOREVER · GPL-3.0 · RUNS 100% IN YOUR BROWSER
             </p>
           </div>
 
-          {/* Hero "drawing board" panel */}
-          <div className="reveal" style={{ animationDelay: '120ms' }}>
-            <div className="relative rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8">
+          {/* Hero blueprint "instrument" panel */}
+          <div className="reveal" style={{ animationDelay: '0.5s' }}>
+            <div className="glow-ocean crop-frame relative rounded-xl border border-border bg-card/85 p-6 backdrop-blur-sm sm:p-7">
               <div className="flex items-center justify-between">
-                <span className="label-tech">Shortboard · 5&apos;8&quot;</span>
-                <span className="text-xs text-muted-foreground">live preview</span>
+                <span className="fig-label">FIG.01 — SHORTBOARD 5′8″</span>
+                <span className="font-mono-tech flex items-center gap-1.5 text-[0.7rem] text-muted-foreground">
+                  <span className="pulse-ocean inline-block h-1.5 w-1.5 rounded-full bg-primary" />
+                  LIVE
+                </span>
               </div>
-              <BoardOutline className="mt-6 h-24 w-full text-primary" animate />
-              <dl className="mt-7 grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
+
+              <BoardOutline className="mt-7 h-auto w-full text-primary" animate fit />
+
+              {/* length dimension callout */}
+              <div className="mt-3 flex items-center gap-3">
+                <span className="dim-line flex-1" />
+                <span className="font-mono-tech text-[0.7rem] text-muted-foreground">5′08″</span>
+                <span className="dim-line flex-1" />
+              </div>
+
+              <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-border pt-6 sm:grid-cols-4">
                 {[
-                  ['Length', '5’08″'],
+                  ['Length', '5′08″'],
                   ['Width', '19¾″'],
                   ['Thick', '2¼″'],
                   ['Volume', '28.4 L'],
                 ].map(([k, v]) => (
                   <div key={k}>
-                    <dt className="text-xs uppercase tracking-wider text-muted-foreground">{k}</dt>
+                    <dt className="font-mono-tech text-[0.62rem] uppercase tracking-wider text-muted-foreground">
+                      {k}
+                    </dt>
                     <dd className="font-display mt-1 text-xl tabular-nums">{v}</dd>
                   </div>
                 ))}
@@ -189,7 +231,11 @@ export default function Landing() {
           </h2>
           <div className="mt-12 grid gap-px overflow-hidden rounded-2xl border border-border bg-border sm:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map((f) => (
-              <div key={f.title} className="bg-card p-6 transition-colors hover:bg-accent/40">
+              <div
+                key={f.title}
+                className="group relative overflow-hidden bg-card p-6 transition-colors hover:bg-accent/30"
+              >
+                <span className="absolute inset-x-0 top-0 h-px origin-left scale-x-0 bg-primary transition-transform duration-300 group-hover:scale-x-100" />
                 <h3 className="font-display text-lg">{f.title}</h3>
                 <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{f.body}</p>
               </div>
