@@ -1,6 +1,6 @@
 import { curvature, value, xDeriv, yDeriv, type Spline, type Vec2 } from '@openshaper/kernel';
 import { boundsOf, sampleSpline } from './sample';
-import { worldToScreen, type Viewport } from './viewport';
+import { screenToWorld, worldToScreen, type Viewport } from './viewport';
 import type { Hit } from './hit';
 
 export interface DrawStyle {
@@ -129,8 +129,87 @@ export const drawControlPoints = (
   });
 };
 
+/**
+ * Round a target spacing (cm) up to a "nice" 1 / 2 / 5 × 10ᵏ value, so the grid
+ * lands on round centimeters at any zoom. Returns 0 for non-finite/≤0 input.
+ */
+export const gridStep = (rawCm: number): number => {
+  if (!Number.isFinite(rawCm) || rawCm <= 0) return 0;
+  const pow = Math.pow(10, Math.floor(Math.log10(rawCm)));
+  const n = rawCm / pow;
+  const nice = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
+  return nice * pow;
+};
+
+/**
+ * A faint reference grid with emphasized world axes — the legacy View ▸ Show Grid
+ * + Show Baseline + Show Center Line, unified into one overlay. The cell size is an
+ * adaptive "nice" number of centimeters (≈ a target pixel spacing), so the grid
+ * stays legible and lands on round values at any zoom. The world x = 0 axis (tail
+ * station / cross-section centerline) and y = 0 axis (rocker baseline / outline
+ * stringer) are drawn slightly stronger so they read as datum lines.
+ */
+export const drawGrid = (
+  ctx: CanvasRenderingContext2D,
+  vp: Viewport,
+  w: number,
+  h: number,
+): void => {
+  const TARGET_PX = 64;
+  const step = gridStep(TARGET_PX / vp.scale);
+  if (step <= 0) return;
+
+  const tl = screenToWorld(vp, { x: 0, y: 0 });
+  const br = screenToWorld(vp, { x: w, y: h });
+  const minX = Math.min(tl.x, br.x);
+  const maxX = Math.max(tl.x, br.x);
+  const minY = Math.min(tl.y, br.y);
+  const maxY = Math.max(tl.y, br.y);
+
+  ctx.save();
+  // Minor grid lines.
+  ctx.strokeStyle = 'rgba(138,155,179,0.12)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = Math.ceil(minX / step) * step; x <= maxX; x += step) {
+    const sx = worldToScreen(vp, { x, y: 0 }).x;
+    ctx.moveTo(sx, 0);
+    ctx.lineTo(sx, h);
+  }
+  for (let y = Math.ceil(minY / step) * step; y <= maxY; y += step) {
+    const sy = worldToScreen(vp, { x: 0, y }).y;
+    ctx.moveTo(0, sy);
+    ctx.lineTo(w, sy);
+  }
+  ctx.stroke();
+
+  // Emphasized zero-axes (baseline / centerline), only when in view.
+  ctx.strokeStyle = 'rgba(138,155,179,0.4)';
+  ctx.lineWidth = 1.25;
+  ctx.beginPath();
+  if (minX <= 0 && maxX >= 0) {
+    const sx = worldToScreen(vp, { x: 0, y: 0 }).x;
+    ctx.moveTo(sx, 0);
+    ctx.lineTo(sx, h);
+  }
+  if (minY <= 0 && maxY >= 0) {
+    const sy = worldToScreen(vp, { x: 0, y: 0 }).y;
+    ctx.moveTo(0, sy);
+    ctx.lineTo(w, sy);
+  }
+  ctx.stroke();
+  ctx.restore();
+};
+
 /** Toggleable analysis overlays drawn on a 2D editor pane. */
 export interface EditorOverlays {
+  /** Faint reference grid + emphasized baseline/centerline axes. */
+  grid?: boolean;
+  /**
+   * Board-x of the cross-pane "sliding location" line, drawn as a vertical probe
+   * (solid inside the board, dashed outside). Length-axis panes only.
+   */
+  scrubProbe?: number;
   /** Curvature comb on the edited spline(s). */
   curvatureComb?: boolean;
   /** Vertical reference lines (e.g. center of mass). */
@@ -150,22 +229,30 @@ export interface SectionMarker {
   active: boolean;
 }
 
-/** Draw vertical section-position markers across the outline view (legacy "cross-section positions"). */
+/**
+ * Draw vertical section-position markers across the outline/rocker view (legacy
+ * "cross-section positions"). Dashed and cyan/teal so they read as *stations*,
+ * clearly distinct from the solid neutral-grey reference grid: the active section
+ * is a bold solid cyan line, the rest are faint teal dashes.
+ */
 export const drawSectionMarkers = (
   ctx: CanvasRenderingContext2D,
   markers: readonly SectionMarker[],
   vp: Viewport,
   height: number,
 ): void => {
+  ctx.save();
   for (const m of markers) {
     const x = worldToScreen(vp, { x: m.pos, y: 0 }).x;
-    ctx.strokeStyle = m.active ? '#22D3EE' : 'rgba(138,155,179,0.35)';
+    ctx.strokeStyle = m.active ? '#22D3EE' : 'rgba(45,212,191,0.55)';
     ctx.lineWidth = m.active ? 2 : 1;
+    ctx.setLineDash(m.active ? [] : [5, 4]);
     ctx.beginPath();
     ctx.moveTo(x, 0);
     ctx.lineTo(x, height);
     ctx.stroke();
   }
+  ctx.restore();
 };
 
 /** Index of the section marker nearest `screenX` within `tolPx`, or null. */
@@ -370,6 +457,130 @@ export const drawFins = (
     ctx.fill();
   }
   ctx.restore();
+};
+
+/**
+ * Colours for the cross-section measurement cursor, shared with the readout HUD so
+ * the line and its number are colour-coded together (legacy BoardCAD "sliding info").
+ */
+export const MEASURE_COLORS = {
+  /** Vertical probe at the cursor x — pairs with the "From CL" readout. */
+  fromCl: '#22D3EE',
+  /** Horizontal probe at the cursor y — pairs with the "Height" readout. */
+  height: '#FBBF24',
+} as const;
+
+/** Sorted y-values where the vertical line x=X crosses the closed polyline. */
+const vCrossings = (poly: readonly Vec2[], X: number): number[] => {
+  const ys: number[] = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!;
+    const b = poly[(i + 1) % poly.length]!;
+    if (a.x <= X === b.x <= X) continue; // both the same side → no straddle
+    ys.push(a.y + ((X - a.x) / (b.x - a.x)) * (b.y - a.y));
+  }
+  return ys.sort((p, q) => p - q);
+};
+
+/** Sorted x-values where the horizontal line y=Y crosses the closed polyline. */
+const hCrossings = (poly: readonly Vec2[], Y: number): number[] => {
+  const xs: number[] = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!;
+    const b = poly[(i + 1) % poly.length]!;
+    if (a.y <= Y === b.y <= Y) continue;
+    xs.push(a.x + ((Y - a.y) / (b.y - a.y)) * (b.x - a.x));
+  }
+  return xs.sort((p, q) => p - q);
+};
+
+/**
+ * Vertical "sliding location" probe at world x: a dashed full-height guide with
+ * the segment(s) *inside* the board profile overdrawn solid — so the local span
+ * (width in plan view, thickness in side/section view) reads straight off the
+ * board. Used for the cross-pane scrub line in every 2D pane (legacy "sliding
+ * info"). `profile` is the closed board outline for the pane.
+ */
+export const drawVProbe = (
+  ctx: CanvasRenderingContext2D,
+  profile: readonly Vec2[],
+  vp: Viewport,
+  h: number,
+  x: number,
+  color: string,
+): void => {
+  if (profile.length < 3) return;
+  const sx = worldToScreen(vp, { x, y: 0 }).x;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.4;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(sx, 0);
+  ctx.lineTo(sx, h);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.setLineDash([]);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  const ys = vCrossings(profile, x);
+  for (let i = 0; i + 1 < ys.length; i += 2) {
+    ctx.moveTo(sx, worldToScreen(vp, { x, y: ys[i]! }).y);
+    ctx.lineTo(sx, worldToScreen(vp, { x, y: ys[i + 1]! }).y);
+  }
+  ctx.stroke();
+  ctx.restore();
+};
+
+/** Horizontal "sliding location" probe at world y — the orthogonal partner of {@link drawVProbe}. */
+export const drawHProbe = (
+  ctx: CanvasRenderingContext2D,
+  profile: readonly Vec2[],
+  vp: Viewport,
+  w: number,
+  y: number,
+  color: string,
+): void => {
+  if (profile.length < 3) return;
+  const sy = worldToScreen(vp, { x: 0, y }).y;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.4;
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(0, sy);
+  ctx.lineTo(w, sy);
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.setLineDash([]);
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  const xs = hCrossings(profile, y);
+  for (let i = 0; i + 1 < xs.length; i += 2) {
+    ctx.moveTo(worldToScreen(vp, { x: xs[i]!, y }).x, sy);
+    ctx.lineTo(worldToScreen(vp, { x: xs[i + 1]!, y }).x, sy);
+  }
+  ctx.stroke();
+  ctx.restore();
+};
+
+/**
+ * Cross-section measurement cursor (legacy "sliding info"): a full crosshair at
+ * the hovered point — vertical + horizontal probes, each solid inside the section
+ * profile and dashed outside — colour-coded to match the readout HUD rows.
+ */
+export const drawMeasureCursor = (
+  ctx: CanvasRenderingContext2D,
+  profile: readonly Vec2[],
+  vp: Viewport,
+  w: number,
+  h: number,
+  cursor: Vec2,
+): void => {
+  drawVProbe(ctx, profile, vp, h, cursor.x, MEASURE_COLORS.fromCl);
+  drawHProbe(ctx, profile, vp, w, cursor.y, MEASURE_COLORS.height);
 };
 
 export const clear = (ctx: CanvasRenderingContext2D, w: number, h: number, bg = '#0A1424') => {

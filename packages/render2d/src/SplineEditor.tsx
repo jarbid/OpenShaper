@@ -23,6 +23,10 @@ import {
   drawControlPoints,
   drawCurvatureComb,
   drawDistribution,
+  drawGrid,
+  drawMeasureCursor,
+  drawVProbe,
+  MEASURE_COLORS,
   drawFins,
   drawGhostSpline,
   drawSectionMarkers,
@@ -63,7 +67,13 @@ export interface SplineEditorProps {
    */
   onScrub?: (x: number | null) => void;
   /** Live measurements for the hovered world point, shown as a corner HUD. */
-  readout?: (world: Vec2) => { label: string; value: string }[];
+  readout?: (world: Vec2) => { label: string; value: string; color?: string }[];
+  /**
+   * Draw the cross-section measurement cursor at the hovered point: a crosshair
+   * that is solid inside the section profile and dashed outside (legacy "sliding
+   * info"). Cross-section pane only — length-axis panes use the scrub guide.
+   */
+  measureCursor?: boolean;
   /** Toggleable analysis overlays (curvature comb, CoM marker, distribution). */
   overlays?: EditorOverlays;
   /** Reference (ghost) splines drawn dashed underneath for comparison. */
@@ -123,6 +133,7 @@ export function SplineEditor({
   onAddSectionAt,
   onScrub,
   readout,
+  measureCursor = false,
   overlays,
   ghostSplines,
   background,
@@ -199,6 +210,7 @@ export function SplineEditor({
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     clear(ctx, size.w, size.h);
+    if (overlays?.grid) drawGrid(ctx, vp, size.w, size.h);
     if (background) {
       const { image, opacity, rect } = background;
       const tl = worldToScreen(vp, { x: rect.x - rect.w / 2, y: rect.y + rect.h / 2 });
@@ -226,6 +238,32 @@ export function SplineEditor({
       const sel = selection && sameTarget(selection.target, t) ? selection.index : null;
       drawControlPoints(ctx, spline, vp, style, sel);
     });
+    // Sliding-location probes: a closed board outline for the pane lets the cursor /
+    // scrub line be drawn solid where it's inside the board and dashed outside.
+    //  - mirrorX (cross-section) / mirrorY (outline): half-spline + its mirror.
+    //  - otherwise (rocker): deck + reversed bottom form the side profile.
+    const wantProbe = (measureCursor && hover) || overlays?.scrubProbe != null;
+    if (wantProbe) {
+      let profile: Vec2[] | null = null;
+      if ((mirrorX || mirrorY) && targets[0]) {
+        const pts = sampleSpline(getTargetSpline(board, targets[0]));
+        if (pts.length > 1) {
+          const m = mirrorX
+            ? (p: Vec2) => ({ x: -p.x, y: p.y })
+            : (p: Vec2) => ({ x: p.x, y: -p.y });
+          profile = [...pts, ...pts.map(m).reverse()];
+        }
+      } else if (targets[0] && targets[1]) {
+        const top = sampleSpline(getTargetSpline(board, targets[0]));
+        const bot = sampleSpline(getTargetSpline(board, targets[1]));
+        if (top.length > 1 && bot.length > 1) profile = [...top, ...[...bot].reverse()];
+      }
+      if (profile) {
+        if (measureCursor && hover) drawMeasureCursor(ctx, profile, vp, size.w, size.h, hover);
+        if (overlays?.scrubProbe != null)
+          drawVProbe(ctx, profile, vp, size.h, overlays.scrubProbe, MEASURE_COLORS.fromCl);
+      }
+    }
   }, [
     board,
     vp,
@@ -240,6 +278,8 @@ export function SplineEditor({
     overlays,
     ghostSplines,
     background,
+    measureCursor,
+    hover,
   ]);
 
   const localPoint = (e: React.MouseEvent): { x: number; y: number } => {
@@ -493,7 +533,7 @@ export function SplineEditor({
 }
 
 /** Small corner HUD showing live measurements at the hovered point. */
-function ReadoutHud({ rows }: { rows: { label: string; value: string }[] }) {
+function ReadoutHud({ rows }: { rows: { label: string; value: string; color?: string }[] }) {
   if (rows.length === 0) return null;
   return (
     <div
@@ -512,8 +552,8 @@ function ReadoutHud({ rows }: { rows: { label: string; value: string }[] }) {
     >
       {rows.map((r) => (
         <div key={r.label} style={{ display: 'flex', gap: 10, justifyContent: 'space-between' }}>
-          <span style={{ opacity: 0.7 }}>{r.label}</span>
-          <span>{r.value}</span>
+          <span style={{ opacity: 0.7, color: r.color }}>{r.label}</span>
+          <span style={{ color: r.color }}>{r.value}</span>
         </div>
       ))}
     </div>

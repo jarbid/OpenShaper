@@ -141,10 +141,12 @@ function AppShell() {
     color: '#E8EEF5',
     analysis: 'none',
     meshQuality: 'standard',
+    showSection: false,
   });
   const patchView3d = (patch: Partial<View3DSettings>) => setView3d((s) => ({ ...s, ...patch }));
   const [csClipboard, setCsClipboard] = useState<Spline | null>(null);
   const [overlayToggles, setOverlayToggles] = useState<OverlayToggles>({
+    grid: false,
     comb: false,
     com: false,
     dist: false,
@@ -164,6 +166,10 @@ function AppShell() {
   const sectionCount = board?.crossSections.length ?? 0;
   const lastReal = Math.max(1, sectionCount - 2);
   const clampedCs = Math.min(Math.max(csIndex, 1), lastReal);
+
+  // Active cross-section's length position, for the optional 3D mesh highlight.
+  const sectionX =
+    view3d.showSection && board ? (board.crossSections[clampedCs]?.position ?? null) : null;
 
   // Real cross-sections (skip the nose/tail dummies) as pickable outline markers.
   const sectionMarkers = board
@@ -266,11 +272,13 @@ function AppShell() {
     const verticalMarkers: { x: number; color: string; label?: string }[] = [];
     if (longitudinal && overlayToggles.com && specs)
       verticalMarkers.push({ x: specs.centerOfMass, color: '#22D3EE', label: 'CoM' });
-    // Cross-pane scrub guide: the hovered board-x, shown in every length-axis pane.
-    if (longitudinal && scrubX != null) verticalMarkers.push({ x: scrubX, color: '#F59E0B' });
     return {
+      grid: overlayToggles.grid,
       curvatureComb: overlayToggles.comb,
       verticalMarkers: verticalMarkers.length ? verticalMarkers : undefined,
+      // Cross-pane "sliding location": the hovered board-x as a solid-inside / dashed
+      // probe in every length-axis pane (the hovered pane included — it tracks the cursor).
+      scrubProbe: longitudinal && scrubX != null ? scrubX : undefined,
       distribution: longitudinal ? volumeDist : undefined,
       fins: kind === 'outline' ? finMarkers : undefined,
     };
@@ -468,6 +476,12 @@ function AppShell() {
     { kind: 'label', label: 'Overlays' },
     {
       kind: 'checkbox',
+      label: 'Grid & guides',
+      checked: overlayToggles.grid,
+      onSelect: () => setOverlayToggles((s) => ({ ...s, grid: !s.grid })),
+    },
+    {
+      kind: 'checkbox',
       label: 'Curvature comb',
       checked: overlayToggles.comb,
       onSelect: () => setOverlayToggles((s) => ({ ...s, comb: !s.comb })),
@@ -662,6 +676,7 @@ function AppShell() {
                     color={view3d.color}
                     analysis={view3d.analysis}
                     targetFaceSize={faceSizeFor(view3d.meshQuality)}
+                    sectionX={sectionX}
                   />
                 </PanelBody>
               </Panel>
@@ -686,6 +701,7 @@ function AppShell() {
                   color={view3d.color}
                   analysis={view3d.analysis}
                   targetFaceSize={faceSizeFor(view3d.meshQuality)}
+                  sectionX={sectionX}
                 />
               </PanelBody>
             </Panel>
