@@ -8,6 +8,7 @@ import {
   getCenterOfMass,
   getCenterWidth,
   getLength,
+  getLengthOverCurve,
   getMaxRocker,
   getMaxThickness,
   getMaxWidth,
@@ -32,6 +33,7 @@ interface GoldenStation {
 }
 interface GoldenBoard {
   length: number;
+  lengthOverCurve: number;
   maxWidth: number;
   maxWidthPos: number;
   centerWidth: number;
@@ -65,6 +67,7 @@ for (const name of ['shortboard', 'funboard', 'longboard']) {
     const g = golden.boards[name]!;
 
     it('length', () => within(getLength(b), g.length, DIM));
+    it('length over curve', () => within(getLengthOverCurve(b), g.lengthOverCurve, DIM));
     it('max width', () => within(getMaxWidth(b), g.maxWidth, DIM));
     it('max width pos', () => within(getMaxWidthPos(b), g.maxWidthPos, 0.5));
     it('center width', () => within(getCenterWidth(b), g.centerWidth, DIM));

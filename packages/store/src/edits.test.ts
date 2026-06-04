@@ -14,10 +14,15 @@
 import {
   board,
   crossSection,
+  getDeckAtPos,
   getLength,
   getMaxWidth,
+  getRockerAtPos,
+  getWidthAtPos,
   knot,
+  maxX,
   splineFromKnots,
+  valueAt,
   vec2,
   type BezierBoard,
 } from '@openshaper/kernel';
@@ -28,8 +33,10 @@ import {
   insertCrossSection,
   moveKnotEnd,
   moveKnotTangent,
+  propagateCrossSectionToCurves,
   removeCrossSection,
   scaleBoard,
+  setSplineValueAt,
   withSpline,
   type SplineTarget,
 } from './edits';
@@ -383,5 +390,109 @@ describe('scaleBoard', () => {
     const s = scaleBoard(b, 1, 1.5, 1);
     expect(getMaxWidth(s)).toBeCloseTo(getMaxWidth(b) * 1.5, 6);
     expect(getLength(s)).toBeCloseTo(getLength(b), 6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// setSplineValueAt (two-way link primitive)
+// ---------------------------------------------------------------------------
+
+describe('setSplineValueAt', () => {
+  const flat = () =>
+    splineFromKnots([
+      knot(vec2(0, 5), vec2(-5, 5), vec2(5, 5)),
+      knot(vec2(100, 5), vec2(95, 5), vec2(105, 5)),
+    ]);
+
+  it('inserts a knot on the curve at x and makes value(x) exact', () => {
+    const out = setSplineValueAt(flat(), 50, 8);
+    expect(out.knots).toHaveLength(3);
+    expect(valueAt(out, 50)).toBeCloseTo(8, 6);
+    // Endpoints (tips) are untouched.
+    expect(valueAt(out, 0)).toBeCloseTo(5, 6);
+    expect(valueAt(out, 100)).toBeCloseTo(5, 6);
+  });
+
+  it('retargets an interior knot already near the station instead of duplicating', () => {
+    const s = splineFromKnots([
+      knot(vec2(0, 5), vec2(-5, 5), vec2(5, 5)),
+      knot(vec2(50, 5), vec2(45, 5), vec2(55, 5)),
+      knot(vec2(100, 5), vec2(95, 5), vec2(105, 5)),
+    ]);
+    const out = setSplineValueAt(s, 50.3, 8); // within VALUE_X_TOL of the x=50 knot
+    expect(out.knots).toHaveLength(3); // no new knot
+    expect(valueAt(out, 50.3)).toBeCloseTo(8, 6);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// propagateCrossSectionToCurves (two-way link)
+// ---------------------------------------------------------------------------
+
+describe('propagateCrossSectionToCurves', () => {
+  // bottom(50)=3, deck(50)=9 (thickness 6); outline half-width(50)=20 (width 40).
+  const make = (): BezierBoard => {
+    const k = (ex: number, ey: number) => knot(vec2(ex, ey), vec2(ex - 5, ey), vec2(ex + 5, ey));
+    const outline = splineFromKnots([k(0, 0), k(50, 20), k(100, 0)]);
+    const bottom = splineFromKnots([k(0, 5), k(50, 3), k(100, 5)]);
+    const deck = splineFromKnots([k(0, 11), k(50, 9), k(100, 11)]);
+    // profile: bottom-center(0,0), rail(20,3) widest, tuck(15,5) interior, deck-center(0,6).
+    const prof = splineFromKnots([
+      knot(vec2(0, 0), vec2(0, 0), vec2(8, 0)),
+      knot(vec2(20, 3), vec2(16, 1), vec2(20, 4)),
+      knot(vec2(15, 5), vec2(18, 5), vec2(12, 5)),
+      knot(vec2(0, 6), vec2(8, 6), vec2(0, 6)),
+    ]);
+    return board(outline, bottom, deck, [
+      crossSection(0, prof),
+      crossSection(50, prof),
+      crossSection(100, prof),
+    ]);
+  };
+  const cs1 = { kind: 'crossSection', index: 1 } as const;
+  const editSection1 = (b: BezierBoard, ki: number, end: ReturnType<typeof vec2>) =>
+    withSpline(b, cs1, moveKnotEnd(b.crossSections[1]!.spline, ki, end));
+
+  it('deck-center drag raises the deck only', () => {
+    const prev = make();
+    const next = editSection1(prev, 3, vec2(0, 9)); // deck-center 6 → 9 (+3)
+    const out = propagateCrossSectionToCurves(prev, next, 1);
+    expect(getDeckAtPos(out, 50)).toBeCloseTo(12, 3); // 9 + 3
+    expect(getRockerAtPos(out, 50)).toBeCloseTo(3, 3); // bottom unchanged
+    expect(getWidthAtPos(out, 50)).toBeCloseTo(40, 2); // width unchanged
+  });
+
+  it('bottom-center drag drives the bottom rocker only', () => {
+    const prev = make();
+    const next = editSection1(prev, 0, vec2(0, -2)); // bottom-center 0 → -2 (-2)
+    const out = propagateCrossSectionToCurves(prev, next, 1);
+    expect(getRockerAtPos(out, 50)).toBeCloseTo(1, 3); // 3 - 2
+    expect(getDeckAtPos(out, 50)).toBeCloseTo(9, 3); // deck unchanged
+  });
+
+  it('widest-point drag drives the outline width', () => {
+    const prev = make();
+    const next = editSection1(prev, 1, vec2(25, 3)); // rail 20 → 25 maxX (+5 half-width)
+    const out = propagateCrossSectionToCurves(prev, next, 1);
+    expect(getWidthAtPos(out, 50)).toBeGreaterThan(48); // ~50
+    expect(getDeckAtPos(out, 50)).toBeCloseTo(9, 3); // deck unchanged
+    expect(getRockerAtPos(out, 50)).toBeCloseTo(3, 3); // bottom unchanged
+  });
+
+  it('foil-only edit (interior, non-widest, y-only) propagates nothing', () => {
+    const prev = make();
+    const next = editSection1(prev, 2, vec2(15, 4)); // tuck 5 → 4, x kept, maxX kept
+    const out = propagateCrossSectionToCurves(prev, next, 1);
+    expect(out).toBe(next); // referential: curves untouched
+    expect(getDeckAtPos(out, 50)).toBeCloseTo(9, 6);
+    expect(getRockerAtPos(out, 50)).toBeCloseTo(3, 6);
+    expect(getWidthAtPos(out, 50)).toBeCloseTo(40, 6);
+  });
+
+  it('leaves the nose/tail dummy stations alone', () => {
+    const prev = make();
+    const next = editSection1(prev, 3, vec2(0, 9));
+    expect(propagateCrossSectionToCurves(prev, next, 0)).toBe(next);
+    expect(propagateCrossSectionToCurves(prev, next, prev.crossSections.length - 1)).toBe(next);
   });
 });

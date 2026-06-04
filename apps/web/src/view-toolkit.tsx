@@ -12,7 +12,12 @@ import {
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
-import { SplineEditor, type EditorOverlays, type SectionMarker } from '@openshaper/render2d';
+import {
+  MEASURE_COLORS,
+  SplineEditor,
+  type EditorOverlays,
+  type SectionMarker,
+} from '@openshaper/render2d';
 import type {
   AnalysisMode,
   Board3DMode,
@@ -30,7 +35,10 @@ export type View = 'quad' | EditorKind | '3d';
 
 // --- small atoms -----------------------------------------------------------
 
-const SELECT_CLASS = 'h-7 rounded border border-border bg-transparent px-1 text-xs';
+// bg-card + text-foreground (not transparent) so both the closed control and the
+// native option popup are legible on the dark theme — the popup inherits these.
+const SELECT_CLASS =
+  'h-7 rounded border border-border bg-card px-1 text-xs text-foreground [&>option]:bg-card [&>option]:text-foreground';
 
 /** A label/value row used throughout the spec + weight panels. */
 export function SpecRow({ label, value }: { label: string; value: string }) {
@@ -142,11 +150,14 @@ export interface View3DSettings {
   color: string;
   analysis: AnalysisMode;
   meshQuality: MeshQuality;
+  /** Highlight the active cross-section's location on the 3D mesh. */
+  showSection: boolean;
 }
 
 /**
- * 3D appearance + analysis controls. `compact` (quad view) shows just the render
- * mode + analysis; the full 3D view also exposes lighting, material, and color.
+ * 3D appearance + analysis controls. `compact` (quad view) shows render mode,
+ * lighting, the section toggle, analysis, and mesh quality; the full 3D view also
+ * exposes material and board color.
  */
 export function ThreeDControls({
   settings,
@@ -173,14 +184,23 @@ export function ThreeDControls({
           </Button>
         ))}
       </div>
+      {/* Lighting is useful in the quad mini-pane too, so it stays out of `!compact`. */}
+      <Sel
+        value={settings.lighting}
+        onChange={(lighting) => set({ lighting })}
+        options={LIGHTING_3D}
+        title="Lighting"
+      />
+      <Button
+        size="sm"
+        variant={settings.showSection ? 'secondary' : 'ghost'}
+        onClick={() => set({ showSection: !settings.showSection })}
+        title="Highlight the active cross-section's location on the mesh"
+      >
+        Section
+      </Button>
       {!compact && (
         <>
-          <Sel
-            value={settings.lighting}
-            onChange={(lighting) => set({ lighting })}
-            options={LIGHTING_3D}
-            title="Lighting"
-          />
           <Sel
             value={settings.material}
             onChange={(material) => set({ material })}
@@ -221,15 +241,18 @@ export function ThreeDControls({
  * & height.
  */
 export function makeReadout(kind: EditorKind, units: LengthUnit) {
-  return (world: Vec2): { label: string; value: string }[] => {
+  return (world: Vec2): { label: string; value: string; color?: string }[] => {
     const b = boardStore.getState().board;
     if (!b) return [];
     const L = (cm: number) => fmtLen(cm, units);
+    // The scrub probe is the cyan vertical line at the cursor's board-x; its readouts
+    // (position + the span it measures) are coloured to match it.
+    const cyan = MEASURE_COLORS.fromCl;
     if (kind === 'outline') {
       const halfW = getWidthAtPos(b, world.x) / 2;
       return [
-        { label: 'Pos', value: L(world.x) },
-        { label: 'Width', value: L(getWidthAtPos(b, world.x)) },
+        { label: 'Pos', value: L(world.x), color: cyan },
+        { label: 'Width', value: L(getWidthAtPos(b, world.x)), color: cyan },
         { label: 'From rail', value: L(Math.max(0, halfW - Math.abs(world.y))) },
       ];
     }
@@ -237,15 +260,17 @@ export function makeReadout(kind: EditorKind, units: LengthUnit) {
       const thk = getThicknessAtPos(b, world.x);
       const center = getThickness(b) || 1;
       return [
-        { label: 'Pos', value: L(world.x) },
+        { label: 'Pos', value: L(world.x), color: cyan },
         { label: 'Rocker', value: L(getRockerAtPos(b, world.x)) },
         { label: 'Deck', value: L(getDeckAtPos(b, world.x)) },
-        { label: 'Thick', value: `${L(thk)} (${((thk / center) * 100).toFixed(0)}%)` },
+        { label: 'Thick', value: `${L(thk)} (${((thk / center) * 100).toFixed(0)}%)`, color: cyan },
       ];
     }
+    // Colour-coded to match the measurement-cursor probes (legacy "sliding info"):
+    // From CL ↔ vertical probe, Height ↔ horizontal probe.
     return [
-      { label: 'From CL', value: L(Math.abs(world.x)) },
-      { label: 'Height', value: L(world.y) },
+      { label: 'From CL', value: L(Math.abs(world.x)), color: MEASURE_COLORS.fromCl },
+      { label: 'Height', value: L(world.y), color: MEASURE_COLORS.height },
     ];
   };
 }
@@ -258,8 +283,13 @@ function paneProps(kind: EditorKind, csIndex: number) {
       : kind === 'rocker'
         ? [{ kind: 'deck' }, { kind: 'bottom' }]
         : [{ kind: 'crossSection', index: csIndex }];
+  // Rocker overlays two curves — give deck (cyan) and bottom (pink) strongly
+  // different hues so top vs bottom reads at a glance. Outline/cross-section are
+  // single mirrored curves (both halves are the same spline), so one color.
+  const colors = kind === 'rocker' ? ['#22D3EE', '#F472B6'] : undefined;
   return {
     targets,
+    colors,
     mirrorY: kind === 'outline',
     mirrorX: kind === 'crossSection',
     key: kind === 'crossSection' ? `cs-${csIndex}` : kind,
@@ -307,6 +337,7 @@ export function EditorPane({
           key={p.key}
           store={boardStore}
           targets={p.targets}
+          colors={p.colors}
           mirrorY={p.mirrorY}
           mirrorX={p.mirrorX}
           sectionMarkers={kind !== 'crossSection' ? sectionMarkers : undefined}
@@ -314,6 +345,7 @@ export function EditorPane({
           onAddSectionAt={kind !== 'crossSection' ? onAddSectionAt : undefined}
           onScrub={kind !== 'crossSection' ? onScrub : undefined}
           readout={makeReadout(kind, units)}
+          measureCursor={kind === 'crossSection'}
           overlays={overlays}
           ghostSplines={ghostSplines}
           background={kind === 'outline' ? background : undefined}

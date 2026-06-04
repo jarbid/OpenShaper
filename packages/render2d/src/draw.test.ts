@@ -9,7 +9,17 @@
  */
 import { knot, splineFromKnots, vec2 } from '@openshaper/kernel';
 import { describe, expect, it, vi } from 'vitest';
-import { clear, defaultStyle, drawControlPoints, drawCurvatureComb, drawSpline } from './draw';
+import {
+  clear,
+  defaultStyle,
+  drawControlPoints,
+  drawCurvatureComb,
+  drawGrid,
+  drawMeasureCursor,
+  drawSpline,
+  gridStep,
+} from './draw';
+import type { Vec2 } from '@openshaper/kernel';
 import type { Viewport } from './viewport';
 
 // ---------------------------------------------------------------------------
@@ -220,5 +230,134 @@ describe('drawCurvatureComb', () => {
     const zoomedIn = makeRecordingCtx();
     drawCurvatureComb(zoomedIn.ctx, arc(), { scale: 8, originX: 0, originY: 0 });
     expect(zoomedIn.moves.length).toBeGreaterThan(zoomedOut.moves.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// gridStep / drawGrid
+// ---------------------------------------------------------------------------
+
+describe('gridStep', () => {
+  it('rounds up to a nice 1 / 2 / 5 × 10ᵏ value', () => {
+    expect(gridStep(1)).toBe(1);
+    expect(gridStep(1.5)).toBe(2);
+    expect(gridStep(3)).toBe(5);
+    expect(gridStep(7)).toBe(10);
+    expect(gridStep(0.4)).toBeCloseTo(0.5, 9);
+    expect(gridStep(40)).toBe(50);
+  });
+
+  it('returns 0 for non-finite or non-positive input', () => {
+    expect(gridStep(0)).toBe(0);
+    expect(gridStep(-5)).toBe(0);
+    expect(gridStep(Number.NaN)).toBe(0);
+    expect(gridStep(Number.POSITIVE_INFINITY)).toBe(0);
+  });
+});
+
+describe('drawGrid', () => {
+  /** Grid needs save/restore in addition to the path methods. */
+  function makeGridCtx() {
+    const moves: { x: number; y: number }[] = [];
+    const ctx = {
+      strokeStyle: '',
+      lineWidth: 0,
+      save: vi.fn(),
+      restore: vi.fn(),
+      beginPath: vi.fn(),
+      moveTo: vi.fn((x: number, y: number) => moves.push({ x, y })),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+    return { ctx, moves };
+  }
+
+  it('emits grid lines spanning the canvas and balances save/restore', () => {
+    const { ctx, moves } = makeGridCtx();
+    drawGrid(ctx, VP, 800, 600);
+    expect(ctx.save).toHaveBeenCalledTimes(1);
+    expect(ctx.restore).toHaveBeenCalledTimes(1);
+    expect(moves.length).toBeGreaterThan(0);
+  });
+
+  it('draws more lines when zoomed in (nice-stepped, not unbounded)', () => {
+    const zoomedOut = makeGridCtx();
+    drawGrid(zoomedOut.ctx, { scale: 1, originX: 400, originY: 300 }, 800, 600);
+    const zoomedIn = makeGridCtx();
+    drawGrid(zoomedIn.ctx, { scale: 10, originX: 400, originY: 300 }, 800, 600);
+    expect(zoomedIn.moves.length).toBeGreaterThanOrEqual(zoomedOut.moves.length);
+    // Bounded: a 64px target cell over an 800×600 canvas can't produce hundreds of lines.
+    expect(zoomedIn.moves.length).toBeLessThan(200);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// drawMeasureCursor
+// ---------------------------------------------------------------------------
+
+describe('drawMeasureCursor', () => {
+  function makeCursorCtx() {
+    const moves: { x: number; y: number }[] = [];
+    const dashes: number[][] = [];
+    const ctx = {
+      strokeStyle: '',
+      lineWidth: 0,
+      globalAlpha: 1,
+      save: vi.fn(),
+      restore: vi.fn(),
+      setLineDash: vi.fn((d: number[]) => dashes.push([...d])),
+      beginPath: vi.fn(),
+      moveTo: vi.fn((x: number, y: number) => moves.push({ x, y })),
+      lineTo: vi.fn(),
+      stroke: vi.fn(),
+    } as unknown as CanvasRenderingContext2D;
+    return { ctx, moves, dashes };
+  }
+
+  // A 4×4 square centred on the origin (a stand-in closed cross-section outline).
+  const square: Vec2[] = [
+    { x: -2, y: -2 },
+    { x: 2, y: -2 },
+    { x: 2, y: 2 },
+    { x: -2, y: 2 },
+  ];
+
+  it('emits a dashed full-extent line + a solid inside segment for each axis', () => {
+    const { ctx, moves, dashes } = makeCursorCtx();
+    // Cursor at the centre is inside the square, so each probe has one inside span.
+    drawMeasureCursor(ctx, square, { scale: 10, originX: 100, originY: 100 }, 200, 200, {
+      x: 0,
+      y: 0,
+    });
+    // 2 dashed full lines (V + H) + 2 solid inside segments (V + H) = 4 moveTo.
+    expect(moves.length).toBe(4);
+    // Both a dashed pass ([4,4]) and a solid pass ([]) happened.
+    expect(dashes.some((d) => d.length === 2)).toBe(true);
+    expect(dashes.some((d) => d.length === 0)).toBe(true);
+    // Composed of a vertical + horizontal probe, each balancing its own save/restore.
+    expect(ctx.save).toHaveBeenCalledTimes(2);
+    expect(ctx.restore).toHaveBeenCalledTimes(2);
+  });
+
+  it('draws only the dashed guides (no inside segment) when the cursor is outside', () => {
+    const { ctx, moves } = makeCursorCtx();
+    // x=10 is right of the square → the vertical probe has no crossings, so no solid
+    // vertical segment; the horizontal probe at y=10 is also fully outside.
+    drawMeasureCursor(ctx, square, { scale: 10, originX: 100, originY: 100 }, 200, 200, {
+      x: 10,
+      y: 10,
+    });
+    // Just the 2 dashed full-extent guides.
+    expect(moves.length).toBe(2);
+  });
+
+  it('does nothing for a degenerate profile', () => {
+    const { ctx, moves } = makeCursorCtx();
+    drawMeasureCursor(ctx, [{ x: 0, y: 0 }], { scale: 1, originX: 0, originY: 0 }, 100, 100, {
+      x: 0,
+      y: 0,
+    });
+    expect(moves.length).toBe(0);
+    expect(ctx.save).not.toHaveBeenCalled();
   });
 });

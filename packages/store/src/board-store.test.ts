@@ -4,6 +4,10 @@ import {
   crossSection,
   csCenterThickness,
   csWidth,
+  getDeckAtPos,
+  getLength,
+  getLengthOverCurve,
+  getRockerAtPos,
   getThicknessAtPos,
   getWidthAtPos,
   knot,
@@ -133,18 +137,42 @@ describe('board store: curve coupling (rocker/outline → cross-sections)', () =
     expect(csWidth(mid)).toBeGreaterThan(before);
   });
 
-  it('keeps the station slaved when its own profile is edited (shape-only)', () => {
+  it('drives the deck two-way when the section centerline is dragged (no snap-back)', () => {
     const store = createBoardStore();
     store.getState().load(makeCoupledBoard());
     const target = { kind: 'crossSection', index: 1 } as const;
-    const before = getThicknessAtPos(store.getState().board!, 50);
+    const beforeThk = getThicknessAtPos(store.getState().board!, 50);
+    const knots = store.getState().board!.crossSections[1]!.spline.knots;
+    const last = knots.length - 1; // last knot = deck-center driver
+    const deckCenter = knots[last]!.end;
 
-    // Try to make the section much thicker by dragging its deck-center point up.
-    store.getState().moveControlPoint(target, 1, vec2(0, 40));
+    // Drag the deck-center up (keep its x so width is unaffected).
+    store.getState().moveControlPoint(target, last, vec2(deckCenter.x, deckCenter.y + 3));
 
-    // Overall thickness snaps back to what the rocker/deck dictate (rocker owns it).
-    const mid = store.getState().board!.crossSections[1]!;
-    expect(csCenterThickness(mid)).toBeCloseTo(before, 6);
+    const b = store.getState().board!;
+    // The deck rose: thickness increased (propagated) instead of snapping back, and the
+    // section stays consistent with the curve.
+    expect(getThicknessAtPos(b, 50)).toBeGreaterThan(beforeThk + 2);
+    expect(csCenterThickness(b.crossSections[1]!)).toBeCloseTo(getThicknessAtPos(b, 50), 4);
+  });
+
+  it('undoes a section-driven deck change in one step', () => {
+    const store = createBoardStore();
+    store.getState().load(makeCoupledBoard());
+    const original = store.getState().board!;
+    const beforeDeck = getDeckAtPos(original, 50);
+    const knots = original.crossSections[1]!.spline.knots;
+    const last = knots.length - 1;
+    const dc = knots[last]!.end;
+
+    store
+      .getState()
+      .moveControlPoint({ kind: 'crossSection', index: 1 }, last, vec2(dc.x, dc.y + 3));
+    expect(getDeckAtPos(store.getState().board!, 50)).toBeGreaterThan(beforeDeck + 2);
+
+    // One undo restores the whole board — section AND the propagated deck together.
+    store.getState().undo();
+    expect(store.getState().board).toBe(original);
   });
 });
 
@@ -232,5 +260,40 @@ describe('edits: continuous tangent mirroring', () => {
     // prev should mirror to (0,-1): opposite direction, original length 1 preserved.
     expect(k.tangentToPrev.x).toBeCloseTo(0, 9);
     expect(k.tangentToPrev.y).toBeCloseTo(-1, 9);
+  });
+});
+
+// Pins the nose/tail station readouts to the legacy BoardSpec convention: the
+// axis runs tail (x=0) → nose (x=length), measurements are taken one/two feet in
+// from each tip (FOOT = 30.48 cm), and the kernel getters (golden-pinned in the
+// kernel package) are wired to the right end. Guards against the easy regressions:
+// swapped nose/tail, wrong foot constant, baseline subtraction creeping in.
+describe('selectors: nose/tail station readouts', () => {
+  const FOOT = 30.48;
+
+  it('wires every station field to the correct end and offset', () => {
+    const b = makeBoard(); // length 100 → 24" stations (60.96 cm) are in range
+    const len = getLength(b);
+    const specs = selectSpecs(b);
+
+    expect(specs.noseWidth).toBeCloseTo(getWidthAtPos(b, len - FOOT), 6);
+    expect(specs.tailWidth).toBeCloseTo(getWidthAtPos(b, FOOT), 6);
+    expect(specs.noseThickness).toBeCloseTo(getThicknessAtPos(b, len - FOOT), 6);
+    expect(specs.tailThickness).toBeCloseTo(getThicknessAtPos(b, FOOT), 6);
+
+    // Rocker tips are sampled a hair inside the end (legacy 0.005 / 0.001 epsilons).
+    expect(specs.noseRocker).toBeCloseTo(getRockerAtPos(b, len - 0.005), 6);
+    expect(specs.tailRocker).toBeCloseTo(getRockerAtPos(b, 0.001), 6);
+    expect(specs.noseRocker1).toBeCloseTo(getRockerAtPos(b, len - FOOT), 6);
+    expect(specs.tailRocker1).toBeCloseTo(getRockerAtPos(b, FOOT), 6);
+    expect(specs.noseRocker2).toBeCloseTo(getRockerAtPos(b, len - 2 * FOOT), 6);
+    expect(specs.tailRocker2).toBeCloseTo(getRockerAtPos(b, 2 * FOOT), 6);
+
+    expect(specs.lengthOverCurve).toBeCloseTo(getLengthOverCurve(b), 6);
+  });
+
+  it('memoizes by board identity (station reads are O(1) but ride the cache)', () => {
+    const b = makeBoard();
+    expect(selectSpecs(b)).toBe(selectSpecs(b));
   });
 });

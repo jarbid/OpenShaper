@@ -42,6 +42,17 @@ export const fmtLen = (cm: number, u: LengthUnit): string =>
 /** Volume is always shown in liters (matches the legacy convention). */
 export const fmtVol = (cm3: number): string => convertVolumeToUnit(cm3);
 
+/**
+ * The shaper's shorthand for a board: `length × width × thickness` in the active
+ * unit (e.g. `6'2" × 19 1/4" × 2 1/2"`). Used for the copyable spec headline.
+ */
+export const fmtDimsHeadline = (
+  lengthCm: number,
+  widthCm: number,
+  thicknessCm: number,
+  u: LengthUnit,
+): string => `${fmtLen(lengthCm, u)} × ${fmtLen(widthCm, u)} × ${fmtLen(thicknessCm, u)}`;
+
 /** Numeric value of an internal cm length in the chosen unit (for editable fields). */
 export const cmToUnitNumber = (cm: number, u: LengthUnit): number =>
   convertLengthToUnitNumber(cm, u.unit);

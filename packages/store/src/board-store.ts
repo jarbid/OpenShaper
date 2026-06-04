@@ -11,6 +11,7 @@ import {
   insertKnotAt,
   moveKnotEnd,
   moveKnotTangent,
+  propagateCrossSectionToCurves,
   removeCrossSection,
   scaleBoard,
   setKnotContinuous,
@@ -97,8 +98,14 @@ export const createBoardStore = (): StoreApi<BoardState> =>
     ) => {
       const { board } = get();
       if (!board) return;
+      let edited = fn(getTargetSpline(board, target));
+      // Two-way link: a cross-section centerline/width edit drives the rocker/deck/outline
+      // at that station, so it isn't snapped back by the adjust pass inside commit().
+      if (target.kind === 'crossSection') {
+        edited = propagateCrossSectionToCurves(board, edited, target.index);
+      }
       // Re-pin shared junctions after the edit so curves can't be pulled apart.
-      commit(enforceJunctions(fn(getTargetSpline(board, target)), target));
+      commit(enforceJunctions(edited, target));
     };
 
     return {

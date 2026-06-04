@@ -7,9 +7,11 @@ import {
   curveLength,
   getInterpolatedCrossSection,
   knot,
+  maxX,
   scaleSpline,
   splineFromKnots,
   splitCurve,
+  valueAt,
   vec2,
   type BezierBoard,
   type CrossSection,
@@ -164,6 +166,71 @@ export const insertKnotAt = (s: Spline, p: Vec2): { spline: Spline; index: numbe
     ...s.knots.slice(hit.index + 2),
   ];
   return { spline: splineFromKnots(knots), index: insertIndex };
+};
+
+// --- two-way coupling: cross-section centerline/width drives the curves ---
+
+/** A knot already on the curve this close (cm) to a station is retargeted, not duplicated. */
+const VALUE_X_TOL = 0.5;
+/** Minimum centerline/width change (cm) that propagates back to a curve. */
+const PROPAGATE_EPS = 1e-4;
+
+/**
+ * Return a copy of `s` whose value at world-x `x` equals `targetY`, exactly. A
+ * Bézier knot's endpoint lies on the curve, so we either retarget an interior knot
+ * already near `x` (within {@link VALUE_X_TOL}) or insert one on the curve at `x`
+ * (shape-preserving split) and set its height. The new/edited knot keeps continuous
+ * tangents → the curve stays faired by default; the caller can later corner it for a
+ * hard step. Endpoints (tips) are never moved.
+ */
+export const setSplineValueAt = (s: Spline, x: number, targetY: number): Spline => {
+  for (let i = 1; i < s.knots.length - 1; i++) {
+    if (Math.abs(s.knots[i]!.end.x - x) <= VALUE_X_TOL) {
+      return moveKnotEnd(s, i, vec2(x, targetY));
+    }
+  }
+  const ins = insertKnotAt(s, vec2(x, valueAt(s, x)));
+  if (!ins) return s;
+  return moveKnotEnd(ins.spline, ins.index, vec2(x, targetY));
+};
+
+/**
+ * Two-way link: propagate an interior cross-section's centerline/width edit onto the
+ * rocker/deck/outline at that station. Compares the just-edited section (`next`)
+ * against `prev`: a change in its bottom-center y drives the bottom rocker, its
+ * deck-center y drives the deck, and its half-width (maxX) drives the outline — each
+ * at the section's longitudinal position. Foil/rail shape changes that don't move the
+ * centerline endpoints or the widest point propagate nothing. Returns `next`
+ * unchanged when nothing crosses {@link PROPAGATE_EPS}.
+ */
+export const propagateCrossSectionToCurves = (
+  prev: BezierBoard,
+  next: BezierBoard,
+  index: number,
+): BezierBoard => {
+  if (index <= 0 || index >= next.crossSections.length - 1) return next;
+  const prevCs = prev.crossSections[index];
+  const nextCs = next.crossSections[index];
+  if (!prevCs || !nextCs) return next;
+  const pk = prevCs.spline.knots;
+  const nk = nextCs.spline.knots;
+  if (pk.length === 0 || pk.length !== nk.length) return next;
+
+  const x = nextCs.position;
+  const bottomDelta = nk[0]!.end.y - pk[0]!.end.y;
+  const deckDelta = nk[nk.length - 1]!.end.y - pk[pk.length - 1]!.end.y;
+  const widthHalfDelta = maxX(nextCs.spline) - maxX(prevCs.spline);
+
+  let { bottom, deck, outline } = next;
+  if (Math.abs(bottomDelta) > PROPAGATE_EPS)
+    bottom = setSplineValueAt(bottom, x, valueAt(bottom, x) + bottomDelta);
+  if (Math.abs(deckDelta) > PROPAGATE_EPS)
+    deck = setSplineValueAt(deck, x, valueAt(deck, x) + deckDelta);
+  if (Math.abs(widthHalfDelta) > PROPAGATE_EPS)
+    outline = setSplineValueAt(outline, x, valueAt(outline, x) + widthHalfDelta);
+
+  if (bottom === next.bottom && deck === next.deck && outline === next.outline) return next;
+  return board(outline, bottom, deck, next.crossSections, next.interpolationType);
 };
 
 // --- cross-section management (legacy Cross-sections menu) ---

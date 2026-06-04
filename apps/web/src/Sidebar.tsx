@@ -8,12 +8,13 @@
 import type { InterpolationType } from '@openshaper/kernel';
 import type { BoardSpecs } from '@openshaper/store';
 import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
-import type { Dispatch, RefObject, SetStateAction } from 'react';
+import { Copy } from 'lucide-react';
+import type { Dispatch, ReactNode, RefObject, SetStateAction } from 'react';
 import { ControlPointInspector } from './ControlPointInspector';
 import { CoffeeIcon } from './components/Support';
 import { SUPPORT_URL } from './support';
 import type { BoardMeta } from './file-io';
-import { fmtLen, fmtVol, type LengthUnit } from './format';
+import { fmtDimsHeadline, fmtLen, fmtVol, type LengthUnit } from './format';
 import { FIN_SETUP_LABELS, FIN_SETUPS, type FinSetup } from './fins';
 import { boardStore } from './store';
 import { OverlayToggle, Sel, SpecRow } from './view-toolkit';
@@ -38,6 +39,18 @@ function diffVol(cur: number, ghost: number): string {
   return `${d >= 0 ? '+' : '−'}${fmtVol(Math.abs(d))}`;
 }
 
+/** A labeled subsection of the spec readout (Nose / Center / Tail / Overall). */
+function SpecGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="space-y-1">
+      <div className="pt-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground/70">
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
 export interface ResizeFields {
   l: string;
   w: string;
@@ -45,6 +58,7 @@ export interface ResizeFields {
 }
 
 export interface OverlayToggles {
+  grid: boolean;
   comb: boolean;
   com: boolean;
   dist: boolean;
@@ -122,13 +136,65 @@ export function Sidebar({
         <PanelBody className="space-y-1 text-sm">
           {specs ? (
             <>
-              <SpecRow label="Length" value={fmtLen(specs.length, units)} />
-              <SpecRow label="Width" value={fmtLen(specs.maxWidth, units)} />
-              <SpecRow label="Thickness" value={fmtLen(specs.thickness, units)} />
-              <SpecRow label="Wide point" value={fmtLen(specs.maxWidthPos, units)} />
-              <SpecRow label="Max rocker" value={fmtLen(specs.maxRocker, units)} />
-              <SpecRow label="Volume" value={fmtVol(specs.volume)} />
-              <SpecRow label="Center of mass" value={fmtLen(specs.centerOfMass, units)} />
+              <div className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-2 py-1.5">
+                <span className="font-mono text-[13px] tabular-nums text-foreground">
+                  {fmtDimsHeadline(specs.length, specs.maxWidth, specs.thickness, units)}
+                </span>
+                <button
+                  type="button"
+                  title="Copy dimensions"
+                  aria-label="Copy dimensions"
+                  className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  onClick={() => {
+                    const text = fmtDimsHeadline(
+                      specs.length,
+                      specs.maxWidth,
+                      specs.thickness,
+                      units,
+                    );
+                    void navigator.clipboard?.writeText(text)?.catch(() => {});
+                  }}
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              <SpecGroup title="Nose">
+                <SpecRow label={'Width @ 12"'} value={fmtLen(specs.noseWidth, units)} />
+                <SpecRow label={'Thickness @ 12"'} value={fmtLen(specs.noseThickness, units)} />
+                <SpecRow label="Rocker" value={fmtLen(specs.noseRocker, units)} />
+                <SpecRow label={'Rocker @ 12"'} value={fmtLen(specs.noseRocker1, units)} />
+                {specs.length >= 121.92 && (
+                  <SpecRow label={'Rocker @ 24"'} value={fmtLen(specs.noseRocker2, units)} />
+                )}
+              </SpecGroup>
+
+              <SpecGroup title="Center">
+                <SpecRow label="Width" value={fmtLen(specs.maxWidth, units)} />
+                <SpecRow label="Wide point" value={fmtLen(specs.maxWidthPos, units)} />
+                <SpecRow label="Center width" value={fmtLen(specs.centerWidth, units)} />
+                <SpecRow label="Thickness" value={fmtLen(specs.thickness, units)} />
+                <SpecRow label="Max thickness" value={fmtLen(specs.maxThickness, units)} />
+              </SpecGroup>
+
+              <SpecGroup title="Tail">
+                <SpecRow label={'Width @ 12"'} value={fmtLen(specs.tailWidth, units)} />
+                <SpecRow label={'Thickness @ 12"'} value={fmtLen(specs.tailThickness, units)} />
+                <SpecRow label="Rocker" value={fmtLen(specs.tailRocker, units)} />
+                <SpecRow label={'Rocker @ 12"'} value={fmtLen(specs.tailRocker1, units)} />
+                {specs.length >= 121.92 && (
+                  <SpecRow label={'Rocker @ 24"'} value={fmtLen(specs.tailRocker2, units)} />
+                )}
+              </SpecGroup>
+
+              <SpecGroup title="Overall">
+                <SpecRow label="Length" value={fmtLen(specs.length, units)} />
+                <SpecRow label="Length o/curve" value={fmtLen(specs.lengthOverCurve, units)} />
+                <SpecRow label="Max rocker" value={fmtLen(specs.maxRocker, units)} />
+                <SpecRow label="Volume" value={fmtVol(specs.volume)} />
+                <SpecRow label="Center of mass" value={fmtLen(specs.centerOfMass, units)} />
+              </SpecGroup>
+
               <div className="flex items-center justify-between gap-2 pt-1">
                 <span className="text-muted-foreground">Interpolation</span>
                 <Sel
@@ -350,6 +416,11 @@ export function Sidebar({
         </PanelHeader>
         <PanelBody className="space-y-1 text-sm">
           <OverlayToggle
+            label="Grid & guides"
+            checked={overlayToggles.grid}
+            onChange={(v) => setOverlayToggles((s) => ({ ...s, grid: v }))}
+          />
+          <OverlayToggle
             label="Curvature comb"
             checked={overlayToggles.comb}
             onChange={(v) => setOverlayToggles((s) => ({ ...s, comb: v }))}
@@ -365,8 +436,8 @@ export function Sidebar({
             onChange={(v) => setOverlayToggles((s) => ({ ...s, dist: v }))}
           />
           <p className="pt-1 text-xs text-muted-foreground">
-            Comb shows on the edited curves; CoM &amp; volume distribution on the outline and
-            rocker.
+            Grid &amp; guides show in every pane (baseline + centerline emphasized); comb on the
+            edited curves; CoM &amp; volume distribution on the outline and rocker.
           </p>
         </PanelBody>
       </Panel>
