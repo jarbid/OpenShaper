@@ -22,6 +22,10 @@ export const OG_IMAGE = '/og-cover.svg';
 
 export const GITHUB_URL = 'https://github.com/jarbid/openshaper';
 
+/** Contact address for feedback, bugs, feature requests and enquiries. */
+export const CONTACT_EMAIL = 'info@openshaper.com';
+export const CONTACT_MAILTO = `mailto:${CONTACT_EMAIL}`;
+
 /** Maker name used for author / Person structured data. Update to taste. */
 export const AUTHOR_NAME = 'Jared';
 

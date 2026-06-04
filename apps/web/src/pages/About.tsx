@@ -4,7 +4,33 @@ import { SupportCallout } from '../components/Support';
 import { SUPPORT_URL } from '../support';
 import { JsonLd } from '../seo/JsonLd';
 import { Seo } from '../seo/Seo';
-import { absUrl, AUTHOR_NAME, GITHUB_URL, SITE_NAME } from '../seo/site';
+import {
+  absUrl,
+  AUTHOR_NAME,
+  CONTACT_EMAIL,
+  CONTACT_MAILTO,
+  GITHUB_URL,
+  SITE_NAME,
+} from '../seo/site';
+
+/** Thin line-art envelope — echoes the CAD construction-line motif. */
+function MailIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="m3 7 9 6 9-6" />
+    </svg>
+  );
+}
 
 export default function About() {
   return (
@@ -116,6 +142,26 @@ export default function About() {
         </div>
 
         <SupportCallout />
+
+        <aside className="reveal mt-8 rounded-2xl border border-border bg-card p-7 sm:flex sm:items-start sm:gap-5 sm:p-8">
+          <span className="mb-4 grid size-12 shrink-0 place-items-center rounded-xl border border-border bg-secondary text-primary sm:mb-0">
+            <MailIcon className="size-6" />
+          </span>
+          <div>
+            <h2 className="font-display text-2xl sm:text-3xl">Get in touch</h2>
+            <p className="mt-3 max-w-xl text-muted-foreground">
+              I&apos;d genuinely love to hear from you — feedback, bugs, feature requests, general
+              enquiries, or a photo of a board you shaped in OpenShaper. Drop me a line at{' '}
+              <a
+                href={CONTACT_MAILTO}
+                className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
+              >
+                {CONTACT_EMAIL}
+              </a>{' '}
+              and I&apos;ll get back to you.
+            </p>
+          </div>
+        </aside>
       </Container>
 
       <CtaBand

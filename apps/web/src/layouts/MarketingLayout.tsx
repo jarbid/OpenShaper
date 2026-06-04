@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Brandmark, WaveLines } from '../components/marks';
 import { CoffeeIcon } from '../components/Support';
-import { GITHUB_URL, SITE_NAME } from '../seo/site';
+import { CONTACT_EMAIL, CONTACT_MAILTO, GITHUB_URL, SITE_NAME } from '../seo/site';
 import { SUPPORT_URL } from '../support';
 import '../marketing.css';
 
@@ -117,6 +117,15 @@ export function MarketingLayout() {
             <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">
               A free, open-source surfboard design app that runs entirely in your browser. Built by
               a maker, for makers.
+            </p>
+            <p className="mt-4 max-w-sm text-sm leading-relaxed text-muted-foreground">
+              Got feedback, a bug, a feature idea — or a board you built with it?{' '}
+              <a
+                href={CONTACT_MAILTO}
+                className="text-foreground underline underline-offset-2 hover:text-primary"
+              >
+                {CONTACT_EMAIL}
+              </a>
             </p>
           </div>
 
