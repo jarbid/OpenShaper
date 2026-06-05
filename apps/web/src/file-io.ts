@@ -1,4 +1,12 @@
-import { exportDxf, exportPdf, exportStl } from '@openshaper/export';
+import {
+  exportDxf,
+  exportPdf,
+  exportStl,
+  sheetToDxf,
+  sheetToPdf,
+  sheetToSvg,
+  type TemplateSheet,
+} from '@openshaper/export';
 import { parseBrd, readBoardJson, writeBoardJson } from '@openshaper/io';
 import type { BezierBoard } from '@openshaper/kernel';
 
@@ -42,6 +50,28 @@ export async function openBoardFile(file: File): Promise<{ board: BezierBoard; m
   if (file.name.toLowerCase().endsWith('.brd')) return { board: parseBrd(text).board, meta: {} };
   const { board, metadata } = readBoardJson(text);
   return { board, meta: (metadata as BoardMeta) ?? {} };
+}
+
+export type TemplateFormat = 'dxf' | 'svg' | 'pdf';
+
+/** Download a built construction-template {@link TemplateSheet} in the chosen vector format. */
+export function downloadTemplateSheet(
+  sheet: TemplateSheet,
+  format: TemplateFormat,
+  baseName = 'hws-frame',
+): void {
+  switch (format) {
+    case 'dxf':
+      return download(sheetToDxf(sheet), `${baseName}.dxf`, 'application/dxf');
+    case 'svg':
+      return download(sheetToSvg(sheet), `${baseName}.svg`, 'image/svg+xml');
+    case 'pdf':
+      return download(
+        sheetToPdf(sheet) as unknown as BlobPart,
+        `${baseName}.pdf`,
+        'application/pdf',
+      );
+  }
 }
 
 export type ExportFormat = 'stl' | 'dxf' | 'pdf';

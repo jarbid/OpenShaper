@@ -41,6 +41,7 @@ import {
   parseLen,
 } from './format';
 import { Brandmark } from './components/marks';
+import { ConstructionPanel } from './ConstructionPanel';
 import { CrossSectionControls } from './CrossSectionControls';
 import { CoffeeIcon } from './components/Support';
 import { finsFor, type FinSetup } from './fins';
@@ -160,6 +161,7 @@ function AppShell() {
   const metaRef = useRef(meta); // for the Ctrl+S handler (stable keydown effect)
   metaRef.current = meta;
   const [resize, setResize] = useState<ResizeFields>({ l: '', w: '', t: '' });
+  const [templateKind, setTemplateKind] = useState<'hws' | null>(null);
 
   useKeyboardShortcuts({ setView, setCsIndex, metaRef });
 
@@ -528,6 +530,16 @@ function AppShell() {
     },
   ];
 
+  const templatesMenu: MenuItem[] = [
+    { kind: 'label', label: 'Construction' },
+    {
+      kind: 'action',
+      label: 'Hollow Wood Frame…',
+      disabled: !board,
+      onSelect: () => setTemplateKind('hws'),
+    },
+  ];
+
   const helpMenu: MenuItem[] = [
     {
       kind: 'action',
@@ -568,6 +580,7 @@ function AppShell() {
             <Menu label="Edit" items={editMenu} />
             <Menu label="View" items={viewMenu} />
             <Menu label="Board" items={boardMenu} />
+            <Menu label="Templates" items={templatesMenu} />
             <Menu label="Help" items={helpMenu} />
           </MenuBar>
           <div className="flex-1" />
@@ -758,6 +771,10 @@ function AppShell() {
           ghostSpecs={ghostSpecs}
         />
       </div>
+
+      {templateKind === 'hws' && board && (
+        <ConstructionPanel board={board} onClose={() => setTemplateKind(null)} />
+      )}
     </div>
   );
 }

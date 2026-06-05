@@ -9,3 +9,18 @@ export { exportStl, type StlOptions } from './stl';
 export { exportDxf, type DxfOptions } from './dxf';
 export { exportPdf, type PdfOptions, type PdfMeta } from './pdf';
 export { specSheetHtml, type SpecSheetDoc } from './spec-sheet';
+
+// --- Construction templates (machineable: laser / router) ---
+export { buildHwsTemplates } from './construction/hws';
+export {
+  DEFAULT_HWS_PARAMS,
+  type HwsParams,
+  type RibMode,
+  type TemplateSheet,
+  type Part,
+  type Loop,
+  type LoopKind,
+} from './construction/types';
+export { sheetToDxf } from './sheet-dxf';
+export { sheetToSvg, type SvgOptions } from './sheet-svg';
+export { sheetToPdf } from './sheet-pdf';
