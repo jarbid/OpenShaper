@@ -21,6 +21,7 @@ export {
   type Loop,
   type LoopKind,
 } from './construction/types';
-export { sheetToDxf } from './sheet-dxf';
+export { sheetToDxf, type DxfSheetOptions } from './sheet-dxf';
 export { sheetToSvg, type SvgOptions } from './sheet-svg';
 export { sheetToPdf } from './sheet-pdf';
+export type { SheetUnit } from './construction/units';

@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * Render a {@link TemplateSheet} to SVG in **millimetres** (real-world size: the
- * `width`/`height` carry mm units and match the `viewBox`). Colour convention for
- * laser software (LightBurn / Glowforge): **red `#FF0000` = cut**, **blue
- * `#0000FF` = engrave/mark**, no fill. Also the source for the editor's live
- * preview. Parts are laid out in a row; SVG's y-down axis is flipped so the board
- * reads the same way as in the editor.
+ * Render a {@link TemplateSheet} to SVG at real-world size. The output unit
+ * follows the caller's {@link SheetUnit} (default `mm`): `width`/`height` carry
+ * that unit and match the `viewBox`. Colour convention for laser software
+ * (LightBurn / Glowforge): **red `#FF0000` = cut**, **blue `#0000FF` = engrave/mark**,
+ * no fill. Also the source for the editor's live preview. Parts are laid out in a
+ * row; SVG's y-down axis is flipped so the board reads the same way as in the editor.
  */
 import { bboxOfPts, rowLayout } from './construction/geom';
 import type { Label, Loop, Pt, TemplateSheet } from './construction/types';
+import { SHEET_UNIT, type SheetUnit } from './construction/units';
 
 const GAP = 5; // cm
 const CUT = '#FF0000';
@@ -20,9 +21,13 @@ const esc = (s: string): string =>
 export interface SvgOptions {
   /** Cut/mark stroke width in mm. Default 0.1 (hairline). */
   strokeWidthMm?: number;
+  /** Output unit. Default `mm`. */
+  unit?: SheetUnit;
 }
 
 export const sheetToSvg = (sheet: TemplateSheet, opts: SvgOptions = {}): string => {
+  const unit: SheetUnit = opts.unit ?? 'mm';
+  const k = SHEET_UNIT[unit].factor; // cm -> output unit
   const parts = rowLayout(sheet.parts, GAP);
   const all: Pt[] = [];
   for (const part of parts) {
@@ -31,13 +36,13 @@ export const sheetToSvg = (sheet: TemplateSheet, opts: SvgOptions = {}): string 
   }
   const bb = bboxOfPts(all);
   const wCm = bb.maxX + GAP;
-  const hCm = bb.maxY + GAP;
-  const wMm = wCm * 10;
-  const hMm = hCm * 10;
+  const hCm = bb.maxY + 2 * GAP; // extra bottom margin for the note line
+  const w = wCm * k;
+  const h = hCm * k;
   const sw = opts.strokeWidthMm ?? 0.1;
 
-  const fx = (x: number): string => (x * 10).toFixed(2);
-  const fy = (y: number): string => ((hCm - y) * 10).toFixed(2); // flip y, cm→mm
+  const fx = (x: number): string => (x * k).toFixed(3);
+  const fy = (y: number): string => ((hCm - y) * k).toFixed(3); // flip y, cm->unit
 
   const pathData = (pts: readonly Pt[], closed: boolean): string =>
     pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${fx(p.x)} ${fy(p.y)}`).join(' ') +
@@ -51,7 +56,7 @@ export const sheetToSvg = (sheet: TemplateSheet, opts: SvgOptions = {}): string 
     return `    <path d="${pathData(l.pts, l.closed)}" fill="none" stroke="${stroke}" stroke-width="${sw}"${dash}/>`;
   };
   const labelEl = (lbl: Label): string =>
-    `    <text x="${fx(lbl.at.x)}" y="${fy(lbl.at.y)}" font-size="${(lbl.height * 10).toFixed(1)}" fill="${MARK}">${esc(lbl.text)}</text>`;
+    `    <text x="${fx(lbl.at.x)}" y="${fy(lbl.at.y)}" font-size="${(lbl.height * k).toFixed(1)}" fill="${MARK}">${esc(lbl.text)}</text>`;
 
   const body = parts
     .map((part) => {
@@ -64,10 +69,16 @@ export const sheetToSvg = (sheet: TemplateSheet, opts: SvgOptions = {}): string 
     })
     .join('\n');
 
+  // Board-info + units note in the bottom margin.
+  const note = sheet.meta?.note
+    ? `  <text x="${(GAP * k).toFixed(2)}" y="${(h - GAP * k * 0.4).toFixed(2)}" ` +
+      `font-size="${(0.5 * k).toFixed(1)}" fill="${MARK}">${esc(sheet.meta.note)}</text>\n`
+    : '';
+
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${wMm.toFixed(2)}mm" height="${hMm.toFixed(2)}mm" ` +
-    `viewBox="0 0 ${wMm.toFixed(2)} ${hMm.toFixed(2)}">\n` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${w.toFixed(3)}${unit}" height="${h.toFixed(3)}${unit}" ` +
+    `viewBox="0 0 ${w.toFixed(3)} ${h.toFixed(3)}">\n` +
     `  <title>${esc(sheet.meta?.title ?? 'Template')}</title>\n` +
-    `${body}\n</svg>\n`
+    `${body}\n${note}</svg>\n`
   );
 };

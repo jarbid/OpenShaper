@@ -1,3 +1,4 @@
+import type { SheetUnit } from '@openshaper/export';
 import {
   convertInputStringToInternalLengthUnit,
   convertLengthToUnit,
@@ -86,3 +87,20 @@ export const unitSuffix = (u: LengthUnit): string => {
 /** Parse a user-typed length (in the chosen unit) back to internal centimeters. */
 export const parseLen = (text: string, u: LengthUnit): number =>
   convertInputStringToInternalLengthUnit(text, u.unit);
+
+/**
+ * Map the editor's display unit to a construction-template export unit. The
+ * compound ft·in option collapses to decimal inches — a vector file has no
+ * compound length unit.
+ */
+export const exportUnitFor = (u: LengthUnit): SheetUnit => {
+  switch (u.unit) {
+    case Unit.MILLIMETERS:
+      return 'mm';
+    case Unit.INCHES:
+    case Unit.INCHES_DECIMAL:
+      return 'in';
+    default:
+      return 'cm';
+  }
+};

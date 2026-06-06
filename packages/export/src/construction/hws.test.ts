@@ -153,6 +153,27 @@ describe('sheet writers', () => {
     expect(dxfMax).toBeCloseTo(svgMax, 0);
   });
 
+  const maxCoord = (text: string, re: RegExp): number =>
+    Math.max(...[...text.matchAll(re)].map((m) => parseFloat(m[1]!)));
+
+  it('DXF follows the requested unit (inches: $INSUNITS=1, coords ×1/2.54)', () => {
+    const mm = sheetToDxf(sheet, { unit: 'mm' });
+    const inch = sheetToDxf(sheet, { unit: 'in' });
+    expect(inch).toMatch(/\$INSUNITS\n70\n1\n/);
+    const mmMax = maxCoord(mm, /\n10\n([\d.]+)\n/g);
+    const inMax = maxCoord(inch, /\n10\n([\d.]+)\n/g);
+    expect(inMax).toBeCloseTo(mmMax / 25.4, 1); // mm = cm×10, in = cm/2.54
+  });
+
+  it('DXF in centimetres declares $INSUNITS=5', () => {
+    expect(sheetToDxf(sheet, { unit: 'cm' })).toMatch(/\$INSUNITS\n70\n5\n/);
+  });
+
+  it('SVG carries the requested unit on width/height', () => {
+    expect(sheetToSvg(sheet, { unit: 'in' })).toMatch(/width="[\d.]+in"/);
+    expect(sheetToSvg(sheet, { unit: 'cm' })).toMatch(/height="[\d.]+cm"/);
+  });
+
   it('SVG is mm-sized, one <g> per part, cut=red / mark=blue', () => {
     const svg = sheetToSvg(sheet);
     expect(svg).toContain('<svg');
@@ -171,5 +192,16 @@ describe('sheet writers', () => {
     expect(s).toContain('startxref');
     expect(s).toContain(`/Count ${sheet.parts.length}`);
     expect(s.trimEnd().endsWith('%%EOF')).toBe(true);
+  });
+
+  it('prints the meta.note on every writer', () => {
+    const NOTE = 'OpenShaper HWS test note';
+    const noted = { ...sheet, meta: { ...sheet.meta, note: NOTE } };
+    expect(sheetToDxf(noted)).toContain(NOTE);
+    expect(sheetToSvg(noted)).toContain(NOTE);
+    const bytes = sheetToPdf(noted);
+    let s = '';
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]!);
+    expect(s).toContain(NOTE);
   });
 });

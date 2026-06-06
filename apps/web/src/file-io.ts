@@ -2,6 +2,7 @@ import {
   exportDxf,
   exportPdf,
   exportStl,
+  type SheetUnit,
   sheetToDxf,
   sheetToPdf,
   sheetToSvg,
@@ -54,17 +55,22 @@ export async function openBoardFile(file: File): Promise<{ board: BezierBoard; m
 
 export type TemplateFormat = 'dxf' | 'svg' | 'pdf';
 
-/** Download a built construction-template {@link TemplateSheet} in the chosen vector format. */
+/**
+ * Download a built construction-template {@link TemplateSheet} in the chosen vector
+ * format. DXF/SVG are emitted in `unit` (matching the editor's display unit); PDF is
+ * always true 1:1 physical, so the unit only affects its printed note.
+ */
 export function downloadTemplateSheet(
   sheet: TemplateSheet,
   format: TemplateFormat,
+  unit: SheetUnit = 'mm',
   baseName = 'hws-frame',
 ): void {
   switch (format) {
     case 'dxf':
-      return download(sheetToDxf(sheet), `${baseName}.dxf`, 'application/dxf');
+      return download(sheetToDxf(sheet, { unit }), `${baseName}.dxf`, 'application/dxf');
     case 'svg':
-      return download(sheetToSvg(sheet), `${baseName}.svg`, 'image/svg+xml');
+      return download(sheetToSvg(sheet, { unit }), `${baseName}.svg`, 'image/svg+xml');
     case 'pdf':
       return download(
         sheetToPdf(sheet) as unknown as BlobPart,

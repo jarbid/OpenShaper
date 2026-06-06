@@ -773,7 +773,16 @@ function AppShell() {
       </div>
 
       {templateKind === 'hws' && board && (
-        <ConstructionPanel board={board} onClose={() => setTemplateKind(null)} />
+        <ConstructionPanel
+          board={board}
+          units={units}
+          specs={
+            specs
+              ? { length: specs.length, maxWidth: specs.maxWidth, thickness: specs.thickness }
+              : null
+          }
+          onClose={() => setTemplateKind(null)}
+        />
       )}
     </div>
   );

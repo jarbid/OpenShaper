@@ -33,7 +33,7 @@ interface PageDoc {
 }
 
 /** Build the content stream + page size for one part, at 1:1. */
-const renderPart = (part: Part): PageDoc => {
+const renderPart = (part: Part, note?: string): PageDoc => {
   const bb = partBbox(part);
   const m = MARGIN_CM;
   const width = (bb.maxX - bb.minX + 2 * m) * CM_TO_PT;
@@ -76,13 +76,26 @@ const renderPart = (part: Part): PageDoc => {
   for (const l of part.loops) poly(l);
   for (const lbl of part.labels ?? []) label(lbl);
 
+  // Board-info + units note in the bottom margin.
+  if (note) {
+    c.push(
+      '0.4 0.4 0.4 rg',
+      'BT',
+      '/F1 8 Tf',
+      `${n(MARGIN_CM * CM_TO_PT)} ${n(MARGIN_CM * CM_TO_PT * 0.4)} Td`,
+      `(${esc(note)}) Tj`,
+      'ET',
+    );
+  }
+
   return { width, height, content: c.join('\n') + '\n' };
 };
 
 export const sheetToPdf = (sheet: TemplateSheet): Uint8Array => {
+  const note = sheet.meta?.note;
   const pages = (
     sheet.parts.length > 0 ? sheet.parts : [{ id: 'empty', label: 'Empty', loops: [] }]
-  ).map(renderPart);
+  ).map((part) => renderPart(part, note));
 
   // Object plan: 1 Catalog, 2 Pages, 3 Font, then (page, content) pair per page.
   const pageObjNum = (i: number): number => 4 + i * 2;

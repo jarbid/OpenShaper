@@ -49,7 +49,12 @@ export interface TemplateSheet {
   readonly parts: readonly Part[];
   /** Source units of all coordinates. Always 'cm' (kernel unit). */
   readonly units: 'cm';
-  readonly meta?: { readonly title?: string; readonly generator?: string };
+  readonly meta?: {
+    readonly title?: string;
+    readonly generator?: string;
+    /** One-line annotation (board dims + file units) printed on the sheet. */
+    readonly note?: string;
+  };
 }
 
 /** How rib stations are chosen along the board. */
