@@ -1,7 +1,11 @@
 # Specs worker — moving `selectSpecs` off the main thread
 
-Status: **designed + stubbed, not wired**. Code: `apps/web/src/workers/specs-protocol.ts`,
+Status: **wired** — AppShell computes specs via `useSpecsWorker(settledBoard)`,
+with a synchronous fallback where `Worker` is unavailable (jsdom tests, SSG
+prerender). Code: `apps/web/src/workers/specs-protocol.ts`,
 `apps/web/src/workers/specs-worker.ts`, `apps/web/src/use-specs-worker.ts`.
+Still on the main thread (step 4 below): the volume-distribution overlay
+samples and `getArea` for the weight estimate.
 
 ## Problem
 

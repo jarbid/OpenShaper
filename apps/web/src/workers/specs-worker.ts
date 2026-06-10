@@ -5,12 +5,8 @@ import type { SpecsRequest, SpecsResponse } from './specs-protocol';
  * Dedicated worker that runs the integration-heavy selectSpecs off the main
  * thread (see docs/design/specs-worker.md). Requests are processed in arrival
  * order; "cancellation" is supersession — the main thread bumps the request id
- * and drops any response whose id is no longer current.
- *
- * NOT YET WIRED: App still calls selectSpecs synchronously on the settled
- * board. Instantiate with
- *   new Worker(new URL('./workers/specs-worker.ts', import.meta.url), { type: 'module' })
- * via the useSpecsWorker hook.
+ * and drops any response whose id is no longer current. Instantiated by the
+ * useSpecsWorker hook.
  */
 
 // Local minimal worker-scope type: the app's tsconfig loads the DOM lib, which

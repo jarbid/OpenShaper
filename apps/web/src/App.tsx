@@ -56,6 +56,7 @@ import { SUPPORT_URL } from './support';
 import { BOARD_TEMPLATES } from './templates';
 import { useKeyboardShortcuts } from './use-keyboard-shortcuts';
 import { useSettledBoard } from './use-settled-board';
+import { useSpecsWorker } from './use-specs-worker';
 import {
   EditorPane,
   faceSizeFor,
@@ -108,9 +109,10 @@ function AppShell() {
   }, []);
 
   // Specs (and the other integration-heavy values below) read the settled board so
-  // they don't re-integrate on every drag move — see useSettledBoard.
+  // they don't re-integrate on every drag move — see useSettledBoard. The integrals
+  // themselves run in the specs worker; the previous values hold during recompute.
   const settledBoard = useSettledBoard();
-  const specs = settledBoard ? selectSpecs(settledBoard) : null;
+  const specs = useSpecsWorker(settledBoard);
   const [view, setView] = useState<View>('quad');
   const [csIndex, setCsIndex] = useState(1);
   // Transient cross-pane scrub: the board-length x being hovered in the rocker/outline,
