@@ -33,9 +33,16 @@ docs/specs      extracted legacy specs + golden reference data
 1. **Pure kernel.** Geometry/board math is framework-agnostic, side-effect-free, and
    immutable. No `getInstance()` singletons (the legacy `BoardCAD.getInstance()` pattern
    is banned). State lives in `store`, not in globals.
-2. **Golden-data testing rule.** Every ported kernel function is pinned to a fixture
-   derived from the legacy app (`docs/specs/golden/`). A port isn't "done" until it
-   matches legacy output within a stated tolerance. See `docs/specs/`.
+2. **Golden-data testing rule (two phases).** Every ported kernel function is pinned
+   to a fixture derived from the legacy app (`docs/specs/golden/`).
+   - **Porting phase:** while a subsystem is being ported, legacy output is the only
+     oracle — the port isn't "done" until it matches within a stated tolerance.
+   - **Ported phase:** once trusted, fixtures are characterization tests guarding
+     against _accidental_ drift. They may be deliberately superseded to improve on a
+     legacy quirk, but only with (a) a better oracle (analytic cases / convergence
+     tests), (b) a regenerated fixture, and (c) an entry in
+     `docs/specs/divergences.md` recording what now differs from BoardCAD-LE, why,
+     and by how much. Never weaken a tolerance just to make a change pass.
 3. **Parameterize what the legacy hard-coded.** No magic tolerances or fixed integration
    resolutions (legacy `VOLUME_X_SPLITS=10`). Volume/area use adaptive refinement.
 4. **UI never blocks.** Heavy compute (volume, meshing, CAM) runs in Web Workers; the
