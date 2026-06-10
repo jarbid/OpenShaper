@@ -58,4 +58,30 @@ describe('exportDxf', () => {
     expect(count('LINE')).toBeGreaterThanOrEqual(2); // stringer + rocker baseline
     expect(count('TEXT')).toBeGreaterThanOrEqual(3); // one x-label per station marker
   });
+
+  describe('ghost board overlay', () => {
+    const entityLayers = (dxf: string): string[] => {
+      const lines = dxf.split('\n');
+      return lines.filter((_, i) => lines[i - 1] === '8');
+    };
+    const polylineCount = (dxf: string): number =>
+      dxf.split('\n').filter((l) => l === 'POLYLINE').length;
+
+    it('draws the ghost outline + rocker dashed on the GHOST layer', () => {
+      const plain = exportDxf(board, { crossSectionCount: 3 });
+      const withGhost = exportDxf(board, { crossSectionCount: 3, ghostBoard: makeTestBoard() });
+
+      // Outline loop + deck + bottom = three extra polylines, all on GHOST.
+      expect(polylineCount(withGhost)).toBe(polylineCount(plain) + 3);
+      expect(entityLayers(withGhost)).toContain('GHOST');
+      // Dashed so the reference reads as non-cutting geometry.
+      const lines = withGhost.split('\n');
+      const ghostIdx = lines.findIndex((l, i) => l === 'GHOST' && lines[i - 1] === '8');
+      expect(lines.slice(ghostIdx, ghostIdx + 4)).toContain('DASHED');
+    });
+
+    it('puts nothing on the GHOST layer without a ghost board', () => {
+      expect(entityLayers(exportDxf(board, { crossSectionCount: 3 }))).not.toContain('GHOST');
+    });
+  });
 });

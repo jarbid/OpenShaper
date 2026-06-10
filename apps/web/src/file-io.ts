@@ -85,18 +85,20 @@ export type ExportFormat = 'stl' | 'dxf' | 'pdf';
 /**
  * Export the board to STL / DXF / PDF and download it. `meta` + `units` feed the
  * PDF spec sheet (designer / model / surfer / comments, and dimension units).
+ * A loaded `ghost` comparison board is overlaid on the DXF's GHOST layer.
  */
 export function exportBoard(
   board: BezierBoard,
   format: ExportFormat,
   meta?: BoardMeta,
   units: 'cm' | 'in' = 'cm',
+  ghost?: BezierBoard,
 ): void {
   switch (format) {
     case 'stl':
       return download(exportStl(board), 'board.stl', 'model/stl');
     case 'dxf':
-      return download(exportDxf(board), 'board.dxf', 'application/dxf');
+      return download(exportDxf(board, { ghostBoard: ghost }), 'board.dxf', 'application/dxf');
     case 'pdf': {
       // exportPdf returns a Uint8Array; cast for the DOM BlobPart type (runtime is fine).
       const pdf = exportPdf(board, {

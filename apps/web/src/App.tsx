@@ -433,6 +433,7 @@ function AppShell() {
           f,
           meta,
           units.unit === Unit.INCHES ? 'in' : 'cm',
+          ghost ?? undefined,
         ),
     })),
     { kind: 'action', label: 'Spec sheet…', disabled: !specs, onSelect: openSpecSheet },

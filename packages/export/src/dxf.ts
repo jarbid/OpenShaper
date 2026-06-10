@@ -15,6 +15,13 @@ export interface DxfOptions {
   ringSteps?: number;
   /** Number of cross-section profiles to draw, evenly spaced. Default 7. */
   crossSectionCount?: number;
+  /**
+   * Reference (ghost) board to overlay: its plan outline and rocker curves are
+   * drawn dashed on the dedicated GHOST layer, tail-aligned with the main board,
+   * so shapers can compare in their CNC tool. The layer is left visible (not
+   * frozen — most viewers hide frozen layers); exclude GHOST in CAM.
+   */
+  ghostBoard?: BezierBoard;
 }
 
 const DEFAULT_LENGTH_STEPS = 200;
@@ -29,6 +36,7 @@ const LAYERS = {
   CENTERLINE: 1, // red
   MARKERS: 2, // yellow
   LABELS: 8, // grey
+  GHOST: 9, // light grey — reference board overlay
 } as const;
 type Layer = keyof typeof LAYERS;
 
@@ -103,6 +111,18 @@ const sampleProfile = (s: Spline, x0: number, x1: number, steps: number): Pt[] =
   return pts;
 };
 
+/** Closed plan-view outline loop (both rails) of a board, sampled at `steps`. */
+const planOutlineLoop = (b: BezierBoard, steps: number): Pt[] => {
+  const len = getLength(b);
+  const e = Math.min(0.01, len / (steps * 4));
+  const top: Pt[] = [];
+  for (let i = 0; i <= steps; i++) {
+    const x = e + ((len - 2 * e) * i) / steps;
+    top.push({ x, y: valueAt(b.outline, x) });
+  }
+  return [...top, ...[...top].reverse().map((p) => ({ x: p.x, y: -p.y }))];
+};
+
 /** The R12 TABLES section: line types (CONTINUOUS / CENTER / DASHED) + the named layers. */
 const tablesSection = (out: string[]): void => {
   out.push('0', 'SECTION', '2', 'TABLES');
@@ -149,17 +169,8 @@ export const exportDxf = (board: BezierBoard, opts: DxfOptions = {}): string => 
   out.push('0', 'SECTION', '2', 'ENTITIES');
 
   // --- Plan view at origin: outline loop (both rails), spanning y = ±half-width. ---
-  const halfTop: Pt[] = [];
-  for (let i = 0; i <= lengthSteps; i++) {
-    const x = eps + ((length - 2 * eps) * i) / lengthSteps;
-    halfTop.push({ x, y: valueAt(board.outline, x) });
-  }
-  const maxHalf = halfTop.reduce((m, p) => Math.max(m, p.y), 0);
-  const outlineLoop: Pt[] = [...halfTop];
-  for (let i = halfTop.length - 1; i >= 0; i--) {
-    const p = halfTop[i]!;
-    outlineLoop.push({ x: p.x, y: -p.y });
-  }
+  const outlineLoop = planOutlineLoop(board, lengthSteps);
+  const maxHalf = outlineLoop.reduce((m, p) => Math.max(m, p.y), 0);
   polyline(out, outlineLoop, 'OUTLINE', { closed: true });
 
   // Stringer centreline (full length) + dashed rib-station markers with x labels.
@@ -190,6 +201,19 @@ export const exportDxf = (board: BezierBoard, opts: DxfOptions = {}): string => 
     'CENTERLINE',
     'CENTER',
   );
+
+  // --- Ghost reference overlay: dashed plan outline + rocker curves, tail-aligned
+  // with the main board and sharing the rocker band's shift so the curves compare
+  // directly. Reference-only geometry — everything lands on the GHOST layer.
+  if (opts.ghostBoard) {
+    const g = opts.ghostBoard;
+    const gLen = getLength(g);
+    const gEps = Math.min(0.01, gLen / (lengthSteps * 4));
+    const dashed = { lineType: 'DASHED' };
+    polyline(out, planOutlineLoop(g, lengthSteps), 'GHOST', { closed: true, ...dashed });
+    polyline(out, lift(sampleProfile(g.bottom, gEps, gLen - gEps, lengthSteps)), 'GHOST', dashed);
+    polyline(out, lift(sampleProfile(g.deck, gEps, gLen - gEps, lengthSteps)), 'GHOST', dashed);
+  }
 
   // --- Cross-section band: a true-scale row laid out left-to-right below the rocker. ---
   const rockerBottom = rocker.lo + rockerShift;
