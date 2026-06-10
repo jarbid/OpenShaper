@@ -41,6 +41,8 @@ export interface Label {
 export interface Part {
   readonly id: string;
   readonly label: string;
+  /** Longitudinal board position (cm) this part belongs to (ribs) — the UI formats it per the active display unit. */
+  readonly station?: number;
   readonly loops: readonly Loop[];
   readonly labels?: readonly Label[];
 }

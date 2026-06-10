@@ -13,6 +13,7 @@ import {
   cmToUnitNumber,
   exportUnitFor,
   fmtDimsHeadline,
+  fmtLen,
   type LengthUnit,
   parseLen,
   unitDecimals,
@@ -89,8 +90,12 @@ export function ConstructionPanel({
   // Stepper indices: 0 = "All parts", 1..N = individual parts.
   const stepCount = partCount + 1;
   const stepIndex = effectiveView === 'all' ? 0 : effectiveView + 1;
-  const stepLabel =
-    effectiveView === 'all' ? 'All parts' : (sheet.parts[effectiveView]?.label ?? 'Part');
+  // Part name plus — for ribs — its board station, in the editor's display unit.
+  const partLabel = (part: { label: string; station?: number } | undefined): string => {
+    if (!part) return 'Part';
+    return part.station != null ? `${part.label} @ ${fmtLen(part.station, units)}` : part.label;
+  };
+  const stepLabel = effectiveView === 'all' ? 'All parts' : partLabel(sheet.parts[effectiveView]);
   const gotoStep = (i: number): void => {
     const wrapped = ((i % stepCount) + stepCount) % stepCount;
     setView(wrapped === 0 ? 'all' : wrapped - 1);

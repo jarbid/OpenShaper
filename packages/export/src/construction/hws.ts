@@ -276,7 +276,8 @@ const buildRib = (board: BezierBoard, p: HwsParams, x: number, index: number): P
 
   return {
     id: `rib-${index}`,
-    label: `Rib ${index + 1} @ ${x.toFixed(0)}cm`,
+    label: `Rib ${index + 1}`,
+    station: x,
     loops,
     labels: [{ text: `${index + 1}`, at: { x: 0, y: ydc + 1 }, height: 1 }],
   };
