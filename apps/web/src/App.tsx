@@ -1,4 +1,3 @@
-import { specSheetHtml } from '@openshaper/export';
 import { parseBrd } from '@openshaper/io';
 import {
   getArea,
@@ -21,6 +20,7 @@ import {
   PanelBody,
   PanelHeader,
   PanelTitle,
+  Toast,
   ToolbarSeparator,
   type MenuItem,
 } from '@openshaper/ui';
@@ -32,14 +32,8 @@ import {
   type BoardMeta,
   type ExportFormat,
 } from './file-io';
-import {
-  DEFAULT_LENGTH_UNIT,
-  fmtLen,
-  fmtVol,
-  LENGTH_UNITS,
-  lengthUnitByKey,
-  parseLen,
-} from './format';
+import { DEFAULT_LENGTH_UNIT, LENGTH_UNITS, lengthUnitByKey, parseLen } from './format';
+import { openHtmlInNewTab, specSheetHtmlFor } from './spec-sheet-open';
 import { Brandmark } from './components/marks';
 import { ConstructionPanel } from './ConstructionPanel';
 import { CrossSectionControls } from './CrossSectionControls';
@@ -318,32 +312,21 @@ function AppShell() {
   };
   const ghostSpecs = useMemo(() => (ghost ? selectSpecs(ghost) : null), [ghost]);
 
-  /** Open a print-friendly spec sheet (board info + dimensions) in a new window. */
+  // Transient error notice (file-open / pop-up failures), auto-dismissed.
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<number>();
+  const showError = (message: string) => {
+    setToast(message);
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), 6000);
+  };
+
+  /** Open a print-friendly spec sheet (board info + dimensions) in a new tab. */
   const openSpecSheet = () => {
     if (!specs) return;
-    const html = specSheetHtml({
-      title: meta.model || 'Surfboard',
-      designer: meta.designer,
-      info: (['designer', 'model', 'surfer', 'comments'] as const)
-        .map((k) => [k[0]!.toUpperCase() + k.slice(1), meta[k] ?? ''] as [string, string])
-        .filter(([, v]) => v),
-      rows: [
-        ['Length', fmtLen(specs.length, units)],
-        ['Width', fmtLen(specs.maxWidth, units)],
-        ['Thickness', fmtLen(specs.thickness, units)],
-        ['Wide point', fmtLen(specs.maxWidthPos, units)],
-        ['Max rocker', fmtLen(specs.maxRocker, units)],
-        ['Volume', fmtVol(specs.volume)],
-        ['Center of mass', fmtLen(specs.centerOfMass, units)],
-      ],
-    });
-    const w = window.open('', '_blank');
-    if (!w) {
-      alert('Pop-up blocked — allow pop-ups to open the spec sheet.');
-      return;
+    if (!openHtmlInNewTab(specSheetHtmlFor(specs, meta, units))) {
+      showError('Pop-up blocked — allow pop-ups to open the spec sheet.');
     }
-    w.document.write(html);
-    w.document.close();
   };
 
   const fileInput = useRef<HTMLInputElement>(null);
@@ -357,7 +340,7 @@ function AppShell() {
       setMeta(meta);
     } catch (err) {
       console.error('Failed to open board', err);
-      alert(`Could not open ${file.name}: ${(err as Error).message}`);
+      showError(`Could not open ${file.name}: ${(err as Error).message}`);
     }
   };
 
@@ -370,7 +353,7 @@ function AppShell() {
       setGhost((await openBoardFile(file)).board);
     } catch (err) {
       console.error('Failed to open ghost board', err);
-      alert(`Could not open ${file.name}: ${(err as Error).message}`);
+      showError(`Could not open ${file.name}: ${(err as Error).message}`);
     }
   };
 
@@ -771,6 +754,8 @@ function AppShell() {
           ghostSpecs={ghostSpecs}
         />
       </div>
+
+      {toast && <Toast onClick={() => setToast(null)}>{toast}</Toast>}
 
       {templateKind === 'hws' && board && (
         <ConstructionPanel

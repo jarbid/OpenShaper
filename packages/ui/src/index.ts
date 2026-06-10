@@ -6,3 +6,4 @@ export { Panel, PanelHeader, PanelTitle, PanelBody } from './components/panel';
 export { Toolbar, ToolbarSeparator } from './components/toolbar';
 export { MenuBar, Menu, renderMenuItems, type MenuItem } from './components/menu';
 export { ContextMenu, type ContextMenuProps } from './components/context-menu';
+export { Toast } from './components/toast';
