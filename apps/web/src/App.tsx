@@ -45,6 +45,7 @@ import { boardStore } from './store';
 import { SUPPORT_URL } from './support';
 import { BOARD_TEMPLATES } from './templates';
 import { useKeyboardShortcuts } from './use-keyboard-shortcuts';
+import { useSettledBoard } from './use-settled-board';
 import {
   EditorPane,
   faceSizeFor,
@@ -75,23 +76,6 @@ function ThreeDPane(props: Board3DViewProps) {
       <Board3DView {...props} />
     </Suspense>
   );
-}
-
-/**
- * The board as of the last *settled* (non-dragging) moment. Heavy derived values
- * — volume, planshape area, center of mass, cross-section-area distribution — read
- * from this instead of the live board, so the numerical integration runs on edit
- * commit rather than on every pointer-move during a drag. The editors and the 3D
- * view still subscribe to the live board, so dragging stays smooth; the specs
- * snap to the final value on release. When not dragging, this *is* the live board,
- * so steady-state behavior is unchanged.
- */
-function useSettledBoard(): BezierBoard | null {
-  const board = useSyncExternalStore(boardStore.subscribe, () => boardStore.getState().board);
-  const editing = useSyncExternalStore(boardStore.subscribe, () => boardStore.getState().editing);
-  const ref = useRef(board);
-  if (!editing) ref.current = board;
-  return ref.current;
 }
 
 function AppShell() {
