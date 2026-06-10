@@ -84,6 +84,93 @@ describe('board store: editing + undo/redo', () => {
   });
 });
 
+describe('board store: history labels + jumpTo', () => {
+  it('labels each committed action', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+
+    store.getState().moveControlPoint({ kind: 'outline' }, 1, vec2(50, 30));
+    store.getState().scaleBoard(1.1, 1, 1);
+
+    expect(store.getState().past.map((e) => e.label)).toEqual([
+      'Move control point',
+      'Resize board',
+    ]);
+  });
+
+  it('a coalesced drag is one entry labelled by its edit', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+
+    store.getState().beginEdit();
+    store.getState().moveControlPoint({ kind: 'outline' }, 1, vec2(50, 25));
+    store.getState().moveControlPoint({ kind: 'outline' }, 1, vec2(50, 31));
+    store.getState().endEdit();
+
+    expect(store.getState().past).toHaveLength(1);
+    expect(store.getState().past[0]!.label).toBe('Move control point');
+  });
+
+  it('undo carries the label onto the redo stack', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+
+    store.getState().moveControlPoint({ kind: 'outline' }, 1, vec2(50, 30));
+    store.getState().undo();
+
+    expect(store.getState().past).toHaveLength(0);
+    expect(store.getState().future[0]!.label).toBe('Move control point');
+  });
+
+  it('jumpTo restores a past state and fills the redo stack in order', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+    const s0 = store.getState().board!;
+
+    store.getState().moveControlPoint({ kind: 'outline' }, 1, vec2(50, 30));
+    const b1 = store.getState().board!;
+    store.getState().scaleBoard(1.1, 1, 1);
+    const b2 = store.getState().board!;
+    store.getState().setInterpolationType('sLinear');
+    const b3 = store.getState().board!;
+
+    store.getState().jumpTo(0);
+
+    expect(store.getState().board).toBe(s0);
+    expect(store.getState().past).toHaveLength(0);
+    expect(store.getState().future.map((e) => e.board)).toEqual([b1, b2, b3]);
+    expect(store.getState().future.map((e) => e.label)).toEqual([
+      'Move control point',
+      'Resize board',
+      'Change interpolation',
+    ]);
+
+    // Redo walks forward through exactly the jumped-over states.
+    store.getState().redo();
+    store.getState().redo();
+    store.getState().redo();
+    expect(store.getState().board).toBe(b3);
+    expect(store.getState().past.map((e) => e.label)).toEqual([
+      'Move control point',
+      'Resize board',
+      'Change interpolation',
+    ]);
+  });
+
+  it('jumpTo out of range is a no-op', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+    store.getState().moveControlPoint({ kind: 'outline' }, 1, vec2(50, 30));
+    const cur = store.getState().board;
+
+    store.getState().jumpTo(5);
+    store.getState().jumpTo(-1);
+
+    expect(store.getState().board).toBe(cur);
+    expect(store.getState().past).toHaveLength(1);
+  });
+});
+
 describe('board store: curve coupling (rocker/outline → cross-sections)', () => {
   // 3-knot bottom/deck so the mid station can be driven without nose/tail tip joins
   // interfering. Mid: width 40 (outline y=20), thickness 6 (deck 9 − bottom 3).

@@ -26,10 +26,16 @@ export interface Selection {
   index: number;
 }
 
+/** One undo/redo step: the board to restore plus the action that produced the change. */
+export interface HistoryEntry {
+  board: BezierBoard;
+  label: string;
+}
+
 export interface BoardState {
   board: BezierBoard | null;
-  past: BezierBoard[];
-  future: BezierBoard[];
+  past: HistoryEntry[];
+  future: HistoryEntry[];
   /** True while a drag is in progress (edits coalesce into one undo step). */
   editing: boolean;
   selection: Selection | null;
@@ -37,8 +43,8 @@ export interface BoardState {
   load: (board: BezierBoard) => void;
   select: (selection: Selection | null) => void;
 
-  /** Begin a grouped edit (call on drag start). */
-  beginEdit: () => void;
+  /** Begin a grouped edit (call on drag start). The first commit labels the step. */
+  beginEdit: (label?: string) => void;
   /** End a grouped edit (call on drag end). */
   endEdit: () => void;
 
@@ -67,14 +73,16 @@ export interface BoardState {
   redo: () => void;
   canUndo: () => boolean;
   canRedo: () => boolean;
+  /** Jump straight back to `past[index]`, moving the jumped-over steps onto the redo stack. */
+  jumpTo: (index: number) => void;
 }
 
 const MAX_HISTORY = 200;
 
 export const createBoardStore = (): StoreApi<BoardState> =>
   createStore<BoardState>((set, get) => {
-    /** Apply an edited board, recording history unless mid-drag. */
-    const commit = (next: BezierBoard) => {
+    /** Apply an edited board, recording a labelled history step unless mid-drag. */
+    const commit = (next: BezierBoard, label: string) => {
       const { board, editing, past } = get();
       if (!board) return;
       // Slave the stored cross-sections to the rocker/deck (thickness) and outline
@@ -82,11 +90,16 @@ export const createBoardStore = (): StoreApi<BoardState> =>
       // that area (legacy adjustCrosssectionsToThicknessAndWidth on every change).
       const settled = adjustCrossSectionsToThicknessAndWidth(next);
       if (editing) {
-        set({ board: settled }); // snapshot already taken at beginEdit
+        // Snapshot already taken at beginEdit — give it this action's name.
+        const last = past[past.length - 1];
+        set({
+          board: settled,
+          past: last ? [...past.slice(0, -1), { board: last.board, label }] : past,
+        });
       } else {
         set({
           board: settled,
-          past: [...past, board].slice(-MAX_HISTORY),
+          past: [...past, { board, label }].slice(-MAX_HISTORY),
           future: [],
         });
       }
@@ -94,6 +107,7 @@ export const createBoardStore = (): StoreApi<BoardState> =>
 
     const editSpline = (
       target: SplineTarget,
+      label: string,
       fn: (s: ReturnType<typeof getTargetSpline>) => BezierBoard,
     ) => {
       const { board } = get();
@@ -105,7 +119,7 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         edited = propagateCrossSectionToCurves(board, edited, target.index);
       }
       // Re-pin shared junctions after the edit so curves can't be pulled apart.
-      commit(enforceJunctions(edited, target));
+      commit(enforceJunctions(edited, target), label);
     };
 
     return {
@@ -125,18 +139,20 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         }),
       select: (selection) => set({ selection }),
 
-      beginEdit: () => {
+      beginEdit: (label = 'Edit') => {
         const { board, past, editing } = get();
         if (!board || editing) return;
-        set({ editing: true, past: [...past, board].slice(-MAX_HISTORY), future: [] });
+        set({ editing: true, past: [...past, { board, label }].slice(-MAX_HISTORY), future: [] });
       },
       endEdit: () => set({ editing: false }),
 
       moveControlPoint: (target, index, end) =>
-        editSpline(target, (s) => withSpline(get().board!, target, moveKnotEnd(s, index, end))),
+        editSpline(target, 'Move control point', (s) =>
+          withSpline(get().board!, target, moveKnotEnd(s, index, end)),
+        ),
 
       moveTangent: (target, index, which, pos) =>
-        editSpline(target, (s) =>
+        editSpline(target, 'Move tangent', (s) =>
           withSpline(get().board!, target, moveKnotTangent(s, index, which, pos)),
         ),
 
@@ -145,7 +161,10 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         if (!board) return;
         const result = insertKnotAt(getTargetSpline(board, target), p);
         if (!result) return;
-        commit(enforceJunctions(withSpline(board, target, result.spline), target));
+        commit(
+          enforceJunctions(withSpline(board, target, result.spline), target),
+          'Add control point',
+        );
         set({ selection: { target, index: result.index } });
       },
 
@@ -154,12 +173,15 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         if (!board) return;
         const spline = getTargetSpline(board, target);
         if (!canDeleteKnot(spline, index)) return;
-        commit(enforceJunctions(withSpline(board, target, deleteKnot(spline, index)), target));
+        commit(
+          enforceJunctions(withSpline(board, target, deleteKnot(spline, index)), target),
+          'Delete control point',
+        );
         set({ selection: null });
       },
 
       setContinuous: (target, index, continuous) =>
-        editSpline(target, (s) =>
+        editSpline(target, continuous ? 'Smooth control point' : 'Corner control point', (s) =>
           withSpline(get().board!, target, setKnotContinuous(s, index, continuous)),
         ),
 
@@ -168,7 +190,7 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         if (!board) return -1;
         const result = insertCrossSection(board, position);
         if (!result) return -1;
-        commit(enforceJunctions(result.board));
+        commit(enforceJunctions(result.board), 'Add cross-section');
         return result.index;
       },
 
@@ -177,7 +199,7 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         if (!board) return;
         const next = removeCrossSection(board, index);
         if (next === board) return;
-        commit(enforceJunctions(next));
+        commit(enforceJunctions(next), 'Delete cross-section');
         set({ selection: null });
       },
 
@@ -185,35 +207,65 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         const { board } = get();
         if (!board) return;
         const target: SplineTarget = { kind: 'crossSection', index };
-        commit(enforceJunctions(withSpline(board, target, spline), target));
+        commit(enforceJunctions(withSpline(board, target, spline), target), 'Paste cross-section');
       },
 
       scaleBoard: (fL, fW, fT) => {
         const { board } = get();
         if (!board) return;
         if (fL === 1 && fW === 1 && fT === 1) return;
-        commit(enforceJunctions(scaleBoard(board, fL, fW, fT)));
+        commit(enforceJunctions(scaleBoard(board, fL, fW, fT)), 'Resize board');
       },
 
       setInterpolationType: (type) => {
         const { board } = get();
         if (!board || board.interpolationType === type) return;
-        commit(withInterpolationType(board, type));
+        commit(withInterpolationType(board, type), 'Change interpolation');
       },
 
       undo: () => {
         const { past, future, board } = get();
         if (past.length === 0 || !board) return;
         const prev = past[past.length - 1]!;
-        set({ board: prev, past: past.slice(0, -1), future: [board, ...future], editing: false });
+        set({
+          board: prev.board,
+          past: past.slice(0, -1),
+          // The redo entry re-applies the action we just undid, so it keeps its label.
+          future: [{ board, label: prev.label }, ...future],
+          editing: false,
+        });
       },
       redo: () => {
         const { past, future, board } = get();
         if (future.length === 0 || !board) return;
         const next = future[0]!;
-        set({ board: next, past: [...past, board], future: future.slice(1), editing: false });
+        set({
+          board: next.board,
+          past: [...past, { board, label: next.label }],
+          future: future.slice(1),
+          editing: false,
+        });
       },
       canUndo: () => get().past.length > 0,
       canRedo: () => get().future.length > 0,
+
+      jumpTo: (index) => {
+        const { past, future, board } = get();
+        if (!board || index < 0 || index >= past.length) return;
+        // Equivalent to (past.length - index) undos in one step: walk back from the
+        // current board, pushing each undone step onto the redo stack.
+        let cur = board;
+        const undone: HistoryEntry[] = [];
+        for (let i = past.length - 1; i >= index; i--) {
+          undone.push({ board: cur, label: past[i]!.label });
+          cur = past[i]!.board;
+        }
+        set({
+          board: cur,
+          past: past.slice(0, index),
+          future: [...undone.reverse(), ...future],
+          editing: false,
+        });
+      },
     };
   });

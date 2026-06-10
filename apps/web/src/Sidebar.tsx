@@ -9,7 +9,13 @@ import type { InterpolationType } from '@openshaper/kernel';
 import type { BoardSpecs } from '@openshaper/store';
 import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { Copy } from 'lucide-react';
-import type { Dispatch, ReactNode, RefObject, SetStateAction } from 'react';
+import {
+  useSyncExternalStore,
+  type Dispatch,
+  type ReactNode,
+  type RefObject,
+  type SetStateAction,
+} from 'react';
 import { ControlPointInspector } from './ControlPointInspector';
 import { CoffeeIcon } from './components/Support';
 import { SUPPORT_URL } from './support';
@@ -37,6 +43,42 @@ function diffLen(cur: number, ghost: number, units: LengthUnit): string {
 function diffVol(cur: number, ghost: number): string {
   const d = cur - ghost;
   return `${d >= 0 ? '+' : '−'}${fmtVol(Math.abs(d))}`;
+}
+
+/**
+ * The most recent labelled undo steps, newest first. Clicking a step reverts the
+ * board to just before that action (everything jumped over becomes redoable).
+ * History is store-owned, so this subscribes itself rather than threading more
+ * props through the shell.
+ */
+function HistoryPanel() {
+  const past = useSyncExternalStore(boardStore.subscribe, () => boardStore.getState().past);
+  if (past.length === 0) return null;
+  const shown = past.slice(-10).reverse();
+  return (
+    <Panel>
+      <PanelHeader>
+        <PanelTitle>History</PanelTitle>
+      </PanelHeader>
+      <PanelBody className="space-y-0.5 p-2 text-sm">
+        {shown.map((e, k) => {
+          const index = past.length - 1 - k;
+          return (
+            <button
+              key={index}
+              type="button"
+              title="Revert to before this step"
+              className="flex w-full items-center justify-between rounded px-2 py-1 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={() => boardStore.getState().jumpTo(index)}
+            >
+              <span>{e.label}</span>
+              <span className="text-xs text-muted-foreground">#{index + 1}</span>
+            </button>
+          );
+        })}
+      </PanelBody>
+    </Panel>
+  );
 }
 
 /** A labeled subsection of the spec readout (Nose / Center / Tail / Overall). */
@@ -247,6 +289,8 @@ export function Sidebar({
           </p>
         </PanelBody>
       </Panel>
+
+      <HistoryPanel />
 
       <Panel>
         <PanelHeader>

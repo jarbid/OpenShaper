@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { boardStore } from './store';
@@ -34,5 +34,19 @@ describe('<App /> smoke', () => {
 
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(screen.queryByPlaceholderText(/command/i)).toBeNull();
+  });
+
+  it('history panel lists labelled steps and jumps back on click', async () => {
+    render(<App />);
+    await screen.findAllByText(/[\d.]+ liters/); // sample board loaded + specs settled
+    const before = boardStore.getState().board!;
+
+    act(() => boardStore.getState().scaleBoard(1.1, 1, 1));
+
+    const step = await screen.findByRole('button', { name: /Resize board/ });
+    fireEvent.click(step);
+
+    expect(boardStore.getState().board).toBe(before);
+    expect(boardStore.getState().future).toHaveLength(1);
   });
 });
