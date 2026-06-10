@@ -34,6 +34,56 @@ export const simpsonIntegral = (func: Fn, min: number, max: number, splits: numb
 };
 
 /**
+ * Adaptive Simpson quadrature with Richardson extrapolation. Unlike the legacy
+ * fixed-split {@link simpsonIntegral}, panels subdivide until the local error
+ * estimate is below `relTol` (relative to the whole-interval estimate), so sharp
+ * features get resolution without paying for it everywhere. NaN samples are
+ * treated as 0, matching the legacy integrator's guarding.
+ */
+export const adaptiveSimpson = (
+  func: Fn,
+  min: number,
+  max: number,
+  relTol = 1e-6,
+  maxDepth = 20,
+): number => {
+  const f = (x: number): number => {
+    const y = func(x);
+    return Number.isNaN(y) ? 0 : y;
+  };
+  const simpson = (a: number, b: number, fa: number, fm: number, fb: number): number =>
+    ((b - a) / 6) * (fa + 4 * fm + fb);
+  const rec = (
+    a: number,
+    b: number,
+    fa: number,
+    fm: number,
+    fb: number,
+    whole: number,
+    eps: number,
+    depth: number,
+  ): number => {
+    const m = (a + b) / 2;
+    const flm = f((a + m) / 2);
+    const frm = f((m + b) / 2);
+    const left = simpson(a, m, fa, flm, fm);
+    const right = simpson(m, b, fm, frm, fb);
+    const delta = left + right - whole;
+    if (depth <= 0 || Math.abs(delta) <= 15 * eps) return left + right + delta / 15;
+    return (
+      rec(a, m, fa, flm, fm, left, eps / 2, depth - 1) +
+      rec(m, b, fm, frm, fb, right, eps / 2, depth - 1)
+    );
+  };
+  const fa = f(min);
+  const fm = f((min + max) / 2);
+  const fb = f(max);
+  const whole = simpson(min, max, fa, fm, fb);
+  const eps = Math.max(Math.abs(whole) * relTol, Number.EPSILON);
+  return rec(min, max, fa, fm, fb, whole, eps, maxDepth);
+};
+
+/**
  * Trapezoid rule over a parametric XY curve (legacy
  * `MathUtils.Integral.TrapezoidRuleIntegral`): integrates y dx by summing
  * ((y0+y1)/2)·|x1-x0| over `splits` samples. Used for cross-section area.

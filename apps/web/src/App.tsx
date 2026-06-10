@@ -498,6 +498,8 @@ function AppShell() {
       ? { kind: 'action', label: 'Clear ghost', onSelect: () => setGhost(null) }
       : { kind: 'action', label: 'Open ghost…', onSelect: () => ghostInput.current?.click() },
     { kind: 'separator' },
+    // The model drives the integrated specs (volume / CoM / distribution); the 2D/3D
+    // previews always render the control-point surface (see kernel InterpolationType).
     { kind: 'label', label: 'Interpolation' },
     {
       kind: 'checkbox',

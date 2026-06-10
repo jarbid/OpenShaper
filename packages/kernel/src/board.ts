@@ -26,7 +26,13 @@ import { vec2, type Vec2 } from './vec2';
 
 /**
  * Cross-section interpolation strategy (legacy AbstractBezierBoardSurfaceModel.ModelType).
- * Only `controlPoint` (the legacy default) is implemented; `sLinear` is a TODO.
+ *
+ * Both models are implemented for the integration path: `getCrossSectionAreaAt`
+ * dispatches on this type, so volume / center-of-mass / area distribution follow
+ * the selected model (the sLinear port is pinned to golden data in
+ * board.slinear.test.ts). Rendering and exports (`getInterpolatedCrossSection`,
+ * tessellation) always use the control-point model — porting the sLinear surface
+ * into the mesh/preview path is still open.
  */
 export type InterpolationType = 'controlPoint' | 'sLinear';
 
@@ -51,13 +57,28 @@ export interface BezierBoard {
   readonly interpolationType: InterpolationType;
 }
 
-// Legacy fixed integration resolutions (BezierBoard.*_SPLITS). Kept fixed so the
-// port reproduces golden volume/area; adaptive refinement is a future option.
+// Legacy fixed integration resolutions (BezierBoard.*_SPLITS) — the *defaults*
+// of getVolume / getArea / getCenterOfMass, kept so the port reproduces the
+// golden values (board.golden.test.ts pins area/volume to 1%, and the sLinear
+// port pins volume to 1e-4 relative). Callers that need more accuracy override
+// the splits per call, or integrate with `adaptiveSimpson` (math.ts); making
+// adaptive the default would require relaxing the sLinear golden volume band
+// from 1e-4 to ~1e-2. Quadrupling these moves volume/CoM on the golden boards
+// by < 0.5%, but planshape area by up to ~0.63% (longboard) — AREA_SPLITS is
+// the least-converged legacy resolution (see board.integration.test.ts).
 const VOLUME_X_SPLITS = 10;
 const VOLUME_Y_SPLITS = 30;
 const AREA_SPLITS = 10;
 const MASS_X_SPLITS = 10;
 const MASS_Y_SPLITS = 10;
+
+/** Overridable integration resolutions for the volume / center-of-mass integrals. */
+export interface IntegrationOptions {
+  /** Trapezoid splits per cross-section area sample (legacy VOLUME_X/MASS_X_SPLITS). */
+  sectionSplits?: number;
+  /** Longitudinal Simpson panels (legacy VOLUME_Y/MASS_Y_SPLITS). */
+  lengthSplits?: number;
+}
 
 export const board = (
   outline: Spline,
@@ -350,35 +371,32 @@ export const getCrossSectionAreaAt = (b: BezierBoard, x: number, splits: number)
     : getControlPointCrossSectionAreaAt(b, x, splits);
 
 /** Board volume in cm³ (legacy getVolume). */
-export const getVolume = (b: BezierBoard): number => {
+export const getVolume = (b: BezierBoard, opts: IntegrationOptions = {}): number => {
   if (b.crossSections.length < 3) return 0;
+  const { sectionSplits = VOLUME_X_SPLITS, lengthSplits = VOLUME_Y_SPLITS } = opts;
   const a = 0.01;
   const bEnd = getLength(b) - 0.01;
-  return simpsonIntegral(
-    (x) => getCrossSectionAreaAt(b, x, VOLUME_X_SPLITS),
-    a,
-    bEnd,
-    VOLUME_Y_SPLITS,
-  );
+  return simpsonIntegral((x) => getCrossSectionAreaAt(b, x, sectionSplits), a, bEnd, lengthSplits);
 };
 
 /** Planshape area in cm² (legacy getArea): integral of width over length. */
-export const getArea = (b: BezierBoard): number =>
-  simpsonIntegral((x) => getWidthAtPos(b, x), T_ZERO, getLength(b) - T_ZERO, AREA_SPLITS);
+export const getArea = (b: BezierBoard, splits: number = AREA_SPLITS): number =>
+  simpsonIntegral((x) => getWidthAtPos(b, x), T_ZERO, getLength(b) - T_ZERO, splits);
 
 /** Longitudinal center of mass (legacy getCenterOfMass), assuming uniform density. */
-export const getCenterOfMass = (b: BezierBoard): number => {
+export const getCenterOfMass = (b: BezierBoard, opts: IntegrationOptions = {}): number => {
   if (b.crossSections.length < 3) return 0;
+  const { sectionSplits = MASS_X_SPLITS, lengthSplits = MASS_Y_SPLITS } = opts;
   const a = 0.01;
   const bEnd = getLength(b) - 0.01;
-  const step = (bEnd - a) / MASS_Y_SPLITS;
+  const step = (bEnd - a) / lengthSplits;
   let momentSum = 0;
   let weightSum = 0;
   let an = a;
-  let x0 = getCrossSectionAreaAt(b, an, MASS_X_SPLITS);
-  for (let i = 0; i < MASS_Y_SPLITS; i++) {
-    let x1 = getCrossSectionAreaAt(b, an + step / 2, MASS_X_SPLITS);
-    let x2 = getCrossSectionAreaAt(b, an + step, MASS_X_SPLITS);
+  let x0 = getCrossSectionAreaAt(b, an, sectionSplits);
+  for (let i = 0; i < lengthSplits; i++) {
+    let x1 = getCrossSectionAreaAt(b, an + step / 2, sectionSplits);
+    let x2 = getCrossSectionAreaAt(b, an + step, sectionSplits);
     if (Number.isNaN(x0)) x0 = 0;
     if (Number.isNaN(x1)) x1 = 0;
     if (Number.isNaN(x2)) x2 = 0;
