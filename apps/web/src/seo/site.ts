@@ -17,8 +17,8 @@ export const SITE_TAGLINE = 'Free, open-source surfboard design software';
 export const DEFAULT_DESCRIPTION =
   'Design surfboards in your browser with OpenShaper — a free, open-source CAD app. Draw outlines, rocker and cross-sections, see live volume and weight, preview in 3D, and export STL, DXF and PDF. No account, no paywall, runs entirely on your machine.';
 
-/** Social share card (1200×630). */
-export const OG_IMAGE = '/og-cover.svg';
+/** Social share card (1200×630). PNG — scrapers don't render SVG og:images; regenerate with `pnpm og`. */
+export const OG_IMAGE = '/og-cover.png';
 
 export const GITHUB_URL = 'https://github.com/jarbid/openshaper';
 
