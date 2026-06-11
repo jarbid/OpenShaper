@@ -496,3 +496,186 @@ describe('propagateCrossSectionToCurves', () => {
     expect(propagateCrossSectionToCurves(prev, next, prev.crossSections.length - 1)).toBe(next);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Junction-constraint spec (legacy parity pinning)
+//
+// Pins the CURRENT behavior of `enforceJunctions` against the legacy
+// BezierBoard.setLocks() constraints documented in
+// docs/specs/junction-constraints.md (JC-1..JC-9). Geometry convention: TAIL at
+// x=0, NOSE at x=length. These tests assert what the web port DOES; the legacy
+// constraints it does NOT yet model are recorded as documented gaps in the spec
+// doc, expressed here as the opposite (the port leaves them free), never as
+// failing assertions.
+// ---------------------------------------------------------------------------
+describe('junction-constraint spec (legacy parity pinning)', () => {
+  // A board whose junctions are deliberately OPEN so enforceJunctions has work
+  // to do: deck/bottom tips disagree, the outline tail sits off the centreline,
+  // and the cross-sections start/end off the stringer (x != 0).
+  function openBoard(): BezierBoard {
+    const outline = splineFromKnots([
+      knot(vec2(0, 2), vec2(-5, 2), vec2(5, 2)), // tail at x=0, y=2 (off centreline)
+      knot(vec2(100, 3), vec2(95, 3), vec2(105, 3)), // nose at x=100, y=3 (off centreline)
+    ]);
+    const bottom = splineFromKnots([
+      knot(vec2(0, 5), vec2(-5, 5), vec2(5, 5)),
+      knot(vec2(100, 6), vec2(95, 6), vec2(105, 6)),
+    ]);
+    const deck = splineFromKnots([
+      knot(vec2(0, 11), vec2(-5, 11), vec2(5, 11)),
+      knot(vec2(100, 12), vec2(95, 12), vec2(105, 12)),
+    ]);
+    // Sections whose first/last endpoints are off the stringer (x = 3 / x = 2).
+    const prof = splineFromKnots([
+      knot(vec2(3, 5), vec2(3, 5), vec2(10, 5)),
+      knot(vec2(2, 8), vec2(10, 6), vec2(2, 8)),
+    ]);
+    const cs = [crossSection(0, prof), crossSection(50, prof), crossSection(100, prof)];
+    return board(outline, bottom, deck, cs);
+  }
+
+  // --- JC-5: deck <-> bottom share tail + nose tips (REPRODUCED) -----------
+  it('JC-5: deck wins the tip join by default — bottom adopts deck tail+nose endpoints', () => {
+    const b = openBoard();
+    const out = enforceJunctions(b);
+    const last = out.deck.knots.length - 1;
+    // bottom endpoints snapped onto the deck's endpoints (deck is the master).
+    expect(out.bottom.knots[0]!.end).toEqual(out.deck.knots[0]!.end);
+    expect(out.bottom.knots[last]!.end).toEqual(out.deck.knots[last]!.end);
+    // deck itself is left untouched when it is the master.
+    expect(out.deck.knots[0]!.end).toEqual(b.deck.knots[0]!.end);
+    expect(out.deck.knots[last]!.end).toEqual(b.deck.knots[last]!.end);
+  });
+
+  it("JC-5: when 'bottom' is the changed curve, bottom wins and deck adopts its tips", () => {
+    const b = openBoard();
+    const out = enforceJunctions(b, { kind: 'bottom' });
+    const last = out.bottom.knots.length - 1;
+    expect(out.deck.knots[0]!.end).toEqual(out.bottom.knots[0]!.end);
+    expect(out.deck.knots[last]!.end).toEqual(out.bottom.knots[last]!.end);
+    expect(out.bottom.knots[0]!.end).toEqual(b.bottom.knots[0]!.end);
+  });
+
+  it('JC-5: the tip join translates the adopted curve tangents rigidly (slave-like)', () => {
+    const b = openBoard();
+    const out = enforceJunctions(b);
+    // bottom tail endpoint moved from y=5 to deck y=11 → delta (0, +6); both of
+    // its tail handles must translate by the same delta (legacy updateSlave).
+    const k0 = out.bottom.knots[0]!;
+    expect(k0.tangentToPrev).toEqual(vec2(-5, 11));
+    expect(k0.tangentToNext).toEqual(vec2(5, 11));
+  });
+
+  // --- JC-4 (x-lock): section centre endpoints snap to stringer (REPRODUCED) -
+  it('JC-4 x: every cross-section first/last endpoint is snapped to x = 0', () => {
+    const b = openBoard();
+    const out = enforceJunctions(b);
+    for (const cs of out.crossSections) {
+      const last = cs.spline.knots.length - 1;
+      expect(cs.spline.knots[0]!.end.x).toBe(0);
+      expect(cs.spline.knots[last]!.end.x).toBe(0);
+    }
+  });
+
+  it('JC-4 x: y of the section centre endpoints is preserved (only x is pinned)', () => {
+    const b = openBoard();
+    const out = enforceJunctions(b);
+    const cs = out.crossSections[1]!.spline;
+    const last = cs.knots.length - 1;
+    expect(cs.knots[0]!.end.y).toBe(5); // unchanged from prof
+    expect(cs.knots[last]!.end.y).toBe(8); // unchanged from prof
+  });
+
+  // --- Outline centreline pin: only knots[0] (the tail) is pinned ----------
+  it('outline: knots[0] (tail, x=0) endpoint is snapped to the centreline y = 0', () => {
+    const b = openBoard();
+    const out = enforceJunctions(b);
+    expect(out.outline.knots[0]!.end).toEqual(vec2(0, 0));
+  });
+
+  // --- Documented GAPS: legacy constraints the port does NOT yet model -----
+  // These assert the port leaves the value FREE (the opposite of the legacy
+  // lock). They pin the current gap; see docs/specs/junction-constraints.md
+  // "Divergences" for the legacy behavior that is intentionally not ported.
+
+  it('GAP (JC-1): outline nose endpoint (knots[last]) is left free, not pinned to y=0', () => {
+    const b = openBoard();
+    const out = enforceJunctions(b);
+    const last = out.outline.knots.length - 1;
+    // legacy JC-1 fully locks BOTH outline tips; the port leaves the nose tip
+    // wherever the edit put it (here y = 3, off centreline).
+    expect(out.outline.knots[last]!.end).toEqual(vec2(100, 3));
+  });
+
+  it('GAP (JC-2/JC-3): deck/bottom endpoint x is NOT re-locked to its station', () => {
+    // Construct a board where the deck nose endpoint sits at x = 98 (not 100).
+    const outline = splineFromKnots([
+      knot(vec2(0, 0), vec2(-5, 0), vec2(5, 0)),
+      knot(vec2(100, 0), vec2(95, 0), vec2(105, 0)),
+    ]);
+    const bottom = splineFromKnots([
+      knot(vec2(0, 5), vec2(-5, 5), vec2(5, 5)),
+      knot(vec2(100, 6), vec2(95, 6), vec2(105, 6)),
+    ]);
+    const deck = splineFromKnots([
+      knot(vec2(0, 11), vec2(-5, 11), vec2(5, 11)),
+      knot(vec2(98, 12), vec2(95, 12), vec2(101, 12)), // nose x drifted to 98
+    ]);
+    const prof = splineFromKnots([
+      knot(vec2(0, 5), vec2(0, 5), vec2(10, 5)),
+      knot(vec2(0, 8), vec2(10, 6), vec2(0, 8)),
+    ]);
+    const b = board(outline, bottom, deck, [
+      crossSection(0, prof),
+      crossSection(50, prof),
+      crossSection(100, prof),
+    ]);
+    const out = enforceJunctions(b);
+    const last = out.deck.knots.length - 1;
+    // legacy JC-2/JC-3 x-lock would force the tips back to their station; the
+    // port preserves the drifted x (and bottom adopts it via JC-5).
+    expect(out.deck.knots[last]!.end.x).toBe(98);
+    expect(out.bottom.knots[last]!.end.x).toBe(98);
+  });
+
+  it('GAP (JC-6/JC-8): tangent handles are not clamped — a folded tangent survives', () => {
+    // outline knots[0] toNext handle folded to x = -5 (behind its endpoint x=0);
+    // legacy JC-6 LOCK_X_MORE would clamp it to x = 0. The port leaves it.
+    const outline = splineFromKnots([
+      knot(vec2(0, 0), vec2(-5, 0), vec2(-5, 0)), // toNext folded behind x=0
+      knot(vec2(100, 0), vec2(95, 0), vec2(105, 0)),
+    ]);
+    const bottom = splineFromKnots([
+      knot(vec2(0, 5), vec2(-5, 5), vec2(5, 5)),
+      knot(vec2(100, 6), vec2(95, 6), vec2(105, 6)),
+    ]);
+    const deck = splineFromKnots([
+      knot(vec2(0, 11), vec2(-5, 11), vec2(5, 11)),
+      knot(vec2(100, 12), vec2(95, 12), vec2(105, 12)),
+    ]);
+    const prof = splineFromKnots([
+      knot(vec2(0, 5), vec2(0, 5), vec2(10, 5)),
+      knot(vec2(0, 8), vec2(10, 6), vec2(0, 8)),
+    ]);
+    const b = board(outline, bottom, deck, [
+      crossSection(0, prof),
+      crossSection(50, prof),
+      crossSection(100, prof),
+    ]);
+    const out = enforceJunctions(b);
+    // The folded handle is preserved (x stays -5, not clamped to 0).
+    expect(out.outline.knots[0]!.tangentToNext.x).toBe(-5);
+  });
+
+  // --- Idempotence: safe to run after every edit and on load --------------
+  it('is idempotent — a second pass changes nothing', () => {
+    const once = enforceJunctions(openBoard());
+    const twice = enforceJunctions(once);
+    expect(twice.outline.knots).toEqual(once.outline.knots);
+    expect(twice.deck.knots).toEqual(once.deck.knots);
+    expect(twice.bottom.knots).toEqual(once.bottom.knots);
+    expect(twice.crossSections.map((c) => c.spline.knots)).toEqual(
+      once.crossSections.map((c) => c.spline.knots),
+    );
+  });
+});
