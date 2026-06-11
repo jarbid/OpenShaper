@@ -1,11 +1,13 @@
 # Specs worker — moving `selectSpecs` off the main thread
 
-Status: **wired** — AppShell computes specs via `useSpecsWorker(settledBoard)`,
+Status: **steps 1–4 done** — all main-thread integration work is now off the
+main thread. AppShell computes specs and the volume-distribution overlay via
+`useSpecsWorker(settledBoard, { wantDistribution, distributionIntervals })`,
 with a synchronous fallback where `Worker` is unavailable (jsdom tests, SSG
-prerender). Code: `apps/web/src/workers/specs-protocol.ts`,
+prerender). The weight estimate reads `specs.area` from the worker result instead
+of calling `getArea` redundantly on the main thread. Code:
+`apps/web/src/workers/specs-protocol.ts`,
 `apps/web/src/workers/specs-worker.ts`, `apps/web/src/use-specs-worker.ts`.
-Still on the main thread (step 4 below): the volume-distribution overlay
-samples and `getArea` for the weight estimate.
 
 ## Problem
 
@@ -63,10 +65,11 @@ miss anyway. The App-side `useSpecsWorker` state is the cross-render cache.
    (previous board) for a few ms after a commit. Consumers already handle
    `specs === null`; staleness is invisible at these latencies but the resize
    form should read the response's board, not the live one, if exactness matters.
-4. Candidates to move behind the same boundary later: the volume-distribution
-   overlay samples (App.tsx `volumeDist`, 41 × `getCrossSectionAreaAt`) and
-   `getArea` for the weight estimate — extend `SpecsRequest` with
-   `wantDistribution?: boolean` rather than adding a second worker.
+4. **Done.** Volume-distribution overlay samples (41 × `getCrossSectionAreaAt`)
+   and `getArea` for the weight estimate moved behind the same worker boundary.
+   `SpecsRequest` now carries `wantDistribution?: boolean` and
+   `distributionIntervals?: number`; the response carries `distribution?`.
+   The weight estimate reads `specs.area` from the worker result.
 5. Ghost-board specs (`ghostSpecs`) can reuse the same worker; they're computed
    once per ghost load, so they can simply queue behind board requests.
 

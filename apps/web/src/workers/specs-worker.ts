@@ -1,5 +1,6 @@
+import { getCrossSectionAreaAt, getLength } from '@openshaper/kernel';
 import { selectSpecs } from '@openshaper/store';
-import type { SpecsRequest, SpecsResponse } from './specs-protocol';
+import type { DistributionSample, SpecsRequest, SpecsResponse } from './specs-protocol';
 
 /**
  * Dedicated worker that runs the integration-heavy selectSpecs off the main
@@ -7,6 +8,9 @@ import type { SpecsRequest, SpecsResponse } from './specs-protocol';
  * order; "cancellation" is supersession — the main thread bumps the request id
  * and drops any response whose id is no longer current. Instantiated by the
  * useSpecsWorker hook.
+ *
+ * Step 4: also computes the cross-sectional-area distribution (volume-distribution
+ * overlay) when the request includes wantDistribution: true.
  */
 
 // Local minimal worker-scope type: the app's tsconfig loads the DOM lib, which
@@ -17,10 +21,27 @@ interface WorkerScope {
 }
 const ctx = self as unknown as WorkerScope;
 
+/** Compute the distribution array — same sampling logic as the App.tsx useMemo it replaces. */
+function computeDistribution(
+  board: SpecsRequest['board'],
+  intervals: number,
+): DistributionSample[] {
+  const len = getLength(board);
+  const N = intervals;
+  return Array.from({ length: N + 1 }, (_, i) => {
+    const x = (i / N) * len;
+    return { x, value: getCrossSectionAreaAt(board, x, 10) };
+  });
+}
+
 ctx.onmessage = (e) => {
-  const { id, board } = e.data;
+  const { id, board, wantDistribution = false, distributionIntervals = 40 } = e.data;
   try {
-    ctx.postMessage({ id, ok: true, specs: selectSpecs(board) });
+    const specs = selectSpecs(board);
+    const distribution = wantDistribution
+      ? computeDistribution(board, distributionIntervals)
+      : undefined;
+    ctx.postMessage({ id, ok: true, specs, distribution });
   } catch (err) {
     ctx.postMessage({ id, ok: false, error: (err as Error).message });
   }

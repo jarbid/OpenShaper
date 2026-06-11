@@ -1,7 +1,5 @@
 import { parseBrd } from '@openshaper/io';
 import {
-  getArea,
-  getCrossSectionAreaAt,
   getInterpolatedCrossSection,
   getLength,
   type BezierBoard,
@@ -108,11 +106,29 @@ function AppShell() {
     }
   }, []);
 
-  // Specs (and the other integration-heavy values below) read the settled board so
-  // they don't re-integrate on every drag move — see useSettledBoard. The integrals
-  // themselves run in the specs worker; the previous values hold during recompute.
+  // Overlay toggles are declared early so the dist flag can be forwarded to the
+  // specs worker (the worker re-runs the distribution only when the flag is on).
+  const [overlayToggles, setOverlayToggles] = useState<OverlayToggles>({
+    grid: false,
+    comb: false,
+    com: false,
+    dist: false,
+  });
+
+  // Specs (and the distribution overlay) read the settled board so they don't
+  // re-integrate on every drag move — see useSettledBoard. The integrals run in
+  // the specs worker; previous values hold during recompute (no flicker).
   const settledBoard = useSettledBoard();
-  const specs = useSpecsWorker(settledBoard);
+  const workerResult = useSpecsWorker(settledBoard, {
+    wantDistribution: overlayToggles.dist,
+    distributionIntervals: 40,
+  });
+  const specs = workerResult?.specs ?? null;
+  // Volume-distribution overlay: computed off-thread when the overlay is enabled.
+  // When disabled the worker skips the sampling, saving ~41 getCrossSectionAreaAt
+  // calls per settled-board change.
+  const volumeDist = workerResult?.distribution;
+
   const [view, setView] = useState<View>('quad');
   const [csIndex, setCsIndex] = useState(1);
   // Transient cross-pane scrub: the board-length x being hovered in the rocker/outline,
@@ -136,12 +152,6 @@ function AppShell() {
   });
   const patchView3d = (patch: Partial<View3DSettings>) => setView3d((s) => ({ ...s, ...patch }));
   const [csClipboard, setCsClipboard] = useState<Spline | null>(null);
-  const [overlayToggles, setOverlayToggles] = useState<OverlayToggles>({
-    grid: false,
-    comb: false,
-    com: false,
-    dist: false,
-  });
   const [ghost, setGhost] = useState<BezierBoard | null>(null);
   const [trace, setTrace] = useState<HTMLImageElement | null>(null);
   const [traceOpacity, setTraceOpacity] = useState(0.5);
@@ -216,18 +226,6 @@ function AppShell() {
     setResize({ l: '', w: '', t: '' });
   };
 
-  // Cross-sectional-area distribution (legacy volume distribution), recomputed
-  // only when the (settled) board changes and the overlay is enabled.
-  const volumeDist = useMemo(() => {
-    if (!settledBoard || !overlayToggles.dist) return undefined;
-    const len = getLength(settledBoard);
-    const N = 40;
-    return Array.from({ length: N + 1 }, (_, i) => {
-      const x = (i / N) * len;
-      return { x, value: getCrossSectionAreaAt(settledBoard, x, 10) };
-    });
-  }, [settledBoard, overlayToggles.dist]);
-
   const finType = (meta.finType as FinSetup) ?? 'none';
   const finMarkers = board && finType !== 'none' ? finsFor(finType, board) : undefined;
 
@@ -248,17 +246,14 @@ function AppShell() {
 
   const foamType = (meta.foamType as FoamType) ?? 'PU';
   const glassSchedule = (meta.glassSchedule as GlassSchedule) ?? '4+4';
+  // Weight estimate: specs.area (planshape area cm²) comes from the worker result —
+  // same value as getArea(settledBoard) but without a redundant main-thread kernel call.
   const weight = useMemo(
     () =>
-      settledBoard && specs
-        ? estimateWeight(
-            specs.volume / 1000,
-            getArea(settledBoard) / 10000,
-            foamType,
-            glassSchedule,
-          )
+      specs
+        ? estimateWeight(specs.volume / 1000, specs.area / 10000, foamType, glassSchedule)
         : null,
-    [settledBoard, specs, foamType, glassSchedule],
+    [specs, foamType, glassSchedule],
   );
 
   const overlaysFor = (kind: EditorKind): EditorOverlays => {
