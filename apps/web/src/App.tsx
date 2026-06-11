@@ -154,6 +154,14 @@ function AppShell() {
   const [templateKind, setTemplateKind] = useState<'hws' | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const togglePalette = useCallback(() => setPaletteOpen((o) => !o), []);
+  // Imperative view commands for the 2D editor panes (fit / life-size).
+  // The `seq` counter ensures the same command kind can be fired multiple times
+  // — each menu press increments it, which triggers the SplineEditor effect.
+  const [viewCmd, setViewCmd] = useState<{ seq: number; kind: 'fit' | 'lifeSize' } | undefined>(
+    undefined,
+  );
+  const sendViewCmd = (kind: 'fit' | 'lifeSize') =>
+    setViewCmd((cur) => ({ seq: (cur?.seq ?? 0) + 1, kind }));
 
   useKeyboardShortcuts({ setView, setCsIndex, metaRef, onCommandPalette: togglePalette });
 
@@ -483,6 +491,18 @@ function AppShell() {
       onSelect: () => setOverlayToggles((s) => ({ ...s, dist: !s.dist })),
     },
     { kind: 'separator' },
+    { kind: 'label', label: 'Zoom' },
+    {
+      kind: 'action' as const,
+      label: 'Fit view',
+      onSelect: () => sendViewCmd('fit'),
+    },
+    {
+      kind: 'action' as const,
+      label: 'Life-size (1:1)',
+      onSelect: () => sendViewCmd('lifeSize'),
+    },
+    { kind: 'separator' },
     { kind: 'label', label: 'Units' },
     ...LENGTH_UNITS.map((u) => ({
       kind: 'checkbox' as const,
@@ -637,6 +657,7 @@ function AppShell() {
                 overlays={overlaysFor('outline')}
                 ghostSplines={ghostSplinesFor('outline')}
                 background={traceBg}
+                viewCommand={viewCmd}
               />
               <EditorPane
                 title={csTitle}
@@ -645,6 +666,7 @@ function AppShell() {
                 units={units}
                 overlays={overlaysFor('crossSection')}
                 ghostSplines={ghostSplinesFor('crossSection')}
+                viewCommand={viewCmd}
                 headerActions={csControls}
               />
               <EditorPane
@@ -658,6 +680,7 @@ function AppShell() {
                 onScrub={setScrubX}
                 overlays={overlaysFor('rocker')}
                 ghostSplines={ghostSplinesFor('rocker')}
+                viewCommand={viewCmd}
               />
               <Panel className="flex min-h-0 flex-col">
                 <PanelHeader className="flex items-center justify-between gap-2">
@@ -721,6 +744,7 @@ function AppShell() {
               overlays={overlaysFor(view)}
               ghostSplines={ghostSplinesFor(view)}
               background={traceBg}
+              viewCommand={viewCmd}
               headerActions={view === 'crossSection' ? csControls : undefined}
             />
           )}

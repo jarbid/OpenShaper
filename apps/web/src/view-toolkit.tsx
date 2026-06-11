@@ -308,6 +308,7 @@ export function EditorPane({
   overlays,
   ghostSplines,
   background,
+  viewCommand,
   headerActions,
 }: {
   title: string;
@@ -321,6 +322,7 @@ export function EditorPane({
   overlays?: EditorOverlays;
   ghostSplines?: Spline[];
   background?: React.ComponentProps<typeof SplineEditor>['background'];
+  viewCommand?: React.ComponentProps<typeof SplineEditor>['viewCommand'];
   headerActions?: React.ReactNode;
 }) {
   // Stable across re-renders so the editor's target set (and the SplineEditor
@@ -349,6 +351,7 @@ export function EditorPane({
           overlays={overlays}
           ghostSplines={ghostSplines}
           background={kind === 'outline' ? background : undefined}
+          viewCommand={viewCommand}
         />
       </PanelBody>
     </Panel>

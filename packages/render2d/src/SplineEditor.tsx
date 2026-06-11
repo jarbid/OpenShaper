@@ -39,7 +39,15 @@ import {
 } from './draw';
 import { hitTest, type Hit } from './hit';
 import { boundsOf, sampleSpline } from './sample';
-import { fitToBounds, pan, screenToWorld, worldToScreen, zoomAt, type Viewport } from './viewport';
+import {
+  fitToBounds,
+  lifeSizeViewport,
+  pan,
+  screenToWorld,
+  worldToScreen,
+  zoomAt,
+  type Viewport,
+} from './viewport';
 
 export interface SplineEditorProps {
   store: StoreApi<BoardState>;
@@ -84,6 +92,16 @@ export interface SplineEditorProps {
     opacity: number;
     rect: { x: number; y: number; w: number; h: number };
   };
+  /**
+   * Imperative view command. When `seq` changes the editor executes `kind`:
+   * - `'fit'`      — re-home to fit all curves (same as double-clicking empty space).
+   * - `'lifeSize'` — zoom to 1:1 CSS-pixel scale (≈ 37.795 px/cm, anchored at canvas centre).
+   *
+   * Using a sequence counter (rather than a callback ref or a boolean flag) means
+   * the same command kind can be fired multiple times without the prop value needing
+   * to go back to `undefined` between presses — every increment triggers the effect.
+   */
+  viewCommand?: { seq: number; kind: 'fit' | 'lifeSize' };
   className?: string;
 }
 
@@ -137,6 +155,7 @@ export function SplineEditor({
   overlays,
   ghostSplines,
   background,
+  viewCommand,
   className,
 }: SplineEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -297,6 +316,23 @@ export function SplineEditor({
     if (mirrorX) pts = pts.flatMap((p) => [p, { x: -p.x, y: p.y }]);
     setVp(fitToBounds(boundsOf(pts), size.w, size.h));
   }, [board, targets, mirrorX, mirrorY, size.w, size.h]);
+
+  // Respond to imperative view commands (fit / lifeSize) driven by the seq counter.
+  // The effect only fires when seq changes — the same kind can be issued multiple
+  // times without requiring a round-trip to undefined between presses.
+  useEffect(() => {
+    if (!viewCommand || size.w === 0) return;
+    if (viewCommand.kind === 'fit') {
+      fitView();
+    } else if (viewCommand.kind === 'lifeSize') {
+      // Zoom to 1:1 CSS-pixel scale, anchored at the canvas centre.
+      // CSS_PX_PER_CM ≈ 37.795 px/cm (96 px/in ÷ 2.54 cm/in).
+      setVp((cur) => (cur ? lifeSizeViewport(cur, size.w, size.h) : cur));
+    }
+    // Deliberately omit `fitView` from the dep array: we only want this to trigger
+    // when `viewCommand.seq` changes — not on every board edit that recreates fitView.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewCommand?.seq]);
 
   // Nearest control-point handle under a screen point, across all target splines.
   const hitAny = useCallback(
