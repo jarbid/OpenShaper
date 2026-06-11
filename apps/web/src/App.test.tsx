@@ -1,12 +1,17 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { boardStore } from './store';
+import { STORAGE_KEY } from './recent-boards';
 
 // The 3D pane lazy-loads three.js/fiber, which need WebGL — stub the whole package.
 vi.mock('@openshaper/render3d', () => ({ Board3DView: () => null }));
 
 describe('<App /> smoke', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   it('mounts the shell, loads the sample board, and shows the editor chrome', async () => {
     render(<App />);
 
@@ -48,5 +53,26 @@ describe('<App /> smoke', () => {
 
     expect(boardStore.getState().board).toBe(before);
     expect(boardStore.getState().future).toHaveLength(1);
+  });
+
+  it('File menu shows a pre-seeded recent entry under "Open recent"', async () => {
+    // Pre-seed localStorage so the App reads it on mount.
+    const entry = {
+      name: 'My Test Board',
+      savedAt: new Date().toISOString(),
+      boardJson: '{}',
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([entry]));
+
+    render(<App />);
+
+    // Open the File menu.
+    const fileBtn = screen.getByRole('menuitem', { name: 'File' });
+    fireEvent.click(fileBtn);
+
+    // The "Open recent" label and the board name should be visible.
+    expect(screen.getByText('Open recent')).toBeTruthy();
+    expect(screen.getByText('My Test Board')).toBeTruthy();
+    expect(screen.getByRole('menuitem', { name: 'Clear recent' })).toBeTruthy();
   });
 });

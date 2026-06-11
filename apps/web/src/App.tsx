@@ -1,4 +1,4 @@
-import { parseBrd } from '@openshaper/io';
+import { parseBrd, readBoardJson, writeBoardJson } from '@openshaper/io';
 import {
   getArea,
   getCrossSectionAreaAt,
@@ -41,6 +41,7 @@ import {
   type BoardMeta,
   type ExportFormat,
 } from './file-io';
+import { clearRecentBoards, getRecentBoards, recordRecentBoard } from './recent-boards';
 import { DEFAULT_LENGTH_UNIT, LENGTH_UNITS, lengthUnitByKey, parseLen } from './format';
 import { openHtmlInNewTab, specSheetHtmlFor } from './spec-sheet-open';
 import { Brandmark } from './components/marks';
@@ -154,6 +155,10 @@ function AppShell() {
   const [templateKind, setTemplateKind] = useState<'hws' | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const togglePalette = useCallback(() => setPaletteOpen((o) => !o), []);
+
+  // Recent boards: re-read from localStorage whenever the menu is constructed so
+  // it stays in sync with saves/opens from this session.
+  const [recentBoards, setRecentBoards] = useState(() => getRecentBoards());
 
   useKeyboardShortcuts({ setView, setCsIndex, metaRef, onCommandPalette: togglePalette });
 
@@ -336,6 +341,14 @@ function AppShell() {
       const { board, meta } = await openBoardFile(file);
       boardStore.getState().load(board);
       setMeta(meta);
+      // Record in the recent list. Use the file's base name (strip extension) as
+      // the display name; re-serialise to canonical .board.json so the snapshot
+      // is always in the native format regardless of the source format (.brd etc.)
+      const baseName = file.name.replace(/\.(board\.json|json|brd)$/i, '');
+      const metadata =
+        meta && Object.values(meta).some(Boolean) ? (meta as Record<string, unknown>) : undefined;
+      recordRecentBoard(baseName, writeBoardJson(board, metadata));
+      setRecentBoards(getRecentBoards());
     } catch (err) {
       console.error('Failed to open board', err);
       showError(`Could not open ${file.name}: ${(err as Error).message}`);
@@ -360,11 +373,31 @@ function AppShell() {
     const t = BOARD_TEMPLATES.find((x) => x.name === name);
     if (!t) return;
     try {
-      boardStore.getState().load(parseBrd(t.brd).board);
+      const { board: tBoard } = parseBrd(t.brd);
+      boardStore.getState().load(tBoard);
       setMeta({ model: t.name });
       setGhost(null);
+      // Record the template load so it appears in the recent-boards list.
+      recordRecentBoard(t.name, writeBoardJson(tBoard, { model: t.name }));
+      setRecentBoards(getRecentBoards());
     } catch (err) {
       console.error('Failed to load template', err);
+    }
+  };
+
+  /** Load a board that was previously recorded in the recent list. */
+  const loadFromRecent = (entry: { name: string; boardJson: string }) => {
+    try {
+      const { board: rBoard, metadata } = readBoardJson(entry.boardJson);
+      boardStore.getState().load(rBoard);
+      setMeta((metadata as BoardMeta) ?? {});
+      setGhost(null);
+      // Refresh the recent list so this entry bubbles to top (re-record updates savedAt).
+      recordRecentBoard(entry.name, entry.boardJson);
+      setRecentBoards(getRecentBoards());
+    } catch (err) {
+      console.error('Failed to load recent board', err);
+      showError(`Could not reload "${entry.name}": ${(err as Error).message}`);
     }
   };
 
@@ -416,9 +449,35 @@ function AppShell() {
       label: 'Save',
       shortcut: 'Ctrl S',
       disabled: !board,
-      onSelect: () => board && downloadBoard(board, meta),
+      onSelect: () => {
+        if (!board) return;
+        downloadBoard(board, meta);
+        // downloadBoard records internally; refresh the menu's snapshot.
+        setRecentBoards(getRecentBoards());
+      },
     },
     { kind: 'separator' },
+    // Open recent: one named entry per recorded board, newest first.
+    ...(recentBoards.length > 0
+      ? ([
+          { kind: 'label', label: 'Open recent' } as MenuItem,
+          ...recentBoards.map((e) => ({
+            kind: 'action' as const,
+            label: e.name,
+            onSelect: () => loadFromRecent(e),
+          })),
+          { kind: 'separator' } as MenuItem,
+          {
+            kind: 'action' as const,
+            label: 'Clear recent',
+            onSelect: () => {
+              clearRecentBoards();
+              setRecentBoards([]);
+            },
+          },
+          { kind: 'separator' } as MenuItem,
+        ] satisfies MenuItem[])
+      : []),
     { kind: 'action', label: 'Load trace image…', onSelect: () => traceInput.current?.click() },
     { kind: 'separator' },
     { kind: 'label', label: 'Export' },

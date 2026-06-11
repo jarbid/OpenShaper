@@ -10,6 +10,7 @@ import {
 } from '@openshaper/export';
 import { parseBrd, readBoardJson, writeBoardJson } from '@openshaper/io';
 import type { BezierBoard } from '@openshaper/kernel';
+import { recordRecentBoard } from './recent-boards';
 
 function download(data: BlobPart, filename: string, type: string): void {
   const blob = new Blob([data], { type });
@@ -42,7 +43,13 @@ export function downloadBoard(
 ): void {
   const metadata =
     meta && Object.values(meta).some(Boolean) ? (meta as Record<string, unknown>) : undefined;
-  download(writeBoardJson(board, metadata), filename, 'application/json');
+  const boardJson = writeBoardJson(board, metadata);
+  download(boardJson, filename, 'application/json');
+  // Record in the recent-boards list. Use meta.model if present, otherwise
+  // strip the .board.json suffix from the filename.
+  const name =
+    meta?.model?.trim() || filename.replace(/\.board\.json$/i, '').replace(/\.json$/i, '');
+  recordRecentBoard(name || filename, boardJson);
 }
 
 type BoardFileReader = (file: File) => Promise<{ board: BezierBoard; meta: BoardMeta }>;
