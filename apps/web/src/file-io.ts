@@ -45,12 +45,24 @@ export function downloadBoard(
   download(writeBoardJson(board, metadata), filename, 'application/json');
 }
 
-/** Read a user-picked file: native .board.json or a legacy .brd import. */
-export async function openBoardFile(file: File): Promise<{ board: BezierBoard; meta: BoardMeta }> {
-  const text = await file.text();
-  if (file.name.toLowerCase().endsWith('.brd')) return { board: parseBrd(text).board, meta: {} };
-  const { board, metadata } = readBoardJson(text);
+type BoardFileReader = (file: File) => Promise<{ board: BezierBoard; meta: BoardMeta }>;
+
+// Extension → importer. Each reader controls its own decoding (text vs
+// arrayBuffer), so binary formats fit the same table.
+const BOARD_FILE_READERS: Record<string, BoardFileReader> = {
+  '.brd': async (file) => ({ board: parseBrd(await file.text()).board, meta: {} }),
+};
+
+const readBoardJsonFile: BoardFileReader = async (file) => {
+  const { board, metadata } = readBoardJson(await file.text());
   return { board, meta: (metadata as BoardMeta) ?? {} };
+};
+
+/** Read a user-picked file: a format importer by extension, else native .board.json. */
+export async function openBoardFile(file: File): Promise<{ board: BezierBoard; meta: BoardMeta }> {
+  const name = file.name.toLowerCase();
+  const ext = Object.keys(BOARD_FILE_READERS).find((e) => name.endsWith(e));
+  return ext ? BOARD_FILE_READERS[ext]!(file) : readBoardJsonFile(file);
 }
 
 export type TemplateFormat = 'dxf' | 'svg' | 'pdf';
