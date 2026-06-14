@@ -680,6 +680,7 @@ describe('junction-constraint spec (legacy parity pinning)', () => {
       once.crossSections.map((c) => c.spline.knots),
     );
   });
+});
 
 // ---------------------------------------------------------------------------
 // alignTangentsHorizontal — port of BrdEditCommand.rotateControlPointToHorizontal
