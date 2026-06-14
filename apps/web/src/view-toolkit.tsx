@@ -29,6 +29,7 @@ import { Button, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/u
 import { useMemo } from 'react';
 import { fmtLen, type LengthUnit } from './format';
 import { boardStore } from './store';
+import type { EditorSettings } from './settings';
 
 export type EditorKind = 'outline' | 'rocker' | 'crossSection';
 export type View = 'quad' | EditorKind | '3d';
@@ -276,17 +277,24 @@ export function makeReadout(kind: EditorKind, units: LengthUnit) {
 }
 
 /** Resolve the SplineEditor props for a single editor kind. */
-function paneProps(kind: EditorKind, csIndex: number) {
+function paneProps(kind: EditorKind, csIndex: number, settings?: EditorSettings) {
   const targets: SplineTarget[] =
     kind === 'outline'
       ? [{ kind: 'outline' }]
       : kind === 'rocker'
         ? [{ kind: 'deck' }, { kind: 'bottom' }]
         : [{ kind: 'crossSection', index: csIndex }];
-  // Rocker overlays two curves — give deck (cyan) and bottom (pink) strongly
-  // different hues so top vs bottom reads at a glance. Outline/cross-section are
-  // single mirrored curves (both halves are the same spline), so one color.
-  const colors = kind === 'rocker' ? ['#22D3EE', '#F472B6'] : undefined;
+  // Resolve per-pane curve colors from settings when provided, falling back to
+  // the hardcoded theme defaults so callers that pass nothing are unchanged.
+  let colors: string[] | undefined;
+  if (kind === 'rocker') {
+    colors = [settings?.deckColor ?? '#22D3EE', settings?.bottomColor ?? '#F472B6'];
+  } else if (kind === 'outline') {
+    colors = [settings?.outlineColor ?? '#22D3EE'];
+  } else {
+    // crossSection
+    colors = [settings?.crossSectionColor ?? '#2DD4BF'];
+  }
   return {
     targets,
     colors,
@@ -309,6 +317,7 @@ export function EditorPane({
   ghostSplines,
   background,
   headerActions,
+  settings,
 }: {
   title: string;
   kind: EditorKind;
@@ -322,10 +331,12 @@ export function EditorPane({
   ghostSplines?: Spline[];
   background?: React.ComponentProps<typeof SplineEditor>['background'];
   headerActions?: React.ReactNode;
+  /** Optional visual settings (colors, sizes). When absent the draw defaults apply. */
+  settings?: EditorSettings;
 }) {
   // Stable across re-renders so the editor's target set (and the SplineEditor
   // re-fit/draw effects keyed on it) only changes when the pane actually changes.
-  const p = useMemo(() => paneProps(kind, csIndex), [kind, csIndex]);
+  const p = useMemo(() => paneProps(kind, csIndex, settings), [kind, csIndex, settings]);
   return (
     <Panel className="flex min-h-0 flex-col">
       <PanelHeader className={headerActions ? 'gap-2' : undefined}>
@@ -349,6 +360,10 @@ export function EditorPane({
           overlays={overlays}
           ghostSplines={ghostSplines}
           background={kind === 'outline' ? background : undefined}
+          ghostColor={settings?.ghostColor}
+          gridColor={settings?.gridColor}
+          controlPointSize={settings?.controlPointSize}
+          curveThickness={settings?.curveThickness}
         />
       </PanelBody>
     </Panel>

@@ -84,6 +84,24 @@ export interface SplineEditorProps {
     opacity: number;
     rect: { x: number; y: number; w: number; h: number };
   };
+  /**
+   * Color for ghost/reference splines. Defaults to the draw module's built-in
+   * semi-transparent silver when omitted.
+   */
+  ghostColor?: string;
+  /**
+   * Color for the grid minor lines and axes. Defaults to the draw module's
+   * built-in muted-blue-grey when omitted.
+   */
+  gridColor?: string;
+  /**
+   * Control-point dot/square radius in px. Defaults to 5 when omitted.
+   */
+  controlPointSize?: number;
+  /**
+   * Curve stroke width in px. Defaults to the `defaultStyle.curveWidth` (2) when omitted.
+   */
+  curveThickness?: number;
   className?: string;
 }
 
@@ -137,6 +155,10 @@ export function SplineEditor({
   overlays,
   ghostSplines,
   background,
+  ghostColor,
+  gridColor,
+  controlPointSize,
+  curveThickness,
   className,
 }: SplineEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -210,7 +232,7 @@ export function SplineEditor({
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     clear(ctx, size.w, size.h);
-    if (overlays?.grid) drawGrid(ctx, vp, size.w, size.h);
+    if (overlays?.grid) drawGrid(ctx, vp, size.w, size.h, gridColor);
     if (background) {
       const { image, opacity, rect } = background;
       const tl = worldToScreen(vp, { x: rect.x - rect.w / 2, y: rect.y + rect.h / 2 });
@@ -227,16 +249,23 @@ export function SplineEditor({
     if (overlays?.verticalMarkers) drawVerticalMarkers(ctx, overlays.verticalMarkers, vp, size.h);
     if (overlays?.fins) drawFins(ctx, overlays.fins, vp);
     if (ghostSplines) {
-      for (const g of ghostSplines) drawGhostSpline(ctx, g, vp, { mirrorX, mirrorY });
+      for (const g of ghostSplines) drawGhostSpline(ctx, g, vp, { mirrorX, mirrorY }, ghostColor);
     }
     const palette = colors ?? PALETTE;
     targets.forEach((t, i) => {
       const spline = getTargetSpline(board, t);
-      const style: DrawStyle = { ...defaultStyle, curve: palette[i % palette.length]! };
+      const style: DrawStyle = {
+        ...defaultStyle,
+        curve: palette[i % palette.length]!,
+        ...(curveThickness != null ? { curveWidth: curveThickness } : {}),
+        ...(controlPointSize != null
+          ? { point: defaultStyle.point, pointSelected: defaultStyle.pointSelected }
+          : {}),
+      };
       drawSpline(ctx, spline, vp, style, { mirrorX, mirrorY });
       if (overlays?.curvatureComb) drawCurvatureComb(ctx, spline, vp);
       const sel = selection && sameTarget(selection.target, t) ? selection.index : null;
-      drawControlPoints(ctx, spline, vp, style, sel);
+      drawControlPoints(ctx, spline, vp, style, sel, controlPointSize);
     });
     // Sliding-location probes: a closed board outline for the pane lets the cursor /
     // scrub line be drawn solid where it's inside the board and dashed outside.
@@ -280,6 +309,10 @@ export function SplineEditor({
     background,
     measureCursor,
     hover,
+    ghostColor,
+    gridColor,
+    controlPointSize,
+    curveThickness,
   ]);
 
   const localPoint = (e: React.MouseEvent): { x: number; y: number } => {

@@ -64,11 +64,14 @@ export const drawGhostSpline = (
   spline: Spline,
   vp: Viewport,
   mirror: Mirror = {},
+  color?: string,
 ): void => {
   const pts = sampleSpline(spline);
   if (pts.length === 0) return;
   ctx.save();
-  ctx.strokeStyle = 'rgba(180,184,196,0.55)';
+  // If a custom color is supplied use it at 55% opacity; otherwise fall back to
+  // the original semi-transparent silver so callers that pass nothing are unchanged.
+  ctx.strokeStyle = color ? `${color}8c` : 'rgba(180,184,196,0.55)';
   ctx.lineWidth = 1.5;
   ctx.setLineDash([6, 4]);
   for (const f of reflections(mirror)) {
@@ -107,7 +110,11 @@ export const drawControlPoints = (
   vp: Viewport,
   style: DrawStyle,
   selectedIndex: number | null,
+  /** Override the control-point radius (px). Defaults to 5 for circles / 4 for squares. */
+  pointSize?: number,
 ): void => {
+  const r = pointSize ?? 5;
+  const rSq = pointSize != null ? Math.max(1, pointSize - 1) : 4;
   spline.knots.forEach((k, i) => {
     const end = worldToScreen(vp, k.end);
     const prev = worldToScreen(vp, k.tangentToPrev);
@@ -124,8 +131,8 @@ export const drawControlPoints = (
     dot(ctx, prev.x, prev.y, 3, style.tangent);
     dot(ctx, next.x, next.y, 3, style.tangent);
     const fill = i === selectedIndex ? style.pointSelected : style.point;
-    if (k.continuous) dot(ctx, end.x, end.y, 5, fill);
-    else square(ctx, end.x, end.y, 4, fill);
+    if (k.continuous) dot(ctx, end.x, end.y, r, fill);
+    else square(ctx, end.x, end.y, rSq, fill);
   });
 };
 
@@ -149,11 +156,23 @@ export const gridStep = (rawCm: number): number => {
  * station / cross-section centerline) and y = 0 axis (rocker baseline / outline
  * stringer) are drawn slightly stronger so they read as datum lines.
  */
+/**
+ * Parse a 6-digit CSS hex color (#rrggbb) into an rgba() string with the given
+ * alpha, falling back to the provided `fallback` if parsing fails.
+ */
+const hexToRgba = (hex: string, alpha: number, fallback: string): string => {
+  const m = /^#([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})$/.exec(hex);
+  if (!m) return fallback;
+  return `rgba(${parseInt(m[1]!, 16)},${parseInt(m[2]!, 16)},${parseInt(m[3]!, 16)},${alpha})`;
+};
+
 export const drawGrid = (
   ctx: CanvasRenderingContext2D,
   vp: Viewport,
   w: number,
   h: number,
+  /** Override grid color (6-digit hex). Defaults to the built-in muted-blue-grey. */
+  color?: string,
 ): void => {
   const TARGET_PX = 64;
   const step = gridStep(TARGET_PX / vp.scale);
@@ -166,9 +185,17 @@ export const drawGrid = (
   const minY = Math.min(tl.y, br.y);
   const maxY = Math.max(tl.y, br.y);
 
+  // Derive minor / axis colors: minor at 12% opacity, axes at 40%.
+  const minorColor = color
+    ? hexToRgba(color, 0.12, 'rgba(138,155,179,0.12)')
+    : 'rgba(138,155,179,0.12)';
+  const axisColor = color
+    ? hexToRgba(color, 0.4, 'rgba(138,155,179,0.4)')
+    : 'rgba(138,155,179,0.4)';
+
   ctx.save();
   // Minor grid lines.
-  ctx.strokeStyle = 'rgba(138,155,179,0.12)';
+  ctx.strokeStyle = minorColor;
   ctx.lineWidth = 1;
   ctx.beginPath();
   for (let x = Math.ceil(minX / step) * step; x <= maxX; x += step) {
@@ -184,7 +211,7 @@ export const drawGrid = (
   ctx.stroke();
 
   // Emphasized zero-axes (baseline / centerline), only when in view.
-  ctx.strokeStyle = 'rgba(138,155,179,0.4)';
+  ctx.strokeStyle = axisColor;
   ctx.lineWidth = 1.25;
   ctx.beginPath();
   if (minX <= 0 && maxX >= 0) {

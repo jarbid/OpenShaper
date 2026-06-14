@@ -44,6 +44,8 @@ import { openHtmlInNewTab, specSheetHtmlFor } from './spec-sheet-open';
 import { Brandmark } from './components/marks';
 import { CommandPalette, commandsFromMenus } from './CommandPalette';
 import { ConstructionPanel } from './ConstructionPanel';
+import { SettingsDialog } from './SettingsDialog';
+import { loadSettings, saveSettings, type EditorSettings } from './settings';
 import { CrossSectionControls } from './CrossSectionControls';
 import { CoffeeIcon } from './components/Support';
 import { finsFor, type FinSetup } from './fins';
@@ -164,6 +166,12 @@ function AppShell() {
   const [templateKind, setTemplateKind] = useState<'hws' | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const togglePalette = useCallback(() => setPaletteOpen((o) => !o), []);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settings, setSettings] = useState<EditorSettings>(() => loadSettings());
+  const handleSaveSettings = (s: EditorSettings) => {
+    saveSettings(s);
+    setSettings(s);
+  };
 
   useKeyboardShortcuts({ setView, setCsIndex, metaRef, onCommandPalette: togglePalette });
 
@@ -449,6 +457,12 @@ function AppShell() {
       disabled: !canRedo,
       onSelect: () => boardStore.getState().redo(),
     },
+    { kind: 'separator' },
+    {
+      kind: 'action',
+      label: 'Settings…',
+      onSelect: () => setSettingsOpen(true),
+    },
   ];
 
   const viewMenu: MenuItem[] = [
@@ -632,6 +646,7 @@ function AppShell() {
                 overlays={overlaysFor('outline')}
                 ghostSplines={ghostSplinesFor('outline')}
                 background={traceBg}
+                settings={settings}
               />
               <EditorPane
                 title={csTitle}
@@ -641,6 +656,7 @@ function AppShell() {
                 overlays={overlaysFor('crossSection')}
                 ghostSplines={ghostSplinesFor('crossSection')}
                 headerActions={csControls}
+                settings={settings}
               />
               <EditorPane
                 title="Rocker (deck + bottom)"
@@ -653,6 +669,7 @@ function AppShell() {
                 onScrub={setScrubX}
                 overlays={overlaysFor('rocker')}
                 ghostSplines={ghostSplinesFor('rocker')}
+                settings={settings}
               />
               <Panel className="flex min-h-0 flex-col">
                 <PanelHeader className="flex items-center justify-between gap-2">
@@ -717,6 +734,7 @@ function AppShell() {
               ghostSplines={ghostSplinesFor(view)}
               background={traceBg}
               headerActions={view === 'crossSection' ? csControls : undefined}
+              settings={settings}
             />
           )}
         </div>
@@ -764,6 +782,14 @@ function AppShell() {
             ['Help', helpMenu],
           ])}
           onClose={() => setPaletteOpen(false)}
+        />
+      )}
+
+      {settingsOpen && (
+        <SettingsDialog
+          settings={settings}
+          onSave={handleSaveSettings}
+          onClose={() => setSettingsOpen(false)}
         />
       )}
 
