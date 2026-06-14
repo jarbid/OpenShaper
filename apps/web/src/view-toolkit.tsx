@@ -316,6 +316,7 @@ export function EditorPane({
   overlays,
   ghostSplines,
   background,
+  viewCommand,
   headerActions,
   settings,
 }: {
@@ -330,6 +331,7 @@ export function EditorPane({
   overlays?: EditorOverlays;
   ghostSplines?: Spline[];
   background?: React.ComponentProps<typeof SplineEditor>['background'];
+  viewCommand?: React.ComponentProps<typeof SplineEditor>['viewCommand'];
   headerActions?: React.ReactNode;
   /** Optional visual settings (colors, sizes). When absent the draw defaults apply. */
   settings?: EditorSettings;
@@ -364,6 +366,7 @@ export function EditorPane({
           gridColor={settings?.gridColor}
           controlPointSize={settings?.controlPointSize}
           curveThickness={settings?.curveThickness}
+          viewCommand={viewCommand}
         />
       </PanelBody>
     </Panel>

@@ -1,10 +1,12 @@
 /** @openshaper/render2d — canvas viewport + 2D editor draw layer. */
 export {
+  CSS_PX_PER_CM,
   worldToScreen,
   screenToWorld,
   fitToBounds,
   zoomAt,
   pan,
+  lifeSizeViewport,
   type Viewport,
   type Bounds,
   type ScreenPoint,
