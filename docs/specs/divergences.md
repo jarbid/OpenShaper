@@ -26,6 +26,23 @@ The sLinear golden **volume** band was relaxed 1e-4 → 1e-2 in the same commit
 **area** band stays 1e-4 because the inner cross-section trapezoid
 (`SLINEAR_AREA_SPLITS`) is deliberately left legacy-pinned.
 
+## `.brd` writer (`packages/io/src/brd-writer.ts`)
+
+`writeBrd` (the export-to-legacy path, paired with the existing `parseBrd` reader) is
+**lossy relative to legacy `board.writers.BrdWriter`**: it emits the geometry fields
+(p32 outline, p33 bottom, p34 deck, p35/p36 cross-sections) plus the identity/dimension
+scalars our model actually carries (p1–p4 length/lengthOverCurve/thickness/centerWidth,
+p7 version, p45 designer, p48 surfer, p49 comments, p51 finType, p54 model). It does **not**
+write the legacy CAM/machine scalar fields (cuts, cutter diam, pivots, speeds, margins,
+struts, blank/board positions — p11–p31, p43–p47, etc.) or the per-curve guide-point (`gps`)
+blocks, because the kernel board model does not represent them.
+
+This is intentional and safe to round-trip: `parseBrd` already treats every one of those
+fields as optional (the geometry is rebuilt purely from p32–p36), so `parseBrd(writeBrd(b))`
+reproduces the board geometry exactly (pinned in `brd-writer.test.ts`). No numeric golden
+value is superseded, so there is no table row above — re-importing a written `.brd` into
+BoardCAD-LE simply yields a board with default CAM settings.
+
 ## Known candidates (not yet diverged)
 
 - **Junction constraints — unimplemented legacy locks/masks** (see

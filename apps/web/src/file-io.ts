@@ -8,7 +8,14 @@ import {
   sheetToSvg,
   type TemplateSheet,
 } from '@openshaper/export';
-import { parseBrd, parseS3d, parseSrf, readBoardJson, writeBoardJson } from '@openshaper/io';
+import {
+  parseBrd,
+  parseS3d,
+  parseSrf,
+  readBoardJson,
+  writeBoardJson,
+  writeBrd,
+} from '@openshaper/io';
 import type { BezierBoard } from '@openshaper/kernel';
 import { recordRecentBoard } from './recent-boards';
 
@@ -39,17 +46,29 @@ export interface BoardMeta {
 export function downloadBoard(
   board: BezierBoard,
   meta?: BoardMeta,
-  filename = 'board.board.json',
+  filename = 'board.board',
 ): void {
   const metadata =
     meta && Object.values(meta).some(Boolean) ? (meta as Record<string, unknown>) : undefined;
   const boardJson = writeBoardJson(board, metadata);
   download(boardJson, filename, 'application/json');
-  // Record in the recent-boards list. Use meta.model if present, otherwise
-  // strip the .board.json suffix from the filename.
+  // Record in the recent-boards list. Use meta.model if present, otherwise strip
+  // the native extension (.board, the legacy .board.json, or a bare .json).
   const name =
-    meta?.model?.trim() || filename.replace(/\.board\.json$/i, '').replace(/\.json$/i, '');
+    meta?.model?.trim() || filename.replace(/\.board(\.json)?$/i, '').replace(/\.json$/i, '');
   recordRecentBoard(name || filename, boardJson);
+}
+
+/** Trigger a download of the board in the legacy BoardCAD-LE `.brd` text format. */
+export function downloadBrd(board: BezierBoard, meta?: BoardMeta): void {
+  const text = writeBrd(board, {
+    model: meta?.model,
+    designer: meta?.designer,
+    surfer: meta?.surfer,
+    comments: meta?.comments,
+    finType: meta?.finType,
+  });
+  download(text, 'board.brd', 'application/octet-stream');
 }
 
 type BoardFileReader = (file: File) => Promise<{ board: BezierBoard; meta: BoardMeta }>;

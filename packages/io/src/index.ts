@@ -8,6 +8,8 @@
  */
 export { parseBrd } from './brd-reader';
 export type { ParsedBrd, BrdMetadataValue } from './brd-reader';
+export { writeBrd } from './brd-writer';
+export type { BrdWriteMetadata } from './brd-writer';
 export { parseS3d } from './s3d-reader';
 export type { ParsedS3d } from './s3d-reader';
 export { parseSrf, SrfReadError } from './srf-reader';

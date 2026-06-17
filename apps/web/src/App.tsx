@@ -35,6 +35,7 @@ import {
 } from 'react';
 import {
   downloadBoard,
+  downloadBrd,
   exportBoard,
   openBoardFile,
   type BoardMeta,
@@ -510,7 +511,21 @@ function AppShell() {
           ghost ?? undefined,
         ),
     })),
+    {
+      kind: 'action',
+      label: 'Legacy .brd',
+      disabled: !board,
+      onSelect: () => board && downloadBrd(board, meta),
+    },
     { kind: 'action', label: 'Spec sheet…', disabled: !specs, onSelect: openSpecSheet },
+    { kind: 'separator' },
+    { kind: 'label', label: 'Templates' },
+    {
+      kind: 'action',
+      label: 'Hollow Wood Frame…',
+      disabled: !board,
+      onSelect: () => setTemplateKind('hws'),
+    },
   ];
 
   const editMenu: MenuItem[] = [
@@ -606,16 +621,6 @@ function AppShell() {
     },
   ];
 
-  const templatesMenu: MenuItem[] = [
-    { kind: 'label', label: 'Construction' },
-    {
-      kind: 'action',
-      label: 'Hollow Wood Frame…',
-      disabled: !board,
-      onSelect: () => setTemplateKind('hws'),
-    },
-  ];
-
   const helpMenu: MenuItem[] = [
     {
       kind: 'action',
@@ -656,7 +661,6 @@ function AppShell() {
             <Menu label="Edit" items={editMenu} />
             <Menu label="View" items={viewMenu} />
             <Menu label="Board" items={boardMenu} />
-            <Menu label="Templates" items={templatesMenu} />
             <Menu label="Help" items={helpMenu} />
           </MenuBar>
           <div className="flex-1" />
@@ -700,14 +704,14 @@ function AppShell() {
         <input
           ref={fileInput}
           type="file"
-          accept=".board.json,.json,.brd,.s3d,.srf"
+          accept=".board,.board.json,.json,.brd,.s3d,.srf"
           className="hidden"
           onChange={onOpenFile}
         />
         <input
           ref={ghostInput}
           type="file"
-          accept=".board.json,.json,.brd,.s3d,.srf"
+          accept=".board,.board.json,.json,.brd,.s3d,.srf"
           className="hidden"
           onChange={onOpenGhost}
         />
@@ -866,7 +870,6 @@ function AppShell() {
             ['Edit', editMenu],
             ['View', viewMenu],
             ['Board', boardMenu],
-            ['Templates', templatesMenu],
             ['Help', helpMenu],
           ])}
           onClose={() => setPaletteOpen(false)}
