@@ -163,6 +163,16 @@ export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProp
             />
           </SettingsGroup>
 
+          {/* --- 3D view --- */}
+          <SettingsGroup title="3D view">
+            <ColorRow
+              id="setting-fin-color"
+              label="Fin blades"
+              value={draft.finColor}
+              onChange={(v) => set('finColor', v)}
+            />
+          </SettingsGroup>
+
           {/* --- Sizes --- */}
           <SettingsGroup title="Sizes">
             <NumberRow

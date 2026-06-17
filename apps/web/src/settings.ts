@@ -1,6 +1,6 @@
 /**
- * Editor visual settings: curve colors, ghost color, grid color,
- * control-point size, and curve stroke thickness. Persisted as a single
+ * Editor visual settings: curve colors, ghost color, grid color, 3D fin
+ * color, control-point size, and curve stroke thickness. Persisted as a single
  * versioned JSON blob in localStorage under 'bs.settings'.
  */
 
@@ -24,6 +24,8 @@ export interface EditorSettings {
   ghostColor: string;
   /** Grid minor-line color (CSS hex). */
   gridColor: string;
+  /** Fin blade color in the 3D view (CSS hex). */
+  finColor: string;
   /** Control-point dot/square radius in px. */
   controlPointSize: number;
   /** Curve stroke width in px. */
@@ -47,6 +49,8 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   ghostColor: '#B4B8C4',
   // Grid minor lines: matches the rgba(138,155,179,0.40) axis color in drawGrid.
   gridColor: '#8A9BB3',
+  // Fin blades: the OpenShaper brand cyan (matches the FIN_COLOR default in Fins3D).
+  finColor: '#22D3EE',
   controlPointSize: 5,
   curveThickness: 2,
 };

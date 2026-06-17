@@ -769,6 +769,7 @@ function AppShell() {
                     lighting={view3d.lighting}
                     material={view3d.material}
                     color={view3d.color}
+                    finColor={settings.finColor}
                     analysis={view3d.analysis}
                     targetFaceSize={faceSizeFor(view3d.meshQuality)}
                     sectionX={sectionX}
@@ -794,6 +795,7 @@ function AppShell() {
                   lighting={view3d.lighting}
                   material={view3d.material}
                   color={view3d.color}
+                  finColor={settings.finColor}
                   analysis={view3d.analysis}
                   targetFaceSize={faceSizeFor(view3d.meshQuality)}
                   sectionX={sectionX}
