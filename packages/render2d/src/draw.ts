@@ -1,4 +1,12 @@
-import { curvature, value, xDeriv, yDeriv, type Spline, type Vec2 } from '@openshaper/kernel';
+import {
+  curvature,
+  value,
+  xDeriv,
+  yDeriv,
+  type ResolvedFin,
+  type Spline,
+  type Vec2,
+} from '@openshaper/kernel';
 import { boundsOf, sampleSpline } from './sample';
 import { screenToWorld, worldToScreen, type Viewport } from './viewport';
 import type { Hit } from './hit';
@@ -243,8 +251,10 @@ export interface EditorOverlays {
   verticalMarkers?: { x: number; color: string; label?: string }[];
   /** Longitudinal distribution strip (e.g. cross-sectional area vs. length). */
   distribution?: { x: number; value: number }[];
-  /** Fin markers (plan view): board-x, lateral offset from stringer, fore-aft base. */
-  fins?: { x: number; offset: number; base: number }[];
+  /** Resolved fins to draw on this pane (placement + box/blade geometry). */
+  fins?: readonly ResolvedFin[];
+  /** How to draw fins: `'plan'` (footprint + box, default) or `'profile'` (blade silhouette). */
+  finView?: 'plan' | 'profile';
 }
 
 /** A cross-section's longitudinal position, shown as a pickable line on the outline. */
@@ -457,33 +467,177 @@ export const drawDistribution = (
   ctx.globalAlpha = 1;
 };
 
+const FIN_COLOR = '#A78BFA';
+const FIN_COLOR_SELECTED = '#22D3EE';
+
+const sub = (a: Vec2, b: Vec2): Vec2 => ({ x: a.x - b.x, y: a.y - b.y });
+const len2 = (a: Vec2): number => Math.hypot(a.x, a.y);
+const unit2 = (a: Vec2): Vec2 => {
+  const l = len2(a);
+  return l < 1e-9 ? { x: 1, y: 0 } : { x: a.x / l, y: a.y / l };
+};
+const mid = (a: Vec2, b: Vec2): Vec2 => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+
 /**
- * Draw fin markers in plan view: each fin is near edge-on from above, so it reads
- * as a short fore-aft segment at its lateral offset, with a small leading dot.
+ * Draw fins in PLAN view (bottom, looking up): each fin reads edge-on as its toed
+ * base footprint, with the system box/plugs routed along it. The selected fin is
+ * highlighted. Plan world coords: x = length, y = lateral (stringer at 0).
  */
-export const drawFins = (
+export const drawFinsPlan = (
   ctx: CanvasRenderingContext2D,
-  fins: readonly { x: number; offset: number; base: number }[],
+  fins: readonly ResolvedFin[],
   vp: Viewport,
-  color = '#A78BFA',
+  selectedIndex: number | null = null,
 ): void => {
   ctx.save();
-  ctx.strokeStyle = color;
-  ctx.fillStyle = color;
-  ctx.lineWidth = 3;
   ctx.lineCap = 'round';
-  for (const f of fins) {
-    const a = worldToScreen(vp, { x: f.x - f.base / 2, y: f.offset });
-    const b = worldToScreen(vp, { x: f.x + f.base / 2, y: f.offset });
+  fins.forEach((f, i) => {
+    const selected = i === selectedIndex;
+    const color = selected ? FIN_COLOR_SELECTED : FIN_COLOR;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+
+    const fore = worldToScreen(vp, f.baseLine.fore);
+    const aft = worldToScreen(vp, f.baseLine.aft);
+
+    // Footprint (the toed base line), trailing→leading.
+    ctx.lineWidth = selected ? 4 : 3;
     ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
+    ctx.moveTo(aft.x, aft.y);
+    ctx.lineTo(fore.x, fore.y);
     ctx.stroke();
+    // Leading-edge tick.
     ctx.beginPath();
-    ctx.arc(b.x, b.y, 2.5, 0, Math.PI * 2); // leading (toward-tail) dot
+    ctx.arc(fore.x, fore.y, selected ? 3.5 : 2.5, 0, Math.PI * 2);
     ctx.fill();
+
+    // System box / plugs, centred on the base line.
+    drawFinBox(ctx, f, vp, color, selected);
+  });
+  ctx.restore();
+};
+
+/** Draw the routed box/plug footprints (rect slots / round plugs) for one fin. */
+const drawFinBox = (
+  ctx: CanvasRenderingContext2D,
+  f: ResolvedFin,
+  vp: Viewport,
+  color: string,
+  selected: boolean,
+): void => {
+  if (f.box.kind !== 'shapes') return;
+  const center = mid(f.baseLine.fore, f.baseLine.aft);
+  const along = unit2(sub(f.baseLine.fore, f.baseLine.aft)); // toward nose
+  const normal = { x: -along.y, y: along.x };
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = selected ? 0.9 : 0.6;
+  ctx.lineWidth = 1.5;
+  for (const fp of f.box.footprints) {
+    const cx = center.x + along.x * fp.along;
+    const cy = center.y + along.y * fp.along;
+    if (fp.shape.kind === 'rect') {
+      const hl = fp.shape.length / 2;
+      const hw = fp.shape.width / 2;
+      const corner = (sa: number, sn: number): Vec2 =>
+        worldToScreen(vp, {
+          x: cx + along.x * hl * sa + normal.x * hw * sn,
+          y: cy + along.y * hl * sa + normal.y * hw * sn,
+        });
+      const c = [corner(1, 1), corner(1, -1), corner(-1, -1), corner(-1, 1)];
+      ctx.beginPath();
+      ctx.moveTo(c[0]!.x, c[0]!.y);
+      for (let k = 1; k < 4; k++) ctx.lineTo(c[k]!.x, c[k]!.y);
+      ctx.closePath();
+      ctx.stroke();
+    } else {
+      const r = (fp.shape.diameter / 2) * vp.scale;
+      const p = worldToScreen(vp, { x: cx, y: cy });
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, Math.max(1.5, r), 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
   ctx.restore();
+};
+
+/**
+ * Draw fins in PROFILE/rail view (side elevation): the blade silhouette hangs from
+ * the bottom surface. Profile world coords: x = length, y = height (rocker).
+ */
+export const drawFinsProfile = (
+  ctx: CanvasRenderingContext2D,
+  fins: readonly ResolvedFin[],
+  vp: Viewport,
+  selectedIndex: number | null = null,
+): void => {
+  ctx.save();
+  ctx.lineJoin = 'round';
+  fins.forEach((f, i) => {
+    if (f.template.length < 3) return;
+    const selected = i === selectedIndex;
+    const color = selected ? FIN_COLOR_SELECTED : FIN_COLOR;
+    // Trailing-edge root (template local x=0) sits at the aft base point; local x runs
+    // toward the nose, local y is depth downward (lower height).
+    const noseDir = Math.sign(f.baseLine.fore.x - f.baseLine.aft.x) || 1;
+    const rootX = f.baseLine.aft.x;
+    const toScreen = (p: Vec2) =>
+      worldToScreen(vp, { x: rootX + noseDir * p.x, y: f.surfaceZ - p.y });
+    ctx.beginPath();
+    const p0 = toScreen(f.template[0]!);
+    ctx.moveTo(p0.x, p0.y);
+    for (let k = 1; k < f.template.length; k++) {
+      const p = toScreen(f.template[k]!);
+      ctx.lineTo(p.x, p.y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.globalAlpha = selected ? 0.28 : 0.16;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = selected ? 2 : 1.4;
+    ctx.stroke();
+  });
+  ctx.restore();
+};
+
+/** Distance (px) from a screen point to a segment a→b. */
+const segDistPx = (p: Vec2, a: Vec2, b: Vec2): number => {
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const l2 = abx * abx + aby * aby;
+  if (l2 < 1e-9) return Math.hypot(p.x - a.x, p.y - a.y);
+  let t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(p.x - (a.x + abx * t), p.y - (a.y + aby * t));
+};
+
+/**
+ * Index of the fin whose plan base line is nearest `screen` within `tolPx`, or null.
+ * Used to pick / drag fins in the plan (outline) pane.
+ */
+export const hitFin = (
+  fins: readonly ResolvedFin[],
+  vp: Viewport,
+  screen: Vec2,
+  tolPx = 8,
+): number | null => {
+  let bestIndex: number | null = null;
+  let bestDist = tolPx;
+  for (let i = 0; i < fins.length; i++) {
+    const f = fins[i]!;
+    const d = segDistPx(
+      screen,
+      worldToScreen(vp, f.baseLine.fore),
+      worldToScreen(vp, f.baseLine.aft),
+    );
+    if (d <= bestDist) {
+      bestDist = d;
+      bestIndex = i;
+    }
+  }
+  return bestIndex;
 };
 
 /**

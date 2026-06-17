@@ -1,12 +1,41 @@
 import {
   board,
   crossSection,
+  defaultFinConfig,
   knotFromArray,
+  noFins,
   splineFromKnots,
   type BezierBoard,
   type CrossSection,
+  type FinConfig,
+  type FinSetup,
   type Knot,
 } from '@openshaper/kernel';
+
+/**
+ * Best-effort migration of the legacy free-text `mFinType` to a parametric config.
+ * The legacy `fins` double[9] held absolute placement we deliberately do not port
+ * (see docs/specs/divergences.md); we recognise the common setup names and seed a
+ * default config, leaving the rest to the user. Unrecognised / empty → no fins.
+ */
+const finConfigFromMeta = (finType: unknown): FinConfig => {
+  if (typeof finType !== 'string') return noFins();
+  const s = finType.toLowerCase();
+  const setup: FinSetup | null = s.includes('quad')
+    ? 'quad'
+    : s.includes('2+1') || s.includes('2 + 1')
+      ? '2+1'
+      : /\b5|five\b/.test(s)
+        ? '5-fin'
+        : s.includes('thruster') || s.includes('tri')
+          ? 'thruster'
+          : s.includes('twin')
+            ? 'twin'
+            : s.includes('single')
+              ? 'single'
+              : null;
+  return setup ? defaultFinConfig(setup, 'fcs-ii') : noFins();
+};
 
 /**
  * Full, hardened reader for the legacy BoardCAD-LE native `.brd` text format.
@@ -319,6 +348,7 @@ export const parseBrd = (text: string): ParsedBrd => {
     splineFromKnots(deck),
     crossSections,
     'controlPoint',
+    finConfigFromMeta(metadata.finType),
   );
 
   return { board: built, metadata, warnings };

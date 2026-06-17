@@ -2,6 +2,7 @@ import { parseBrd, readBoardJson, writeBoardJson } from '@openshaper/io';
 import {
   getInterpolatedCrossSection,
   getLength,
+  resolveFins,
   type BezierBoard,
   type Spline,
 } from '@openshaper/kernel';
@@ -49,7 +50,6 @@ import { SettingsDialog } from './SettingsDialog';
 import { loadSettings, saveSettings, type EditorSettings } from './settings';
 import { CrossSectionControls } from './CrossSectionControls';
 import { CoffeeIcon } from './components/Support';
-import { finsFor, type FinSetup } from './fins';
 import { Sidebar, type OverlayToggles, type ResizeFields } from './Sidebar';
 import sampleBrd from './sample-board.brd?raw';
 import { boardStore } from './store';
@@ -247,8 +247,9 @@ function AppShell() {
     setResize({ l: '', w: '', t: '' });
   };
 
-  const finType = (meta.finType as FinSetup) ?? 'none';
-  const finMarkers = board && finType !== 'none' ? finsFor(finType, board) : undefined;
+  // Fins are part of the board model now; resolve their geometry against the current
+  // shape for the 2D overlays (plan footprint + box; profile blade silhouette).
+  const resolvedFins = useMemo(() => (board ? resolveFins(board) : []), [board]);
 
   // Reference-image placement for tracing on the outline (world-space, centered).
   const traceBg =
@@ -290,7 +291,10 @@ function AppShell() {
       // probe in every length-axis pane (the hovered pane included — it tracks the cursor).
       scrubProbe: longitudinal && scrubX != null ? scrubX : undefined,
       distribution: longitudinal ? volumeDist : undefined,
-      fins: kind === 'outline' ? finMarkers : undefined,
+      // Plan footprint + box on the outline; blade silhouette on the rocker (rail) view.
+      fins:
+        (kind === 'outline' || kind === 'rocker') && resolvedFins.length ? resolvedFins : undefined,
+      finView: kind === 'rocker' ? 'profile' : 'plan',
     };
   };
 
@@ -338,7 +342,7 @@ function AppShell() {
   /** Open a print-friendly spec sheet (board info + dimensions) in a new tab. */
   const openSpecSheet = () => {
     if (!specs) return;
-    if (!openHtmlInNewTab(specSheetHtmlFor(specs, meta, units))) {
+    if (!openHtmlInNewTab(specSheetHtmlFor(specs, meta, units, board?.fins))) {
       showError('Pop-up blocked — allow pop-ups to open the spec sheet.');
     }
   };
@@ -831,7 +835,6 @@ function AppShell() {
           applyResize={applyResize}
           meta={meta}
           setMeta={setMeta}
-          finType={finType}
           foamType={foamType}
           glassSchedule={glassSchedule}
           weight={weight}

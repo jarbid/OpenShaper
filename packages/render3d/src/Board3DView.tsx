@@ -12,6 +12,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { DoubleSide, ShaderMaterial, type BufferGeometry } from 'three';
 import type { StoreApi } from 'zustand/vanilla';
 import { boardSpan, meshToGeometry, tessellateAsync } from './geometry';
+import { Fins3D } from './Fins3D';
 
 /** How the board surface is drawn. */
 export type Board3DMode = 'shaded' | 'wireframe' | 'shaded-wire' | 'normals';
@@ -334,6 +335,9 @@ export function Board3DView({
             analysis={analysis}
             targetFaceSize={targetFaceSize}
           />
+        )}
+        {board && board.fins.setup !== 'none' && (
+          <Fins3D board={board} targetFaceSize={targetFaceSize} />
         )}
         {board && sectionX != null && <SectionPlane board={board} x={sectionX} />}
         <OrbitControls makeDefault enableDamping dampingFactor={0.1} />

@@ -13,9 +13,11 @@
  * the bent skins finish flush. Pure geometry in centimetres; no I/O.
  */
 import {
+  boxSpan,
   getInterpolatedCrossSection,
   getLength,
   pointByTT,
+  resolveFins,
   valueAt,
   type BezierBoard,
 } from '@openshaper/kernel';
@@ -120,6 +122,30 @@ const buildStringer = (board: BezierBoard, p: HwsParams, stations: readonly numb
       { x: x1, y: botY(x1) },
     ]),
   );
+
+  // Center-fin boxes land on the spine — mark the box footprint along the bottom edge
+  // (room for a reinforcement block). Side fins sit off the stringer, so skip them.
+  if (board.fins.setup !== 'none') {
+    for (const fin of resolveFins(board)) {
+      if (fin.side !== 0) continue;
+      const cx = (fin.baseLine.fore.x + fin.baseLine.aft.x) / 2;
+      const boxLen = boxSpan(fin.box) || fin.spec.base;
+      const a = Math.max(x0, cx - boxLen / 2);
+      const b = Math.min(x1, cx + boxLen / 2);
+      loops.push(
+        loop(
+          'mark',
+          false,
+          [
+            { x: a, y: botY(a) },
+            { x: b, y: botY(b) },
+          ],
+          true,
+        ),
+      );
+      labels.push({ text: 'fin box', at: { x: cx, y: botY(cx) - 1.5 }, height: 1 });
+    }
+  }
 
   return { id: 'stringer', label: 'Stringer', loops, labels };
 };
@@ -534,6 +560,59 @@ const extractRightHalf = (closed: readonly Pt[]): Pt[] => {
   return half;
 };
 
+// --- fins ---
+
+const sideTag = (s: -1 | 0 | 1): string => (s === 0 ? 'C' : s < 0 ? 'P' : 'S');
+
+/**
+ * Non-cutting fin-box marks for the bottom skin, in the plan frame (x = length,
+ * y = lateral) that {@link resolveFins} already returns: the toed footprint plus
+ * the system box outline (Futures rectangle / FCS plug circles; glass-on draws just
+ * the footprint), each labelled by side. These are positions to route the boxes
+ * into after the skin is on — `mark`, never cut.
+ */
+const finSkinMarks = (board: BezierBoard): { loops: Loop[]; labels: Label[] } => {
+  const loops: Loop[] = [];
+  const labels: Label[] = [];
+  for (const fin of resolveFins(board)) {
+    loops.push(loop('mark', false, [fin.baseLine.aft, fin.baseLine.fore], true));
+    const cx = (fin.baseLine.fore.x + fin.baseLine.aft.x) / 2;
+    const cy = (fin.baseLine.fore.y + fin.baseLine.aft.y) / 2;
+    const dl = Math.hypot(fin.baseLine.fore.x - fin.baseLine.aft.x, fin.baseLine.fore.y - fin.baseLine.aft.y) || 1; // prettier-ignore
+    const ax = (fin.baseLine.fore.x - fin.baseLine.aft.x) / dl;
+    const ay = (fin.baseLine.fore.y - fin.baseLine.aft.y) / dl;
+    const nx = -ay;
+    const ny = ax;
+    if (fin.box.kind === 'shapes') {
+      for (const fp of fin.box.footprints) {
+        const ox = cx + ax * fp.along;
+        const oy = cy + ay * fp.along;
+        if (fp.shape.kind === 'rect') {
+          const hl = fp.shape.length / 2;
+          const hw = fp.shape.width / 2;
+          const corner = (sa: number, sn: number): Pt => ({
+            x: ox + ax * hl * sa + nx * hw * sn,
+            y: oy + ay * hl * sa + ny * hw * sn,
+          });
+          loops.push(
+            loop('mark', true, [corner(1, 1), corner(1, -1), corner(-1, -1), corner(-1, 1)]),
+          );
+        } else {
+          const r = fp.shape.diameter / 2;
+          const ring: Pt[] = [];
+          for (let k = 0; k < 16; k++) {
+            const a = (k / 16) * Math.PI * 2;
+            ring.push({ x: ox + Math.cos(a) * r, y: oy + Math.sin(a) * r });
+          }
+          loops.push(loop('mark', true, ring));
+        }
+      }
+    }
+    labels.push({ text: `${sideTag(fin.side)} fin`, at: { x: cx, y: cy + 1.5 }, height: 1 });
+  }
+  return { loops, labels };
+};
+
 // --- skins ---
 
 const buildSkin = (
@@ -575,6 +654,12 @@ const buildSkin = (
       ),
     );
     labels.push({ text: xi.toFixed(0), at: { x: xi, y: h + 1 }, height: 1 });
+  }
+  // Fin-box positions are routed into the bottom skin — mark them there.
+  if (which === 'bottom' && board.fins.setup !== 'none') {
+    const fins = finSkinMarks(board);
+    loops.push(...fins.loops);
+    labels.push(...fins.labels);
   }
   return {
     id: `skin-${which}`,

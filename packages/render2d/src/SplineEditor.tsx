@@ -27,7 +27,9 @@ import {
   drawMeasureCursor,
   drawVProbe,
   MEASURE_COLORS,
-  drawFins,
+  drawFinsPlan,
+  drawFinsProfile,
+  hitFin,
   drawGhostSpline,
   drawSectionMarkers,
   drawSpline,
@@ -125,6 +127,8 @@ export interface SplineEditorProps {
 
 type DragState =
   | { mode: 'edit'; target: SplineTarget; hit: Hit }
+  // Dragging a fin to re-place it (plan pane).
+  | { mode: 'fin'; index: number }
   // Middle-button / Space+left pan.
   | { mode: 'pan'; lastX: number; lastY: number }
   // Right button: a tap opens the context menu, a drag pans (tracked via `moved`).
@@ -191,6 +195,7 @@ export function SplineEditor({
   const [cursor, setCursor] = useState<'crosshair' | 'grab' | 'grabbing'>('crosshair');
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const selection = useSyncExternalStore(store.subscribe, () => store.getState().selection);
+  const selectedFin = useSyncExternalStore(store.subscribe, () => store.getState().selectedFin);
   const key = JSON.stringify(targets);
 
   // Space-bar pan (CAD standard): holding Space turns any left-drag into a pan,
@@ -266,7 +271,10 @@ export function SplineEditor({
     }
     if (overlays?.distribution) drawDistribution(ctx, overlays.distribution, vp, size.h);
     if (overlays?.verticalMarkers) drawVerticalMarkers(ctx, overlays.verticalMarkers, vp, size.h);
-    if (overlays?.fins) drawFins(ctx, overlays.fins, vp);
+    if (overlays?.fins && overlays.fins.length > 0) {
+      if (overlays.finView === 'profile') drawFinsProfile(ctx, overlays.fins, vp, selectedFin);
+      else drawFinsPlan(ctx, overlays.fins, vp, selectedFin);
+    }
     if (ghostSplines) {
       for (const g of ghostSplines) drawGhostSpline(ctx, g, vp, { mirrorX, mirrorY }, ghostColor);
     }
@@ -317,6 +325,7 @@ export function SplineEditor({
     vp,
     size,
     selection,
+    selectedFin,
     key,
     mirrorX,
     mirrorY,
@@ -418,6 +427,16 @@ export function SplineEditor({
         drag.current = { mode: 'edit', target: picked.target, hit: picked.hit };
         return;
       }
+      // A fin (plan pane) takes the click after control points: select + start dragging.
+      if (overlays?.fins && overlays.finView !== 'profile') {
+        const finIndex = hitFin(overlays.fins, vp, p);
+        if (finIndex !== null) {
+          store.getState().selectFin(finIndex);
+          store.getState().beginEdit('Move fin');
+          drag.current = { mode: 'fin', index: finIndex };
+          return;
+        }
+      }
       // Clicking a section marker (outline view) picks that section.
       if (sectionMarkers && onPickSection) {
         const marker = hitSectionMarker(sectionMarkers, vp, p.x);
@@ -429,7 +448,7 @@ export function SplineEditor({
       // Empty space: just deselect.
       store.getState().select(null);
     },
-    [vp, board, store, hitAny, sectionMarkers, onPickSection],
+    [vp, board, store, hitAny, sectionMarkers, onPickSection, overlays],
   );
 
   const onPointerMove = useCallback(
@@ -471,6 +490,10 @@ export function SplineEditor({
         return;
       }
       const world = screenToWorld(vp, p);
+      if (d.mode === 'fin') {
+        store.getState().moveFin(d.index, world);
+        return;
+      }
       if (d.hit.kind === 'end') store.getState().moveControlPoint(d.target, d.hit.index, world);
       else store.getState().moveTangent(d.target, d.hit.index, d.hit.kind, world);
     },
@@ -480,7 +503,7 @@ export function SplineEditor({
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
       const d = drag.current;
-      if (d?.mode === 'edit') store.getState().endEdit();
+      if (d?.mode === 'edit' || d?.mode === 'fin') store.getState().endEdit();
       // A right-button tap (no pan) opens the context menu at the cursor.
       if (d?.mode === 'rightpan' && !d.moved && vp && board) {
         const p = localPoint(e);
@@ -509,7 +532,7 @@ export function SplineEditor({
   // A cancelled pointer (browser claimed the gesture, palm-rejection, etc.) ends any drag
   // cleanly without firing a context menu, so state never gets stuck mid-pan.
   const onPointerCancel = useCallback(() => {
-    if (drag.current?.mode === 'edit') store.getState().endEdit();
+    if (drag.current?.mode === 'edit' || drag.current?.mode === 'fin') store.getState().endEdit();
     drag.current = null;
     setCursor(spaceHeld.current ? 'grab' : 'crosshair');
   }, [store]);

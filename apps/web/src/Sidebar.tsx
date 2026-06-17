@@ -21,7 +21,7 @@ import { CoffeeIcon } from './components/Support';
 import { SUPPORT_URL } from './support';
 import type { BoardMeta } from './file-io';
 import { fmtDimsHeadline, fmtLen, fmtVol, type LengthUnit } from './format';
-import { FIN_SETUP_LABELS, FIN_SETUPS, type FinSetup } from './fins';
+import { FinPanel } from './FinPanel';
 import { boardStore } from './store';
 import { OverlayToggle, Sel, SpecRow } from './view-toolkit';
 import {
@@ -118,7 +118,6 @@ export interface SidebarProps {
   meta: BoardMeta;
   setMeta: Dispatch<SetStateAction<BoardMeta>>;
 
-  finType: FinSetup;
   foamType: FoamType;
   glassSchedule: GlassSchedule;
   weight: WeightBreakdown | null;
@@ -150,7 +149,6 @@ export function Sidebar({
   applyResize,
   meta,
   setMeta,
-  finType,
   foamType,
   glassSchedule,
   weight,
@@ -317,22 +315,7 @@ export function Sidebar({
         </PanelBody>
       </Panel>
 
-      <Panel>
-        <PanelHeader>
-          <PanelTitle>Fins</PanelTitle>
-        </PanelHeader>
-        <PanelBody className="space-y-2 text-sm">
-          <Sel
-            value={finType}
-            onChange={(f) => setMeta((m) => ({ ...m, finType: f }))}
-            options={FIN_SETUPS.map((sx) => ({ value: sx, label: FIN_SETUP_LABELS[sx] }))}
-            title="Fin setup"
-          />
-          <p className="text-xs text-muted-foreground">
-            Shown on the outline near the tail; saved with the board.
-          </p>
-        </PanelBody>
-      </Panel>
+      <FinPanel store={boardStore} units={units} />
 
       <Panel>
         <PanelHeader>

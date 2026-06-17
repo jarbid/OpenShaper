@@ -1,10 +1,13 @@
 import {
+  buildFinBladeMesh,
   getInterpolatedCrossSection,
   getLength,
   getRockerAtPos,
   pointByTT,
+  resolveFins,
   tessellationSteps,
   type BezierBoard,
+  type BoardMesh,
 } from '@openshaper/kernel';
 
 /** Options for {@link exportStl}. */
@@ -20,6 +23,8 @@ export interface StlOptions {
   targetFaceSize?: number;
   /** `solid` name written into the STL. Default `openshaper`. */
   name?: string;
+  /** Include foiled fin blade solids (default true). */
+  includeFins?: boolean;
 }
 
 /** Fine default so exported parts are smooth on rails / nose / tail. */
@@ -163,6 +168,24 @@ export const exportStl = (board: BezierBoard, opts: StlOptions = {}): string => 
   cap(rings[0], false);
   cap(rings[rings.length - 1], true);
 
+  // Foiled fin blade solids (same coordinate frame as the hull: X length, Y width, Z up).
+  if (opts.includeFins !== false) {
+    for (const fin of resolveFins(board)) writeMesh(out, buildFinBladeMesh(fin));
+  }
+
   out.push(`endsolid ${name}`);
   return out.join('\n') + '\n';
+};
+
+/** Write every triangle of a kernel mesh as STL facets. */
+const writeMesh = (out: string[], mesh: BoardMesh): void => {
+  const { positions, indices } = mesh;
+  const at = (i: number): P3 => ({
+    x: positions[i * 3]!,
+    y: positions[i * 3 + 1]!,
+    z: positions[i * 3 + 2]!,
+  });
+  for (let t = 0; t < indices.length; t += 3) {
+    writeFacet(out, at(indices[t]!), at(indices[t + 1]!), at(indices[t + 2]!));
+  }
 };

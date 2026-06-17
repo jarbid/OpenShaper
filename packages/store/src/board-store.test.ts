@@ -443,6 +443,116 @@ describe('edits: continuous tangent mirroring', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// board store: fin actions
+// ---------------------------------------------------------------------------
+
+describe('board store: fins', () => {
+  it('starts with no fins and sets a setup (undoable, re-seeded from defaults)', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+    expect(store.getState().board!.fins.setup).toBe('none');
+
+    store.getState().setFinSetup('thruster');
+    expect(store.getState().board!.fins.setup).toBe('thruster');
+    expect(store.getState().board!.fins.fins).toHaveLength(3);
+    expect(store.getState().past[0]!.label).toBe('Change fin setup');
+
+    store.getState().undo();
+    expect(store.getState().board!.fins.setup).toBe('none');
+  });
+
+  it('changes the fin system while keeping placement', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+    store.getState().setFinSetup('quad');
+    const placedBefore = store.getState().board!.fins.fins;
+
+    store.getState().setFinSystem('futures');
+    expect(store.getState().board!.fins.system).toBe('futures');
+    expect(store.getState().board!.fins.fins).toEqual(placedBefore);
+  });
+
+  it('updateFin patches a single fin spec and is undoable', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+    store.getState().setFinSetup('single');
+
+    const before = store.getState().board!.fins.fins[0]!.depth;
+    store.getState().updateFin(0, { depth: before + 5, toe: 2 });
+    const fin = store.getState().board!.fins.fins[0]!;
+    expect(fin.depth).toBe(before + 5);
+    expect(fin.toe).toBe(2);
+
+    store.getState().undo();
+    expect(store.getState().board!.fins.fins[0]!.depth).toBe(before);
+  });
+
+  it('moveFin re-derives placement from a plan point, keeping the fin side', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard()); // length 100, tail at x=0
+    store.getState().setFinSetup('thruster');
+    const side = store.getState().board!.fins.fins[0]!.side; // a side fin
+    expect(side).not.toBe(0);
+
+    // Drop it near the tail at x=25.
+    store.getState().moveFin(0, vec2(25, 8));
+    const fin = store.getState().board!.fins.fins[0]!;
+    expect(fin.side).toBe(side); // side preserved
+    // trailing edge = 25 − base/2 from the tail (x=0).
+    expect(fin.trailingFromTail).toBeCloseTo(25 - fin.base / 2, 6);
+  });
+
+  it('symmetrical (default): editing a side fin mirrors to its pair, keeping side', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+    store.getState().setFinSetup('thruster'); // [port, starboard, center]
+    expect(store.getState().board!.fins.symmetrical).toBe(true);
+
+    store.getState().updateFin(0, { depth: 18, insetFromRail: 5 }); // edit the port fin
+    const fins = store.getState().board!.fins.fins;
+    expect(fins[0]!.depth).toBe(18);
+    expect(fins[1]!.depth).toBe(18); // starboard mirrored
+    expect(fins[1]!.insetFromRail).toBe(5);
+    expect(fins[0]!.side).toBe(-1); // sides preserved
+    expect(fins[1]!.side).toBe(1);
+    expect(fins[2]!.depth).not.toBe(18); // center untouched
+  });
+
+  it('symmetry off: editing one side fin leaves its pair alone', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+    store.getState().setFinSetup('twin');
+    store.getState().setFinSymmetrical(false);
+
+    store.getState().updateFin(0, { depth: 18 });
+    const fins = store.getState().board!.fins.fins;
+    expect(fins[0]!.depth).toBe(18);
+    expect(fins[1]!.depth).not.toBe(18);
+  });
+
+  it('symmetrical drag mirrors placement across the stringer', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard()); // length 100, tail at x=0
+    store.getState().setFinSetup('twin');
+    store.getState().moveFin(0, vec2(28, 10)); // drag port fin
+    const fins = store.getState().board!.fins.fins;
+    expect(fins[0]!.trailingFromTail).toBeCloseTo(fins[1]!.trailingFromTail, 6);
+    expect(fins[0]!.insetFromRail).toBeCloseTo(fins[1]!.insetFromRail, 6);
+  });
+
+  it('selecting a fin clears the control-point selection and vice versa', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+    store.getState().select({ target: { kind: 'outline' }, index: 1 });
+    store.getState().selectFin(2);
+    expect(store.getState().selection).toBeNull();
+    expect(store.getState().selectedFin).toBe(2);
+    store.getState().select({ target: { kind: 'outline' }, index: 1 });
+    expect(store.getState().selectedFin).toBeNull();
+  });
+});
+
 // Pins the nose/tail station readouts to the legacy BoardSpec convention: the
 // axis runs tail (x=0) → nose (x=length), measurements are taken one/two feet in
 // from each tip (FOOT = 30.48 cm), and the kernel getters (golden-pinned in the

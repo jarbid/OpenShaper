@@ -1,9 +1,14 @@
+import { board as makeBoard, defaultFinConfig } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
 import { exportStl } from './stl';
 import { makeTestBoard } from './fixture.test-helper';
 
 describe('exportStl', () => {
   const board = makeTestBoard();
+  const finned = () => {
+    const b = makeTestBoard();
+    return makeBoard(b.outline, b.bottom, b.deck, b.crossSections, b.interpolationType, defaultFinConfig('thruster', 'futures')); // prettier-ignore
+  };
 
   it('produces a valid ASCII STL solid', () => {
     const stl = exportStl(board, { lengthSteps: 40, ringSteps: 16 });
@@ -38,5 +43,16 @@ describe('exportStl', () => {
     expect(count(fine)).toBeGreaterThan(count(coarse));
     // The default (no options) is fine, so plenty of facets for a 100cm test board.
     expect(count(exportStl(board))).toBeGreaterThan(500);
+  });
+
+  it('appends fin blade solids (more facets than the bare hull), and can opt out', () => {
+    const opts = { lengthSteps: 40, ringSteps: 16 } as const;
+    const count = (s: string) => s.match(/facet normal/g)?.length ?? 0;
+    const hull = count(exportStl(board, opts));
+    const withFins = count(exportStl(finned(), opts));
+    const without = count(exportStl(finned(), { ...opts, includeFins: false }));
+    expect(withFins).toBeGreaterThan(hull);
+    expect(without).toBe(hull);
+    expect(exportStl(finned(), opts)).not.toMatch(/NaN/);
   });
 });
