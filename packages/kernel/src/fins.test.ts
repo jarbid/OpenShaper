@@ -73,14 +73,14 @@ describe('defaultFinConfig', () => {
     expect(noFins().symmetrical).toBe(true);
   });
 
-  it('assigns the blade profile per role (single → pivot, twin → raked, thruster sides → performance)', () => {
-    expect(defaultFinConfig('single', 'fcs-ii').fins[0]!.profile).toBe('pivot');
-    expect(defaultFinConfig('twin', 'fcs-ii').fins.every((f) => f.profile === 'raked')).toBe(true);
+  it('assigns the blade profile per role (single → single, twin → keel, thruster sides → thruster, 2+1 center → noserider)', () => {
+    expect(defaultFinConfig('single', 'fcs-ii').fins[0]!.profile).toBe('single');
+    expect(defaultFinConfig('twin', 'fcs-ii').fins.every((f) => f.profile === 'keel')).toBe(true);
     const thruster = defaultFinConfig('thruster', 'fcs-ii').fins;
-    expect(thruster.filter((f) => f.side !== 0).every((f) => f.profile === 'performance')).toBe(
-      true,
+    expect(thruster.filter((f) => f.side !== 0).every((f) => f.profile === 'thruster')).toBe(true);
+    expect(defaultFinConfig('2+1', 'fcs-ii').fins.find((f) => f.side === 0)!.profile).toBe(
+      'noserider',
     );
-    expect(defaultFinConfig('2+1', 'fcs-ii').fins.find((f) => f.side === 0)!.profile).toBe('pivot');
   });
 
   it('mirrorFinIndex pairs adjacent opposite-side fins; center fins have no mirror', () => {
@@ -206,20 +206,32 @@ describe('finTemplate', () => {
     const tipRaked = raked.reduce((a, p) => (p.y > a.y ? p : a));
     expect(tipFlat.y).toBeCloseTo(tipRaked.y, 6); // same depth
     expect(tipRaked.x).toBeLessThan(tipFlat.x); // raked tip moved toward the tail
-    expect(Math.max(...flat.map((p) => p.y))).toBeCloseTo(11 * 0.97, 6);
+    expect(Math.max(...flat.map((p) => p.y))).toBeCloseTo(11, 6); // tip reaches full depth
   });
 
-  it('the three profiles have distinct outlines: pivot is tallest, raked tip is furthest back', () => {
+  it('the four profiles have distinct outlines: single tip is furthest back, keel tip furthest forward', () => {
     const tipOf = (pts: ReturnType<typeof finTemplate>) =>
       pts.reduce((a, p) => (p.y > a.y ? p : a));
-    const perf = finTemplate(12, 11, 0, 'performance');
-    const pivot = finTemplate(12, 11, 0, 'pivot');
-    const raked = finTemplate(12, 11, 0, 'raked');
-    // pivot reaches full depth (tall, high tip); performance/raked stop short.
-    expect(Math.max(...pivot.map((p) => p.y))).toBeGreaterThan(Math.max(...perf.map((p) => p.y)));
-    // raked tip is swept furthest toward the tail (smallest x).
-    expect(tipOf(raked).x).toBeLessThan(tipOf(perf).x);
-    expect(tipOf(perf).x).toBeLessThan(tipOf(pivot).x);
+    const thruster = finTemplate(12, 11, 0, 'thruster');
+    const single = finTemplate(12, 11, 0, 'single');
+    const noserider = finTemplate(12, 11, 0, 'noserider');
+    const keel = finTemplate(12, 11, 0, 'keel');
+    // Every template's tip reaches full depth (the silhouettes are normalized to depth).
+    for (const t of [thruster, single, noserider, keel]) {
+      expect(Math.max(...t.map((p) => p.y))).toBeCloseTo(11, 6);
+    }
+    // Single is the most raked (tip swept furthest toward the tail = smallest x); the
+    // broad keel tip sits furthest forward (largest x).
+    const tip = {
+      thruster: tipOf(thruster).x,
+      single: tipOf(single).x,
+      noserider: tipOf(noserider).x,
+      keel: tipOf(keel).x,
+    };
+    expect(tip.single).toBeLessThan(tip.thruster);
+    expect(tip.single).toBeLessThan(tip.noserider);
+    expect(tip.keel).toBeGreaterThan(tip.thruster);
+    expect(tip.keel).toBeGreaterThan(tip.noserider);
   });
 });
 

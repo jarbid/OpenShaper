@@ -134,7 +134,7 @@ function FinInspector({
       <label className="flex items-center gap-2">
         <span className="flex-1 text-muted-foreground">Profile</span>
         <Sel
-          value={spec.profile ?? 'performance'}
+          value={spec.profile ?? 'thruster'}
           onChange={(p) => patch({ profile: p as FinProfile })}
           options={FIN_PROFILES_LIST.map((p) => ({ value: p, label: FIN_PROFILE_LABELS[p] }))}
           title="Blade profile"

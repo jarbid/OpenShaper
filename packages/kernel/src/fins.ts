@@ -23,6 +23,7 @@
 import { valueAt } from './bezier-spline';
 import { DEG_TO_RAD } from './constants';
 import { getLength, getRockerAtPos, getWidthAtPos, type BezierBoard } from './board';
+import { FIN_TEMPLATES, FIN_TEMPLATE_CHORD } from './fin-templates.generated';
 import type { BoardMesh } from './tessellate';
 import { vec2, type Vec2 } from './vec2';
 
@@ -38,19 +39,22 @@ export type FinSystem = 'glass-on' | 'fcs-ii' | 'fcs-x2' | 'futures';
 export type FinFoil = 'flat' | '80/20' | '50/50';
 
 /**
- * Blade outline family — the three common surf-fin template shapes:
- *   - `pivot`: tall, upright leading edge, high rounded tip (longboard single / 2+1 center).
- *   - `raked`: broad base, heavily swept-back tip, lower aspect (twin / keel).
- *   - `performance`: classic dolphin with moderate rake (thruster / quad sides).
+ * Blade outline family — real surf-fin template shapes traced from FinFoil reference
+ * outlines (docs/specs/fins/*.foil, see fin-templates.generated.ts):
+ *   - `thruster`: classic dolphin side/center fin, moderate rake (thruster / quad / 5-fin).
+ *   - `single`: performance single fin, upright with a raked tip (shortboard / mid single).
+ *   - `noserider`: tall longboard single with a flex tip (2+1 center / longboard single).
+ *   - `keel`: long, low-aspect swept twin keel.
  */
-export type FinProfile = 'pivot' | 'raked' | 'performance';
+export type FinProfile = 'thruster' | 'single' | 'noserider' | 'keel';
 
-export const FIN_PROFILES_LIST: readonly FinProfile[] = ['performance', 'pivot', 'raked'];
+export const FIN_PROFILES_LIST: readonly FinProfile[] = ['thruster', 'single', 'noserider', 'keel'];
 
 export const FIN_PROFILE_LABELS: Record<FinProfile, string> = {
-  performance: 'Performance',
-  pivot: 'Pivot (upright)',
-  raked: 'Raked (swept)',
+  thruster: 'Thruster / side',
+  single: 'Single',
+  noserider: 'Noserider',
+  keel: 'Keel / twin',
 };
 
 export const FIN_SETUPS: readonly FinSetup[] = [
@@ -199,11 +203,18 @@ export const SYSTEM_BOX: Record<FinSystem, BoxGeometry> = {
 
 // --- real-world default placements -----------------------------------------
 
+/** Footprint base (cm) that renders `profile` at its true aspect for a blade `depth`. */
+const baseFor = (depth: number, profile: FinProfile): number => depth * FIN_TEMPLATE_CHORD[profile];
+
+/**
+ * One side/center fin sized by its blade `depth`; the base follows from the profile's
+ * true aspect ratio so the seed shape matches the FinFoil outline (keel low and wide,
+ * noserider tall and narrow). Every field stays independently editable afterwards.
+ */
 const side = (
   s: -1 | 0 | 1,
   trailingFromTail: number,
   insetFromRail: number,
-  base: number,
   depth: number,
   toe: number,
   cant: number,
@@ -213,7 +224,7 @@ const side = (
   side: s,
   trailingFromTail,
   insetFromRail,
-  base,
+  base: baseFor(depth, profile),
   depth,
   sweep: 0, // natural rake lives in the profile outline; sweep is an extra adjustment
   toe,
@@ -226,50 +237,47 @@ const side = (
 const pair = (
   trailingFromTail: number,
   insetFromRail: number,
-  base: number,
   depth: number,
   toe: number,
   cant: number,
-  profile: FinProfile = 'performance',
+  profile: FinProfile = 'thruster',
 ): FinSpec[] => [
-  side(-1, trailingFromTail, insetFromRail, base, depth, toe, cant, '80/20', profile),
-  side(1, trailingFromTail, insetFromRail, base, depth, toe, cant, '80/20', profile),
+  side(-1, trailingFromTail, insetFromRail, depth, toe, cant, '80/20', profile),
+  side(1, trailingFromTail, insetFromRail, depth, toe, cant, '80/20', profile),
 ];
 
-/** A center (on-stringer) fin, defaulting to an upright pivot outline. */
+/** A center (on-stringer) fin, defaulting to the tall longboard noserider outline. */
 const center = (
   trailingFromTail: number,
-  base: number,
   depth: number,
-  profile: FinProfile = 'pivot',
-): FinSpec => side(0, trailingFromTail, 0, base, depth, 0, 0, '50/50', profile);
+  profile: FinProfile = 'noserider',
+): FinSpec => side(0, trailingFromTail, 0, depth, 0, 0, '50/50', profile);
 
 /**
  * Seed a fin configuration with shaper / FCS / Futures standard placements (cm) and the
- * matching blade outline per role (single → pivot, twin → raked, thruster/quad sides →
- * performance). Sensible starting points, not legacy-pinned — every field is editable.
+ * matching blade outline per role (single → single, 2+1 center → noserider, twin → keel,
+ * thruster/quad/5-fin → thruster). Each fin is sized by blade depth; its base follows the
+ * outline's true aspect. Sensible starting points, not legacy-pinned — every field is
+ * editable.
  */
 export function defaultFinConfig(setup: FinSetup, system: FinSystem): FinConfig {
   const fins = ((): FinSpec[] => {
     switch (setup) {
       case 'single':
-        return [center(inch(8.5), 13, 16)];
+        return [center(inch(8.5), 16, 'single')];
       case 'twin':
-        return pair(inch(11.5), 3.2, 12, 11, 3, 7, 'raked');
+        return pair(inch(11.5), 3.2, 12, 3, 7, 'keel');
       case 'thruster':
-        return [
-          ...pair(inch(11), 2.9, 11, 11.5, 3, 6.5),
-          center(inch(3.5), 11.5, 11.5, 'performance'),
-        ];
+        return [...pair(inch(11), 2.9, 11.5, 3, 6.5), center(inch(3.5), 11.5, 'thruster')];
       case 'quad':
-        return [...pair(inch(11.5), 2.9, 11, 11, 4, 6), ...pair(inch(6.2), 4.4, 10.5, 10, 2, 4.5)];
+        return [...pair(inch(11.5), 2.9, 11, 4, 6), ...pair(inch(6.2), 4.4, 10, 2, 4.5)];
       case '2+1':
-        return [...pair(inch(12.5), 3.4, 9, 9, 3, 6), center(inch(5.5), 16, 15)];
+        return [...pair(inch(12.5), 3.4, 9, 3, 6), center(inch(5.5), 16)];
       case '5-fin':
         return [
-          ...pair(inch(11.5), 2.9, 11, 11, 4, 6),
-          ...pair(inch(6.2), 4.4, 10.5, 10, 2, 4.5),
-          center(inch(3.5), 11, 11, 'performance'),
+          ...pair(inch(11.5), 2.9, 11, 4, 6),
+          ...pair(inch(6.2), 4.4, 10, 2, 4.5),
+          center(inch(3.5), 11, 'thruster'),
         ];
       default:
         return [];
@@ -315,76 +323,29 @@ export interface ResolvedFin {
 }
 
 /**
- * Normalized surf-fin silhouettes in unit space (x: 0 trailing → 1 leading along the
- * base, y: 0 root → 1 tip), one per {@link FinProfile}. Each traces the leading edge
- * (root→tip) then the trailing edge (tip→root). The shape carries the family's natural
- * rake and aspect; {@link finTemplate} scales it to (base, depth) and applies any extra
- * `sweep`. Outlines follow the common surf-fin templates (single / twin / thruster).
- */
-const FIN_PROFILES: Record<FinProfile, readonly Vec2[]> = {
-  // Classic dolphin: convex leading edge, moderate rake, trailing-biased tip.
-  performance: [
-    vec2(0, 0),
-    vec2(1, 0),
-    vec2(0.985, 0.2),
-    vec2(0.94, 0.42),
-    vec2(0.86, 0.62),
-    vec2(0.73, 0.79),
-    vec2(0.57, 0.91),
-    vec2(0.42, 0.97),
-    vec2(0.31, 0.88),
-    vec2(0.2, 0.68),
-    vec2(0.11, 0.45),
-    vec2(0.04, 0.21),
-  ],
-  // Tall, upright leading edge rising to a high rounded tip — longboard single / pivot.
-  pivot: [
-    vec2(0, 0),
-    vec2(1, 0),
-    vec2(1.0, 0.38),
-    vec2(0.96, 0.62),
-    vec2(0.88, 0.82),
-    vec2(0.75, 0.94),
-    vec2(0.58, 1.0),
-    vec2(0.46, 0.95),
-    vec2(0.38, 0.74),
-    vec2(0.3, 0.46),
-    vec2(0.18, 0.2),
-    vec2(0.06, 0.05),
-  ],
-  // Broad base, leading edge sweeps hard to a low, far-back pointed tip — twin / keel.
-  raked: [
-    vec2(0, 0),
-    vec2(1, 0),
-    vec2(0.9, 0.22),
-    vec2(0.78, 0.44),
-    vec2(0.62, 0.64),
-    vec2(0.44, 0.8),
-    vec2(0.26, 0.92),
-    vec2(0.14, 0.98),
-    vec2(0.1, 0.78),
-    vec2(0.07, 0.5),
-    vec2(0.04, 0.24),
-    vec2(0.01, 0.07),
-  ],
-};
-
-/**
  * Build a blade silhouette of `profile`, scaled to (base, depth) and raked back by any
  * extra `sweepDeg` (0 keeps the profile's natural rake). Returns world-ish 2D points
  * (x along base toward the nose, y depth downward).
+ *
+ * The silhouettes live in {@link FIN_TEMPLATES} (generated from the FinFoil reference
+ * outlines) in aspect-true space: x = 0 at the trailing-edge root, the leading-edge root
+ * at x = {@link FIN_TEMPLATE_CHORD} (root chord ÷ depth), x < 0 for a raked tip, and
+ * y = 0 root → 1 tip. Dividing x by the chord fraction maps the root chord onto `base`,
+ * so the rendered footprint is exactly `base` while the natural proportions are preserved
+ * whenever `depth = base / chordFrac`.
  */
 export const finTemplate = (
   base: number,
   depth: number,
   sweepDeg: number,
-  profile: FinProfile = 'performance',
+  profile: FinProfile = 'thruster',
 ): Vec2[] => {
   const shear = Math.tan(sweepDeg * DEG_TO_RAD);
-  return FIN_PROFILES[profile].map((p) => {
+  const xScale = base / FIN_TEMPLATE_CHORD[profile];
+  return FIN_TEMPLATES[profile].map((p) => {
     const y = p.y * depth;
     // Shear the upper outline toward the tail (−x) by the extra rake angle.
-    return vec2(p.x * base - y * shear, y);
+    return vec2(p.x * xScale - y * shear, y);
   });
 };
 
@@ -445,7 +406,7 @@ const resolveOne = (
     center: vec2(cx, cy),
     baseLine: { fore, aft },
     surfaceZ,
-    template: finTemplate(spec.base, spec.depth, spec.sweep, spec.profile ?? 'performance'),
+    template: finTemplate(spec.base, spec.depth, spec.sweep, spec.profile ?? 'thruster'),
     maxThickness: foilThickness(spec.base),
     foil: spec.foil,
     box,
