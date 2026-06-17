@@ -24,8 +24,8 @@ function GithubIcon({ className }: { className?: string }) {
 function Brand() {
   return (
     <Link to="/" className="group flex items-center gap-2.5" aria-label={`${SITE_NAME} home`}>
-      <Brandmark className="h-7 w-7 transition-transform duration-300 group-hover:-translate-y-px group-hover:rotate-3" />
-      <span className="font-display text-xl tracking-tight">
+      <Brandmark className="h-7 w-7 shrink-0 transition-transform duration-300 group-hover:-translate-y-px group-hover:rotate-3" />
+      <span className="font-display text-lg tracking-tight sm:text-xl">
         Open<span className="text-primary">Shaper</span>
       </span>
     </Link>
@@ -42,12 +42,12 @@ export function MarketingLayout() {
   }, [pathname]);
 
   return (
-    <div className="marketing grain flex min-h-screen flex-col">
+    <div className="marketing grain flex min-h-screen flex-col overflow-x-clip">
       {/* ---- Header ---- */}
       <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-md">
         {/* swell-line bottom edge in place of a flat hairline */}
         <WaveLines className="pointer-events-none absolute inset-x-0 -bottom-[7px] h-3.5 text-primary/40" />
-        <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-4 px-5">
+        <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-3 px-4 sm:gap-4 sm:px-5">
           <Brand />
 
           <nav className="hidden items-center gap-1 md:flex">
@@ -91,7 +91,7 @@ export function MarketingLayout() {
               to={item.to}
               className={({ isActive }) =>
                 cn(
-                  'whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground',
+                  'whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground',
                   isActive && 'text-foreground',
                 )
               }

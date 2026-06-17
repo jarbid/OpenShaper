@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -49,7 +50,7 @@ export function renderMenuItems(items: MenuItem[], onAfterAction: () => void): R
           item.onSelect();
           if (item.kind === 'action') onAfterAction();
         }}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50"
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 pointer-coarse:py-2.5"
       >
         <span className="flex w-4 shrink-0 justify-center">
           {isCheckbox && item.checked && <Check className="size-3.5" />}
@@ -105,10 +106,24 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
   const ctx = useContext(MenuBarContext);
   const panelRef = useRef<HTMLDivElement>(null);
   const open = ctx?.openId === id;
+  // Horizontal nudge so a dropdown near the right edge stays fully on-screen (mobile).
+  const [shiftX, setShiftX] = useState(0);
 
   // Move focus to the first enabled item when the menu opens (keyboard users).
   useEffect(() => {
     if (open) panelRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setShiftX(0);
+      return;
+    }
+    const el = panelRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const overflow = r.right - (window.innerWidth - 8);
+    if (overflow > 0) setShiftX(-overflow);
   }, [open]);
 
   const onKeyDown = (e: ReactKeyboardEvent) => {
@@ -144,7 +159,8 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
           ref={panelRef}
           role="menu"
           onKeyDown={onKeyDown}
-          className="absolute left-0 top-full z-50 mt-1 min-w-48 rounded-md border border-border bg-card p-1 text-card-foreground shadow-lg"
+          style={{ marginLeft: shiftX }}
+          className="absolute left-0 top-full z-50 mt-1 max-h-[70vh] min-w-48 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-md border border-border bg-card p-1 text-card-foreground shadow-lg"
         >
           {renderMenuItems(items, () => ctx?.open(null))}
         </div>

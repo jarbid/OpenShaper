@@ -11,8 +11,10 @@ import type { Board3DViewProps } from '@openshaper/render3d';
 import { selectSpecs } from '@openshaper/store';
 import { Unit } from '@openshaper/units';
 import {
+  BottomSheet,
   Button,
   buttonVariants,
+  cn,
   Menu,
   MenuBar,
   Panel,
@@ -22,7 +24,9 @@ import {
   Toast,
   ToolbarSeparator,
   type MenuItem,
+  type SheetSnap,
 } from '@openshaper/ui';
+import { Menu as MenuIcon, SlidersHorizontal } from 'lucide-react';
 import {
   lazy,
   Suspense,
@@ -42,7 +46,14 @@ import {
   type ExportFormat,
 } from './file-io';
 import { clearRecentBoards, getRecentBoards, recordRecentBoard } from './recent-boards';
-import { DEFAULT_LENGTH_UNIT, LENGTH_UNITS, lengthUnitByKey, parseLen } from './format';
+import {
+  DEFAULT_LENGTH_UNIT,
+  fmtDimsHeadline,
+  fmtVol,
+  LENGTH_UNITS,
+  lengthUnitByKey,
+  parseLen,
+} from './format';
 import { openHtmlInNewTab, specSheetHtmlFor } from './spec-sheet-open';
 import { Brandmark } from './components/marks';
 import { CommandPalette, commandsFromMenus } from './CommandPalette';
@@ -58,6 +69,7 @@ import { SUPPORT_URL } from './support';
 import { BOARD_TEMPLATES } from './templates';
 import { useKeyboardShortcuts } from './use-keyboard-shortcuts';
 import { useSettledBoard } from './use-settled-board';
+import { useIsDesktop } from './useMediaQuery';
 import { useSpecsWorker } from './use-specs-worker';
 import {
   EditorPane,
@@ -134,6 +146,10 @@ function AppShell() {
   const volumeDist = workerResult?.distribution;
 
   const [view, setView] = useState<View>('quad');
+  // Editor layout tier: at `lg`+ the sidebar sits beside the viewport; below it the
+  // sidebar moves into a draggable bottom sheet and the quad view stacks vertically.
+  const isDesktop = useIsDesktop();
+  const [sheetSnap, setSheetSnap] = useState<SheetSnap>('peek');
   const [csIndex, setCsIndex] = useState(1);
   // Transient cross-pane scrub: the board-length x being hovered in the rocker/outline,
   // mirrored to the other panes as a vertical guide + an interpolated section preview.
@@ -640,23 +656,146 @@ function AppShell() {
       : []),
   ];
 
+  // The four quad panes, built once and arranged either as a 2×2 grid (desktop) or a
+  // vertical scrolling stack (compact) — the panes themselves are identical in both.
+  const quadPanes = [
+    <EditorPane
+      key="outline"
+      title="Outline"
+      kind="outline"
+      csIndex={clampedCs}
+      units={units}
+      sectionMarkers={sectionMarkers}
+      onPickSection={setCsIndex}
+      onAddSectionAt={addSectionAt}
+      onScrub={setScrubX}
+      overlays={overlaysFor('outline')}
+      ghostSplines={ghostSplinesFor('outline')}
+      background={traceBg}
+      settings={settings}
+      viewCommand={viewCmd}
+    />,
+    <EditorPane
+      key="crossSection"
+      title={csTitle}
+      kind="crossSection"
+      csIndex={clampedCs}
+      units={units}
+      overlays={overlaysFor('crossSection')}
+      ghostSplines={ghostSplinesFor('crossSection')}
+      viewCommand={viewCmd}
+      headerActions={csControls}
+      settings={settings}
+    />,
+    <EditorPane
+      key="rocker"
+      title="Rocker (deck + bottom)"
+      kind="rocker"
+      csIndex={clampedCs}
+      units={units}
+      sectionMarkers={sectionMarkers}
+      onPickSection={setCsIndex}
+      onAddSectionAt={addSectionAt}
+      onScrub={setScrubX}
+      overlays={overlaysFor('rocker')}
+      ghostSplines={ghostSplinesFor('rocker')}
+      settings={settings}
+      viewCommand={viewCmd}
+    />,
+    <Panel key="3d" className="flex min-h-0 flex-col">
+      <PanelHeader className="flex items-center justify-between gap-2">
+        <PanelTitle>3D</PanelTitle>
+        <ThreeDControls settings={view3d} onChange={patchView3d} compact />
+      </PanelHeader>
+      <PanelBody className="min-h-0 flex-1 p-0">
+        <ThreeDPane
+          store={boardStore}
+          mode={view3d.mode}
+          lighting={view3d.lighting}
+          material={view3d.material}
+          color={view3d.color}
+          finColor={settings.finColor}
+          analysis={view3d.analysis}
+          targetFaceSize={faceSizeFor(view3d.meshQuality)}
+          sectionX={sectionX}
+        />
+      </PanelBody>
+    </Panel>,
+  ];
+
+  const sidebarEl = (
+    <Sidebar
+      specs={specs}
+      units={units}
+      interpolationType={board?.interpolationType ?? 'controlPoint'}
+      resize={resize}
+      setResize={setResize}
+      applyResize={applyResize}
+      meta={meta}
+      setMeta={setMeta}
+      foamType={foamType}
+      glassSchedule={glassSchedule}
+      weight={weight}
+      trace={trace}
+      setTrace={setTrace}
+      traceInput={traceInput}
+      onOpenTrace={onOpenTrace}
+      traceOpacity={traceOpacity}
+      setTraceOpacity={setTraceOpacity}
+      traceScale={traceScale}
+      setTraceScale={setTraceScale}
+      traceOffset={traceOffset}
+      setTraceOffset={setTraceOffset}
+      overlayToggles={overlayToggles}
+      setOverlayToggles={setOverlayToggles}
+      ghost={!!ghost}
+      ghostSpecs={ghostSpecs}
+    />
+  );
+
+  // Collapsed-sheet header: headline dimensions + volume, always visible on mobile.
+  const sheetPeek = specs ? (
+    <div className="flex items-center justify-between gap-3 text-sm">
+      <span className="truncate font-mono text-[13px] tabular-nums text-foreground">
+        {fmtDimsHeadline(specs.length, specs.maxWidth, specs.thickness, units)}
+      </span>
+      <span className="shrink-0 font-mono text-[13px] tabular-nums text-muted-foreground">
+        {fmtVol(specs.volume)}
+      </span>
+    </div>
+  ) : (
+    <span className="text-sm text-muted-foreground">Board panels</span>
+  );
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-col border-b border-border bg-card text-card-foreground">
         {/* Row 1 — application menubar */}
-        <div className="flex h-11 items-center gap-2 px-2">
+        <div className="flex h-11 items-center gap-1 px-1.5 sm:gap-2 sm:px-2">
           <a
             href="/"
             className="group flex items-center gap-2 px-1.5 font-semibold transition-colors hover:text-primary"
             title="OpenShaper home"
           >
             <Brandmark className="h-6 w-6 transition-transform duration-300 group-hover:rotate-3" />
-            <span>
+            <span className="hidden sm:inline">
               Open<span className="text-primary">Shaper</span>
             </span>
           </a>
-          <ToolbarSeparator />
-          <MenuBar>
+          <ToolbarSeparator className="hidden sm:block" />
+          {/* Phones: a single button opens the command palette, which lists every menu
+              action. Tablets and up get the full menubar. */}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="sm:hidden"
+            title="Menu / commands"
+            aria-label="Menu and commands"
+            onClick={togglePalette}
+          >
+            <MenuIcon className="size-4" />
+          </Button>
+          <MenuBar className="hidden sm:flex">
             <Menu label="File" items={fileMenu} />
             <Menu label="Edit" items={editMenu} />
             <Menu label="View" items={viewMenu} />
@@ -669,7 +808,10 @@ function AppShell() {
               href={SUPPORT_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className={`${buttonVariants({ variant: 'ghost', size: 'sm' })} text-primary hover:text-primary`}
+              className={cn(
+                buttonVariants({ variant: 'ghost', size: 'sm' }),
+                'hidden text-primary hover:text-primary sm:inline-flex',
+              )}
               title="Buy me a coffee — OpenShaper is free & open-source"
             >
               <CoffeeIcon className="size-4" />
@@ -678,19 +820,21 @@ function AppShell() {
           )}
         </div>
 
-        {/* Row 2 — view tabs */}
+        {/* Row 2 — view tabs. The tabs scroll horizontally on narrow screens while the
+            unit selector and (mobile) Panels toggle stay pinned to the right. */}
         <div className="flex h-11 items-center gap-1 border-t border-border px-2">
-          {tab('quad', 'Quad')}
-          {tab('outline', 'Outline')}
-          {tab('rocker', 'Rocker')}
-          {tab('crossSection', 'Cross-section')}
-          {tab('3d', '3D')}
-          <div className="flex-1" />
+          <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+            {tab('quad', 'Quad')}
+            {tab('outline', 'Outline')}
+            {tab('rocker', 'Rocker')}
+            {tab('crossSection', 'Cross-section')}
+            {tab('3d', '3D')}
+          </div>
           <select
             value={unitKey}
             onChange={(e) => setUnitKey(e.target.value)}
             title="Display units"
-            className="h-8 rounded-md border border-border bg-transparent px-2 text-sm"
+            className="h-8 shrink-0 rounded-md border border-border bg-transparent px-2 text-sm"
           >
             {LENGTH_UNITS.map((u) => (
               <option key={u.key} value={u.key}>
@@ -698,6 +842,17 @@ function AppShell() {
               </option>
             ))}
           </select>
+          {/* Below lg the sidebar lives in a bottom sheet; this opens it. */}
+          <Button
+            size="sm"
+            variant="ghost"
+            className="shrink-0 lg:hidden"
+            title="Show board panels"
+            aria-label="Show board panels"
+            onClick={() => setSheetSnap('half')}
+          >
+            <SlidersHorizontal className="size-4" />
+          </Button>
         </div>
 
         {/* Hidden file inputs (the trace input lives in the Sidebar, sharing traceInput). */}
@@ -718,69 +873,23 @@ function AppShell() {
       </div>
 
       <div className="flex min-h-0 flex-1 gap-3 p-3">
-        <div className="min-h-0 flex-1">
+        <div className="min-h-0 min-w-0 flex-1">
           {view === 'quad' ? (
-            <div className="grid h-full grid-cols-2 grid-rows-2 gap-3">
-              <EditorPane
-                title="Outline"
-                kind="outline"
-                csIndex={clampedCs}
-                units={units}
-                sectionMarkers={sectionMarkers}
-                onPickSection={setCsIndex}
-                onAddSectionAt={addSectionAt}
-                onScrub={setScrubX}
-                overlays={overlaysFor('outline')}
-                ghostSplines={ghostSplinesFor('outline')}
-                background={traceBg}
-                settings={settings}
-                viewCommand={viewCmd}
-              />
-              <EditorPane
-                title={csTitle}
-                kind="crossSection"
-                csIndex={clampedCs}
-                units={units}
-                overlays={overlaysFor('crossSection')}
-                ghostSplines={ghostSplinesFor('crossSection')}
-                viewCommand={viewCmd}
-                headerActions={csControls}
-                settings={settings}
-              />
-              <EditorPane
-                title="Rocker (deck + bottom)"
-                kind="rocker"
-                csIndex={clampedCs}
-                units={units}
-                sectionMarkers={sectionMarkers}
-                onPickSection={setCsIndex}
-                onAddSectionAt={addSectionAt}
-                onScrub={setScrubX}
-                overlays={overlaysFor('rocker')}
-                ghostSplines={ghostSplinesFor('rocker')}
-                settings={settings}
-                viewCommand={viewCmd}
-              />
-              <Panel className="flex min-h-0 flex-col">
-                <PanelHeader className="flex items-center justify-between gap-2">
-                  <PanelTitle>3D</PanelTitle>
-                  <ThreeDControls settings={view3d} onChange={patchView3d} compact />
-                </PanelHeader>
-                <PanelBody className="min-h-0 flex-1 p-0">
-                  <ThreeDPane
-                    store={boardStore}
-                    mode={view3d.mode}
-                    lighting={view3d.lighting}
-                    material={view3d.material}
-                    color={view3d.color}
-                    finColor={settings.finColor}
-                    analysis={view3d.analysis}
-                    targetFaceSize={faceSizeFor(view3d.meshQuality)}
-                    sectionX={sectionX}
-                  />
-                </PanelBody>
-              </Panel>
-            </div>
+            isDesktop ? (
+              <div className="grid h-full grid-cols-2 grid-rows-2 gap-3">{quadPanes}</div>
+            ) : (
+              // Compact: a single scrolling column, each pane a comfortable fixed height.
+              <div className="flex h-full flex-col gap-3 overflow-y-auto">
+                {quadPanes.map((pane, i) => (
+                  <div
+                    key={i}
+                    className="grid h-[68vw] max-h-[28rem] min-h-64 min-w-0 shrink-0 overflow-hidden"
+                  >
+                    {pane}
+                  </div>
+                ))}
+              </div>
+            )
           ) : view === '3d' ? (
             <Panel className="flex h-full flex-col">
               <PanelHeader className="flex items-center justify-between gap-3">
@@ -832,34 +941,15 @@ function AppShell() {
           )}
         </div>
 
-        <Sidebar
-          specs={specs}
-          units={units}
-          interpolationType={board?.interpolationType ?? 'controlPoint'}
-          resize={resize}
-          setResize={setResize}
-          applyResize={applyResize}
-          meta={meta}
-          setMeta={setMeta}
-          foamType={foamType}
-          glassSchedule={glassSchedule}
-          weight={weight}
-          trace={trace}
-          setTrace={setTrace}
-          traceInput={traceInput}
-          onOpenTrace={onOpenTrace}
-          traceOpacity={traceOpacity}
-          setTraceOpacity={setTraceOpacity}
-          traceScale={traceScale}
-          setTraceScale={setTraceScale}
-          traceOffset={traceOffset}
-          setTraceOffset={setTraceOffset}
-          overlayToggles={overlayToggles}
-          setOverlayToggles={setOverlayToggles}
-          ghost={!!ghost}
-          ghostSpecs={ghostSpecs}
-        />
+        {/* Desktop: sidebar beside the viewport. Compact: it moves into a bottom sheet. */}
+        {isDesktop && sidebarEl}
       </div>
+
+      {!isDesktop && (
+        <BottomSheet snap={sheetSnap} onSnapChange={setSheetSnap} peek={sheetPeek}>
+          {sidebarEl}
+        </BottomSheet>
+      )}
 
       {toast && <Toast onClick={() => setToast(null)}>{toast}</Toast>}
 

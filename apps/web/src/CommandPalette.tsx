@@ -78,7 +78,10 @@ export function CommandPalette({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-center bg-black/60 pt-24" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex justify-center bg-black/60 px-4 pt-20 sm:pt-24"
+      onClick={onClose}
+    >
       <Panel
         className="flex h-fit max-h-[60vh] w-full max-w-lg flex-col"
         onClick={(e) => e.stopPropagation()}

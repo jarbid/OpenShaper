@@ -145,6 +145,9 @@ type DragState =
 /** Max pointer travel (px) for a right-button press+release to count as a tap, not a pan. */
 const TAP_SLOP = 4;
 
+/** Hold time (ms) for a single-finger touch to open the context menu (right-click stand-in). */
+const LONG_PRESS_MS = 500;
+
 const PALETTE = ['#22D3EE', '#38BDF8', '#2DD4BF', '#A78BFA'];
 
 const useBoard = (store: StoreApi<BoardState>): BezierBoard | null =>
@@ -192,6 +195,12 @@ export function SplineEditor({
   const [hover, setHover] = useState<Vec2 | null>(null);
   const drag = useRef<DragState>(null);
   const spaceHeld = useRef(false);
+  // Active touch points (by pointerId) for multi-touch gestures, plus the last
+  // pinch centroid/spread and a long-press timer (touch's stand-in for right-click).
+  const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinch = useRef<{ dist: number; cx: number; cy: number } | null>(null);
+  const longPress = useRef<{ x: number; y: number } | null>(null);
+  const longPressTimer = useRef<number | null>(null);
   const [cursor, setCursor] = useState<'crosshair' | 'grab' | 'grabbing'>('crosshair');
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const selection = useSyncExternalStore(store.subscribe, () => store.getState().selection);
@@ -389,11 +398,71 @@ export function SplineEditor({
     [vp, board, targets],
   );
 
+  const cancelLongPress = useCallback(() => {
+    if (longPressTimer.current !== null) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    longPress.current = null;
+  }, []);
+
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (!vp || !board) return;
       setMenu(null);
       const p = localPoint(e);
+
+      // Touch: track the pointer and route multi-touch / long-press gestures. A single
+      // finger then falls through to the normal left-button select/edit path below.
+      if (e.pointerType === 'touch') {
+        pointers.current.set(e.pointerId, p);
+        if (pointers.current.size === 2) {
+          // Second finger: abandon any in-progress one-finger edit and start a pinch.
+          cancelLongPress();
+          if (drag.current?.mode === 'edit' || drag.current?.mode === 'fin') {
+            store.getState().endEdit();
+          }
+          drag.current = null;
+          const pts = [...pointers.current.values()];
+          const a = pts[0]!;
+          const b = pts[1]!;
+          pinch.current = {
+            dist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+            cx: (a.x + b.x) / 2,
+            cy: (a.y + b.y) / 2,
+          };
+          canvasRef.current!.setPointerCapture(e.pointerId);
+          return;
+        }
+        if (pointers.current.size > 2) return;
+        // First finger: arm a long-press that opens the context menu if held in place.
+        cancelLongPress();
+        longPress.current = { x: p.x, y: p.y };
+        const clientX = e.clientX;
+        const clientY = e.clientY;
+        longPressTimer.current = window.setTimeout(() => {
+          longPressTimer.current = null;
+          if (pointers.current.size !== 1 || !vp || !board) return;
+          if (drag.current?.mode === 'edit' || drag.current?.mode === 'fin') {
+            store.getState().endEdit();
+          }
+          drag.current = null;
+          const picked = hitAny(p);
+          if (picked) store.getState().select({ target: picked.target, index: picked.hit.index });
+          const items = buildContextMenuItems({
+            board,
+            targets,
+            vp,
+            screen: p,
+            mirrorX,
+            mirrorY,
+            store,
+            onFitView: fitView,
+            onAddSectionAt,
+          });
+          setMenu({ x: clientX, y: clientY, items });
+        }, LONG_PRESS_MS);
+      }
       // Right button => pan-or-menu. A drag pans; a tap (no drag) opens the context menu
       // on pointer-up. `preventDefault` here plus the canvas-level `contextmenu` blocker
       // stops the browser claiming the gesture (which otherwise fires `pointercancel` and
@@ -448,7 +517,21 @@ export function SplineEditor({
       // Empty space: just deselect.
       store.getState().select(null);
     },
-    [vp, board, store, hitAny, sectionMarkers, onPickSection, overlays],
+    [
+      vp,
+      board,
+      store,
+      hitAny,
+      sectionMarkers,
+      onPickSection,
+      overlays,
+      cancelLongPress,
+      targets,
+      mirrorX,
+      mirrorY,
+      fitView,
+      onAddSectionAt,
+    ],
   );
 
   const onPointerMove = useCallback(
@@ -456,6 +539,34 @@ export function SplineEditor({
       const d = drag.current;
       if (!vp) return;
       const p = localPoint(e);
+
+      // Touch gestures take precedence over the mouse drag modes below.
+      if (e.pointerType === 'touch') {
+        if (pointers.current.has(e.pointerId)) pointers.current.set(e.pointerId, p);
+        // Two fingers: pinch-zoom about the centroid and pan by its movement.
+        if (pointers.current.size >= 2 && pinch.current) {
+          const pts = [...pointers.current.values()];
+          const a = pts[0]!;
+          const b = pts[1]!;
+          const nd = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+          const ncx = (a.x + b.x) / 2;
+          const ncy = (a.y + b.y) / 2;
+          const factor = nd / pinch.current.dist;
+          const dx = ncx - pinch.current.cx;
+          const dy = ncy - pinch.current.cy;
+          setVp((cur) => (cur ? pan(zoomAt(cur, { x: ncx, y: ncy }, factor), dx, dy) : cur));
+          pinch.current = { dist: nd, cx: ncx, cy: ncy };
+          return;
+        }
+        // One finger that travels past the tap slop is a drag, not a long-press.
+        if (
+          longPress.current &&
+          Math.hypot(p.x - longPress.current.x, p.y - longPress.current.y) > TAP_SLOP
+        ) {
+          cancelLongPress();
+        }
+      }
+
       if (!d) {
         // No drag: report the hovered world point for the readout HUD + cross-pane scrub.
         const w = screenToWorld(vp, p);
@@ -497,11 +608,24 @@ export function SplineEditor({
       if (d.hit.kind === 'end') store.getState().moveControlPoint(d.target, d.hit.index, world);
       else store.getState().moveTangent(d.target, d.hit.index, d.hit.kind, world);
     },
-    [vp, store, readout, onScrub],
+    [vp, store, readout, onScrub, cancelLongPress],
   );
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
+      // Touch: drop the lifted finger; if a pinch was active, end the gesture cleanly
+      // (the one-finger edit was already abandoned when the second finger landed).
+      if (e.pointerType === 'touch') {
+        cancelLongPress();
+        pointers.current.delete(e.pointerId);
+        if (pinch.current) {
+          if (pointers.current.size < 2) pinch.current = null;
+          drag.current = null;
+          canvasRef.current?.releasePointerCapture(e.pointerId);
+          setCursor('crosshair');
+          return;
+        }
+      }
       const d = drag.current;
       if (d?.mode === 'edit' || d?.mode === 'fin') store.getState().endEdit();
       // A right-button tap (no pan) opens the context menu at the cursor.
@@ -526,16 +650,22 @@ export function SplineEditor({
       canvasRef.current?.releasePointerCapture(e.pointerId);
       setCursor(spaceHeld.current ? 'grab' : 'crosshair');
     },
-    [store, vp, board, targets, mirrorX, mirrorY, hitAny, fitView, onAddSectionAt],
+    [store, vp, board, targets, mirrorX, mirrorY, hitAny, fitView, onAddSectionAt, cancelLongPress],
   );
 
   // A cancelled pointer (browser claimed the gesture, palm-rejection, etc.) ends any drag
   // cleanly without firing a context menu, so state never gets stuck mid-pan.
-  const onPointerCancel = useCallback(() => {
-    if (drag.current?.mode === 'edit' || drag.current?.mode === 'fin') store.getState().endEdit();
-    drag.current = null;
-    setCursor(spaceHeld.current ? 'grab' : 'crosshair');
-  }, [store]);
+  const onPointerCancel = useCallback(
+    (e: React.PointerEvent) => {
+      cancelLongPress();
+      pointers.current.delete(e.pointerId);
+      if (pointers.current.size < 2) pinch.current = null;
+      if (drag.current?.mode === 'edit' || drag.current?.mode === 'fin') store.getState().endEdit();
+      drag.current = null;
+      setCursor(spaceHeld.current ? 'grab' : 'crosshair');
+    },
+    [store, cancelLongPress],
+  );
 
   const onWheel = useCallback(
     (e: React.WheelEvent) => {

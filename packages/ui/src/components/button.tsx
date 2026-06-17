@@ -13,11 +13,13 @@ export const buttonVariants = cva(
         ghost: 'hover:bg-accent hover:text-accent-foreground',
         destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
       },
+      // Coarse pointers (touch) get a slightly taller hit area for comfortable tapping
+      // without enlarging the dense mouse/keyboard UI.
       size: {
-        default: 'h-9 px-4 py-2',
-        sm: 'h-8 rounded-md px-3 text-xs',
+        default: 'h-9 px-4 py-2 pointer-coarse:h-10',
+        sm: 'h-8 rounded-md px-3 text-xs pointer-coarse:h-9',
         lg: 'h-10 rounded-md px-6',
-        icon: 'h-9 w-9',
+        icon: 'h-9 w-9 pointer-coarse:size-10',
       },
     },
     defaultVariants: { variant: 'default', size: 'default' },

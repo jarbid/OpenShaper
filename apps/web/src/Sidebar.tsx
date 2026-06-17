@@ -168,7 +168,7 @@ export function Sidebar({
   ghostSpecs,
 }: SidebarProps) {
   return (
-    <div className="flex w-72 min-h-0 shrink-0 flex-col gap-3 overflow-y-auto pr-0.5">
+    <div className="flex w-full min-h-0 shrink-0 flex-col gap-3 overflow-y-auto pr-0.5 lg:w-72">
       <Panel>
         <PanelHeader>
           <PanelTitle>Specs</PanelTitle>

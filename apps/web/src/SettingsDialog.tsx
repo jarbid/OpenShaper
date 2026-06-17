@@ -110,7 +110,10 @@ export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProp
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={onClose}>
-      <Panel className="flex w-full max-w-md flex-col" onClick={(e) => e.stopPropagation()}>
+      <Panel
+        className="flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         <PanelHeader className="flex items-center justify-between">
           <PanelTitle>Settings</PanelTitle>
           <Button size="sm" variant="ghost" title="Close settings" onClick={onClose}>

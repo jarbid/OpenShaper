@@ -24,3 +24,13 @@ body {
     Roboto,
     sans-serif;
 }
+
+/* Horizontally-scrollable strips (e.g. the editor view tabs) keep the swipe/scroll
+   behaviour but hide the scrollbar chrome. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
