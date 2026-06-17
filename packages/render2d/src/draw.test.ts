@@ -7,20 +7,30 @@
  * with a minimal stub that records calls, without needing a real canvas / jsdom.
  * `defaultStyle` is tested as a pure value.
  */
-import { knot, splineFromKnots, vec2 } from '@openshaper/kernel';
+import {
+  board,
+  crossSection,
+  defaultFinConfig,
+  knot,
+  resolveFins,
+  splineFromKnots,
+  vec2,
+} from '@openshaper/kernel';
 import { describe, expect, it, vi } from 'vitest';
 import {
   clear,
   defaultStyle,
   drawControlPoints,
   drawCurvatureComb,
+  drawFinsPlan,
   drawGrid,
   drawMeasureCursor,
   drawSpline,
   gridStep,
+  hitFin,
 } from './draw';
 import type { Vec2 } from '@openshaper/kernel';
-import type { Viewport } from './viewport';
+import { worldToScreen, type Viewport } from './viewport';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -33,7 +43,13 @@ function makeCtx() {
     strokeStyle: '',
     fillStyle: '',
     lineWidth: 0,
+    lineCap: '',
+    lineJoin: '',
+    globalAlpha: 1,
+    save: vi.fn(() => calls.push('save')),
+    restore: vi.fn(() => calls.push('restore')),
     beginPath: vi.fn(() => calls.push('beginPath')),
+    closePath: vi.fn(() => calls.push('closePath')),
     moveTo: vi.fn((_x: number, _y: number) => calls.push('moveTo')),
     lineTo: vi.fn((_x: number, _y: number) => calls.push('lineTo')),
     stroke: vi.fn(() => calls.push('stroke')),
@@ -359,5 +375,47 @@ describe('drawMeasureCursor', () => {
     });
     expect(moves.length).toBe(0);
     expect(ctx.save).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fins
+// ---------------------------------------------------------------------------
+
+describe('drawFinsPlan + hitFin', () => {
+  const makeFinnedBoard = () => {
+    const k = (ex: number, ey: number) => knot(vec2(ex, ey), vec2(ex - 5, ey), vec2(ex + 5, ey));
+    const outline = splineFromKnots([k(0, 14), k(50, 16), k(100, 0)]); // tail wide at x=0
+    const bottom = splineFromKnots([k(0, 4), k(100, 6)]);
+    const deck = splineFromKnots([k(0, 8), k(100, 9)]);
+    const cs = [crossSection(0, makeSpline()), crossSection(100, makeSpline())];
+    return board(
+      outline,
+      bottom,
+      deck,
+      cs,
+      'controlPoint',
+      defaultFinConfig('thruster', 'futures'),
+    );
+  };
+
+  it('strokes a footprint per fin in plan view', () => {
+    const fins = resolveFins(makeFinnedBoard());
+    const { ctx, calls } = makeCtx();
+    drawFinsPlan(ctx, fins, VP, null);
+    expect(fins.length).toBe(3);
+    expect(calls.filter((c) => c === 'stroke').length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('hitFin picks the fin under a point on its base line, and null when far', () => {
+    const fins = resolveFins(makeFinnedBoard());
+    const target = 0;
+    const center = {
+      x: (fins[target]!.baseLine.fore.x + fins[target]!.baseLine.aft.x) / 2,
+      y: (fins[target]!.baseLine.fore.y + fins[target]!.baseLine.aft.y) / 2,
+    };
+    const screen = worldToScreen(VP, center);
+    expect(hitFin(fins, VP, screen, 8)).toBe(target);
+    expect(hitFin(fins, VP, { x: screen.x + 9999, y: screen.y + 9999 }, 8)).toBeNull();
   });
 });

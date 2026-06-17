@@ -1,10 +1,16 @@
 import { specSheetHtml } from '@openshaper/export';
+import { FIN_SETUP_LABELS, FIN_SYSTEM_LABELS, type FinConfig } from '@openshaper/kernel';
 import type { BoardSpecs } from '@openshaper/store';
 import type { BoardMeta } from './file-io';
 import { fmtLen, fmtVol, type LengthUnit } from './format';
 
 /** Compose the printable spec-sheet HTML (board info + dimensions in `units`). */
-export const specSheetHtmlFor = (specs: BoardSpecs, meta: BoardMeta, units: LengthUnit): string =>
+export const specSheetHtmlFor = (
+  specs: BoardSpecs,
+  meta: BoardMeta,
+  units: LengthUnit,
+  fins?: FinConfig,
+): string =>
   specSheetHtml({
     title: meta.model || 'Surfboard',
     designer: meta.designer,
@@ -19,6 +25,12 @@ export const specSheetHtmlFor = (specs: BoardSpecs, meta: BoardMeta, units: Leng
       ['Max rocker', fmtLen(specs.maxRocker, units)],
       ['Volume', fmtVol(specs.volume)],
       ['Center of mass', fmtLen(specs.centerOfMass, units)],
+      ...(fins && fins.setup !== 'none'
+        ? ([['Fins', `${FIN_SETUP_LABELS[fins.setup]} · ${FIN_SYSTEM_LABELS[fins.system]}`]] as [
+            string,
+            string,
+          ][])
+        : []),
     ],
   });
 

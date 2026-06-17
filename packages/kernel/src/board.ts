@@ -22,6 +22,7 @@ import {
   type CrossSection,
 } from './cross-section';
 import { adaptiveSimpson, simpsonIntegral, trapezoidIntegralXY } from './math';
+import { noFins, type FinConfig } from './fins';
 import { vec2, type Vec2 } from './vec2';
 
 /**
@@ -55,6 +56,8 @@ export interface BezierBoard {
   /** Sorted by position ascending; index 0 = nose dummy, last = tail dummy. */
   readonly crossSections: readonly CrossSection[];
   readonly interpolationType: InterpolationType;
+  /** Parametric fin configuration (resolved to geometry on demand by `resolveFins`). */
+  readonly fins: FinConfig;
 }
 
 // Legacy fixed integration resolutions (BezierBoard.*_SPLITS). These are NO LONGER
@@ -111,7 +114,8 @@ export const board = (
   deck: Spline,
   crossSections: readonly CrossSection[],
   interpolationType: InterpolationType = 'controlPoint',
-): BezierBoard => ({ outline, bottom, deck, crossSections, interpolationType });
+  fins: FinConfig = noFins(),
+): BezierBoard => ({ outline, bottom, deck, crossSections, interpolationType, fins });
 
 // --- dimensions ---
 
@@ -275,7 +279,7 @@ export const adjustCrossSectionsToThicknessAndWidth = (b: BezierBoard): BezierBo
     if (scaled !== c) changed = true;
     return scaled;
   });
-  return changed ? board(b.outline, b.bottom, b.deck, next, b.interpolationType) : b;
+  return changed ? board(b.outline, b.bottom, b.deck, next, b.interpolationType, b.fins) : b;
 };
 
 // --- sLinear (station-linear / arc-length) interpolation model ---

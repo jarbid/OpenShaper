@@ -26,6 +26,7 @@ describe('DEFAULT_SETTINGS', () => {
     expect(typeof DEFAULT_SETTINGS.crossSectionColor).toBe('string');
     expect(typeof DEFAULT_SETTINGS.ghostColor).toBe('string');
     expect(typeof DEFAULT_SETTINGS.gridColor).toBe('string');
+    expect(typeof DEFAULT_SETTINGS.finColor).toBe('string');
     expect(typeof DEFAULT_SETTINGS.controlPointSize).toBe('number');
     expect(typeof DEFAULT_SETTINGS.curveThickness).toBe('number');
   });
@@ -38,6 +39,7 @@ describe('DEFAULT_SETTINGS', () => {
     expect(DEFAULT_SETTINGS.crossSectionColor).toMatch(hexRe);
     expect(DEFAULT_SETTINGS.ghostColor).toMatch(hexRe);
     expect(DEFAULT_SETTINGS.gridColor).toMatch(hexRe);
+    expect(DEFAULT_SETTINGS.finColor).toMatch(hexRe);
   });
 });
 

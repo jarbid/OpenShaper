@@ -5,8 +5,12 @@ import {
   crossSection,
   curveFromPoints,
   curveLength,
+  defaultFinConfig,
   getInterpolatedCrossSection,
+  getLength,
+  getWidthAtPos,
   knot,
+  mirrorFinIndex,
   maxX,
   scaleSpline,
   splineFromKnots,
@@ -15,6 +19,10 @@ import {
   vec2,
   type BezierBoard,
   type CrossSection,
+  type FinConfig,
+  type FinSetup,
+  type FinSpec,
+  type FinSystem,
   type InterpolationType,
   type Knot,
   type Spline,
@@ -50,16 +58,16 @@ export const getTargetSpline = (b: BezierBoard, t: SplineTarget): Spline => {
 export const withSpline = (b: BezierBoard, t: SplineTarget, spline: Spline): BezierBoard => {
   switch (t.kind) {
     case 'outline':
-      return board(spline, b.bottom, b.deck, b.crossSections, b.interpolationType);
+      return board(spline, b.bottom, b.deck, b.crossSections, b.interpolationType, b.fins);
     case 'deck':
-      return board(b.outline, b.bottom, spline, b.crossSections, b.interpolationType);
+      return board(b.outline, b.bottom, spline, b.crossSections, b.interpolationType, b.fins);
     case 'bottom':
-      return board(b.outline, spline, b.deck, b.crossSections, b.interpolationType);
+      return board(b.outline, spline, b.deck, b.crossSections, b.interpolationType, b.fins);
     case 'crossSection': {
       const cs = b.crossSections.map((c, i) =>
         i === t.index ? { position: c.position, spline } : c,
       );
-      return board(b.outline, b.bottom, b.deck, cs, b.interpolationType);
+      return board(b.outline, b.bottom, b.deck, cs, b.interpolationType, b.fins);
     }
   }
 };
@@ -230,7 +238,7 @@ export const propagateCrossSectionToCurves = (
     outline = setSplineValueAt(outline, x, valueAt(outline, x) + widthHalfDelta);
 
   if (bottom === next.bottom && deck === next.deck && outline === next.outline) return next;
-  return board(outline, bottom, deck, next.crossSections, next.interpolationType);
+  return board(outline, bottom, deck, next.crossSections, next.interpolationType, next.fins);
 };
 
 // --- cross-section management (legacy Cross-sections menu) ---
@@ -243,6 +251,7 @@ export const withCrossSections = (b: BezierBoard, list: readonly CrossSection[])
     b.deck,
     [...list].sort((a, c) => a.position - c.position),
     b.interpolationType,
+    b.fins,
   );
 
 /**
@@ -286,7 +295,28 @@ export const removeCrossSection = (b: BezierBoard, index: number): BezierBoard =
  */
 /** Return the board with a different cross-section interpolation model. */
 export const withInterpolationType = (b: BezierBoard, type: InterpolationType): BezierBoard =>
-  board(b.outline, b.bottom, b.deck, b.crossSections, type);
+  board(b.outline, b.bottom, b.deck, b.crossSections, type, b.fins);
+
+/**
+ * Scale fin placement with the board (legacy `finScaling`): trailing-edge distance
+ * from the tail and base scale with length; rail inset and blade depth scale with
+ * width / thickness. Angles are unchanged.
+ */
+const scaleFins = (
+  cfg: BezierBoard['fins'],
+  fL: number,
+  fW: number,
+  fT: number,
+): BezierBoard['fins'] => ({
+  ...cfg,
+  fins: cfg.fins.map((f) => ({
+    ...f,
+    trailingFromTail: f.trailingFromTail * fL,
+    base: f.base * fL,
+    insetFromRail: f.insetFromRail * fW,
+    depth: f.depth * fT,
+  })),
+});
 
 export const scaleBoard = (b: BezierBoard, fL: number, fW: number, fT: number): BezierBoard =>
   board(
@@ -295,7 +325,73 @@ export const scaleBoard = (b: BezierBoard, fL: number, fW: number, fT: number): 
     scaleSpline(b.deck, fT, fL),
     b.crossSections.map((cs) => crossSection(cs.position * fL, scaleSpline(cs.spline, fT, fW))),
     b.interpolationType,
+    scaleFins(b.fins, fL, fW, fT),
   );
+
+// --- fins -------------------------------------------------------------------
+
+/** Return a new board with a different fin configuration. */
+export const withFins = (b: BezierBoard, fins: FinConfig): BezierBoard =>
+  board(b.outline, b.bottom, b.deck, b.crossSections, b.interpolationType, fins);
+
+/** Change the fin setup, re-seeding placement from defaults but keeping the system. */
+export const setFinSetup = (b: BezierBoard, setup: FinSetup): BezierBoard =>
+  withFins(b, defaultFinConfig(setup, b.fins.system));
+
+/** Change the fin system (FCS/Futures/glass-on), keeping placement. */
+export const setFinSystem = (b: BezierBoard, system: FinSystem): BezierBoard =>
+  withFins(b, { ...b.fins, system });
+
+/** Toggle whether port/starboard side-fin pairs are kept mirror-symmetric. */
+export const setFinSymmetrical = (b: BezierBoard, symmetrical: boolean): BezierBoard =>
+  withFins(b, { ...b.fins, symmetrical });
+
+/**
+ * Patch a single fin's parametric spec. When the config is symmetrical, the same
+ * geometry change (everything but `side`) is mirrored onto the fin's opposite-side
+ * partner, so a port/starboard pair stays matched.
+ */
+export const updateFinSpec = (
+  b: BezierBoard,
+  index: number,
+  patch: Partial<FinSpec>,
+): BezierBoard => {
+  if (index < 0 || index >= b.fins.fins.length) return b;
+  const mirror = b.fins.symmetrical ? mirrorFinIndex(b.fins.fins, index) : null;
+  // The partner keeps its own side; only geometry/placement mirrors.
+  const { side: _side, ...geomPatch } = patch;
+  const fins = b.fins.fins.map((f, i) => {
+    if (i === index) return { ...f, ...patch };
+    if (i === mirror) return { ...f, ...geomPatch };
+    return f;
+  });
+  return withFins(b, { ...b.fins, fins });
+};
+
+const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
+
+/**
+ * Re-derive a fin's parametric placement from a dropped plan point (x along length, y
+ * lateral) — used for 2D drag. The fin keeps its side; its trailing-edge distance from
+ * the tail and (for side fins) its inset from the rail are read back off the point.
+ */
+export const setFinFromPlanPoint = (b: BezierBoard, index: number, point: Vec2): BezierBoard => {
+  const spec = b.fins.fins[index];
+  if (!spec) return b;
+  const length = getLength(b);
+  const tailAtZero = getWidthAtPos(b, 5) >= getWidthAtPos(b, length - 5);
+  const tailX = tailAtZero ? 0 : length;
+  const cx = clamp(point.x, 0.1, length - 0.1);
+  const trailingFromTail = Math.max(0, Math.abs(cx - tailX) - spec.base / 2);
+  const patch: Partial<FinSpec> =
+    spec.side === 0
+      ? { trailingFromTail }
+      : {
+          trailingFromTail,
+          insetFromRail: Math.max(0, valueAt(b.outline, cx) - Math.abs(point.y)),
+        };
+  return updateFinSpec(b, index, patch);
+};
 
 // --- shared curve junctions (hard constraints) ---
 
@@ -355,7 +451,7 @@ export const enforceJunctions = (b: BezierBoard, changed?: SplineTarget): Bezier
   if (changed?.kind === 'bottom') deck = joinTips(bottom, deck);
   else bottom = joinTips(deck, bottom);
 
-  return board(outline, bottom, deck, crossSections, b.interpolationType);
+  return board(outline, bottom, deck, crossSections, b.interpolationType, b.fins);
 };
 
 /**

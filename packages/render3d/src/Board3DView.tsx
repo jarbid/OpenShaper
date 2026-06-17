@@ -12,6 +12,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { DoubleSide, ShaderMaterial, type BufferGeometry } from 'three';
 import type { StoreApi } from 'zustand/vanilla';
 import { boardSpan, meshToGeometry, tessellateAsync } from './geometry';
+import { Fins3D } from './Fins3D';
 
 /** How the board surface is drawn. */
 export type Board3DMode = 'shaded' | 'wireframe' | 'shaded-wire' | 'normals';
@@ -32,6 +33,8 @@ export interface Board3DViewProps {
   material?: MaterialPreset;
   /** Board surface color (defaults to a warm tan). */
   color?: string;
+  /** Fin blade color (defaults to the brand cyan). */
+  finColor?: string;
   /** Surface-analysis overlay (defaults to 'none'). */
   analysis?: AnalysisMode;
   /** Target tessellation face size in cm (smaller = finer mesh). Defaults to ~0.9 cm. */
@@ -306,6 +309,7 @@ export function Board3DView({
   lighting = 'studio',
   material = 'gloss',
   color = BOARD_COLOR,
+  finColor,
   analysis = 'none',
   targetFaceSize = DEFAULT_FACE_SIZE,
   sectionX = null,
@@ -334,6 +338,9 @@ export function Board3DView({
             analysis={analysis}
             targetFaceSize={targetFaceSize}
           />
+        )}
+        {board && board.fins.setup !== 'none' && (
+          <Fins3D board={board} targetFaceSize={targetFaceSize} color={finColor} />
         )}
         {board && sectionX != null && <SectionPlane board={board} x={sectionX} />}
         <OrbitControls makeDefault enableDamping dampingFactor={0.1} />

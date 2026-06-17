@@ -2,8 +2,10 @@ import {
   getInterpolatedCrossSection,
   getLength,
   pointByTT,
+  resolveFins,
   valueAt,
   type BezierBoard,
+  type ResolvedFin,
   type Spline,
 } from '@openshaper/kernel';
 
@@ -37,6 +39,7 @@ const LAYERS = {
   MARKERS: 2, // yellow
   LABELS: 8, // grey
   GHOST: 9, // light grey — reference board overlay
+  FINS: 6, // magenta — fin footprints + box/plug router templates
 } as const;
 type Layer = keyof typeof LAYERS;
 
@@ -77,6 +80,50 @@ const line = (out: string[], a: Pt, b: Pt, layer: Layer, lineType?: string): voi
 const text = (out: string[], x: number, y: number, h: number, str: string, layer: Layer): void => {
   out.push('0', 'TEXT', '8', layer);
   out.push('10', num(x), '20', num(y), '30', '0.0', '40', num(h), '1', str);
+};
+
+/** Emit a CIRCLE entity centered at (x, y) with radius `r` on `layer`. */
+const circle = (out: string[], x: number, y: number, r: number, layer: Layer): void => {
+  out.push('0', 'CIRCLE', '8', layer);
+  out.push('10', num(x), '20', num(y), '30', '0.0', '40', num(r));
+};
+
+/**
+ * Draw the resolved fins on the plan view (FINS layer): each fin's toed base
+ * footprint plus the system box/plug router template at true scale and position —
+ * the geometry a shaper routes into the blank. Glass-on fins (no box) show just the
+ * footprint. Plan coords already match the outline band (x = length, y = lateral).
+ */
+const drawFins = (out: string[], fins: readonly ResolvedFin[]): void => {
+  for (const f of fins) {
+    const { fore, aft } = f.baseLine;
+    line(out, aft, fore, 'FINS');
+    if (f.box.kind !== 'shapes') continue;
+    const cx = (fore.x + aft.x) / 2;
+    const cy = (fore.y + aft.y) / 2;
+    const dl = Math.hypot(fore.x - aft.x, fore.y - aft.y) || 1;
+    const ax = (fore.x - aft.x) / dl;
+    const ay = (fore.y - aft.y) / dl; // along (toward nose)
+    const nx = -ay;
+    const ny = ax; // normal
+    for (const fp of f.box.footprints) {
+      const ox = cx + ax * fp.along;
+      const oy = cy + ay * fp.along;
+      if (fp.shape.kind === 'rect') {
+        const hl = fp.shape.length / 2;
+        const hw = fp.shape.width / 2;
+        const corner = (sa: number, sn: number): Pt => ({
+          x: ox + ax * hl * sa + nx * hw * sn,
+          y: oy + ay * hl * sa + ny * hw * sn,
+        });
+        polyline(out, [corner(1, 1), corner(1, -1), corner(-1, -1), corner(-1, 1)], 'FINS', {
+          closed: true,
+        });
+      } else {
+        circle(out, ox, oy, fp.shape.diameter / 2, 'FINS');
+      }
+    }
+  }
 };
 
 /** Vertical extent of a set of points (used to place the cross-section band). */
@@ -182,6 +229,9 @@ export const exportDxf = (board: BezierBoard, opts: DxfOptions = {}): string => 
     line(out, { x: pos, y: -half }, { x: pos, y: half }, 'MARKERS', 'DASHED');
     text(out, pos + labelH * 0.3, half + labelH * 0.4, labelH, `${pos.toFixed(1)}`, 'LABELS');
   }
+
+  // Fin footprints + box/plug router templates on the plan view.
+  drawFins(out, resolveFins(board));
 
   // --- Rocker profile band, stacked below the plan view. ---
   const gap = Math.max(4, maxHalf * 0.4);

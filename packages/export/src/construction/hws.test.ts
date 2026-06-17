@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { getLength } from '@openshaper/kernel';
+import { board as makeBoard, defaultFinConfig, getLength } from '@openshaper/kernel';
 import { makeTestBoard } from '../fixture.test-helper';
 import { buildHwsTemplates } from './hws';
 import { DEFAULT_HWS_PARAMS, type Part, type Pt } from './types';
@@ -487,5 +487,50 @@ describe('sheet writers', () => {
     let s = '';
     for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]!);
     expect(s).toContain(NOTE);
+  });
+});
+
+describe('buildHwsTemplates — fin-box marks', () => {
+  const finned = (system: Parameters<typeof defaultFinConfig>[1], setup = 'thruster' as const) => {
+    const b = makeTestBoard();
+    return makeBoard(b.outline, b.bottom, b.deck, b.crossSections, b.interpolationType, defaultFinConfig(setup, system)); // prettier-ignore
+  };
+  const marks = (part: Part) => part.loops.filter((l) => l.kind === 'mark');
+
+  it('adds no fin marks for a finless board, and never cuts them', () => {
+    const sheet = buildHwsTemplates(board, { ribMode: 'evenCount', ribCount: 4 });
+    const skin = sheet.parts.find((p) => p.id === 'skin-bottom')!;
+    expect(skin.labels?.some((l) => l.text.includes('fin'))).toBeFalsy();
+  });
+
+  it('marks fin footprints + Futures boxes on the BOTTOM skin only (mark, never cut)', () => {
+    const sheet = buildHwsTemplates(finned('futures'), { ribMode: 'evenCount', ribCount: 4 });
+    const bottom = sheet.parts.find((p) => p.id === 'skin-bottom')!;
+    const deck = sheet.parts.find((p) => p.id === 'skin-deck')!;
+    // 3 fins → labelled on the bottom skin; nothing fin-related on the deck skin.
+    expect(bottom.labels?.filter((l) => l.text.includes('fin')).length).toBe(3);
+    expect(deck.labels?.some((l) => l.text.includes('fin'))).toBeFalsy();
+    // Fin geometry is non-cutting.
+    expect(bottom.loops.every((l) => l.kind !== 'cutInner' || l.pts.length > 0)).toBe(true);
+    // A closed box outline exists among the bottom-skin marks.
+    expect(marks(bottom).some((l) => l.closed)).toBe(true);
+  });
+
+  it('marks the center-fin box on the stringer for setups with a center fin', () => {
+    const sheet = buildHwsTemplates(finned('futures', '2+1'), {
+      ribMode: 'evenCount',
+      ribCount: 4,
+    });
+    const stringer = sheet.parts.find((p) => p.id === 'stringer')!;
+    expect(stringer.labels?.some((l) => l.text === 'fin box')).toBe(true);
+  });
+
+  it('does not mark the stringer for a fin setup with no center fin (twin)', () => {
+    const sheet = buildHwsTemplates(finned('futures', 'twin'), {
+      ribMode: 'evenCount',
+      ribCount: 4,
+    });
+    const stringer = sheet.parts.find((p) => p.id === 'stringer')!;
+    expect(stringer.labels?.some((l) => l.text === 'fin box')).toBeFalsy();
   });
 });

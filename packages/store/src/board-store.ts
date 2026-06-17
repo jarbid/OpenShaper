@@ -1,7 +1,7 @@
 import type { BezierBoard, Vec2 } from '@openshaper/kernel';
 import { adjustCrossSectionsToThicknessAndWidth } from '@openshaper/kernel';
 import { createStore, type StoreApi } from 'zustand/vanilla';
-import type { InterpolationType, Spline } from '@openshaper/kernel';
+import type { FinSetup, FinSpec, FinSystem, InterpolationType, Spline } from '@openshaper/kernel';
 import {
   alignTangentsHorizontal,
   alignTangentsVertical,
@@ -16,7 +16,12 @@ import {
   propagateCrossSectionToCurves,
   removeCrossSection,
   scaleBoard,
+  setFinFromPlanPoint,
+  setFinSetup,
+  setFinSymmetrical,
+  setFinSystem,
   setKnotContinuous,
+  updateFinSpec,
   withInterpolationType,
   withSpline,
   type SplineTarget,
@@ -41,9 +46,13 @@ export interface BoardState {
   /** True while a drag is in progress (edits coalesce into one undo step). */
   editing: boolean;
   selection: Selection | null;
+  /** Index of the selected fin (for the fin inspector / highlight), or null. */
+  selectedFin: number | null;
 
   load: (board: BezierBoard) => void;
   select: (selection: Selection | null) => void;
+  /** Select a fin by index (clears any control-point selection). */
+  selectFin: (index: number | null) => void;
 
   /** Begin a grouped edit (call on drag start). The first commit labels the step. */
   beginEdit: (label?: string) => void;
@@ -74,6 +83,17 @@ export interface BoardState {
   scaleBoard: (fL: number, fW: number, fT: number) => void;
   /** Switch the cross-section interpolation model (control-point ↔ sLinear). */
   setInterpolationType: (type: InterpolationType) => void;
+
+  /** Change the fin setup (single/twin/thruster/…), re-seeding default placement. */
+  setFinSetup: (setup: FinSetup) => void;
+  /** Change the fin system (FCS/Futures/glass-on). */
+  setFinSystem: (system: FinSystem) => void;
+  /** Toggle symmetric port/starboard pair editing. */
+  setFinSymmetrical: (symmetrical: boolean) => void;
+  /** Patch one fin's parametric spec (distance, inset, base, depth, toe, cant, …). */
+  updateFin: (index: number, patch: Partial<FinSpec>) => void;
+  /** Re-place a fin from a dropped plan point (2D drag); keeps the fin's side. */
+  moveFin: (index: number, point: Vec2) => void;
 
   undo: () => void;
   redo: () => void;
@@ -134,6 +154,7 @@ export const createBoardStore = (): StoreApi<BoardState> =>
       future: [],
       editing: false,
       selection: null,
+      selectedFin: null,
 
       load: (board) =>
         set({
@@ -142,8 +163,10 @@ export const createBoardStore = (): StoreApi<BoardState> =>
           future: [],
           editing: false,
           selection: null,
+          selectedFin: null,
         }),
-      select: (selection) => set({ selection }),
+      select: (selection) => set({ selection, selectedFin: null }),
+      selectFin: (index) => set({ selectedFin: index, selection: null }),
 
       beginEdit: (label = 'Edit') => {
         const { board, past, editing } = get();
@@ -237,6 +260,41 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         const { board } = get();
         if (!board || board.interpolationType === type) return;
         commit(withInterpolationType(board, type), 'Change interpolation');
+      },
+
+      setFinSetup: (setup) => {
+        const { board } = get();
+        if (!board || board.fins.setup === setup) return;
+        commit(setFinSetup(board, setup), 'Change fin setup');
+        set({ selectedFin: null });
+      },
+
+      setFinSystem: (system) => {
+        const { board } = get();
+        if (!board || board.fins.system === system) return;
+        commit(setFinSystem(board, system), 'Change fin system');
+      },
+
+      setFinSymmetrical: (symmetrical) => {
+        const { board } = get();
+        if (!board || board.fins.symmetrical === symmetrical) return;
+        commit(setFinSymmetrical(board, symmetrical), 'Toggle fin symmetry');
+      },
+
+      updateFin: (index, patch) => {
+        const { board } = get();
+        if (!board) return;
+        const next = updateFinSpec(board, index, patch);
+        if (next === board) return;
+        commit(next, 'Edit fin');
+      },
+
+      moveFin: (index, point) => {
+        const { board } = get();
+        if (!board) return;
+        const next = setFinFromPlanPoint(board, index, point);
+        if (next === board) return;
+        commit(next, 'Move fin');
       },
 
       undo: () => {

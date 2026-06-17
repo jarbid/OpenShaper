@@ -1,6 +1,13 @@
+import { board as makeBoard, defaultFinConfig } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
 import { exportDxf } from './dxf';
 import { makeTestBoard } from './fixture.test-helper';
+
+/** The test board with a fin configuration applied. */
+const withFins = (system: Parameters<typeof defaultFinConfig>[1], setup = 'thruster' as const) => {
+  const b = makeTestBoard();
+  return makeBoard(b.outline, b.bottom, b.deck, b.crossSections, b.interpolationType, defaultFinConfig(setup, system)); // prettier-ignore
+};
 
 describe('exportDxf', () => {
   const board = makeTestBoard();
@@ -82,6 +89,43 @@ describe('exportDxf', () => {
 
     it('puts nothing on the GHOST layer without a ghost board', () => {
       expect(entityLayers(exportDxf(board, { crossSectionCount: 3 }))).not.toContain('GHOST');
+    });
+  });
+
+  describe('fins', () => {
+    const entityLayers = (dxf: string): string[] => {
+      const lines = dxf.split('\n');
+      return lines.filter((_, i) => lines[i - 1] === '8');
+    };
+
+    it('declares the FINS layer and draws nothing there for a finless board', () => {
+      const dxf = exportDxf(board, { crossSectionCount: 3 });
+      expect(dxf).toContain('FINS'); // layer declared in TABLES
+      expect(entityLayers(dxf)).not.toContain('FINS'); // but no entities on it
+    });
+
+    it('draws Futures boxes as closed polylines on the FINS layer', () => {
+      const dxf = exportDxf(withFins('futures'), { crossSectionCount: 3 });
+      expect(entityLayers(dxf)).toContain('FINS');
+      // 3 fins → 3 footprint LINEs + 3 box POLYLINEs on FINS.
+      expect(dxf).not.toMatch(/NaN/);
+    });
+
+    it('draws FCS x2 plugs as CIRCLE entities on the FINS layer', () => {
+      const dxf = exportDxf(withFins('fcs-x2'), { crossSectionCount: 3 });
+      const lines = dxf.split('\n');
+      const circleLayers = lines
+        .map((l, i) => (l === 'CIRCLE' ? lines[i + 2] : null)) // '0 CIRCLE 8 <layer>'
+        .filter(Boolean);
+      // Two plugs per side fin (thruster has 2 side fins) + 2 for the centre = 6 circles.
+      expect(circleLayers.length).toBeGreaterThanOrEqual(4);
+      expect(circleLayers.every((l) => l === 'FINS')).toBe(true);
+    });
+
+    it('glass-on draws footprints but no box geometry', () => {
+      const dxf = exportDxf(withFins('glass-on'), { crossSectionCount: 3 });
+      expect(dxf).not.toContain('CIRCLE');
+      expect(entityLayers(dxf)).toContain('FINS'); // footprint LINEs only
     });
   });
 });

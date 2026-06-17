@@ -1,4 +1,6 @@
 import {
+  FIN_SETUP_LABELS,
+  FIN_SYSTEM_LABELS,
   getInterpolatedCrossSection,
   getLength,
   getMaxRocker,
@@ -9,8 +11,10 @@ import {
   getThicknessAtPos,
   getVolume,
   pointByTT,
+  resolveFins,
   valueAt,
   type BezierBoard,
+  type ResolvedFin,
 } from '@openshaper/kernel';
 
 /** Board metadata shown on the spec sheet (mirrors apps/web BoardMeta's text fields). */
@@ -120,6 +124,9 @@ export const exportPdf = (board: BezierBoard, opts: PdfOptions = {}): Uint8Array
     `Date: ${date}`,
     `Length ${L(length)}    Width ${L(maxWidth)}    Thickness ${L(thickness)}`,
     `Volume ${volume.toFixed(1)} cm^3 (${(volume / 1000).toFixed(2)} L)    Wide point ${L(wpPos)}    Max rocker ${L(maxRocker)}`,
+    board.fins.setup !== 'none'
+      ? `Fins: ${FIN_SETUP_LABELS[board.fins.setup]} · ${FIN_SYSTEM_LABELS[board.fins.system]}`
+      : '',
   ].filter(Boolean);
   for (const lineStr of specLines) {
     text(margin + 4, y - 9, 10, lineStr);
@@ -165,6 +172,39 @@ export const exportPdf = (board: BezierBoard, opts: PdfOptions = {}): Uint8Array
     seg({ x: lx, y: planCY + valueAt(board.outline, pos) * sX }, { x: lx, y: planCY }); // tick
     text(lx - 16, planCY + planH / 2 + 2, 8, `${tag} ${L(widthAt(pos))}`);
   }
+
+  // --- Fins on the plan view: toed footprint + box/plug router template. ---
+  const fins = resolveFins(board);
+  const planPt = (p: Pt): Pt => ({ x: ox + p.x * sX, y: planCY + p.y * sX });
+  setStroke(0.7);
+  for (const fin of fins) {
+    seg(planPt(fin.baseLine.aft), planPt(fin.baseLine.fore));
+    const cx = (fin.baseLine.fore.x + fin.baseLine.aft.x) / 2;
+    const cy = (fin.baseLine.fore.y + fin.baseLine.aft.y) / 2;
+    const dl = Math.hypot(fin.baseLine.fore.x - fin.baseLine.aft.x, fin.baseLine.fore.y - fin.baseLine.aft.y) || 1; // prettier-ignore
+    const ax = (fin.baseLine.fore.x - fin.baseLine.aft.x) / dl;
+    const ay = (fin.baseLine.fore.y - fin.baseLine.aft.y) / dl;
+    if (fin.box.kind !== 'shapes') continue;
+    for (const fp of fin.box.footprints) {
+      const ocx = cx + ax * fp.along;
+      const ocy = cy + ay * fp.along;
+      if (fp.shape.kind === 'rect') {
+        const hl = fp.shape.length / 2;
+        const hw = fp.shape.width / 2;
+        const corner = (sa: number, sn: number): Pt =>
+          planPt({ x: ocx + ax * hl * sa - ay * hw * sn, y: ocy + ay * hl * sa + ax * hw * sn });
+        poly([corner(1, 1), corner(1, -1), corner(-1, -1), corner(-1, 1)], true);
+      } else {
+        const r = fp.shape.diameter / 2;
+        const ring: Pt[] = [];
+        for (let k = 0; k < 12; k++) {
+          const a = (k / 12) * Math.PI * 2;
+          ring.push(planPt({ x: ocx + Math.cos(a) * r, y: ocy + Math.sin(a) * r }));
+        }
+        poly(ring, true);
+      }
+    }
+  }
   y = planCY - planH / 2 - 18;
 
   // --- 3. Rocker profile (deck + bottom) ---
@@ -186,7 +226,8 @@ export const exportPdf = (board: BezierBoard, opts: PdfOptions = {}): Uint8Array
   const ry = (cmY: number) => rockerBase + (cmY - rLo) * sX;
   const toPts = (flat: number[]): Pt[] => {
     const pts: Pt[] = [];
-    for (let i = 0; i < flat.length; i += 2) pts.push({ x: ox + flat[i]! * sX, y: ry(flat[i + 1]!) });
+    for (let i = 0; i < flat.length; i += 2)
+      pts.push({ x: ox + flat[i]! * sX, y: ry(flat[i + 1]!) });
     return pts;
   };
   setStroke(1);
@@ -236,12 +277,32 @@ export const exportPdf = (board: BezierBoard, opts: PdfOptions = {}): Uint8Array
       cyHi = Math.max(cyHi, p.y);
     }
     const top = csTop - 12;
-    const placed = full.map((p) => ({ x: cellCX + p.x * csScale, y: top - (cyHi - p.y) * csScale }));
+    const placed = full.map((p) => ({
+      x: cellCX + p.x * csScale,
+      y: top - (cyHi - p.y) * csScale,
+    }));
     setStroke(0.8);
     poly(placed, true);
     csBottom = Math.min(csBottom, top - (cyHi - cyLo) * csScale);
   });
   y = csBottom - 22;
+
+  // --- 4b. Fin placement table ---
+  if (fins.length > 0) {
+    text(margin + 4, y, 9, 'Fin placement:');
+    y -= 13;
+    const sideName = (s: ResolvedFin['side']): string =>
+      s === 0 ? 'Center' : s < 0 ? 'Port' : 'Starboard';
+    for (const fin of fins) {
+      const angles = fin.side === 0 ? '' : `, toe ${fin.toe}°, cant ${fin.cant}°`;
+      const row =
+        `${sideName(fin.side)}: ${L(fin.spec.trailingFromTail)} from tail · ` +
+        `base ${L(fin.spec.base)} · depth ${L(fin.spec.depth)}${angles} · ${fin.foil}`;
+      text(margin + 4, y, 8, row);
+      y -= 11;
+    }
+    y -= 6;
+  }
 
   // --- 5. Comments (word-wrapped) ---
   if (meta.comments) {
