@@ -8,8 +8,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { BufferAttribute, BufferGeometry, DoubleSide } from 'three';
 import { tessellateAsync } from './geometry';
 
-/** A foiled fin resin look — darker than the board so the blades read clearly. */
-const FIN_COLOR = '#16313F';
+/** On-brand cyan-blue resin (the OpenShaper accent) so the blades read against the hull. */
+const FIN_COLOR = '#22D3EE';
 
 /** Kernel mesh → BufferGeometry WITHOUT centering (fins are placed in board coords). */
 const rawGeometry = (mesh: BoardMesh): BufferGeometry => {
