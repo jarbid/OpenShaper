@@ -879,7 +879,9 @@ function AppShell() {
               <div className="grid h-full grid-cols-2 grid-rows-2 gap-3">{quadPanes}</div>
             ) : (
               // Compact: a single scrolling column, each pane a comfortable fixed height.
-              <div className="flex h-full flex-col gap-3 overflow-y-auto">
+              // pb clears the collapsed bottom sheet (PEEK_PX≈112px, fixed over the viewport
+              // bottom) so the last pane — the 3D view — can scroll fully into view above it.
+              <div className="flex h-full flex-col gap-3 overflow-y-auto pb-28">
                 {quadPanes.map((pane, i) => (
                   <div
                     key={i}
