@@ -9,7 +9,6 @@ import {
 import { type EditorOverlays } from '@openshaper/render2d';
 import type { Board3DViewProps } from '@openshaper/render3d';
 import { selectSpecs } from '@openshaper/store';
-import { Unit } from '@openshaper/units';
 import {
   BottomSheet,
   Button,
@@ -358,8 +357,8 @@ function AppShell() {
 
   /** Open a print-friendly spec sheet (board info + dimensions) in a new tab. */
   const openSpecSheet = () => {
-    if (!specs) return;
-    if (!openHtmlInNewTab(specSheetHtmlFor(specs, meta, units, board?.fins))) {
+    if (!specs || !board) return;
+    if (!openHtmlInNewTab(specSheetHtmlFor(board, specs, meta, units, board.fins))) {
       showError('Pop-up blocked — allow pop-ups to open the spec sheet.');
     }
   };
@@ -519,14 +518,22 @@ function AppShell() {
       disabled: !board,
       onSelect: () =>
         board &&
+        exportBoard(board as Parameters<typeof exportBoard>[0], f, meta, units, ghost ?? undefined),
+    })),
+    {
+      kind: 'action',
+      label: 'PDF 1:1 (outline/rocker)',
+      disabled: !board,
+      onSelect: () =>
+        board &&
         exportBoard(
           board as Parameters<typeof exportBoard>[0],
-          f,
+          'pdf-1to1',
           meta,
-          units.unit === Unit.INCHES ? 'in' : 'cm',
+          units,
           ghost ?? undefined,
         ),
-    })),
+    },
     {
       kind: 'action',
       label: 'Legacy .brd',

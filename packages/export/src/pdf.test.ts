@@ -33,14 +33,23 @@ describe('exportPdf', () => {
     expect(text.slice(offset, offset + 4)).toBe('xref');
   });
 
-  it('embeds the spec block from kernel getters', () => {
+  it('embeds the grouped spec block from kernel getters', () => {
     const pdf = exportPdf(board, { title: 'Spec Test' });
     const text = decode(pdf);
     expect(text).toContain('Spec Test');
+    expect(text).toContain('NOSE @12"'); // column heading
+    expect(text).toContain('CENTER');
+    expect(text).toContain('TAIL @12"');
+    expect(text).toContain('OVERALL');
     expect(text).toContain('Length');
     expect(text).toContain('Volume');
-    expect(text).toContain('Wide point');
+    expect(text).toContain('Wide pt');
     expect(text).toContain('Max rocker');
+  });
+
+  it('uses a caller-supplied headline when provided', () => {
+    const text = decode(exportPdf(board, { headline: '6\'2" x 19 1/4" x 2 1/2" - 28.4 L' }));
+    expect(text).toContain('19 1/4');
   });
 
   it('renders metadata and honours the units flag', () => {

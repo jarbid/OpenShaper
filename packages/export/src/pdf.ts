@@ -39,6 +39,12 @@ export interface PdfOptions {
   meta?: PdfMeta;
   /** Display units for dimensions. Default 'cm'. */
   units?: 'cm' | 'in';
+  /**
+   * Pre-formatted hero dimension line (e.g. `6'2" × 19 1/4" × 2 1/2" · 28.4 L`),
+   * supplied by the web layer so it can use the editor's fraction-aware formatter.
+   * Falls back to a plain `L × W × T · volume` line built from the local formatter.
+   */
+  headline?: string;
 }
 
 const DEFAULT_LENGTH_STEPS = 200;
@@ -114,25 +120,81 @@ export const exportPdf = (board: BezierBoard, opts: PdfOptions = {}): Uint8Array
   setStroke(0.5);
   c.push(`${n(margin)} ${n(margin)} ${n(drawW)} ${n(pageH - 2 * margin)} re S`);
 
-  // --- 1. Header + spec block ---
-  text(margin + 4, y - 18, 18, title);
-  y -= 30;
+  // --- 1. Header: title, hero headline, sub-line, then a grouped spec block ---
   const date = new Date().toISOString().slice(0, 10);
-  const specLines = [
+  const litres = (volume / 1000).toFixed(1);
+  text(margin + 4, y - 20, 20, title);
+  y -= 30;
+  // Hero dimension line (caller-supplied fraction-aware string, or a plain fallback).
+  const headline = opts.headline ?? `${L(length)} × ${L(maxWidth)} × ${L(thickness)} · ${litres} L`;
+  text(margin + 4, y - 13, 14, headline);
+  y -= 20;
+  // Sub-line: designer / surfer / date / fins.
+  const sub = [
     meta.designer ? `Designer: ${meta.designer}` : '',
     meta.surfer ? `Surfer: ${meta.surfer}` : '',
     `Date: ${date}`,
-    `Length ${L(length)}    Width ${L(maxWidth)}    Thickness ${L(thickness)}`,
-    `Volume ${volume.toFixed(1)} cm^3 (${(volume / 1000).toFixed(2)} L)    Wide point ${L(wpPos)}    Max rocker ${L(maxRocker)}`,
     board.fins.setup !== 'none'
       ? `Fins: ${FIN_SETUP_LABELS[board.fins.setup]} · ${FIN_SYSTEM_LABELS[board.fins.system]}`
       : '',
-  ].filter(Boolean);
-  for (const lineStr of specLines) {
-    text(margin + 4, y - 9, 10, lineStr);
-    y -= 14;
-  }
-  y -= 6;
+  ]
+    .filter(Boolean)
+    .join('    ');
+  text(margin + 4, y - 8, 9, sub);
+  y -= 16;
+  setStroke(0.5);
+  seg({ x: margin, y }, { x: pageW - margin, y });
+  y -= 16;
+
+  // Grouped spec block: Nose @12" / Center / Tail @12" / Overall, in four columns.
+  const inch12 = 30.48;
+  const nosePos = Math.max(length - inch12, length * 0.5);
+  const tailPos = Math.min(inch12, length * 0.5);
+  const widthAtPos = (p: number): number => 2 * valueAt(board.outline, p);
+  const columns: [string, [string, string][]][] = [
+    [
+      'Nose @12"',
+      [
+        ['Width', L(widthAtPos(nosePos))],
+        ['Thick', L(getThicknessAtPos(board, nosePos))],
+        ['Rocker', L(getRockerAtPos(board, nosePos))],
+      ],
+    ],
+    [
+      'Center',
+      [
+        ['Width', L(maxWidth)],
+        ['Thick', L(thickness)],
+        ['Wide pt', L(wpPos)],
+      ],
+    ],
+    [
+      'Tail @12"',
+      [
+        ['Width', L(widthAtPos(tailPos))],
+        ['Thick', L(getThicknessAtPos(board, tailPos))],
+        ['Rocker', L(getRockerAtPos(board, tailPos))],
+      ],
+    ],
+    [
+      'Overall',
+      [
+        ['Length', L(length)],
+        ['Volume', `${litres} L`],
+        ['Max rocker', L(maxRocker)],
+      ],
+    ],
+  ];
+  const colW = drawW / columns.length;
+  const blockTop = y;
+  columns.forEach(([heading, rows], ci) => {
+    const cx = margin + 4 + ci * colW;
+    text(cx, blockTop - 8, 8, heading.toUpperCase());
+    rows.forEach(([label, value], ri) => {
+      text(cx, blockTop - 21 - ri * 12, 9, `${label}  ${value}`);
+    });
+  });
+  y = blockTop - 21 - 3 * 12 - 8;
   setStroke(0.5);
   seg({ x: margin, y }, { x: pageW - margin, y });
   y -= 14;

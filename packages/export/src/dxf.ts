@@ -1,13 +1,12 @@
+import { getLength, resolveFins, valueAt, type BezierBoard, type ResolvedFin } from '@openshaper/kernel'; // prettier-ignore
 import {
-  getInterpolatedCrossSection,
-  getLength,
-  pointByTT,
-  resolveFins,
-  valueAt,
-  type BezierBoard,
-  type ResolvedFin,
-  type Spline,
-} from '@openshaper/kernel';
+  crossSectionRing,
+  planOutlineLoop,
+  sampleProfile,
+  ySpan,
+  ySpanX,
+  type Pt,
+} from './board-curves';
 
 /** Options for {@link exportDxf}. */
 export interface DxfOptions {
@@ -42,11 +41,6 @@ const LAYERS = {
   FINS: 6, // magenta — fin footprints + box/plug router templates
 } as const;
 type Layer = keyof typeof LAYERS;
-
-interface Pt {
-  readonly x: number;
-  readonly y: number;
-}
 
 const num = (n: number): string => (Number.isFinite(n) ? n : 0).toFixed(6);
 
@@ -124,50 +118,6 @@ const drawFins = (out: string[], fins: readonly ResolvedFin[]): void => {
       }
     }
   }
-};
-
-/** Vertical extent of a set of points (used to place the cross-section band). */
-const ySpan = (pts: readonly Pt[]): { lo: number; hi: number } => {
-  let lo = Infinity;
-  let hi = -Infinity;
-  for (const p of pts) {
-    if (p.y < lo) lo = p.y;
-    if (p.y > hi) hi = p.y;
-  }
-  return Number.isFinite(hi - lo) ? { lo, hi } : { lo: 0, hi: 0 };
-};
-
-/** Horizontal extent of a set of points. */
-const ySpanX = (pts: readonly Pt[]): { lo: number; hi: number } => {
-  let lo = Infinity;
-  let hi = -Infinity;
-  for (const p of pts) {
-    if (p.x < lo) lo = p.x;
-    if (p.x > hi) hi = p.x;
-  }
-  return Number.isFinite(hi - lo) ? { lo, hi } : { lo: 0, hi: 0 };
-};
-
-/** Sample a spline's y(x) over [x0, x1] into a polyline. */
-const sampleProfile = (s: Spline, x0: number, x1: number, steps: number): Pt[] => {
-  const pts: Pt[] = [];
-  for (let i = 0; i <= steps; i++) {
-    const x = x0 + ((x1 - x0) * i) / steps;
-    pts.push({ x, y: valueAt(s, x) });
-  }
-  return pts;
-};
-
-/** Closed plan-view outline loop (both rails) of a board, sampled at `steps`. */
-const planOutlineLoop = (b: BezierBoard, steps: number): Pt[] => {
-  const len = getLength(b);
-  const e = Math.min(0.01, len / (steps * 4));
-  const top: Pt[] = [];
-  for (let i = 0; i <= steps; i++) {
-    const x = e + ((len - 2 * e) * i) / steps;
-    top.push({ x, y: valueAt(b.outline, x) });
-  }
-  return [...top, ...[...top].reverse().map((p) => ({ x: p.x, y: -p.y }))];
 };
 
 /** The R12 TABLES section: line types (CONTINUOUS / CENTER / DASHED) + the named layers. */
@@ -271,17 +221,8 @@ export const exportDxf = (board: BezierBoard, opts: DxfOptions = {}): string => 
   let cursorX = 0;
   for (let c = 0; c < csCount; c++) {
     const pos = eps + ((length - 2 * eps) * (c + 0.5)) / csCount;
-    const cs = getInterpolatedCrossSection(board, pos);
-    if (!cs) continue;
-    const ring: Pt[] = [];
-    for (let r = ringSteps; r >= 0; r--) {
-      const p = pointByTT(cs.spline, r / ringSteps);
-      ring.push({ x: -p.x, y: p.y });
-    }
-    for (let r = 0; r <= ringSteps; r++) {
-      const p = pointByTT(cs.spline, r / ringSteps);
-      ring.push({ x: p.x, y: p.y });
-    }
+    const ring = crossSectionRing(board, pos, ringSteps);
+    if (!ring) continue;
     const sx = ySpanX(ring);
     const sy = ySpan(ring);
     const sectionW = sx.hi - sx.lo;

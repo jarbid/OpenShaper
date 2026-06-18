@@ -1,7 +1,29 @@
 import type { BoardSpecs } from '@openshaper/store';
+import {
+  board as makeBezierBoard,
+  crossSection,
+  knot,
+  splineFromKnots,
+  vec2,
+} from '@openshaper/kernel';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { lengthUnitByKey } from './format';
 import { openHtmlInNewTab, specSheetHtmlFor } from './spec-sheet-open';
+
+// A small but valid board so the spec sheet can render its outline/rocker thumbnail.
+const makeBoard = () => {
+  const k = (ex: number, ey: number) => knot(vec2(ex, ey), vec2(ex - 5, ey), vec2(ex + 5, ey));
+  const outline = splineFromKnots([k(0, 0), k(50, 20), k(100, 0)]);
+  const bottom = splineFromKnots([k(0, 5), k(100, 5)]);
+  const deck = splineFromKnots([k(0, 11), k(100, 11)]);
+  const prof = splineFromKnots([
+    knot(vec2(0, 5), vec2(0, 5), vec2(10, 5)),
+    knot(vec2(10, 8), vec2(10, 6), vec2(10, 8)),
+  ]);
+  const cs = [crossSection(0, prof), crossSection(50, prof), crossSection(100, prof)];
+  return makeBezierBoard(outline, bottom, deck, cs);
+};
+const sampleBoard = makeBoard();
 
 const specs: BoardSpecs = {
   length: 183,
@@ -33,6 +55,7 @@ const units = lengthUnitByKey('cm');
 describe('specSheetHtmlFor', () => {
   it('HTML-escapes user-typed meta fields (no stored-XSS path)', () => {
     const html = specSheetHtmlFor(
+      sampleBoard,
       specs,
       {
         model: '<script>alert(1)</script>',
@@ -49,11 +72,11 @@ describe('specSheetHtmlFor', () => {
   });
 
   it('includes the dimension rows and skips empty meta fields', () => {
-    const html = specSheetHtmlFor(specs, { model: 'Test Fish' }, units);
+    const html = specSheetHtmlFor(sampleBoard, specs, { model: 'Test Fish' }, units);
     expect(html).toContain('Test Fish — Spec Sheet');
     expect(html).toContain('Length');
     expect(html).toContain('Volume');
-    expect(html).not.toContain('Surfer:');
+    expect(html).not.toContain('<b>Surfer</b>');
   });
 });
 

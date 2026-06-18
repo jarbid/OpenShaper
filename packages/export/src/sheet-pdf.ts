@@ -7,30 +7,12 @@
  * a dashed grey; labels as small text. Hand-rolled with byte-accurate xref/trailer
  * (same technique as `pdf.ts`).
  */
+import { buildPdf, esc, n, type PageDoc } from './pdf-core';
 import { partBbox } from './construction/geom';
 import type { Label, Loop, Part, TemplateSheet } from './construction/types';
 
 const CM_TO_PT = 72 / 2.54;
 const MARGIN_CM = 1;
-
-const n = (v: number): string => {
-  const x = Number.isFinite(v) ? v : 0;
-  return (Math.round(x * 1000) / 1000).toString();
-};
-const esc = (s: string): string =>
-  s.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
-const byteLen = (s: string): number => s.length;
-const latin1Bytes = (s: string): Uint8Array => {
-  const out = new Uint8Array(s.length);
-  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i) & 0xff;
-  return out;
-};
-
-interface PageDoc {
-  readonly width: number;
-  readonly height: number;
-  readonly content: string;
-}
 
 /** Build the content stream + page size for one part, at 1:1. */
 const renderPart = (part: Part, note?: string): PageDoc => {
@@ -96,39 +78,5 @@ export const sheetToPdf = (sheet: TemplateSheet): Uint8Array => {
   const pages = (
     sheet.parts.length > 0 ? sheet.parts : [{ id: 'empty', label: 'Empty', loops: [] }]
   ).map((part) => renderPart(part, note));
-
-  // Object plan: 1 Catalog, 2 Pages, 3 Font, then (page, content) pair per page.
-  const pageObjNum = (i: number): number => 4 + i * 2;
-  const kids = pages.map((_, i) => `${pageObjNum(i)} 0 R`).join(' ');
-
-  const objects: string[] = [
-    '<< /Type /Catalog /Pages 2 0 R >>',
-    `<< /Type /Pages /Kids [${kids}] /Count ${pages.length} >>`,
-    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-  ];
-  // Append page + content objects in order so object numbers match pageObjNum().
-  pages.forEach((pg, i) => {
-    const contentObjNum = pageObjNum(i) + 1;
-    objects.push(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${n(pg.width)} ${n(pg.height)}] ` +
-        `/Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObjNum} 0 R >>`,
-    );
-    objects.push(`<< /Length ${byteLen(pg.content)} >>\nstream\n${pg.content}endstream`);
-  });
-
-  const header = '%PDF-1.4\n%âãÏÓ\n';
-  let body = header;
-  const offsets: number[] = [];
-  for (let i = 0; i < objects.length; i++) {
-    offsets.push(byteLen(body));
-    body += `${i + 1} 0 obj\n${objects[i]}\nendobj\n`;
-  }
-
-  const xrefOffset = byteLen(body);
-  const count = objects.length + 1;
-  let xref = `xref\n0 ${count}\n0000000000 65535 f \n`;
-  for (const off of offsets) xref += `${String(off).padStart(10, '0')} 00000 n \n`;
-  const trailer = `trailer\n<< /Size ${count} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`;
-
-  return latin1Bytes(body + xref + trailer);
+  return buildPdf(pages);
 };

@@ -8,7 +8,9 @@
 export { exportStl, type StlOptions } from './stl';
 export { exportDxf, type DxfOptions } from './dxf';
 export { exportPdf, type PdfOptions, type PdfMeta } from './pdf';
-export { specSheetHtml, type SpecSheetDoc } from './spec-sheet';
+export { exportBoardPdf1to1, type BoardPdf1to1Options } from './board-pdf';
+export { boardDiagramSvg, type BoardDiagramOptions } from './board-diagram';
+export { specSheetHtml, type SpecSheetDoc, type SpecSection } from './spec-sheet';
 
 // --- Construction templates (machineable: laser / router) ---
 export { buildHwsTemplates } from './construction/hws';
