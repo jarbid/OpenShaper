@@ -408,15 +408,14 @@ describe('board store: alignTangents horizontal/vertical actions', () => {
   });
 
   it('junction knot: alignTangentsHorizontal does not violate the junction constraint', () => {
-    // Use a deck junction knot (index 0 = nose tip, shared with bottom).
-    // After action + enforceJunctions, the deck/bottom nose tips must still match.
+    // Align the outline's nose tip (index 2 = last, x = length) — a junction
+    // endpoint; the centerline pin must win and keep the nose on y = 0.
     const store = createBoardStore();
     store.getState().load(makeBoardWithDiagKnot());
-    // Aligning the outline's nose (index 0) — a junction endpoint; constraint must win.
-    store.getState().alignTangentsHorizontal({ kind: 'outline' }, 0);
+    store.getState().alignTangentsHorizontal({ kind: 'outline' }, 2);
     const b = store.getState().board!;
-    // The outline nose y must still be 0 (junction constraint: outline nose on centerline).
-    expect(b.outline.knots[0]!.end.y).toBeCloseTo(0, 6);
+    // The outline nose y must still be 0 (junction constraint: nose on centerline).
+    expect(b.outline.knots[2]!.end.y).toBeCloseTo(0, 6);
   });
 
   it('junction knot: alignTangentsVertical does not violate the junction constraint', () => {

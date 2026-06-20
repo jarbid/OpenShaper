@@ -285,13 +285,13 @@ describe('enforceJunctions', () => {
       b,
       { kind: 'outline' },
       splineFromKnots([
-        knot(vec2(0, 4), vec2(-5, 4), vec2(5, 4)), // nose pulled off centerline
-        knot(vec2(100, 12), vec2(95, 12), vec2(105, 12)), // legitimate tail width
+        knot(vec2(0, 12), vec2(-5, 12), vec2(5, 12)), // tail (x=0) carries legitimate width
+        knot(vec2(100, 4), vec2(95, 4), vec2(105, 4)), // nose (x=length) pulled off centerline
       ]),
     );
     const fixed = enforceJunctions(drifted, { kind: 'outline' });
-    expect(fixed.outline.knots[0]!.end.y).toBeCloseTo(0, 9);
-    expect(fixed.outline.knots[1]!.end.y).toBeCloseTo(12, 9); // tail untouched
+    expect(fixed.outline.knots[1]!.end.y).toBeCloseTo(0, 9); // nose snapped to centerline
+    expect(fixed.outline.knots[0]!.end.y).toBeCloseTo(12, 9); // tail untouched
   });
 
   it('drags the bottom nose/tail tips to follow an edited deck (deck wins)', () => {
@@ -588,11 +588,41 @@ describe('junction-constraint spec (legacy parity pinning)', () => {
     expect(cs.knots[last]!.end.y).toBe(8); // unchanged from prof
   });
 
-  // --- Outline centreline pin: only knots[0] (the tail) is pinned ----------
-  it('outline: knots[0] (tail, x=0) endpoint is snapped to the centreline y = 0', () => {
+  // --- Outline centreline pin: only knots[last] (the nose) is pinned -------
+  it('outline: knots[last] (nose, x=length) endpoint is snapped to the centreline y = 0', () => {
     const b = openBoard();
     const out = enforceJunctions(b);
-    expect(out.outline.knots[0]!.end).toEqual(vec2(0, 0));
+    const last = out.outline.knots.length - 1;
+    expect(out.outline.knots[last]!.end).toEqual(vec2(100, 0));
+  });
+
+  it('outline: a wide-tail (fish/square) board keeps its tail width while the nose snaps to y=0', () => {
+    // tail (x=0) at half-width 9 (a 18 cm-wide tail block); nose (x=length)
+    // drifted off the centreline. Only the nose must be corrected.
+    const outline = splineFromKnots([
+      knot(vec2(0, 9), vec2(-5, 9), vec2(5, 9)),
+      knot(vec2(100, 1.5), vec2(95, 1.5), vec2(105, 1.5)),
+    ]);
+    const b = withSpline(openBoard(), { kind: 'outline' }, outline);
+    const out = enforceJunctions(b);
+    expect(out.outline.knots[0]!.end).toEqual(vec2(0, 9)); // tail width preserved
+    expect(out.outline.knots[1]!.end).toEqual(vec2(100, 0)); // nose on centreline
+  });
+
+  it('outline: a point dragged past the centre line is floored at y = 0 (half-width ≥ 0)', () => {
+    // An interior outline point dragged to a negative half-width (across the stringer);
+    // it must stop at the centre line, carrying its handles up with it.
+    const outline = splineFromKnots([
+      knot(vec2(0, 6), vec2(-5, 6), vec2(5, 6)),
+      knot(vec2(50, -4), vec2(45, -6), vec2(55, -2)), // dragged across the centre line
+      knot(vec2(100, 0), vec2(95, 0), vec2(105, 0)),
+    ]);
+    const b = withSpline(openBoard(), { kind: 'outline' }, outline);
+    const out = enforceJunctions(b);
+    const k = out.outline.knots[1]!;
+    expect(k.end.y).toBe(0); // floored at the centre line
+    expect(k.tangentToPrev.y).toBeCloseTo(-2, 9); // handles carried up by +4 (−6 → −2)
+    expect(k.tangentToNext.y).toBeCloseTo(2, 9); // (−2 → +2)
   });
 
   // --- Documented GAPS: legacy constraints the port does NOT yet model -----
@@ -600,23 +630,35 @@ describe('junction-constraint spec (legacy parity pinning)', () => {
   // lock). They pin the current gap; see docs/specs/junction-constraints.md
   // "Divergences" for the legacy behavior that is intentionally not ported.
 
-  it('GAP (JC-1): outline nose endpoint (knots[last]) is left free, not pinned to y=0', () => {
+  it('GAP (JC-1): outline tail endpoint (knots[0]) is left free, not pinned to y=0', () => {
     const b = openBoard();
     const out = enforceJunctions(b);
-    const last = out.outline.knots.length - 1;
-    // legacy JC-1 fully locks BOTH outline tips; the port leaves the nose tip
-    // wherever the edit put it (here y = 3, off centreline).
-    expect(out.outline.knots[last]!.end).toEqual(vec2(100, 3));
+    // legacy JC-1 fully locks BOTH outline tips; the port pins only the nose's y
+    // and leaves the tail tip wherever the edit put it (here y = 2, legitimate
+    // tail width) — see docs/specs/divergences.md.
+    expect(out.outline.knots[0]!.end).toEqual(vec2(0, 2));
   });
 
-  it('GAP (JC-2/JC-3): deck/bottom endpoint x is NOT re-locked to its station', () => {
-    // Construct a board where the deck nose endpoint sits at x = 98 (not 100).
+  // --- JC-1 / JC-2 / JC-3: endpoint x-masks (REPRODUCED) -------------------
+  it('JC-1: the outline tail station is re-locked to x = 0 (y / width preserved)', () => {
+    const outline = splineFromKnots([
+      knot(vec2(3, 9), vec2(-2, 9), vec2(8, 9)), // tail station drifted to x=3, width 9
+      knot(vec2(100, 1), vec2(95, 1), vec2(105, 1)),
+    ]);
+    const b = withSpline(openBoard(), { kind: 'outline' }, outline);
+    const out = enforceJunctions(b);
+    expect(out.outline.knots[0]!.end).toEqual(vec2(0, 9)); // x pinned to 0, width kept
+  });
+
+  it('JC-2/JC-3: deck/bottom endpoints are x-locked to the board stations {0, length}', () => {
+    // The deck nose endpoint drifted to x = 98; the outline (length reference) puts the
+    // nose at x = 100, so enforceJunctions re-locks the deck (and, via JC-5, bottom) to 100.
     const outline = splineFromKnots([
       knot(vec2(0, 0), vec2(-5, 0), vec2(5, 0)),
       knot(vec2(100, 0), vec2(95, 0), vec2(105, 0)),
     ]);
     const bottom = splineFromKnots([
-      knot(vec2(0, 5), vec2(-5, 5), vec2(5, 5)),
+      knot(vec2(2, 5), vec2(-3, 5), vec2(7, 5)), // tail station drifted to x=2
       knot(vec2(100, 6), vec2(95, 6), vec2(105, 6)),
     ]);
     const deck = splineFromKnots([
@@ -634,39 +676,51 @@ describe('junction-constraint spec (legacy parity pinning)', () => {
     ]);
     const out = enforceJunctions(b);
     const last = out.deck.knots.length - 1;
-    // legacy JC-2/JC-3 x-lock would force the tips back to their station; the
-    // port preserves the drifted x (and bottom adopts it via JC-5).
-    expect(out.deck.knots[last]!.end.x).toBe(98);
-    expect(out.bottom.knots[last]!.end.x).toBe(98);
+    // Nose stations re-locked to the board length (100); tail stations to 0.
+    expect(out.deck.knots[last]!.end.x).toBe(100);
+    expect(out.bottom.knots[last]!.end.x).toBe(100);
+    expect(out.deck.knots[0]!.end.x).toBe(0);
+    expect(out.bottom.knots[0]!.end.x).toBe(0); // drifted tail x=2 re-locked to 0
   });
 
-  it('GAP (JC-6/JC-8): tangent handles are not clamped — a folded tangent survives', () => {
+  // --- JC-6 / JC-7 / JC-8: tangent-flow locks (REPRODUCED) -----------------
+  it('JC-6: a folded outline tangent is clamped so the curve stays single-valued in x', () => {
     // outline knots[0] toNext handle folded to x = -5 (behind its endpoint x=0);
-    // legacy JC-6 LOCK_X_MORE would clamp it to x = 0. The port leaves it.
+    // legacy JC-6 LOCK_X_MORE clamps it to x = 0 (the handle must point forward, +x).
     const outline = splineFromKnots([
       knot(vec2(0, 0), vec2(-5, 0), vec2(-5, 0)), // toNext folded behind x=0
       knot(vec2(100, 0), vec2(95, 0), vec2(105, 0)),
     ]);
-    const bottom = splineFromKnots([
-      knot(vec2(0, 5), vec2(-5, 5), vec2(5, 5)),
-      knot(vec2(100, 6), vec2(95, 6), vec2(105, 6)),
-    ]);
-    const deck = splineFromKnots([
-      knot(vec2(0, 11), vec2(-5, 11), vec2(5, 11)),
-      knot(vec2(100, 12), vec2(95, 12), vec2(105, 12)),
-    ]);
-    const prof = splineFromKnots([
-      knot(vec2(0, 5), vec2(0, 5), vec2(10, 5)),
-      knot(vec2(0, 8), vec2(10, 6), vec2(0, 8)),
-    ]);
-    const b = board(outline, bottom, deck, [
-      crossSection(0, prof),
-      crossSection(50, prof),
-      crossSection(100, prof),
-    ]);
+    const b = withSpline(openBoard(), { kind: 'outline' }, outline);
     const out = enforceJunctions(b);
-    // The folded handle is preserved (x stays -5, not clamped to 0).
-    expect(out.outline.knots[0]!.tangentToNext.x).toBe(-5);
+    expect(out.outline.knots[0]!.tangentToNext.x).toBe(0); // clamped forward to the endpoint x
+  });
+
+  it('JC-7: outline tip inward handles cannot drop below the tip y (depart outward only)', () => {
+    // tail tip at (0,3); its toNext handle dragged below the tip (y=-1). LOCK_Y_MORE
+    // raises it back to the tip y so the first segment leaves the tail outward (+y).
+    const outline = splineFromKnots([
+      knot(vec2(0, 3), vec2(-5, 3), vec2(5, -1)), // toNext.y below the tip
+      knot(vec2(100, 0), vec2(95, 5), vec2(105, 0)),
+    ]);
+    const b = withSpline(openBoard(), { kind: 'outline' }, outline);
+    const out = enforceJunctions(b);
+    expect(out.outline.knots[0]!.tangentToNext.y).toBe(3); // raised to the tip y
+  });
+
+  it('JC-8: a section centre tip handle crossing the stringer is clamped to x ≥ 0', () => {
+    // both centre-tip inward handles folded across the stringer (x = -4); LOCK_X_MORE
+    // raises them to x = 0 so the rail leaves the centreline toward +x (no mirror cross).
+    const prof = splineFromKnots([
+      knot(vec2(0, 5), vec2(0, 5), vec2(-4, 5)), // toNext across the stringer
+      knot(vec2(0, 8), vec2(-4, 6), vec2(0, 8)), // toPrev across the stringer
+    ]);
+    const b = withSpline(openBoard(), { kind: 'crossSection', index: 1 }, prof);
+    const out = enforceJunctions(b, { kind: 'crossSection', index: 1 });
+    const cs = out.crossSections[1]!.spline;
+    const last = cs.knots.length - 1;
+    expect(cs.knots[0]!.tangentToNext.x).toBe(0);
+    expect(cs.knots[last]!.tangentToPrev.x).toBe(0);
   });
 
   // --- Idempotence: safe to run after every edit and on load --------------

@@ -245,18 +245,18 @@ scope** for `enforceJunctions`. Recorded here for completeness; no web pinning t
 mask/lock/slave machinery — the web kernel splines are immutable and locks are not modeled
 yet). `JUNCTION_EPS = 1e-7`.
 
-| Legacy constraint                                        | Web `enforceJunctions`                                                                                                                                                                                                                                                              |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **JC-5** deck↔bottom shared tail+nose tips               | **Reproduced** — `joinTips` copies the `changed` curve's first+last endpoints onto the other (deck wins by default; bottom wins when `changed.kind === 'bottom'`). Positional only — `moveKnotEnd` translates the joined curve's tangents by the same delta, like the legacy slave. |
-| **JC-4 x-lock** section centre endpoints at `x = 0`      | **Reproduced** — every section's first+last endpoint is snapped to `x = 0` (y preserved).                                                                                                                                                                                           |
-| outline tail/nose endpoint stays on centreline (`y = 0`) | **Partially** — only the **`knots[0]`** outline endpoint is snapped to `y = 0`; the **other** endpoint (`knots[last]`) is deliberately left free (see Divergences).                                                                                                                 |
-| **JC-1** outline endpoints fully locked (mask 0,0)       | **Not reproduced** — masks are not modeled; outline tips can be moved by an edit and are only re-snapped on the `y = 0` axis (for `knots[0]`).                                                                                                                                      |
-| **JC-2 / JC-3** deck/bottom endpoint x-lock              | **Not reproduced** — no x-snap on deck/bottom endpoints; their x is whatever the edit + `joinTips` produced.                                                                                                                                                                        |
-| **JC-4 y-lock** when `adjustCrossectionThickness` off    | **Not reproduced** — section endpoint y is never constrained; thickness-adjust mode is not modeled in junctions.                                                                                                                                                                    |
-| **JC-6** monotonic tangent-flow X locks                  | **Not reproduced** — no tangent clamping; a drag may fold a tangent past its endpoint x.                                                                                                                                                                                            |
-| **JC-7** outline tip `LOCK_Y_MORE`                       | **Not reproduced** — no tangent-y clamping at the tips.                                                                                                                                                                                                                             |
-| **JC-8** section endpoint `LOCK_X_MORE`                  | **Not reproduced** — section tangents are unconstrained.                                                                                                                                                                                                                            |
-| **JC-9** dummy nose/tail special-casing                  | N/A to `enforceJunctions`; dummies are handled in the kernel interpolation, not here.                                                                                                                                                                                               |
+| Legacy constraint                                        | Web `enforceJunctions`                                                                                                                                                                                                                                                                             |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **JC-5** deck↔bottom shared tail+nose tips               | **Reproduced** — `joinTips` copies the `changed` curve's first+last endpoints onto the other (deck wins by default; bottom wins when `changed.kind === 'bottom'`). Positional only — `moveKnotEnd` translates the joined curve's tangents by the same delta, like the legacy slave.                |
+| **JC-4 x-lock** section centre endpoints at `x = 0`      | **Reproduced** — every section's first+last endpoint is snapped to `x = 0` (y preserved).                                                                                                                                                                                                          |
+| outline tail/nose endpoint stays on centreline (`y = 0`) | **Partially** — only the **`knots[last]`** outline endpoint (the **nose**, `x = length`) is snapped to `y = 0`; the **tail** (`knots[0]`, `x = 0`) is deliberately left free so wide/fish/square tails keep their tail-block width (see Divergences).                                              |
+| **JC-1** outline endpoints fully locked (mask 0,0)       | **Partially** — the **station x** of both tips is re-snapped (tail → `x = 0`; the nose's x is the length reference) and the nose's **y** → `0`. The tail's **y** is left free by design (tail width). The legacy "fully un-draggable" mask (incl. tail y) is **not** modeled.                      |
+| **JC-2 / JC-3** deck/bottom endpoint x-lock              | **Reproduced** — `lockEndpointsX` re-snaps deck & bottom tail endpoints to `x = 0` and nose endpoints to `x = length` (`getLength`, outline-derived); y preserved. A drag can no longer pull a deck/bottom tip off the board ends.                                                                 |
+| **JC-4 y-lock** when `adjustCrossectionThickness` off    | **Not reproduced** — section endpoint y is never constrained; thickness-adjust mode is not modeled in junctions.                                                                                                                                                                                   |
+| **JC-6** monotonic tangent-flow X locks                  | **Reproduced** — `clampMonotonicX` clamps each segment-driving handle so `toPrev.x ≤ end.x` and `toNext.x ≥ end.x` on outline / deck / bottom; the curve stays single-valued in x. Unused dangling handles (first `toPrev`, last `toNext`) are left alone, so it is a no-op on well-formed boards. |
+| **JC-7** outline tip `LOCK_Y_MORE`                       | **Reproduced** — `clampHandleFloor` raises the outline tail `toNext.y` and nose `toPrev.y` to ≥ the tip y, so the tip segments depart the centreline outward and the planshape can't invert at the tips.                                                                                           |
+| **JC-8** section endpoint `LOCK_X_MORE`                  | **Reproduced** — `clampHandleFloor` raises each section centre tip's inward handle to `x ≥ 0`, so the rail leaves the stringer toward +x and never crosses to the mirrored half. (Interior section points are unconstrained, per legacy.)                                                          |
+| **JC-9** dummy nose/tail special-casing                  | N/A to `enforceJunctions`; dummies are handled in the kernel interpolation, not here.                                                                                                                                                                                                              |
 
 ## Divergences
 
@@ -276,16 +276,16 @@ junction-lock layer is built and verified).
    The net closed-junction guarantee (JC-5 shared tips, sections on stringer) holds; the
    "can't move at all" mask is a stricter UX guard that is not yet ported.
 
-3. **Only `knots[0]` of the outline is pinned to `y = 0`.** `enforceJunctions` snaps the
-   outline `knots[0]` endpoint to the centreline but leaves `knots[last]` free, with the
-   in-code rationale "tail width is legitimate." Combined with the stale nose/tail naming
-   (the code comments call `knots[0]` the "nose"), the **effect under the correct geometry
-   convention** is: the endpoint pinned to centreline is the **tail** (`x = 0`), and the
-   **nose** (`x = length`) is left free. Whether the pinned end should be the nose instead
-   is a design question deferred; if the intent was to pin the nose tip, this is an
-   inverted-by-naming bug. This is a behavioural divergence from legacy JC-1 (which pins
-   **both** outline tips, and via mask, not just `y`); see the junction-constraints entry
-   in `docs/specs/divergences.md`.
+3. **Only the nose (`knots[last]`) of the outline is pinned to `y = 0`.**
+   `enforceJunctions` snaps the outline **nose** endpoint (`knots[last]`, `x = length`) to
+   the centreline and leaves the **tail** (`knots[0]`, `x = 0`) free. The nose is the
+   pointed tip whose half-width is 0; the tail may carry legitimate width (wide / fish /
+   square tails). This is the **corrected** behavior: a prior inverted-naming bug pinned
+   `knots[0]` (the tail) to `y = 0` while a comment mislabelled it the "nose", which forced
+   tail width to zero. Fixed in `fix/junction-outline-tip-pin`; the choice (pin nose only)
+   is recorded as a divergence-ledger row in `docs/specs/divergences.md` — it deliberately
+   differs from legacy JC-1, which locks **both** outline tips (via mask, not just `y`).
+   The full both-tip lock is deferred to the Stage B mask layer.
 
 ## Golden inputs / outputs to capture (future)
 

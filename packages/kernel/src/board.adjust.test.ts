@@ -73,6 +73,17 @@ describe('adjustCrossSectionsToThicknessAndWidth', () => {
     }
   });
 
+  it('keeps each station centre endpoint on the stringer (x = 0) — JC-4-x survives adjust', () => {
+    // adjust runs in the commit pipeline AFTER enforceJunctions snaps section centre
+    // endpoints to x = 0; scaleCrossSection scales about the origin, so x = 0 stays 0
+    // and the stringer lock is not silently violated by the later resize.
+    const b = makeBoard();
+    const out = adjustCrossSectionsToThicknessAndWidth(b);
+    for (let i = 1; i < out.crossSections.length - 1; i++) {
+      expect(out.crossSections[i]!.spline.knots[0]!.end.x).toBeCloseTo(0, 9);
+    }
+  });
+
   it('leaves the nose/tail dummy stations untouched (same reference)', () => {
     const b = makeBoard();
     const out = adjustCrossSectionsToThicknessAndWidth(b);

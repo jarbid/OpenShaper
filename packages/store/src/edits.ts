@@ -399,7 +399,7 @@ const JUNCTION_EPS = 1e-7;
 const samePoint = (a: Vec2, b: Vec2): boolean =>
   Math.abs(a.x - b.x) < JUNCTION_EPS && Math.abs(a.y - b.y) < JUNCTION_EPS;
 
-/** Copy `src`'s nose (first) + tail (last) endpoints onto `dst`, translating its tangents. */
+/** Copy `src`'s tail (first) + nose (last) endpoints onto `dst`, translating its tangents. */
 const joinTips = (src: Spline, dst: Spline): Spline => {
   const sLast = src.knots.length - 1;
   const dLast = dst.knots.length - 1;
@@ -415,41 +415,159 @@ const joinTips = (src: Spline, dst: Spline): Spline => {
 };
 
 /**
+ * Lock a curve's two endpoints to the board's longitudinal stations — tail tip → x = 0,
+ * nose tip → x = length (legacy JC-2/JC-3 endpoint x-mask). Heights (y) are preserved, so
+ * tip heights stay editable; only the stations are pinned, so a drag can never pull a tip
+ * off the ends of the board. `length` is the outline-derived board length, the single
+ * source of truth so all three curves' nose tips coincide.
+ */
+const lockEndpointsX = (s: Spline, length: number): Spline => {
+  const last = s.knots.length - 1;
+  if (last < 1) return s;
+  let out = s;
+  if (out.knots[0]!.end.x !== 0) out = moveKnotEnd(out, 0, vec2(0, out.knots[0]!.end.y));
+  if (out.knots[last]!.end.x !== length)
+    out = moveKnotEnd(out, last, vec2(length, out.knots[last]!.end.y));
+  return out;
+};
+
+/**
+ * JC-6 monotonic tangent-flow lock for an open profile curve (outline / deck / bottom):
+ * every knot's `toPrev` handle x is clamped to ≤ its endpoint x (`LOCK_X_LESS`) and its
+ * `toNext` handle x to ≥ its endpoint x (`LOCK_X_MORE`). The handles therefore always point
+ * "back" (−x) and "forward" (+x), so the curve stays single-valued in x — a drag can never
+ * fold a tangent back on itself. y is untouched. Idempotent and a no-op for handles that
+ * already flow the right way (the normal case for a well-formed board curve).
+ */
+const clampMonotonicX = (s: Spline): Spline => {
+  const n = s.knots.length;
+  let out = s;
+  for (let i = 0; i < n; i++) {
+    const k = out.knots[i]!;
+    // Only the handles that drive a segment matter: an open spline never uses the first
+    // knot's toPrev or the last knot's toNext, so leave those dangling handles untouched —
+    // this keeps the clamp a true no-op on well-formed boards instead of normalizing inert
+    // data, while still preventing every real fold (which is governed by the used handles).
+    const prevX = i > 0 ? Math.min(k.tangentToPrev.x, k.end.x) : k.tangentToPrev.x;
+    const nextX = i < n - 1 ? Math.max(k.tangentToNext.x, k.end.x) : k.tangentToNext.x;
+    if (prevX !== k.tangentToPrev.x || nextX !== k.tangentToNext.x) {
+      out = replaceKnot(
+        out,
+        i,
+        knot(
+          k.end,
+          vec2(prevX, k.tangentToPrev.y),
+          vec2(nextX, k.tangentToNext.y),
+          k.continuous,
+          k.other,
+        ),
+      );
+    }
+  }
+  return out;
+};
+
+/**
+ * Legacy `LOCK_*_MORE` tangent floor: raise one handle's `x` or `y` component so it is ≥ the
+ * knot's endpoint component (the handle cannot drop "below" the endpoint on that axis). Used
+ * for JC-7 (outline tips, `LOCK_Y_MORE`) and JC-8 (section centre tips, `LOCK_X_MORE`).
+ * Returns the same spline reference when already satisfied (no-op).
+ */
+const clampHandleFloor = (
+  s: Spline,
+  index: number,
+  which: 'prev' | 'next',
+  axis: 'x' | 'y',
+): Spline => {
+  const k = s.knots[index];
+  if (!k) return s;
+  const h = which === 'prev' ? k.tangentToPrev : k.tangentToNext;
+  const floor = axis === 'x' ? k.end.x : k.end.y;
+  if (h[axis] >= floor) return s;
+  const nh = axis === 'x' ? vec2(floor, h.y) : vec2(h.x, floor);
+  const prev = which === 'prev' ? nh : k.tangentToPrev;
+  const next = which === 'next' ? nh : k.tangentToNext;
+  return replaceKnot(s, index, knot(k.end, prev, next, k.continuous, k.other));
+};
+
+/**
  * Re-establish the board's shared curve junctions so an edit can never open a gap
  * (legacy `BezierBoard` keeps these coupled; here they were independent splines):
  *
  *  - each cross-section's center endpoints sit on the stringer (x = 0), so the
- *    mirrored half-section closes;
- *  - the outline's nose endpoint sits on the centerline (y = 0), so the mirrored
- *    plan-shape closes at the tip (the tail is left free — tail width is legitimate);
- *  - the deck and bottom profiles share their nose and tail tips.
+ *    mirrored half-section closes (JC-4 x); their inward rail handles stay on the +x
+ *    side of the stringer (JC-8);
+ *  - the outline's tail station is pinned to x = 0 and the nose tip to the centerline
+ *    y = 0 (JC-1); the nose's x defines the board length so it is the length reference,
+ *    and the tail's y is left free — square / fish tails carry legitimate width;
+ *  - the deck and bottom endpoints are x-locked to the board stations {0, length}
+ *    (JC-2 / JC-3), so their tips always sit over the outline's tail and nose;
+ *  - the deck and bottom profiles share those tail and nose tips (JC-5);
+ *  - outline / deck / bottom stay single-valued in x — tangents can't fold back (JC-6) —
+ *    and the outline tips' inward handles can only leave the centreline outward (JC-7);
+ *  - every outline point keeps a non-negative half-width (y ≥ 0), so it can't be dragged
+ *    across the centre line to the mirrored half (an OpenShaper guard beyond legacy).
  *
  * `changed` (the just-edited curve) wins the deck↔bottom tip join, so dragging one
  * tip pulls the other along instead of snapping back. Defaults to the deck. The pass
  * is idempotent, so it is safe to run after every edit and on load.
  */
 export const enforceJunctions = (b: BezierBoard, changed?: SplineTarget): BezierBoard => {
-  // Cross-section center endpoints → x = 0 (stringer).
+  const length = getLength(b);
+
+  // Cross-section center endpoints → x = 0 (stringer) (JC-4 x); the inward rail handles
+  // at those tips must not cross to the mirrored half (JC-8: toNext.x / toPrev.x ≥ 0).
   const crossSections = b.crossSections.map((cs) => {
     const last = cs.spline.knots.length - 1;
     if (last < 0) return cs;
     let s = cs.spline;
     if (s.knots[0]!.end.x !== 0) s = moveKnotEnd(s, 0, vec2(0, s.knots[0]!.end.y));
     if (s.knots[last]!.end.x !== 0) s = moveKnotEnd(s, last, vec2(0, s.knots[last]!.end.y));
+    s = clampHandleFloor(s, 0, 'next', 'x');
+    s = clampHandleFloor(s, last, 'prev', 'x');
     return s === cs.spline ? cs : { position: cs.position, spline: s };
   });
 
-  // Outline nose endpoint → y = 0 (centerline). knots[0] is the nose (smallest x).
+  // Outline: tail station pinned to x = 0, nose tip pinned to the centerline y = 0
+  // (JC-1). The nose is knots[last] (largest x = length); it tapers to a point on the
+  // stringer, so its half-width is 0. Its x is the length reference, so it is not itself
+  // x-locked. The tail's y is left free — square / fish tails carry legitimate tail-block
+  // width. (Legacy JC-1 locks BOTH tips fully via mask; we keep the tail width editable
+  // and re-snap stations only — see docs/specs/divergences.md.)
   let outline = b.outline;
-  if (outline.knots.length > 0 && outline.knots[0]!.end.y !== 0) {
-    outline = moveKnotEnd(outline, 0, vec2(outline.knots[0]!.end.x, 0));
+  const noseIdx = outline.knots.length - 1;
+  if (noseIdx > 0) {
+    if (outline.knots[0]!.end.x !== 0)
+      outline = moveKnotEnd(outline, 0, vec2(0, outline.knots[0]!.end.y));
+    if (outline.knots[noseIdx]!.end.y !== 0)
+      outline = moveKnotEnd(outline, noseIdx, vec2(outline.knots[noseIdx]!.end.x, 0));
+    // Half-width floor: an outline point is a half-width (y), mirrored about the stringer
+    // (the centre line, y = 0). A point can never cross to the far side, so clamp every
+    // endpoint to y ≥ 0. moveKnotEnd carries the handles up with it, so the point stops at
+    // the centre line under the cursor instead of inverting the planshape.
+    for (let i = 0; i <= noseIdx; i++) {
+      const k = outline.knots[i]!;
+      if (k.end.y < 0) outline = moveKnotEnd(outline, i, vec2(k.end.x, 0));
+    }
   }
 
-  // Deck & bottom share their nose + tail tips; the edited curve wins.
-  let deck = b.deck;
-  let bottom = b.bottom;
+  // Deck & bottom endpoints x-locked to the board stations {0, length} (JC-2/JC-3),
+  // then they share their tail + nose tips with each other (JC-5); the edited curve wins.
+  let deck = lockEndpointsX(b.deck, length);
+  let bottom = lockEndpointsX(b.bottom, length);
   if (changed?.kind === 'bottom') deck = joinTips(bottom, deck);
   else bottom = joinTips(deck, bottom);
+
+  // JC-6: outline / deck / bottom stay single-valued in x (run after every endpoint move,
+  // since moveKnotEnd translates the handles too). JC-7: the outline tips' inward handles
+  // can only depart the centreline outward (+y) so the planshape can't invert at the tips.
+  outline = clampMonotonicX(outline);
+  deck = clampMonotonicX(deck);
+  bottom = clampMonotonicX(bottom);
+  if (noseIdx > 0) {
+    outline = clampHandleFloor(outline, 0, 'next', 'y');
+    outline = clampHandleFloor(outline, noseIdx, 'prev', 'y');
+  }
 
   return board(outline, bottom, deck, crossSections, b.interpolationType, b.fins);
 };

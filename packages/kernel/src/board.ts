@@ -45,7 +45,7 @@ export type InterpolationType = 'controlPoint' | 'sLinear';
  *   - bottom:  rocker curve (p33). rocker = y.
  *   - deck:    deck curve (p34).
  *   - crossSections: profile sections by longitudinal position (p35), sorted,
- *     including the dummy zero-sections at nose (pos 0) and tail (pos length).
+ *     including the dummy zero-sections at tail (pos 0) and nose (pos length).
  *
  * Internal units are centimeters (so volume is cm³, area cm²).
  */
@@ -53,7 +53,7 @@ export interface BezierBoard {
   readonly outline: Spline;
   readonly bottom: Spline;
   readonly deck: Spline;
-  /** Sorted by position ascending; index 0 = nose dummy, last = tail dummy. */
+  /** Sorted by position ascending; index 0 = tail dummy (x=0), last = nose dummy (x=length). */
   readonly crossSections: readonly CrossSection[];
   readonly interpolationType: InterpolationType;
   /** Parametric fin configuration (resolved to geometry on demand by `resolveFins`). */
