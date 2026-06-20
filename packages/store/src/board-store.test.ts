@@ -428,6 +428,49 @@ describe('board store: alignTangents horizontal/vertical actions', () => {
   });
 });
 
+describe('board store: adjustThickness gate (JC-4-y)', () => {
+  // A board with real thickness: deck & bottom share their tips (thickness → 0 at nose/tail,
+  // so JC-5 doesn't collapse them) and the deck bulges to 6 cm in the middle. The interior
+  // station is a bottom-centre → rail → deck-centre profile with both ends on the stringer.
+  const thicknessBoard = (): BezierBoard => {
+    const k3 = (ex: number, ey: number) => knot(vec2(ex, ey), vec2(ex - 5, ey), vec2(ex + 5, ey));
+    const outline = splineFromKnots([k3(0, 0), k3(50, 20), k3(100, 0)]);
+    const bottom = splineFromKnots([k3(0, 0), k3(50, 0), k3(100, 0)]);
+    const deck = splineFromKnots([k3(0, 0), k3(50, 6), k3(100, 0)]);
+    const prof = splineFromKnots([
+      knot(vec2(0, 0), vec2(0, 0), vec2(4, 1)),
+      knot(vec2(8, 3), vec2(6, 2), vec2(6, 4)),
+      knot(vec2(0, 6), vec2(4, 5), vec2(0, 6)),
+    ]);
+    return board(outline, bottom, deck, [
+      crossSection(0, prof),
+      crossSection(50, prof),
+      crossSection(100, prof),
+    ]);
+  };
+
+  it('defaults to true and re-slaves interior sections when a global curve is edited', () => {
+    const store = createBoardStore();
+    store.getState().load(thicknessBoard());
+    expect(store.getState().adjustThickness).toBe(true);
+    const before = store.getState().board!.crossSections[1]!.spline;
+    // Thicken the board mid (deck 6 → 12); the interior section must resize to match.
+    store.getState().moveControlPoint({ kind: 'deck' }, 1, vec2(50, 12));
+    const after = store.getState().board!.crossSections[1]!.spline;
+    expect(after).not.toBe(before);
+  });
+
+  it('leaves interior sections untouched when adjustThickness is off', () => {
+    const store = createBoardStore();
+    store.getState().load(thicknessBoard());
+    store.getState().setAdjustThickness(false);
+    const before = store.getState().board!.crossSections[1]!.spline;
+    store.getState().moveControlPoint({ kind: 'deck' }, 1, vec2(50, 12));
+    const after = store.getState().board!.crossSections[1]!.spline;
+    expect(after).toBe(before); // section profile preserved (no re-slaving)
+  });
+});
+
 describe('edits: continuous tangent mirroring', () => {
   it('keeps the opposite handle collinear through the endpoint', () => {
     const s = splineFromKnots([

@@ -189,6 +189,11 @@ function AppShell() {
     saveSettings(s);
     setSettings(s);
   };
+  // Mirror the persisted "resize cross-sections to rocker/deck" preference into the store
+  // (legacy JC-4-y): when off, a curve edit no longer reshapes the cross-sections.
+  useEffect(() => {
+    boardStore.getState().setAdjustThickness(settings.adjustCrossSectionThickness);
+  }, [settings.adjustCrossSectionThickness]);
   // Imperative view commands for the 2D editor panes (fit / life-size).
   // The `seq` counter ensures the same command kind can be fired multiple times
   // — each menu press increments it, which triggers the SplineEditor effect.

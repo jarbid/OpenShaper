@@ -7,7 +7,7 @@
 const STORAGE_KEY = 'bs.settings';
 
 /** Bump this when the shape of EditorSettings changes in a breaking way. */
-export const SETTINGS_VERSION = 1;
+export const SETTINGS_VERSION = 2;
 
 export interface EditorSettings {
   /** Schema version — used to migrate old blobs. */
@@ -30,6 +30,12 @@ export interface EditorSettings {
   controlPointSize: number;
   /** Curve stroke width in px. */
   curveThickness: number;
+  /**
+   * When true (default), editing the rocker/deck/outline resizes the cross-sections to
+   * match (thickness & width slaved to the board). When false, sections keep their own
+   * profile and a curve edit leaves them alone (legacy `adjustCrossectionThickness`).
+   */
+  adjustCrossSectionThickness: boolean;
 }
 
 /**
@@ -53,6 +59,8 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   finColor: '#22D3EE',
   controlPointSize: 5,
   curveThickness: 2,
+  // Slave cross-sections to the rocker/deck/outline by default (today's behavior).
+  adjustCrossSectionThickness: true,
 };
 
 /**

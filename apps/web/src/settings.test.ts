@@ -29,6 +29,18 @@ describe('DEFAULT_SETTINGS', () => {
     expect(typeof DEFAULT_SETTINGS.finColor).toBe('string');
     expect(typeof DEFAULT_SETTINGS.controlPointSize).toBe('number');
     expect(typeof DEFAULT_SETTINGS.curveThickness).toBe('number');
+    expect(typeof DEFAULT_SETTINGS.adjustCrossSectionThickness).toBe('boolean');
+  });
+
+  it('defaults to slaving cross-sections to the rocker/deck (legacy behavior)', () => {
+    expect(DEFAULT_SETTINGS.adjustCrossSectionThickness).toBe(true);
+  });
+
+  it('fills in adjustCrossSectionThickness from defaults for a pre-v2 blob', () => {
+    // A v1 blob has no adjustCrossSectionThickness key; migration must supply it.
+    const v1 = { ...DEFAULT_SETTINGS, version: 1 } as Partial<EditorSettings>;
+    delete (v1 as Record<string, unknown>).adjustCrossSectionThickness;
+    expect(migrateSettings(v1 as EditorSettings).adjustCrossSectionThickness).toBe(true);
   });
 
   it('all color values are valid CSS hex strings', () => {

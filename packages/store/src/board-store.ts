@@ -45,11 +45,20 @@ export interface BoardState {
   future: HistoryEntry[];
   /** True while a drag is in progress (edits coalesce into one undo step). */
   editing: boolean;
+  /**
+   * When true (default), cross-sections are slaved to the rocker/deck (thickness) and
+   * outline (width) on every commit/load — editing a global curve resizes the sections in
+   * that area. When false, sections keep their own thickness/width and a curve edit leaves
+   * them alone (legacy `BoardCADSettings.getAdjustCrossectionThickness`, JC-4-y).
+   */
+  adjustThickness: boolean;
   selection: Selection | null;
   /** Index of the selected fin (for the fin inspector / highlight), or null. */
   selectedFin: number | null;
 
   load: (board: BezierBoard) => void;
+  /** Toggle whether cross-sections are slaved to the rocker/deck/outline (JC-4-y). */
+  setAdjustThickness: (v: boolean) => void;
   select: (selection: Selection | null) => void;
   /** Select a fin by index (clears any control-point selection). */
   selectFin: (index: number | null) => void;
@@ -109,12 +118,13 @@ export const createBoardStore = (): StoreApi<BoardState> =>
   createStore<BoardState>((set, get) => {
     /** Apply an edited board, recording a labelled history step unless mid-drag. */
     const commit = (next: BezierBoard, label: string) => {
-      const { board, editing, past } = get();
+      const { board, editing, past, adjustThickness } = get();
       if (!board) return;
       // Slave the stored cross-sections to the rocker/deck (thickness) and outline
       // (width) at their stations, so editing a global curve resizes the sections in
-      // that area (legacy adjustCrosssectionsToThicknessAndWidth on every change).
-      const settled = adjustCrossSectionsToThicknessAndWidth(next);
+      // that area (legacy adjustCrosssectionsToThicknessAndWidth on every change). When
+      // `adjustThickness` is off (legacy JC-4-y), the sections keep their own profile.
+      const settled = adjustThickness ? adjustCrossSectionsToThicknessAndWidth(next) : next;
       if (editing) {
         // Snapshot already taken at beginEdit — give it this action's name.
         const last = past[past.length - 1];
@@ -153,18 +163,22 @@ export const createBoardStore = (): StoreApi<BoardState> =>
       past: [],
       future: [],
       editing: false,
+      adjustThickness: true,
       selection: null,
       selectedFin: null,
 
-      load: (board) =>
+      load: (board) => {
+        const pinned = enforceJunctions(board);
         set({
-          board: adjustCrossSectionsToThicknessAndWidth(enforceJunctions(board)),
+          board: get().adjustThickness ? adjustCrossSectionsToThicknessAndWidth(pinned) : pinned,
           past: [],
           future: [],
           editing: false,
           selection: null,
           selectedFin: null,
-        }),
+        });
+      },
+      setAdjustThickness: (v) => set({ adjustThickness: v }),
       select: (selection) => set({ selection, selectedFin: null }),
       selectFin: (index) => set({ selectedFin: index, selection: null }),
 

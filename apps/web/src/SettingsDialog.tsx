@@ -69,6 +69,31 @@ function NumberRow({
   );
 }
 
+function CheckboxRow({
+  label,
+  value,
+  onChange,
+  id,
+}: {
+  label: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+  id: string;
+}) {
+  return (
+    <label className="flex items-center justify-between gap-3" htmlFor={id}>
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <input
+        id={id}
+        type="checkbox"
+        checked={value}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-4 w-4 cursor-pointer accent-[var(--primary)]"
+      />
+    </label>
+  );
+}
+
 function SettingsGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <fieldset className="space-y-2">
@@ -193,6 +218,16 @@ export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProp
               max={8}
               step={0.5}
               onChange={(v) => set('curveThickness', v)}
+            />
+          </SettingsGroup>
+
+          {/* --- Editing behavior --- */}
+          <SettingsGroup title="Editing behavior">
+            <CheckboxRow
+              id="setting-adjust-cs-thickness"
+              label="Resize cross-sections to rocker/deck"
+              value={draft.adjustCrossSectionThickness}
+              onChange={(v) => set('adjustCrossSectionThickness', v)}
             />
           </SettingsGroup>
         </PanelBody>
