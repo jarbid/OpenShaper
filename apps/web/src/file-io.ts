@@ -1,7 +1,12 @@
 import {
+  customPaper,
   exportBoardPdf1to1,
+  exportBoardPdf1to1Files,
   exportDxf,
   exportStl,
+  PAPER_SIZES,
+  paperSizeById,
+  type PdfTiling,
   type SheetUnit,
   sheetToDxf,
   sheetToPdf,
@@ -10,6 +15,7 @@ import {
 } from '@openshaper/export';
 import { Unit } from '@openshaper/units';
 import { type LengthUnit } from './format';
+import type { Pdf1to1Settings } from './pdf-export-settings';
 import {
   parseBrd,
   parseS3d,
@@ -131,7 +137,7 @@ export function downloadTemplateSheet(
   }
 }
 
-export type ExportFormat = 'stl' | 'dxf' | 'pdf-1to1';
+export type ExportFormat = 'stl' | 'dxf' | 'dxf-spline' | 'pdf-1to1';
 
 /**
  * Export the board to STL / DXF / 1:1-PDF and download it. `meta` + `units`
@@ -156,10 +162,67 @@ export function exportBoard(
     case 'stl':
       return download(exportStl(board), 'board.stl', 'model/stl');
     case 'dxf':
-      return download(exportDxf(board, { ghostBoard: ghost }), 'board.dxf', 'application/dxf');
+      return download(
+        exportDxf(board, { ghostBoard: ghost, curveMode: 'polyline' }),
+        'board.dxf',
+        'application/dxf',
+      );
+    case 'dxf-spline':
+      return download(
+        exportDxf(board, { ghostBoard: ghost, curveMode: 'spline' }),
+        'board-spline.dxf',
+        'application/dxf',
+      );
     case 'pdf-1to1': {
       const pdf = exportBoardPdf1to1(board, { units: pdfUnit, meta: pdfMeta });
       return download(pdf as unknown as BlobPart, 'board-1to1.pdf', 'application/pdf');
     }
   }
+}
+
+/**
+ * Export the board's 1:1 geometry per the dialog `settings` (geometry selection,
+ * paper-size tiling, overlap/cut marks, combined/per-part packaging) and download the
+ * resulting PDF file(s). `units` only affects the printed labels + calibration ruler.
+ */
+export function downloadPdf1to1(
+  board: BezierBoard,
+  settings: Pdf1to1Settings,
+  meta?: BoardMeta,
+  units?: LengthUnit,
+): void {
+  const pdfUnit: 'cm' | 'in' = units?.unit === Unit.INCHES ? 'in' : 'cm';
+  const pdfMeta = {
+    designer: meta?.designer,
+    model: meta?.model,
+    surfer: meta?.surfer,
+    comments: meta?.comments,
+  };
+  const tiling: PdfTiling | null = settings.slice
+    ? {
+        paper:
+          settings.paperId === 'custom'
+            ? customPaper(settings.customWidthCm, settings.customHeightCm)
+            : (paperSizeById(settings.paperId) ?? PAPER_SIZES[0]!),
+        orientation: settings.orientation,
+        overlapCm: settings.overlapCm,
+        cutMarks: settings.cutMarks,
+        labels: settings.labels,
+      }
+    : null;
+  const { files } = exportBoardPdf1to1Files(board, {
+    units: pdfUnit,
+    meta: pdfMeta,
+    crossSectionCount: settings.crossSectionCount,
+    parts: {
+      outline: settings.outline,
+      rocker: settings.rocker,
+      crossSections: settings.crossSections,
+      fins: settings.fins,
+      calibration: settings.calibration,
+    },
+    tiling,
+    packaging: settings.packaging,
+  });
+  for (const f of files) download(f.bytes as unknown as BlobPart, f.name, 'application/pdf');
 }

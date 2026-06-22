@@ -1,12 +1,24 @@
 import { getLength, resolveFins, valueAt, type BezierBoard, type ResolvedFin } from '@openshaper/kernel'; // prettier-ignore
 import {
-  crossSectionRing,
-  planOutlineLoop,
-  sampleProfile,
+  chainSegs,
+  crossSectionBeziers,
+  flattenBeziers,
+  mapSeg,
+  planOutlineBeziers,
+  splineSegments,
   ySpan,
   ySpanX,
+  type CurveSeg,
   type Pt,
 } from './board-curves';
+
+/**
+ * How curves are written: `'polyline'` flattens the exact beziers to a dense polyline
+ * sampled along the curve (smooth, R12 — maximum CAM/viewer compatibility); `'spline'`
+ * emits true cubic-bezier SPLINE entities (resolution-independent, requires R13+/AC1015,
+ * not read by some simple tools).
+ */
+export type DxfCurveMode = 'polyline' | 'spline';
 
 /** Options for {@link exportDxf}. */
 export interface DxfOptions {
@@ -16,6 +28,8 @@ export interface DxfOptions {
   ringSteps?: number;
   /** Number of cross-section profiles to draw, evenly spaced. Default 7. */
   crossSectionCount?: number;
+  /** Curve representation: dense polylines (default) or true SPLINE entities. */
+  curveMode?: DxfCurveMode;
   /**
    * Reference (ghost) board to overlay: its plan outline and rocker curves are
    * drawn dashed on the dedicated GHOST layer, tail-aligned with the main board,
@@ -80,6 +94,50 @@ const text = (out: string[], x: number, y: number, h: number, str: string, layer
 const circle = (out: string[], x: number, y: number, r: number, layer: Layer): void => {
   out.push('0', 'CIRCLE', '8', layer);
   out.push('10', num(x), '20', num(y), '30', '0.0', '40', num(r));
+};
+
+/** Samples per bezier segment so a `total`-point budget is spread across `nSegs`. */
+const perSeg = (nSegs: number, total: number): number =>
+  Math.max(8, Math.round(total / Math.max(1, nSegs)));
+
+/**
+ * Emit a cubic-bezier path as one DXF SPLINE entity (degree 3). `chained` must be a
+ * continuous chain (see `chainSegs`); it is encoded as a clamped Bézier-knot B-spline:
+ * control points p0,c1,c2,p3,c1,c2,p3,… with knot vector [0×4, 1×3, 2×3, …, n×4]. This
+ * reproduces each cubic segment exactly. Needs DXF R13+ (AC1015 header).
+ */
+const spline = (
+  out: string[],
+  chained: readonly CurveSeg[],
+  layer: Layer,
+  opts: { closed?: boolean; lineType?: string } = {},
+): void => {
+  if (chained.length === 0) return;
+  const ctrl: Pt[] = [chained[0]!.p0];
+  for (const s of chained) ctrl.push(s.c1, s.c2, s.p3);
+  const nSeg = chained.length;
+  const knots: number[] = [0, 0, 0, 0];
+  for (let i = 1; i < nSeg; i++) knots.push(i, i, i);
+  knots.push(nSeg, nSeg, nSeg, nSeg);
+
+  let flags = 8; // 8 = planar
+  if (opts.closed) flags |= 1; // 1 = closed
+
+  out.push('0', 'SPLINE', '100', 'AcDbEntity', '8', layer);
+  if (opts.lineType) out.push('6', opts.lineType);
+  out.push('100', 'AcDbSpline');
+  out.push('70', String(flags), '71', '3', '72', String(knots.length), '73', String(ctrl.length), '74', '0'); // prettier-ignore
+  out.push('42', '0.0000001', '43', '0.0000001', '44', '0.0000000001');
+  for (const k of knots) out.push('40', num(k));
+  for (const p of ctrl) out.push('10', num(p.x), '20', num(p.y), '30', '0.0');
+};
+
+/** Minimal HEADER declaring the DXF version + centimetre units (needed for SPLINE mode). */
+const headerSection = (out: string[]): void => {
+  out.push('0', 'SECTION', '2', 'HEADER');
+  out.push('9', '$ACADVER', '1', 'AC1015'); // R2000 — first widely-read version supporting SPLINE
+  out.push('9', '$INSUNITS', '70', '5'); // 5 = centimetres
+  out.push('0', 'ENDSEC');
 };
 
 /**
@@ -157,18 +215,39 @@ export const exportDxf = (board: BezierBoard, opts: DxfOptions = {}): string => 
   const lengthSteps = Math.max(2, opts.lengthSteps ?? DEFAULT_LENGTH_STEPS);
   const ringSteps = Math.max(3, opts.ringSteps ?? DEFAULT_RING_STEPS);
   const csCount = Math.max(0, opts.crossSectionCount ?? DEFAULT_CS_COUNT);
+  const mode = opts.curveMode ?? 'polyline';
   const length = getLength(board);
   const eps = Math.min(0.01, length / (lengthSteps * 4));
 
+  // Draw a chain of exact bezier `segs` either as a true SPLINE or a dense, smooth
+  // polyline (sampled along the curve so high-curvature tails don't facet).
+  const curve = (
+    segs: readonly CurveSeg[],
+    layer: Layer,
+    closed: boolean,
+    lineType?: string,
+  ): void => {
+    if (mode === 'spline') {
+      spline(out, chainSegs(segs, closed), layer, { closed, lineType });
+    } else {
+      polyline(out, flattenBeziers(segs, perSeg(segs.length, lengthSteps)), layer, {
+        closed,
+        lineType,
+      });
+    }
+  };
+
   const out: string[] = [];
   out.push('999', 'DXF export from OpenShaper');
+  if (mode === 'spline') headerSection(out);
   tablesSection(out);
   out.push('0', 'SECTION', '2', 'ENTITIES');
 
   // --- Plan view at origin: outline loop (both rails), spanning y = ±half-width. ---
-  const outlineLoop = planOutlineLoop(board, lengthSteps);
-  const maxHalf = outlineLoop.reduce((m, p) => Math.max(m, p.y), 0);
-  polyline(out, outlineLoop, 'OUTLINE', { closed: true });
+  const outlineSegs = planOutlineBeziers(board);
+  const outlinePts = flattenBeziers(outlineSegs, perSeg(outlineSegs.length, lengthSteps));
+  const maxHalf = outlinePts.reduce((m, p) => Math.max(m, p.y), 0);
+  curve(outlineSegs, 'OUTLINE', true);
 
   // Stringer centreline (full length) + dashed rib-station markers with x labels.
   line(out, { x: eps, y: 0 }, { x: length - eps, y: 0 }, 'CENTERLINE', 'CENTER');
@@ -185,14 +264,17 @@ export const exportDxf = (board: BezierBoard, opts: DxfOptions = {}): string => 
 
   // --- Rocker profile band, stacked below the plan view. ---
   const gap = Math.max(4, maxHalf * 0.4);
-  const bottom = sampleProfile(board.bottom, eps, length - eps, lengthSteps);
-  const deck = sampleProfile(board.deck, eps, length - eps, lengthSteps);
-  const rocker = ySpan([...bottom, ...deck]);
+  const bottomSegs = splineSegments(board.bottom);
+  const deckSegs = splineSegments(board.deck);
+  const bottomPts = flattenBeziers(bottomSegs, perSeg(bottomSegs.length, lengthSteps));
+  const deckPts = flattenBeziers(deckSegs, perSeg(deckSegs.length, lengthSteps));
+  const rocker = ySpan([...bottomPts, ...deckPts]);
   // Shift so the rocker band's top sits `gap` below the plan view's lowest point.
   const rockerShift = -maxHalf - gap - rocker.hi;
   const lift = (pts: Pt[]): Pt[] => pts.map((p) => ({ x: p.x, y: p.y + rockerShift }));
-  polyline(out, lift(bottom), 'ROCKER');
-  polyline(out, lift(deck), 'ROCKER');
+  const liftSeg = (s: CurveSeg): CurveSeg => mapSeg(s, (p) => ({ x: p.x, y: p.y + rockerShift }));
+  curve(bottomSegs.map(liftSeg), 'ROCKER', false);
+  curve(deckSegs.map(liftSeg), 'ROCKER', false);
   // Rocker baseline (rocker = 0) on the centreline layer.
   line(
     out,
@@ -207,12 +289,14 @@ export const exportDxf = (board: BezierBoard, opts: DxfOptions = {}): string => 
   // directly. Reference-only geometry — everything lands on the GHOST layer.
   if (opts.ghostBoard) {
     const g = opts.ghostBoard;
-    const gLen = getLength(g);
-    const gEps = Math.min(0.01, gLen / (lengthSteps * 4));
     const dashed = { lineType: 'DASHED' };
-    polyline(out, planOutlineLoop(g, lengthSteps), 'GHOST', { closed: true, ...dashed });
-    polyline(out, lift(sampleProfile(g.bottom, gEps, gLen - gEps, lengthSteps)), 'GHOST', dashed);
-    polyline(out, lift(sampleProfile(g.deck, gEps, gLen - gEps, lengthSteps)), 'GHOST', dashed);
+    // Reference overlay is always a smooth dashed polyline (mode-independent).
+    const gOutline = planOutlineBeziers(g);
+    const gBottom = splineSegments(g.bottom);
+    const gDeck = splineSegments(g.deck);
+    polyline(out, flattenBeziers(gOutline, perSeg(gOutline.length, lengthSteps)), 'GHOST', { closed: true, ...dashed }); // prettier-ignore
+    polyline(out, lift(flattenBeziers(gBottom, perSeg(gBottom.length, lengthSteps))), 'GHOST', dashed); // prettier-ignore
+    polyline(out, lift(flattenBeziers(gDeck, perSeg(gDeck.length, lengthSteps))), 'GHOST', dashed);
   }
 
   // --- Cross-section band: a true-scale row laid out left-to-right below the rocker. ---
@@ -221,16 +305,21 @@ export const exportDxf = (board: BezierBoard, opts: DxfOptions = {}): string => 
   let cursorX = 0;
   for (let c = 0; c < csCount; c++) {
     const pos = eps + ((length - 2 * eps) * (c + 0.5)) / csCount;
-    const ring = crossSectionRing(board, pos, ringSteps);
-    if (!ring) continue;
-    const sx = ySpanX(ring);
-    const sy = ySpan(ring);
+    const segs = crossSectionBeziers(board, pos);
+    if (!segs) continue;
+    const ringPts = flattenBeziers(segs, perSeg(segs.length, ringSteps));
+    const sx = ySpanX(ringPts);
+    const sy = ySpan(ringPts);
     const sectionW = sx.hi - sx.lo;
     const centerX = cursorX + sectionW / 2 - (sx.lo + sx.hi) / 2;
     // Hang the section from csBandTop (its top edge), centred on its own width.
     const shiftY = csBandTop - sy.hi;
-    const placed = ring.map((p) => ({ x: p.x + centerX, y: p.y + shiftY }));
-    polyline(out, placed, 'CROSSSECTION', { closed: true });
+    const place = (p: Pt): Pt => ({ x: p.x + centerX, y: p.y + shiftY });
+    curve(
+      segs.map((s) => mapSeg(s, place)),
+      'CROSSSECTION',
+      true,
+    );
     // Centreline tick + station label.
     const tickX = cursorX + sectionW / 2;
     line(out, { x: tickX, y: csBandTop }, { x: tickX, y: csBandTop - labelH }, 'CENTERLINE'); // prettier-ignore

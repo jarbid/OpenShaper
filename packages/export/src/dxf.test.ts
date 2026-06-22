@@ -66,6 +66,46 @@ describe('exportDxf', () => {
     expect(count('TEXT')).toBeGreaterThanOrEqual(3); // one x-label per station marker
   });
 
+  describe('curve modes', () => {
+    const count = (dxf: string, entity: string) =>
+      dxf.split('\n').filter((l) => l === entity).length;
+
+    it('polyline mode (default) emits POLYLINE and no SPLINE, with R12 (no header)', () => {
+      const dxf = exportDxf(board, { crossSectionCount: 3 });
+      expect(count(dxf, 'POLYLINE')).toBeGreaterThanOrEqual(5);
+      expect(count(dxf, 'SPLINE')).toBe(0);
+      expect(dxf).not.toContain('$ACADVER');
+    });
+
+    it('spline mode emits SPLINE entities, an AC1015 header, and no curve POLYLINEs', () => {
+      const dxf = exportDxf(board, { crossSectionCount: 3, curveMode: 'spline' });
+      expect(dxf).toContain('$ACADVER');
+      expect(dxf).toContain('AC1015');
+      // outline + bottom + deck + 3 cross-sections = 6 splines.
+      expect(count(dxf, 'SPLINE')).toBe(6);
+      // No POLYLINE for the curves (fins/ghost aside; this board is finless, no ghost).
+      expect(count(dxf, 'POLYLINE')).toBe(0);
+    });
+
+    it('spline control-point and knot counts are consistent (knots = ctrl + degree + 1)', () => {
+      const lines = exportDxf(board, { crossSectionCount: 0, curveMode: 'spline' }).split('\n');
+      // Inspect the first SPLINE (the outline): read 72 (#knots) and 73 (#ctrl).
+      const si = lines.indexOf('SPLINE');
+      const after = lines.slice(si, si + 40);
+      const valAfter = (code: string) => Number(after[after.indexOf(code) + 1]);
+      const nKnots = valAfter('72');
+      const nCtrl = valAfter('73');
+      expect(nKnots).toBe(nCtrl + 3 + 1); // degree 3
+    });
+
+    it('keeps coordinates finite in both modes', () => {
+      for (const curveMode of ['polyline', 'spline'] as const) {
+        const dxf = exportDxf(board, { curveMode });
+        expect(dxf).not.toMatch(/NaN|Infinity/);
+      }
+    });
+  });
+
   describe('ghost board overlay', () => {
     const entityLayers = (dxf: string): string[] => {
       const lines = dxf.split('\n');

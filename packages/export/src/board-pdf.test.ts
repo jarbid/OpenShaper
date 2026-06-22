@@ -57,4 +57,14 @@ describe('exportBoardPdf1to1', () => {
     expect(decode(exportBoardPdf1to1(board, { units: 'in' }))).toContain('units in');
     expect(decode(exportBoardPdf1to1(board, { units: 'cm' }))).toContain('units cm');
   });
+
+  it('draws the outline as exact bezier curves (smooth, not faceted)', () => {
+    const text = decode(
+      exportBoardPdf1to1(board, { crossSectionCount: 0, parts: { rocker: false } }),
+    );
+    // PDF cubic-bezier operator is `x1 y1 x2 y2 x3 y3 c`. Both rails are drawn from the
+    // outline spline's true control points → 2 curve ops per segment, no flattening.
+    const curveOps = (text.match(/ c\n/g) ?? []).length;
+    expect(curveOps).toBe(board.outline.curves.length * 2);
+  });
 });

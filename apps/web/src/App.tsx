@@ -39,11 +39,14 @@ import {
 import {
   downloadBoard,
   downloadBrd,
+  downloadPdf1to1,
   exportBoard,
   openBoardFile,
   type BoardMeta,
   type ExportFormat,
 } from './file-io';
+import { ExportPdf1to1Dialog } from './ExportPdf1to1Dialog';
+import { loadPdf1to1, savePdf1to1, type Pdf1to1Settings } from './pdf-export-settings';
 import { clearRecentBoards, getRecentBoards, recordRecentBoard } from './recent-boards';
 import {
   DEFAULT_LENGTH_UNIT,
@@ -184,6 +187,8 @@ function AppShell() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const togglePalette = useCallback(() => setPaletteOpen((o) => !o), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
+  const [pdf1to1, setPdf1to1] = useState<Pdf1to1Settings>(() => loadPdf1to1());
   const [settings, setSettings] = useState<EditorSettings>(() => loadSettings());
   const handleSaveSettings = (s: EditorSettings) => {
     saveSettings(s);
@@ -521,9 +526,15 @@ function AppShell() {
   ];
 
   const exportMenu: MenuItem[] = [
-    ...(['stl', 'dxf'] as ExportFormat[]).map((f) => ({
+    ...(
+      [
+        ['stl', 'STL'],
+        ['dxf', 'DXF (polyline)'],
+        ['dxf-spline', 'DXF (spline)'],
+      ] as [ExportFormat, string][]
+    ).map(([f, label]) => ({
       kind: 'action' as const,
-      label: f.toUpperCase(),
+      label,
       disabled: !board,
       onSelect: () =>
         board &&
@@ -531,17 +542,9 @@ function AppShell() {
     })),
     {
       kind: 'action',
-      label: 'PDF 1:1 (outline/rocker)',
+      label: 'PDF 1:1…',
       disabled: !board,
-      onSelect: () =>
-        board &&
-        exportBoard(
-          board as Parameters<typeof exportBoard>[0],
-          'pdf-1to1',
-          meta,
-          units,
-          ghost ?? undefined,
-        ),
+      onSelect: () => setPdfDialogOpen(true),
     },
     { kind: 'action', label: 'Spec sheet…', disabled: !board, onSelect: openSpecSheet },
     { kind: 'separator' },
@@ -992,6 +995,19 @@ function AppShell() {
           settings={settings}
           onSave={handleSaveSettings}
           onClose={() => setSettingsOpen(false)}
+        />
+      )}
+
+      {pdfDialogOpen && board && (
+        <ExportPdf1to1Dialog
+          units={units}
+          settings={pdf1to1}
+          onExport={(s) => {
+            savePdf1to1(s);
+            setPdf1to1(s);
+            downloadPdf1to1(board, s, meta, units);
+          }}
+          onClose={() => setPdfDialogOpen(false)}
         />
       )}
 
