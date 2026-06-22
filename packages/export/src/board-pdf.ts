@@ -18,7 +18,14 @@ import {
   type Pt,
 } from './board-curves';
 import { buildPdf, esc, n, type PageDoc } from './pdf-core';
-import type { PdfMeta } from './pdf';
+
+/** Board metadata shown on exported PDFs (mirrors apps/web BoardMeta's text fields). */
+export interface PdfMeta {
+  designer?: string;
+  model?: string;
+  surfer?: string;
+  comments?: string;
+}
 
 /** Options for {@link exportBoardPdf1to1}. */
 export interface BoardPdf1to1Options {

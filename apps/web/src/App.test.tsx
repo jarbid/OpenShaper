@@ -35,7 +35,7 @@ describe('<App /> smoke', () => {
 
     // Palette entries come from the real menus.
     fireEvent.change(input, { target: { value: 'spec sheet' } });
-    expect(screen.getByText(/File: Spec sheet/)).toBeTruthy();
+    expect(screen.getByText(/Export: Spec sheet/)).toBeTruthy();
 
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(screen.queryByPlaceholderText(/command/i)).toBeNull();

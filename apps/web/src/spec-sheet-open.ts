@@ -2,8 +2,10 @@ import { boardDiagramSvg, specSheetHtml, type SpecSection } from '@openshaper/ex
 import {
   FIN_SETUP_LABELS,
   FIN_SYSTEM_LABELS,
+  resolveFins,
   type BezierBoard,
   type FinConfig,
+  type ResolvedFin,
 } from '@openshaper/kernel';
 import type { BoardSpecs } from '@openshaper/store';
 import type { BoardMeta } from './file-io';
@@ -25,6 +27,20 @@ export const specSheetHtmlFor = (
   const finText = hasFins
     ? `${FIN_SETUP_LABELS[fins.setup]} · ${FIN_SYSTEM_LABELS[fins.system]}`
     : '';
+
+  // Per-fin placement breakdown (distance-from-tail, base, depth, toe/cant, foil) —
+  // mirrors the detail the retired NTS board PDF used to print.
+  const sideName = (s: ResolvedFin['side']): string =>
+    s === 0 ? 'Center' : s < 0 ? 'Port' : 'Starboard';
+  const finPlacement: [string, string][] = hasFins
+    ? resolveFins(board, fins).map((fin) => {
+        const angles = fin.side === 0 ? '' : ` · toe ${fin.toe}° · cant ${fin.cant}°`;
+        const summary =
+          `${L(fin.spec.trailingFromTail)} from tail · base ${L(fin.spec.base)} · ` +
+          `depth ${L(fin.spec.depth)}${angles} · ${fin.foil}`;
+        return [sideName(fin.side), summary];
+      })
+    : [];
 
   const sections: SpecSection[] = [
     {
@@ -86,6 +102,7 @@ export const specSheetHtmlFor = (
     ],
     sections,
     diagramSvg: boardDiagramSvg(board, { fmt: (cm) => fmtLen(cm, units) }),
+    finPlacement,
   });
 };
 

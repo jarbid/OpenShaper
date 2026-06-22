@@ -35,6 +35,12 @@ export interface SpecSheetDoc {
   sections: readonly SpecSection[];
   /** Optional plan/rocker/section `<svg>` drawing (trusted markup). */
   diagramSvg?: string;
+  /**
+   * Optional per-fin placement breakdown, rendered as a full-width panel below the
+   * data cards. Each entry is `[sideName, summary]` (e.g. `['Center', '30.5 cm from
+   * tail · base …']`). Pre-formatted by the caller in the active units.
+   */
+  finPlacement?: readonly (readonly [string, string])[];
 }
 
 const esc = (s: unknown): string =>
@@ -88,6 +94,9 @@ h1{margin:0;font:650 27px/1.05 var(--sans);letter-spacing:-.02em}
 .info{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}
 .chip{border:1px solid var(--border);border-radius:6px;padding:5px 11px;font-size:12px;color:var(--muted);background:rgba(34,211,238,.02)}
 .chip b{margin-right:6px;color:var(--ink);font:600 11px var(--mono);letter-spacing:.04em;text-transform:uppercase}
+.fins{margin-top:22px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:rgba(10,20,36,.5)}
+.fins-body{padding:4px 16px}
+.fins .row .v{white-space:normal;text-align:right}
 footer{margin-top:24px;display:flex;justify-content:space-between;align-items:center;gap:16px;padding-top:14px;border-top:1px solid var(--border)}
 .note{font:500 10.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 button{background:var(--accent);color:#061018;border:0;border-radius:8px;padding:9px 18px;font:600 13px var(--sans);cursor:pointer}
@@ -118,7 +127,9 @@ button:hover{filter:brightness(1.08)}
   .card h2{margin-bottom:5px;font-size:9px}
   .row{padding:2.5px 0;font-size:10.5px}
   .row .v{font-size:10px}
-  .drawing,.card,.grid{break-inside:avoid}
+  .drawing,.card,.grid,.fins{break-inside:avoid}
+  .fins{background:#fff;margin-top:10px}
+  .fins-body{padding:1px 10px}
   .board-diagram .outline{fill-opacity:0}
   .board-diagram .accent,.bar .a{color:#111}
   footer{margin-top:12px;padding-top:8px;border-top:1px solid #c4c4c4}
@@ -155,6 +166,15 @@ export function specSheetHtml(doc: SpecSheetDoc): string {
       return `<section class="card"><h2>${esc(sec.title)}</h2>${rows}</section>`;
     })
     .join('');
+  const fins =
+    doc.finPlacement && doc.finPlacement.length > 0
+      ? `<div class="fins"><div class="bar"><span class="a">Fin placement</span></div><div class="fins-body">${doc.finPlacement
+          .map(
+            ([k, v]) =>
+              `<div class="row"><span class="l">${esc(k)}</span><span class="v">${esc(v)}</span></div>`,
+          )
+          .join('')}</div></div>`
+      : '';
 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -165,6 +185,7 @@ export function specSheetHtml(doc: SpecSheetDoc): string {
 <div class="meta">${meta}</div></header>
 ${drawing}${chips ? `<div class="info">${chips}</div>` : ''}
 <div class="grid">${cards}</div>
+${fins}
 <footer><span class="note">OpenShaper · open-source surfboard CAD</span><button onclick="print()">Print / Save as PDF</button></footer>
 </div></div></body></html>`;
 }

@@ -362,8 +362,11 @@ function AppShell() {
 
   /** Open a print-friendly spec sheet (board info + dimensions) in a new tab. */
   const openSpecSheet = () => {
-    if (!specs || !board) return;
-    if (!openHtmlInNewTab(specSheetHtmlFor(board, specs, meta, units, board.fins))) {
+    if (!board) return;
+    // Prefer the worker's specs, but fall back to a synchronous compute so the sheet
+    // never depends on the worker having responded yet (selectSpecs is memoized).
+    const sheetSpecs = specs ?? selectSpecs(board);
+    if (!openHtmlInNewTab(specSheetHtmlFor(board, sheetSpecs, meta, units, board.fins))) {
       showError('Pop-up blocked — allow pop-ups to open the spec sheet.');
     }
   };
@@ -515,9 +518,10 @@ function AppShell() {
         ] satisfies MenuItem[])
       : []),
     { kind: 'action', label: 'Load trace image…', onSelect: () => traceInput.current?.click() },
-    { kind: 'separator' },
-    { kind: 'label', label: 'Export' },
-    ...(['stl', 'dxf', 'pdf'] as ExportFormat[]).map((f) => ({
+  ];
+
+  const exportMenu: MenuItem[] = [
+    ...(['stl', 'dxf'] as ExportFormat[]).map((f) => ({
       kind: 'action' as const,
       label: f.toUpperCase(),
       disabled: !board,
@@ -539,13 +543,7 @@ function AppShell() {
           ghost ?? undefined,
         ),
     },
-    {
-      kind: 'action',
-      label: 'Legacy .brd',
-      disabled: !board,
-      onSelect: () => board && downloadBrd(board, meta),
-    },
-    { kind: 'action', label: 'Spec sheet…', disabled: !specs, onSelect: openSpecSheet },
+    { kind: 'action', label: 'Spec sheet…', disabled: !board, onSelect: openSpecSheet },
     { kind: 'separator' },
     { kind: 'label', label: 'Templates' },
     {
@@ -553,6 +551,13 @@ function AppShell() {
       label: 'Hollow Wood Frame…',
       disabled: !board,
       onSelect: () => setTemplateKind('hws'),
+    },
+    { kind: 'separator' },
+    {
+      kind: 'action',
+      label: 'Legacy .brd',
+      disabled: !board,
+      onSelect: () => board && downloadBrd(board, meta),
     },
   ];
 
@@ -812,6 +817,7 @@ function AppShell() {
             <Menu label="Edit" items={editMenu} />
             <Menu label="View" items={viewMenu} />
             <Menu label="Board" items={boardMenu} />
+            <Menu label="Export" items={exportMenu} />
             <Menu label="Help" items={helpMenu} />
           </MenuBar>
           <div className="flex-1" />
@@ -974,6 +980,7 @@ function AppShell() {
             ['Edit', editMenu],
             ['View', viewMenu],
             ['Board', boardMenu],
+            ['Export', exportMenu],
             ['Help', helpMenu],
           ])}
           onClose={() => setPaletteOpen(false)}

@@ -1,7 +1,6 @@
 import {
   exportBoardPdf1to1,
   exportDxf,
-  exportPdf,
   exportStl,
   type SheetUnit,
   sheetToDxf,
@@ -9,9 +8,8 @@ import {
   sheetToSvg,
   type TemplateSheet,
 } from '@openshaper/export';
-import { getLength, getMaxWidth, getThickness, getVolume } from '@openshaper/kernel';
 import { Unit } from '@openshaper/units';
-import { fmtDimsHeadline, fmtVol, type LengthUnit } from './format';
+import { type LengthUnit } from './format';
 import {
   parseBrd,
   parseS3d,
@@ -133,13 +131,12 @@ export function downloadTemplateSheet(
   }
 }
 
-export type ExportFormat = 'stl' | 'dxf' | 'pdf' | 'pdf-1to1';
+export type ExportFormat = 'stl' | 'dxf' | 'pdf-1to1';
 
 /**
- * Export the board to STL / DXF / PDF / 1:1-PDF and download it. `meta` + `units`
- * feed the PDF labels and spec sheet (designer / model / surfer / comments, and the
- * dimension headline). A loaded `ghost` comparison board is overlaid on the DXF's
- * GHOST layer.
+ * Export the board to STL / DXF / 1:1-PDF and download it. `meta` + `units`
+ * feed the PDF labels (designer / model / surfer / comments). A loaded `ghost`
+ * comparison board is overlaid on the DXF's GHOST layer.
  */
 export function exportBoard(
   board: BezierBoard,
@@ -160,14 +157,6 @@ export function exportBoard(
       return download(exportStl(board), 'board.stl', 'model/stl');
     case 'dxf':
       return download(exportDxf(board, { ghostBoard: ghost }), 'board.dxf', 'application/dxf');
-    case 'pdf': {
-      // exportPdf returns a Uint8Array; cast for the DOM BlobPart type (runtime is fine).
-      const headline = units
-        ? `${fmtDimsHeadline(getLength(board), getMaxWidth(board), getThickness(board), units)} · ${fmtVol(getVolume(board))}`
-        : undefined;
-      const pdf = exportPdf(board, { title: meta?.model, meta: pdfMeta, units: pdfUnit, headline });
-      return download(pdf as unknown as BlobPart, 'board.pdf', 'application/pdf');
-    }
     case 'pdf-1to1': {
       const pdf = exportBoardPdf1to1(board, { units: pdfUnit, meta: pdfMeta });
       return download(pdf as unknown as BlobPart, 'board-1to1.pdf', 'application/pdf');
