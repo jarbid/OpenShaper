@@ -8,8 +8,26 @@
  * here is the true 1:1, print-at-100% trace template.
  */
 export { exportStl, type StlOptions } from './stl';
-export { exportDxf, type DxfOptions } from './dxf';
-export { exportBoardPdf1to1, type BoardPdf1to1Options, type PdfMeta } from './board-pdf';
+export { exportDxf, type DxfOptions, type DxfCurveMode } from './dxf';
+export {
+  exportBoardPdf1to1,
+  exportBoardPdf1to1Files,
+  type BoardPdf1to1Options,
+  type PdfMeta,
+  type PdfPartSelection,
+  type PdfTiling,
+  type PdfFile,
+  type PdfExportResult,
+} from './board-pdf';
+export {
+  PAPER_SIZES,
+  paperSizeById,
+  customPaper,
+  orient,
+  POINTS_PER_CM,
+  type PaperSize,
+  type Orientation,
+} from './paper';
 export { boardDiagramSvg, type BoardDiagramOptions } from './board-diagram';
 export { specSheetHtml, type SpecSheetDoc, type SpecSection } from './spec-sheet';
 
