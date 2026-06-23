@@ -388,7 +388,7 @@ function AppShell() {
       // Record in the recent list. Use the file's base name (strip extension) as
       // the display name; re-serialise to canonical .board.json so the snapshot
       // is always in the native format regardless of the source format (.brd etc.)
-      const baseName = file.name.replace(/\.(board\.json|json|brd)$/i, '');
+      const baseName = file.name.replace(/\.(board\.json|json|brd|s3dx|s3d|srf)$/i, '');
       const metadata =
         meta && Object.values(meta).some(Boolean) ? (meta as Record<string, unknown>) : undefined;
       recordRecentBoard(baseName, writeBoardJson(board, metadata));
@@ -880,14 +880,14 @@ function AppShell() {
         <input
           ref={fileInput}
           type="file"
-          accept=".board,.board.json,.json,.brd,.s3d,.srf"
+          accept=".board,.board.json,.json,.brd,.s3d,.s3dx,.srf"
           className="hidden"
           onChange={onOpenFile}
         />
         <input
           ref={ghostInput}
           type="file"
-          accept=".board,.board.json,.json,.brd,.s3d,.srf"
+          accept=".board,.board.json,.json,.brd,.s3d,.s3dx,.srf"
           className="hidden"
           onChange={onOpenGhost}
         />

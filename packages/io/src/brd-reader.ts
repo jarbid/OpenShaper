@@ -11,6 +11,7 @@ import {
   type FinSetup,
   type Knot,
 } from '@openshaper/kernel';
+import { decryptBrd, isEncryptedBrd } from './legacy-crypto';
 
 /**
  * Best-effort migration of the legacy free-text `mFinType` to a parametric config.
@@ -352,4 +353,25 @@ export const parseBrd = (text: string): ParsedBrd => {
   );
 
   return { board: built, metadata, warnings };
+};
+
+/**
+ * Read a `.brd` file from its raw bytes, transparently handling both the plain
+ * text format and the encrypted variants (`%BRD-1.01` / `%BRD-1.02`).
+ *
+ * Encrypted files (BoardCAD `PBEWithMD5AndDES`) are decrypted via
+ * `@openshaper/io`'s self-contained `legacy-crypto` and then parsed as text by
+ * {@link parseBrd}. Plain-text files are decoded as latin1 and parsed directly.
+ *
+ * This is the entry point UIs should use, since a `.brd` on disk may be either
+ * variant and is indistinguishable by extension.
+ */
+export const parseBrdFile = (bytes: Uint8Array): ParsedBrd => {
+  if (isEncryptedBrd(bytes)) {
+    return parseBrd(decryptBrd(bytes));
+  }
+  // Plain-text .brd — decode latin1 (the legacy format is single-byte ASCII).
+  let text = '';
+  for (let i = 0; i < bytes.length; i++) text += String.fromCharCode(bytes[i]!);
+  return parseBrd(text);
 };

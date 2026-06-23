@@ -61,6 +61,9 @@ export interface ParsedS3d {
   readonly warnings: string[];
 }
 
+/** `.s3dx` shares the parsed shape of `.s3d`. */
+export type ParsedS3dx = ParsedS3d;
+
 // ---------------------------------------------------------------------------
 // Error
 // ---------------------------------------------------------------------------
@@ -467,47 +470,91 @@ const normaliseSectionHeight = (knots: Knot[]): Knot[] => {
 const zeroDummyKnot = (): Knot => knot(vec2(0, 0), vec2(0, 0), vec2(0, 0), true, false);
 
 // ---------------------------------------------------------------------------
-// Main parser
+// Main parser (shared core)
+//
+// The `.s3d` and `.s3dx` formats are structurally identical (same Bezier3d /
+// Couples_N geometry). They differ only in which element names hold the three
+// main curves, plus the `.s3dx`-only `<Protection>` flag and a `"Ref. point"`
+// text fix-up. The core below is parameterized over those differences so both
+// readers share the golden-tested geometry code.
 // ---------------------------------------------------------------------------
 
-/**
- * Parse a Shape3d XML string into a kernel `BezierBoard`.
- *
- * This is the TypeScript port of `S3dReader.loadFile(BezierBoard, String)`.
- * It accepts the full UTF-8 text content of a `.s3d` file and returns the
- * parsed board plus any non-fatal warnings.
- *
- * @throws {S3dParseError} on malformed or structurally invalid input.
- */
-export const parseS3d = (text: string): ParsedS3d => {
+interface Shape3dOptions {
+  /** Human-readable format name for error messages, e.g. ".s3d" / ".s3dx". */
+  readonly formatName: string;
+  /** Element name holding the outline curve (XY). */
+  readonly outlineTag: string;
+  /**
+   * Optional fallback outline element used when `outlineTag` is absent. Some
+   * Shape3d `.s3dx` exports omit the apex outline (`curveDefTop2`) and only
+   * carry the narrower top curve (`curveDefTop1`); falling back lets those
+   * files load (with a warning) where the legacy reader would have failed.
+   */
+  readonly outlineFallbackTag?: string;
+  /** Element name holding the bottom curve (XZ). */
+  readonly bottomTag: string;
+  /** Element name holding the deck/thickness curve (XZ); may be absent in the file. */
+  readonly deckTag: string;
+  /** When true, apply the `"Ref. point"` → `"Ref.point"` text fix-up (`.s3dx`). */
+  readonly refPointFix?: boolean;
+  /** When true, honour a `<Protection>` flag and reject protected boards (`.s3dx`). */
+  readonly checkProtection?: boolean;
+}
+
+const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
   if (typeof text !== 'string' || text.trim().length === 0) {
-    throw new S3dParseError('parseS3d expects a non-empty string');
+    throw new S3dParseError(`parse${opts.formatName} expects a non-empty string`);
   }
 
-  const xml = stripComments(text);
+  // S3dxReader.java line 44: normalise the "Ref. point" tag spelling.
+  const fixed = opts.refPointFix ? text.replace(/Ref\. point/g, 'Ref.point') : text;
+  const xml = stripComments(fixed);
 
-  // --- Root element: <Shape3d_design> (S3dReader.java line 45) ---
+  // --- Root element: <Shape3d_design> ---
   const shape3dXml = getChildElement(xml, 'Shape3d_design');
   if (!shape3dXml) {
-    throw new S3dParseError('No <Shape3d_design> root element found — not a valid .s3d file');
+    throw new S3dParseError(
+      `No <Shape3d_design> root element found — not a valid ${opts.formatName} file`,
+    );
   }
 
-  // --- <Board> child (line 46) ---
+  // --- <Board> child ---
   const boardXml = getChildElement(shape3dXml, 'Board');
   if (!boardXml) {
     throw new S3dParseError('No <Board> element found inside <Shape3d_design>');
   }
 
+  // --- Protection flag (S3dxReader.java lines 50–54) ---
+  if (opts.checkProtection) {
+    const protStr = getChildText(boardXml, 'Protection');
+    if (protStr !== null && Number(protStr) > 0) {
+      throw new S3dParseError(
+        'This board is password-protected in Shape3d and cannot be imported.',
+      );
+    }
+  }
+
   const warnings: string[] = [];
 
-  // --- Outline (XY plane, S3dReader.java line 52) ---
-  const outlineXml = getChildElement(boardXml, 'Outline');
+  // --- Outline (XY plane) ---
+  let outlineTagUsed = opts.outlineTag;
+  let outlineXml = getChildElement(boardXml, opts.outlineTag);
+  if (!outlineXml && opts.outlineFallbackTag) {
+    outlineXml = getChildElement(boardXml, opts.outlineFallbackTag);
+    if (outlineXml) {
+      outlineTagUsed = opts.outlineFallbackTag;
+      warnings.push(
+        `No <${opts.outlineTag}> (apex outline) element — falling back to ` +
+          `<${opts.outlineFallbackTag}>; outline width may be slightly narrower than nominal`,
+      );
+    }
+  }
   if (!outlineXml) {
-    throw new S3dParseError('Missing <Outline> element in <Board>');
+    throw new S3dParseError(`Missing <${opts.outlineTag}> (outline) element in <Board>`);
   }
   const outlineBezierXml = getChildElement(outlineXml, 'Bezier3d');
   if (!outlineBezierXml) {
-    throw new S3dParseError('<Outline> has no <Bezier3d> child');
+    throw new S3dParseError(`<${outlineTagUsed}> (outline) has no <Bezier3d> child`);
   }
   let outlineKnots = readBezierKnots(outlineBezierXml, PLANE_XY);
   if (outlineKnots.length < 2) {
@@ -518,14 +565,14 @@ export const parseS3d = (text: string): ParsedS3d => {
   // Post-process end-cap zeroing (S3dReader.java lines 56–76)
   outlineKnots = postProcessOutlineKnots(outlineKnots);
 
-  // --- Bottom (XZ plane, S3dReader.java line 78) ---
-  const bottomXml = getChildElement(boardXml, 'Bottom');
+  // --- Bottom (XZ plane) ---
+  const bottomXml = getChildElement(boardXml, opts.bottomTag);
   if (!bottomXml) {
-    throw new S3dParseError('Missing <Bottom> element in <Board>');
+    throw new S3dParseError(`Missing <${opts.bottomTag}> (bottom) element in <Board>`);
   }
   const bottomBezierXml = getChildElement(bottomXml, 'Bezier3d');
   if (!bottomBezierXml) {
-    throw new S3dParseError('<Bottom> has no <Bezier3d> child');
+    throw new S3dParseError(`<${opts.bottomTag}> (bottom) has no <Bezier3d> child`);
   }
   const bottomKnots = readBezierKnots(bottomBezierXml, PLANE_XZ);
   if (bottomKnots.length < 2) {
@@ -542,11 +589,11 @@ export const parseS3d = (text: string): ParsedS3d => {
 
   // --- Deck (XZ plane, S3dReader.java lines 79–125) ---
   let deckKnots: Knot[];
-  const deckXml = getChildElement(boardXml, 'Deck');
+  const deckXml = getChildElement(boardXml, opts.deckTag);
   if (deckXml) {
     const deckBezierXml = getChildElement(deckXml, 'Bezier3d');
     if (!deckBezierXml) {
-      throw new S3dParseError('<Deck> has no <Bezier3d> child');
+      throw new S3dParseError(`<${opts.deckTag}> (deck) has no <Bezier3d> child`);
     }
     const rawDeckKnots = readBezierKnots(deckBezierXml, PLANE_XZ);
     if (rawDeckKnots.length < 1) {
@@ -555,10 +602,10 @@ export const parseS3d = (text: string): ParsedS3d => {
     // Inject bottom endpoints (S3dReader.java lines 117–125)
     deckKnots = injectDeckEndpoints(rawDeckKnots, bottomKnots);
   } else {
-    // No Deck element → generate synthetic deck (S3dReader.java lines 86–113)
+    // No deck element → generate synthetic deck (S3dReader.java lines 86–113)
     warnings.push(
-      'No <Deck> element found — generating a synthetic deck curve from thickness formula ' +
-        '(S3dReader.java lines 86–113); deck shape may not be accurate',
+      `No <${opts.deckTag}> (deck) element found — generating a synthetic deck curve from ` +
+        'thickness formula (S3dReader.java lines 86–113); deck shape may not be accurate',
     );
     deckKnots = buildSyntheticDeck(bottomKnots, length);
   }
@@ -647,3 +694,46 @@ export const parseS3d = (text: string): ParsedS3d => {
     warnings,
   };
 };
+
+// ---------------------------------------------------------------------------
+// Public readers
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a Shape3d `.s3d` XML string into a kernel `BezierBoard`.
+ *
+ * TypeScript port of `S3dReader.loadFile(BezierBoard, String)`. Accepts the
+ * full text content of a `.s3d` file and returns the parsed board plus any
+ * non-fatal warnings.
+ *
+ * @throws {S3dParseError} on malformed or structurally invalid input.
+ */
+export const parseS3d = (text: string): ParsedS3d =>
+  parseShape3d(text, {
+    formatName: '.s3d',
+    outlineTag: 'Outline',
+    bottomTag: 'Bottom',
+    deckTag: 'Deck',
+  });
+
+/**
+ * Parse a Shape3d `.s3dx` XML string into a kernel `BezierBoard`.
+ *
+ * TypeScript port of `S3dxReader.loadFile(BezierBoard, String)`. The `.s3dx`
+ * format is identical to `.s3d` except the three main curves live in
+ * `<curveDefTop2>` (outline), `<curveDefSide0>` (bottom) and `<curveDefSide4>`
+ * (deck); it applies a `"Ref. point"` text fix-up; and a `<Protection>` flag
+ * `> 0` marks a password-protected board, which we reject with a clear error.
+ *
+ * @throws {S3dParseError} on malformed input or a password-protected board.
+ */
+export const parseS3dx = (text: string): ParsedS3dx =>
+  parseShape3d(text, {
+    formatName: '.s3dx',
+    outlineTag: 'curveDefTop2',
+    outlineFallbackTag: 'curveDefTop1',
+    bottomTag: 'curveDefSide0',
+    deckTag: 'curveDefSide4',
+    refPointFix: true,
+    checkProtection: true,
+  });

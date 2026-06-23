@@ -17,8 +17,9 @@ import { Unit } from '@openshaper/units';
 import { type LengthUnit } from './format';
 import type { Pdf1to1Settings } from './pdf-export-settings';
 import {
-  parseBrd,
+  parseBrdFile,
   parseS3d,
+  parseS3dx,
   parseSrf,
   readBoardJson,
   writeBoardJson,
@@ -84,9 +85,21 @@ type BoardFileReader = (file: File) => Promise<{ board: BezierBoard; meta: Board
 // Extension → importer. Each reader controls its own decoding (text vs
 // arrayBuffer), so binary formats fit the same table.
 const BOARD_FILE_READERS: Record<string, BoardFileReader> = {
-  '.brd': async (file) => ({ board: parseBrd(await file.text()).board, meta: {} }),
+  // .brd may be plain text or encrypted (%BRD-1.0x) — read bytes and let
+  // parseBrdFile sniff the magic and decrypt as needed.
+  '.brd': async (file) => ({
+    board: parseBrdFile(new Uint8Array(await file.arrayBuffer())).board,
+    meta: {},
+  }),
   '.s3d': async (file) => {
     const { board: b, metadata } = parseS3d(await file.text());
+    return {
+      board: b,
+      meta: { model: metadata?.model, designer: metadata?.designer, comments: metadata?.comments },
+    };
+  },
+  '.s3dx': async (file) => {
+    const { board: b, metadata } = parseS3dx(await file.text());
     return {
       board: b,
       meta: { model: metadata?.model, designer: metadata?.designer, comments: metadata?.comments },
