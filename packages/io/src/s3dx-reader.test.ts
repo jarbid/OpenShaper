@@ -48,6 +48,16 @@ describe('parseS3dx (real Shape3d samples)', () => {
     expect(getMaxWidth(board)).toBeLessThan(54);
   });
 
+  it('imports a clean export at its exact filename dims with no warnings (MASTER TRUSTHER 6.0 x 22 x 2.75)', () => {
+    // Positive control: a well-formed file (has curveDefTop2, StringerMeasurement=0,
+    // no degenerate sections) must hit its nominal dims exactly and warn about nothing.
+    const { board, warnings } = parseS3dx(fixtureText('master-trusther-6-0x22x2-75.s3dx'));
+    expect(getLength(board) / INCH).toBeCloseTo(72, 0); // 6'0"
+    expect(getMaxWidth(board) / INCH).toBeCloseTo(22, 0);
+    expect(getThickness(board) / INCH).toBeCloseTo(2.75, 1);
+    expect(warnings).toHaveLength(0);
+  });
+
   it.each(['gremilin56.s3dx', 'hyptocrypto.s3dx', 'mlc-5-10x19-8x2-6.s3dx'])(
     'parses %s into a structurally valid board',
     (name) => {
