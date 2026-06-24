@@ -470,6 +470,37 @@ const normaliseSectionHeight = (knots: Knot[]): Knot[] => {
 const zeroDummyKnot = (): Knot => knot(vec2(0, 0), vec2(0, 0), vec2(0, 0), true, false);
 
 // ---------------------------------------------------------------------------
+// Single-valued-in-x clamp for the primary curves (outline / bottom / deck)
+//
+// These curves are functions of x and must have non-decreasing knot x. Some
+// real-world Shape3d exports let the deck run a centimetre past the board nose
+// while the bottom ends short; injecting the bottom's endpoint (S3dReader.java
+// 117–125) then yields a knot whose x steps BACKWARD, a fold the spline renders
+// inverted (manifests as a "flipped" rocker profile). Clamp each knot's end.x
+// into [0, length] and force it non-decreasing. Tangent handles are left to the
+// store's junction layer (clampMonotonicX) on load. No-op for well-formed files.
+// ---------------------------------------------------------------------------
+
+const clampCurveMonotonicX = (knots: Knot[], length: number): Knot[] => {
+  const clampX = (v: number) => Math.min(Math.max(v, 0), length);
+  let prevX = 0;
+  return knots.map((k) => {
+    const x = Math.min(Math.max(k.end.x, prevX), length);
+    prevX = x;
+    const prevHx = clampX(k.tangentToPrev.x);
+    const nextHx = clampX(k.tangentToNext.x);
+    if (x === k.end.x && prevHx === k.tangentToPrev.x && nextHx === k.tangentToNext.x) return k;
+    return knot(
+      vec2(x, k.end.y),
+      vec2(prevHx, k.tangentToPrev.y),
+      vec2(nextHx, k.tangentToNext.y),
+      k.continuous,
+      k.other,
+    );
+  });
+};
+
+// ---------------------------------------------------------------------------
 // Main parser (shared core)
 //
 // The `.s3d` and `.s3dx` formats are structurally identical (same Bezier3d /
@@ -644,8 +675,16 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
     }
 
     let sectionKnots = readBezierKnots(sectionBezierXml, PLANE_YZ);
-    if (sectionKnots.length < 1) {
-      warnings.push(`<${tag}> at position ${pos} has no knots — skipped`);
+    // A real cross-section needs ≥3 control points to describe a curved
+    // deck→rail→bottom half-profile. Some exports carry a degenerate 1–2 point
+    // "couple" (e.g. a flat z≈0 guide line) mid-board; lofting through it pinches
+    // the 3D mesh to a sliver and makes the thickness-slaving pass non-idempotent
+    // (it blows the section up on a later edit). Drop these with a warning.
+    if (sectionKnots.length < 3) {
+      warnings.push(
+        `<${tag}> at position ${pos} has only ${sectionKnots.length} control point(s) — ` +
+          'degenerate cross-section, skipped',
+      );
       continue;
     }
 
@@ -680,10 +719,12 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
   const comments = getChildText(boardXml, 'Comment') ?? undefined;
 
   // --- Build board ---
+  // Keep the primary curves single-valued in x (guards against folded deck/
+  // bottom noses in real-world exports — see clampCurveMonotonicX).
   const builtBoard = board(
-    splineFromKnots(outlineKnots),
-    splineFromKnots(bottomKnots),
-    splineFromKnots(deckKnots),
+    splineFromKnots(clampCurveMonotonicX(outlineKnots, length)),
+    splineFromKnots(clampCurveMonotonicX(bottomKnots, length)),
+    splineFromKnots(clampCurveMonotonicX(deckKnots, length)),
     allSections,
     'controlPoint',
   );

@@ -18,7 +18,12 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { getLength, getMaxWidth, getThickness } from '@openshaper/kernel';
+import {
+  adjustCrossSectionsToThicknessAndWidth,
+  getLength,
+  getMaxWidth,
+  getThickness,
+} from '@openshaper/kernel';
 import { parseS3dx } from './s3d-reader';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -69,5 +74,59 @@ describe('parseS3dx protection handling', () => {
     const base = fixtureText('gremilin56.s3dx');
     const xml = base.replace('<Board>', '<Board>\n<Protection>0</Protection>');
     expect(() => parseS3dx(xml)).not.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Real-world export robustness (regressions)
+// ---------------------------------------------------------------------------
+
+const isNonDecreasing = (xs: number[]): boolean => xs.every((x, i) => i === 0 || x >= xs[i - 1]!);
+
+describe('parseS3dx real-world export robustness', () => {
+  it('keeps the deck/bottom/outline single-valued in x (hyptocrypto deck folds past the nose)', () => {
+    // hyptocrypto's deck runs ~1.6 cm past the board nose while the bottom ends
+    // short, so the injected bottom-nose endpoint used to land BEFORE the deck's
+    // own nose — a backward x-step that renders the rocker "flipped".
+    const { board } = parseS3dx(fixtureText('hyptocrypto.s3dx'));
+    for (const curve of [board.outline, board.bottom, board.deck]) {
+      expect(isNonDecreasing(curve.knots.map((k) => k.end.x))).toBe(true);
+    }
+    const len = getLength(board);
+    for (const curve of [board.outline, board.bottom, board.deck]) {
+      for (const k of curve.knots) {
+        expect(k.end.x).toBeGreaterThanOrEqual(-1e-6);
+        expect(k.end.x).toBeLessThanOrEqual(len + 1e-6);
+      }
+    }
+  });
+
+  it('drops degenerate (<3-knot) cross-sections (Go fish Couples_1)', () => {
+    const { board, warnings } = parseS3dx(fixtureText('go-fish.s3dx'));
+    // Interior sections (excluding the tail/nose dummies at index 0 and last)
+    // must all have ≥3 control points.
+    const interior = board.crossSections.slice(1, -1);
+    for (const cs of interior) {
+      expect(cs.spline.knots.length).toBeGreaterThanOrEqual(3);
+    }
+    expect(warnings.some((w) => /degenerate cross-section/.test(w))).toBe(true);
+  });
+
+  it('settles imported sections idempotently (no thickness blow-up on re-edit)', () => {
+    // A degenerate section made adjustCrossSectionsToThicknessAndWidth
+    // non-idempotent — it exploded a section to ~380 cm on the SECOND pass
+    // (every edit re-runs it), so dropping such sections must restore
+    // idempotency. Compare section thicknesses after one vs two passes.
+    const { board } = parseS3dx(fixtureText('go-fish.s3dx'));
+    const once = adjustCrossSectionsToThicknessAndWidth(board);
+    const twice = adjustCrossSectionsToThicknessAndWidth(once);
+    const thicknessSpan = (cs: { spline: { knots: readonly { end: { y: number } }[] } }) => {
+      const ys = cs.spline.knots.map((k) => k.end.y);
+      return Math.max(...ys) - Math.min(...ys);
+    };
+    expect(twice.crossSections.length).toBe(once.crossSections.length);
+    once.crossSections.forEach((cs, i) => {
+      expect(thicknessSpan(twice.crossSections[i]!)).toBeCloseTo(thicknessSpan(cs), 5);
+    });
   });
 });
