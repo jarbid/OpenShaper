@@ -23,6 +23,7 @@ import {
   getLength,
   getMaxWidth,
   getThickness,
+  getThicknessAtPos,
 } from '@openshaper/kernel';
 import { parseS3dx } from './s3d-reader';
 
@@ -98,6 +99,29 @@ describe('parseS3dx real-world export robustness', () => {
         expect(k.end.x).toBeGreaterThanOrEqual(-1e-6);
         expect(k.end.x).toBeLessThanOrEqual(len + 1e-6);
       }
+    }
+  });
+
+  it('treats a <StringerMeasurement> deck as thickness-above-bottom (hyptocrypto)', () => {
+    // hyptocrypto sets StringerMeasurement=1, so curveDefSide4 stores thickness,
+    // not absolute deck z. Treated as absolute it dips below the bottom at the
+    // tips (negative thickness, spiking rocker). After conversion the thickness
+    // must be non-negative everywhere and sensible at the center.
+    const { board } = parseS3dx(fixtureText('hyptocrypto.s3dx'));
+    const len = getLength(board);
+    for (let f = 0; f <= 1.0001; f += 0.05) {
+      expect(getThicknessAtPos(board, f * len)).toBeGreaterThan(-0.05);
+    }
+    // ~2.7" (≈6.8 cm) thick board.
+    expect(getThickness(board)).toBeGreaterThan(5);
+    expect(getThickness(board)).toBeLessThan(8);
+  });
+
+  it('leaves an absolute (StringerMeasurement=0) deck unchanged (Go fish)', () => {
+    const { board } = parseS3dx(fixtureText('go-fish.s3dx'));
+    const len = getLength(board);
+    for (let f = 0; f <= 1.0001; f += 0.05) {
+      expect(getThicknessAtPos(board, f * len)).toBeGreaterThan(-0.05);
     }
   });
 

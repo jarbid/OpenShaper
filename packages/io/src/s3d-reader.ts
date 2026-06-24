@@ -39,6 +39,7 @@ import {
   crossSection,
   knot,
   splineFromKnots,
+  valueAt,
   type BezierBoard,
   type CrossSection,
   type Knot,
@@ -481,6 +482,35 @@ const zeroDummyKnot = (): Knot => knot(vec2(0, 0), vec2(0, 0), vec2(0, 0), true,
 // store's junction layer (clampMonotonicX) on load. No-op for well-formed files.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Stringer-measurement deck conversion
+//
+// When the board's <StringerMeasurement> flag is set, the deck curve
+// (curveDefSide4) stores THICKNESS above the bottom rather than absolute deck
+// height — so its raw z dips below the bottom rocker at the tips and renders as
+// a folded/spiking rocker. Convert it to an absolute deck by adding the bottom
+// rocker (evaluated at each control point's x, clamped to the curve's range) to
+// every y. The legacy S3dxReader ignores this flag (renders such boards
+// self-intersecting); honouring it is an intentional divergence.
+// ---------------------------------------------------------------------------
+
+const stringerThicknessToAbsoluteDeck = (
+  deckKnots: Knot[],
+  bottom: ReturnType<typeof splineFromKnots>,
+  length: number,
+): Knot[] => {
+  const rockerAt = (x: number) => valueAt(bottom, Math.min(Math.max(x, 0), length));
+  return deckKnots.map((k) =>
+    knot(
+      vec2(k.end.x, k.end.y + rockerAt(k.end.x)),
+      vec2(k.tangentToPrev.x, k.tangentToPrev.y + rockerAt(k.tangentToPrev.x)),
+      vec2(k.tangentToNext.x, k.tangentToNext.y + rockerAt(k.tangentToNext.x)),
+      k.continuous,
+      k.other,
+    ),
+  );
+};
+
 const clampCurveMonotonicX = (knots: Knot[], length: number): Knot[] => {
   const clampX = (v: number) => Math.min(Math.max(v, 0), length);
   let prevX = 0;
@@ -618,6 +648,9 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
     if (k.end.x > length) length = k.end.x;
   }
 
+  // When set, the deck curve stores thickness above the bottom (not absolute z).
+  const stringerMeasurement = Number(getChildText(boardXml, 'StringerMeasurement') ?? '0') > 0;
+
   // --- Deck (XZ plane, S3dReader.java lines 79–125) ---
   let deckKnots: Knot[];
   const deckXml = getChildElement(boardXml, opts.deckTag);
@@ -626,9 +659,17 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
     if (!deckBezierXml) {
       throw new S3dParseError(`<${opts.deckTag}> (deck) has no <Bezier3d> child`);
     }
-    const rawDeckKnots = readBezierKnots(deckBezierXml, PLANE_XZ);
+    let rawDeckKnots = readBezierKnots(deckBezierXml, PLANE_XZ);
     if (rawDeckKnots.length < 1) {
       throw new S3dParseError('Deck Bezier3d has no knots');
+    }
+    // <StringerMeasurement> deck holds thickness-above-bottom → make it absolute.
+    if (stringerMeasurement) {
+      rawDeckKnots = stringerThicknessToAbsoluteDeck(
+        rawDeckKnots,
+        splineFromKnots(bottomKnots),
+        length,
+      );
     }
     // Inject bottom endpoints (S3dReader.java lines 117–125)
     deckKnots = injectDeckEndpoints(rawDeckKnots, bottomKnots);
