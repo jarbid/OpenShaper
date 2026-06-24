@@ -127,6 +127,26 @@ describe('parseS3dx real-world export robustness', () => {
     expect(getThickness(board)).toBeLessThan(8);
   });
 
+  it.each(['hyptocrypto.s3dx', 'gremilin56.s3dx'])(
+    'refits the stringer-thickness deck without bulging above the center thickness (%s)',
+    (name) => {
+      // The naive per-handle stringer conversion inflated the deck's Bézier
+      // handles, bulging the thickness ~0.45–1.3 cm above the nominal center
+      // thickness (a double-hump in the rocker profile). Re-fitting the absolute
+      // deck from sampled bottom+thickness removes the bulge: the max thickness
+      // anywhere must not exceed the center thickness by more than a small margin.
+      const { board } = parseS3dx(fixtureText(name));
+      const len = getLength(board);
+      const center = getThickness(board); // thickness at length/2
+      let maxThick = 0;
+      for (let f = 0; f <= 1.0001; f += 0.02) {
+        maxThick = Math.max(maxThick, getThicknessAtPos(board, f * len));
+      }
+      // Center is the thickest station for these boards; allow a small tolerance.
+      expect(maxThick).toBeLessThanOrEqual(center + 0.25);
+    },
+  );
+
   it('leaves an absolute (StringerMeasurement=0) deck unchanged (Go fish)', () => {
     const { board } = parseS3dx(fixtureText('go-fish.s3dx'));
     const len = getLength(board);

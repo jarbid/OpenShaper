@@ -35,6 +35,7 @@
  */
 
 import {
+  bestFit,
   board,
   crossSection,
   knot,
@@ -43,6 +44,7 @@ import {
   type BezierBoard,
   type CrossSection,
   type Knot,
+  type Vec2,
 } from '@openshaper/kernel';
 import { vec2 } from '@openshaper/kernel';
 import type { ImportWarning } from './import-warning';
@@ -489,27 +491,89 @@ const zeroDummyKnot = (): Knot => knot(vec2(0, 0), vec2(0, 0), vec2(0, 0), true,
 // When the board's <StringerMeasurement> flag is set, the deck curve
 // (curveDefSide4) stores THICKNESS above the bottom rather than absolute deck
 // height — so its raw z dips below the bottom rocker at the tips and renders as
-// a folded/spiking rocker. Convert it to an absolute deck by adding the bottom
-// rocker (evaluated at each control point's x, clamped to the curve's range) to
-// every y. The legacy S3dxReader ignores this flag (renders such boards
-// self-intersecting); honouring it is an intentional divergence.
+// a folded/spiking rocker. The legacy S3dxReader ignores this flag (renders
+// such boards self-intersecting); honouring it is an intentional divergence.
+//
+// The absolute deck is the function  deck(x) = bottom(x) + thickness(x). Adding
+// the bottom-rocker VALUE to each Bézier tangent handle independently (the naive
+// transform) is wrong: a handle is a control point, not a point on the curve, so
+// inflating its y by the rocker height swings the handle and makes the deck
+// bulge between knots (a visible double-hump in the rocker profile). Instead we
+// sample the true deck(x) within each source segment and re-fit a cubic with the
+// kernel's least-squares `bestFit`, keeping the file's knot stations but deriving
+// handles from the real curve. The two outer handles are reflected to give a
+// smooth tip cap.
 // ---------------------------------------------------------------------------
+
+/** Samples per source deck segment when re-fitting the absolute deck curve. */
+const DECK_REFIT_SAMPLES = 16;
+
+const reflectHandle = (end: Vec2, opposite: Vec2): Vec2 =>
+  vec2(2 * end.x - opposite.x, 2 * end.y - opposite.y);
 
 const stringerThicknessToAbsoluteDeck = (
   deckKnots: Knot[],
   bottom: ReturnType<typeof splineFromKnots>,
   length: number,
 ): Knot[] => {
-  const rockerAt = (x: number) => valueAt(bottom, Math.min(Math.max(x, 0), length));
-  return deckKnots.map((k) =>
-    knot(
-      vec2(k.end.x, k.end.y + rockerAt(k.end.x)),
-      vec2(k.tangentToPrev.x, k.tangentToPrev.y + rockerAt(k.tangentToPrev.x)),
-      vec2(k.tangentToNext.x, k.tangentToNext.y + rockerAt(k.tangentToNext.x)),
+  const clampBottom = (x: number) => Math.min(Math.max(x, 0), length);
+  const rockerAt = (x: number) => valueAt(bottom, clampBottom(x));
+
+  // Degenerate (<2 knots): no segment to fit — shift the lone endpoint only.
+  if (deckKnots.length < 2) {
+    return deckKnots.map((k) => {
+      const dy = rockerAt(k.end.x);
+      return knot(
+        vec2(k.end.x, k.end.y + dy),
+        vec2(k.tangentToPrev.x, k.tangentToPrev.y + dy),
+        vec2(k.tangentToNext.x, k.tangentToNext.y + dy),
+        k.continuous,
+        k.other,
+      );
+    });
+  }
+
+  const thickness = splineFromKnots(deckKnots);
+  const thickMinX = deckKnots[0]!.end.x;
+  const thickMaxX = deckKnots[deckKnots.length - 1]!.end.x;
+  const clampThick = (x: number) => Math.min(Math.max(x, thickMinX), thickMaxX);
+  const deckAbsAt = (x: number) => valueAt(thickness, clampThick(x)) + rockerAt(x);
+
+  // Per-segment cubic fit → handles that follow the true bottom+thickness curve.
+  const startHandle: Vec2[] = []; // outgoing handle of knot i (segment i)
+  const endHandle: Vec2[] = []; //   incoming handle of knot i+1 (segment i)
+  for (let i = 0; i < deckKnots.length - 1; i++) {
+    const x0 = deckKnots[i]!.end.x;
+    const x1 = deckKnots[i + 1]!.end.x;
+    if (Math.abs(x1 - x0) < 1e-6) {
+      // Coincident-x knots (e.g. a tip cap): no width to fit — collapse handles
+      // onto the endpoints so the near-vertical segment is preserved.
+      startHandle[i] = vec2(x0, deckAbsAt(x0));
+      endHandle[i] = vec2(x1, deckAbsAt(x1));
+      continue;
+    }
+    const pts: Vec2[] = [];
+    for (let s = 0; s <= DECK_REFIT_SAMPLES; s++) {
+      const x = x0 + ((x1 - x0) * s) / DECK_REFIT_SAMPLES;
+      pts.push(vec2(x, deckAbsAt(x)));
+    }
+    const [, c1, c2] = bestFit(pts);
+    startHandle[i] = c1;
+    endHandle[i] = c2;
+  }
+
+  return deckKnots.map((k, i) => {
+    const end = vec2(k.end.x, deckAbsAt(k.end.x));
+    const tn = i === deckKnots.length - 1 ? null : startHandle[i]!;
+    const tp = i === 0 ? null : endHandle[i - 1]!;
+    return knot(
+      end,
+      tp ?? reflectHandle(end, tn!),
+      tn ?? reflectHandle(end, tp!),
       k.continuous,
       k.other,
-    ),
-  );
+    );
+  });
 };
 
 const clampCurveMonotonicX = (knots: Knot[], length: number): Knot[] => {
