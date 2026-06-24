@@ -25,6 +25,7 @@ import {
   writeBoardJson,
   writeBrd,
 } from '@openshaper/io';
+import type { ImportWarning } from '@openshaper/io';
 import type { BezierBoard } from '@openshaper/kernel';
 import { recordRecentBoard } from './recent-boards';
 
@@ -80,47 +81,71 @@ export function downloadBrd(board: BezierBoard, meta?: BoardMeta): void {
   download(text, 'board.brd', 'application/octet-stream');
 }
 
-type BoardFileReader = (file: File) => Promise<{ board: BezierBoard; meta: BoardMeta }>;
+type BoardFileReader = (
+  file: File,
+) => Promise<{ board: BezierBoard; meta: BoardMeta; warnings: readonly ImportWarning[] }>;
 
 // Extension → importer. Each reader controls its own decoding (text vs
 // arrayBuffer), so binary formats fit the same table.
 const BOARD_FILE_READERS: Record<string, BoardFileReader> = {
   // .brd may be plain text or encrypted (%BRD-1.0x) — read bytes and let
   // parseBrdFile sniff the magic and decrypt as needed.
-  '.brd': async (file) => ({
-    board: parseBrdFile(new Uint8Array(await file.arrayBuffer())).board,
-    meta: {},
-  }),
+  '.brd': async (file) => {
+    const { board, warnings } = parseBrdFile(new Uint8Array(await file.arrayBuffer()));
+    return { board, meta: {}, warnings };
+  },
   '.s3d': async (file) => {
-    const { board: b, metadata } = parseS3d(await file.text());
+    const { board: b, metadata, warnings } = parseS3d(await file.text());
     return {
       board: b,
       meta: { model: metadata?.model, designer: metadata?.designer, comments: metadata?.comments },
+      warnings,
     };
   },
   '.s3dx': async (file) => {
-    const { board: b, metadata } = parseS3dx(await file.text());
+    const { board: b, metadata, warnings } = parseS3dx(await file.text());
     return {
       board: b,
       meta: { model: metadata?.model, designer: metadata?.designer, comments: metadata?.comments },
+      warnings,
     };
   },
   '.srf': async (file) => {
     const result = parseSrf(await file.arrayBuffer());
-    return { board: result.board, meta: { model: result.model, comments: result.comments } };
+    return {
+      board: result.board,
+      meta: { model: result.model, comments: result.comments },
+      warnings: [],
+    };
   },
 };
 
 const readBoardJsonFile: BoardFileReader = async (file) => {
   const { board, metadata } = readBoardJson(await file.text());
-  return { board, meta: (metadata as BoardMeta) ?? {} };
+  return { board, meta: (metadata as BoardMeta) ?? {}, warnings: [] };
 };
 
 /** Read a user-picked file: a format importer by extension, else native .board.json. */
-export async function openBoardFile(file: File): Promise<{ board: BezierBoard; meta: BoardMeta }> {
+export async function openBoardFile(
+  file: File,
+): Promise<{ board: BezierBoard; meta: BoardMeta; warnings: readonly ImportWarning[] }> {
   const name = file.name.toLowerCase();
   const ext = Object.keys(BOARD_FILE_READERS).find((e) => name.endsWith(e));
   return ext ? BOARD_FILE_READERS[ext]!(file) : readBoardJsonFile(file);
+}
+
+export interface ImportDecision {
+  /** 'confirm' → show the blocking dialog first; 'load' → load now. */
+  readonly action: 'confirm' | 'load';
+  readonly dropped: ImportWarning[];
+  readonly info: ImportWarning[];
+}
+
+/** Classify import warnings into a load decision (pure). */
+export function decideImport(warnings: readonly ImportWarning[]): ImportDecision {
+  const dropped = warnings.filter((w) => w.severity === 'dropped');
+  const info = warnings.filter((w) => w.severity === 'info');
+  return { action: dropped.length > 0 ? 'confirm' : 'load', dropped, info };
 }
 
 export type TemplateFormat = 'dxf' | 'svg' | 'pdf';
