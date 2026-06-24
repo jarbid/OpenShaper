@@ -434,6 +434,6 @@ describe('parseS3d — deck fallback when Deck element absent', () => {
     const noDeck = MINIMAL_S3D.replace(/<Deck>[\s\S]*?<\/Deck>/, '');
     const result = parseS3d(noDeck);
     expect(result.board.deck.knots.length).toBeGreaterThanOrEqual(2);
-    expect(result.warnings.some((w) => /deck/i.test(w))).toBe(true);
+    expect(result.warnings.some((w) => /deck/i.test(w.message))).toBe(true);
   });
 });

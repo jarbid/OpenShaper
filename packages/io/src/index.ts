@@ -6,6 +6,7 @@
  *
  * Implemented so far: the legacy BoardCAD-LE native `.brd` reader.
  */
+export type { ImportWarning, ImportWarningSeverity } from './import-warning';
 export { parseBrd, parseBrdFile } from './brd-reader';
 export type { ParsedBrd, BrdMetadataValue } from './brd-reader';
 export { writeBrd } from './brd-writer';

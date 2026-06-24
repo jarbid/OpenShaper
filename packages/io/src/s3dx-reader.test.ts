@@ -43,7 +43,7 @@ describe('parseS3dx (real Shape3d samples)', () => {
     // This export omits <curveDefTop2>, so the outline falls back to the
     // narrower <curveDefTop1> (~18.6" vs the nominal 19.8") — we assert the
     // fallback fired and width is plausible rather than the exact nominal.
-    expect(warnings.some((w) => /falling back/.test(w))).toBe(true);
+    expect(warnings.some((w) => /falling back/.test(w.message))).toBe(true);
     expect(getMaxWidth(board)).toBeGreaterThan(44);
     expect(getMaxWidth(board)).toBeLessThan(54);
   });
@@ -143,7 +143,11 @@ describe('parseS3dx real-world export robustness', () => {
     for (const cs of interior) {
       expect(cs.spline.knots.length).toBeGreaterThanOrEqual(3);
     }
-    expect(warnings.some((w) => /degenerate cross-section/.test(w))).toBe(true);
+    expect(
+      warnings.some(
+        (w) => w.severity === 'dropped' && /too few to form a valid profile/.test(w.message),
+      ),
+    ).toBe(true);
   });
 
   it('settles imported sections idempotently (no thickness blow-up on re-edit)', () => {

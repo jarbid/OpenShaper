@@ -45,6 +45,7 @@ import {
   type Knot,
 } from '@openshaper/kernel';
 import { vec2 } from '@openshaper/kernel';
+import type { ImportWarning } from './import-warning';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -59,7 +60,7 @@ export interface ParsedS3d {
     comments?: string;
   };
   /** Non-fatal issues (e.g. missing Deck — synthetic curve generated). */
-  readonly warnings: string[];
+  readonly warnings: ImportWarning[];
 }
 
 /** `.s3dx` shares the parsed shape of `.s3d`. */
@@ -595,7 +596,7 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
     }
   }
 
-  const warnings: string[] = [];
+  const warnings: ImportWarning[] = [];
 
   // --- Outline (XY plane) ---
   let outlineTagUsed = opts.outlineTag;
@@ -604,10 +605,12 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
     outlineXml = getChildElement(boardXml, opts.outlineFallbackTag);
     if (outlineXml) {
       outlineTagUsed = opts.outlineFallbackTag;
-      warnings.push(
-        `No <${opts.outlineTag}> (apex outline) element — falling back to ` +
+      warnings.push({
+        severity: 'info',
+        message:
+          `No <${opts.outlineTag}> (apex outline) element — falling back to ` +
           `<${opts.outlineFallbackTag}>; outline width may be slightly narrower than nominal`,
-      );
+      });
     }
   }
   if (!outlineXml) {
@@ -675,10 +678,12 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
     deckKnots = injectDeckEndpoints(rawDeckKnots, bottomKnots);
   } else {
     // No deck element → generate synthetic deck (S3dReader.java lines 86–113)
-    warnings.push(
-      `No <${opts.deckTag}> (deck) element found — generating a synthetic deck curve from ` +
+    warnings.push({
+      severity: 'info',
+      message:
+        `No <${opts.deckTag}> (deck) element found — generating a synthetic deck curve from ` +
         'thickness formula (S3dReader.java lines 86–113); deck shape may not be accurate',
-    );
+    });
     deckKnots = buildSyntheticDeck(bottomKnots, length);
   }
 
@@ -693,25 +698,34 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
     // (S3dReader.java lines 140–148: item(1) is index 1 in the NodeList)
     const sectionBezierXml = getChildElement(sliceXml, 'Bezier3d');
     if (!sectionBezierXml) {
-      warnings.push(`<${tag}> has no <Bezier3d> — skipped`);
+      warnings.push({ severity: 'info', message: `<${tag}> has no <Bezier3d> — skipped` });
       continue;
     }
     const sectionCtrlXml = getChildElement(sectionBezierXml, 'Control_points');
     const sectionPolyXml = sectionCtrlXml ? getChildElement(sectionCtrlXml, 'Polygone3d') : null;
     if (!sectionPolyXml) {
-      warnings.push(`<${tag}> Bezier3d missing Control_points/Polygone3d — skipped`);
+      warnings.push({
+        severity: 'info',
+        message: `<${tag}> Bezier3d missing Control_points/Polygone3d — skipped`,
+      });
       continue;
     }
     const allPts = getAllChildElements(sectionPolyXml, 'Point3d');
     // index 1 = first real data point (after symmetry dummy at index 0)
     if (allPts.length < 2) {
-      warnings.push(`<${tag}> has fewer than 2 Point3d entries in Control_points — skipped`);
+      warnings.push({
+        severity: 'info',
+        message: `<${tag}> has fewer than 2 Point3d entries in Control_points — skipped`,
+      });
       continue;
     }
     const posXStr = getChildText(allPts[1]!, 'x');
     const pos = posXStr !== null ? Number(posXStr) : NaN;
     if (!Number.isFinite(pos)) {
-      warnings.push(`<${tag}> position x is non-finite (${posXStr}) — skipped`);
+      warnings.push({
+        severity: 'info',
+        message: `<${tag}> position x is non-finite (${posXStr}) — skipped`,
+      });
       continue;
     }
 
@@ -722,10 +736,12 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
     // the 3D mesh to a sliver and makes the thickness-slaving pass non-idempotent
     // (it blows the section up on a later edit). Drop these with a warning.
     if (sectionKnots.length < 3) {
-      warnings.push(
-        `<${tag}> at position ${pos} has only ${sectionKnots.length} control point(s) — ` +
-          'degenerate cross-section, skipped',
-      );
+      warnings.push({
+        severity: 'dropped',
+        message:
+          `Cross-section at ${pos.toFixed(1)} cm has only ${sectionKnots.length} control point(s) — ` +
+          'too few to form a valid profile, so it was removed.',
+      });
       continue;
     }
 
