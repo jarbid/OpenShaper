@@ -2,19 +2,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import {
-  getLength,
-  getMaxWidth,
-  getThickness,
-  getVolume,
-} from '@openshaper/kernel';
+import { getLength, getMaxWidth, getThickness, getVolume } from '@openshaper/kernel';
 import { parseBrd } from './brd-reader';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const GOLDEN_DIR = resolve(HERE, '../../../docs/specs/golden');
 
-const readBrd = (name: string): string =>
-  readFileSync(resolve(GOLDEN_DIR, `${name}.brd`), 'utf8');
+const readBrd = (name: string): string => readFileSync(resolve(GOLDEN_DIR, `${name}.brd`), 'utf8');
 
 interface GoldenBoard {
   length: number;
@@ -75,7 +69,9 @@ describe('parseBrd — golden fixtures', () => {
   it('shortboard parses without throwing and warns about the truncated p35 group', () => {
     const parsed = parseBrd(readBrd('shortboard'));
     expect(parsed.board.crossSections.length).toBeGreaterThanOrEqual(3);
-    expect(parsed.warnings.some((w) => /missing its closing|truncated/i.test(w))).toBe(true);
+    expect(parsed.warnings.some((w) => /missing its closing|truncated/i.test(w.message))).toBe(
+      true,
+    );
   });
 
   it('funboard and longboard parse with no warnings', () => {

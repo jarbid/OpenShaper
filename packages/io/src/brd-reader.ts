@@ -12,6 +12,7 @@ import {
   type Knot,
 } from '@openshaper/kernel';
 import { decryptBrd, isEncryptedBrd } from './legacy-crypto';
+import type { ImportWarning } from './import-warning';
 
 /**
  * Best-effort migration of the legacy free-text `mFinType` to a parametric config.
@@ -70,7 +71,7 @@ export interface ParsedBrd {
   /** Scalar `pNN` fields keyed by their legacy semantic name (see FIELD_NAMES). */
   readonly metadata: Record<string, BrdMetadataValue>;
   /** Non-fatal issues encountered (e.g. truncated trailing group). */
-  readonly warnings: string[];
+  readonly warnings: ImportWarning[];
 }
 
 /** Legacy semantic names for the scalar pNN metadata fields (from BrdReader switch). */
@@ -195,7 +196,7 @@ interface Cursor {
 }
 
 /** Consume `(cp ...)` records into a knot list, plus an optional `gps : ( ... )` block. */
-const readControlPoints = (cur: Cursor, warnings: string[]): Knot[] => {
+const readControlPoints = (cur: Cursor, warnings: ImportWarning[]): Knot[] => {
   const knots: Knot[] = [];
   // Expect (and skip) an opening "(" line; legacy keys (p32/p33/p34) put it on its own line.
   while (cur.i < cur.lines.length) {
@@ -216,13 +217,16 @@ const readControlPoints = (cur: Cursor, warnings: string[]): Knot[] => {
     if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === ')') {
       cur.i++; // consume the gps closing ")"
     } else {
-      warnings.push(`gps block near line ${cur.i + 1} not closed by ')'`);
+      warnings.push({
+        severity: 'info',
+        message: `gps block near line ${cur.i + 1} not closed by ')'`,
+      });
     }
   }
   return knots;
 };
 
-const parseSpline = (cur: Cursor, warnings: string[]): Knot[] => {
+const parseSpline = (cur: Cursor, warnings: ImportWarning[]): Knot[] => {
   // The field's "(" opener is on the next line after "pNN : (" handling; skip a lone "(".
   if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === '(') cur.i++;
   const knots = readControlPoints(cur, warnings);
@@ -233,7 +237,7 @@ const parseSpline = (cur: Cursor, warnings: string[]): Knot[] => {
 
 const parseCrossSections = (
   cur: Cursor,
-  warnings: string[],
+  warnings: ImportWarning[],
 ): { position: number; knots: Knot[] }[] => {
   if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === '(') cur.i++;
   const sections: { position: number; knots: Knot[] }[] = [];
@@ -252,7 +256,10 @@ const parseCrossSections = (
     if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === ')') {
       cur.i++;
     } else {
-      warnings.push(`cross-section at position ${pos} (line ${cur.i + 1}) not closed by ')'`);
+      warnings.push({
+        severity: 'info',
+        message: `cross-section at position ${pos} (line ${cur.i + 1}) not closed by ')'`,
+      });
     }
   }
   // Consume the p35 group's closing ")". If absent we hit EOF on the truncated
@@ -260,10 +267,12 @@ const parseCrossSections = (
   if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === ')') {
     cur.i++;
   } else {
-    warnings.push(
-      'p35 cross-section group is missing its closing ")" (truncated trailing group); ' +
+    warnings.push({
+      severity: 'info',
+      message:
+        'p35 cross-section group is missing its closing ")" (truncated trailing group); ' +
         'loaded all sections present',
-    );
+    });
   }
   return sections;
 };
@@ -272,7 +281,7 @@ export const parseBrd = (text: string): ParsedBrd => {
   if (typeof text !== 'string') {
     throw new BrdParseError('parseBrd expects a string');
   }
-  const warnings: string[] = [];
+  const warnings: ImportWarning[] = [];
   const metadata: Record<string, BrdMetadataValue> = {};
   const lines = text.split(/\r?\n/);
 
