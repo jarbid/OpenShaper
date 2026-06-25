@@ -412,10 +412,27 @@ const getControlPointCrossSectionAreaAt = (b: BezierBoard, x: number, splits: nu
  *    bounding stations (legacy BezierBoardSLinearInterpolationSurfaceModel). The
  *    sLinear model uses a fixed AREA_SPLITS internally, mirroring the legacy.
  */
-export const getCrossSectionAreaAt = (b: BezierBoard, x: number, splits: number): number =>
-  b.interpolationType === 'sLinear'
-    ? getSLinearCrossSectionAreaAt(b, x)
-    : getControlPointCrossSectionAreaAt(b, x, splits);
+/**
+ * Lateral compression a concave-tail notch applies to a station's section. The
+ * cutout loft squeezes the full section into the band [y_in, y_out], so the foam
+ * cross-section area (matching the rendered mesh) scales by (y_out − y_in)/y_out.
+ * 1 for a normal board, so volume / mass stay bit-identical.
+ */
+const cutoutAreaFactor = (b: BezierBoard, x: number): number => {
+  const { yIn, yOut } = widthBoundsAt(b, x);
+  if (yOut <= 1e-6) return 1;
+  const f = (yOut - yIn) / yOut;
+  return f < 0 ? 0 : f;
+};
+
+export const getCrossSectionAreaAt = (b: BezierBoard, x: number, splits: number): number => {
+  const base =
+    b.interpolationType === 'sLinear'
+      ? getSLinearCrossSectionAreaAt(b, x)
+      : getControlPointCrossSectionAreaAt(b, x, splits);
+  // A concave tail removes the inner strip; normal boards are untouched.
+  return hasTailCutout(b.outline) ? base * cutoutAreaFactor(b, x) : base;
+};
 
 /**
  * Board volume in cm³ (legacy getVolume).
@@ -444,7 +461,12 @@ export const getVolume = (b: BezierBoard, opts: IntegrationOptions = {}): number
 export const getArea = (b: BezierBoard, splits?: number): number => {
   const a = T_ZERO;
   const bEnd = getLength(b) - T_ZERO;
-  const widthAt = (x: number): number => getWidthAtPos(b, x);
+  // Foam width = 2·(y_out − y_in): a concave tail's notch removes the inner strip.
+  // For a normal outline y_in = 0, so this is exactly the legacy 2·outline.y.
+  const widthAt = (x: number): number => {
+    const { yIn, yOut } = widthBoundsAt(b, x);
+    return (yOut - yIn) * 2;
+  };
   return splits === undefined
     ? adaptiveSimpson(widthAt, a, bEnd, ADAPTIVE_REL_TOL)
     : simpsonIntegral(widthAt, a, bEnd, splits);
