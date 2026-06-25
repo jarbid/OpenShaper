@@ -19,6 +19,7 @@ export * from './bezier-curve';
 export * from './bezier-fit';
 export * from './bezier-spline';
 export * from './cross-section';
+export * from './outline-cutout';
 export * from './board';
 export * from './tessellate';
 export * from './fins';
