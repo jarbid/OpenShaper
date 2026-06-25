@@ -3,8 +3,10 @@ import {
   getInterpolatedCrossSection,
   getLength,
   getRockerAtPos,
+  hasTailCutout,
   pointByTT,
   resolveFins,
+  tessellateBoard,
   tessellationSteps,
   type BezierBoard,
   type BoardMesh,
@@ -108,6 +110,21 @@ export const exportStl = (board: BezierBoard, opts: StlOptions = {}): string => 
   const name = opts.name ?? 'openshaper';
   const length = getLength(board);
 
+  const out: string[] = [];
+  out.push(`solid ${name}`);
+
+  // A concave tail (swallow / fish) cannot be expressed by the single-rail mirror
+  // loft below — its notch would collapse. Use the kernel's watertight cutout mesh
+  // instead (ringSteps here is one rail; the kernel mesh wants the full loop).
+  if (hasTailCutout(board.outline)) {
+    writeMesh(out, tessellateBoard(board, { lengthSteps, ringSteps: ringSteps * 2 }));
+    if (opts.includeFins !== false) {
+      for (const fin of resolveFins(board)) writeMesh(out, buildFinBladeMesh(fin));
+    }
+    out.push(`endsolid ${name}`);
+    return out.join('\n') + '\n';
+  }
+
   // Build rings at interior stations (avoid the exact 0/length dummy sections,
   // which have zero/clamped dimensions; nudge in by a small epsilon like getVolume).
   const eps = Math.min(0.01, length / (lengthSteps * 4));
@@ -118,9 +135,6 @@ export const exportStl = (board: BezierBoard, opts: StlOptions = {}): string => 
     const ring = sampleRing(board, pos, ringSteps);
     if (ring) rings.push(ring);
   }
-
-  const out: string[] = [];
-  out.push(`solid ${name}`);
 
   for (let j = 0; j < rings.length - 1; j++) {
     const a = rings[j]!;

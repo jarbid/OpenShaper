@@ -7,6 +7,7 @@
 import {
   getInterpolatedCrossSection,
   getLength,
+  hasTailCutout,
   pointByTT,
   valueAt,
   type BezierBoard,
@@ -183,6 +184,16 @@ export const sampleProfile = (s: Spline, x0: number, x1: number, steps: number):
 
 /** Closed plan-view outline loop (both rails) of a board, sampled at `steps`. */
 export const planOutlineLoop = (b: BezierBoard, steps: number): Pt[] => {
+  // A concave tail (swallow / fish) is non-monotonic in x, so an x-sampled y(x)
+  // would collapse the notch. Trace the outline PARAMETRICALLY instead (following
+  // the fold), then mirror. Normal (single-valued) boards keep the exact x-sampled
+  // path so existing diagram / PDF output is unchanged.
+  if (hasTailCutout(b.outline)) {
+    const segs = splineSegments(b.outline);
+    const perSeg = Math.max(2, Math.ceil(steps / Math.max(1, segs.length)));
+    const top = flattenBeziers(segs, perSeg);
+    return [...top, ...[...top].reverse().map((p) => ({ x: p.x, y: -p.y }))];
+  }
   const len = getLength(b);
   const e = Math.min(0.01, len / (steps * 4));
   const top: Pt[] = [];

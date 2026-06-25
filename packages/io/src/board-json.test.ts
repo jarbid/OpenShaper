@@ -2,7 +2,18 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { board, defaultFinConfig, getLength, getMaxWidth, getVolume } from '@openshaper/kernel';
+import {
+  board,
+  crossSection,
+  defaultFinConfig,
+  getLength,
+  getMaxWidth,
+  getVolume,
+  hasTailCutout,
+  knot,
+  splineFromKnots,
+  vec2,
+} from '@openshaper/kernel';
 import { parseBrd } from './brd-reader';
 import { BoardJsonError, readBoardJson, writeBoardJson } from './board-json';
 
@@ -30,6 +41,37 @@ describe('board-json round-trip', () => {
   it('rejects non-Board-Studio JSON', () => {
     expect(() => readBoardJson('{"hello":1}')).toThrow(BoardJsonError);
     expect(() => readBoardJson('not json')).toThrow(BoardJsonError);
+  });
+
+  it('preserves a concave tail (swallow) outline through save/load', () => {
+    // The outline folds back at the tail (non-monotonic in x). No schema change is
+    // needed — it serializes as plain knots — so the notch must survive verbatim.
+    const t = (ax: number, ay: number, bx: number, by: number): [number, number] => [
+      ax + (bx - ax) / 3,
+      ay + (by - ay) / 3,
+    ];
+    const swallow = splineFromKnots([
+      knot(vec2(12, 0), vec2(12, 0), vec2(...t(12, 0, 0, 6))),
+      knot(vec2(0, 6), vec2(...t(0, 6, 12, 0)), vec2(...t(0, 6, 50, 15))),
+      knot(vec2(50, 15), vec2(...t(50, 15, 0, 6)), vec2(...t(50, 15, 100, 0))),
+      knot(vec2(100, 0), vec2(...t(100, 0, 50, 15)), vec2(100, 0)),
+    ]);
+    const base = loadBrd('shortboard');
+    const original = board(
+      swallow,
+      base.bottom,
+      base.deck,
+      [
+        crossSection(0, base.crossSections[1]!.spline),
+        crossSection(50, base.crossSections[1]!.spline),
+        crossSection(100, base.crossSections[1]!.spline),
+      ],
+      base.interpolationType,
+    );
+    expect(hasTailCutout(original.outline)).toBe(true);
+    const { board: restored } = readBoardJson(writeBoardJson(original));
+    expect(restored.outline.knots).toEqual(original.outline.knots);
+    expect(hasTailCutout(restored.outline)).toBe(true);
   });
 });
 
