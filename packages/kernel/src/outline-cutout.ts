@@ -33,6 +33,13 @@ export const OUTLINE_SAMPLES = 400;
  */
 export const CUTOUT_EPS = 0.05;
 
+/**
+ * A tail tip must carry at least this half-width (cm) for the fold to count as a
+ * real notch (swallow / fish). Below it, a tail that merely has a folded tangent
+ * but no width is treated as an ordinary pointy tail, not a cutout.
+ */
+export const CUTOUT_MIN_TIP_HALF_WIDTH = 0.5;
+
 /** Inner / outer half-width of the board at one longitudinal station. */
 export interface WidthBounds {
   /** Inner notch wall half-width (0 outside a cutout). */
@@ -164,8 +171,11 @@ const segmentsHaveCutout = (seg: OutlineSegments): boolean => {
   const tip = seg.points[seg.tipIndex]!;
   let innerMaxX = -Infinity;
   for (const p of seg.tailInner) if (p.x > innerMaxX) innerMaxX = p.x;
-  // The notch must have real forward depth — guard against sampling noise.
-  return innerMaxX - tip.x > CUTOUT_EPS;
+  // A real notch needs BOTH real forward depth (the wall folds ahead of the tip) and
+  // real width at the tip (the tip carries half-width — the notch mouth opens to
+  // 2·|tip.y|). This rejects a merely folded tangent on a zero-width pointy tail,
+  // whose curve can bulge behind x=0 with y≈0 but is not a swallow / fish.
+  return innerMaxX - tip.x > CUTOUT_EPS && Math.abs(tip.y) > CUTOUT_MIN_TIP_HALF_WIDTH;
 };
 
 const CUTOUT_FLAG = new WeakMap<Spline, boolean>();

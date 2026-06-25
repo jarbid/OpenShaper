@@ -9,6 +9,7 @@ import {
   getInterpolatedCrossSection,
   getLength,
   getWidthAtPos,
+  hasTailCutout,
   knot,
   mirrorFinIndex,
   maxX,
@@ -17,6 +18,7 @@ import {
   splitCurve,
   valueAt,
   vec2,
+  widthBoundsAt,
   type BezierBoard,
   type CrossSection,
   type FinConfig,
@@ -388,7 +390,8 @@ export const setFinFromPlanPoint = (b: BezierBoard, index: number, point: Vec2):
       ? { trailingFromTail }
       : {
           trailingFromTail,
-          insetFromRail: Math.max(0, valueAt(b.outline, cx) - Math.abs(point.y)),
+          // Outer rail half-width (concave-tail aware) minus the drop point's offset.
+          insetFromRail: Math.max(0, widthBoundsAt(b, cx).yOut - Math.abs(point.y)),
         };
   return updateFinSpec(b, index, patch);
 };
@@ -439,10 +442,14 @@ const lockEndpointsX = (s: Spline, length: number): Spline => {
  * fold a tangent back on itself. y is untouched. Idempotent and a no-op for handles that
  * already flow the right way (the normal case for a well-formed board curve).
  */
-const clampMonotonicX = (s: Spline): Spline => {
+const clampMonotonicX = (s: Spline, exemptUpTo = -1): Spline => {
   const n = s.knots.length;
   let out = s;
   for (let i = 0; i < n; i++) {
+    // Knots in the tail-fold region of a concave tail (swallow / fish) are exempt:
+    // their handles legitimately point "back" so the notch wall can curve forward
+    // toward the centreline. Everything from the tail tip to the nose stays clamped.
+    if (i <= exemptUpTo) continue;
     const k = out.knots[i]!;
     // Only the handles that drive a segment matter: an open spline never uses the first
     // knot's toPrev or the last knot's toNext, so leave those dangling handles untouched —
@@ -528,17 +535,22 @@ export const enforceJunctions = (b: BezierBoard, changed?: SplineTarget): Bezier
     return s === cs.spline ? cs : { position: cs.position, spline: s };
   });
 
-  // Outline: tail station pinned to x = 0, nose tip pinned to the centerline y = 0
-  // (JC-1). The nose is knots[last] (largest x = length); it tapers to a point on the
-  // stringer, so its half-width is 0. Its x is the length reference, so it is not itself
-  // x-locked. The tail's y is left free — square / fish tails carry legitimate tail-block
-  // width. (Legacy JC-1 locks BOTH tips fully via mask; we keep the tail width editable
-  // and re-snap stations only — see docs/specs/divergences.md.)
+  // Outline tail/nose pins (JC-1). The rearmost (min-x) outline knot is the tail tip
+  // and the length/station reference — pinned to x = 0. For a normal board that is
+  // knots[0]; for a concave tail (swallow / fish) it is the interior tip, while knots[0]
+  // is the notch bottom on the centreline. The nose (knots[last], largest x = length)
+  // tapers to a point, so its half-width y is pinned to 0. The tail's y is left free —
+  // square / fish / swallow tails carry legitimate tail-block width. (Legacy JC-1 locks
+  // BOTH tips fully via mask; we keep the tail width editable — see docs/specs/divergences.md.)
+  const concaveTail = hasTailCutout(b.outline);
   let outline = b.outline;
   const noseIdx = outline.knots.length - 1;
+  let tipIdx = 0;
   if (noseIdx > 0) {
-    if (outline.knots[0]!.end.x !== 0)
-      outline = moveKnotEnd(outline, 0, vec2(0, outline.knots[0]!.end.y));
+    for (let i = 1; i <= noseIdx; i++)
+      if (outline.knots[i]!.end.x < outline.knots[tipIdx]!.end.x) tipIdx = i;
+    if (outline.knots[tipIdx]!.end.x !== 0)
+      outline = moveKnotEnd(outline, tipIdx, vec2(0, outline.knots[tipIdx]!.end.y));
     if (outline.knots[noseIdx]!.end.y !== 0)
       outline = moveKnotEnd(outline, noseIdx, vec2(outline.knots[noseIdx]!.end.x, 0));
     // Half-width floor: an outline point is a half-width (y), mirrored about the stringer
@@ -558,14 +570,15 @@ export const enforceJunctions = (b: BezierBoard, changed?: SplineTarget): Bezier
   if (changed?.kind === 'bottom') deck = joinTips(bottom, deck);
   else bottom = joinTips(deck, bottom);
 
-  // JC-6: outline / deck / bottom stay single-valued in x (run after every endpoint move,
-  // since moveKnotEnd translates the handles too). JC-7: the outline tips' inward handles
-  // can only depart the centreline outward (+y) so the planshape can't invert at the tips.
-  outline = clampMonotonicX(outline);
+  // JC-6: the outline stays single-valued in x EXCEPT the concave-tail fold region
+  // (knots[0..tip], where the notch wall legitimately curves back); deck / bottom are
+  // always single-valued. JC-7: the outline tip + nose inward handles can only depart
+  // the centreline outward (+y) so the planshape can't invert at the tips.
+  outline = clampMonotonicX(outline, concaveTail ? tipIdx : -1);
   deck = clampMonotonicX(deck);
   bottom = clampMonotonicX(bottom);
   if (noseIdx > 0) {
-    outline = clampHandleFloor(outline, 0, 'next', 'y');
+    outline = clampHandleFloor(outline, tipIdx, 'next', 'y');
     outline = clampHandleFloor(outline, noseIdx, 'prev', 'y');
   }
 

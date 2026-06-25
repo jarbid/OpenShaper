@@ -19,6 +19,7 @@ import {
   getMaxWidth,
   getRockerAtPos,
   getWidthAtPos,
+  hasTailCutout,
   knot,
   maxX,
   splineFromKnots,
@@ -733,6 +734,63 @@ describe('junction-constraint spec (legacy parity pinning)', () => {
     expect(twice.crossSections.map((c) => c.spline.knots)).toEqual(
       once.crossSections.map((c) => c.spline.knots),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Concave tail (swallow / fish): the outline may fold back in x at the tail.
+// enforceJunctions must PRESERVE that fold (not re-snap it single-valued) while
+// pinning the rearmost tip — but only the tail region is exempt from JC-6.
+// ---------------------------------------------------------------------------
+
+describe('enforceJunctions: concave tail (swallow / fish)', () => {
+  const third = (ax: number, ay: number, bx: number, by: number): [number, number] => [
+    ax + (bx - ax) / 3,
+    ay + (by - ay) / 3,
+  ];
+  // notch bottom (12,0) → tail tip (0,6, rearmost) → wide (50,15) → nose (100,0).
+  const swallow = () =>
+    splineFromKnots([
+      knot(vec2(12, 0), vec2(12, 0), vec2(...third(12, 0, 0, 6))),
+      knot(vec2(0, 6), vec2(...third(0, 6, 12, 0)), vec2(...third(0, 6, 50, 15))),
+      knot(vec2(50, 15), vec2(...third(50, 15, 0, 6)), vec2(...third(50, 15, 100, 0))),
+      knot(vec2(100, 0), vec2(...third(100, 0, 50, 15)), vec2(100, 0)),
+    ]);
+  const swallowBoard = () => {
+    const bottom = splineFromKnots([
+      knot(vec2(0, 5), vec2(-5, 5), vec2(5, 5)),
+      knot(vec2(100, 5), vec2(95, 5), vec2(105, 5)),
+    ]);
+    const deck = splineFromKnots([
+      knot(vec2(0, 11), vec2(-5, 11), vec2(5, 11)),
+      knot(vec2(100, 11), vec2(95, 11), vec2(105, 11)),
+    ]);
+    const prof = splineFromKnots([
+      knot(vec2(0, 5), vec2(0, 5), vec2(10, 5)),
+      knot(vec2(10, 8), vec2(10, 6), vec2(10, 8)),
+    ]);
+    const cs = [crossSection(0, prof), crossSection(50, prof), crossSection(100, prof)];
+    return board(swallow(), bottom, deck, cs);
+  };
+
+  it('preserves the tail fold (does not re-snap the outline single-valued)', () => {
+    const out = enforceJunctions(swallowBoard());
+    expect(hasTailCutout(out.outline)).toBe(true);
+    const tipX = Math.min(...out.outline.knots.map((k) => k.end.x));
+    const notchBottomX = out.outline.knots[0]!.end.x;
+    expect(tipX).toBeLessThan(notchBottomX); // the wall still folds forward of the tip
+  });
+
+  it('pins the rearmost (min-x) tip to x=0, leaving the notch bottom forward', () => {
+    const out = enforceJunctions(swallowBoard());
+    expect(Math.min(...out.outline.knots.map((k) => k.end.x))).toBe(0);
+    expect(out.outline.knots[0]!.end.x).toBeGreaterThan(5); // notch bottom keeps its x
+  });
+
+  it('is idempotent on a swallow board', () => {
+    const once = enforceJunctions(swallowBoard());
+    const twice = enforceJunctions(once);
+    expect(twice.outline.knots).toEqual(once.outline.knots);
   });
 });
 
