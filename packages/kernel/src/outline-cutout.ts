@@ -21,6 +21,14 @@ import type { Vec2 } from './vec2';
  * behaves exactly as before — fully backward compatible.
  *
  * Tail-only for now: the nose stays a collapsed tip (no `noseInner`).
+ *
+ * LIMITATION — single notch only. This models exactly ONE tail tip (`argmin x`) and
+ * ONE inner wall, i.e. ONE foam band `[y_in, y_out]` per side: swallow / fish. A
+ * **batwing / multi-point tail** (several rear points → several notches → multiple
+ * disjoint foam bands at a rear station) is NOT supported — `yInOut` blends the
+ * extra crossings into one bogus inner wall (no crash, but the mesh is wrong and may
+ * not be watertight there). Full support needs a scanline / even-odd interval model
+ * (N bands per station) with variable-topology lofting; deliberately deferred.
  */
 
 /** Default polyline resolution for sampling the outline (AIShaper uses ~400). */
