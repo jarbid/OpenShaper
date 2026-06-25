@@ -125,4 +125,70 @@ describe('tessellateCutout: swallow board', () => {
     }
     expect(maxAbsY).toBeCloseTo(23.5, 0); // within 0.5cm of the wide point
   });
+
+  it('samples the concave wall finely (the inner edge steps smoothly, no big facets)', () => {
+    // Group verts by station x; the inner edge at a station is its min |y|. Adjacent
+    // stations through the notch must step the inner edge only a little — large jumps
+    // are the flat-facet artifact the adaptive station sampling removes.
+    const inner = new Map<number, number>();
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      const x = mesh.positions[i]!;
+      if (x < 1 || x > 16) continue; // notch interior (avoid tip + notch-base ends)
+      const xk = Math.round(x * 100) / 100;
+      const ay = Math.abs(mesh.positions[i + 1]!);
+      inner.set(xk, Math.min(inner.get(xk) ?? Infinity, ay));
+    }
+    const xs = [...inner.keys()].sort((a, b) => a - b);
+    expect(xs.length).toBeGreaterThan(10); // sampled through the notch
+    let maxStep = 0;
+    for (let i = 1; i < xs.length; i++) {
+      maxStep = Math.max(maxStep, Math.abs(inner.get(xs[i]!)! - inner.get(xs[i - 1]!)!));
+    }
+    expect(maxStep).toBeLessThan(1.0); // smooth: no large lateral jump between rings
+  });
+});
+
+describe('tessellateCutout: a steep concave wall stays smooth', () => {
+  const L = LENGTH;
+  // The inner wall leaves the notch bottom (24,0) running nearly PARALLEL to y (a
+  // near-vertical tangent), then curves to the tip (0,13) — the case that gave large
+  // flat facets with x-uniform sampling. Adaptive station refinement must follow it.
+  const steepSwallow = splineFromKnots([
+    knotFromArray([24, 0, 24, 0, 23, 7], false, false), // toNext shoots up in y at x≈24
+    knotFromArray([0, 13, 5, 13, ...third(0, 13, 95, 23.5)], false, false),
+    knotFromArray([95, 23.5, ...third(95, 23.5, 0, 13), ...third(95, 23.5, L, 0)], false, false),
+    knotFromArray([L, 0, ...third(L, 0, 95, 23.5), L, 0], false, false),
+  ]);
+  const b = board(
+    steepSwallow,
+    shortboard.bottom,
+    shortboard.deck,
+    shortboard.crossSections,
+    shortboard.interpolationType,
+    shortboard.fins,
+  );
+  const mesh = tessellateBoard(b, { lengthSteps: 120, ringSteps: 48 });
+
+  it('is watertight', () => {
+    expect(noNaN(mesh.positions)).toBe(true);
+    expect(boundaryEdgeCount(mesh)).toBe(0);
+  });
+
+  it('the inner edge follows the curve with small lateral steps', () => {
+    const inner = new Map<number, number>();
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      const x = mesh.positions[i]!;
+      if (x < 1 || x > 22) continue;
+      const xk = Math.round(x * 100) / 100;
+      inner.set(xk, Math.min(inner.get(xk) ?? Infinity, Math.abs(mesh.positions[i + 1]!)));
+    }
+    const xs = [...inner.keys()].sort((a, b) => a - b);
+    let maxStep = 0;
+    for (let i = 1; i < xs.length; i++) {
+      maxStep = Math.max(maxStep, Math.abs(inner.get(xs[i]!)! - inner.get(xs[i - 1]!)!));
+    }
+    // With x-uniform sampling this steep wall jumped several cm between rings; adaptive
+    // refinement keeps every step small.
+    expect(maxStep).toBeLessThan(1.0);
+  });
 });

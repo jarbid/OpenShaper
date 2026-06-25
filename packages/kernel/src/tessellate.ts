@@ -340,11 +340,47 @@ const tessellateCutout = (
   const positions: number[] = [];
   const indices: number[] = [];
 
-  const xs: number[] = [];
-  for (let s = 0; s < lengthSteps; s++) {
-    const u = s / (lengthSteps - 1);
-    const cd = (1 - Math.cos(u * Math.PI)) / 2; // cosine clustering at both ends
-    xs.push(x0 + cd * (x1 - x0));
+  // Longitudinal stations. A uniform/cosine distribution in x under-samples the
+  // concave wall where it runs nearly parallel to y (a big change in y_in over a
+  // tiny change in x → large flat facets). So seed coarse cosine stations, then
+  // recursively subdivide any interval whose midpoint (y_in, y_out) deviates from a
+  // straight chord — concentrating rings exactly where the outline bends, so the
+  // mesh follows the bezier with smooth, consistent facets.
+  const lat = (x: number): [number, number] => {
+    const { yIn, yOut } = yInOut(segments, x);
+    return [yIn, yOut];
+  };
+  const FLATNESS = 0.04; // cm: max midpoint deviation from the chord before splitting
+  const STEP = 0.6; // cm: max lateral change of y_in / y_out per facet (bounds facet size)
+  const minDx = Math.max((x1 - x0) / (MAX_LENGTH_STEPS * 1.5), 0.008);
+  const xs: number[] = [x0];
+  const refine = (a: number, b: number, depth: number): void => {
+    const m = (a + b) / 2;
+    const [ia, oa] = lat(a);
+    const [ib, ob] = lat(b);
+    const [im, om] = lat(m);
+    // Split where the curve bends (midpoint off the chord) OR where the boundary moves
+    // too far laterally across the interval (a near-vertical wall → big flat facet).
+    const dev = Math.max(Math.abs(im - (ia + ib) / 2), Math.abs(om - (oa + ob) / 2));
+    const step = Math.max(Math.abs(ia - ib), Math.abs(oa - ob));
+    if (
+      (dev > FLATNESS || step > STEP) &&
+      b - a > minDx &&
+      depth < 24 &&
+      xs.length < MAX_LENGTH_STEPS
+    ) {
+      refine(a, m, depth + 1);
+      refine(m, b, depth + 1);
+    } else {
+      xs.push(b);
+    }
+  };
+  for (let s = 1; s < lengthSteps; s++) {
+    const u0 = (s - 1) / (lengthSteps - 1);
+    const u1 = s / (lengthSteps - 1);
+    const cd0 = (1 - Math.cos(u0 * Math.PI)) / 2;
+    const cd1 = (1 - Math.cos(u1 * Math.PI)) / 2;
+    refine(x0 + cd0 * (x1 - x0), x0 + cd1 * (x1 - x0), 0);
   }
 
   const yIns: number[] = [];
