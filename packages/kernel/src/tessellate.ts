@@ -8,6 +8,7 @@ import {
   type BezierBoard,
 } from './board';
 import { pointByTT } from './bezier-spline';
+import { CUTOUT_EPS, cachedOutlineSegments, hasTailCutout, yInOut } from './outline-cutout';
 
 /**
  * A triangle mesh of the board surface, ready for upload to a GPU buffer.
@@ -152,12 +153,13 @@ export const tessellateBoard = (board: BezierBoard, opts: TessellateOptions = {}
   );
 
   const length = getLength(board);
-  const empty = (): BoardMesh => ({
-    positions: new Float32Array(0),
-    indices: new Uint32Array(0),
-    normals: new Float32Array(0),
-  });
-  if (!Number.isFinite(length) || length <= 0) return empty();
+  if (!Number.isFinite(length) || length <= 0) return emptyMesh();
+
+  // A concave tail (swallow / fish) needs the cutout-aware lofting path; a normal
+  // board keeps the original single-loop path exactly (bit-identical meshes).
+  if (hasTailCutout(board.outline)) {
+    return tessellateCutout(board, length, lengthSteps, ringSteps);
+  }
 
   // A tiny inset keeps us off the exact tips where the interpolated section is null.
   const eps = Math.min(0.5, length * 1e-3);
@@ -178,7 +180,7 @@ export const tessellateBoard = (board: BezierBoard, opts: TessellateOptions = {}
     rings.push(idx);
   }
 
-  if (rings.length < 2) return empty();
+  if (rings.length < 2) return emptyMesh();
 
   // Stitch adjacent rings.
   for (let r = 0; r < rings.length - 1; r++) {
@@ -221,7 +223,20 @@ export const tessellateBoard = (board: BezierBoard, opts: TessellateOptions = {}
   capEnd(rings[0]!, x0 - eps, true);
   capEnd(rings[rings.length - 1]!, x1 + eps, false);
 
-  // --- per-vertex normals: average of adjacent face normals ---
+  return finalizeMesh(positions, indices);
+};
+
+const emptyMesh = (): BoardMesh => ({
+  positions: new Float32Array(0),
+  indices: new Uint32Array(0),
+  normals: new Float32Array(0),
+});
+
+/**
+ * Compute area-weighted per-vertex normals, orient the shell outward, and pack the
+ * working arrays into a `BoardMesh`. Shared by the normal and cutout loft paths.
+ */
+const finalizeMesh = (positions: number[], indices: number[]): BoardMesh => {
   const vertexCount = positions.length / 3;
   const normals = new Float32Array(positions.length);
 
@@ -294,6 +309,157 @@ export const tessellateBoard = (board: BezierBoard, opts: TessellateOptions = {}
     indices: new Uint32Array(indices),
     normals,
   };
+};
+
+/**
+ * Loft a board whose outline has a concave tail notch (swallow / fish).
+ *
+ * Each station maps to inner/outer half-widths (y_in, y_out): the section profile's
+ * lateral coordinate is remapped from [0, y_out] to [y_in, y_out], so in the notch
+ * the rails pull away from the centerline (when y_in == 0 the map is the identity,
+ * so the solid body is unchanged). The board is built as two independent half-shells
+ * (±Y); in the notch each half is sealed by a deck↔bottom "wall" (the ring loop's
+ * closing edge), while in the body the wall is skipped and the halves meet at the
+ * centerline. Each half's first/last ring is fanned shut so both pod tubes are closed.
+ *
+ * Stations are cosine-clustered toward the tail tip (and nose) so the fast-curving
+ * notch walls and tips are well resolved without a dense mesh through the middle.
+ */
+const tessellateCutout = (
+  board: BezierBoard,
+  length: number,
+  lengthSteps: number,
+  ringSteps: number,
+): BoardMesh => {
+  const segments = cachedOutlineSegments(board.outline);
+  const eps = Math.min(0.5, length * 1e-3);
+  const x0 = eps;
+  const x1 = length - eps;
+  const half = Math.max(2, Math.floor(ringSteps / 2));
+
+  const positions: number[] = [];
+  const indices: number[] = [];
+
+  const xs: number[] = [];
+  for (let s = 0; s < lengthSteps; s++) {
+    const u = s / (lengthSteps - 1);
+    const cd = (1 - Math.cos(u * Math.PI)) / 2; // cosine clustering at both ends
+    xs.push(x0 + cd * (x1 - x0));
+  }
+
+  const yIns: number[] = [];
+  const rightRows: (number[] | null)[] = [];
+  const leftRows: (number[] | null)[] = [];
+
+  for (const x of xs) {
+    const cs = getInterpolatedCrossSection(board, x);
+    const rocker = getRockerAtPos(board, x);
+    if (!cs || !Number.isFinite(rocker)) {
+      yIns.push(0);
+      rightRows.push(null);
+      leftRows.push(null);
+      continue;
+    }
+    let { yIn, yOut } = yInOut(segments, x);
+    if (yIn < CUTOUT_EPS) yIn = 0;
+    if (yOut < yIn + CUTOUT_EPS) yOut = yIn; // collapsed tip → zero-width sliver
+    yIns.push(yIn);
+
+    const scale = yOut > 1e-6 ? (yOut - yIn) / yOut : 0;
+    const right: number[] = [];
+    const left: number[] = [];
+    let ok = true;
+    for (let i = 0; i < half; i++) {
+      const tt = i / (half - 1);
+      const p = pointByTT(cs.spline, tt);
+      const mapped = yIn + p.x * scale; // p.x ∈ [0, yOut] → [yIn, yOut]
+      const z = p.y + rocker;
+      if (!isFinite3(x, mapped, z)) {
+        ok = false;
+        break;
+      }
+      right.push(addVert(positions, { x, y: mapped, z }));
+      left.push(addVert(positions, { x, y: -mapped, z }));
+    }
+    if (!ok || right.length < 2) {
+      rightRows.push(null);
+      leftRows.push(null);
+      continue;
+    }
+    rightRows.push(right);
+    leftRows.push(left);
+  }
+
+  // Stitch one half-shell's rows; `mirror` flips the winding for the -Y side.
+  const stitch = (rows: (number[] | null)[], mirror: boolean): void => {
+    for (let r = 0; r < rows.length - 1; r++) {
+      const a = rows[r];
+      const b = rows[r + 1];
+      if (!a || !b) continue;
+      // Close the deck↔bottom wall (the ring's wrap edge) only inside the notch.
+      const cut = yIns[r]! > CUTOUT_EPS || yIns[r + 1]! > CUTOUT_EPS;
+      const lim = cut ? half : half - 1;
+      for (let j = 0; j < lim; j++) {
+        const j1 = (j + 1) % half;
+        const a0 = a[j]!;
+        const a1 = a[j1]!;
+        const b0 = b[j]!;
+        const b1 = b[j1]!;
+        if (!mirror) {
+          indices.push(a0, b0, a1);
+          indices.push(a1, b0, b1);
+        } else {
+          indices.push(a0, a1, b0);
+          indices.push(a1, b1, b0);
+        }
+      }
+    }
+  };
+
+  stitch(rightRows, false);
+  stitch(leftRows, true);
+
+  // Fan a half's end ring (rail + wall) to its centroid so the pod tube is capped.
+  const capRow = (row: number[] | null, reverse: boolean): void => {
+    if (!row || row.length < 3) return;
+    let sx = 0;
+    let sy = 0;
+    let sz = 0;
+    for (const vi of row) {
+      sx += positions[vi * 3]!;
+      sy += positions[vi * 3 + 1]!;
+      sz += positions[vi * 3 + 2]!;
+    }
+    const n = row.length;
+    const cx = sx / n;
+    const cy = sy / n;
+    const cz = sz / n;
+    if (!isFinite3(cx, cy, cz)) return;
+    const tip = addVert(positions, { x: cx, y: cy, z: cz });
+    for (let i = 0; i < n; i++) {
+      const i0 = row[i]!;
+      const i1 = row[(i + 1) % n]!;
+      if (reverse) indices.push(tip, i1, i0);
+      else indices.push(tip, i0, i1);
+    }
+  };
+
+  let firstIdx = -1;
+  let lastIdx = -1;
+  for (let i = 0; i < rightRows.length; i++) {
+    if (rightRows[i]) {
+      if (firstIdx === -1) firstIdx = i;
+      lastIdx = i;
+    }
+  }
+  if (firstIdx !== -1 && lastIdx !== firstIdx) {
+    capRow(rightRows[firstIdx]!, true);
+    capRow(rightRows[lastIdx]!, false);
+    capRow(leftRows[firstIdx]!, false);
+    capRow(leftRows[lastIdx]!, true);
+  }
+
+  return finalizeMesh(positions, indices);
 };
 
 /**

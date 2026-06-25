@@ -23,6 +23,7 @@ import {
 } from './cross-section';
 import { adaptiveSimpson, simpsonIntegral, trapezoidIntegralXY } from './math';
 import { noFins, type FinConfig } from './fins';
+import { cachedOutlineSegments, hasTailCutout, yInOut, type WidthBounds } from './outline-cutout';
 import { vec2, type Vec2 } from './vec2';
 
 /**
@@ -125,7 +126,24 @@ export const getLength = (b: BezierBoard): number => {
   return length;
 };
 
-export const getWidthAtPos = (b: BezierBoard, pos: number): number => valueAt(b.outline, pos) * 2;
+/**
+ * Inner/outer half-widths at station `x`. For a normal (single-valued) outline the
+ * inner wall is 0 and the outer rail is the exact `valueAt` — bit-identical to the
+ * legacy. For a concave tail (swallow / fish) the outline is non-monotonic, so the
+ * widths come from the polyline `(y_in, y_out)` split instead.
+ */
+export const widthBoundsAt = (b: BezierBoard, pos: number): WidthBounds =>
+  hasTailCutout(b.outline)
+    ? yInOut(cachedOutlineSegments(b.outline), pos)
+    : { yIn: 0, yOut: valueAt(b.outline, pos) };
+
+/**
+ * Full outer width at `x` (legacy getWidth = 2·outline.y). For a concave tail this
+ * is the outer rail width (2·y_out); the notch is accounted for separately via
+ * {@link widthBoundsAt} in volume/area/mesh so the section is scaled to the rail.
+ */
+export const getWidthAtPos = (b: BezierBoard, pos: number): number =>
+  widthBoundsAt(b, pos).yOut * 2;
 export const getRockerAtPos = (b: BezierBoard, pos: number): number => valueAt(b.bottom, pos);
 export const getDeckAtPos = (b: BezierBoard, pos: number): number => valueAt(b.deck, pos);
 export const getThicknessAtPos = (b: BezierBoard, pos: number): number =>

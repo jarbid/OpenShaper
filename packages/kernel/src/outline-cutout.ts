@@ -143,17 +143,43 @@ export const yInOut = (segments: OutlineSegments, x: number): WidthBounds => {
   return { yIn, yOut };
 };
 
-/**
- * True when the outline folds back into a tail notch (swallow / fish). A normal
- * board has its tail tip at the first sample, so this is false and all the
- * single-valued paths stay in effect.
- */
-export const hasTailCutout = (outline: Spline, n: number = OUTLINE_SAMPLES): boolean => {
-  const seg = outlineSegments(outline, n);
+// Splines are immutable (a new object per edit), so their identity is a safe
+// cache key. `getWidthAtPos`, volume integration and tessellation all probe the
+// same outline thousands of times per board; memoize the polyline split so we
+// sample + sort once instead of per call.
+const SEG_CACHE = new WeakMap<Spline, OutlineSegments>();
+
+/** Outline segments at the default resolution, memoized per (immutable) outline. */
+export const cachedOutlineSegments = (outline: Spline): OutlineSegments => {
+  let seg = SEG_CACHE.get(outline);
+  if (!seg) {
+    seg = outlineSegments(outline);
+    SEG_CACHE.set(outline, seg);
+  }
+  return seg;
+};
+
+const segmentsHaveCutout = (seg: OutlineSegments): boolean => {
   if (seg.tipIndex <= 0) return false;
   const tip = seg.points[seg.tipIndex]!;
   let innerMaxX = -Infinity;
   for (const p of seg.tailInner) if (p.x > innerMaxX) innerMaxX = p.x;
   // The notch must have real forward depth — guard against sampling noise.
   return innerMaxX - tip.x > CUTOUT_EPS;
+};
+
+const CUTOUT_FLAG = new WeakMap<Spline, boolean>();
+
+/**
+ * True when the outline folds back into a tail notch (swallow / fish). A normal
+ * board has its tail tip at the first sample, so this is false and all the
+ * single-valued paths stay in effect. Memoized per outline.
+ */
+export const hasTailCutout = (outline: Spline): boolean => {
+  let flag = CUTOUT_FLAG.get(outline);
+  if (flag === undefined) {
+    flag = segmentsHaveCutout(cachedOutlineSegments(outline));
+    CUTOUT_FLAG.set(outline, flag);
+  }
+  return flag;
 };
