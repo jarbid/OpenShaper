@@ -553,6 +553,13 @@ export const enforceJunctions = (b: BezierBoard, changed?: SplineTarget): Bezier
       outline = moveKnotEnd(outline, tipIdx, vec2(0, outline.knots[tipIdx]!.end.y));
     if (outline.knots[noseIdx]!.end.y !== 0)
       outline = moveKnotEnd(outline, noseIdx, vec2(outline.knots[noseIdx]!.end.x, 0));
+    // Concave tail (swallow / fish): knots[0] is the notch bottom — the forward end of
+    // the inner wall, the deepest point of the V — which must sit ON the centreline
+    // (mirror line, y = 0) so the notch closes there and the two pods merge into solid
+    // board. Pin it to y = 0. (tipIdx > 0 confirms the tip is interior, so knots[0] is
+    // genuinely the notch bottom and not the tail tip — whose y stays free.)
+    if (concaveTail && tipIdx > 0 && outline.knots[0]!.end.y !== 0)
+      outline = moveKnotEnd(outline, 0, vec2(outline.knots[0]!.end.x, 0));
     // Half-width floor: an outline point is a half-width (y), mirrored about the stringer
     // (the centre line, y = 0). A point can never cross to the far side, so clamp every
     // endpoint to y ≥ 0. moveKnotEnd carries the handles up with it, so the point stops at

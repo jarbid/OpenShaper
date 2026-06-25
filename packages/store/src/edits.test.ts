@@ -792,6 +792,19 @@ describe('enforceJunctions: concave tail (swallow / fish)', () => {
     const twice = enforceJunctions(once);
     expect(twice.outline.knots).toEqual(once.outline.knots);
   });
+
+  it('pins the notch bottom (knots[0]) to the centreline y = 0', () => {
+    // Drift the notch bottom off the mirror line (y = 3); it must snap back to 0 so
+    // the concave closes on the centreline. Its x (notch depth) is preserved.
+    const drifted = withSpline(
+      swallowBoard(),
+      { kind: 'outline' },
+      moveKnotEnd(swallow(), 0, vec2(12, 3)),
+    );
+    const out = enforceJunctions(drifted);
+    expect(out.outline.knots[0]!.end.y).toBe(0);
+    expect(out.outline.knots[0]!.end.x).toBe(12);
+  });
 });
 
 // ---------------------------------------------------------------------------
