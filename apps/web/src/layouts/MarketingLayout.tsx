@@ -10,6 +10,8 @@ import '../marketing.css';
 const NAV = [
   { to: '/surfboard-design-guide', label: 'Design Guide' },
   { to: '/surfboard-construction-methods', label: 'Construction' },
+  { to: '/surfboard-volume-calculator', label: 'Volume Calculator' },
+  { to: '/build-a-hollow-wooden-surfboard', label: 'Wooden Build' },
   { to: '/about', label: 'About' },
 ];
 
@@ -146,6 +148,22 @@ export function MarketingLayout() {
                   className="text-muted-foreground hover:text-foreground"
                 >
                   Construction methods
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/surfboard-volume-calculator"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  Volume calculator
+                </Link>
+              </li>
+              <li>
+                <Link
+                  to="/build-a-hollow-wooden-surfboard"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  Build a wooden surfboard
                 </Link>
               </li>
               <li>

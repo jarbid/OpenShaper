@@ -53,6 +53,7 @@ export default function About() {
             jobTitle: 'Technical Designer',
             description:
               'Technical designer, maker and surfer who designs and builds hollow timber surfboards and created OpenShaper.',
+            sameAs: [GITHUB_URL],
             knowsAbout: [
               'Surfboard design',
               'Surfboard shaping',
@@ -83,8 +84,13 @@ export default function About() {
             for surfboard <em>design</em> — not just riding boards, but understanding why they ride
             the way they do. That curiosity turned into sawdust. I started designing and building my
             own <strong>hollow timber surfboards</strong>, and my daily driver right now is a{' '}
-            <strong>5&apos;8&quot; fish I made from Paulownia</strong> — light, lively, and a
-            constant reminder of how good it feels to ride something you built with your own hands.
+            <strong>
+              <Link to="/build-a-hollow-wooden-surfboard">
+                5&apos;8&quot; fish I made from Paulownia
+              </Link>
+            </strong>{' '}
+            — light, lively, and a constant reminder of how good it feels to ride something you
+            built with your own hands. There&apos;s a full build guide if you want to make one too.
           </p>
 
           <blockquote className="my-8 border-l-2 border-primary pl-5 font-display text-xl italic leading-snug text-foreground">
@@ -136,8 +142,9 @@ export default function About() {
               buy me a coffee
             </a>{' '}
             to keep it growing. New to all this? Start with the{' '}
-            <Link to="/surfboard-design-guide">surfboard design guide</Link> or read up on{' '}
-            <Link to="/surfboard-construction-methods">construction methods</Link>.
+            <Link to="/surfboard-design-guide">surfboard design guide</Link>, read up on{' '}
+            <Link to="/surfboard-construction-methods">construction methods</Link>, or find your
+            litres with the <Link to="/surfboard-volume-calculator">volume calculator</Link>.
           </p>
         </div>
 

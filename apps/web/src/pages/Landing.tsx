@@ -313,6 +313,18 @@ export default function Landing() {
                 title: 'Construction methods compared',
                 body: 'PU/PE, EPS/epoxy, hollow wooden, chambered and more — weight, feel, durability, cost and how to build each.',
               },
+              {
+                to: '/surfboard-volume-calculator',
+                kicker: 'Tool',
+                title: 'Surfboard volume calculator',
+                body: 'Enter your weight and ability for a litre range, see the full volume chart, and learn what shifts the number.',
+              },
+              {
+                to: '/build-a-hollow-wooden-surfboard',
+                kicker: 'Build guide',
+                title: 'Build a hollow wooden surfboard',
+                body: 'The skin-on-frame method step by step — from CAD templates to frame, skins, rails and a proper vent.',
+              },
             ].map((c) => (
               <Link
                 key={c.to}

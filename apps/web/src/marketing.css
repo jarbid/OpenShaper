@@ -197,6 +197,9 @@
   font-size: 1.0625rem;
   line-height: 1.75;
   max-width: 44rem;
+  /* As a grid item (guide-page layout), allow shrinking below min-content so a
+     wide nowrap table scrolls inside its own box instead of inflating the column. */
+  min-width: 0;
 }
 .prose-shaper h2 {
   font-family: 'Bricolage Grotesque', ui-sans-serif, sans-serif;
@@ -280,6 +283,16 @@
 }
 .prose-shaper tbody tr:hover {
   background: color-mix(in oklch, var(--accent) 45%, transparent);
+}
+/* On small screens, let wide tables scroll sideways instead of crushing the
+   columns (ranges like "45 – 50 L" break mid-value otherwise). */
+@media (max-width: 640px) {
+  .prose-shaper table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 /* ── Motion: one orchestrated page-load stagger ────────────────────────── */
