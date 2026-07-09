@@ -1,13 +1,14 @@
 import { Link } from 'react-router-dom';
-import { ArticleHero, Container, CtaBand, Faq, Sources, Toc } from '../components/content';
+import { ArticleHero, Container, CtaBand, Faq, Figure, Sources, Toc } from '../components/content';
 import { JsonLd } from '../seo/JsonLd';
 import { Seo } from '../seo/Seo';
-import { absUrl, OG_IMAGE, SITE_NAME } from '../seo/site';
+import { absUrl, AUTHOR_NAME, OG_IMAGE, SITE_NAME } from '../seo/site';
 
 const TOC = [
   { id: 'compare', label: 'At a glance' },
   { id: 'pu', label: 'PU / polyester' },
   { id: 'eps', label: 'EPS / epoxy' },
+  { id: 'softtop', label: 'Soft-top (foamie)' },
   { id: 'hollow', label: 'Hollow wooden' },
   { id: 'chambered', label: 'Chambered wood' },
   { id: 'compsand', label: 'Compsand / sandwich' },
@@ -36,7 +37,9 @@ const FAQ = [
         Yes — that&apos;s exactly what OpenShaper is good at. Export the outline and cross-sections
         as DXF or PDF templates to cut internal frames (ribs and a perimeter rail), or an STL to CNC
         the parts, then skin the frame in timber. <Link to="/about">My own daily board</Link> is a
-        hollow Paulownia fish built this way.
+        hollow Paulownia fish built this way — the{' '}
+        <Link to="/build-a-hollow-wooden-surfboard">step-by-step build guide</Link> walks through
+        the whole process.
       </>
     ),
     text: 'Yes. Export the outline and cross-sections as DXF or PDF templates to cut the internal frame (ribs and perimeter rail), or an STL to CNC the parts, then skin the frame in timber. This is a standard skin-on-frame hollow wooden build.',
@@ -69,12 +72,14 @@ export default function SurfboardConstructionMethods() {
           {
             '@context': 'https://schema.org',
             '@type': 'Article',
-            headline: 'Surfboard Construction Methods Compared',
+            headline: 'Surfboard Construction Methods Compared: PU, EPS, Hollow Wood & More',
             description:
               'An overview of surfboard construction methods and how they differ in weight, feel, durability, sustainability and cost.',
             image: absUrl(OG_IMAGE),
-            author: { '@type': 'Organization', name: SITE_NAME },
+            author: { '@type': 'Person', name: AUTHOR_NAME, url: absUrl('/about') },
             publisher: { '@type': 'Organization', name: SITE_NAME },
+            datePublished: '2026-06-02',
+            dateModified: '2026-07-09',
             mainEntityOfPage: absUrl('/surfboard-construction-methods'),
           },
           {
@@ -95,7 +100,7 @@ export default function SurfboardConstructionMethods() {
 
       <ArticleHero
         eyebrow="Guide"
-        title="How surfboards are built."
+        title="How surfboards are built: construction methods compared."
         lede="Same shape, very different boards. The core and skin you choose decide a board's weight, flex, durability — and its footprint. Here's how the main methods compare."
       />
 
@@ -115,6 +120,13 @@ export default function SurfboardConstructionMethods() {
               feels and how long it lasts. Design the shape once — in OpenShaper — then pick the
               build that suits it.
             </p>
+            <Figure
+              src="/images/guides/openshaper-3d-preview.webp"
+              alt="3D preview of a surfboard design in free surfboard design software"
+              width={1600}
+              height={1000}
+              caption="One shape, many builds: the same 3D design can become a PU blank, an EPS core or a wooden frame."
+            />
 
             <h2 id="compare">At a glance</h2>
             <table>
@@ -140,6 +152,13 @@ export default function SurfboardConstructionMethods() {
                   <td>Light</td>
                   <td>Lively, buoyant</td>
                   <td>High</td>
+                  <td>Medium</td>
+                </tr>
+                <tr>
+                  <td>Soft-top (foamie)</td>
+                  <td>Medium</td>
+                  <td>Forgiving, muted</td>
+                  <td>Moderate</td>
                   <td>Medium</td>
                 </tr>
                 <tr>
@@ -178,12 +197,27 @@ export default function SurfboardConstructionMethods() {
 
             <h2 id="eps">EPS / epoxy</h2>
             <p>
-              An <strong>expanded polystyrene (EPS)</strong> core — the lighter, closed-bead foam —
-              laminated with <strong>epoxy resin</strong>. EPS/epoxy boards are lighter, stiffer and
-              more buoyant than PU/PE, which makes them lively and strong performers in smaller,
-              weaker waves, and notably more durable. The flip side is a feel some surfers describe
-              as skittish or &ldquo;corky,&rdquo; and EPS will absorb water if the skin is breached.
-              Epoxy is also more forgiving to build with at home than polyester.
+              An <strong>expanded polystyrene (EPS)</strong> core — a lighter foam of fused beads —
+              laminated with <strong>epoxy resin</strong>. The pairing is chemistry, not choice:
+              polyester resin dissolves polystyrene, so an EPS blank must be glassed with epoxy.
+              EPS/epoxy boards are lighter, stiffer and more buoyant than PU/PE, which makes them
+              lively and strong performers in smaller, weaker waves, and notably more durable. The
+              flip side is a feel some surfers describe as skittish or &ldquo;corky,&rdquo; and
+              because water can wick into the gaps between the beads, a dinged EPS board needs
+              drying and repairing promptly. Epoxy is also more forgiving to build with at home than
+              polyester.
+            </p>
+
+            <h2 id="softtop">Soft-top (foamie)</h2>
+            <p>
+              The surf-school staple: typically an EPS core with a <strong>soft foam deck</strong>{' '}
+              and a slick plastic bottom in place of a hard glass job. Soft-tops are forgiving,
+              safer in crowded line-ups, cheap and nearly maintenance-free — which is why almost
+              everyone learns on one, and why many experienced surfers keep one as a small-wave
+              novelty. The trade-offs: a flexy, muted feel, less precise rails, and dings that are
+              hard to repair invisibly. Most are mass-produced in moulds rather than shaped from a
+              custom design, though a soft glass job over a CNC-cut EPS blank is a real (if niche)
+              custom option.
             </p>
 
             <h2 id="hollow">Hollow wooden (skin-on-frame)</h2>
@@ -195,8 +229,18 @@ export default function SurfboardConstructionMethods() {
               a uniquely smooth, dampened flex. It&apos;s also one of the most sustainable ways to
               build — and the method that pairs best with CAD, because the ribs and rail are simply
               cross-sections and the outline cut from templates. This is how{' '}
-              <Link to="/about">my own 5&apos;8&quot; Paulownia fish</Link> is built.
+              <Link to="/about">my own 5&apos;8&quot; Paulownia fish</Link> is built — there&apos;s
+              a full{' '}
+              <Link to="/build-a-hollow-wooden-surfboard">hollow wooden surfboard build guide</Link>{' '}
+              if you want to try it.
             </p>
+            <Figure
+              src="/images/guides/hollow-wooden-surfboard-frame.webp"
+              alt="Skin-on-frame hollow wooden surfboard skeleton with plywood spine, ribs and a timber perimeter rail"
+              width={1600}
+              height={1200}
+              caption="A skin-on-frame skeleton before the deck goes on: spine, ribs and perimeter rail — every part cut from CAD templates."
+            />
 
             <h2 id="chambered">Chambered solid wood</h2>
             <p>
@@ -236,6 +280,13 @@ export default function SurfboardConstructionMethods() {
                 <strong>PDF</strong> — 1:1 printable templates and a spec sheet for hand-shaping.
               </li>
             </ul>
+            <Figure
+              src="/images/guides/openshaper-export-templates.webp"
+              alt="Export menu in surfboard design software with STL, DXF, PDF and hollow wood frame template options"
+              width={1600}
+              height={1000}
+              caption="Every build path in one menu — STL for CNC, DXF and 1:1 PDF for templates, plus a dedicated hollow-wood frame export."
+            />
             <p>
               If you&apos;re still deciding on a shape, start with the{' '}
               <Link to="/surfboard-design-guide">surfboard design guide</Link>. When the outline and

@@ -102,6 +102,40 @@ export function Faq({ items }: { items: FaqItem[] }) {
   );
 }
 
+/**
+ * In-article image with optional caption. Explicit width/height reserve the
+ * layout box before the lazy image loads (no CLS); the file itself should be
+ * ~2x the rendered column width.
+ */
+export function Figure({
+  src,
+  alt,
+  width,
+  height,
+  caption,
+}: {
+  src: string;
+  alt: string;
+  width: number;
+  height: number;
+  caption?: ReactNode;
+}) {
+  return (
+    <figure className="my-8">
+      <img
+        src={src}
+        alt={alt}
+        width={width}
+        height={height}
+        loading="lazy"
+        decoding="async"
+        className="h-auto w-full rounded-xl border border-border"
+      />
+      {caption && <figcaption className="mt-2 text-sm text-muted-foreground">{caption}</figcaption>}
+    </figure>
+  );
+}
+
 /** Cited sources block for research-backed pages. */
 export function Sources({ items }: { items: { label: string; href: string }[] }) {
   return (

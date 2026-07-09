@@ -12,6 +12,8 @@ const SITEMAP_ROUTES: { path: string; priority: string; changefreq: string }[] =
   { path: '/', priority: '1.0', changefreq: 'weekly' },
   { path: '/surfboard-design-guide', priority: '0.8', changefreq: 'monthly' },
   { path: '/surfboard-construction-methods', priority: '0.8', changefreq: 'monthly' },
+  { path: '/surfboard-volume-calculator', priority: '0.7', changefreq: 'monthly' },
+  { path: '/build-a-hollow-wooden-surfboard', priority: '0.7', changefreq: 'monthly' },
   { path: '/about', priority: '0.6', changefreq: 'monthly' },
 ];
 

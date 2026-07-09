@@ -32,6 +32,14 @@ export const routes: RouteRecord[] = [
         path: 'surfboard-construction-methods',
         lazy: page(() => import('./pages/SurfboardConstructionMethods')),
       },
+      {
+        path: 'surfboard-volume-calculator',
+        lazy: page(() => import('./pages/SurfboardVolumeCalculator')),
+      },
+      {
+        path: 'build-a-hollow-wooden-surfboard',
+        lazy: page(() => import('./pages/HollowWoodenSurfboard')),
+      },
     ],
   },
   {

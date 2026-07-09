@@ -1,11 +1,12 @@
 import { Link } from 'react-router-dom';
-import { ArticleHero, Container, CtaBand, Faq, Sources, Toc } from '../components/content';
+import { ArticleHero, Container, CtaBand, Faq, Figure, Sources, Toc } from '../components/content';
 import { JsonLd } from '../seo/JsonLd';
 import { Seo } from '../seo/Seo';
-import { absUrl, OG_IMAGE, SITE_NAME } from '../seo/site';
+import { absUrl, AUTHOR_NAME, OG_IMAGE, SITE_NAME } from '../seo/site';
 
 const TOC = [
   { id: 'outline', label: 'Outline (planshape)' },
+  { id: 'tail', label: 'Tail shapes' },
   { id: 'rocker', label: 'Rocker' },
   { id: 'rails', label: 'Rails' },
   { id: 'foil', label: 'Foil & volume' },
@@ -22,8 +23,9 @@ const FAQ = [
         As a rough starting point, multiply your body weight in kilograms by a factor for your
         ability: beginners around 0.9–1.0, intermediates 0.5–0.6, and advanced shortboarders
         0.35–0.40. A 75&nbsp;kg intermediate lands near 38–45&nbsp;litres. Treat it as a starting
-        line, not a rule — wave type and fitness shift it. OpenShaper shows volume live as you
-        shape.
+        line, not a rule — wave type and fitness shift it. The{' '}
+        <Link to="/surfboard-volume-calculator">volume calculator</Link> works this out for you, and
+        OpenShaper shows volume live as you shape.
       </>
     ),
     text: 'A common starting point is to multiply body weight in kilograms by an ability factor: beginners ~0.9–1.0, intermediates ~0.5–0.6, advanced shortboarders ~0.35–0.40. A 75 kg intermediate is roughly 38–45 litres. It is a starting point, not a strict rule.',
@@ -70,8 +72,10 @@ export default function SurfboardDesignGuide() {
             description:
               'A guide to the fundamentals of surfboard design and how each design element affects performance.',
             image: absUrl(OG_IMAGE),
-            author: { '@type': 'Organization', name: SITE_NAME },
+            author: { '@type': 'Person', name: AUTHOR_NAME, url: absUrl('/about') },
             publisher: { '@type': 'Organization', name: SITE_NAME },
+            datePublished: '2026-06-02',
+            dateModified: '2026-07-09',
             mainEntityOfPage: absUrl('/surfboard-design-guide'),
           },
           {
@@ -113,6 +117,13 @@ export default function SurfboardDesignGuide() {
               for a given surfer and wave, and the board comes alive. Below is what each element
               controls.
             </p>
+            <Figure
+              src="/images/guides/openshaper-editor-quad-view.webp"
+              alt="Surfboard design software showing a board's outline, cross-section, rocker and 3D views with a live spec panel"
+              width={1600}
+              height={1000}
+              caption="The four curves of a surfboard, side by side: outline, cross-section, rocker and the lofted 3D shape."
+            />
 
             <h2 id="outline">Outline (planshape)</h2>
             <p>
@@ -123,10 +134,48 @@ export default function SurfboardDesignGuide() {
               better in powerful surf.
             </p>
             <p>
-              Nose and tail shapes matter too. A fuller, rounder nose adds paddle power and float up
-              front; tail shapes (squash, round, pin, swallow) change how water releases and how
-              tightly the board pivots. Move the wide point forward for an easy, drivey feel; move
-              it back for a board that pivots off the tail.
+              The nose matters too: a fuller, rounder nose adds paddle power and float up front,
+              while a pulled-in nose fits steeper wave faces. Move the wide point forward for an
+              easy, drivey feel; move it back for a board that pivots off the tail.
+            </p>
+
+            <h2 id="tail">Tail shapes</h2>
+            <p>
+              The tail is the last part of the board the water touches, so its shape decides how
+              water releases and how tightly the board pivots. Corners release flow cleanly for
+              quick, snappy direction changes; curves hold water longer for smoother, drawn-out
+              turns.
+            </p>
+            <ul>
+              <li>
+                <strong>Squash</strong> — the all-rounder: a squared-off tail with soft corners,
+                balancing release and hold.
+              </li>
+              <li>
+                <strong>Round</strong> — more curve, more hold; smooth, carving turns.
+              </li>
+              <li>
+                <strong>Pin</strong> — narrow and drawn out for maximum hold in big, powerful surf.
+              </li>
+              <li>
+                <strong>Swallow</strong> — keeps width for small-wave speed while the two points
+                bite like twin pins; the classic fish tail.
+              </li>
+              <li>
+                <strong>Square</strong> — hard corners and full width; skatey, instant release.
+              </li>
+            </ul>
+            <Figure
+              src="/images/guides/paulownia-fish-swallow-tail.webp"
+              alt="Swallow tail of a hand-built hollow wooden fish surfboard in Paulownia"
+              width={1280}
+              height={1600}
+              caption="A swallow tail keeps width for speed while each point bites like a narrow pin — the signature fish tail."
+            />
+            <p>
+              Tail width interacts with everything else: wider tails plane earlier and feel loose,
+              narrower tails hold in when the wave has push. In OpenShaper you can reshape the tail
+              — including swallow and fish cuts — and watch the outline and volume update live.
             </p>
 
             <h2 id="rocker">Rocker</h2>
@@ -144,6 +193,13 @@ export default function SurfboardDesignGuide() {
               drivey) or <strong>staged</strong> (flatter through the middle with kick in the tail,
               for a livelier pivot).
             </p>
+            <Figure
+              src="/images/guides/openshaper-rocker-editor.webp"
+              alt="Surfboard deck and bottom rocker curves being edited with control points in design software"
+              width={1600}
+              height={1000}
+              caption="Deck and bottom rocker edited as two curves — the gap between them is the foil."
+            />
 
             <h2 id="rails">Rails</h2>
             <p>
@@ -153,6 +209,13 @@ export default function SurfboardDesignGuide() {
               boards. A <strong>hard, tucked-under edge (down rail)</strong> releases water cleanly
               for speed and bite, typical toward the tail of performance shortboards.
             </p>
+            <Figure
+              src="/images/guides/openshaper-cross-section-rail.webp"
+              alt="A surfboard cross-section in design software showing the rail profile between deck and bottom"
+              width={1600}
+              height={1000}
+              caption="A cross-section is the rail's fingerprint: this profile — soft above, tucked edge below — is what your hand feels."
+            />
             <p>
               Most boards blend the two: softer and fuller through the nose for forgiveness, harder
               and lower toward the tail for drive and release. Thinner rails sink and grip in steep
@@ -172,6 +235,13 @@ export default function SurfboardDesignGuide() {
               move the litres a lot. In OpenShaper the cross-section and rocker views let you shape
               the foil while the <strong>live volume readout</strong> tells you what it costs.
             </p>
+            <Figure
+              src="/images/guides/openshaper-outline-volume-distribution.webp"
+              alt="Surfboard outline with a volume-distribution curve and centre-of-mass marker in design software"
+              width={1600}
+              height={1000}
+              caption="The volume-distribution curve under the outline shows where the foam sits; the CoM line marks its balance point."
+            />
 
             <h2 id="bottom">Bottom contours</h2>
             <p>The shape of the underside steers how water flows beneath the board:</p>
@@ -233,8 +303,13 @@ export default function SurfboardDesignGuide() {
             <p>
               These are starting points, not rules — wave size and power, fitness and board type all
               shift them, and many surfers happily ride more volume than the &ldquo;advanced&rdquo;
-              row suggests. The value of designing your own board is that you can dial litres
-              deliberately instead of guessing; OpenShaper recalculates volume as you shape.
+              row suggests. One nuance: the factors assume a standard PU build. An EPS/epoxy board
+              floats noticeably more for the same litres, so riders often drop 2–3&nbsp;L when
+              switching — the <Link to="/surfboard-construction-methods">construction guide</Link>{' '}
+              covers how the builds differ. For a personalised number, try the{' '}
+              <Link to="/surfboard-volume-calculator">surfboard volume calculator</Link>. The value
+              of designing your own board is that you can dial litres deliberately instead of
+              guessing; OpenShaper recalculates volume as you shape.
             </p>
 
             <h2 id="fins">Fin setups</h2>
