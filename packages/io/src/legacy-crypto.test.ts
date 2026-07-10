@@ -1,12 +1,14 @@
 /**
  * Tests for the legacy encrypted-`.brd` crypto (MD5 + PBKDF1 + DES-CBC).
  *
- * GOLDEN ORACLE: `__fixtures__/8-good-gun.brd` is a REAL encrypted BoardCAD
- * file (magic `%BRD-1.02`) supplied as a sample. Decrypting it end-to-end and
- * recovering valid plain-text `.brd` content exercises MD5, PBKDF1, DES, CBC
- * and PKCS#5 unpadding together — if any stage were wrong the result would be
- * garbage or trigger a padding error. The decryption parameters are taken from
- *   ../boardcad-le/src/board/readers/BrdReader.java (lines 39–113).
+ * GOLDEN ORACLE: `__fixtures__/self-authored-shortboard.brd` is our own
+ * `docs/specs/golden/shortboard.brd` plain-text content, re-encrypted with the
+ * real BoardCAD algorithm (fixed password/salt/iteration count taken from
+ * `../boardcad-le/src/board/readers/BrdReader.java`, lines 39–113) using a
+ * standalone encrypt script mirroring `desCbcDecrypt`. Round-tripping it
+ * exercises MD5, PBKDF1, DES, CBC and PKCS#5 (un)padding together — if any
+ * stage were wrong the result would be garbage or trigger a padding error —
+ * without redistributing a third party's board file.
  */
 
 import { readFileSync } from 'node:fs';
@@ -50,7 +52,7 @@ describe('md5 (RFC 1321 test vectors)', () => {
 
 describe('isEncryptedBrd', () => {
   it('recognises the %BRD-1.02 magic on the sample', () => {
-    expect(isEncryptedBrd(fixture('8-good-gun.brd'))).toBe(true);
+    expect(isEncryptedBrd(fixture('self-authored-shortboard.brd'))).toBe(true);
   });
   it('rejects plain text', () => {
     expect(isEncryptedBrd(ascii('p7 : 1.0\n'))).toBe(false);
@@ -58,7 +60,7 @@ describe('isEncryptedBrd', () => {
 });
 
 describe('decryptBrd (real encrypted .brd golden oracle)', () => {
-  const plain = decryptBrd(fixture('8-good-gun.brd'));
+  const plain = decryptBrd(fixture('self-authored-shortboard.brd'));
 
   it('recovers printable plain-text .brd content', () => {
     // Should be mostly printable ASCII (line-based .brd records), not binary.
@@ -80,13 +82,13 @@ describe('decryptBrd (real encrypted .brd golden oracle)', () => {
 
 describe('parseBrdFile (encrypted .brd end-to-end)', () => {
   it('decrypts and parses the encrypted sample into a valid board', () => {
-    const { board } = parseBrdFile(fixture('8-good-gun.brd'));
+    const { board } = parseBrdFile(fixture('self-authored-shortboard.brd'));
     const lengthCm = getLength(board);
     const widthCm = getMaxWidth(board);
     const thickCm = getThickness(board);
-    // "8 Good Gun" — a gun is a long, narrow board. Sanity-check plausible dims.
-    expect(lengthCm).toBeGreaterThan(150); // > ~5 ft
-    expect(lengthCm).toBeLessThan(330); // < ~11 ft
+    // Matches docs/specs/golden/shortboard.brd's known dims (~187.96 x 46.99 x 5.96 cm).
+    expect(lengthCm).toBeGreaterThan(150);
+    expect(lengthCm).toBeLessThan(330);
     expect(widthCm).toBeGreaterThan(20);
     expect(widthCm).toBeLessThan(60);
     expect(thickCm).toBeGreaterThan(3);

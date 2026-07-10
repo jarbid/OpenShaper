@@ -56,7 +56,7 @@ describe('App import gate (dropped warning)', () => {
 
     await act(async () => {
       fireEvent.change(fileInput, {
-        target: { files: [new File(['x'], 'go-fish.s3dx')] },
+        target: { files: [new File(['x'], 'test-board.s3dx')] },
       });
     });
 
@@ -83,7 +83,7 @@ describe('App import gate (dropped warning)', () => {
 
     await act(async () => {
       fireEvent.change(fileInput, {
-        target: { files: [new File(['x'], 'go-fish.s3dx')] },
+        target: { files: [new File(['x'], 'test-board.s3dx')] },
       });
     });
 
@@ -114,7 +114,7 @@ describe('App import gate (dropped warning)', () => {
 
     await act(async () => {
       fireEvent.change(fileInput, {
-        target: { files: [new File(['x'], 'go-fish.s3dx')] },
+        target: { files: [new File(['x'], 'test-board.s3dx')] },
       });
     });
 
