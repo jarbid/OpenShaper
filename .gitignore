@@ -29,3 +29,7 @@ playwright-report/
 .claude/hooks/
 .claude/skills/
 .mcp.json
+# Agent-workflow scratch output (task reports/diffs — local process artifacts)
+.superpowers/
+# Locally collected sample board files (third-party designs; never publish)
+Sample board imports/
