@@ -238,35 +238,37 @@ const buildLightening = (
 
 // --- ribs ---
 
+/** Clip a closed polygon to one vertical half-plane (Sutherland–Hodgman step). */
+const clipHalfPlaneX = (input: readonly Pt[], inside: (q: Pt) => boolean, planeX: number): Pt[] => {
+  const out: Pt[] = [];
+  const n = input.length;
+  for (let i = 0; i < n; i++) {
+    const a = input[i]!;
+    const b = input[(i + 1) % n]!;
+    const aIn = inside(a);
+    const bIn = inside(b);
+    const cross = (): Pt => {
+      const t = (planeX - a.x) / (b.x - a.x);
+      return { x: planeX, y: a.y + t * (b.y - a.y) };
+    };
+    if (aIn && bIn) out.push(b);
+    else if (aIn && !bIn) out.push(cross());
+    else if (!aIn && bIn) {
+      out.push(cross());
+      out.push(b);
+    }
+  }
+  return out;
+};
+
 /**
  * Clip a closed polygon to the vertical band |x| ≤ xMax (Sutherland–Hodgman, one
  * half-plane per side). A rib section is x-convex, so each side yields one clean
  * vertical face — the flat the rail-band strips glue against.
  */
 const clipToMaxAbsX = (pts: readonly Pt[], xMax: number): Pt[] => {
-  const clip = (input: readonly Pt[], inside: (q: Pt) => boolean, planeX: number): Pt[] => {
-    const out: Pt[] = [];
-    const n = input.length;
-    for (let i = 0; i < n; i++) {
-      const a = input[i]!;
-      const b = input[(i + 1) % n]!;
-      const aIn = inside(a);
-      const bIn = inside(b);
-      const cross = (): Pt => {
-        const t = (planeX - a.x) / (b.x - a.x);
-        return { x: planeX, y: a.y + t * (b.y - a.y) };
-      };
-      if (aIn && bIn) out.push(b);
-      else if (aIn && !bIn) out.push(cross());
-      else if (!aIn && bIn) {
-        out.push(cross());
-        out.push(b);
-      }
-    }
-    return out;
-  };
-  const right = clip(pts, (q) => q.x <= xMax, xMax);
-  return clip(right, (q) => q.x >= -xMax, -xMax);
+  const right = clipHalfPlaneX(pts, (q) => q.x <= xMax, xMax);
+  return clipHalfPlaneX(right, (q) => q.x >= -xMax, -xMax);
 };
 
 /**
@@ -623,27 +625,54 @@ const trimHalfToPositiveX = (pts: readonly Pt[]): Pt[] => {
   return out;
 };
 
+// Vertices this close to the centreline (cm) count as seam vertices. Well above
+// float/Clipper noise, well below any real profile feature.
+const SEAM_EPS = 0.05;
+
 /**
  * Extract the x ≥ 0 half of a closed polygon symmetric about x = 0, returning
- * a polyline that runs bottom-centre (min y on x = 0) → rail → deck-centre
- * (max y on x = 0). The endpoints are snapped to x = 0.
+ * a polyline that runs bottom-centre → rail → deck-centre, endpoints snapped
+ * to x = 0.
+ *
+ * The polygon is first clipped to the x ≥ 0 half-plane (which manufactures
+ * exact seam vertices at x = 0), and the walk is anchored at the CENTRELINE
+ * SEAM vertices — the extreme-y vertices at x ≈ 0 — never the global y
+ * extremes. On boards whose bottom contour dips below the centreline height
+ * toward the rail (most real bottoms), the global min-y vertex sits AT THE
+ * RAIL on whichever side float noise picks; anchoring there dropped the whole
+ * bottom edge and collapsed ribs into straight-edged "diamonds".
  */
 const extractRightHalf = (closed: readonly Pt[]): Pt[] => {
-  const n = closed.length;
-  if (n < 4) return [];
-  let lo = 0;
-  let hi = 0;
-  for (let i = 1; i < n; i++) {
-    if (closed[i]!.y < closed[lo]!.y) lo = i;
-    if (closed[i]!.y > closed[hi]!.y) hi = i;
+  if (closed.length < 4) return [];
+  const ring = dedupe(clipHalfPlaneX(closed, (q) => q.x >= 0, 0));
+  // dedupe() is consecutive-only: also weld a duplicated first/last pair.
+  if (
+    ring.length > 1 &&
+    Math.hypot(ring[0]!.x - ring[ring.length - 1]!.x, ring[0]!.y - ring[ring.length - 1]!.y) < 1e-6
+  ) {
+    // prettier-ignore
+    ring.pop();
   }
-  // Walk both directions from lo → hi and keep the one with all x ≥ 0
-  // (a closed CCW polygon symmetric about x=0 has one half on each side).
+  const n = ring.length;
+  if (n < 3) return [];
+
+  // Seam anchors: lowest / highest vertex on the centreline.
+  let lo = -1;
+  let hi = -1;
+  for (let i = 0; i < n; i++) {
+    if (ring[i]!.x > SEAM_EPS) continue;
+    if (lo === -1 || ring[i]!.y < ring[lo]!.y) lo = i;
+    if (hi === -1 || ring[i]!.y > ring[hi]!.y) hi = i;
+  }
+  if (lo === -1 || lo === hi) return [];
+
+  // Walk both directions seam-bottom → seam-top; the rail-side walk (not the
+  // short hop along the seam itself) has the larger x-sum.
   const walk = (dir: 1 | -1): Pt[] => {
     const out: Pt[] = [];
     for (let k = 0; k < n; k++) {
       const idx = (lo + dir * k + n) % n;
-      out.push(closed[idx]!);
+      out.push(ring[idx]!);
       if (idx === hi) break;
     }
     return out;
@@ -652,7 +681,7 @@ const extractRightHalf = (closed: readonly Pt[]): Pt[] => {
   const b = walk(-1);
   const sumX = (pts: Pt[]): number => pts.reduce((s, p) => s + p.x, 0);
   const half = sumX(a) >= sumX(b) ? a : b;
-  if (half.length === 0) return half;
+  if (half.length < 2) return [];
   // Snap centreline endpoints to x = 0 (the symmetric polygon's seam).
   half[0] = { x: 0, y: half[0]!.y };
   half[half.length - 1] = { x: 0, y: half[half.length - 1]!.y };

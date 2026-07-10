@@ -2,11 +2,15 @@
 import { describe, expect, it } from 'vitest';
 import {
   board as makeBoard,
+  crossSection as kCrossSection,
   defaultFinConfig,
   developHorizontalRailBand,
   developRailBand,
   getLength,
+  knot as kKnot,
   outlineInsetHalfWidthAt,
+  splineFromKnots as kSplineFromKnots,
+  vec2 as kVec2,
 } from '@openshaper/kernel';
 import { makeTestBoard } from '../fixture.test-helper';
 import { buildHwsTemplates } from './hws';
@@ -468,6 +472,50 @@ describe('buildHwsTemplates — rail band', () => {
     // The notched loop has strictly more vertices than the plain one.
     expect(cutLoop(slotted).pts.length).toBeGreaterThan(cutLoop(plain).pts.length);
     expect(hasSelfIntersection(cutLoop(slotted).pts)).toBe(false);
+  });
+});
+
+describe('buildHwsTemplates — rib profile survives a bottom that dips near the rail', () => {
+  // Real boards (e.g. the bundled sample) have a bottom contour that drops BELOW
+  // the centreline height toward the rail. The rib polygon's global min-y vertex
+  // then sits at the rail, not on the centreline seam — which used to make
+  // extractRightHalf keep only the rail-face→deck fragment (a "diamond" rib with
+  // the whole bottom edge collapsed to a straight line).
+  const dippedBoard = (): ReturnType<typeof makeTestBoard> => {
+    const base = makeTestBoard();
+    const w = 25;
+    const t = 6;
+    // Bottom edge runs (0,0) → dips to (w, -0.35) at the rail; deck domes to (0, t).
+    const profile = kSplineFromKnots([
+      kKnot(kVec2(0, 0), kVec2(0, 0), kVec2(w * 0.5, -0.1)),
+      kKnot(kVec2(w, -0.35), kVec2(w * 0.8, -0.3), kVec2(w, 0.6)),
+      kKnot(kVec2(w, t * 0.45), kVec2(w, t * 0.25), kVec2(w, t * 0.75)),
+      kKnot(kVec2(0, t), kVec2(w * 0.5, t), kVec2(0, t)),
+    ]);
+    const sections = base.crossSections.map((c) => kCrossSection(c.position, profile));
+    return makeBoard(base.outline, base.bottom, base.deck, sections, base.interpolationType);
+  };
+
+  it.each([[0], [3]] as const)('rib keeps a sampled bottom edge (railBandThickness %d)', (band) => {
+    const sheet = buildHwsTemplates(dippedBoard(), {
+      ribMode: 'evenCount',
+      ribCount: 5,
+      railBandThickness: band,
+    });
+    for (const rib of sheet.parts.filter((p) => p.id.startsWith('rib-'))) {
+      const pts = cutLoop(rib).pts;
+      const bb = bboxOfPts([...pts]);
+      const H = bb.maxY - bb.minY;
+      const maxX = Math.max(...pts.map((p) => p.x));
+      // The bottom edge between the slot mouth and the rail must be a sampled
+      // curve (many vertices), not one straight chord: count vertices in the
+      // lower quarter, away from the centreline slot.
+      const bottomEdge = pts.filter(
+        (p) => p.y < bb.minY + H * 0.25 && Math.abs(p.x) > 1 && Math.abs(p.x) < maxX - 0.5,
+      );
+      expect(bottomEdge.length).toBeGreaterThanOrEqual(8);
+      expect(hasSelfIntersection(pts)).toBe(false);
+    }
   });
 });
 
