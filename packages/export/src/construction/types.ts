@@ -69,6 +69,12 @@ export type RibMode = 'crossSections' | 'evenCount' | 'spacing';
  */
 export type LighteningStyle = 'none' | 'pocket' | 'circles' | 'truss';
 
+/** Rail lamination orientation for the rail-band template. */
+export type RailLamination = 'vertical' | 'horizontal';
+
+/** Rib↔rail-band joint style. */
+export type RailJoint = 'butt' | 'tabSlot';
+
 /**
  * Parameters for the Hollow-Wood-Surfboard (HWS) internal-frame template builder.
  * All lengths in **centimetres** (the UI converts from mm at its boundary).
@@ -86,10 +92,43 @@ export interface HwsParams {
   ribCount: number;
   /** Spacing between ribs (cm) for `spacing`. */
   ribSpacing: number;
-  /** Extra perimeter inset of ribs beyond the skin (room for rail build-up). */
-  railInset: number;
   /** Keep ribs at least this far from the nose/tail tips. */
   endMargin: number;
+
+  // --- Rail band (laminated rail build-up) ---
+  /**
+   * Thickness of the laminated rail-band stack (cm), measured in plan inward from
+   * the outline (the rail apex). Drives BOTH the ribs' side cut-back (they stop at
+   * the band's inner face) and the rail template's offset. 0 disables the rail
+   * band entirely (ribs run to the skin line; no rail template).
+   */
+  railBandThickness: number;
+  /** Stop the rail band this far from the tail (room for a tail block). */
+  railTailTrim: number;
+  /** Stop the rail band this far from the nose (room for a nose block). */
+  railNoseTrim: number;
+  /**
+   * Vertical lamination only: flattened strip (default) — the strip follows the
+   * rocker as it bends, template height ≈ board thickness, unrolled along the 3D
+   * mid-curve. Off = exact vertical-ribbon development (plan arc length; rocker
+   * appears as wavy edges, needing wider stock).
+   */
+  railFlatten: boolean;
+  /**
+   * Rail lamination orientation: `vertical` strips stand on edge bent around the
+   * outline; `horizontal` layers lie flat, stacked from the bottom skin up, bent
+   * over the rocker.
+   */
+  railLamination: RailLamination;
+  /**
+   * Rib↔rail joint: `butt` = flat faces with reference marks on the template;
+   * `tabSlot` = each rib carries a locating tab that keys the FIRST lamination
+   * layer (the template sheet then holds a slotted layer-1 part + a plain part
+   * for the remaining layers).
+   */
+  railJoint: RailJoint;
+  /** Thickness of one lamination layer of rail stock (cm) — the tab protrusion. */
+  railStripThickness: number;
 
   // --- Joinery ---
   /** Fit clearance added to slot width (material + fit). */
@@ -122,6 +161,8 @@ export interface HwsParams {
   includeRibs: boolean;
   includeDeckSkin: boolean;
   includeBottomSkin: boolean;
+  /** Emit the rail-band template(s) (needs `railBandThickness > 0`). */
+  includeRailTemplate: boolean;
 
   // --- Output ---
   /** Extra material around the skin planshape. */
@@ -144,8 +185,14 @@ export const DEFAULT_HWS_PARAMS: HwsParams = {
   ribMode: 'crossSections',
   ribCount: 12,
   ribSpacing: 15,
-  railInset: 0,
   endMargin: 8,
+  railBandThickness: 0,
+  railTailTrim: 3.5, // legacy BoardCAD default
+  railNoseTrim: 3.5,
+  railFlatten: true,
+  railLamination: 'vertical',
+  railJoint: 'butt',
+  railStripThickness: 0.6, // 6 mm strips
   slotFit: 0.01, // 0.1 mm
   halfLapFraction: 0.5,
   lighteningStyle: 'none',
@@ -161,6 +208,7 @@ export const DEFAULT_HWS_PARAMS: HwsParams = {
   includeRibs: true,
   includeDeckSkin: true,
   includeBottomSkin: true,
+  includeRailTemplate: true,
   skinOverhang: 1,
   kerfDiameter: 0, // true geometry; operator owns tool offsets
   sampleTolerance: 0.02, // 0.2 mm chord deviation

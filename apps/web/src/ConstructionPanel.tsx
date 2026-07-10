@@ -214,12 +214,69 @@ export function ConstructionPanel({
                 value={p.endMargin}
                 onChange={(v) => set('endMargin', v)}
               />
+            </Group>
+
+            <Group title="Rail band">
               <NumField
-                label="Rail inset"
+                label="Band thickness"
                 units={units}
-                value={p.railInset}
-                onChange={(v) => set('railInset', v)}
+                value={p.railBandThickness}
+                min={0}
+                onChange={(v) => set('railBandThickness', Math.max(0, v))}
               />
+              {p.railBandThickness > 0 && (
+                <>
+                  <label className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">Lamination</span>
+                    <select
+                      className="h-8 rounded border border-border bg-background px-2"
+                      value={p.railLamination}
+                      onChange={(e) =>
+                        set('railLamination', e.target.value as HwsParams['railLamination'])
+                      }
+                    >
+                      <option value="vertical">Vertical strips</option>
+                      <option value="horizontal">Horizontal layers</option>
+                    </select>
+                  </label>
+                  <label className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">Rib joint</span>
+                    <select
+                      className="h-8 rounded border border-border bg-background px-2"
+                      value={p.railJoint}
+                      onChange={(e) => set('railJoint', e.target.value as HwsParams['railJoint'])}
+                    >
+                      <option value="butt">Butt + reference lines</option>
+                      <option value="tabSlot">Tab + slot</option>
+                    </select>
+                  </label>
+                  <NumField
+                    label="Strip thickness"
+                    units={units}
+                    value={p.railStripThickness}
+                    onChange={(v) => set('railStripThickness', v)}
+                  />
+                  <NumField
+                    label="Tail trim"
+                    units={units}
+                    value={p.railTailTrim}
+                    onChange={(v) => set('railTailTrim', v)}
+                  />
+                  <NumField
+                    label="Nose trim"
+                    units={units}
+                    value={p.railNoseTrim}
+                    onChange={(v) => set('railNoseTrim', v)}
+                  />
+                  {p.railLamination === 'vertical' && (
+                    <Toggle
+                      label="Flatten (follow rocker)"
+                      checked={p.railFlatten}
+                      onChange={(v) => set('railFlatten', v)}
+                    />
+                  )}
+                </>
+              )}
             </Group>
 
             <Group title="Joinery">
@@ -354,6 +411,13 @@ export function ConstructionPanel({
                 checked={p.includeBottomSkin}
                 onChange={(v) => set('includeBottomSkin', v)}
               />
+              {p.railBandThickness > 0 && (
+                <Toggle
+                  label="Rail template"
+                  checked={p.includeRailTemplate}
+                  onChange={(v) => set('includeRailTemplate', v)}
+                />
+              )}
             </Group>
 
             <Group title="Skins">

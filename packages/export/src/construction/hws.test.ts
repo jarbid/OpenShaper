@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { board as makeBoard, defaultFinConfig, getLength } from '@openshaper/kernel';
+import {
+  board as makeBoard,
+  defaultFinConfig,
+  developHorizontalRailBand,
+  developRailBand,
+  getLength,
+  outlineInsetHalfWidthAt,
+} from '@openshaper/kernel';
 import { makeTestBoard } from '../fixture.test-helper';
 import { buildHwsTemplates } from './hws';
 import { DEFAULT_HWS_PARAMS, type Part, type Pt } from './types';
@@ -353,6 +360,174 @@ describe('buildHwsTemplates — lightening', () => {
     }
     // The wide centre rib is lightened even if the thin end ribs are not.
     expect(totalPockets).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('buildHwsTemplates — rail band', () => {
+  const band = 3;
+  const railParams = { ribMode: 'evenCount', ribCount: 3, railBandThickness: band } as const;
+  const railPart = (extra: object = {}) =>
+    buildHwsTemplates(board, { ...railParams, ...extra }).parts.find((p) =>
+      p.id.startsWith('rail-band'),
+    );
+
+  it('emits no rail part by default (railBandThickness 0)', () => {
+    const sheet = buildHwsTemplates(board, { ribMode: 'evenCount', ribCount: 3 });
+    expect(sheet.parts.some((p) => p.id.startsWith('rail-band'))).toBe(false);
+  });
+
+  it('honours includeRailTemplate', () => {
+    const sheet = buildHwsTemplates(board, { ...railParams, includeRailTemplate: false });
+    expect(sheet.parts.some((p) => p.id.startsWith('rail-band'))).toBe(false);
+  });
+
+  it('vertical template is a long simple strip matching the kernel development', () => {
+    const part = railPart()!;
+    expect(part).toBeDefined();
+    const cut = cutLoop(part);
+    expect(cut.closed).toBe(true);
+    expect(hasSelfIntersection(cut.pts)).toBe(false);
+    const bb = bboxOfPts([...cut.pts]);
+    const dev = developRailBand(board, {
+      offset: band,
+      tailTrim: DEFAULT_HWS_PARAMS.railTailTrim,
+      noseTrim: DEFAULT_HWS_PARAMS.railNoseTrim,
+      skinThickness: DEFAULT_HWS_PARAMS.skinThickness,
+      flatten: true,
+      tolerance: DEFAULT_HWS_PARAMS.sampleTolerance,
+    });
+    expect(bb.maxX - bb.minX).toBeCloseTo(dev.length, 1);
+    expect(bb.maxX - bb.minX).toBeGreaterThan(5 * (bb.maxY - bb.minY));
+  });
+
+  it('flattened strip is shorter in height than the exact tall ribbon', () => {
+    const flatBB = bboxOfPts([...cutLoop(railPart({ railFlatten: true })!).pts]);
+    const tallBB = bboxOfPts([...cutLoop(railPart({ railFlatten: false })!).pts]);
+    expect(flatBB.maxY - flatBB.minY).toBeLessThanOrEqual(tallBB.maxY - tallBB.minY + 1e-9);
+  });
+
+  it('carries a dashed station mark + number per rib inside the band domain', () => {
+    const part = railPart()!;
+    const marks = part.loops.filter((l) => l.kind === 'mark' && l.dashed);
+    expect(marks.length).toBeGreaterThanOrEqual(1);
+    expect(marks.length).toBeLessThanOrEqual(3);
+    const numbered = (part.labels ?? []).filter((l) => /^\d+$/.test(l.text));
+    expect(numbered.length).toBe(marks.length);
+  });
+
+  it('butt joint: single rail part, no inner cuts', () => {
+    const sheet = buildHwsTemplates(board, railParams);
+    const rails = sheet.parts.filter((p) => p.id.startsWith('rail-band'));
+    expect(rails).toHaveLength(1);
+    expect(rails[0]!.loops.some((l) => l.kind === 'cutInner')).toBe(false);
+  });
+
+  it('tabSlot: slotted layer-1 part + plain part, slots match material width', () => {
+    const material = 0.6;
+    const sheet = buildHwsTemplates(board, {
+      ...railParams,
+      railJoint: 'tabSlot',
+      materialThickness: material,
+      railStripThickness: 0.6,
+    });
+    const slotted = sheet.parts.find((p) => p.id === 'rail-band-slotted')!;
+    const plain = sheet.parts.find((p) => p.id === 'rail-band')!;
+    expect(slotted).toBeDefined();
+    expect(plain).toBeDefined();
+    const slots = slotted.loops.filter((l) => l.kind === 'cutInner');
+    expect(slots.length).toBeGreaterThanOrEqual(1);
+    for (const s of slots) {
+      const bb = bboxOfPts([...s.pts]);
+      expect(bb.maxX - bb.minX).toBeCloseTo(material + DEFAULT_HWS_PARAMS.slotFit, 3);
+    }
+    expect(plain.loops.some((l) => l.kind === 'cutInner')).toBe(false);
+  });
+
+  it('horizontal template: band between outline and offset curve, developed', () => {
+    const part = railPart({ railLamination: 'horizontal' })!;
+    const cut = cutLoop(part);
+    expect(hasSelfIntersection(cut.pts)).toBe(false);
+    const bb = bboxOfPts([...cut.pts]);
+    const dev = developHorizontalRailBand(board, {
+      offset: band,
+      tailTrim: DEFAULT_HWS_PARAMS.railTailTrim,
+      noseTrim: DEFAULT_HWS_PARAMS.railNoseTrim,
+      tolerance: DEFAULT_HWS_PARAMS.sampleTolerance,
+    });
+    expect(bb.maxX - bb.minX).toBeCloseTo(dev.length, 1);
+  });
+
+  it('horizontal tabSlot: layer-1 inner edge carries rib notches', () => {
+    const sheet = buildHwsTemplates(board, {
+      ...railParams,
+      railLamination: 'horizontal',
+      railJoint: 'tabSlot',
+    });
+    const slotted = sheet.parts.find((p) => p.id === 'rail-band-slotted')!;
+    const plain = sheet.parts.find((p) => p.id === 'rail-band')!;
+    // The notched loop has strictly more vertices than the plain one.
+    expect(cutLoop(slotted).pts.length).toBeGreaterThan(cutLoop(plain).pts.length);
+    expect(hasSelfIntersection(cutLoop(slotted).pts)).toBe(false);
+  });
+});
+
+describe('buildHwsTemplates — rib rail cut-back (the old railInset bug)', () => {
+  const centreRib = (extra: object = {}) =>
+    buildHwsTemplates(board, { ribMode: 'evenCount', ribCount: 1, ...extra }).parts.find((p) =>
+      p.id.startsWith('rib-'),
+    )!;
+
+  it('keeps the rib deck/bottom height unchanged (only the sides pull in)', () => {
+    const plain = bboxOfPts(allPts(centreRib()));
+    const cut = bboxOfPts(allPts(centreRib({ railBandThickness: 3 })));
+    // Heights equal: the band cut-back never lowers the deck or raises the bottom.
+    expect(cut.maxY).toBeCloseTo(plain.maxY, 2);
+    expect(cut.minY).toBeCloseTo(plain.minY, 2);
+    // Width shrinks by ~ the band thickness per side.
+    expect(cut.maxX).toBeLessThan(plain.maxX - 1);
+  });
+
+  it('rib sides stop at the offset-outline half-width, as vertical flats', () => {
+    const band = 3;
+    const rib = centreRib({ railBandThickness: band });
+    const pts = cutLoop(rib).pts;
+    const yCut = outlineInsetHalfWidthAt(board, 50, band);
+    const maxX = pts.reduce((m, q) => Math.max(m, q.x), 0);
+    expect(maxX).toBeCloseTo(yCut, 1);
+    // A vertical face: at least two consecutive points share x = ±maxX.
+    let face = false;
+    for (let i = 1; i < pts.length; i++) {
+      if (Math.abs(pts[i]!.x - maxX) < 1e-3 && Math.abs(pts[i - 1]!.x - maxX) < 1e-3) face = true;
+    }
+    expect(face).toBe(true);
+    expect(hasSelfIntersection(pts)).toBe(false);
+  });
+
+  it('tabSlot ribs grow a locating tab past the side face', () => {
+    const band = 3;
+    const strip = 0.6;
+    const plain = centreRib({ railBandThickness: band });
+    const tabbed = centreRib({
+      railBandThickness: band,
+      railJoint: 'tabSlot',
+      railStripThickness: strip,
+    });
+    const plainMax = cutLoop(plain).pts.reduce((m, q) => Math.max(m, q.x), 0);
+    const tabbedMax = cutLoop(tabbed).pts.reduce((m, q) => Math.max(m, q.x), 0);
+    expect(tabbedMax).toBeCloseTo(plainMax + strip, 2);
+    expect(hasSelfIntersection(cutLoop(tabbed).pts)).toBe(false);
+  });
+
+  it('half-lap slot geometry survives the side cut-back', () => {
+    const halfLap = 0.5;
+    const rib = centreRib({ railBandThickness: 3, halfLapFraction: halfLap });
+    const pts = cutLoop(rib).pts;
+    const bb = bboxOfPts([...pts]);
+    const ybc = bb.minY;
+    const H = bb.maxY - bb.minY;
+    const roof = pts.filter((p) => Math.abs(p.x) < 1 && p.y > ybc + 0.01);
+    const slotTopY = Math.min(...roof.map((p) => p.y));
+    expect(slotTopY - ybc).toBeCloseTo((1 - halfLap) * H, 1);
   });
 });
 
