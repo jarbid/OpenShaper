@@ -35,6 +35,7 @@ export { specSheetHtml, type SpecSheetDoc, type SpecSection } from './spec-sheet
 export { buildHwsTemplates } from './construction/hws';
 export {
   DEFAULT_HWS_PARAMS,
+  railOffset,
   type HwsParams,
   type RibMode,
   type TemplateSheet,

@@ -2,6 +2,7 @@ import {
   buildHwsTemplates,
   DEFAULT_HWS_PARAMS,
   type HwsParams,
+  railOffset,
   sheetToSvg,
   type TemplateSheet,
 } from '@openshaper/export';
@@ -217,28 +218,61 @@ export function ConstructionPanel({
             </Group>
 
             <Group title="Rail band">
-              <NumField
-                label="Band thickness"
-                units={units}
-                value={p.railBandThickness}
-                min={0}
-                onChange={(v) => set('railBandThickness', Math.max(0, v))}
-              />
-              {p.railBandThickness > 0 && (
+              <label className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Lamination</span>
+                <select
+                  className="h-8 rounded border border-border bg-background px-2"
+                  value={p.railLamination}
+                  onChange={(e) =>
+                    set('railLamination', e.target.value as HwsParams['railLamination'])
+                  }
+                >
+                  <option value="vertical">Vertical strips</option>
+                  <option value="horizontal">Horizontal layers</option>
+                </select>
+              </label>
+              {p.railLamination === 'vertical' ? (
                 <>
-                  <label className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground">Lamination</span>
-                    <select
-                      className="h-8 rounded border border-border bg-background px-2"
-                      value={p.railLamination}
-                      onChange={(e) =>
-                        set('railLamination', e.target.value as HwsParams['railLamination'])
-                      }
-                    >
-                      <option value="vertical">Vertical strips</option>
-                      <option value="horizontal">Horizontal layers</option>
-                    </select>
-                  </label>
+                  {/* Vertical strips build the band inward: offset = stock × count. */}
+                  <NumField
+                    label="Laminations"
+                    unitless
+                    value={p.railLaminations}
+                    step={1}
+                    min={0}
+                    onChange={(v) => set('railLaminations', Math.max(0, Math.round(v)))}
+                  />
+                  <NumField
+                    label="Strip thickness"
+                    units={units}
+                    value={p.railStripThickness}
+                    onChange={(v) => set('railStripThickness', v)}
+                  />
+                  <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <span>Rail/outline offset</span>
+                    <span>{railOffset(p) > 0 ? fmtLen(railOffset(p), units) : '—'}</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Horizontal layers stack UP the rail: plan width is set directly. */}
+                  <NumField
+                    label="Band width"
+                    units={units}
+                    value={p.railBandWidth}
+                    min={0}
+                    onChange={(v) => set('railBandWidth', Math.max(0, v))}
+                  />
+                  <NumField
+                    label="Layer thickness"
+                    units={units}
+                    value={p.railStripThickness}
+                    onChange={(v) => set('railStripThickness', v)}
+                  />
+                </>
+              )}
+              {railOffset(p) > 0 && (
+                <>
                   <label className="flex items-center justify-between gap-2">
                     <span className="text-muted-foreground">Rib joint</span>
                     <select
@@ -250,12 +284,6 @@ export function ConstructionPanel({
                       <option value="tabSlot">Tab + slot</option>
                     </select>
                   </label>
-                  <NumField
-                    label="Strip thickness"
-                    units={units}
-                    value={p.railStripThickness}
-                    onChange={(v) => set('railStripThickness', v)}
-                  />
                   <NumField
                     label="Tail trim"
                     units={units}
@@ -411,7 +439,7 @@ export function ConstructionPanel({
                 checked={p.includeBottomSkin}
                 onChange={(v) => set('includeBottomSkin', v)}
               />
-              {p.railBandThickness > 0 && (
+              {railOffset(p) > 0 && (
                 <Toggle
                   label="Rail template"
                   checked={p.includeRailTemplate}

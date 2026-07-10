@@ -97,12 +97,19 @@ export interface HwsParams {
 
   // --- Rail band (laminated rail build-up) ---
   /**
-   * Thickness of the laminated rail-band stack (cm), measured in plan inward from
-   * the outline (the rail apex). Drives BOTH the ribs' side cut-back (they stop at
-   * the band's inner face) and the rail template's offset. 0 disables the rail
-   * band entirely (ribs run to the skin line; no rail template).
+   * Vertical lamination: number of strips laminated per side. The band's plan
+   * offset from the outline is `railStripThickness × railLaminations` (the
+   * stock thickness times the layer count — see {@link railOffset}). 0 disables
+   * the rail band in vertical mode.
    */
-  railBandThickness: number;
+  railLaminations: number;
+  /**
+   * Horizontal lamination: plan width of the band (cm), inward from the outline.
+   * Set directly — unlike vertical strips, horizontal layers stack UP the rail,
+   * so their count follows from the rail height, not from this width. 0 disables
+   * the rail band in horizontal mode.
+   */
+  railBandWidth: number;
   /** Stop the rail band this far from the tail (room for a tail block). */
   railTailTrim: number;
   /** Stop the rail band this far from the nose (room for a nose block). */
@@ -127,7 +134,11 @@ export interface HwsParams {
    * for the remaining layers).
    */
   railJoint: RailJoint;
-  /** Thickness of one lamination layer of rail stock (cm) — the tab protrusion. */
+  /**
+   * Material thickness of one lamination layer of rail stock (cm). Vertical
+   * mode: multiplies `railLaminations` into the band offset. Both modes: the
+   * rib tab protrusion / layer-1 notch depth.
+   */
   railStripThickness: number;
 
   // --- Joinery ---
@@ -161,7 +172,7 @@ export interface HwsParams {
   includeRibs: boolean;
   includeDeckSkin: boolean;
   includeBottomSkin: boolean;
-  /** Emit the rail-band template(s) (needs `railBandThickness > 0`). */
+  /** Emit the rail-band template(s) (needs `railOffset(p) > 0`). */
   includeRailTemplate: boolean;
 
   // --- Output ---
@@ -186,7 +197,8 @@ export const DEFAULT_HWS_PARAMS: HwsParams = {
   ribCount: 12,
   ribSpacing: 15,
   endMargin: 8,
-  railBandThickness: 0,
+  railLaminations: 0, // 0 = no rail band (vertical mode)
+  railBandWidth: 0, // 0 = no rail band (horizontal mode)
   railTailTrim: 3.5, // legacy BoardCAD default
   railNoseTrim: 3.5,
   railFlatten: true,
@@ -213,3 +225,14 @@ export const DEFAULT_HWS_PARAMS: HwsParams = {
   kerfDiameter: 0, // true geometry; operator owns tool offsets
   sampleTolerance: 0.02, // 0.2 mm chord deviation
 };
+
+/**
+ * Effective plan offset (cm) of the rail band's inner face from the outline.
+ * Vertical lamination: the stack builds inward strip by strip, so the offset is
+ * `stock thickness × layer count`. Horizontal lamination: layers stack UP the
+ * rail, so the plan width is set directly. 0 = rail band disabled.
+ */
+export const railOffset = (p: HwsParams): number =>
+  p.railLamination === 'vertical'
+    ? Math.max(0, p.railStripThickness) * Math.max(0, Math.round(p.railLaminations))
+    : Math.max(0, p.railBandWidth);

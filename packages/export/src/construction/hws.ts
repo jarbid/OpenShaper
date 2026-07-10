@@ -18,6 +18,7 @@ import {
   developRailBand,
   getInterpolatedCrossSection,
   getLength,
+  getMaxThickness,
   outlineInsetHalfWidthAt,
   pointByTT,
   resolveFins,
@@ -35,6 +36,7 @@ import {
 import { dedupe, loop, offsetClosed, sampleCurve, signedArea } from './geom';
 import {
   DEFAULT_HWS_PARAMS,
+  railOffset,
   type HwsParams,
   type Label,
   type Loop,
@@ -349,8 +351,9 @@ const buildRib = (board: BezierBoard, p: HwsParams, x: number, index: number): P
   // |x| = offset-outline half-width — WITHOUT touching its deck/bottom edges
   // (the old uniform `skin + railInset` inset wrongly lowered those too).
   let yCut = 0;
-  if (p.railBandThickness > 0) {
-    yCut = outlineInsetHalfWidthAt(board, x, p.railBandThickness);
+  const bandOffset = railOffset(p);
+  if (bandOffset > 0) {
+    yCut = outlineInsetHalfWidthAt(board, x, bandOffset);
     const railX = insetFull.reduce((m, q) => Math.max(m, Math.abs(q.x)), 0);
     if (yCut > 0.5 && yCut < railX - 1e-3) {
       insetFull = dedupe(clipToMaxAbsX(insetFull, yCut));
@@ -814,9 +817,17 @@ const edgeYAt = (edge: readonly Pt[], u: number): number => {
   return edge[edge.length - 1]!.y;
 };
 
-/** How many lamination layers build the band per side. */
-const railLayerCount = (p: HwsParams): number =>
-  p.railStripThickness > 0 ? Math.max(1, Math.ceil(p.railBandThickness / p.railStripThickness)) : 1;
+/**
+ * How many lamination layers build the band per side. Vertical strips: exactly
+ * the user's layer count (it defines the offset). Horizontal layers stack UP the
+ * rail, so their count is an estimate from the tallest rail height.
+ */
+const railLayerCount = (board: BezierBoard, p: HwsParams): number => {
+  if (p.railLamination === 'vertical') return Math.max(1, Math.round(p.railLaminations));
+  if (p.railStripThickness <= 0) return 1;
+  const railHeight = Math.max(0, getMaxThickness(board) - 2 * p.skinThickness);
+  return Math.max(1, Math.ceil(railHeight / p.railStripThickness));
+};
 
 interface RailMarks {
   loops: Loop[];
@@ -863,7 +874,7 @@ const buildVerticalRailParts = (
   stations: readonly number[],
 ): Part[] => {
   const dev = developRailBand(board, {
-    offset: p.railBandThickness,
+    offset: railOffset(p),
     tailTrim: p.railTailTrim,
     noseTrim: p.railNoseTrim,
     skinThickness: p.skinThickness,
@@ -875,7 +886,7 @@ const buildVerticalRailParts = (
 
   const outline = dedupe([...dev.deck, ...[...dev.bottom].reverse()]);
   const marks = railStationMarks(dev.stationU, dev.bottom, dev.deck);
-  const layers = railLayerCount(p);
+  const layers = railLayerCount(board, p);
   const slotW = p.materialThickness + p.slotFit;
 
   const slots: Loop[] = [];
@@ -937,7 +948,7 @@ const buildHorizontalRailParts = (
   stations: readonly number[],
 ): Part[] => {
   const dev = developHorizontalRailBand(board, {
-    offset: p.railBandThickness,
+    offset: railOffset(p),
     tailTrim: p.railTailTrim,
     noseTrim: p.railNoseTrim,
     tolerance: p.sampleTolerance,
@@ -946,7 +957,7 @@ const buildHorizontalRailParts = (
   if (dev.outer.length < 2) return [];
 
   const marks = railStationMarks(dev.stationU, dev.inner, dev.outer);
-  const layers = railLayerCount(p);
+  const layers = railLayerCount(board, p);
   const slotW = p.materialThickness + p.slotFit;
 
   /** Inner edge with a rib notch cut toward the outer edge at each station. */
@@ -995,18 +1006,19 @@ const buildHorizontalRailParts = (
     ],
   });
 
+  // Horizontal layers stack up the rail, so the count is a height-based estimate.
   if (p.railJoint === 'tabSlot') {
     const parts = [
       partOf('rail-band-slotted', 'Rail band — layer 1', notchedInner(), 'layer 1 (bottom) — cut 1 per side (x2)'), // prettier-ignore
     ];
     if (layers > 1) {
       parts.push(
-        partOf('rail-band', 'Rail band — layers 2+', dev.inner, `layers 2-${layers} — cut ${layers - 1} per side (x2)`), // prettier-ignore
+        partOf('rail-band', 'Rail band — layers 2+', dev.inner, `~${layers - 1} more per side (x2), stack to the deck`), // prettier-ignore
       );
     }
     return parts;
   }
-  return [partOf('rail-band', 'Rail band', dev.inner, `cut ${layers} per side (x2 sides)`)];
+  return [partOf('rail-band', 'Rail band', dev.inner, `cut ~${layers} per side (x2), stack to the deck`)]; // prettier-ignore
 };
 
 const buildRailParts = (board: BezierBoard, p: HwsParams, stations: readonly number[]): Part[] =>
@@ -1057,7 +1069,7 @@ export const buildHwsTemplates = (
   }
   if (p.includeDeckSkin) parts.push(buildSkin(board, p, stations, 'deck'));
   if (p.includeBottomSkin) parts.push(buildSkin(board, p, stations, 'bottom'));
-  if (p.includeRailTemplate && p.railBandThickness > 0) {
+  if (p.includeRailTemplate && railOffset(p) > 0) {
     parts.push(...buildRailParts(board, p, stations));
   }
 

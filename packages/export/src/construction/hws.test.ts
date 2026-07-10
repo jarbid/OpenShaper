@@ -368,16 +368,33 @@ describe('buildHwsTemplates — lightening', () => {
 });
 
 describe('buildHwsTemplates — rail band', () => {
-  const band = 3;
-  const railParams = { ribMode: 'evenCount', ribCount: 3, railBandThickness: band } as const;
+  // Vertical mode: the offset is DERIVED — strip thickness × laminations.
+  const band = 3; // = 0.6 × 5
+  const railParams = {
+    ribMode: 'evenCount',
+    ribCount: 3,
+    railStripThickness: 0.6,
+    railLaminations: 5,
+    railBandWidth: band, // horizontal-mode width (used by the horizontal cases)
+  } as const;
   const railPart = (extra: object = {}) =>
     buildHwsTemplates(board, { ...railParams, ...extra }).parts.find((p) =>
       p.id.startsWith('rail-band'),
     );
 
-  it('emits no rail part by default (railBandThickness 0)', () => {
+  it('emits no rail part by default (no laminations / zero width)', () => {
     const sheet = buildHwsTemplates(board, { ribMode: 'evenCount', ribCount: 3 });
     expect(sheet.parts.some((p) => p.id.startsWith('rail-band'))).toBe(false);
+  });
+
+  it('vertical offset = strip thickness × laminations (not the horizontal width)', () => {
+    // Same derived offset, different strip/count split ⇒ identical template …
+    const a = cutLoop(railPart()!);
+    const b = cutLoop(railPart({ railStripThickness: 0.5, railLaminations: 6 })!);
+    expect(bboxOfPts([...a.pts])).toEqual(bboxOfPts([...b.pts]));
+    // … and the horizontal width param has no effect in vertical mode.
+    const c = cutLoop(railPart({ railBandWidth: 10 })!);
+    expect(bboxOfPts([...c.pts])).toEqual(bboxOfPts([...a.pts]));
   });
 
   it('honours includeRailTemplate', () => {
@@ -496,11 +513,12 @@ describe('buildHwsTemplates — rib profile survives a bottom that dips near the
     return makeBoard(base.outline, base.bottom, base.deck, sections, base.interpolationType);
   };
 
-  it.each([[0], [3]] as const)('rib keeps a sampled bottom edge (railBandThickness %d)', (band) => {
+  it.each([[0], [5]] as const)('rib keeps a sampled bottom edge (%d laminations)', (count) => {
     const sheet = buildHwsTemplates(dippedBoard(), {
       ribMode: 'evenCount',
       ribCount: 5,
-      railBandThickness: band,
+      railLaminations: count,
+      railStripThickness: 0.6,
     });
     for (const rib of sheet.parts.filter((p) => p.id.startsWith('rib-'))) {
       const pts = cutLoop(rib).pts;
@@ -520,6 +538,8 @@ describe('buildHwsTemplates — rib profile survives a bottom that dips near the
 });
 
 describe('buildHwsTemplates — rib rail cut-back (the old railInset bug)', () => {
+  // Vertical mode: 5 × 0.6 cm strips ⇒ a 3 cm band offset.
+  const bandParams = { railLaminations: 5, railStripThickness: 0.6 } as const;
   const centreRib = (extra: object = {}) =>
     buildHwsTemplates(board, { ribMode: 'evenCount', ribCount: 1, ...extra }).parts.find((p) =>
       p.id.startsWith('rib-'),
@@ -527,7 +547,7 @@ describe('buildHwsTemplates — rib rail cut-back (the old railInset bug)', () =
 
   it('keeps the rib deck/bottom height unchanged (only the sides pull in)', () => {
     const plain = bboxOfPts(allPts(centreRib()));
-    const cut = bboxOfPts(allPts(centreRib({ railBandThickness: 3 })));
+    const cut = bboxOfPts(allPts(centreRib(bandParams)));
     // Heights equal: the band cut-back never lowers the deck or raises the bottom.
     expect(cut.maxY).toBeCloseTo(plain.maxY, 2);
     expect(cut.minY).toBeCloseTo(plain.minY, 2);
@@ -536,10 +556,9 @@ describe('buildHwsTemplates — rib rail cut-back (the old railInset bug)', () =
   });
 
   it('rib sides stop at the offset-outline half-width, as vertical flats', () => {
-    const band = 3;
-    const rib = centreRib({ railBandThickness: band });
+    const rib = centreRib(bandParams);
     const pts = cutLoop(rib).pts;
-    const yCut = outlineInsetHalfWidthAt(board, 50, band);
+    const yCut = outlineInsetHalfWidthAt(board, 50, 3);
     const maxX = pts.reduce((m, q) => Math.max(m, q.x), 0);
     expect(maxX).toBeCloseTo(yCut, 1);
     // A vertical face: at least two consecutive points share x = ±maxX.
@@ -552,23 +571,17 @@ describe('buildHwsTemplates — rib rail cut-back (the old railInset bug)', () =
   });
 
   it('tabSlot ribs grow a locating tab past the side face', () => {
-    const band = 3;
-    const strip = 0.6;
-    const plain = centreRib({ railBandThickness: band });
-    const tabbed = centreRib({
-      railBandThickness: band,
-      railJoint: 'tabSlot',
-      railStripThickness: strip,
-    });
+    const plain = centreRib(bandParams);
+    const tabbed = centreRib({ ...bandParams, railJoint: 'tabSlot' });
     const plainMax = cutLoop(plain).pts.reduce((m, q) => Math.max(m, q.x), 0);
     const tabbedMax = cutLoop(tabbed).pts.reduce((m, q) => Math.max(m, q.x), 0);
-    expect(tabbedMax).toBeCloseTo(plainMax + strip, 2);
+    expect(tabbedMax).toBeCloseTo(plainMax + bandParams.railStripThickness, 2);
     expect(hasSelfIntersection(cutLoop(tabbed).pts)).toBe(false);
   });
 
   it('half-lap slot geometry survives the side cut-back', () => {
     const halfLap = 0.5;
-    const rib = centreRib({ railBandThickness: 3, halfLapFraction: halfLap });
+    const rib = centreRib({ ...bandParams, halfLapFraction: halfLap });
     const pts = cutLoop(rib).pts;
     const bb = bboxOfPts([...pts]);
     const ybc = bb.minY;
