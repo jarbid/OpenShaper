@@ -186,6 +186,6 @@ export function specSheetHtml(doc: SpecSheetDoc): string {
 ${drawing}${chips ? `<div class="info">${chips}</div>` : ''}
 <div class="grid">${cards}</div>
 ${fins}
-<footer><span class="note">OpenShaper · open-source surfboard CAD</span><button onclick="print()">Print / Save as PDF</button></footer>
+<footer><span class="note">OpenShaper · open-source surfboard CAD · openshaper.com</span><button onclick="print()">Print / Save as PDF</button></footer>
 </div></div></body></html>`;
 }

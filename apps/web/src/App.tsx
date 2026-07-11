@@ -1070,6 +1070,7 @@ function AppShell() {
       {templateKind === 'hws' && board && (
         <ConstructionPanel
           board={board}
+          boardName={meta?.model}
           units={units}
           specs={
             specs

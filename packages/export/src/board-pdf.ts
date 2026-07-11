@@ -306,7 +306,7 @@ const buildParts = (board: BezierBoard, opts: BoardPdf1to1Options): TaggedPart[]
   const eps = Math.min(0.01, length / (lengthSteps * 4));
   const L = (cm: number): string =>
     inches ? `${(cm / 2.54).toFixed(2)} in` : `${cm.toFixed(1)} cm`;
-  const note = `${name} · 1:1 — print at 100% scale · units ${inches ? 'in' : 'cm'}`;
+  const note = `${name} · 1:1 — print at 100% scale · units ${inches ? 'in' : 'cm'} · openshaper.com`;
   const stationPos = (i: number): number => eps + ((length - 2 * eps) * (i + 0.5)) / csCount;
 
   const parts: TaggedPart[] = [];

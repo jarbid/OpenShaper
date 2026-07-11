@@ -8,6 +8,7 @@
  * bottom (centred on a common axis); SVG's y-down axis is flipped so the board reads
  * the same way as in the editor.
  */
+import { BRAND_LINE } from './brand';
 import { bboxOfPts, columnLayout } from './construction/geom';
 import type { Label, Loop, Pt, TemplateSheet } from './construction/types';
 import { SHEET_UNIT, type SheetUnit } from './construction/units';
@@ -75,11 +76,15 @@ export const sheetToSvg = (sheet: TemplateSheet, opts: SvgOptions = {}): string 
     ? `  <text x="${(GAP * k).toFixed(2)}" y="${(h - GAP * k * 0.4).toFixed(2)}" ` +
       `font-size="${(0.5 * k).toFixed(1)}" fill="${MARK}">${esc(sheet.meta.note)}</text>\n`
     : '';
+  // Light product credit, bottom-right of the same margin.
+  const brand =
+    `  <text x="${(w - GAP * k).toFixed(2)}" y="${(h - GAP * k * 0.4).toFixed(2)}" ` +
+    `text-anchor="end" font-size="${(0.35 * k).toFixed(1)}" fill="#999999">${esc(BRAND_LINE)}</text>\n`;
 
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${w.toFixed(3)}${unit}" height="${h.toFixed(3)}${unit}" ` +
     `viewBox="0 0 ${w.toFixed(3)} ${h.toFixed(3)}">\n` +
     `  <title>${esc(sheet.meta?.title ?? 'Template')}</title>\n` +
-    `${body}\n${note}</svg>\n`
+    `${body}\n${note}${brand}</svg>\n`
   );
 };

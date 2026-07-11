@@ -13,6 +13,7 @@ import {
   vec2 as kVec2,
 } from '@openshaper/kernel';
 import { makeTestBoard } from '../fixture.test-helper';
+import { BRAND_LINE } from '../brand';
 import { buildHwsTemplates } from './hws';
 import { DEFAULT_HWS_PARAMS, type Part, type Pt } from './types';
 import { bboxOfPts } from './geom';
@@ -658,6 +659,22 @@ describe('sheet writers', () => {
     expect(s.trimEnd().endsWith('%%EOF')).toBe(true);
   });
 
+  it('brands every writer with the openshaper.com credit (never as DXF geometry)', () => {
+    const dxf = sheetToDxf(sheet);
+    expect(dxf).toContain(BRAND_LINE);
+    // Comment-only in DXF: the brand precedes the ENTITIES section, so no machine
+    // could mistake it for something to cut.
+    expect(dxf.indexOf(BRAND_LINE)).toBeLessThan(dxf.indexOf('ENTITIES'));
+
+    expect(sheetToSvg(sheet)).toContain(BRAND_LINE);
+
+    const bytes = sheetToPdf(sheet);
+    let s = '';
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]!);
+    // Once per page.
+    expect(s.split(BRAND_LINE).length - 1).toBe(sheet.parts.length);
+  });
+
   it('prints the meta.note on every writer', () => {
     const NOTE = 'OpenShaper HWS test note';
     const noted = { ...sheet, meta: { ...sheet.meta, note: NOTE } };
@@ -667,6 +684,52 @@ describe('sheet writers', () => {
     let s = '';
     for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]!);
     expect(s).toContain(NOTE);
+  });
+});
+
+describe('buildHwsTemplates — warnings', () => {
+  it('a clean default build reports no warnings', () => {
+    const sheet = buildHwsTemplates(board);
+    expect(sheet.warnings ?? []).toHaveLength(0);
+  });
+
+  it('reports lightening that could not fit, naming the part', () => {
+    const sheet = buildHwsTemplates(board, {
+      ribMode: 'evenCount',
+      ribCount: 1,
+      lighteningStyle: 'circles',
+      holeDiameter: 0.5, // capped radius falls below the 3 mm hole minimum
+      webMargin: 1,
+    });
+    const rib = sheet.parts.find((q) => q.id.startsWith('rib-'))!;
+    expect(rib.loops.filter((l) => l.kind === 'cutInner')).toHaveLength(0);
+    const w = (sheet.warnings ?? []).find((q) => q.code === 'lightening-dropped');
+    expect(w).toBeDefined();
+    expect(w!.partId).toBe(rib.id);
+    expect(w!.message).toMatch(/lightening/i);
+  });
+
+  it('reports rib stations whose stringer notches fall inside the trimmed ends', () => {
+    // evenCount places the first/last stations exactly on the end margin, where
+    // the stringer has no material left for a half-lap notch.
+    const sheet = buildHwsTemplates(board, { ribMode: 'evenCount', ribCount: 4 });
+    const ws = (sheet.warnings ?? []).filter((q) => q.code === 'stringer-slots-trimmed');
+    expect(ws).toHaveLength(1);
+    expect(ws[0]!.partId).toBe('stringer');
+    expect(ws[0]!.message).toContain('2');
+  });
+
+  it('reports a rib left untrimmed when the rail-band offset is degenerate there', () => {
+    // A band offset nearly as deep as the half-width leaves no vertical face.
+    const sheet = buildHwsTemplates(board, {
+      ribMode: 'evenCount',
+      ribCount: 1,
+      railLamination: 'horizontal',
+      railBandWidth: 24.7,
+    });
+    const ws = (sheet.warnings ?? []).filter((q) => q.code === 'rail-cutback-skipped');
+    expect(ws.length).toBeGreaterThanOrEqual(1);
+    expect(ws[0]!.partId).toBe('rib-0');
   });
 });
 

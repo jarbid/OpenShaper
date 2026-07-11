@@ -7,6 +7,7 @@
  * the spec sheet (`spec-sheet.ts`, printed to PDF by the browser); the PDF exporter
  * here is the true 1:1, print-at-100% trace template.
  */
+export { BRAND_LINE } from './brand';
 export { exportStl, type StlOptions } from './stl';
 export { exportDxf, type DxfOptions, type DxfCurveMode } from './dxf';
 export {
@@ -39,6 +40,7 @@ export {
   type HwsParams,
   type RibMode,
   type TemplateSheet,
+  type TemplateWarning,
   type Part,
   type Loop,
   type LoopKind,

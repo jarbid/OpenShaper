@@ -47,10 +47,26 @@ export interface Part {
   readonly labels?: readonly Label[];
 }
 
+/**
+ * A non-fatal problem the builder worked around: a part it skipped, a joint it
+ * couldn't cut, lightening that didn't fit. Surfaced to the UI as a notice —
+ * the writers ignore warnings entirely.
+ */
+export interface TemplateWarning {
+  /** Stable machine code, e.g. `rib-skipped`, `lightening-dropped`. */
+  readonly code: string;
+  /** Human-readable explanation. Lengths are quoted in cm; the UI may reformat. */
+  readonly message: string;
+  /** Id of the affected part, when one exists (it may have been skipped entirely). */
+  readonly partId?: string;
+}
+
 export interface TemplateSheet {
   readonly parts: readonly Part[];
   /** Source units of all coordinates. Always 'cm' (kernel unit). */
   readonly units: 'cm';
+  /** Non-fatal build problems (omitted when the build was clean). */
+  readonly warnings?: readonly TemplateWarning[];
   readonly meta?: {
     readonly title?: string;
     readonly generator?: string;

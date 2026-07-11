@@ -9,7 +9,8 @@ import {
 import type { BezierBoard } from '@openshaper/kernel';
 import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { downloadTemplateSheet, type TemplateFormat } from './file-io';
+import { downloadTemplateSheet, slugifyName, type TemplateFormat } from './file-io';
+import { HWS_SETTINGS_VERSION, loadHwsSettings, saveHwsSettings } from './hws-settings';
 import {
   cmToUnitNumber,
   exportUnitFor,
@@ -39,18 +40,26 @@ const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.m
  */
 export function ConstructionPanel({
   board,
+  boardName,
   units,
   specs,
   onClose,
 }: {
   board: BezierBoard;
+  /** Board model name (meta.model) — used for the download filenames. */
+  boardName?: string;
   units: LengthUnit;
   specs: PanelSpecs | null;
   onClose: () => void;
 }) {
-  const [p, setP] = useState<HwsParams>(DEFAULT_HWS_PARAMS);
+  const [p, setP] = useState<HwsParams>(() => loadHwsSettings().params);
   const set = <K extends keyof HwsParams>(key: K, value: HwsParams[K]): void =>
     setP((prev) => ({ ...prev, [key]: value }));
+
+  // Persist params on every change, merging over whatever output settings exist.
+  useEffect(() => {
+    saveHwsSettings({ ...loadHwsSettings(), version: HWS_SETTINGS_VERSION, params: p });
+  }, [p]);
 
   const exportUnit = exportUnitFor(units);
   const suf = unitSuffix(units);
@@ -156,9 +165,14 @@ export function ConstructionPanel({
       >
         <PanelHeader className="flex items-center justify-between">
           <PanelTitle>Hollow Wood Frame — construction templates</PanelTitle>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            ✕
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="ghost" onClick={() => setP(DEFAULT_HWS_PARAMS)}>
+              Reset to defaults
+            </Button>
+            <Button size="sm" variant="ghost" onClick={onClose}>
+              ✕
+            </Button>
+          </div>
         </PanelHeader>
         <PanelBody className="grid min-h-0 flex-1 gap-4 overflow-hidden md:grid-cols-[20rem_1fr]">
           {/* --- Parameter form --- */}
@@ -490,6 +504,29 @@ export function ConstructionPanel({
               </div>
             </div>
 
+            {(sheet.warnings?.length ?? 0) > 0 && (
+              <div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                {sheet.warnings!.length <= 3 ? (
+                  <ul className="space-y-0.5">
+                    {sheet.warnings!.map((w, i) => (
+                      <li key={i}>⚠ {w.message}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <details>
+                    <summary className="cursor-pointer">
+                      ⚠ {sheet.warnings!.length} build warnings
+                    </summary>
+                    <ul className="mt-1 space-y-0.5">
+                      {sheet.warnings!.map((w, i) => (
+                        <li key={i}>{w.message}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            )}
+
             <div
               ref={viewportRef}
               className="relative min-h-0 flex-1 cursor-grab touch-none overflow-hidden rounded border border-border bg-white active:cursor-grabbing"
@@ -516,7 +553,14 @@ export function ConstructionPanel({
                   <Button
                     key={f}
                     size="sm"
-                    onClick={() => downloadTemplateSheet(sheet, f, exportUnit)}
+                    onClick={() =>
+                      downloadTemplateSheet(
+                        sheet,
+                        f,
+                        exportUnit,
+                        `${slugifyName(boardName)}-hws-frame`,
+                      )
+                    }
                   >
                     {f.toUpperCase()}
                   </Button>

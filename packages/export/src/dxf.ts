@@ -11,6 +11,7 @@ import {
   type CurveSeg,
   type Pt,
 } from './board-curves';
+import { BRAND_LINE } from './brand';
 
 /**
  * How curves are written: `'polyline'` flattens the exact beziers to a dense polyline
@@ -238,7 +239,7 @@ export const exportDxf = (board: BezierBoard, opts: DxfOptions = {}): string => 
   };
 
   const out: string[] = [];
-  out.push('999', 'DXF export from OpenShaper');
+  out.push('999', 'DXF export from OpenShaper', '999', BRAND_LINE);
   if (mode === 'spline') headerSection(out);
   tablesSection(out);
   out.push('0', 'SECTION', '2', 'ENTITIES');

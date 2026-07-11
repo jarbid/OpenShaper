@@ -7,6 +7,7 @@
  * a dashed grey; labels as small text. Hand-rolled with byte-accurate xref/trailer
  * (same technique as `pdf.ts`).
  */
+import { BRAND_LINE } from './brand';
 import { buildPdf, esc, n, type PageDoc } from './pdf-core';
 import { partBbox } from './construction/geom';
 import type { Label, Loop, Part, TemplateSheet } from './construction/types';
@@ -58,17 +59,18 @@ const renderPart = (part: Part, note?: string): PageDoc => {
   for (const l of part.loops) poly(l);
   for (const lbl of part.labels ?? []) label(lbl);
 
-  // Board-info + units note in the bottom margin.
-  if (note) {
-    c.push(
-      '0.4 0.4 0.4 rg',
-      'BT',
-      '/F1 8 Tf',
-      `${n(MARGIN_CM * CM_TO_PT)} ${n(MARGIN_CM * CM_TO_PT * 0.4)} Td`,
-      `(${esc(note)}) Tj`,
-      'ET',
-    );
-  }
+  // Board-info + units note, then a lighter product credit, in the bottom margin.
+  c.push(
+    '0.4 0.4 0.4 rg',
+    'BT',
+    '/F1 8 Tf',
+    `${n(MARGIN_CM * CM_TO_PT)} ${n(MARGIN_CM * CM_TO_PT * 0.4)} Td`,
+    ...(note ? [`(${esc(note)}) Tj`] : []),
+    '0.65 0.65 0.65 rg',
+    '/F1 6 Tf',
+    `(${esc((note ? '   ' : '') + BRAND_LINE)}) Tj`,
+    'ET',
+  );
 
   return { width, height, content: c.join('\n') + '\n' };
 };

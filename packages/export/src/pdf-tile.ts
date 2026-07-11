@@ -149,7 +149,7 @@ export const tileDrawing = (part: PartDrawing, opts: TileOptions): PageDoc[] => 
           out,
           left + 6,
           bottom - tickLen - 9,
-          `${opts.partCode} · ${code} (row ${rowFromTop + 1}/${rows}, col ${c + 1}/${cols}) · print at 100%`,
+          `${opts.partCode} · ${code} (row ${rowFromTop + 1}/${rows}, col ${c + 1}/${cols}) · print at 100% · openshaper.com`,
           7,
           0.4,
         );

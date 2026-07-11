@@ -29,6 +29,19 @@ import type { ImportWarning } from '@openshaper/io';
 import type { BezierBoard } from '@openshaper/kernel';
 import { recordRecentBoard } from './recent-boards';
 
+/**
+ * Turn a board model name into a safe download-filename stem: lowercase,
+ * non-alphanumerics collapsed to single hyphens, edges trimmed. Falls back to
+ * 'board' when the name is missing or has nothing usable in it.
+ */
+export function slugifyName(name: string | undefined): string {
+  const slug = (name ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'board';
+}
+
 function download(data: BlobPart, filename: string, type: string): void {
   const blob = new Blob([data], { type });
   const url = URL.createObjectURL(blob);
@@ -78,7 +91,7 @@ export function downloadBrd(board: BezierBoard, meta?: BoardMeta): void {
     comments: meta?.comments,
     finType: meta?.finType,
   });
-  download(text, 'board.brd', 'application/octet-stream');
+  download(text, `${slugifyName(meta?.model)}.brd`, 'application/octet-stream');
 }
 
 type BoardFileReader = (
@@ -196,24 +209,25 @@ export function exportBoard(
     surfer: meta?.surfer,
     comments: meta?.comments,
   };
+  const slug = slugifyName(meta?.model);
   switch (format) {
     case 'stl':
-      return download(exportStl(board), 'board.stl', 'model/stl');
+      return download(exportStl(board), `${slug}.stl`, 'model/stl');
     case 'dxf':
       return download(
         exportDxf(board, { ghostBoard: ghost, curveMode: 'polyline' }),
-        'board.dxf',
+        `${slug}.dxf`,
         'application/dxf',
       );
     case 'dxf-spline':
       return download(
         exportDxf(board, { ghostBoard: ghost, curveMode: 'spline' }),
-        'board-spline.dxf',
+        `${slug}-spline.dxf`,
         'application/dxf',
       );
     case 'pdf-1to1': {
       const pdf = exportBoardPdf1to1(board, { units: pdfUnit, meta: pdfMeta });
-      return download(pdf as unknown as BlobPart, 'board-1to1.pdf', 'application/pdf');
+      return download(pdf as unknown as BlobPart, `${slug}-1to1.pdf`, 'application/pdf');
     }
   }
 }
@@ -262,5 +276,9 @@ export function downloadPdf1to1(
     tiling,
     packaging: settings.packaging,
   });
-  for (const f of files) download(f.bytes as unknown as BlobPart, f.name, 'application/pdf');
+  // The export package names files 'board-1to1[-part].pdf'; swap in the model slug.
+  const slug = slugifyName(meta?.model);
+  for (const f of files) {
+    download(f.bytes as unknown as BlobPart, f.name.replace(/^board/, slug), 'application/pdf');
+  }
 }
