@@ -1,0 +1,188 @@
+diff --git a/packages/io/src/import-warning.ts b/packages/io/src/import-warning.ts
+new file mode 100644
+index 0000000..8e77b0c
+--- /dev/null
++++ b/packages/io/src/import-warning.ts
+@@ -0,0 +1,14 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++/**
++ * A non-fatal note emitted by a file reader when it repairs an imported board.
++ * `severity` lets the UI decide how loud to be:
++ *   - 'dropped' — geometry was REMOVED (data-loss). The UI confirms before load.
++ *   - 'info'    — a non-destructive repair (fallback, synthesized/derived data,
++ *                 clamp). The UI shows a dismissible notice.
++ */
++export type ImportWarningSeverity = 'dropped' | 'info';
++
++export interface ImportWarning {
++  readonly severity: ImportWarningSeverity;
++  readonly message: string;
++}
+diff --git a/packages/io/src/index.ts b/packages/io/src/index.ts
+index 76c5ffc..3c96c72 100644
+--- a/packages/io/src/index.ts
++++ b/packages/io/src/index.ts
+@@ -6,6 +6,7 @@
+  *
+  * Implemented so far: the legacy BoardCAD-LE native `.brd` reader.
+  */
++export type { ImportWarning, ImportWarningSeverity } from './import-warning';
+ export { parseBrd, parseBrdFile } from './brd-reader';
+ export type { ParsedBrd, BrdMetadataValue } from './brd-reader';
+ export { writeBrd } from './brd-writer';
+diff --git a/packages/io/src/s3d-reader.test.ts b/packages/io/src/s3d-reader.test.ts
+index ae5dc42..8b760f1 100644
+--- a/packages/io/src/s3d-reader.test.ts
++++ b/packages/io/src/s3d-reader.test.ts
+@@ -434,6 +434,6 @@ describe('parseS3d — deck fallback when Deck element absent', () => {
+     const noDeck = MINIMAL_S3D.replace(/<Deck>[\s\S]*?<\/Deck>/, '');
+     const result = parseS3d(noDeck);
+     expect(result.board.deck.knots.length).toBeGreaterThanOrEqual(2);
+-    expect(result.warnings.some((w) => /deck/i.test(w))).toBe(true);
++    expect(result.warnings.some((w) => /deck/i.test(w.message))).toBe(true);
+   });
+ });
+diff --git a/packages/io/src/s3d-reader.ts b/packages/io/src/s3d-reader.ts
+index 6b2781c..cfbaa32 100644
+--- a/packages/io/src/s3d-reader.ts
++++ b/packages/io/src/s3d-reader.ts
+@@ -45,6 +45,7 @@ import {
+   type Knot,
+ } from '@openshaper/kernel';
+ import { vec2 } from '@openshaper/kernel';
++import type { ImportWarning } from './import-warning';
+ 
+ // ---------------------------------------------------------------------------
+ // Public types
+@@ -59,7 +60,7 @@ export interface ParsedS3d {
+     comments?: string;
+   };
+   /** Non-fatal issues (e.g. missing Deck — synthetic curve generated). */
+-  readonly warnings: string[];
++  readonly warnings: ImportWarning[];
+ }
+ 
+ /** `.s3dx` shares the parsed shape of `.s3d`. */
+@@ -595,7 +596,7 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
+     }
+   }
+ 
+-  const warnings: string[] = [];
++  const warnings: ImportWarning[] = [];
+ 
+   // --- Outline (XY plane) ---
+   let outlineTagUsed = opts.outlineTag;
+@@ -604,10 +605,12 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
+     outlineXml = getChildElement(boardXml, opts.outlineFallbackTag);
+     if (outlineXml) {
+       outlineTagUsed = opts.outlineFallbackTag;
+-      warnings.push(
+-        `No <${opts.outlineTag}> (apex outline) element — falling back to ` +
++      warnings.push({
++        severity: 'info',
++        message:
++          `No <${opts.outlineTag}> (apex outline) element — falling back to ` +
+           `<${opts.outlineFallbackTag}>; outline width may be slightly narrower than nominal`,
+-      );
++      });
+     }
+   }
+   if (!outlineXml) {
+@@ -675,10 +678,12 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
+     deckKnots = injectDeckEndpoints(rawDeckKnots, bottomKnots);
+   } else {
+     // No deck element → generate synthetic deck (S3dReader.java lines 86–113)
+-    warnings.push(
+-      `No <${opts.deckTag}> (deck) element found — generating a synthetic deck curve from ` +
++    warnings.push({
++      severity: 'info',
++      message:
++        `No <${opts.deckTag}> (deck) element found — generating a synthetic deck curve from ` +
+         'thickness formula (S3dReader.java lines 86–113); deck shape may not be accurate',
+-    );
++    });
+     deckKnots = buildSyntheticDeck(bottomKnots, length);
+   }
+ 
+@@ -693,25 +698,34 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
+     // (S3dReader.java lines 140–148: item(1) is index 1 in the NodeList)
+     const sectionBezierXml = getChildElement(sliceXml, 'Bezier3d');
+     if (!sectionBezierXml) {
+-      warnings.push(`<${tag}> has no <Bezier3d> — skipped`);
++      warnings.push({ severity: 'info', message: `<${tag}> has no <Bezier3d> — skipped` });
+       continue;
+     }
+     const sectionCtrlXml = getChildElement(sectionBezierXml, 'Control_points');
+     const sectionPolyXml = sectionCtrlXml ? getChildElement(sectionCtrlXml, 'Polygone3d') : null;
+     if (!sectionPolyXml) {
+-      warnings.push(`<${tag}> Bezier3d missing Control_points/Polygone3d — skipped`);
++      warnings.push({
++        severity: 'info',
++        message: `<${tag}> Bezier3d missing Control_points/Polygone3d — skipped`,
++      });
+       continue;
+     }
+     const allPts = getAllChildElements(sectionPolyXml, 'Point3d');
+     // index 1 = first real data point (after symmetry dummy at index 0)
+     if (allPts.length < 2) {
+-      warnings.push(`<${tag}> has fewer than 2 Point3d entries in Control_points — skipped`);
++      warnings.push({
++        severity: 'info',
++        message: `<${tag}> has fewer than 2 Point3d entries in Control_points — skipped`,
++      });
+       continue;
+     }
+     const posXStr = getChildText(allPts[1]!, 'x');
+     const pos = posXStr !== null ? Number(posXStr) : NaN;
+     if (!Number.isFinite(pos)) {
+-      warnings.push(`<${tag}> position x is non-finite (${posXStr}) — skipped`);
++      warnings.push({
++        severity: 'info',
++        message: `<${tag}> position x is non-finite (${posXStr}) — skipped`,
++      });
+       continue;
+     }
+ 
+@@ -722,10 +736,12 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
+     // the 3D mesh to a sliver and makes the thickness-slaving pass non-idempotent
+     // (it blows the section up on a later edit). Drop these with a warning.
+     if (sectionKnots.length < 3) {
+-      warnings.push(
+-        `<${tag}> at position ${pos} has only ${sectionKnots.length} control point(s) — ` +
+-          'degenerate cross-section, skipped',
+-      );
++      warnings.push({
++        severity: 'dropped',
++        message:
++          `Cross-section at ${pos.toFixed(1)} cm has only ${sectionKnots.length} control point(s) — ` +
++          'too few to form a valid profile, so it was removed.',
++      });
+       continue;
+     }
+ 
+diff --git a/packages/io/src/s3dx-reader.test.ts b/packages/io/src/s3dx-reader.test.ts
+index 0c93d35..e0bbe36 100644
+--- a/packages/io/src/s3dx-reader.test.ts
++++ b/packages/io/src/s3dx-reader.test.ts
+@@ -43,7 +43,7 @@ describe('parseS3dx (real Shape3d samples)', () => {
+     // This export omits <curveDefTop2>, so the outline falls back to the
+     // narrower <curveDefTop1> (~18.6" vs the nominal 19.8") — we assert the
+     // fallback fired and width is plausible rather than the exact nominal.
+-    expect(warnings.some((w) => /falling back/.test(w))).toBe(true);
++    expect(warnings.some((w) => /falling back/.test(w.message))).toBe(true);
+     expect(getMaxWidth(board)).toBeGreaterThan(44);
+     expect(getMaxWidth(board)).toBeLessThan(54);
+   });
+@@ -143,7 +143,11 @@ describe('parseS3dx real-world export robustness', () => {
+     for (const cs of interior) {
+       expect(cs.spline.knots.length).toBeGreaterThanOrEqual(3);
+     }
+-    expect(warnings.some((w) => /degenerate cross-section/.test(w))).toBe(true);
++    expect(
++      warnings.some(
++        (w) => w.severity === 'dropped' && /too few to form a valid profile/.test(w.message),
++      ),
++    ).toBe(true);
+   });
+ 
+   it('settles imported sections idempotently (no thickness blow-up on re-edit)', () => {

@@ -1,0 +1,700 @@
+diff --git a/apps/web/src/App.tsx b/apps/web/src/App.tsx
+index 5873f33..b8edb18 100644
+--- a/apps/web/src/App.tsx
++++ b/apps/web/src/App.tsx
+@@ -37,6 +37,7 @@ import {
+   useSyncExternalStore,
+ } from 'react';
+ import {
++  decideImport,
+   downloadBoard,
+   downloadBrd,
+   downloadPdf1to1,
+@@ -45,6 +46,8 @@ import {
+   type BoardMeta,
+   type ExportFormat,
+ } from './file-io';
++import { ImportWarningsDialog } from './ImportWarningsDialog';
++import type { ImportWarning } from '@openshaper/io';
+ import { ExportPdf1to1Dialog } from './ExportPdf1to1Dialog';
+ import { loadPdf1to1, savePdf1to1, type Pdf1to1Settings } from './pdf-export-settings';
+ import { clearRecentBoards, getRecentBoards, recordRecentBoard } from './recent-boards';
+@@ -358,6 +361,15 @@ function AppShell() {
+ 
+   // Transient error notice (file-open / pop-up failures), auto-dismissed.
+   const [toast, setToast] = useState<string | null>(null);
++  // Info-only repairs: a persistent dismissible notice (not the 6s error toast).
++  const [importNotice, setImportNotice] = useState<ImportWarning[] | null>(null);
++  // Pending data-loss import awaiting user confirmation.
++  const [pendingImport, setPendingImport] = useState<{
++    fileName: string;
++    dropped: ImportWarning[];
++    info: ImportWarning[];
++    commit: () => void;
++  } | null>(null);
+   const toastTimer = useRef<number>();
+   const showError = (message: string) => {
+     setToast(message);
+@@ -376,23 +388,45 @@ function AppShell() {
+     }
+   };
+ 
++  /**
++   * Given a parsed import's warnings + the action that actually loads it, either
++   * load immediately (showing an info notice if any), or stage a confirmation
++   * when geometry was dropped.
++   */
++  const applyImport = (
++    fileName: string,
++    warnings: readonly ImportWarning[],
++    commit: () => void,
++  ) => {
++    const { action, dropped, info } = decideImport(warnings);
++    if (action === 'confirm') {
++      setPendingImport({ fileName, dropped, info, commit });
++      return;
++    }
++    commit();
++    setImportNotice(info.length > 0 ? info : null);
++  };
++
+   const fileInput = useRef<HTMLInputElement>(null);
+   const onOpenFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+     const file = e.target.files?.[0];
+     e.target.value = ''; // allow re-opening the same file
+     if (!file) return;
+     try {
+-      const { board, meta } = await openBoardFile(file);
+-      boardStore.getState().load(board);
+-      setMeta(meta);
+-      // Record in the recent list. Use the file's base name (strip extension) as
+-      // the display name; re-serialise to canonical .board.json so the snapshot
+-      // is always in the native format regardless of the source format (.brd etc.)
+-      const baseName = file.name.replace(/\.(board\.json|json|brd|s3dx|s3d|srf)$/i, '');
+-      const metadata =
+-        meta && Object.values(meta).some(Boolean) ? (meta as Record<string, unknown>) : undefined;
+-      recordRecentBoard(baseName, writeBoardJson(board, metadata));
+-      setRecentBoards(getRecentBoards());
++      const { board, meta, warnings } = await openBoardFile(file);
++      const commit = () => {
++        boardStore.getState().load(board);
++        setMeta(meta);
++        // Record in the recent list. Use the file's base name (strip extension) as
++        // the display name; re-serialise to canonical .board.json so the snapshot
++        // is always in the native format regardless of the source format (.brd etc.)
++        const baseName = file.name.replace(/\.(board\.json|json|brd|s3dx|s3d|srf)$/i, '');
++        const metadata =
++          meta && Object.values(meta).some(Boolean) ? (meta as Record<string, unknown>) : undefined;
++        recordRecentBoard(baseName, writeBoardJson(board, metadata));
++        setRecentBoards(getRecentBoards());
++      };
++      applyImport(file.name, warnings, commit);
+     } catch (err) {
+       console.error('Failed to open board', err);
+       showError(`Could not open ${file.name}: ${(err as Error).message}`);
+@@ -405,7 +439,8 @@ function AppShell() {
+     e.target.value = '';
+     if (!file) return;
+     try {
+-      setGhost((await openBoardFile(file)).board);
++      const { board, warnings } = await openBoardFile(file);
++      applyImport(file.name, warnings, () => setGhost(board));
+     } catch (err) {
+       console.error('Failed to open ghost board', err);
+       showError(`Could not open ${file.name}: ${(err as Error).message}`);
+@@ -976,6 +1011,27 @@ function AppShell() {
+ 
+       {toast && <Toast onClick={() => setToast(null)}>{toast}</Toast>}
+ 
++      {pendingImport && (
++        <ImportWarningsDialog
++          fileName={pendingImport.fileName}
++          dropped={pendingImport.dropped}
++          info={pendingImport.info}
++          onCancel={() => setPendingImport(null)}
++          onImportAnyway={() => {
++            pendingImport.commit();
++            setImportNotice(pendingImport.info.length > 0 ? pendingImport.info : null);
++            setPendingImport(null);
++          }}
++        />
++      )}
++
++      {importNotice && (
++        <Toast onClick={() => setImportNotice(null)}>
++          <span className="font-medium">Imported with changes:</span>{' '}
++          {importNotice.map((w) => w.message).join(' · ')}
++        </Toast>
++      )}
++
+       {paletteOpen && (
+         <CommandPalette
+           commands={commandsFromMenus([
+diff --git a/apps/web/src/ImportWarningsDialog.test.tsx b/apps/web/src/ImportWarningsDialog.test.tsx
+new file mode 100644
+index 0000000..f274c63
+--- /dev/null
++++ b/apps/web/src/ImportWarningsDialog.test.tsx
+@@ -0,0 +1,41 @@
++import { fireEvent, render, screen } from '@testing-library/react';
++import { describe, expect, it, vi } from 'vitest';
++import { ImportWarningsDialog } from './ImportWarningsDialog';
++
++const dropped = [{ severity: 'dropped' as const, message: 'removed a flat section at 113.9 cm' }];
++const info = [{ severity: 'info' as const, message: 'outline fell back to Top1' }];
++
++describe('<ImportWarningsDialog />', () => {
++  it('lists dropped and info messages', () => {
++    render(
++      <ImportWarningsDialog
++        fileName="Go fish.s3dx"
++        dropped={dropped}
++        info={info}
++        onImportAnyway={() => {}}
++        onCancel={() => {}}
++      />,
++    );
++    expect(screen.getByText(/removed a flat section/)).toBeTruthy();
++    expect(screen.getByText(/fell back to Top1/)).toBeTruthy();
++    expect(screen.getByText(/Go fish\.s3dx/)).toBeTruthy();
++  });
++
++  it('wires both buttons', () => {
++    const onImportAnyway = vi.fn();
++    const onCancel = vi.fn();
++    render(
++      <ImportWarningsDialog
++        fileName="x.s3dx"
++        dropped={dropped}
++        info={[]}
++        onImportAnyway={onImportAnyway}
++        onCancel={onCancel}
++      />,
++    );
++    fireEvent.click(screen.getByRole('button', { name: /import anyway/i }));
++    expect(onImportAnyway).toHaveBeenCalledTimes(1);
++    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
++    expect(onCancel).toHaveBeenCalledTimes(1);
++  });
++});
+diff --git a/apps/web/src/ImportWarningsDialog.tsx b/apps/web/src/ImportWarningsDialog.tsx
+new file mode 100644
+index 0000000..21f014a
+--- /dev/null
++++ b/apps/web/src/ImportWarningsDialog.tsx
+@@ -0,0 +1,67 @@
++/**
++ * Blocking confirmation shown when importing a file required REMOVING geometry
++ * (a dropped cross-section). Lists what changed and lets the user proceed or
++ * cancel (cancel = nothing loads, so they can fix the source in Shape3d).
++ * Modeled on the SettingsDialog backdrop + Panel pattern.
++ */
++import { Button, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
++import type { ImportWarning } from '@openshaper/io';
++
++export interface ImportWarningsDialogProps {
++  fileName: string;
++  /** Data-loss warnings (≥1 — that's why the dialog is shown). */
++  dropped: ImportWarning[];
++  /** Non-destructive notes shown for context. */
++  info: ImportWarning[];
++  onImportAnyway: () => void;
++  onCancel: () => void;
++}
++
++export function ImportWarningsDialog({
++  fileName,
++  dropped,
++  info,
++  onImportAnyway,
++  onCancel,
++}: ImportWarningsDialogProps) {
++  return (
++    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={onCancel}>
++      <Panel
++        className="flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto"
++        onClick={(e) => e.stopPropagation()}
++      >
++        <PanelHeader>
++          <PanelTitle>Import will change &quot;{fileName}&quot;</PanelTitle>
++        </PanelHeader>
++
++        <PanelBody className="space-y-4 text-sm">
++          <p className="text-muted-foreground">
++            This file can&apos;t be imported as-is. The following will be changed — review before
++            continuing, or cancel and fix the file in Shape3d.
++          </p>
++
++          <ul className="space-y-1">
++            {dropped.map((w, i) => (
++              <li key={`d${i}`} className="text-card-foreground">
++                <span className="font-semibold text-[var(--primary)]">Removed: </span>
++                {w.message}
++              </li>
++            ))}
++            {info.map((w, i) => (
++              <li key={`i${i}`} className="text-muted-foreground">
++                {w.message}
++              </li>
++            ))}
++          </ul>
++
++          <div className="flex justify-end gap-2 pt-2">
++            <Button variant="ghost" onClick={onCancel}>
++              Cancel
++            </Button>
++            <Button onClick={onImportAnyway}>Import anyway</Button>
++          </div>
++        </PanelBody>
++      </Panel>
++    </div>
++  );
++}
+diff --git a/apps/web/src/file-io.test.ts b/apps/web/src/file-io.test.ts
+new file mode 100644
+index 0000000..3cadb5a
+--- /dev/null
++++ b/apps/web/src/file-io.test.ts
+@@ -0,0 +1,26 @@
++import { describe, expect, it } from 'vitest';
++import { decideImport } from './file-io';
++import type { ImportWarning } from '@openshaper/io';
++
++const info: ImportWarning = { severity: 'info', message: 'fell back' };
++const dropped: ImportWarning = { severity: 'dropped', message: 'removed a section' };
++
++describe('decideImport', () => {
++  it('loads silently when there are no warnings', () => {
++    expect(decideImport([])).toEqual({ action: 'load', dropped: [], info: [] });
++  });
++
++  it('loads (no confirm) when warnings are only informational', () => {
++    const d = decideImport([info]);
++    expect(d.action).toBe('load');
++    expect(d.info).toEqual([info]);
++    expect(d.dropped).toEqual([]);
++  });
++
++  it('requires confirmation when anything was dropped', () => {
++    const d = decideImport([info, dropped]);
++    expect(d.action).toBe('confirm');
++    expect(d.dropped).toEqual([dropped]);
++    expect(d.info).toEqual([info]);
++  });
++});
+diff --git a/apps/web/src/file-io.ts b/apps/web/src/file-io.ts
+index 11e8f50..7b9d815 100644
+--- a/apps/web/src/file-io.ts
++++ b/apps/web/src/file-io.ts
+@@ -25,6 +25,7 @@ import {
+   writeBoardJson,
+   writeBrd,
+ } from '@openshaper/io';
++import type { ImportWarning } from '@openshaper/io';
+ import type { BezierBoard } from '@openshaper/kernel';
+ import { recordRecentBoard } from './recent-boards';
+ 
+@@ -80,49 +81,73 @@ export function downloadBrd(board: BezierBoard, meta?: BoardMeta): void {
+   download(text, 'board.brd', 'application/octet-stream');
+ }
+ 
+-type BoardFileReader = (file: File) => Promise<{ board: BezierBoard; meta: BoardMeta }>;
++type BoardFileReader = (
++  file: File,
++) => Promise<{ board: BezierBoard; meta: BoardMeta; warnings: readonly ImportWarning[] }>;
+ 
+ // Extension → importer. Each reader controls its own decoding (text vs
+ // arrayBuffer), so binary formats fit the same table.
+ const BOARD_FILE_READERS: Record<string, BoardFileReader> = {
+   // .brd may be plain text or encrypted (%BRD-1.0x) — read bytes and let
+   // parseBrdFile sniff the magic and decrypt as needed.
+-  '.brd': async (file) => ({
+-    board: parseBrdFile(new Uint8Array(await file.arrayBuffer())).board,
+-    meta: {},
+-  }),
++  '.brd': async (file) => {
++    const { board, warnings } = parseBrdFile(new Uint8Array(await file.arrayBuffer()));
++    return { board, meta: {}, warnings };
++  },
+   '.s3d': async (file) => {
+-    const { board: b, metadata } = parseS3d(await file.text());
++    const { board: b, metadata, warnings } = parseS3d(await file.text());
+     return {
+       board: b,
+       meta: { model: metadata?.model, designer: metadata?.designer, comments: metadata?.comments },
++      warnings,
+     };
+   },
+   '.s3dx': async (file) => {
+-    const { board: b, metadata } = parseS3dx(await file.text());
++    const { board: b, metadata, warnings } = parseS3dx(await file.text());
+     return {
+       board: b,
+       meta: { model: metadata?.model, designer: metadata?.designer, comments: metadata?.comments },
++      warnings,
+     };
+   },
+   '.srf': async (file) => {
+     const result = parseSrf(await file.arrayBuffer());
+-    return { board: result.board, meta: { model: result.model, comments: result.comments } };
++    return {
++      board: result.board,
++      meta: { model: result.model, comments: result.comments },
++      warnings: [],
++    };
+   },
+ };
+ 
+ const readBoardJsonFile: BoardFileReader = async (file) => {
+   const { board, metadata } = readBoardJson(await file.text());
+-  return { board, meta: (metadata as BoardMeta) ?? {} };
++  return { board, meta: (metadata as BoardMeta) ?? {}, warnings: [] };
+ };
+ 
+ /** Read a user-picked file: a format importer by extension, else native .board.json. */
+-export async function openBoardFile(file: File): Promise<{ board: BezierBoard; meta: BoardMeta }> {
++export async function openBoardFile(
++  file: File,
++): Promise<{ board: BezierBoard; meta: BoardMeta; warnings: readonly ImportWarning[] }> {
+   const name = file.name.toLowerCase();
+   const ext = Object.keys(BOARD_FILE_READERS).find((e) => name.endsWith(e));
+   return ext ? BOARD_FILE_READERS[ext]!(file) : readBoardJsonFile(file);
+ }
+ 
++export interface ImportDecision {
++  /** 'confirm' → show the blocking dialog first; 'load' → load now. */
++  readonly action: 'confirm' | 'load';
++  readonly dropped: ImportWarning[];
++  readonly info: ImportWarning[];
++}
++
++/** Classify import warnings into a load decision (pure). */
++export function decideImport(warnings: readonly ImportWarning[]): ImportDecision {
++  const dropped = warnings.filter((w) => w.severity === 'dropped');
++  const info = warnings.filter((w) => w.severity === 'info');
++  return { action: dropped.length > 0 ? 'confirm' : 'load', dropped, info };
++}
++
+ export type TemplateFormat = 'dxf' | 'svg' | 'pdf';
+ 
+ /**
+diff --git a/packages/io/src/brd-reader.test.ts b/packages/io/src/brd-reader.test.ts
+index 4bdecf2..f67bfc0 100644
+--- a/packages/io/src/brd-reader.test.ts
++++ b/packages/io/src/brd-reader.test.ts
+@@ -2,19 +2,13 @@ import { readFileSync } from 'node:fs';
+ import { dirname, resolve } from 'node:path';
+ import { fileURLToPath } from 'node:url';
+ import { describe, expect, it } from 'vitest';
+-import {
+-  getLength,
+-  getMaxWidth,
+-  getThickness,
+-  getVolume,
+-} from '@openshaper/kernel';
++import { getLength, getMaxWidth, getThickness, getVolume } from '@openshaper/kernel';
+ import { parseBrd } from './brd-reader';
+ 
+ const HERE = dirname(fileURLToPath(import.meta.url));
+ const GOLDEN_DIR = resolve(HERE, '../../../docs/specs/golden');
+ 
+-const readBrd = (name: string): string =>
+-  readFileSync(resolve(GOLDEN_DIR, `${name}.brd`), 'utf8');
++const readBrd = (name: string): string => readFileSync(resolve(GOLDEN_DIR, `${name}.brd`), 'utf8');
+ 
+ interface GoldenBoard {
+   length: number;
+@@ -75,7 +69,9 @@ describe('parseBrd — golden fixtures', () => {
+   it('shortboard parses without throwing and warns about the truncated p35 group', () => {
+     const parsed = parseBrd(readBrd('shortboard'));
+     expect(parsed.board.crossSections.length).toBeGreaterThanOrEqual(3);
+-    expect(parsed.warnings.some((w) => /missing its closing|truncated/i.test(w))).toBe(true);
++    expect(parsed.warnings.some((w) => /missing its closing|truncated/i.test(w.message))).toBe(
++      true,
++    );
+   });
+ 
+   it('funboard and longboard parse with no warnings', () => {
+diff --git a/packages/io/src/brd-reader.ts b/packages/io/src/brd-reader.ts
+index 3c91156..ed66f97 100644
+--- a/packages/io/src/brd-reader.ts
++++ b/packages/io/src/brd-reader.ts
+@@ -12,6 +12,7 @@ import {
+   type Knot,
+ } from '@openshaper/kernel';
+ import { decryptBrd, isEncryptedBrd } from './legacy-crypto';
++import type { ImportWarning } from './import-warning';
+ 
+ /**
+  * Best-effort migration of the legacy free-text `mFinType` to a parametric config.
+@@ -70,7 +71,7 @@ export interface ParsedBrd {
+   /** Scalar `pNN` fields keyed by their legacy semantic name (see FIELD_NAMES). */
+   readonly metadata: Record<string, BrdMetadataValue>;
+   /** Non-fatal issues encountered (e.g. truncated trailing group). */
+-  readonly warnings: string[];
++  readonly warnings: ImportWarning[];
+ }
+ 
+ /** Legacy semantic names for the scalar pNN metadata fields (from BrdReader switch). */
+@@ -195,7 +196,7 @@ interface Cursor {
+ }
+ 
+ /** Consume `(cp ...)` records into a knot list, plus an optional `gps : ( ... )` block. */
+-const readControlPoints = (cur: Cursor, warnings: string[]): Knot[] => {
++const readControlPoints = (cur: Cursor, warnings: ImportWarning[]): Knot[] => {
+   const knots: Knot[] = [];
+   // Expect (and skip) an opening "(" line; legacy keys (p32/p33/p34) put it on its own line.
+   while (cur.i < cur.lines.length) {
+@@ -216,13 +217,16 @@ const readControlPoints = (cur: Cursor, warnings: string[]): Knot[] => {
+     if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === ')') {
+       cur.i++; // consume the gps closing ")"
+     } else {
+-      warnings.push(`gps block near line ${cur.i + 1} not closed by ')'`);
++      warnings.push({
++        severity: 'info',
++        message: `gps block near line ${cur.i + 1} not closed by ')'`,
++      });
+     }
+   }
+   return knots;
+ };
+ 
+-const parseSpline = (cur: Cursor, warnings: string[]): Knot[] => {
++const parseSpline = (cur: Cursor, warnings: ImportWarning[]): Knot[] => {
+   // The field's "(" opener is on the next line after "pNN : (" handling; skip a lone "(".
+   if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === '(') cur.i++;
+   const knots = readControlPoints(cur, warnings);
+@@ -233,7 +237,7 @@ const parseSpline = (cur: Cursor, warnings: string[]): Knot[] => {
+ 
+ const parseCrossSections = (
+   cur: Cursor,
+-  warnings: string[],
++  warnings: ImportWarning[],
+ ): { position: number; knots: Knot[] }[] => {
+   if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === '(') cur.i++;
+   const sections: { position: number; knots: Knot[] }[] = [];
+@@ -252,7 +256,10 @@ const parseCrossSections = (
+     if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === ')') {
+       cur.i++;
+     } else {
+-      warnings.push(`cross-section at position ${pos} (line ${cur.i + 1}) not closed by ')'`);
++      warnings.push({
++        severity: 'info',
++        message: `cross-section at position ${pos} (line ${cur.i + 1}) not closed by ')'`,
++      });
+     }
+   }
+   // Consume the p35 group's closing ")". If absent we hit EOF on the truncated
+@@ -260,10 +267,12 @@ const parseCrossSections = (
+   if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === ')') {
+     cur.i++;
+   } else {
+-    warnings.push(
+-      'p35 cross-section group is missing its closing ")" (truncated trailing group); ' +
++    warnings.push({
++      severity: 'info',
++      message:
++        'p35 cross-section group is missing its closing ")" (truncated trailing group); ' +
+         'loaded all sections present',
+-    );
++    });
+   }
+   return sections;
+ };
+@@ -272,7 +281,7 @@ export const parseBrd = (text: string): ParsedBrd => {
+   if (typeof text !== 'string') {
+     throw new BrdParseError('parseBrd expects a string');
+   }
+-  const warnings: string[] = [];
++  const warnings: ImportWarning[] = [];
+   const metadata: Record<string, BrdMetadataValue> = {};
+   const lines = text.split(/\r?\n/);
+ 
+diff --git a/packages/io/src/import-warning.ts b/packages/io/src/import-warning.ts
+new file mode 100644
+index 0000000..8e77b0c
+--- /dev/null
++++ b/packages/io/src/import-warning.ts
+@@ -0,0 +1,14 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++/**
++ * A non-fatal note emitted by a file reader when it repairs an imported board.
++ * `severity` lets the UI decide how loud to be:
++ *   - 'dropped' — geometry was REMOVED (data-loss). The UI confirms before load.
++ *   - 'info'    — a non-destructive repair (fallback, synthesized/derived data,
++ *                 clamp). The UI shows a dismissible notice.
++ */
++export type ImportWarningSeverity = 'dropped' | 'info';
++
++export interface ImportWarning {
++  readonly severity: ImportWarningSeverity;
++  readonly message: string;
++}
+diff --git a/packages/io/src/index.ts b/packages/io/src/index.ts
+index 76c5ffc..3c96c72 100644
+--- a/packages/io/src/index.ts
++++ b/packages/io/src/index.ts
+@@ -6,6 +6,7 @@
+  *
+  * Implemented so far: the legacy BoardCAD-LE native `.brd` reader.
+  */
++export type { ImportWarning, ImportWarningSeverity } from './import-warning';
+ export { parseBrd, parseBrdFile } from './brd-reader';
+ export type { ParsedBrd, BrdMetadataValue } from './brd-reader';
+ export { writeBrd } from './brd-writer';
+diff --git a/packages/io/src/s3d-reader.test.ts b/packages/io/src/s3d-reader.test.ts
+index ae5dc42..8b760f1 100644
+--- a/packages/io/src/s3d-reader.test.ts
++++ b/packages/io/src/s3d-reader.test.ts
+@@ -434,6 +434,6 @@ describe('parseS3d — deck fallback when Deck element absent', () => {
+     const noDeck = MINIMAL_S3D.replace(/<Deck>[\s\S]*?<\/Deck>/, '');
+     const result = parseS3d(noDeck);
+     expect(result.board.deck.knots.length).toBeGreaterThanOrEqual(2);
+-    expect(result.warnings.some((w) => /deck/i.test(w))).toBe(true);
++    expect(result.warnings.some((w) => /deck/i.test(w.message))).toBe(true);
+   });
+ });
+diff --git a/packages/io/src/s3d-reader.ts b/packages/io/src/s3d-reader.ts
+index 6b2781c..cfbaa32 100644
+--- a/packages/io/src/s3d-reader.ts
++++ b/packages/io/src/s3d-reader.ts
+@@ -45,6 +45,7 @@ import {
+   type Knot,
+ } from '@openshaper/kernel';
+ import { vec2 } from '@openshaper/kernel';
++import type { ImportWarning } from './import-warning';
+ 
+ // ---------------------------------------------------------------------------
+ // Public types
+@@ -59,7 +60,7 @@ export interface ParsedS3d {
+     comments?: string;
+   };
+   /** Non-fatal issues (e.g. missing Deck — synthetic curve generated). */
+-  readonly warnings: string[];
++  readonly warnings: ImportWarning[];
+ }
+ 
+ /** `.s3dx` shares the parsed shape of `.s3d`. */
+@@ -595,7 +596,7 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
+     }
+   }
+ 
+-  const warnings: string[] = [];
++  const warnings: ImportWarning[] = [];
+ 
+   // --- Outline (XY plane) ---
+   let outlineTagUsed = opts.outlineTag;
+@@ -604,10 +605,12 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
+     outlineXml = getChildElement(boardXml, opts.outlineFallbackTag);
+     if (outlineXml) {
+       outlineTagUsed = opts.outlineFallbackTag;
+-      warnings.push(
+-        `No <${opts.outlineTag}> (apex outline) element — falling back to ` +
++      warnings.push({
++        severity: 'info',
++        message:
++          `No <${opts.outlineTag}> (apex outline) element — falling back to ` +
+           `<${opts.outlineFallbackTag}>; outline width may be slightly narrower than nominal`,
+-      );
++      });
+     }
+   }
+   if (!outlineXml) {
+@@ -675,10 +678,12 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
+     deckKnots = injectDeckEndpoints(rawDeckKnots, bottomKnots);
+   } else {
+     // No deck element → generate synthetic deck (S3dReader.java lines 86–113)
+-    warnings.push(
+-      `No <${opts.deckTag}> (deck) element found — generating a synthetic deck curve from ` +
++    warnings.push({
++      severity: 'info',
++      message:
++        `No <${opts.deckTag}> (deck) element found — generating a synthetic deck curve from ` +
+         'thickness formula (S3dReader.java lines 86–113); deck shape may not be accurate',
+-    );
++    });
+     deckKnots = buildSyntheticDeck(bottomKnots, length);
+   }
+ 
+@@ -693,25 +698,34 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
+     // (S3dReader.java lines 140–148: item(1) is index 1 in the NodeList)
+     const sectionBezierXml = getChildElement(sliceXml, 'Bezier3d');
+     if (!sectionBezierXml) {
+-      warnings.push(`<${tag}> has no <Bezier3d> — skipped`);
++      warnings.push({ severity: 'info', message: `<${tag}> has no <Bezier3d> — skipped` });
+       continue;
+     }
+     const sectionCtrlXml = getChildElement(sectionBezierXml, 'Control_points');
+     const sectionPolyXml = sectionCtrlXml ? getChildElement(sectionCtrlXml, 'Polygone3d') : null;
+     if (!sectionPolyXml) {
+-      warnings.push(`<${tag}> Bezier3d missing Control_points/Polygone3d — skipped`);
++      warnings.push({
++        severity: 'info',
++        message: `<${tag}> Bezier3d missing Control_points/Polygone3d — skipped`,
++      });
+       continue;
+     }
+     const allPts = getAllChildElements(sectionPolyXml, 'Point3d');
+     // index 1 = first real data point (after symmetry dummy at index 0)
+     if (allPts.length < 2) {
+-      warnings.push(`<${tag}> has fewer than 2 Point3d entries in Control_points — skipped`);
++      warnings.push({
++        severity: 'info',
++        message: `<${tag}> has fewer than 2 Point3d entries in Control_points — skipped`,
++      });
+       continue;
+     }
+     const posXStr = getChildText(allPts[1]!, 'x');
+     const pos = posXStr !== null ? Number(posXStr) : NaN;
+     if (!Number.isFinite(pos)) {
+-      warnings.push(`<${tag}> position x is non-finite (${posXStr}) — skipped`);
++      warnings.push({
++        severity: 'info',
++        message: `<${tag}> position x is non-finite (${posXStr}) — skipped`,
++      });
+       continue;
+     }
+ 
+@@ -722,10 +736,12 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
+     // the 3D mesh to a sliver and makes the thickness-slaving pass non-idempotent
+     // (it blows the section up on a later edit). Drop these with a warning.
+     if (sectionKnots.length < 3) {
+-      warnings.push(
+-        `<${tag}> at position ${pos} has only ${sectionKnots.length} control point(s) — ` +
+-          'degenerate cross-section, skipped',
+-      );
++      warnings.push({
++        severity: 'dropped',
++        message:
++          `Cross-section at ${pos.toFixed(1)} cm has only ${sectionKnots.length} control point(s) — ` +
++          'too few to form a valid profile, so it was removed.',
++      });
+       continue;
+     }
+ 
+diff --git a/packages/io/src/s3dx-reader.test.ts b/packages/io/src/s3dx-reader.test.ts
+index 0c93d35..e0bbe36 100644
+--- a/packages/io/src/s3dx-reader.test.ts
++++ b/packages/io/src/s3dx-reader.test.ts
+@@ -43,7 +43,7 @@ describe('parseS3dx (real Shape3d samples)', () => {
+     // This export omits <curveDefTop2>, so the outline falls back to the
+     // narrower <curveDefTop1> (~18.6" vs the nominal 19.8") — we assert the
+     // fallback fired and width is plausible rather than the exact nominal.
+-    expect(warnings.some((w) => /falling back/.test(w))).toBe(true);
++    expect(warnings.some((w) => /falling back/.test(w.message))).toBe(true);
+     expect(getMaxWidth(board)).toBeGreaterThan(44);
+     expect(getMaxWidth(board)).toBeLessThan(54);
+   });
+@@ -143,7 +143,11 @@ describe('parseS3dx real-world export robustness', () => {
+     for (const cs of interior) {
+       expect(cs.spline.knots.length).toBeGreaterThanOrEqual(3);
+     }
+-    expect(warnings.some((w) => /degenerate cross-section/.test(w))).toBe(true);
++    expect(
++      warnings.some(
++        (w) => w.severity === 'dropped' && /too few to form a valid profile/.test(w.message),
++      ),
++    ).toBe(true);
+   });
+ 
+   it('settles imported sections idempotently (no thickness blow-up on re-edit)', () => {

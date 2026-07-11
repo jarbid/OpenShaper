@@ -24,6 +24,7 @@ packages/units  metric/imperial + fractions                             (pure)
 packages/store  board document store, command/undo, selectors           depends on: kernel
 packages/render2d  canvas viewport + 2D editor draw                      depends on: kernel, store
 packages/render3d  three.js board mesh + scene                          depends on: kernel
+packages/export PDF/DXF/STL exporters + construction/print templates    depends on: kernel
 packages/ui     design-system components                                 (React)
 docs/specs      extracted legacy specs + golden reference data
 ```
@@ -43,10 +44,16 @@ docs/specs      extracted legacy specs + golden reference data
      tests), (b) a regenerated fixture, and (c) an entry in
      `docs/specs/divergences.md` recording what now differs from BoardCAD-LE, why,
      and by how much. Never weaken a tolerance just to make a change pass.
+     See `docs/specs/golden/README.md` for fixture layout, regeneration commands,
+     and tolerance notes.
 3. **Parameterize what the legacy hard-coded.** No magic tolerances or fixed integration
    resolutions (legacy `VOLUME_X_SPLITS=10`). Volume/area use adaptive refinement.
 4. **UI never blocks.** Heavy compute (volume, meshing, CAM) runs in Web Workers; the
    render layer uses dirty-region/incremental updates, never full-scene regeneration.
+   The `useSpecsWorker` hook (`apps/web/src/use-specs-worker.ts`) is the concrete
+   pattern: it posts monotonically-increasing-id requests to a module worker, drops
+   stale responses, and falls back to synchronous compute when `Worker` is undefined
+   (tests / prerender). See `docs/design/specs-worker.md` for the full write-up.
 5. **All client-side.** No server, database, or auth — the app is a static SPA that ships
    to any free static host. Every feature is free; never add a paywall or tier gate.
 
@@ -71,6 +78,11 @@ pnpm is provided via the user's npm global prefix (`%APPDATA%\npm`), not corepac
   replaces the legacy `java.awt.geom.Point2D`.
 - Tests colocated as `*.test.ts`, run by Vitest.
 - Commit only when asked; never touch `../boardcad-le`.
+- New board edits are plain pure functions in `packages/store/src/edits.ts` (not
+  command classes); wire them through the store's `commit(next, label)` to land on
+  the past/future undo stack.
+- Edited files are auto-formatted with Prettier by a PostToolUse hook
+  (`.claude/hooks/format-edited.mjs`) — don't hand-format to match style.
 
 ### Display units follow the editor's unit selector (no hardcoded units)
 
@@ -92,31 +104,28 @@ in a fixed unit.
   stay unitless.
 - Exception by design: **volume** is always litres (`fmtVol`), matching legacy.
 
-## Sub-agents & model delegation
+## Model delegation
 
-Specialized agents live in `.claude/agents/`. Route work by the policy below.
-
-| Use **Opus** for                                                                                  | Use **Sonnet** for                            | Use **Haiku** for                                     |
-| ------------------------------------------------------------------------------------------------- | --------------------------------------------- | ----------------------------------------------------- |
-| Architecture decisions; geometry & CAM algorithm correctness; the kernel port; adversarial review | Feature implementation, UI, I/O, store, tests | Scaffolding, boilerplate, mechanical codegen, renames |
-
-Agents: `legacy-spec-extractor`, `kernel-engineer`, `store-engineer`, `render-engineer`,
-`ux-engineer`, `io-engineer`, `cam-engineer` (Phase 2), `test-engineer`,
-`architecture-critic`. Each agent's file states its model and scope.
+| Use **Opus** for                                                                            | Use **Sonnet** for                            | Use **Haiku** for                                     |
+| ------------------------------------------------------------------------------------------- | --------------------------------------------- | ----------------------------------------------------- |
+| Architecture decisions; geometry algorithm correctness; the kernel port; adversarial review | Feature implementation, UI, I/O, store, tests | Scaffolding, boilerplate, mechanical codegen, renames |
 
 ## Skills to use
 
-- `code-modernization:modernize-assess` / `:modernize-map` — legacy inventory & topology
-- `code-modernization:modernize-extract-rules` — mine formulas into testable specs (feeds golden data)
-- `code-modernization:modernize-reimagine` — drives the multi-agent greenfield rebuild
+- `port-kernel-fn` — port a legacy kernel function behind a golden test
+- `preview-deploy` — ship a Cloudflare preview URL
 - `claude-api` — Phase-3 AI shaping assistant (with prompt caching)
 - `verify` / `run` / `code-review` / `simplify` — per-PR quality loop
 
 ## Roadmap (where we are)
 
-1. **Foundation** (in progress): monorepo, orchestration, modernize-assess/map, golden data.
-2. **Kernel**: port cadcore + board behind golden tests; io reads real `.brd`.
-3. **Editors + 3D**: store/undo, 2D editors, QuadView, spec panel, three.js view.
-4. **Export → SHIP** (done): STL/DXF/PDF + native save; static deploy to GitHub Pages.
-5. **Phase 2 CAM**: Rust/WASM kernel, toolpaths, GCode/Atua export, machine view.
-6. **Phase 3**: print/templating, board-template library, plugins, AI assistant.
+1. **Foundation** (done): monorepo, orchestration, golden-data harness.
+2. **Kernel** (done): cadcore + board ported behind golden tests; io reads real `.brd`.
+3. **Editors + 3D** (done): store/undo, 2D editors, QuadView, spec panel, three.js view.
+4. **Export → SHIP** (done): STL/DXF/PDF export; static deploy via Cloudflare
+   Workers (`openshaper.com`). Native save isn't wired yet — both web and desktop
+   currently save via browser download.
+5. **Templating** (in progress): hollow-wood-strip rail-band construction templates
+   and the starter board-template library (Shortboard/Funboard/Longboard) are
+   shipped; more construction templates, plugin support, and an AI shaping
+   assistant remain.

@@ -1,0 +1,132 @@
+diff --git a/packages/io/src/brd-reader.test.ts b/packages/io/src/brd-reader.test.ts
+index 4bdecf2..f67bfc0 100644
+--- a/packages/io/src/brd-reader.test.ts
++++ b/packages/io/src/brd-reader.test.ts
+@@ -2,19 +2,13 @@ import { readFileSync } from 'node:fs';
+ import { dirname, resolve } from 'node:path';
+ import { fileURLToPath } from 'node:url';
+ import { describe, expect, it } from 'vitest';
+-import {
+-  getLength,
+-  getMaxWidth,
+-  getThickness,
+-  getVolume,
+-} from '@openshaper/kernel';
++import { getLength, getMaxWidth, getThickness, getVolume } from '@openshaper/kernel';
+ import { parseBrd } from './brd-reader';
+ 
+ const HERE = dirname(fileURLToPath(import.meta.url));
+ const GOLDEN_DIR = resolve(HERE, '../../../docs/specs/golden');
+ 
+-const readBrd = (name: string): string =>
+-  readFileSync(resolve(GOLDEN_DIR, `${name}.brd`), 'utf8');
++const readBrd = (name: string): string => readFileSync(resolve(GOLDEN_DIR, `${name}.brd`), 'utf8');
+ 
+ interface GoldenBoard {
+   length: number;
+@@ -75,7 +69,9 @@ describe('parseBrd — golden fixtures', () => {
+   it('shortboard parses without throwing and warns about the truncated p35 group', () => {
+     const parsed = parseBrd(readBrd('shortboard'));
+     expect(parsed.board.crossSections.length).toBeGreaterThanOrEqual(3);
+-    expect(parsed.warnings.some((w) => /missing its closing|truncated/i.test(w))).toBe(true);
++    expect(parsed.warnings.some((w) => /missing its closing|truncated/i.test(w.message))).toBe(
++      true,
++    );
+   });
+ 
+   it('funboard and longboard parse with no warnings', () => {
+diff --git a/packages/io/src/brd-reader.ts b/packages/io/src/brd-reader.ts
+index 3c91156..ed66f97 100644
+--- a/packages/io/src/brd-reader.ts
++++ b/packages/io/src/brd-reader.ts
+@@ -12,6 +12,7 @@ import {
+   type Knot,
+ } from '@openshaper/kernel';
+ import { decryptBrd, isEncryptedBrd } from './legacy-crypto';
++import type { ImportWarning } from './import-warning';
+ 
+ /**
+  * Best-effort migration of the legacy free-text `mFinType` to a parametric config.
+@@ -70,7 +71,7 @@ export interface ParsedBrd {
+   /** Scalar `pNN` fields keyed by their legacy semantic name (see FIELD_NAMES). */
+   readonly metadata: Record<string, BrdMetadataValue>;
+   /** Non-fatal issues encountered (e.g. truncated trailing group). */
+-  readonly warnings: string[];
++  readonly warnings: ImportWarning[];
+ }
+ 
+ /** Legacy semantic names for the scalar pNN metadata fields (from BrdReader switch). */
+@@ -195,7 +196,7 @@ interface Cursor {
+ }
+ 
+ /** Consume `(cp ...)` records into a knot list, plus an optional `gps : ( ... )` block. */
+-const readControlPoints = (cur: Cursor, warnings: string[]): Knot[] => {
++const readControlPoints = (cur: Cursor, warnings: ImportWarning[]): Knot[] => {
+   const knots: Knot[] = [];
+   // Expect (and skip) an opening "(" line; legacy keys (p32/p33/p34) put it on its own line.
+   while (cur.i < cur.lines.length) {
+@@ -216,13 +217,16 @@ const readControlPoints = (cur: Cursor, warnings: string[]): Knot[] => {
+     if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === ')') {
+       cur.i++; // consume the gps closing ")"
+     } else {
+-      warnings.push(`gps block near line ${cur.i + 1} not closed by ')'`);
++      warnings.push({
++        severity: 'info',
++        message: `gps block near line ${cur.i + 1} not closed by ')'`,
++      });
+     }
+   }
+   return knots;
+ };
+ 
+-const parseSpline = (cur: Cursor, warnings: string[]): Knot[] => {
++const parseSpline = (cur: Cursor, warnings: ImportWarning[]): Knot[] => {
+   // The field's "(" opener is on the next line after "pNN : (" handling; skip a lone "(".
+   if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === '(') cur.i++;
+   const knots = readControlPoints(cur, warnings);
+@@ -233,7 +237,7 @@ const parseSpline = (cur: Cursor, warnings: string[]): Knot[] => {
+ 
+ const parseCrossSections = (
+   cur: Cursor,
+-  warnings: string[],
++  warnings: ImportWarning[],
+ ): { position: number; knots: Knot[] }[] => {
+   if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === '(') cur.i++;
+   const sections: { position: number; knots: Knot[] }[] = [];
+@@ -252,7 +256,10 @@ const parseCrossSections = (
+     if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === ')') {
+       cur.i++;
+     } else {
+-      warnings.push(`cross-section at position ${pos} (line ${cur.i + 1}) not closed by ')'`);
++      warnings.push({
++        severity: 'info',
++        message: `cross-section at position ${pos} (line ${cur.i + 1}) not closed by ')'`,
++      });
+     }
+   }
+   // Consume the p35 group's closing ")". If absent we hit EOF on the truncated
+@@ -260,10 +267,12 @@ const parseCrossSections = (
+   if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === ')') {
+     cur.i++;
+   } else {
+-    warnings.push(
+-      'p35 cross-section group is missing its closing ")" (truncated trailing group); ' +
++    warnings.push({
++      severity: 'info',
++      message:
++        'p35 cross-section group is missing its closing ")" (truncated trailing group); ' +
+         'loaded all sections present',
+-    );
++    });
+   }
+   return sections;
+ };
+@@ -272,7 +281,7 @@ export const parseBrd = (text: string): ParsedBrd => {
+   if (typeof text !== 'string') {
+     throw new BrdParseError('parseBrd expects a string');
+   }
+-  const warnings: string[] = [];
++  const warnings: ImportWarning[] = [];
+   const metadata: Record<string, BrdMetadataValue> = {};
+   const lines = text.split(/\r?\n/);
+ 

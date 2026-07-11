@@ -20,18 +20,19 @@ already underway.
 
 ## System Inventory
 
-| Metric | Value |
-|---|---|
-| Java files | 165 |
-| Total Java lines | 51,418 |
-| Code lines (approx) | 36,643 |
-| Comment lines (approx) | 3,830 |
-| Blank lines | 10,945 |
-| i18n properties | 8 files / 6,926 lines (en, es, fr, nl, no, pt) |
-| Largest files | `MenuBar.java` 3,575 · `BoardCAD.java` 2,985 · `PrintHollowWoodTemplates.java` 2,822 · `BezierBoardDrawUtil.java` 2,705 |
-| Highest decision-keyword density | `BoardCAD.java` (320) · `BezierBoardDrawUtil.java` (298) · `SurfaceSplitsToolpathGenerator.java` (238) |
+| Metric                           | Value                                                                                                                   |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Java files                       | 165                                                                                                                     |
+| Total Java lines                 | 51,418                                                                                                                  |
+| Code lines (approx)              | 36,643                                                                                                                  |
+| Comment lines (approx)           | 3,830                                                                                                                   |
+| Blank lines                      | 10,945                                                                                                                  |
+| i18n properties                  | 8 files / 6,926 lines (en, es, fr, nl, no, pt)                                                                          |
+| Largest files                    | `MenuBar.java` 3,575 · `BoardCAD.java` 2,985 · `PrintHollowWoodTemplates.java` 2,822 · `BezierBoardDrawUtil.java` 2,705 |
+| Highest decision-keyword density | `BoardCAD.java` (320) · `BezierBoardDrawUtil.java` (298) · `SurfaceSplitsToolpathGenerator.java` (238)                  |
 
 **Technology fingerprint**
+
 - **Language/runtime:** Java (Gradle toolchain pinned to Java 25; build runs on installed JDK 21). `build.gradle`, `settings.gradle`, Gradle wrapper present.
 - **UI:** Swing throughout; look-and-feel via FlatLaf / Darklaf / Radiance (`build.gradle:57-64`).
 - **3D:** Java3D-on-JOGL (`org.jogamp.java3d`, `org.jogamp.jogl`, `org.jogamp.vecmath`).
@@ -44,19 +45,19 @@ already underway.
 
 11 functional domains (see `ARCHITECTURE.mmd` for the dependency diagram):
 
-| Domain | Key files | Responsibility |
-|---|---|---|
-| A. Math Kernel (`cadcore`) | `BezierSpline`, `BezierCurve`, `BezierKnot`, `BezierFit`, `VecMath`, `MathUtils`, `UnitUtils` | Bezier math, surface interpolation, vector/unit math — the stable core |
-| B. Board Model + I/O (`board`, readers/writers) | `BezierBoard` (1,812 LOC), `BrdReader/Writer`, `SrfReader`, `S3dReader/S3dxReader` | In-memory surfboard model + persistence/import |
-| C. Commands / Undo (`boardcad.commands`) | `BrdCommandHistory`, `BrdEditCommand` (720), ~20 commands | Command-pattern editing with undo/redo |
-| D. Swing GUI Core (`boardcad.gui.jdk`) | `BoardCAD` (hub singleton), `MenuBar`, `BoardEdit`, `QuadView`, `BezierBoardDrawUtil`, dialogs | Main window, 2D editors, drawing utils, wiring |
-| E. GUI Actions (`...jdk.actions`) | 25 `*Action.java` | Swing action adapters for menus/toolbars/keys |
-| F. Plugin Framework (`...jdk.plugin`) | `AbstractPlugin(Handler)` | Runtime JAR plugin discovery (no in-tree plugins) |
-| G. 3D Visualization | `ThreeDView`, `Brd3DModelGenerator`, `Machine3DView` | Java3D tessellation + orbit rendering |
-| H. Print / Templates (`boardcad.print`) | `PrintHollowWoodTemplates`, `PrintSandwichTemplates`, `PrintSpecSheet`, `PrintBrd` | Spec sheets + full-scale construction templates |
-| I. Export (`boardcad.export`) | `DxfExport`, `StlExport`, `GCodeDraw`, `PdfDraw` (dead) | Geometry export |
-| J. CAM / CNC (`boardcam` + sub-pkgs) | `MachineConfig`, `SurfaceSplitsToolpathGenerator` (1,915), cutters, holding systems, GCode/Atua writers | Toolpath generation to cut a blank |
-| K. Settings & i18n | `BoardCADSettings`, `Settings`, `LanguageResource` (imported 96×) | Observable settings registry + localized strings |
+| Domain                                          | Key files                                                                                               | Responsibility                                                         |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| A. Math Kernel (`cadcore`)                      | `BezierSpline`, `BezierCurve`, `BezierKnot`, `BezierFit`, `VecMath`, `MathUtils`, `UnitUtils`           | Bezier math, surface interpolation, vector/unit math — the stable core |
+| B. Board Model + I/O (`board`, readers/writers) | `BezierBoard` (1,812 LOC), `BrdReader/Writer`, `SrfReader`, `S3dReader/S3dxReader`                      | In-memory surfboard model + persistence/import                         |
+| C. Commands / Undo (`boardcad.commands`)        | `BrdCommandHistory`, `BrdEditCommand` (720), ~20 commands                                               | Command-pattern editing with undo/redo                                 |
+| D. Swing GUI Core (`boardcad.gui.jdk`)          | `BoardCAD` (hub singleton), `MenuBar`, `BoardEdit`, `QuadView`, `BezierBoardDrawUtil`, dialogs          | Main window, 2D editors, drawing utils, wiring                         |
+| E. GUI Actions (`...jdk.actions`)               | 25 `*Action.java`                                                                                       | Swing action adapters for menus/toolbars/keys                          |
+| F. Plugin Framework (`...jdk.plugin`)           | `AbstractPlugin(Handler)`                                                                               | Runtime JAR plugin discovery (no in-tree plugins)                      |
+| G. 3D Visualization                             | `ThreeDView`, `Brd3DModelGenerator`, `Machine3DView`                                                    | Java3D tessellation + orbit rendering                                  |
+| H. Print / Templates (`boardcad.print`)         | `PrintHollowWoodTemplates`, `PrintSandwichTemplates`, `PrintSpecSheet`, `PrintBrd`                      | Spec sheets + full-scale construction templates                        |
+| I. Export (`boardcad.export`)                   | `DxfExport`, `StlExport`, `GCodeDraw`, `PdfDraw` (dead)                                                 | Geometry export                                                        |
+| J. CAM / CNC (`boardcam` + sub-pkgs)            | `MachineConfig`, `SurfaceSplitsToolpathGenerator` (1,915), cutters, holding systems, GCode/Atua writers | Toolpath generation to cut a blank                                     |
+| K. Settings & i18n                              | `BoardCADSettings`, `Settings`, `LanguageResource` (imported 96×)                                       | Observable settings registry + localized strings                       |
 
 **Coupling hotspots:** `BoardCAD` (D) is a god-object hub directly wiring C, G, H, I, J, F;
 Commands (C) imports `boardcad.gui.jdk` 33×; and the kernel back-edge
@@ -85,19 +86,19 @@ are the heaviest compute paths and the first candidates for the Phase-2 Rust/WAS
 
 ## Security Findings (CWE-tagged)
 
-| # | Finding | CWE | Severity | Evidence |
-|---|---|---|---|---|
-| SEC-001 | XXE in S3D XML reader (defaulted `DocumentBuilderFactory`) | CWE-611 | High | `src/board/readers/S3dReader.java:39-43` |
-| SEC-002 | XXE in S3DX XML reader | CWE-611 | High | `src/board/readers/S3dxReader.java:39-46` |
-| SEC-006 | Untrusted JAR plugin load via reflection → RCE | CWE-470/94 | High (if dir writable) | `src/boardcad/gui/jdk/plugin/AbstractPluginHandler.java:46-67` |
-| SEC-003 | Hardcoded decryption keys + static PBE salt | CWE-798/321 | Medium | `src/board/readers/BrdReader.java:41,44,90` |
-| SEC-004 | Weak crypto: PBEWithMD5AndDES, 20 iterations | CWE-327 | Medium | `src/board/readers/BrdReader.java:87-89` |
-| SEC-005 | Committed signing key (`newkey`) + `all-permissions` manifest | CWE-798/312 | Medium | `boardcad-le/newkey`, `boardcad-le/manifest:4-5` |
-| SEC-008 | Unbounded array write / huge alloc in SRF parser | CWE-787/789 | Medium | `src/board/readers/SrfReader.java:41-67,104-108` |
-| SEC-009 | Missing input validation across `.brd` text parsing | CWE-20/129 | Low/Med | `src/board/readers/BrdReader.java:139,591,622` |
-| SEC-010 | Embedded file paths (`blankFile`) used to open/write files | CWE-22 | Low | `src/board/readers/BrdReader.java:189-192`; `boardcam/MachineConfig.java:245-251` |
-| SEC-007 | Reflection classpath scan pulls old `reflections` lib | CWE-1104 | Low | `src/boardcad/settings/BoardCADSettings.java:223-224` |
-| SEC-011 | Outdated/EOL dependencies (`reflections`, `ujmp`, JOGL forks) | CWE-1104/1035 | Low | `build.gradle:57-67` |
+| #       | Finding                                                       | CWE           | Severity               | Evidence                                                                          |
+| ------- | ------------------------------------------------------------- | ------------- | ---------------------- | --------------------------------------------------------------------------------- |
+| SEC-001 | XXE in S3D XML reader (defaulted `DocumentBuilderFactory`)    | CWE-611       | High                   | `src/board/readers/S3dReader.java:39-43`                                          |
+| SEC-002 | XXE in S3DX XML reader                                        | CWE-611       | High                   | `src/board/readers/S3dxReader.java:39-46`                                         |
+| SEC-006 | Untrusted JAR plugin load via reflection → RCE                | CWE-470/94    | High (if dir writable) | `src/boardcad/gui/jdk/plugin/AbstractPluginHandler.java:46-67`                    |
+| SEC-003 | Hardcoded decryption keys + static PBE salt                   | CWE-798/321   | Medium                 | `src/board/readers/BrdReader.java:41,44,90`                                       |
+| SEC-004 | Weak crypto: PBEWithMD5AndDES, 20 iterations                  | CWE-327       | Medium                 | `src/board/readers/BrdReader.java:87-89`                                          |
+| SEC-005 | Committed signing key (`newkey`) + `all-permissions` manifest | CWE-798/312   | Medium                 | `boardcad-le/newkey`, `boardcad-le/manifest:4-5`                                  |
+| SEC-008 | Unbounded array write / huge alloc in SRF parser              | CWE-787/789   | Medium                 | `src/board/readers/SrfReader.java:41-67,104-108`                                  |
+| SEC-009 | Missing input validation across `.brd` text parsing           | CWE-20/129    | Low/Med                | `src/board/readers/BrdReader.java:139,591,622`                                    |
+| SEC-010 | Embedded file paths (`blankFile`) used to open/write files    | CWE-22        | Low                    | `src/board/readers/BrdReader.java:189-192`; `boardcam/MachineConfig.java:245-251` |
+| SEC-007 | Reflection classpath scan pulls old `reflections` lib         | CWE-1104      | Low                    | `src/boardcad/settings/BoardCADSettings.java:223-224`                             |
+| SEC-011 | Outdated/EOL dependencies (`reflections`, `ujmp`, JOGL forks) | CWE-1104/1035 | Low                    | `build.gradle:57-67`                                                              |
 
 **Rebuild implication:** OpenShaper's `packages/io` must harden every importer — disable XXE,
 bound all allocations against remaining buffer size, validate fields, and treat embedded paths
@@ -107,7 +108,7 @@ reproduce it as a security control.
 ## Documentation Gaps (top 5)
 
 1. **No tests and no spec** for the bezier surface-interpolation math (control-point vs S-linear) — behavior lives only in code.
-2. **`.brd`/`.srf`/`.s3d` formats are undocumented** — field IDs (`p01`…), encryption variants, and binary layout must be reverse-engineered (the `legacy-spec-extractor` job).
+2. **`.brd`/`.srf`/`.s3d` formats are undocumented** — field IDs (`p01`…), encryption variants, and binary layout must be reverse-engineered.
 3. **Volume/area/CoM algorithms** (fixed-split Simpson integration) have no written derivation or accuracy statement.
 4. **CAM toolpath strategies** (surface-splits state machine, holding-system offsets) are uncommented and class-name-only.
 5. **Plugin contract** (`AbstractPlugin`/`AbstractPluginHandler`) has no documentation and no example plugin.

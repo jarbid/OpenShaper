@@ -1,0 +1,120 @@
+diff --git a/apps/web/src/ImportWarningsDialog.test.tsx b/apps/web/src/ImportWarningsDialog.test.tsx
+new file mode 100644
+index 0000000..f274c63
+--- /dev/null
++++ b/apps/web/src/ImportWarningsDialog.test.tsx
+@@ -0,0 +1,41 @@
++import { fireEvent, render, screen } from '@testing-library/react';
++import { describe, expect, it, vi } from 'vitest';
++import { ImportWarningsDialog } from './ImportWarningsDialog';
++
++const dropped = [{ severity: 'dropped' as const, message: 'removed a flat section at 113.9 cm' }];
++const info = [{ severity: 'info' as const, message: 'outline fell back to Top1' }];
++
++describe('<ImportWarningsDialog />', () => {
++  it('lists dropped and info messages', () => {
++    render(
++      <ImportWarningsDialog
++        fileName="Go fish.s3dx"
++        dropped={dropped}
++        info={info}
++        onImportAnyway={() => {}}
++        onCancel={() => {}}
++      />,
++    );
++    expect(screen.getByText(/removed a flat section/)).toBeTruthy();
++    expect(screen.getByText(/fell back to Top1/)).toBeTruthy();
++    expect(screen.getByText(/Go fish\.s3dx/)).toBeTruthy();
++  });
++
++  it('wires both buttons', () => {
++    const onImportAnyway = vi.fn();
++    const onCancel = vi.fn();
++    render(
++      <ImportWarningsDialog
++        fileName="x.s3dx"
++        dropped={dropped}
++        info={[]}
++        onImportAnyway={onImportAnyway}
++        onCancel={onCancel}
++      />,
++    );
++    fireEvent.click(screen.getByRole('button', { name: /import anyway/i }));
++    expect(onImportAnyway).toHaveBeenCalledTimes(1);
++    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
++    expect(onCancel).toHaveBeenCalledTimes(1);
++  });
++});
+diff --git a/apps/web/src/ImportWarningsDialog.tsx b/apps/web/src/ImportWarningsDialog.tsx
+new file mode 100644
+index 0000000..21f014a
+--- /dev/null
++++ b/apps/web/src/ImportWarningsDialog.tsx
+@@ -0,0 +1,67 @@
++/**
++ * Blocking confirmation shown when importing a file required REMOVING geometry
++ * (a dropped cross-section). Lists what changed and lets the user proceed or
++ * cancel (cancel = nothing loads, so they can fix the source in Shape3d).
++ * Modeled on the SettingsDialog backdrop + Panel pattern.
++ */
++import { Button, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
++import type { ImportWarning } from '@openshaper/io';
++
++export interface ImportWarningsDialogProps {
++  fileName: string;
++  /** Data-loss warnings (≥1 — that's why the dialog is shown). */
++  dropped: ImportWarning[];
++  /** Non-destructive notes shown for context. */
++  info: ImportWarning[];
++  onImportAnyway: () => void;
++  onCancel: () => void;
++}
++
++export function ImportWarningsDialog({
++  fileName,
++  dropped,
++  info,
++  onImportAnyway,
++  onCancel,
++}: ImportWarningsDialogProps) {
++  return (
++    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={onCancel}>
++      <Panel
++        className="flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto"
++        onClick={(e) => e.stopPropagation()}
++      >
++        <PanelHeader>
++          <PanelTitle>Import will change &quot;{fileName}&quot;</PanelTitle>
++        </PanelHeader>
++
++        <PanelBody className="space-y-4 text-sm">
++          <p className="text-muted-foreground">
++            This file can&apos;t be imported as-is. The following will be changed — review before
++            continuing, or cancel and fix the file in Shape3d.
++          </p>
++
++          <ul className="space-y-1">
++            {dropped.map((w, i) => (
++              <li key={`d${i}`} className="text-card-foreground">
++                <span className="font-semibold text-[var(--primary)]">Removed: </span>
++                {w.message}
++              </li>
++            ))}
++            {info.map((w, i) => (
++              <li key={`i${i}`} className="text-muted-foreground">
++                {w.message}
++              </li>
++            ))}
++          </ul>
++
++          <div className="flex justify-end gap-2 pt-2">
++            <Button variant="ghost" onClick={onCancel}>
++              Cancel
++            </Button>
++            <Button onClick={onImportAnyway}>Import anyway</Button>
++          </div>
++        </PanelBody>
++      </Panel>
++    </div>
++  );
++}
