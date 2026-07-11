@@ -417,11 +417,7 @@ const buildRib = (
 ): Part | null => {
   const id = `rib-${index}`;
   const skip = (why: string): null => {
-    warn({
-      code: 'rib-skipped',
-      partId: id,
-      message: `Rib ${index + 1} @ ${x.toFixed(1)} cm skipped: ${why}`,
-    });
+    warn({ code: 'rib-skipped', partId: id, message: `Rib ${index + 1} skipped: ${why}` });
     return null;
   };
   const cs = getInterpolatedCrossSection(board, x);
@@ -467,7 +463,7 @@ const buildRib = (
       warn({
         code: 'rail-cutback-skipped',
         partId: id,
-        message: `Rib ${index + 1} @ ${x.toFixed(1)} cm left untrimmed — the rail-band offset leaves no vertical glue face here`,
+        message: `Rib ${index + 1} left untrimmed — the rail-band offset leaves no vertical glue face here`,
       });
     }
   }
@@ -480,7 +476,7 @@ const buildRib = (
       warn({
         code: 'tab-skipped',
         partId: id,
-        message: `Rib ${index + 1} @ ${x.toFixed(1)} cm: side face too short for a locating tab — cut it as a butt joint`,
+        message: `Rib ${index + 1}: side face too short for a locating tab — cut it as a butt joint`,
       });
     }
     half = withTab;
@@ -524,7 +520,7 @@ const buildRib = (
     warn({
       code: 'lightening-dropped',
       partId: id,
-      message: `Rib ${index + 1} @ ${x.toFixed(1)} cm: no lightening fits — the web margin / hole size leaves no room`,
+      message: `Rib ${index + 1}: no lightening fits — the web margin / hole size leaves no room`,
     });
   }
   const loops: Loop[] = [loop('cut', true, contour), ...lit];
@@ -1230,7 +1226,7 @@ const buildBlock = (
     warn({
       code: 'block-lap-skipped',
       partId: id,
-      message: `${label} (${len.toFixed(1)} cm) ends before the stringer does (end margin ${tip.toFixed(1)} cm) — no cross-lap cut`,
+      message: `${label} ends before the stringer does (it is shorter than the end margin) — no cross-lap cut`,
     });
   } else if (yAft > slotW / 2 + 0.3) {
     const uSlot = u1 - lap / cosT;

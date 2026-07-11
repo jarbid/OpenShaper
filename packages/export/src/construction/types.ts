@@ -60,7 +60,10 @@ export interface Part {
 export interface TemplateWarning {
   /** Stable machine code, e.g. `rib-skipped`, `lightening-dropped`. */
   readonly code: string;
-  /** Human-readable explanation. Lengths are quoted in cm; the UI may reformat. */
+  /**
+   * Human-readable explanation. Messages never embed lengths — the builder
+   * doesn't know the editor's display unit, and the UI shows them verbatim.
+   */
   readonly message: string;
   /** Id of the affected part, when one exists (it may have been skipped entirely). */
   readonly partId?: string;
