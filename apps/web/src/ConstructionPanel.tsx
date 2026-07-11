@@ -322,13 +322,6 @@ export function ConstructionPanel({
                 min={0.1}
                 onChange={(v) => set('halfLapFraction', v)}
               />
-              <NumField
-                label="Kerf (cut width)"
-                units={units}
-                value={p.kerfDiameter}
-                min={0}
-                onChange={(v) => set('kerfDiameter', Math.max(0, v))}
-              />
             </Group>
 
             <Group title="Lightening">

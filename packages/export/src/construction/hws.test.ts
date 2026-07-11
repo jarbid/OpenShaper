@@ -592,62 +592,6 @@ describe('buildHwsTemplates — rib rail cut-back (the old railInset bug)', () =
   });
 });
 
-describe('buildHwsTemplates — kerf compensation', () => {
-  const params = {
-    ribMode: 'evenCount',
-    ribCount: 1,
-    lighteningStyle: 'circles',
-    holeDiameter: 4,
-    holeSpacing: 5,
-    webMargin: 1,
-  } as const;
-  const kerf = 0.4;
-
-  const ribOf = (kerfDiameter: number) =>
-    buildHwsTemplates(board, { ...params, kerfDiameter }).parts.find((p) =>
-      p.id.startsWith('rib-'),
-    )!;
-
-  it('kerf 0 (default) draws the true geometry', () => {
-    expect(buildHwsTemplates(board, params)).toEqual(
-      buildHwsTemplates(board, { ...params, kerfDiameter: 0 }),
-    );
-  });
-
-  it('offsets cut contours outward and holes inward by half the kerf', () => {
-    const trueRib = ribOf(0);
-    const kerfed = ribOf(kerf);
-
-    // Outer contour grows by kerf/2 per side.
-    const bbTrue = bboxOfPts([...cutLoop(trueRib).pts]);
-    const bbKerf = bboxOfPts([...cutLoop(kerfed).pts]);
-    expect(bbKerf.maxX - bbKerf.minX).toBeCloseTo(bbTrue.maxX - bbTrue.minX + kerf, 1);
-    expect(bbKerf.maxY - bbKerf.minY).toBeCloseTo(bbTrue.maxY - bbTrue.minY + kerf, 1);
-
-    // Holes shrink by kerf/2 per side; the toFixed band absorbs Clipper rounding.
-    const maxHoleDia = (part: Part): number =>
-      Math.max(
-        ...part.loops
-          .filter((l) => l.kind === 'cutInner')
-          .map((l) => {
-            const bb = bboxOfPts([...l.pts]);
-            return bb.maxX - bb.minX;
-          }),
-      );
-    expect(maxHoleDia(kerfed)).toBeCloseTo(maxHoleDia(trueRib) - kerf, 1);
-  });
-
-  it('drops holes the kerf consumes entirely', () => {
-    const sheet = buildHwsTemplates(board, {
-      ...params,
-      holeDiameter: 0.7, // > the 3 mm minimum, < the 8 mm kerf below
-      kerfDiameter: 0.8,
-    });
-    const rib = sheet.parts.find((p) => p.id.startsWith('rib-'))!;
-    expect(rib.loops.filter((l) => l.kind === 'cutInner')).toHaveLength(0);
-  });
-});
-
 describe('sheet writers', () => {
   const sheet = buildHwsTemplates(board, { ribMode: 'evenCount', ribCount: 4 });
 

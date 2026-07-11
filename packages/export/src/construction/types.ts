@@ -178,14 +178,6 @@ export interface HwsParams {
   // --- Output ---
   /** Extra material around the skin planshape. */
   skinOverhang: number;
-  /**
-   * Cut width (cm) of the tool/blade, for optional kerf compensation. The cutter
-   * removes half this each side of the drawn line, so outer `cut` contours are
-   * offset outward by kerf/2 and `cutInner` holes inward by kerf/2, keeping the
-   * finished parts true to size. 0 (default) = draw the true geometry and leave
-   * tool offsets to the operator's CAM.
-   */
-  kerfDiameter: number;
   /** Adaptive sampling tolerance (cm): max chord deviation. Smaller = smoother. */
   sampleTolerance: number;
 }
@@ -222,7 +214,6 @@ export const DEFAULT_HWS_PARAMS: HwsParams = {
   includeBottomSkin: true,
   includeRailTemplate: true,
   skinOverhang: 1,
-  kerfDiameter: 0, // true geometry; operator owns tool offsets
   sampleTolerance: 0.02, // 0.2 mm chord deviation
 };
 
