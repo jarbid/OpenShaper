@@ -83,6 +83,21 @@ const ribStations = (board: BezierBoard, p: HwsParams): number[] => {
 const internalHeight = (board: BezierBoard, x: number, skin: number): number =>
   valueAt(board.deck, x) - valueAt(board.bottom, x) - 2 * skin;
 
+/** Mid-plane height (deck/bottom average) at x — the plane the block plates lie in. */
+const midPlaneY = (board: BezierBoard, x: number): number =>
+  (valueAt(board.deck, x) + valueAt(board.bottom, x)) / 2;
+
+/**
+ * cos of the mid-plane tilt over [xa, xb]. The nose/tail block plates lie in this
+ * tilted plane, so their flat templates are developed by x / cosθ (the legacy
+ * BoardCAD tail/nose-piece development).
+ */
+const midPlaneCos = (board: BezierBoard, xa: number, xb: number): number => {
+  const span = Math.abs(xb - xa);
+  if (span < 1e-6) return 1;
+  return Math.cos(Math.atan2(Math.abs(midPlaneY(board, xb) - midPlaneY(board, xa)), span));
+};
+
 // --- stringer ---
 
 const buildStringer = (
@@ -133,11 +148,58 @@ const buildStringer = (
   const bottom = sampleCurve((t) => ({ x: t, y: botY(t) }), x1, x0, tol);
 
   const outline = dedupe([...top, ...bottom]);
-  const loops: Loop[] = [loop('cut', true, outline)];
+
+  // Nose/tail block cross-lap: open a mid-height notch at each trimmed end so the
+  // block plate (see buildBlock) slides in from the tip and half-laps the spine.
+  // The overhanging parallelogram follows the tilted mid-plane; Clipper leaves
+  // the notch open at the end face (same pattern as the lightening columns).
+  let cut = outline;
+  const blockNotch = (which: 'nose' | 'tail'): Pt[] | null => {
+    const len = which === 'nose' ? p.noseBlockLength : p.tailBlockLength;
+    const lap = len - tip; // overlap between the block plate and the stringer
+    if (lap <= 0.3) return null; // buildBlock warns about the missing lap
+    const xe = which === 'nose' ? x0 : x1; // stringer end face
+    const xi = which === 'nose' ? x0 + lap : x1 - lap; // notch inner end
+    const xo = which === 'nose' ? x0 - 1 : x1 + 1; // overhang keeps the notch open
+    const mid = (x: number): number => (topY(x) + botY(x)) / 2;
+    const cosT = midPlaneCos(board, xi, xe);
+    const hh = (p.materialThickness / cosT + p.slotFit) / 2;
+    return [
+      { x: xo, y: mid(xe) + hh },
+      { x: xi, y: mid(xi) + hh },
+      { x: xi, y: mid(xi) - hh },
+      { x: xo, y: mid(xe) - hh },
+    ];
+  };
+  const notches: Pt[][] = [];
+  if (p.includeNoseBlock) {
+    const nn = blockNotch('nose');
+    if (nn) notches.push(nn);
+  }
+  if (p.includeTailBlock) {
+    const nn = blockNotch('tail');
+    if (nn) notches.push(nn);
+  }
+  if (notches.length > 0) {
+    const pieces = differenceMulti(outline, notches).filter(
+      (r) => r.length >= 3 && Math.abs(signedArea(r)) > 0.5,
+    );
+    if (pieces.length === 1) {
+      cut = dedupe(pieces[0]!);
+    } else {
+      warn({
+        code: 'block-notch-skipped',
+        partId: 'stringer',
+        message: 'The block cross-lap notch would split the stringer end — skipped',
+      });
+    }
+  }
+
+  const loops: Loop[] = [loop('cut', true, cut)];
   // Optional lightening (same style as the ribs), inset from the spine + notches.
   // Keep a solid column under each rib-notch half-lap.
   if (p.lightenStringer) {
-    const lit = buildLightening(outline, p, inner);
+    const lit = buildLightening(cut, p, inner);
     if (p.lighteningStyle !== 'none' && lit.length === 0) {
       warn({
         code: 'lightening-dropped',
@@ -1112,6 +1174,92 @@ const buildHorizontalRailParts = (
   return [partOf('rail-band', 'Rail band', dev.inner, `cut ~${layers} per side (x2), stack to the deck`, 2 * layers)]; // prettier-ignore
 };
 
+// --- nose/tail blocks ---
+
+/**
+ * Nose/tail block template: a flat plate lying in the board's tilted mid-plane,
+ * spanning tip → block length. The lateral edge follows the same offset outline
+ * the ribs butt against (the rail-band inner face, or the skin inset when no
+ * band is configured), developed to true size by the mid-plane tilt (x / cosθ,
+ * like the legacy BoardCAD nose/tail pieces). A centreline slot from the aft
+ * edge cross-laps the matching stringer end notch; the rail band simply butts
+ * against the plate edge (crenellated keying is a later refinement).
+ */
+const buildBlock = (
+  board: BezierBoard,
+  p: HwsParams,
+  which: 'nose' | 'tail',
+  warn: Warn,
+): Part | null => {
+  const id = `block-${which}`;
+  const label = which === 'nose' ? 'Nose block' : 'Tail block';
+  const skip = (why: string): null => {
+    warn({ code: 'block-skipped', partId: id, message: `${label} skipped: ${why}` });
+    return null;
+  };
+  const L = getLength(board);
+  const len = Math.min(which === 'nose' ? p.noseBlockLength : p.tailBlockLength, L / 2 - 1);
+  const s0 = 0.5; // keep off the exact tip, where the outline pinches to zero
+  if (len <= s0 + 0.5) return skip('block length too short');
+  const bx = (s: number): number => (which === 'nose' ? s : L - s); // tip-relative → board x
+
+  const bandOffset = railOffset(p);
+  const inset = bandOffset > 0 ? bandOffset : p.skinThickness;
+  const cosT = midPlaneCos(board, bx(s0), bx(len));
+  const u = (s: number): number => (s - s0) / cosT; // developed coordinate
+  const yHalfAt = (s: number): number => Math.max(0, outlineInsetHalfWidthAt(board, bx(s), inset));
+
+  // Step forward past any stations the inset consumed entirely (right at the tip).
+  let sStart = s0;
+  const step = (len - s0) / 32;
+  while (sStart < len && yHalfAt(sStart) < 0.05) sStart += step;
+  if (len - sStart < 1) return skip('the outline inset leaves no width here');
+
+  const tol = p.sampleTolerance;
+  const top = sampleCurve((s) => ({ x: u(s), y: yHalfAt(s) }), sStart, len, tol);
+  const bottom = sampleCurve((s) => ({ x: u(s), y: -yHalfAt(s) }), len, sStart, tol);
+
+  // Centreline slot from the aft edge, spanning the overlap with the stringer.
+  const u1 = u(len);
+  const yAft = yHalfAt(len);
+  const slotW = p.materialThickness + p.slotFit;
+  const tip = Math.max(p.endMargin, 1);
+  const lap = len - tip;
+  let slot: Pt[] = [];
+  if (lap <= 0.3) {
+    warn({
+      code: 'block-lap-skipped',
+      partId: id,
+      message: `${label} (${len.toFixed(1)} cm) ends before the stringer does (end margin ${tip.toFixed(1)} cm) — no cross-lap cut`,
+    });
+  } else if (yAft > slotW / 2 + 0.3) {
+    const uSlot = u1 - lap / cosT;
+    slot = [
+      { x: u1, y: slotW / 2 },
+      { x: uSlot, y: slotW / 2 },
+      { x: uSlot, y: -slotW / 2 },
+      { x: u1, y: -slotW / 2 },
+    ];
+  }
+
+  const contour = dedupe([...top, ...slot, ...bottom]);
+  if (contour.length < 4) return skip('degenerate contour');
+  const lit = buildLightening(contour, p, []);
+  if (p.lighteningStyle !== 'none' && lit.length === 0) {
+    warn({
+      code: 'lightening-dropped',
+      partId: id,
+      message: `${label}: no lightening fits — the web margin / hole size leaves no room`,
+    });
+  }
+  return {
+    id,
+    label,
+    loops: [loop('cut', true, contour), ...lit],
+    labels: [{ text: label, at: { x: u1 * 0.35, y: 0.8 }, height: 1 }],
+  };
+};
+
 const buildRailParts = (
   board: BezierBoard,
   p: HwsParams,
@@ -1151,6 +1299,14 @@ export const buildHwsTemplates = (
   if (p.includeBottomSkin) parts.push(buildSkin(board, p, stations, 'bottom'));
   if (p.includeRailTemplate && railOffset(p) > 0) {
     parts.push(...buildRailParts(board, p, stations, warn));
+  }
+  if (p.includeNoseBlock) {
+    const b = buildBlock(board, p, 'nose', warn);
+    if (b) parts.push(b);
+  }
+  if (p.includeTailBlock) {
+    const b = buildBlock(board, p, 'tail', warn);
+    if (b) parts.push(b);
   }
 
   return {

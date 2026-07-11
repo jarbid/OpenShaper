@@ -507,7 +507,38 @@ export function ConstructionPanel({
                   onChange={(v) => set('includeRailTemplate', v)}
                 />
               )}
+              <Toggle
+                label="Nose block"
+                checked={p.includeNoseBlock}
+                onChange={(v) => set('includeNoseBlock', v)}
+              />
+              <Toggle
+                label="Tail block"
+                checked={p.includeTailBlock}
+                onChange={(v) => set('includeTailBlock', v)}
+              />
             </Group>
+
+            {(p.includeNoseBlock || p.includeTailBlock) && (
+              <Group title="Blocks">
+                {p.includeNoseBlock && (
+                  <NumField
+                    label="Nose block length"
+                    units={units}
+                    value={p.noseBlockLength}
+                    onChange={(v) => set('noseBlockLength', Math.max(1, v))}
+                  />
+                )}
+                {p.includeTailBlock && (
+                  <NumField
+                    label="Tail block length"
+                    units={units}
+                    value={p.tailBlockLength}
+                    onChange={(v) => set('tailBlockLength', Math.max(1, v))}
+                  />
+                )}
+              </Group>
+            )}
 
             <Group title="Skins">
               <NumField

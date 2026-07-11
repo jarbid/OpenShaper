@@ -193,6 +193,21 @@ export interface HwsParams {
   /** Target bay pitch (cm) for the `truss`; the actual pitch is rounded so bays divide each rib's width evenly. */
   trussSpacing: number;
 
+  // --- Nose/tail blocks ---
+  /**
+   * Emit a nose block template: a flat plate lying in the board's tilted
+   * mid-plane between the tip and `noseBlockLength`, developed to true size and
+   * cross-lapped into the stringer (plate slot from the aft edge + matching
+   * stringer end notch). The rail band ends at `railNoseTrim` to leave it room.
+   */
+  includeNoseBlock: boolean;
+  /** Nose block plate length from the tip (cm). */
+  noseBlockLength: number;
+  /** Emit a tail block template (see {@link HwsParams.includeNoseBlock}). */
+  includeTailBlock: boolean;
+  /** Tail block plate length from the tip (cm). */
+  tailBlockLength: number;
+
   // --- Parts to emit ---
   includeStringer: boolean;
   includeRibs: boolean;
@@ -234,6 +249,10 @@ export const DEFAULT_HWS_PARAMS: HwsParams = {
   webThickness: 1.2, // 12 mm truss struts
   trussAngle: 45, // 45° diagonals
   trussSpacing: 8, // 80 mm target bay pitch
+  includeNoseBlock: false,
+  noseBlockLength: 20,
+  includeTailBlock: false,
+  tailBlockLength: 20,
   includeStringer: true,
   includeRibs: true,
   includeDeckSkin: true,

@@ -10,6 +10,7 @@ import {
   knot as kKnot,
   outlineInsetHalfWidthAt,
   splineFromKnots as kSplineFromKnots,
+  valueAt as kValueAt,
   vec2 as kVec2,
 } from '@openshaper/kernel';
 import { makeTestBoard } from '../fixture.test-helper';
@@ -708,6 +709,110 @@ describe('sheet writers', () => {
     let s = '';
     for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]!);
     expect(s).toContain(NOTE);
+  });
+});
+
+describe('buildHwsTemplates — nose/tail blocks', () => {
+  const L = getLength(board); // 100 cm fixture
+  const params = { ribMode: 'evenCount', ribCount: 3 } as const;
+  const skin = DEFAULT_HWS_PARAMS.skinThickness;
+  const mid = (x: number): number => (kValueAt(board.deck, x) + kValueAt(board.bottom, x)) / 2;
+
+  it('defaults emit no block parts', () => {
+    const ids = buildHwsTemplates(board, params).parts.map((q) => q.id);
+    expect(ids.some((id) => id.startsWith('block-'))).toBe(false);
+  });
+
+  it('emits a symmetric tail block developed by the mid-plane angle', () => {
+    const len = 20;
+    const sheet = buildHwsTemplates(board, {
+      ...params,
+      includeTailBlock: true,
+      tailBlockLength: len,
+    });
+    const block = sheet.parts.find((q) => q.id === 'block-tail')!;
+    expect(block).toBeDefined();
+    const cut = cutLoop(block);
+    expect(hasSelfIntersection(cut.pts)).toBe(false);
+    for (const q of cut.pts) {
+      expect(Number.isFinite(q.x)).toBe(true);
+      expect(Number.isFinite(q.y)).toBe(true);
+    }
+    const bb = bboxOfPts([...cut.pts]);
+    // Symmetric about the centreline.
+    expect(bb.maxY).toBeCloseTo(-bb.minY, 1);
+    // Developed length: span stretched by the mid-plane tilt, never shorter than plan.
+    const span = len - 0.5;
+    const cosT = Math.cos(Math.atan2(Math.abs(mid(L - len) - mid(L - 0.5)), span));
+    const width = bb.maxX - bb.minX;
+    expect(width).toBeGreaterThanOrEqual(span - 1.5);
+    expect(width).toBeLessThanOrEqual(span / cosT + 0.01);
+    expect(span / cosT - width).toBeLessThan(1.5);
+    // Lateral edge matches the skin-inset outline half-width at the aft edge.
+    expect(bb.maxY).toBeCloseTo(outlineInsetHalfWidthAt(board, L - len, skin), 1);
+  });
+
+  it('cuts a centreline slot from the aft edge spanning the stringer overlap', () => {
+    const len = 20;
+    const sheet = buildHwsTemplates(board, {
+      ...params,
+      includeTailBlock: true,
+      tailBlockLength: len,
+    });
+    const cut = cutLoop(sheet.parts.find((q) => q.id === 'block-tail')!);
+    const slotHalf = (DEFAULT_HWS_PARAMS.materialThickness + DEFAULT_HWS_PARAMS.slotFit) / 2;
+    const slotPts = cut.pts.filter((q) => Math.abs(Math.abs(q.y) - slotHalf) < 1e-6);
+    expect(slotPts.length).toBeGreaterThanOrEqual(4);
+    const bb = bboxOfPts([...cut.pts]);
+    const span = len - 0.5;
+    const cosT = Math.cos(Math.atan2(Math.abs(mid(L - len) - mid(L - 0.5)), span));
+    const lap = len - DEFAULT_HWS_PARAMS.endMargin; // overlap with the stringer
+    const slotMinX = Math.min(...slotPts.map((q) => q.x));
+    expect(bb.maxX - slotMinX).toBeCloseTo(lap / cosT, 1);
+  });
+
+  it('notches the stringer end at mid-height for the block cross-lap', () => {
+    const len = 20;
+    const tip = DEFAULT_HWS_PARAMS.endMargin;
+    const xi = L - len; // inner end of the notch (x1 - lap)
+    const near = (part: Part): Pt[] =>
+      cutLoop(part).pts.filter((q) => Math.abs(q.x - xi) < 0.05 && Math.abs(q.y - mid(xi)) < 1.0);
+    const notched = buildHwsTemplates(board, {
+      ...params,
+      includeTailBlock: true,
+      tailBlockLength: len,
+    });
+    const stringer = notched.parts.find((q) => q.id === 'stringer')!;
+    expect(near(stringer).length).toBeGreaterThanOrEqual(2);
+    expect(hasSelfIntersection(cutLoop(stringer).pts)).toBe(false);
+    // The stringer still ends at L - endMargin (the notch opens at the end face).
+    expect(bboxOfPts([...cutLoop(stringer).pts]).maxX).toBeGreaterThan(L - tip - 0.5);
+
+    const plain = buildHwsTemplates(board, params).parts.find((q) => q.id === 'stringer')!;
+    expect(near(plain).length).toBe(0);
+  });
+
+  it('skips the cross-lap with a warning when the block is shorter than the end margin', () => {
+    const sheet = buildHwsTemplates(board, {
+      ...params,
+      includeTailBlock: true,
+      tailBlockLength: 6, // < endMargin 8 → no stringer overlap
+    });
+    expect(sheet.parts.some((q) => q.id === 'block-tail')).toBe(true);
+    expect((sheet.warnings ?? []).some((w) => w.code === 'block-lap-skipped')).toBe(true);
+  });
+
+  it('emits a nose block too, mirrored from the nose tip', () => {
+    const sheet = buildHwsTemplates(board, {
+      ...params,
+      includeNoseBlock: true,
+      noseBlockLength: 18,
+    });
+    const block = sheet.parts.find((q) => q.id === 'block-nose')!;
+    expect(block).toBeDefined();
+    expect(hasSelfIntersection(cutLoop(block).pts)).toBe(false);
+    const bb = bboxOfPts([...cutLoop(block).pts]);
+    expect(bb.maxY).toBeCloseTo(outlineInsetHalfWidthAt(board, 18, skin), 1);
   });
 });
 
