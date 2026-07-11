@@ -28,8 +28,8 @@ import {
   type Pt,
 } from './board-curves';
 import { buildPdf, esc, n, type PageDoc } from './pdf-core';
-import { orient, POINTS_PER_CM, type Orientation, type PaperSize } from './paper';
-import { tileDrawing, type PartDrawing } from './pdf-tile';
+import { orient, POINTS_PER_CM } from './paper';
+import { tileDrawing, type PartDrawing, type PdfTiling } from './pdf-tile';
 
 /** Board metadata shown on exported PDFs (mirrors apps/web BoardMeta's text fields). */
 export interface PdfMeta {
@@ -50,15 +50,8 @@ export interface PdfPartSelection {
   calibration?: boolean;
 }
 
-/** Tiling configuration. When omitted/null, parts are emitted as oversized pages. */
-export interface PdfTiling {
-  paper: PaperSize;
-  orientation: Orientation;
-  /** Shared overlap strip between adjacent tiles, in centimetres. */
-  overlapCm: number;
-  cutMarks: boolean;
-  labels: boolean;
-}
+// PdfTiling lives with the tiler; re-exported here for back-compat.
+export type { PdfTiling } from './pdf-tile';
 
 /** Options for the 1:1 PDF export. */
 export interface BoardPdf1to1Options {

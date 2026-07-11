@@ -166,13 +166,15 @@ export type TemplateFormat = 'dxf' | 'svg' | 'pdf';
 /**
  * Download a built construction-template {@link TemplateSheet} in the chosen vector
  * format. DXF/SVG are emitted in `unit` (matching the editor's display unit); PDF is
- * always true 1:1 physical, so the unit only affects its printed note.
+ * always true 1:1 physical, so the unit only affects its printed note. Pass
+ * `pdfTiling` to slice the PDF parts across a home paper size (null = plot pages).
  */
 export function downloadTemplateSheet(
   sheet: TemplateSheet,
   format: TemplateFormat,
   unit: SheetUnit = 'mm',
   baseName = 'hws-frame',
+  pdfTiling: PdfTiling | null = null,
 ): void {
   switch (format) {
     case 'dxf':
@@ -181,7 +183,7 @@ export function downloadTemplateSheet(
       return download(sheetToSvg(sheet, { unit }), `${baseName}.svg`, 'image/svg+xml');
     case 'pdf':
       return download(
-        sheetToPdf(sheet) as unknown as BlobPart,
+        sheetToPdf(sheet, { tiling: pdfTiling }) as unknown as BlobPart,
         `${baseName}.pdf`,
         'application/pdf',
       );

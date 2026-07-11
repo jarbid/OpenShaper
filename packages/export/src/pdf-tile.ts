@@ -9,7 +9,7 @@
  * in the shared strips for easy assembly.
  */
 import { esc, n, type PageDoc } from './pdf-core';
-import type { PaperSize } from './paper';
+import type { Orientation, PaperSize } from './paper';
 
 /** A part of the board rendered full-size: content stream sized `widthPt × heightPt`. */
 export interface PartDrawing {
@@ -17,6 +17,16 @@ export interface PartDrawing {
   readonly widthPt: number;
   readonly heightPt: number;
   readonly content: string;
+}
+
+/** Tiling configuration. When omitted/null, parts are emitted as oversized pages. */
+export interface PdfTiling {
+  paper: PaperSize;
+  orientation: Orientation;
+  /** Shared overlap strip between adjacent tiles, in centimetres. */
+  overlapCm: number;
+  cutMarks: boolean;
+  labels: boolean;
 }
 
 export interface TileOptions {

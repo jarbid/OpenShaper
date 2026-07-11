@@ -9,6 +9,8 @@
  */
 import { BRAND_LINE } from './brand';
 import { buildPdf, esc, n, type PageDoc } from './pdf-core';
+import { orient } from './paper';
+import { tileDrawing, type PartDrawing, type PdfTiling } from './pdf-tile';
 import { partBbox } from './construction/geom';
 import type { Label, Loop, Part, TemplateSheet } from './construction/types';
 
@@ -75,10 +77,35 @@ const renderPart = (part: Part, note?: string): PageDoc => {
   return { width, height, content: c.join('\n') + '\n' };
 };
 
-export const sheetToPdf = (sheet: TemplateSheet): Uint8Array => {
+export interface SheetPdfOptions {
+  /** Slice each part across a paper size; null/omitted = one oversized page per part. */
+  tiling?: PdfTiling | null;
+}
+
+export const sheetToPdf = (sheet: TemplateSheet, opts: SheetPdfOptions = {}): Uint8Array => {
   const note = sheet.meta?.note;
-  const pages = (
-    sheet.parts.length > 0 ? sheet.parts : [{ id: 'empty', label: 'Empty', loops: [] }]
-  ).map((part) => renderPart(part, note));
+  const parts: readonly Part[] =
+    sheet.parts.length > 0 ? sheet.parts : [{ id: 'empty', label: 'Empty', loops: [] }];
+  const rendered = parts.map((part) => ({ part, page: renderPart(part, note) }));
+  const tiling = opts.tiling ?? null;
+  if (!tiling) return buildPdf(rendered.map((r) => r.page));
+
+  // Slice every part across the chosen paper, labelled by the part name.
+  const pages = rendered.flatMap(({ part, page }) => {
+    const drawing: PartDrawing = {
+      title: part.label,
+      widthPt: page.width,
+      heightPt: page.height,
+      content: page.content,
+    };
+    const aspect = page.height > 0 ? page.width / page.height : 1;
+    return tileDrawing(drawing, {
+      paper: orient(tiling.paper, tiling.orientation, aspect),
+      overlapPt: Math.max(0, tiling.overlapCm) * CM_TO_PT,
+      cutMarks: tiling.cutMarks,
+      labels: tiling.labels,
+      partCode: part.label,
+    });
+  });
   return buildPdf(pages);
 };

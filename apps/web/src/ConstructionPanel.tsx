@@ -6,6 +6,9 @@ import {
   layoutNestedSheet,
   nestedSheetViews,
   nestParts,
+  PAPER_SIZES,
+  paperSizeById,
+  type PdfTiling,
   railOffset,
   sheetToSvg,
   type TemplateSheet,
@@ -111,6 +114,20 @@ export function ConstructionPanel({
   );
   const nestedLayout = useMemo(() => (nest ? layoutNestedSheet(sheet, nest) : null), [sheet, nest]);
   const sheetViews = useMemo(() => (nest ? nestedSheetViews(sheet, nest) : null), [sheet, nest]);
+
+  // PDF tiling per the Paper select; 'plot' keeps one oversized page per part.
+  const pdfTiling = useMemo<PdfTiling | null>(() => {
+    if (output.paperId === 'plot') return null;
+    const paper = paperSizeById(output.paperId);
+    if (!paper) return null;
+    return {
+      paper,
+      orientation: 'auto',
+      overlapCm: output.overlapCm,
+      cutMarks: true,
+      labels: true,
+    };
+  }, [output.paperId, output.overlapCm]);
 
   // --- Preview navigation: part/sheet stepper + zoom/pan ---
   const partCount = sheet.parts.length;
@@ -501,6 +518,32 @@ export function ConstructionPanel({
               />
             </Group>
 
+            <Group title="Print (PDF)">
+              <label className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Paper</span>
+                <select
+                  className="h-8 rounded border border-border bg-background px-2"
+                  value={output.paperId}
+                  onChange={(e) => setOut('paperId', e.target.value)}
+                >
+                  <option value="plot">One page per part (plot)</option>
+                  {PAPER_SIZES.map((ps) => (
+                    <option key={ps.id} value={ps.id}>
+                      Tile to {ps.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {output.paperId !== 'plot' && (
+                <NumField
+                  label="Tile overlap"
+                  units={units}
+                  value={output.overlapCm}
+                  onChange={(v) => setOut('overlapCm', Math.max(0, v))}
+                />
+              )}
+            </Group>
+
             <Group title="Layout (DXF / SVG)">
               <Toggle
                 label="Nest to material sheets"
@@ -662,6 +705,7 @@ export function ConstructionPanel({
                         f,
                         exportUnit,
                         `${slugifyName(boardName)}-hws-frame`,
+                        pdfTiling,
                       )
                     }
                   >

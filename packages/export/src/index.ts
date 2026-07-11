@@ -56,5 +56,5 @@ export {
 } from './construction/nest';
 export { sheetToDxf, type DxfSheetOptions } from './sheet-dxf';
 export { sheetToSvg, type SvgOptions } from './sheet-svg';
-export { sheetToPdf } from './sheet-pdf';
+export { sheetToPdf, type SheetPdfOptions } from './sheet-pdf';
 export type { SheetUnit } from './construction/units';

@@ -17,6 +17,7 @@ import { BRAND_LINE } from '../brand';
 import { buildHwsTemplates } from './hws';
 import { DEFAULT_HWS_PARAMS, type Part, type Pt } from './types';
 import { bboxOfPts } from './geom';
+import { paperSizeById } from '../paper';
 import { sheetToDxf } from '../sheet-dxf';
 import { sheetToSvg } from '../sheet-svg';
 import { sheetToPdf } from '../sheet-pdf';
@@ -673,6 +674,29 @@ describe('sheet writers', () => {
     for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]!);
     // Once per page.
     expect(s.split(BRAND_LINE).length - 1).toBe(sheet.parts.length);
+  });
+
+  it('tiles parts across the chosen paper; untiled output is unchanged', () => {
+    const a4 = paperSizeById('a4')!;
+    const bytes = sheetToPdf(sheet, {
+      tiling: { paper: a4, orientation: 'auto', overlapCm: 1, cutMarks: true, labels: true },
+    });
+    let s = '';
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]!);
+    // The ~84 cm stringer alone needs several A4 tiles.
+    const count = Number(s.match(/\/Count (\d+)/)![1]);
+    expect(count).toBeGreaterThan(sheet.parts.length);
+    // Every page is exactly paper-sized (auto orientation may swap w/h).
+    const maxDim = Math.max(a4.wPt, a4.hPt);
+    for (const m of s.matchAll(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/g)) {
+      expect(Number(m[1])).toBeLessThanOrEqual(maxDim + 0.01);
+      expect(Number(m[2])).toBeLessThanOrEqual(maxDim + 0.01);
+    }
+    // Tile codes + assembly labels are printed.
+    expect(s).toContain('A1');
+    expect(s).toContain('print at 100%');
+    // No tiling option → byte-identical to the plain call.
+    expect(sheetToPdf(sheet, {})).toEqual(sheetToPdf(sheet));
   });
 
   it('prints the meta.note on every writer', () => {
