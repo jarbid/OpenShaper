@@ -23,6 +23,8 @@ test-results/
 playwright-report/
 # Local dev screenshots dropped in the repo root (scratch captures)
 /*.png
+# Local scratch board files used to test import (real third-party designs - never commit)
+/Sample board imports/
 # Local Claude Code config (machine-specific; keep CLAUDE.md and agents/ tracked)
 .claude/settings.json
 .claude/settings.local.json
