@@ -985,25 +985,32 @@ const buildVerticalRailParts = (
     at: { x: 2, y: edgeYAt(dev.deck, 2) + 2.5 },
     height: 1,
   });
-  const base = (id: string, label: string, extra: Loop[], noteText: string): Part => ({
+  const base = (
+    id: string,
+    label: string,
+    extra: Loop[],
+    noteText: string,
+    count: number,
+  ): Part => ({
     id,
     label,
+    count,
     loops: [loop('cut', true, outline), ...extra, ...marks.loops],
     labels: [note(noteText), ...marks.labels],
   });
 
   if (p.railJoint === 'tabSlot' && slots.length > 0) {
     const parts = [
-      base('rail-band-slotted', 'Rail band — layer 1', slots, 'layer 1 — cut 1 per side (x2)'),
+      base('rail-band-slotted', 'Rail band — layer 1', slots, 'layer 1 — cut 1 per side (x2)', 2),
     ];
     if (layers > 1) {
       parts.push(
-        base('rail-band', 'Rail band — layers 2+', [], `layers 2-${layers} — cut ${layers - 1} per side (x2)`), // prettier-ignore
+        base('rail-band', 'Rail band — layers 2+', [], `layers 2-${layers} — cut ${layers - 1} per side (x2)`, 2 * (layers - 1)), // prettier-ignore
       );
     }
     return parts;
   }
-  return [base('rail-band', 'Rail band', [], `cut ${layers} per side (x2 sides)`)];
+  return [base('rail-band', 'Rail band', [], `cut ${layers} per side (x2 sides)`, 2 * layers)];
 };
 
 /**
@@ -1073,9 +1080,16 @@ const buildHorizontalRailParts = (
     return out;
   };
 
-  const partOf = (id: string, label: string, inner: readonly Pt[], noteText: string): Part => ({
+  const partOf = (
+    id: string,
+    label: string,
+    inner: readonly Pt[],
+    noteText: string,
+    count: number,
+  ): Part => ({
     id,
     label,
+    count,
     loops: [loop('cut', true, dedupe([...dev.outer, ...[...inner].reverse()])), ...marks.loops],
     labels: [
       { text: noteText, at: { x: 2, y: edgeYAt(dev.outer, 2) + 2.5 }, height: 1 },
@@ -1086,16 +1100,16 @@ const buildHorizontalRailParts = (
   // Horizontal layers stack up the rail, so the count is a height-based estimate.
   if (p.railJoint === 'tabSlot') {
     const parts = [
-      partOf('rail-band-slotted', 'Rail band — layer 1', notchedInner(), 'layer 1 (bottom) — cut 1 per side (x2)'), // prettier-ignore
+      partOf('rail-band-slotted', 'Rail band — layer 1', notchedInner(), 'layer 1 (bottom) — cut 1 per side (x2)', 2), // prettier-ignore
     ];
     if (layers > 1) {
       parts.push(
-        partOf('rail-band', 'Rail band — layers 2+', dev.inner, `~${layers - 1} more per side (x2), stack to the deck`), // prettier-ignore
+        partOf('rail-band', 'Rail band — layers 2+', dev.inner, `~${layers - 1} more per side (x2), stack to the deck`, 2 * (layers - 1)), // prettier-ignore
       );
     }
     return parts;
   }
-  return [partOf('rail-band', 'Rail band', dev.inner, `cut ~${layers} per side (x2), stack to the deck`)]; // prettier-ignore
+  return [partOf('rail-band', 'Rail band', dev.inner, `cut ~${layers} per side (x2), stack to the deck`, 2 * layers)]; // prettier-ignore
 };
 
 const buildRailParts = (

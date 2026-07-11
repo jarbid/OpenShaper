@@ -687,6 +687,31 @@ describe('sheet writers', () => {
   });
 });
 
+describe('buildHwsTemplates — part counts', () => {
+  const params = {
+    ribMode: 'evenCount',
+    ribCount: 3,
+    railLaminations: 4,
+    railStripThickness: 0.5,
+  } as const;
+
+  it('single parts default to count 1 (unset)', () => {
+    const sheet = buildHwsTemplates(board, { ribMode: 'evenCount', ribCount: 3 });
+    expect(sheet.parts.find((p) => p.id === 'stringer')!.count ?? 1).toBe(1);
+  });
+
+  it('butt rail band cuts layers × 2 sides from one template', () => {
+    const sheet = buildHwsTemplates(board, params);
+    expect(sheet.parts.find((p) => p.id === 'rail-band')!.count).toBe(8);
+  });
+
+  it('tabSlot splits a 2-off layer-1 template from the remaining layers', () => {
+    const sheet = buildHwsTemplates(board, { ...params, railJoint: 'tabSlot' });
+    expect(sheet.parts.find((p) => p.id === 'rail-band-slotted')!.count).toBe(2);
+    expect(sheet.parts.find((p) => p.id === 'rail-band')!.count).toBe(6);
+  });
+});
+
 describe('buildHwsTemplates — warnings', () => {
   it('a clean default build reports no warnings', () => {
     const sheet = buildHwsTemplates(board);

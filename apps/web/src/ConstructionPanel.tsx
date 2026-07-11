@@ -1,10 +1,12 @@
 import {
   buildHwsTemplates,
+  cuttingList,
   DEFAULT_HWS_PARAMS,
   type HwsParams,
   railOffset,
   sheetToSvg,
   type TemplateSheet,
+  totalPieces,
 } from '@openshaper/export';
 import type { BezierBoard } from '@openshaper/kernel';
 import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
@@ -79,8 +81,10 @@ export function ConstructionPanel({
 
   const sheet = useMemo<TemplateSheet>(() => {
     const built = buildHwsTemplates(board, p);
-    return { ...built, meta: { ...built.meta, note } };
+    const pieces = totalPieces(cuttingList(built));
+    return { ...built, meta: { ...built.meta, note: `${note} · ${pieces} pieces` } };
   }, [board, p, note]);
+  const cutList = useMemo(() => cuttingList(sheet), [sheet]);
 
   // --- Preview navigation: part stepper + zoom/pan ---
   const partCount = sheet.parts.length;
@@ -544,9 +548,36 @@ export function ConstructionPanel({
                 dangerouslySetInnerHTML={{ __html: svg }}
               />
             </div>
+            {/* Cutting list: template sizes + copies to cut, in the display unit. */}
+            {cutList.length > 0 && (
+              <div className="max-h-36 overflow-y-auto rounded border border-border">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-background text-muted-foreground">
+                    <tr>
+                      <th className="px-2 py-1 text-left font-medium">Part</th>
+                      <th className="px-2 py-1 text-right font-medium">Size</th>
+                      <th className="px-2 py-1 text-right font-medium">Cut</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cutList.map((item) => (
+                      <tr key={item.partId} className="border-t border-border/50">
+                        <td className="px-2 py-0.5">{item.label}</td>
+                        <td className="px-2 py-0.5 text-right text-muted-foreground">
+                          {fmtLen(item.widthCm, units)} × {fmtLen(item.heightCm, units)}
+                        </td>
+                        <td className="px-2 py-0.5 text-right">{item.count}×</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs text-muted-foreground">
-                {partCount} part{partCount === 1 ? '' : 's'} · red = cut, blue = mark · {suf}
+                {partCount} part{partCount === 1 ? '' : 's'} · {totalPieces(cutList)} pieces · red =
+                cut, blue = mark · {suf}
               </span>
               <div className="flex gap-2">
                 {(['dxf', 'svg', 'pdf'] as TemplateFormat[]).map((f) => (

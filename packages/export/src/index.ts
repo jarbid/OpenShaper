@@ -45,6 +45,7 @@ export {
   type Loop,
   type LoopKind,
 } from './construction/types';
+export { cuttingList, totalPieces, type CutItem } from './construction/cutlist';
 export { sheetToDxf, type DxfSheetOptions } from './sheet-dxf';
 export { sheetToSvg, type SvgOptions } from './sheet-svg';
 export { sheetToPdf } from './sheet-pdf';
