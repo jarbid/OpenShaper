@@ -96,7 +96,7 @@ export const sheetToDxf = (sheet: TemplateSheet, opts: DxfSheetOptions = {}): st
   // Comment-only branding: never geometry a CNC could try to cut.
   const out: string[] = [
     '999',
-    `OpenShaper template: ${sheet.meta?.title ?? ''}`,
+    `openshaper.com template: ${sheet.meta?.title ?? ''}`,
     '999',
     BRAND_LINE,
   ];
