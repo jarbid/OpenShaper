@@ -284,6 +284,21 @@ export const valueAtReverse = (s: Spline, pos: number): number => {
 export const splineLength = (s: Spline): number =>
   s.coeffs.reduce((acc, k) => acc + curveLength(k), 0);
 
+/**
+ * Cumulative arc length from the spline start to station `x` (the over-curve
+ * distance a panel bent along this curve travels to reach `x`). Clamps to 0 /
+ * the full length outside the spline's x range.
+ */
+export const splineLengthToX = (s: Spline, x: number): number => {
+  if (x <= s.knots[0]!.end.x) return 0;
+  if (x >= s.knots[s.knots.length - 1]!.end.x) return splineLength(s);
+  const i = findSegment(s, x);
+  if (i === -1) return x <= s.knots[0]!.end.x ? 0 : splineLength(s);
+  let len = 0;
+  for (let j = 0; j < i; j++) len += curveLength(s.coeffs[j]!);
+  return len + curveLength(s.coeffs[i]!, T_ZERO, tForX(s.coeffs[i]!, x));
+};
+
 export const maxX = (s: Spline): number => {
   let m = -1e5;
   for (const k of s.coeffs) m = Math.max(m, curveMaxX(k));

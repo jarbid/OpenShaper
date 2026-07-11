@@ -2,6 +2,7 @@ import {
   buildHwsTemplates,
   DEFAULT_HWS_PARAMS,
   type HwsParams,
+  railOffset,
   sheetToSvg,
   type TemplateSheet,
 } from '@openshaper/export';
@@ -214,12 +215,96 @@ export function ConstructionPanel({
                 value={p.endMargin}
                 onChange={(v) => set('endMargin', v)}
               />
-              <NumField
-                label="Rail inset"
-                units={units}
-                value={p.railInset}
-                onChange={(v) => set('railInset', v)}
-              />
+            </Group>
+
+            <Group title="Rail band">
+              <label className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Lamination</span>
+                <select
+                  className="h-8 rounded border border-border bg-background px-2"
+                  value={p.railLamination}
+                  onChange={(e) =>
+                    set('railLamination', e.target.value as HwsParams['railLamination'])
+                  }
+                >
+                  <option value="vertical">Vertical strips</option>
+                  <option value="horizontal">Horizontal layers</option>
+                </select>
+              </label>
+              {p.railLamination === 'vertical' ? (
+                <>
+                  {/* Vertical strips build the band inward: offset = stock × count. */}
+                  <NumField
+                    label="Laminations"
+                    unitless
+                    value={p.railLaminations}
+                    step={1}
+                    min={0}
+                    onChange={(v) => set('railLaminations', Math.max(0, Math.round(v)))}
+                  />
+                  <NumField
+                    label="Strip thickness"
+                    units={units}
+                    value={p.railStripThickness}
+                    onChange={(v) => set('railStripThickness', v)}
+                  />
+                  <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <span>Rail/outline offset</span>
+                    <span>{railOffset(p) > 0 ? fmtLen(railOffset(p), units) : '—'}</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Horizontal layers stack UP the rail: plan width is set directly. */}
+                  <NumField
+                    label="Band width"
+                    units={units}
+                    value={p.railBandWidth}
+                    min={0}
+                    onChange={(v) => set('railBandWidth', Math.max(0, v))}
+                  />
+                  <NumField
+                    label="Layer thickness"
+                    units={units}
+                    value={p.railStripThickness}
+                    onChange={(v) => set('railStripThickness', v)}
+                  />
+                </>
+              )}
+              {railOffset(p) > 0 && (
+                <>
+                  <label className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">Rib joint</span>
+                    <select
+                      className="h-8 rounded border border-border bg-background px-2"
+                      value={p.railJoint}
+                      onChange={(e) => set('railJoint', e.target.value as HwsParams['railJoint'])}
+                    >
+                      <option value="butt">Butt + reference lines</option>
+                      <option value="tabSlot">Tab + slot</option>
+                    </select>
+                  </label>
+                  <NumField
+                    label="Tail trim"
+                    units={units}
+                    value={p.railTailTrim}
+                    onChange={(v) => set('railTailTrim', v)}
+                  />
+                  <NumField
+                    label="Nose trim"
+                    units={units}
+                    value={p.railNoseTrim}
+                    onChange={(v) => set('railNoseTrim', v)}
+                  />
+                  {p.railLamination === 'vertical' && (
+                    <Toggle
+                      label="Flatten (follow rocker)"
+                      checked={p.railFlatten}
+                      onChange={(v) => set('railFlatten', v)}
+                    />
+                  )}
+                </>
+              )}
             </Group>
 
             <Group title="Joinery">
@@ -354,6 +439,13 @@ export function ConstructionPanel({
                 checked={p.includeBottomSkin}
                 onChange={(v) => set('includeBottomSkin', v)}
               />
+              {railOffset(p) > 0 && (
+                <Toggle
+                  label="Rail template"
+                  checked={p.includeRailTemplate}
+                  onChange={(v) => set('includeRailTemplate', v)}
+                />
+              )}
             </Group>
 
             <Group title="Skins">

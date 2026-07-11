@@ -21,5 +21,7 @@ export * from './bezier-spline';
 export * from './cross-section';
 export * from './outline-cutout';
 export * from './board';
+export * from './surface';
+export * from './rail-band';
 export * from './tessellate';
 export * from './fins';

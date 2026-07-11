@@ -14,8 +14,12 @@
  */
 import {
   boxSpan,
+  developHorizontalRailBand,
+  developRailBand,
   getInterpolatedCrossSection,
   getLength,
+  getMaxThickness,
+  outlineInsetHalfWidthAt,
   pointByTT,
   resolveFins,
   valueAt,
@@ -32,6 +36,7 @@ import {
 import { dedupe, loop, offsetClosed, sampleCurve, signedArea } from './geom';
 import {
   DEFAULT_HWS_PARAMS,
+  railOffset,
   type HwsParams,
   type Label,
   type Loop,
@@ -235,12 +240,91 @@ const buildLightening = (
 
 // --- ribs ---
 
+/** Clip a closed polygon to one vertical half-plane (Sutherland–Hodgman step). */
+const clipHalfPlaneX = (input: readonly Pt[], inside: (q: Pt) => boolean, planeX: number): Pt[] => {
+  const out: Pt[] = [];
+  const n = input.length;
+  for (let i = 0; i < n; i++) {
+    const a = input[i]!;
+    const b = input[(i + 1) % n]!;
+    const aIn = inside(a);
+    const bIn = inside(b);
+    const cross = (): Pt => {
+      const t = (planeX - a.x) / (b.x - a.x);
+      return { x: planeX, y: a.y + t * (b.y - a.y) };
+    };
+    if (aIn && bIn) out.push(b);
+    else if (aIn && !bIn) out.push(cross());
+    else if (!aIn && bIn) {
+      out.push(cross());
+      out.push(b);
+    }
+  }
+  return out;
+};
+
+/**
+ * Clip a closed polygon to the vertical band |x| ≤ xMax (Sutherland–Hodgman, one
+ * half-plane per side). A rib section is x-convex, so each side yields one clean
+ * vertical face — the flat the rail-band strips glue against.
+ */
+const clipToMaxAbsX = (pts: readonly Pt[], xMax: number): Pt[] => {
+  const right = clipHalfPlaneX(pts, (q) => q.x <= xMax, xMax);
+  return clipHalfPlaneX(right, (q) => q.x >= -xMax, -xMax);
+};
+
+/**
+ * Insert a locating tab into a rib half-profile's vertical side face at x = yCut
+ * (the rail-band inner face). The tab protrudes `prot` (one lamination layer of
+ * rail stock) and keys the matching slot/notch in the layer-1 rail template:
+ * `vertical` lamination centres it on the face, `horizontal` seats it at the
+ * face's bottom (the first layer sits on the bottom skin).
+ */
+const insertSideTab = (
+  half: readonly Pt[],
+  yCut: number,
+  prot: number,
+  lamination: HwsParams['railLamination'],
+): Pt[] => {
+  const eps = 1e-4;
+  for (let i = 0; i + 1 < half.length; i++) {
+    const a = half[i]!;
+    const b = half[i + 1]!;
+    if (Math.abs(a.x - yCut) > eps || Math.abs(b.x - yCut) > eps) continue;
+    const yLo = Math.min(a.y, b.y);
+    const yHi = Math.max(a.y, b.y);
+    const faceH = yHi - yLo;
+    if (faceH < 0.6) return [...half];
+    const tabH = lamination === 'vertical' ? Math.max(0.8, faceH / 3) : Math.min(prot, faceH / 2);
+    const c = lamination === 'vertical' ? (yLo + yHi) / 2 : yLo + tabH / 2;
+    const t0 = Math.max(yLo, c - tabH / 2);
+    const t1 = Math.min(yHi, c + tabH / 2);
+    if (t1 - t0 < 0.2) return [...half];
+    const up = b.y > a.y; // face walked bottom→deck?
+    const tab: Pt[] = up
+      ? [
+          { x: yCut, y: t0 },
+          { x: yCut + prot, y: t0 },
+          { x: yCut + prot, y: t1 },
+          { x: yCut, y: t1 },
+        ]
+      : [
+          { x: yCut, y: t1 },
+          { x: yCut + prot, y: t1 },
+          { x: yCut + prot, y: t0 },
+          { x: yCut, y: t0 },
+        ];
+    return [...half.slice(0, i + 1), ...tab, ...half.slice(i + 1)];
+  }
+  return [...half];
+};
+
 const buildRib = (board: BezierBoard, p: HwsParams, x: number, index: number): Part | null => {
   const cs = getInterpolatedCrossSection(board, x);
   if (!cs) return null;
   const tol = p.sampleTolerance;
   const skin = p.skinThickness;
-  const inset = skin + p.railInset;
+  const inset = skin;
   const slotW = p.materialThickness + p.slotFit;
   const halfW = slotW / 2;
 
@@ -260,10 +344,30 @@ const buildRib = (board: BezierBoard, p: HwsParams, x: number, index: number): P
     .map((v) => ({ x: -v.x, y: v.y }))
     .reverse();
   const rawFull = dedupe([...rawHalf, ...mirrored]);
-  const insetFull = offsetClosed(rawFull, -inset);
+  let insetFull = offsetClosed(rawFull, -inset);
   if (insetFull.length < 4) return null;
-  const half = extractRightHalf(insetFull);
+
+  // Rail band: cut the rib back to the band's inner face — a vertical flat at
+  // |x| = offset-outline half-width — WITHOUT touching its deck/bottom edges
+  // (the old uniform `skin + railInset` inset wrongly lowered those too).
+  let yCut = 0;
+  const bandOffset = railOffset(p);
+  if (bandOffset > 0) {
+    yCut = outlineInsetHalfWidthAt(board, x, bandOffset);
+    const railX = insetFull.reduce((m, q) => Math.max(m, Math.abs(q.x)), 0);
+    if (yCut > 0.5 && yCut < railX - 1e-3) {
+      insetFull = dedupe(clipToMaxAbsX(insetFull, yCut));
+      if (insetFull.length < 4) return null;
+    } else {
+      yCut = 0; // degenerate near the tips: leave the rib untrimmed
+    }
+  }
+
+  let half = extractRightHalf(insetFull);
   if (half.length < 2) return null;
+  if (yCut > 0 && p.railJoint === 'tabSlot') {
+    half = insertSideTab(half, yCut, p.railStripThickness, p.railLamination);
+  }
 
   const ybc = half[0]!.y; // bottom-centre (inset)
   const ydc = half[half.length - 1]!.y; // deck-centre (inset)
@@ -524,27 +628,54 @@ const trimHalfToPositiveX = (pts: readonly Pt[]): Pt[] => {
   return out;
 };
 
+// Vertices this close to the centreline (cm) count as seam vertices. Well above
+// float/Clipper noise, well below any real profile feature.
+const SEAM_EPS = 0.05;
+
 /**
  * Extract the x ≥ 0 half of a closed polygon symmetric about x = 0, returning
- * a polyline that runs bottom-centre (min y on x = 0) → rail → deck-centre
- * (max y on x = 0). The endpoints are snapped to x = 0.
+ * a polyline that runs bottom-centre → rail → deck-centre, endpoints snapped
+ * to x = 0.
+ *
+ * The polygon is first clipped to the x ≥ 0 half-plane (which manufactures
+ * exact seam vertices at x = 0), and the walk is anchored at the CENTRELINE
+ * SEAM vertices — the extreme-y vertices at x ≈ 0 — never the global y
+ * extremes. On boards whose bottom contour dips below the centreline height
+ * toward the rail (most real bottoms), the global min-y vertex sits AT THE
+ * RAIL on whichever side float noise picks; anchoring there dropped the whole
+ * bottom edge and collapsed ribs into straight-edged "diamonds".
  */
 const extractRightHalf = (closed: readonly Pt[]): Pt[] => {
-  const n = closed.length;
-  if (n < 4) return [];
-  let lo = 0;
-  let hi = 0;
-  for (let i = 1; i < n; i++) {
-    if (closed[i]!.y < closed[lo]!.y) lo = i;
-    if (closed[i]!.y > closed[hi]!.y) hi = i;
+  if (closed.length < 4) return [];
+  const ring = dedupe(clipHalfPlaneX(closed, (q) => q.x >= 0, 0));
+  // dedupe() is consecutive-only: also weld a duplicated first/last pair.
+  if (
+    ring.length > 1 &&
+    Math.hypot(ring[0]!.x - ring[ring.length - 1]!.x, ring[0]!.y - ring[ring.length - 1]!.y) < 1e-6
+  ) {
+    // prettier-ignore
+    ring.pop();
   }
-  // Walk both directions from lo → hi and keep the one with all x ≥ 0
-  // (a closed CCW polygon symmetric about x=0 has one half on each side).
+  const n = ring.length;
+  if (n < 3) return [];
+
+  // Seam anchors: lowest / highest vertex on the centreline.
+  let lo = -1;
+  let hi = -1;
+  for (let i = 0; i < n; i++) {
+    if (ring[i]!.x > SEAM_EPS) continue;
+    if (lo === -1 || ring[i]!.y < ring[lo]!.y) lo = i;
+    if (hi === -1 || ring[i]!.y > ring[hi]!.y) hi = i;
+  }
+  if (lo === -1 || lo === hi) return [];
+
+  // Walk both directions seam-bottom → seam-top; the rail-side walk (not the
+  // short hop along the seam itself) has the larger x-sum.
   const walk = (dir: 1 | -1): Pt[] => {
     const out: Pt[] = [];
     for (let k = 0; k < n; k++) {
       const idx = (lo + dir * k + n) % n;
-      out.push(closed[idx]!);
+      out.push(ring[idx]!);
       if (idx === hi) break;
     }
     return out;
@@ -553,7 +684,7 @@ const extractRightHalf = (closed: readonly Pt[]): Pt[] => {
   const b = walk(-1);
   const sumX = (pts: Pt[]): number => pts.reduce((s, p) => s + p.x, 0);
   const half = sumX(a) >= sumX(b) ? a : b;
-  if (half.length === 0) return half;
+  if (half.length < 2) return [];
   // Snap centreline endpoints to x = 0 (the symmetric polygon's seam).
   half[0] = { x: 0, y: half[0]!.y };
   half[half.length - 1] = { x: 0, y: half[half.length - 1]!.y };
@@ -669,6 +800,232 @@ const buildSkin = (
   };
 };
 
+// --- rail-band templates ---
+
+/** y of a developed edge at u by linear interpolation (edges are u-ascending). */
+const edgeYAt = (edge: readonly Pt[], u: number): number => {
+  if (edge.length === 0) return 0;
+  if (u <= edge[0]!.x) return edge[0]!.y;
+  for (let i = 1; i < edge.length; i++) {
+    const a = edge[i - 1]!;
+    const b = edge[i]!;
+    if (u <= b.x) {
+      const t = b.x === a.x ? 0 : (u - a.x) / (b.x - a.x);
+      return a.y + t * (b.y - a.y);
+    }
+  }
+  return edge[edge.length - 1]!.y;
+};
+
+/**
+ * How many lamination layers build the band per side. Vertical strips: exactly
+ * the user's layer count (it defines the offset). Horizontal layers stack UP the
+ * rail, so their count is an estimate from the tallest rail height.
+ */
+const railLayerCount = (board: BezierBoard, p: HwsParams): number => {
+  if (p.railLamination === 'vertical') return Math.max(1, Math.round(p.railLaminations));
+  if (p.railStripThickness <= 0) return 1;
+  const railHeight = Math.max(0, getMaxThickness(board) - 2 * p.skinThickness);
+  return Math.max(1, Math.ceil(railHeight / p.railStripThickness));
+};
+
+interface RailMarks {
+  loops: Loop[];
+  labels: Label[];
+}
+
+/** Dashed rib-station reference lines spanning lower→upper edge, numbered like the ribs. */
+const railStationMarks = (
+  stationU: readonly number[],
+  lower: readonly Pt[],
+  upper: readonly Pt[],
+): RailMarks => {
+  const loops: Loop[] = [];
+  const labels: Label[] = [];
+  stationU.forEach((u, i) => {
+    if (!Number.isFinite(u)) return;
+    const yLo = edgeYAt(lower, u);
+    const yHi = edgeYAt(upper, u);
+    loops.push(
+      loop(
+        'mark',
+        false,
+        [
+          { x: u, y: yLo },
+          { x: u, y: yHi },
+        ],
+        true,
+      ),
+    );
+    labels.push({ text: `${i + 1}`, at: { x: u, y: yHi + 1 }, height: 1 });
+  });
+  return { loops, labels };
+};
+
+/**
+ * VERTICAL-lamination rail template(s): the offset-curve ribbon developed flat by
+ * the kernel ({@link developRailBand}). `butt` joint → one part with station
+ * reference lines; `tabSlot` → a layer-1 part with slot cut-outs matching the rib
+ * tabs, plus a plain part for the remaining layers.
+ */
+const buildVerticalRailParts = (
+  board: BezierBoard,
+  p: HwsParams,
+  stations: readonly number[],
+): Part[] => {
+  const dev = developRailBand(board, {
+    offset: railOffset(p),
+    tailTrim: p.railTailTrim,
+    noseTrim: p.railNoseTrim,
+    skinThickness: p.skinThickness,
+    flatten: p.railFlatten,
+    tolerance: p.sampleTolerance,
+    stations,
+  });
+  if (dev.deck.length < 2) return [];
+
+  const outline = dedupe([...dev.deck, ...[...dev.bottom].reverse()]);
+  const marks = railStationMarks(dev.stationU, dev.bottom, dev.deck);
+  const layers = railLayerCount(board, p);
+  const slotW = p.materialThickness + p.slotFit;
+
+  const slots: Loop[] = [];
+  if (p.railJoint === 'tabSlot') {
+    for (const u of dev.stationU) {
+      if (!Number.isFinite(u)) continue;
+      const yD = edgeYAt(dev.deck, u);
+      const yB = edgeYAt(dev.bottom, u);
+      const faceH = yD - yB;
+      const tabH = Math.max(0.8, faceH / 3) + p.slotFit;
+      if (faceH - tabH < 0.6) continue; // keep a web above and below the slot
+      const c = (yD + yB) / 2;
+      slots.push(
+        loop('cutInner', true, [
+          { x: u - slotW / 2, y: c - tabH / 2 },
+          { x: u + slotW / 2, y: c - tabH / 2 },
+          { x: u + slotW / 2, y: c + tabH / 2 },
+          { x: u - slotW / 2, y: c + tabH / 2 },
+        ]),
+      );
+    }
+  }
+
+  const note = (text: string): Label => ({
+    text,
+    at: { x: 2, y: edgeYAt(dev.deck, 2) + 2.5 },
+    height: 1,
+  });
+  const base = (id: string, label: string, extra: Loop[], noteText: string): Part => ({
+    id,
+    label,
+    loops: [loop('cut', true, outline), ...extra, ...marks.loops],
+    labels: [note(noteText), ...marks.labels],
+  });
+
+  if (p.railJoint === 'tabSlot' && slots.length > 0) {
+    const parts = [
+      base('rail-band-slotted', 'Rail band — layer 1', slots, 'layer 1 — cut 1 per side (x2)'),
+    ];
+    if (layers > 1) {
+      parts.push(
+        base('rail-band', 'Rail band — layers 2+', [], `layers 2-${layers} — cut ${layers - 1} per side (x2)`), // prettier-ignore
+      );
+    }
+    return parts;
+  }
+  return [base('rail-band', 'Rail band', [], `cut ${layers} per side (x2 sides)`)];
+};
+
+/**
+ * HORIZONTAL-lamination rail template(s): the plan band between outline and offset
+ * curve developed along the bottom rocker ({@link developHorizontalRailBand}).
+ * `tabSlot` notches the layer-1 inner edge at each rib station so the rib tabs
+ * (seated at the bottom of the rib side face) key the first layer.
+ */
+const buildHorizontalRailParts = (
+  board: BezierBoard,
+  p: HwsParams,
+  stations: readonly number[],
+): Part[] => {
+  const dev = developHorizontalRailBand(board, {
+    offset: railOffset(p),
+    tailTrim: p.railTailTrim,
+    noseTrim: p.railNoseTrim,
+    tolerance: p.sampleTolerance,
+    stations,
+  });
+  if (dev.outer.length < 2) return [];
+
+  const marks = railStationMarks(dev.stationU, dev.inner, dev.outer);
+  const layers = railLayerCount(board, p);
+  const slotW = p.materialThickness + p.slotFit;
+
+  /** Inner edge with a rib notch cut toward the outer edge at each station. */
+  const notchedInner = (): Pt[] => {
+    const cuts = dev.stationU
+      .filter((u) => Number.isFinite(u))
+      .sort((a, b) => a - b)
+      .map((u) => {
+        const u1 = u - slotW / 2;
+        const u2 = u + slotW / 2;
+        const yEdge = Math.max(edgeYAt(dev.inner, u1), edgeYAt(dev.inner, u2));
+        const band = edgeYAt(dev.outer, u) - yEdge;
+        const depth = Math.min(p.railStripThickness, band - 0.3);
+        return { u1, u2, top: yEdge + depth, ok: depth > 0.15 };
+      })
+      .filter((c) => c.ok);
+    if (cuts.length === 0) return [...dev.inner];
+
+    const out: Pt[] = [];
+    let ci = 0;
+    for (const q of dev.inner) {
+      while (ci < cuts.length && q.x > cuts[ci]!.u2) ci++;
+      const c = cuts[ci];
+      if (c && q.x >= c.u1 && q.x <= c.u2) {
+        // First point inside the notch span: emit the notch, then skip the rest.
+        if (out.length === 0 || out[out.length - 1]!.x < c.u1) {
+          out.push({ x: c.u1, y: edgeYAt(dev.inner, c.u1) });
+          out.push({ x: c.u1, y: c.top });
+          out.push({ x: c.u2, y: c.top });
+          out.push({ x: c.u2, y: edgeYAt(dev.inner, c.u2) });
+        }
+        continue;
+      }
+      out.push(q);
+    }
+    return out;
+  };
+
+  const partOf = (id: string, label: string, inner: readonly Pt[], noteText: string): Part => ({
+    id,
+    label,
+    loops: [loop('cut', true, dedupe([...dev.outer, ...[...inner].reverse()])), ...marks.loops],
+    labels: [
+      { text: noteText, at: { x: 2, y: edgeYAt(dev.outer, 2) + 2.5 }, height: 1 },
+      ...marks.labels,
+    ],
+  });
+
+  // Horizontal layers stack up the rail, so the count is a height-based estimate.
+  if (p.railJoint === 'tabSlot') {
+    const parts = [
+      partOf('rail-band-slotted', 'Rail band — layer 1', notchedInner(), 'layer 1 (bottom) — cut 1 per side (x2)'), // prettier-ignore
+    ];
+    if (layers > 1) {
+      parts.push(
+        partOf('rail-band', 'Rail band — layers 2+', dev.inner, `~${layers - 1} more per side (x2), stack to the deck`), // prettier-ignore
+      );
+    }
+    return parts;
+  }
+  return [partOf('rail-band', 'Rail band', dev.inner, `cut ~${layers} per side (x2), stack to the deck`)]; // prettier-ignore
+};
+
+const buildRailParts = (board: BezierBoard, p: HwsParams, stations: readonly number[]): Part[] =>
+  p.railLamination === 'horizontal'
+    ? buildHorizontalRailParts(board, p, stations)
+    : buildVerticalRailParts(board, p, stations);
+
 /**
  * Compensate every cutting loop for a symmetric kerf: the cutter removes
  * `kerf / 2` each side of the drawn line, so outer `cut` contours move outward
@@ -712,6 +1069,9 @@ export const buildHwsTemplates = (
   }
   if (p.includeDeckSkin) parts.push(buildSkin(board, p, stations, 'deck'));
   if (p.includeBottomSkin) parts.push(buildSkin(board, p, stations, 'bottom'));
+  if (p.includeRailTemplate && railOffset(p) > 0) {
+    parts.push(...buildRailParts(board, p, stations));
+  }
 
   return {
     parts: p.kerfDiameter > 0 ? applyKerf(parts, p.kerfDiameter) : parts,
