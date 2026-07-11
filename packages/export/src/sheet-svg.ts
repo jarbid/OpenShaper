@@ -30,7 +30,7 @@ export interface SvgOptions {
 export const sheetToSvg = (sheet: TemplateSheet, opts: SvgOptions = {}): string => {
   const unit: SheetUnit = opts.unit ?? 'mm';
   const k = SHEET_UNIT[unit].factor; // cm -> output unit
-  const parts = columnLayout(sheet.parts, GAP);
+  const parts = sheet.prearranged ? [...sheet.parts] : columnLayout(sheet.parts, GAP);
   const all: Pt[] = [];
   for (const part of parts) {
     for (const l of part.loops) all.push(...l.pts);

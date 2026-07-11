@@ -92,7 +92,7 @@ export const sheetToDxf = (sheet: TemplateSheet, opts: DxfSheetOptions = {}): st
   const { factor, dxfCode } = SHEET_UNIT[unit];
   const num = (cm: number): string => (Number.isFinite(cm) ? cm * factor : 0).toFixed(4);
 
-  const parts = columnLayout(sheet.parts, GAP);
+  const parts = sheet.prearranged ? [...sheet.parts] : columnLayout(sheet.parts, GAP);
   // Comment-only branding: never geometry a CNC could try to cut.
   const out: string[] = [
     '999',

@@ -49,6 +49,15 @@ export const translatePart = (part: Part, dx: number, dy: number): Part => ({
   labels: part.labels?.map((l) => translateLabel(l, dx, dy)),
 });
 
+const rotatePt90 = (p: Pt): Pt => ({ x: -p.y, y: p.x });
+
+/** Rotate a part 90° counter-clockwise about the origin (labels stay horizontal). */
+export const rotatePart90 = (part: Part): Part => ({
+  ...part,
+  loops: part.loops.map((l) => ({ ...l, pts: l.pts.map(rotatePt90) })),
+  labels: part.labels?.map((l) => ({ ...l, at: rotatePt90(l.at) })),
+});
+
 /**
  * Arrange a sheet's parts left-to-right with `gap` between them, each part dropped
  * into the positive quadrant (minX/minY → gap). Used by the multi-part writers

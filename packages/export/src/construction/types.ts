@@ -70,6 +70,11 @@ export interface TemplateSheet {
   readonly parts: readonly Part[];
   /** Source units of all coordinates. Always 'cm' (kernel unit). */
   readonly units: 'cm';
+  /**
+   * When true the parts are already positioned (e.g. nested onto material
+   * sheets) — the DXF/SVG writers must not re-stack them into a column.
+   */
+  readonly prearranged?: boolean;
   /** Non-fatal build problems (omitted when the build was clean). */
   readonly warnings?: readonly TemplateWarning[];
   readonly meta?: {

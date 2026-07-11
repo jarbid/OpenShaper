@@ -3,6 +3,9 @@ import {
   cuttingList,
   DEFAULT_HWS_PARAMS,
   type HwsParams,
+  layoutNestedSheet,
+  nestedSheetViews,
+  nestParts,
   railOffset,
   sheetToSvg,
   type TemplateSheet,
@@ -12,7 +15,12 @@ import type { BezierBoard } from '@openshaper/kernel';
 import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { downloadTemplateSheet, slugifyName, type TemplateFormat } from './file-io';
-import { HWS_SETTINGS_VERSION, loadHwsSettings, saveHwsSettings } from './hws-settings';
+import {
+  HWS_SETTINGS_VERSION,
+  type HwsOutputSettings,
+  loadHwsSettings,
+  saveHwsSettings,
+} from './hws-settings';
 import {
   cmToUnitNumber,
   exportUnitFor,
@@ -57,11 +65,14 @@ export function ConstructionPanel({
   const [p, setP] = useState<HwsParams>(() => loadHwsSettings().params);
   const set = <K extends keyof HwsParams>(key: K, value: HwsParams[K]): void =>
     setP((prev) => ({ ...prev, [key]: value }));
+  const [output, setOutput] = useState<HwsOutputSettings>(() => loadHwsSettings().output);
+  const setOut = <K extends keyof HwsOutputSettings>(key: K, value: HwsOutputSettings[K]): void =>
+    setOutput((prev) => ({ ...prev, [key]: value }));
 
-  // Persist params on every change, merging over whatever output settings exist.
+  // Persist params + output choices on every change.
   useEffect(() => {
-    saveHwsSettings({ ...loadHwsSettings(), version: HWS_SETTINGS_VERSION, params: p });
-  }, [p]);
+    saveHwsSettings({ version: HWS_SETTINGS_VERSION, params: p, output });
+  }, [p, output]);
 
   const exportUnit = exportUnitFor(units);
   const suf = unitSuffix(units);
@@ -86,30 +97,52 @@ export function ConstructionPanel({
   }, [board, p, note]);
   const cutList = useMemo(() => cuttingList(sheet), [sheet]);
 
-  // --- Preview navigation: part stepper + zoom/pan ---
-  const partCount = sheet.parts.length;
-  // 'all' = full sheet; otherwise a single part index.
-  const [view, setView] = useState<'all' | number>('all');
-  const effectiveView: 'all' | number = typeof view === 'number' && view < partCount ? view : 'all';
-
-  const viewSheet = useMemo<TemplateSheet>(
-    () => (effectiveView === 'all' ? sheet : { ...sheet, parts: [sheet.parts[effectiveView]!] }),
-    [sheet, effectiveView],
+  // Optional material-sheet nesting (affects the DXF/SVG layout + preview only).
+  const nest = useMemo(
+    () =>
+      output.nest
+        ? nestParts(sheet.parts, {
+            widthCm: output.nestWidthCm,
+            heightCm: output.nestHeightCm,
+            allowRotate: output.nestAllowRotate,
+          })
+        : null,
+    [sheet, output.nest, output.nestWidthCm, output.nestHeightCm, output.nestAllowRotate],
   );
+  const nestedLayout = useMemo(() => (nest ? layoutNestedSheet(sheet, nest) : null), [sheet, nest]);
+  const sheetViews = useMemo(() => (nest ? nestedSheetViews(sheet, nest) : null), [sheet, nest]);
+
+  // --- Preview navigation: part/sheet stepper + zoom/pan ---
+  const partCount = sheet.parts.length;
+  // 'all' = full layout; otherwise a single part (or, when nesting, sheet) index.
+  const [view, setView] = useState<'all' | number>('all');
+  const viewMax = sheetViews ? sheetViews.length : partCount;
+  const effectiveView: 'all' | number = typeof view === 'number' && view < viewMax ? view : 'all';
+
+  const viewSheet = useMemo<TemplateSheet>(() => {
+    if (sheetViews) return effectiveView === 'all' ? nestedLayout! : sheetViews[effectiveView]!;
+    return effectiveView === 'all' ? sheet : { ...sheet, parts: [sheet.parts[effectiveView]!] };
+  }, [sheet, sheetViews, nestedLayout, effectiveView]);
   const svg = useMemo(
     () => sheetToSvg(viewSheet, { strokeWidthMm: 0.4, unit: exportUnit }),
     [viewSheet, exportUnit],
   );
 
-  // Stepper indices: 0 = "All parts", 1..N = individual parts.
-  const stepCount = partCount + 1;
+  // Stepper indices: 0 = "All parts"/"All sheets", 1..N = individual parts/sheets.
+  const stepCount = viewMax + 1;
   const stepIndex = effectiveView === 'all' ? 0 : effectiveView + 1;
   // Part name plus — for ribs — its board station, in the editor's display unit.
   const partLabel = (part: { label: string; station?: number } | undefined): string => {
     if (!part) return 'Part';
     return part.station != null ? `${part.label} @ ${fmtLen(part.station, units)}` : part.label;
   };
-  const stepLabel = effectiveView === 'all' ? 'All parts' : partLabel(sheet.parts[effectiveView]);
+  const stepLabel = sheetViews
+    ? effectiveView === 'all'
+      ? 'All sheets'
+      : `Sheet ${effectiveView + 1}/${sheetViews.length}`
+    : effectiveView === 'all'
+      ? 'All parts'
+      : partLabel(sheet.parts[effectiveView]);
   const gotoStep = (i: number): void => {
     const wrapped = ((i % stepCount) + stepCount) % stepCount;
     setView(wrapped === 0 ? 'all' : wrapped - 1);
@@ -467,6 +500,35 @@ export function ConstructionPanel({
                 onChange={(v) => set('skinOverhang', v)}
               />
             </Group>
+
+            <Group title="Layout (DXF / SVG)">
+              <Toggle
+                label="Nest to material sheets"
+                checked={output.nest}
+                onChange={(v) => setOut('nest', v)}
+              />
+              {output.nest && (
+                <>
+                  <NumField
+                    label="Sheet width"
+                    units={units}
+                    value={output.nestWidthCm}
+                    onChange={(v) => setOut('nestWidthCm', Math.max(1, v))}
+                  />
+                  <NumField
+                    label="Sheet height"
+                    units={units}
+                    value={output.nestHeightCm}
+                    onChange={(v) => setOut('nestHeightCm', Math.max(1, v))}
+                  />
+                  <Toggle
+                    label="Allow 90° rotation"
+                    checked={output.nestAllowRotate}
+                    onChange={(v) => setOut('nestAllowRotate', v)}
+                  />
+                </>
+              )}
+            </Group>
           </div>
 
           {/* --- Preview + export --- */}
@@ -507,6 +569,14 @@ export function ConstructionPanel({
                 </Button>
               </div>
             </div>
+
+            {nest && nest.unplaced.length > 0 && (
+              <div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                ⚠ {nest.unplaced.length} part{nest.unplaced.length === 1 ? '' : 's'} exceed
+                {nest.unplaced.length === 1 ? 's' : ''} the material sheet — placed beside the
+                sheets in the export
+              </div>
+            )}
 
             {(sheet.warnings?.length ?? 0) > 0 && (
               <div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
@@ -576,8 +646,9 @@ export function ConstructionPanel({
 
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs text-muted-foreground">
-                {partCount} part{partCount === 1 ? '' : 's'} · {totalPieces(cutList)} pieces · red =
-                cut, blue = mark · {suf}
+                {partCount} part{partCount === 1 ? '' : 's'} · {totalPieces(cutList)} pieces
+                {nest ? ` · ${nest.sheets} sheet${nest.sheets === 1 ? '' : 's'}` : ''} · red = cut,
+                blue = mark · {suf}
               </span>
               <div className="flex gap-2">
                 {(['dxf', 'svg', 'pdf'] as TemplateFormat[]).map((f) => (
@@ -586,7 +657,8 @@ export function ConstructionPanel({
                     size="sm"
                     onClick={() =>
                       downloadTemplateSheet(
-                        sheet,
+                        // DXF/SVG take the nested layout when enabled; PDF stays per part.
+                        f !== 'pdf' && nestedLayout ? nestedLayout : sheet,
                         f,
                         exportUnit,
                         `${slugifyName(boardName)}-hws-frame`,

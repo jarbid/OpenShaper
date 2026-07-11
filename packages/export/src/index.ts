@@ -46,6 +46,14 @@ export {
   type LoopKind,
 } from './construction/types';
 export { cuttingList, totalPieces, type CutItem } from './construction/cutlist';
+export {
+  nestParts,
+  layoutNestedSheet,
+  nestedSheetViews,
+  type NestSpec,
+  type NestResult,
+  type NestPlacement,
+} from './construction/nest';
 export { sheetToDxf, type DxfSheetOptions } from './sheet-dxf';
 export { sheetToSvg, type SvgOptions } from './sheet-svg';
 export { sheetToPdf } from './sheet-pdf';
