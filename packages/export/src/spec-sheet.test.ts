@@ -24,6 +24,10 @@ describe('specSheetHtml', () => {
     expect(html).toContain('<span class="l">Volume</span><span class="v">32.5 l</span>');
   });
 
+  it('credits openshaper.com in the footer', () => {
+    expect(specSheetHtml(doc)).toContain('openshaper.com');
+  });
+
   it('embeds a trusted diagram SVG without escaping it', () => {
     const html = specSheetHtml({ ...doc, diagramSvg: '<svg><path d="M0 0"/></svg>' });
     expect(html).toContain('<svg><path d="M0 0"/></svg>');

@@ -10,6 +10,7 @@
  * by the unit factor on the way out, and the file declares `$INSUNITS` so importers
  * don't guess and land the parts at the wrong scale.
  */
+import { BRAND_LINE } from './brand';
 import { columnLayout } from './construction/geom';
 import type { Loop, Part, Pt, TemplateSheet } from './construction/types';
 import { SHEET_UNIT, type SheetUnit } from './construction/units';
@@ -91,8 +92,14 @@ export const sheetToDxf = (sheet: TemplateSheet, opts: DxfSheetOptions = {}): st
   const { factor, dxfCode } = SHEET_UNIT[unit];
   const num = (cm: number): string => (Number.isFinite(cm) ? cm * factor : 0).toFixed(4);
 
-  const parts = columnLayout(sheet.parts, GAP);
-  const out: string[] = ['999', `OpenShaper template: ${sheet.meta?.title ?? ''}`];
+  const parts = sheet.prearranged ? [...sheet.parts] : columnLayout(sheet.parts, GAP);
+  // Comment-only branding: never geometry a CNC could try to cut.
+  const out: string[] = [
+    '999',
+    `OpenShaper template: ${sheet.meta?.title ?? ''}`,
+    '999',
+    BRAND_LINE,
+  ];
   headerSection(out, dxfCode);
   tablesSection(out);
   out.push('0', 'SECTION', '2', 'ENTITIES');

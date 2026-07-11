@@ -53,6 +53,11 @@ describe('exportBoardPdf1to1', () => {
     expect(text).toContain('100% scale');
   });
 
+  it('brands each tile footer with openshaper.com', () => {
+    const text = decode(exportBoardPdf1to1(board));
+    expect(text).toContain('openshaper.com');
+  });
+
   it('honours the units flag in labels', () => {
     expect(decode(exportBoardPdf1to1(board, { units: 'in' }))).toContain('units in');
     expect(decode(exportBoardPdf1to1(board, { units: 'cm' }))).toContain('units cm');

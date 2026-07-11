@@ -1,5 +1,6 @@
 import { board as makeBoard, defaultFinConfig } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
+import { BRAND_LINE } from './brand';
 import { exportDxf } from './dxf';
 import { makeTestBoard } from './fixture.test-helper';
 
@@ -18,6 +19,12 @@ describe('exportDxf', () => {
     expect(dxf).toContain('ENTITIES');
     expect(dxf).toContain('ENDSEC');
     expect(dxf.trimEnd().endsWith('EOF')).toBe(true);
+  });
+
+  it('brands the file with a comment-only credit (before ENTITIES, never geometry)', () => {
+    const dxf = exportDxf(board, { crossSectionCount: 0 });
+    expect(dxf).toContain(BRAND_LINE);
+    expect(dxf.indexOf(BRAND_LINE)).toBeLessThan(dxf.indexOf('ENTITIES'));
   });
 
   it('emits at least one polyline entity', () => {

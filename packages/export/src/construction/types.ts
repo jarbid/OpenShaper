@@ -43,14 +43,43 @@ export interface Part {
   readonly label: string;
   /** Longitudinal board position (cm) this part belongs to (ribs) — the UI formats it per the active display unit. */
   readonly station?: number;
+  /**
+   * How many copies of this template to cut (default 1). Rail-band layers, for
+   * example, are drawn once and cut `layers × 2 sides` times.
+   */
+  readonly count?: number;
   readonly loops: readonly Loop[];
   readonly labels?: readonly Label[];
+}
+
+/**
+ * A non-fatal problem the builder worked around: a part it skipped, a joint it
+ * couldn't cut, lightening that didn't fit. Surfaced to the UI as a notice —
+ * the writers ignore warnings entirely.
+ */
+export interface TemplateWarning {
+  /** Stable machine code, e.g. `rib-skipped`, `lightening-dropped`. */
+  readonly code: string;
+  /**
+   * Human-readable explanation. Messages never embed lengths — the builder
+   * doesn't know the editor's display unit, and the UI shows them verbatim.
+   */
+  readonly message: string;
+  /** Id of the affected part, when one exists (it may have been skipped entirely). */
+  readonly partId?: string;
 }
 
 export interface TemplateSheet {
   readonly parts: readonly Part[];
   /** Source units of all coordinates. Always 'cm' (kernel unit). */
   readonly units: 'cm';
+  /**
+   * When true the parts are already positioned (e.g. nested onto material
+   * sheets) — the DXF/SVG writers must not re-stack them into a column.
+   */
+  readonly prearranged?: boolean;
+  /** Non-fatal build problems (omitted when the build was clean). */
+  readonly warnings?: readonly TemplateWarning[];
   readonly meta?: {
     readonly title?: string;
     readonly generator?: string;
@@ -167,6 +196,21 @@ export interface HwsParams {
   /** Target bay pitch (cm) for the `truss`; the actual pitch is rounded so bays divide each rib's width evenly. */
   trussSpacing: number;
 
+  // --- Nose/tail blocks ---
+  /**
+   * Emit a nose block template: a flat plate lying in the board's tilted
+   * mid-plane between the tip and `noseBlockLength`, developed to true size and
+   * cross-lapped into the stringer (plate slot from the aft edge + matching
+   * stringer end notch). The rail band ends at `railNoseTrim` to leave it room.
+   */
+  includeNoseBlock: boolean;
+  /** Nose block plate length from the tip (cm). */
+  noseBlockLength: number;
+  /** Emit a tail block template (see {@link HwsParams.includeNoseBlock}). */
+  includeTailBlock: boolean;
+  /** Tail block plate length from the tip (cm). */
+  tailBlockLength: number;
+
   // --- Parts to emit ---
   includeStringer: boolean;
   includeRibs: boolean;
@@ -178,14 +222,6 @@ export interface HwsParams {
   // --- Output ---
   /** Extra material around the skin planshape. */
   skinOverhang: number;
-  /**
-   * Cut width (cm) of the tool/blade, for optional kerf compensation. The cutter
-   * removes half this each side of the drawn line, so outer `cut` contours are
-   * offset outward by kerf/2 and `cutInner` holes inward by kerf/2, keeping the
-   * finished parts true to size. 0 (default) = draw the true geometry and leave
-   * tool offsets to the operator's CAM.
-   */
-  kerfDiameter: number;
   /** Adaptive sampling tolerance (cm): max chord deviation. Smaller = smoother. */
   sampleTolerance: number;
 }
@@ -216,13 +252,16 @@ export const DEFAULT_HWS_PARAMS: HwsParams = {
   webThickness: 1.2, // 12 mm truss struts
   trussAngle: 45, // 45° diagonals
   trussSpacing: 8, // 80 mm target bay pitch
+  includeNoseBlock: false,
+  noseBlockLength: 20,
+  includeTailBlock: false,
+  tailBlockLength: 20,
   includeStringer: true,
   includeRibs: true,
   includeDeckSkin: true,
   includeBottomSkin: true,
   includeRailTemplate: true,
   skinOverhang: 1,
-  kerfDiameter: 0, // true geometry; operator owns tool offsets
   sampleTolerance: 0.02, // 0.2 mm chord deviation
 };
 

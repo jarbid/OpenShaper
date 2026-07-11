@@ -1,15 +1,29 @@
 import {
   buildHwsTemplates,
+  cuttingList,
   DEFAULT_HWS_PARAMS,
   type HwsParams,
+  layoutNestedSheet,
+  nestedSheetViews,
+  nestParts,
+  PAPER_SIZES,
+  paperSizeById,
+  type PdfTiling,
   railOffset,
   sheetToSvg,
   type TemplateSheet,
+  totalPieces,
 } from '@openshaper/export';
 import type { BezierBoard } from '@openshaper/kernel';
 import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { downloadTemplateSheet, type TemplateFormat } from './file-io';
+import { downloadTemplateSheet, slugifyName, type TemplateFormat } from './file-io';
+import {
+  HWS_SETTINGS_VERSION,
+  type HwsOutputSettings,
+  loadHwsSettings,
+  saveHwsSettings,
+} from './hws-settings';
 import {
   cmToUnitNumber,
   exportUnitFor,
@@ -39,18 +53,29 @@ const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.m
  */
 export function ConstructionPanel({
   board,
+  boardName,
   units,
   specs,
   onClose,
 }: {
   board: BezierBoard;
+  /** Board model name (meta.model) — used for the download filenames. */
+  boardName?: string;
   units: LengthUnit;
   specs: PanelSpecs | null;
   onClose: () => void;
 }) {
-  const [p, setP] = useState<HwsParams>(DEFAULT_HWS_PARAMS);
+  const [p, setP] = useState<HwsParams>(() => loadHwsSettings().params);
   const set = <K extends keyof HwsParams>(key: K, value: HwsParams[K]): void =>
     setP((prev) => ({ ...prev, [key]: value }));
+  const [output, setOutput] = useState<HwsOutputSettings>(() => loadHwsSettings().output);
+  const setOut = <K extends keyof HwsOutputSettings>(key: K, value: HwsOutputSettings[K]): void =>
+    setOutput((prev) => ({ ...prev, [key]: value }));
+
+  // Persist params + output choices on every change.
+  useEffect(() => {
+    saveHwsSettings({ version: HWS_SETTINGS_VERSION, params: p, output });
+  }, [p, output]);
 
   const exportUnit = exportUnitFor(units);
   const suf = unitSuffix(units);
@@ -70,33 +95,71 @@ export function ConstructionPanel({
 
   const sheet = useMemo<TemplateSheet>(() => {
     const built = buildHwsTemplates(board, p);
-    return { ...built, meta: { ...built.meta, note } };
+    const pieces = totalPieces(cuttingList(built));
+    return { ...built, meta: { ...built.meta, note: `${note} · ${pieces} pieces` } };
   }, [board, p, note]);
+  const cutList = useMemo(() => cuttingList(sheet), [sheet]);
 
-  // --- Preview navigation: part stepper + zoom/pan ---
-  const partCount = sheet.parts.length;
-  // 'all' = full sheet; otherwise a single part index.
-  const [view, setView] = useState<'all' | number>('all');
-  const effectiveView: 'all' | number = typeof view === 'number' && view < partCount ? view : 'all';
-
-  const viewSheet = useMemo<TemplateSheet>(
-    () => (effectiveView === 'all' ? sheet : { ...sheet, parts: [sheet.parts[effectiveView]!] }),
-    [sheet, effectiveView],
+  // Optional material-sheet nesting (affects the DXF/SVG layout + preview only).
+  const nest = useMemo(
+    () =>
+      output.nest
+        ? nestParts(sheet.parts, {
+            widthCm: output.nestWidthCm,
+            heightCm: output.nestHeightCm,
+            allowRotate: output.nestAllowRotate,
+          })
+        : null,
+    [sheet, output.nest, output.nestWidthCm, output.nestHeightCm, output.nestAllowRotate],
   );
+  const nestedLayout = useMemo(() => (nest ? layoutNestedSheet(sheet, nest) : null), [sheet, nest]);
+  const sheetViews = useMemo(() => (nest ? nestedSheetViews(sheet, nest) : null), [sheet, nest]);
+
+  // PDF tiling per the Paper select; 'plot' keeps one oversized page per part.
+  const pdfTiling = useMemo<PdfTiling | null>(() => {
+    if (output.paperId === 'plot') return null;
+    const paper = paperSizeById(output.paperId);
+    if (!paper) return null;
+    return {
+      paper,
+      orientation: 'auto',
+      overlapCm: output.overlapCm,
+      cutMarks: true,
+      labels: true,
+    };
+  }, [output.paperId, output.overlapCm]);
+
+  // --- Preview navigation: part/sheet stepper + zoom/pan ---
+  const partCount = sheet.parts.length;
+  // 'all' = full layout; otherwise a single part (or, when nesting, sheet) index.
+  const [view, setView] = useState<'all' | number>('all');
+  const viewMax = sheetViews ? sheetViews.length : partCount;
+  const effectiveView: 'all' | number = typeof view === 'number' && view < viewMax ? view : 'all';
+
+  const viewSheet = useMemo<TemplateSheet>(() => {
+    if (sheetViews) return effectiveView === 'all' ? nestedLayout! : sheetViews[effectiveView]!;
+    return effectiveView === 'all' ? sheet : { ...sheet, parts: [sheet.parts[effectiveView]!] };
+  }, [sheet, sheetViews, nestedLayout, effectiveView]);
   const svg = useMemo(
     () => sheetToSvg(viewSheet, { strokeWidthMm: 0.4, unit: exportUnit }),
     [viewSheet, exportUnit],
   );
 
-  // Stepper indices: 0 = "All parts", 1..N = individual parts.
-  const stepCount = partCount + 1;
+  // Stepper indices: 0 = "All parts"/"All sheets", 1..N = individual parts/sheets.
+  const stepCount = viewMax + 1;
   const stepIndex = effectiveView === 'all' ? 0 : effectiveView + 1;
   // Part name plus — for ribs — its board station, in the editor's display unit.
   const partLabel = (part: { label: string; station?: number } | undefined): string => {
     if (!part) return 'Part';
     return part.station != null ? `${part.label} @ ${fmtLen(part.station, units)}` : part.label;
   };
-  const stepLabel = effectiveView === 'all' ? 'All parts' : partLabel(sheet.parts[effectiveView]);
+  const stepLabel = sheetViews
+    ? effectiveView === 'all'
+      ? 'All sheets'
+      : `Sheet ${effectiveView + 1}/${sheetViews.length}`
+    : effectiveView === 'all'
+      ? 'All parts'
+      : partLabel(sheet.parts[effectiveView]);
   const gotoStep = (i: number): void => {
     const wrapped = ((i % stepCount) + stepCount) % stepCount;
     setView(wrapped === 0 ? 'all' : wrapped - 1);
@@ -156,9 +219,14 @@ export function ConstructionPanel({
       >
         <PanelHeader className="flex items-center justify-between">
           <PanelTitle>Hollow Wood Frame — construction templates</PanelTitle>
-          <Button size="sm" variant="ghost" onClick={onClose}>
-            ✕
-          </Button>
+          <div className="flex items-center gap-1">
+            <Button size="sm" variant="ghost" onClick={() => setP(DEFAULT_HWS_PARAMS)}>
+              Reset to defaults
+            </Button>
+            <Button size="sm" variant="ghost" onClick={onClose}>
+              ✕
+            </Button>
+          </div>
         </PanelHeader>
         <PanelBody className="grid min-h-0 flex-1 gap-4 overflow-hidden md:grid-cols-[20rem_1fr]">
           {/* --- Parameter form --- */}
@@ -322,13 +390,6 @@ export function ConstructionPanel({
                 min={0.1}
                 onChange={(v) => set('halfLapFraction', v)}
               />
-              <NumField
-                label="Kerf (cut width)"
-                units={units}
-                value={p.kerfDiameter}
-                min={0}
-                onChange={(v) => set('kerfDiameter', Math.max(0, v))}
-              />
             </Group>
 
             <Group title="Lightening">
@@ -446,7 +507,38 @@ export function ConstructionPanel({
                   onChange={(v) => set('includeRailTemplate', v)}
                 />
               )}
+              <Toggle
+                label="Nose block"
+                checked={p.includeNoseBlock}
+                onChange={(v) => set('includeNoseBlock', v)}
+              />
+              <Toggle
+                label="Tail block"
+                checked={p.includeTailBlock}
+                onChange={(v) => set('includeTailBlock', v)}
+              />
             </Group>
+
+            {(p.includeNoseBlock || p.includeTailBlock) && (
+              <Group title="Blocks">
+                {p.includeNoseBlock && (
+                  <NumField
+                    label="Nose block length"
+                    units={units}
+                    value={p.noseBlockLength}
+                    onChange={(v) => set('noseBlockLength', Math.max(1, v))}
+                  />
+                )}
+                {p.includeTailBlock && (
+                  <NumField
+                    label="Tail block length"
+                    units={units}
+                    value={p.tailBlockLength}
+                    onChange={(v) => set('tailBlockLength', Math.max(1, v))}
+                  />
+                )}
+              </Group>
+            )}
 
             <Group title="Skins">
               <NumField
@@ -455,6 +547,61 @@ export function ConstructionPanel({
                 value={p.skinOverhang}
                 onChange={(v) => set('skinOverhang', v)}
               />
+            </Group>
+
+            <Group title="Print (PDF)">
+              <label className="flex items-center justify-between gap-2">
+                <span className="text-muted-foreground">Paper</span>
+                <select
+                  className="h-8 rounded border border-border bg-background px-2"
+                  value={output.paperId}
+                  onChange={(e) => setOut('paperId', e.target.value)}
+                >
+                  <option value="plot">One page per part (plot)</option>
+                  {PAPER_SIZES.map((ps) => (
+                    <option key={ps.id} value={ps.id}>
+                      Tile to {ps.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {output.paperId !== 'plot' && (
+                <NumField
+                  label="Tile overlap"
+                  units={units}
+                  value={output.overlapCm}
+                  onChange={(v) => setOut('overlapCm', Math.max(0, v))}
+                />
+              )}
+            </Group>
+
+            <Group title="Layout (DXF / SVG)">
+              <Toggle
+                label="Nest to material sheets"
+                checked={output.nest}
+                onChange={(v) => setOut('nest', v)}
+              />
+              {output.nest && (
+                <>
+                  <NumField
+                    label="Sheet width"
+                    units={units}
+                    value={output.nestWidthCm}
+                    onChange={(v) => setOut('nestWidthCm', Math.max(1, v))}
+                  />
+                  <NumField
+                    label="Sheet height"
+                    units={units}
+                    value={output.nestHeightCm}
+                    onChange={(v) => setOut('nestHeightCm', Math.max(1, v))}
+                  />
+                  <Toggle
+                    label="Allow 90° rotation"
+                    checked={output.nestAllowRotate}
+                    onChange={(v) => setOut('nestAllowRotate', v)}
+                  />
+                </>
+              )}
             </Group>
           </div>
 
@@ -497,6 +644,37 @@ export function ConstructionPanel({
               </div>
             </div>
 
+            {nest && nest.unplaced.length > 0 && (
+              <div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                ⚠ {nest.unplaced.length} part{nest.unplaced.length === 1 ? '' : 's'} exceed
+                {nest.unplaced.length === 1 ? 's' : ''} the material sheet — placed beside the
+                sheets in the export
+              </div>
+            )}
+
+            {(sheet.warnings?.length ?? 0) > 0 && (
+              <div className="rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                {sheet.warnings!.length <= 3 ? (
+                  <ul className="space-y-0.5">
+                    {sheet.warnings!.map((w, i) => (
+                      <li key={i}>⚠ {w.message}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <details>
+                    <summary className="cursor-pointer">
+                      ⚠ {sheet.warnings!.length} build warnings
+                    </summary>
+                    <ul className="mt-1 space-y-0.5">
+                      {sheet.warnings!.map((w, i) => (
+                        <li key={i}>{w.message}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            )}
+
             <div
               ref={viewportRef}
               className="relative min-h-0 flex-1 cursor-grab touch-none overflow-hidden rounded border border-border bg-white active:cursor-grabbing"
@@ -514,16 +692,53 @@ export function ConstructionPanel({
                 dangerouslySetInnerHTML={{ __html: svg }}
               />
             </div>
+            {/* Cutting list: template sizes + copies to cut, in the display unit. */}
+            {cutList.length > 0 && (
+              <div className="max-h-36 overflow-y-auto rounded border border-border">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-background text-muted-foreground">
+                    <tr>
+                      <th className="px-2 py-1 text-left font-medium">Part</th>
+                      <th className="px-2 py-1 text-right font-medium">Size</th>
+                      <th className="px-2 py-1 text-right font-medium">Cut</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cutList.map((item) => (
+                      <tr key={item.partId} className="border-t border-border/50">
+                        <td className="px-2 py-0.5">{item.label}</td>
+                        <td className="px-2 py-0.5 text-right text-muted-foreground">
+                          {fmtLen(item.widthCm, units)} × {fmtLen(item.heightCm, units)}
+                        </td>
+                        <td className="px-2 py-0.5 text-right">{item.count}×</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs text-muted-foreground">
-                {partCount} part{partCount === 1 ? '' : 's'} · red = cut, blue = mark · {suf}
+                {partCount} part{partCount === 1 ? '' : 's'} · {totalPieces(cutList)} pieces
+                {nest ? ` · ${nest.sheets} sheet${nest.sheets === 1 ? '' : 's'}` : ''} · red = cut,
+                blue = mark · {suf}
               </span>
               <div className="flex gap-2">
                 {(['dxf', 'svg', 'pdf'] as TemplateFormat[]).map((f) => (
                   <Button
                     key={f}
                     size="sm"
-                    onClick={() => downloadTemplateSheet(sheet, f, exportUnit)}
+                    onClick={() =>
+                      downloadTemplateSheet(
+                        // DXF/SVG take the nested layout when enabled; PDF stays per part.
+                        f !== 'pdf' && nestedLayout ? nestedLayout : sheet,
+                        f,
+                        exportUnit,
+                        `${slugifyName(boardName)}-hws-frame`,
+                        pdfTiling,
+                      )
+                    }
                   >
                     {f.toUpperCase()}
                   </Button>

@@ -43,7 +43,11 @@ import {
   type Part,
   type Pt,
   type TemplateSheet,
+  type TemplateWarning,
 } from './types';
+
+/** Collects non-fatal build problems; threaded through the part builders. */
+type Warn = (w: TemplateWarning) => void;
 
 /** Choose rib longitudinal positions per the rib mode, respecting the end margins. */
 const ribStations = (board: BezierBoard, p: HwsParams): number[] => {
@@ -79,9 +83,29 @@ const ribStations = (board: BezierBoard, p: HwsParams): number[] => {
 const internalHeight = (board: BezierBoard, x: number, skin: number): number =>
   valueAt(board.deck, x) - valueAt(board.bottom, x) - 2 * skin;
 
+/** Mid-plane height (deck/bottom average) at x — the plane the block plates lie in. */
+const midPlaneY = (board: BezierBoard, x: number): number =>
+  (valueAt(board.deck, x) + valueAt(board.bottom, x)) / 2;
+
+/**
+ * cos of the mid-plane tilt over [xa, xb]. The nose/tail block plates lie in this
+ * tilted plane, so their flat templates are developed by x / cosθ (the legacy
+ * BoardCAD tail/nose-piece development).
+ */
+const midPlaneCos = (board: BezierBoard, xa: number, xb: number): number => {
+  const span = Math.abs(xb - xa);
+  if (span < 1e-6) return 1;
+  return Math.cos(Math.atan2(Math.abs(midPlaneY(board, xb) - midPlaneY(board, xa)), span));
+};
+
 // --- stringer ---
 
-const buildStringer = (board: BezierBoard, p: HwsParams, stations: readonly number[]): Part => {
+const buildStringer = (
+  board: BezierBoard,
+  p: HwsParams,
+  stations: readonly number[],
+  warn: Warn,
+): Part => {
   const L = getLength(board);
   const tip = Math.max(p.endMargin, 1);
   const x0 = tip;
@@ -96,6 +120,14 @@ const buildStringer = (board: BezierBoard, p: HwsParams, stations: readonly numb
 
   // Only slot stations that sit clear of the trimmed ends.
   const inner = stations.filter((x) => x > x0 + slotW && x < x1 - slotW);
+  if (inner.length < stations.length) {
+    const n = stations.length - inner.length;
+    warn({
+      code: 'stringer-slots-trimmed',
+      partId: 'stringer',
+      message: `${n} rib station(s) sit on the stringer's trimmed ends — no half-lap notch cut there (those ribs will not interlock with the stringer)`,
+    });
+  }
 
   // Top edge nose→tail, dipping into a half-lap notch at each rib station.
   const top: Pt[] = [];
@@ -116,10 +148,67 @@ const buildStringer = (board: BezierBoard, p: HwsParams, stations: readonly numb
   const bottom = sampleCurve((t) => ({ x: t, y: botY(t) }), x1, x0, tol);
 
   const outline = dedupe([...top, ...bottom]);
-  const loops: Loop[] = [loop('cut', true, outline)];
+
+  // Nose/tail block cross-lap: open a mid-height notch at each trimmed end so the
+  // block plate (see buildBlock) slides in from the tip and half-laps the spine.
+  // The overhanging parallelogram follows the tilted mid-plane; Clipper leaves
+  // the notch open at the end face (same pattern as the lightening columns).
+  let cut = outline;
+  const blockNotch = (which: 'nose' | 'tail'): Pt[] | null => {
+    const len = which === 'nose' ? p.noseBlockLength : p.tailBlockLength;
+    const lap = len - tip; // overlap between the block plate and the stringer
+    if (lap <= 0.3) return null; // buildBlock warns about the missing lap
+    const xe = which === 'nose' ? x0 : x1; // stringer end face
+    const xi = which === 'nose' ? x0 + lap : x1 - lap; // notch inner end
+    const xo = which === 'nose' ? x0 - 1 : x1 + 1; // overhang keeps the notch open
+    const mid = (x: number): number => (topY(x) + botY(x)) / 2;
+    const cosT = midPlaneCos(board, xi, xe);
+    const hh = (p.materialThickness / cosT + p.slotFit) / 2;
+    return [
+      { x: xo, y: mid(xe) + hh },
+      { x: xi, y: mid(xi) + hh },
+      { x: xi, y: mid(xi) - hh },
+      { x: xo, y: mid(xe) - hh },
+    ];
+  };
+  const notches: Pt[][] = [];
+  if (p.includeNoseBlock) {
+    const nn = blockNotch('nose');
+    if (nn) notches.push(nn);
+  }
+  if (p.includeTailBlock) {
+    const nn = blockNotch('tail');
+    if (nn) notches.push(nn);
+  }
+  if (notches.length > 0) {
+    const pieces = differenceMulti(outline, notches).filter(
+      (r) => r.length >= 3 && Math.abs(signedArea(r)) > 0.5,
+    );
+    if (pieces.length === 1) {
+      cut = dedupe(pieces[0]!);
+    } else {
+      warn({
+        code: 'block-notch-skipped',
+        partId: 'stringer',
+        message: 'The block cross-lap notch would split the stringer end — skipped',
+      });
+    }
+  }
+
+  const loops: Loop[] = [loop('cut', true, cut)];
   // Optional lightening (same style as the ribs), inset from the spine + notches.
   // Keep a solid column under each rib-notch half-lap.
-  if (p.lightenStringer) loops.push(...buildLightening(outline, p, inner));
+  if (p.lightenStringer) {
+    const lit = buildLightening(cut, p, inner);
+    if (p.lighteningStyle !== 'none' && lit.length === 0) {
+      warn({
+        code: 'lightening-dropped',
+        partId: 'stringer',
+        message: 'No stringer lightening fits — the web margin / hole size leaves no room',
+      });
+    }
+    loops.push(...lit);
+  }
   // Rocker baseline (mark) for reference.
   loops.push(
     loop('mark', false, [
@@ -319,9 +408,20 @@ const insertSideTab = (
   return [...half];
 };
 
-const buildRib = (board: BezierBoard, p: HwsParams, x: number, index: number): Part | null => {
+const buildRib = (
+  board: BezierBoard,
+  p: HwsParams,
+  x: number,
+  index: number,
+  warn: Warn,
+): Part | null => {
+  const id = `rib-${index}`;
+  const skip = (why: string): null => {
+    warn({ code: 'rib-skipped', partId: id, message: `Rib ${index + 1} skipped: ${why}` });
+    return null;
+  };
   const cs = getInterpolatedCrossSection(board, x);
-  if (!cs) return null;
+  if (!cs) return skip('no cross-section here');
   const tol = p.sampleTolerance;
   const skin = p.skinThickness;
   const inset = skin;
@@ -333,7 +433,7 @@ const buildRib = (board: BezierBoard, p: HwsParams, x: number, index: number): P
   // and bottom; trim those overshoots so x ≥ 0 throughout and the mirror-and-
   // close trick below stays simple.
   const rawHalf = trimHalfToPositiveX(sampleCurve((tt) => pointByTT(cs.spline, tt), 0, 1, tol));
-  if (rawHalf.length < 2) return null;
+  if (rawHalf.length < 2) return skip('degenerate section profile');
 
   // Mirror the half-profile across x = 0 to form a closed full-profile polygon,
   // then inset it by `inset` using Clipper — this is robust at the rail apex
@@ -345,7 +445,7 @@ const buildRib = (board: BezierBoard, p: HwsParams, x: number, index: number): P
     .reverse();
   const rawFull = dedupe([...rawHalf, ...mirrored]);
   let insetFull = offsetClosed(rawFull, -inset);
-  if (insetFull.length < 4) return null;
+  if (insetFull.length < 4) return skip('the skin inset consumes the whole section');
 
   // Rail band: cut the rib back to the band's inner face — a vertical flat at
   // |x| = offset-outline half-width — WITHOUT touching its deck/bottom edges
@@ -357,29 +457,42 @@ const buildRib = (board: BezierBoard, p: HwsParams, x: number, index: number): P
     const railX = insetFull.reduce((m, q) => Math.max(m, Math.abs(q.x)), 0);
     if (yCut > 0.5 && yCut < railX - 1e-3) {
       insetFull = dedupe(clipToMaxAbsX(insetFull, yCut));
-      if (insetFull.length < 4) return null;
+      if (insetFull.length < 4) return skip('the rail-band cut-back consumes the whole rib');
     } else {
       yCut = 0; // degenerate near the tips: leave the rib untrimmed
+      warn({
+        code: 'rail-cutback-skipped',
+        partId: id,
+        message: `Rib ${index + 1} left untrimmed — the rail-band offset leaves no vertical glue face here`,
+      });
     }
   }
 
   let half = extractRightHalf(insetFull);
-  if (half.length < 2) return null;
+  if (half.length < 2) return skip('degenerate inset profile');
   if (yCut > 0 && p.railJoint === 'tabSlot') {
-    half = insertSideTab(half, yCut, p.railStripThickness, p.railLamination);
+    const withTab = insertSideTab(half, yCut, p.railStripThickness, p.railLamination);
+    if (withTab.length === half.length) {
+      warn({
+        code: 'tab-skipped',
+        partId: id,
+        message: `Rib ${index + 1}: side face too short for a locating tab — cut it as a butt joint`,
+      });
+    }
+    half = withTab;
   }
 
   const ybc = half[0]!.y; // bottom-centre (inset)
   const ydc = half[half.length - 1]!.y; // deck-centre (inset)
   const H = ydc - ybc;
-  if (H <= 0) return null;
+  if (H <= 0) return skip('inset profile has no height');
   const ribDepth = (1 - p.halfLapFraction) * H;
 
   // Right rail from the slot mouth (x ≈ halfW) up to the deck centre.
   let mouth = 1;
   while (mouth < half.length && half[mouth]!.x < halfW) mouth++;
   const rightRail = half.slice(mouth);
-  if (rightRail.length === 0) return null;
+  if (rightRail.length === 0) return skip('narrower than the stringer slot');
   const leftRail = rightRail.map((v) => ({ x: -v.x, y: v.y })).reverse();
 
   // Seat the slot mouth corners ON the bottom profile at x = ±halfW (interpolated)
@@ -402,10 +515,18 @@ const buildRib = (board: BezierBoard, p: HwsParams, x: number, index: number): P
     { x: halfW, y: slotTopY }, // across slot top
   ]);
   // The rib's half-lap slot sits at the centreline; keep it solid full-height.
-  const loops: Loop[] = [loop('cut', true, contour), ...buildLightening(contour, p, [0])];
+  const lit = buildLightening(contour, p, [0]);
+  if (p.lighteningStyle !== 'none' && lit.length === 0) {
+    warn({
+      code: 'lightening-dropped',
+      partId: id,
+      message: `Rib ${index + 1}: no lightening fits — the web margin / hole size leaves no room`,
+    });
+  }
+  const loops: Loop[] = [loop('cut', true, contour), ...lit];
 
   return {
-    id: `rib-${index}`,
+    id,
     label: `Rib ${index + 1}`,
     station: x,
     loops,
@@ -872,6 +993,7 @@ const buildVerticalRailParts = (
   board: BezierBoard,
   p: HwsParams,
   stations: readonly number[],
+  warn: Warn,
 ): Part[] => {
   const dev = developRailBand(board, {
     offset: railOffset(p),
@@ -882,7 +1004,13 @@ const buildVerticalRailParts = (
     tolerance: p.sampleTolerance,
     stations,
   });
-  if (dev.deck.length < 2) return [];
+  if (dev.deck.length < 2) {
+    warn({
+      code: 'rail-band-empty',
+      message: 'Rail-band development is empty — the offset / end trims leave no band',
+    });
+    return [];
+  }
 
   const outline = dedupe([...dev.deck, ...[...dev.bottom].reverse()]);
   const marks = railStationMarks(dev.stationU, dev.bottom, dev.deck);
@@ -915,25 +1043,32 @@ const buildVerticalRailParts = (
     at: { x: 2, y: edgeYAt(dev.deck, 2) + 2.5 },
     height: 1,
   });
-  const base = (id: string, label: string, extra: Loop[], noteText: string): Part => ({
+  const base = (
+    id: string,
+    label: string,
+    extra: Loop[],
+    noteText: string,
+    count: number,
+  ): Part => ({
     id,
     label,
+    count,
     loops: [loop('cut', true, outline), ...extra, ...marks.loops],
     labels: [note(noteText), ...marks.labels],
   });
 
   if (p.railJoint === 'tabSlot' && slots.length > 0) {
     const parts = [
-      base('rail-band-slotted', 'Rail band — layer 1', slots, 'layer 1 — cut 1 per side (x2)'),
+      base('rail-band-slotted', 'Rail band — layer 1', slots, 'layer 1 — cut 1 per side (x2)', 2),
     ];
     if (layers > 1) {
       parts.push(
-        base('rail-band', 'Rail band — layers 2+', [], `layers 2-${layers} — cut ${layers - 1} per side (x2)`), // prettier-ignore
+        base('rail-band', 'Rail band — layers 2+', [], `layers 2-${layers} — cut ${layers - 1} per side (x2)`, 2 * (layers - 1)), // prettier-ignore
       );
     }
     return parts;
   }
-  return [base('rail-band', 'Rail band', [], `cut ${layers} per side (x2 sides)`)];
+  return [base('rail-band', 'Rail band', [], `cut ${layers} per side (x2 sides)`, 2 * layers)];
 };
 
 /**
@@ -946,6 +1081,7 @@ const buildHorizontalRailParts = (
   board: BezierBoard,
   p: HwsParams,
   stations: readonly number[],
+  warn: Warn,
 ): Part[] => {
   const dev = developHorizontalRailBand(board, {
     offset: railOffset(p),
@@ -954,7 +1090,13 @@ const buildHorizontalRailParts = (
     tolerance: p.sampleTolerance,
     stations,
   });
-  if (dev.outer.length < 2) return [];
+  if (dev.outer.length < 2) {
+    warn({
+      code: 'rail-band-empty',
+      message: 'Rail-band development is empty — the offset / end trims leave no band',
+    });
+    return [];
+  }
 
   const marks = railStationMarks(dev.stationU, dev.inner, dev.outer);
   const layers = railLayerCount(board, p);
@@ -996,9 +1138,16 @@ const buildHorizontalRailParts = (
     return out;
   };
 
-  const partOf = (id: string, label: string, inner: readonly Pt[], noteText: string): Part => ({
+  const partOf = (
+    id: string,
+    label: string,
+    inner: readonly Pt[],
+    noteText: string,
+    count: number,
+  ): Part => ({
     id,
     label,
+    count,
     loops: [loop('cut', true, dedupe([...dev.outer, ...[...inner].reverse()])), ...marks.loops],
     labels: [
       { text: noteText, at: { x: 2, y: edgeYAt(dev.outer, 2) + 2.5 }, height: 1 },
@@ -1009,48 +1158,121 @@ const buildHorizontalRailParts = (
   // Horizontal layers stack up the rail, so the count is a height-based estimate.
   if (p.railJoint === 'tabSlot') {
     const parts = [
-      partOf('rail-band-slotted', 'Rail band — layer 1', notchedInner(), 'layer 1 (bottom) — cut 1 per side (x2)'), // prettier-ignore
+      partOf('rail-band-slotted', 'Rail band — layer 1', notchedInner(), 'layer 1 (bottom) — cut 1 per side (x2)', 2), // prettier-ignore
     ];
     if (layers > 1) {
       parts.push(
-        partOf('rail-band', 'Rail band — layers 2+', dev.inner, `~${layers - 1} more per side (x2), stack to the deck`), // prettier-ignore
+        partOf('rail-band', 'Rail band — layers 2+', dev.inner, `~${layers - 1} more per side (x2), stack to the deck`, 2 * (layers - 1)), // prettier-ignore
       );
     }
     return parts;
   }
-  return [partOf('rail-band', 'Rail band', dev.inner, `cut ~${layers} per side (x2), stack to the deck`)]; // prettier-ignore
+  return [partOf('rail-band', 'Rail band', dev.inner, `cut ~${layers} per side (x2), stack to the deck`, 2 * layers)]; // prettier-ignore
 };
 
-const buildRailParts = (board: BezierBoard, p: HwsParams, stations: readonly number[]): Part[] =>
-  p.railLamination === 'horizontal'
-    ? buildHorizontalRailParts(board, p, stations)
-    : buildVerticalRailParts(board, p, stations);
+// --- nose/tail blocks ---
 
 /**
- * Compensate every cutting loop for a symmetric kerf: the cutter removes
- * `kerf / 2` each side of the drawn line, so outer `cut` contours move outward
- * by half the kerf and `cutInner` holes inward, keeping the finished part true
- * to size. `mark` loops are untouched; holes the kerf consumes entirely vanish.
+ * Nose/tail block template: a flat plate lying in the board's tilted mid-plane,
+ * spanning tip → block length. The lateral edge follows the same offset outline
+ * the ribs butt against (the rail-band inner face, or the skin inset when no
+ * band is configured), developed to true size by the mid-plane tilt (x / cosθ,
+ * like the legacy BoardCAD nose/tail pieces). A centreline slot from the aft
+ * edge cross-laps the matching stringer end notch; the rail band simply butts
+ * against the plate edge (crenellated keying is a later refinement).
  */
-const applyKerf = (parts: readonly Part[], kerf: number): Part[] =>
-  parts.map((part) => ({
-    ...part,
-    loops: part.loops.flatMap((l): Loop[] => {
-      if (!l.closed || l.kind === 'mark') return [l];
-      const d = l.kind === 'cut' ? kerf / 2 : -kerf / 2;
-      return offsetClosedAll(l.pts, d)
-        .filter((r) => r.length >= 3 && Math.abs(signedArea(r)) > 0.25)
-        .map((r) => loop(l.kind, true, r));
-    }),
-  }));
+const buildBlock = (
+  board: BezierBoard,
+  p: HwsParams,
+  which: 'nose' | 'tail',
+  warn: Warn,
+): Part | null => {
+  const id = `block-${which}`;
+  const label = which === 'nose' ? 'Nose block' : 'Tail block';
+  const skip = (why: string): null => {
+    warn({ code: 'block-skipped', partId: id, message: `${label} skipped: ${why}` });
+    return null;
+  };
+  const L = getLength(board);
+  const len = Math.min(which === 'nose' ? p.noseBlockLength : p.tailBlockLength, L / 2 - 1);
+  const s0 = 0.5; // keep off the exact tip, where the outline pinches to zero
+  if (len <= s0 + 0.5) return skip('block length too short');
+  const bx = (s: number): number => (which === 'nose' ? s : L - s); // tip-relative → board x
+
+  const bandOffset = railOffset(p);
+  const inset = bandOffset > 0 ? bandOffset : p.skinThickness;
+  const cosT = midPlaneCos(board, bx(s0), bx(len));
+  const u = (s: number): number => (s - s0) / cosT; // developed coordinate
+  const yHalfAt = (s: number): number => Math.max(0, outlineInsetHalfWidthAt(board, bx(s), inset));
+
+  // Step forward past any stations the inset consumed entirely (right at the tip).
+  let sStart = s0;
+  const step = (len - s0) / 32;
+  while (sStart < len && yHalfAt(sStart) < 0.05) sStart += step;
+  if (len - sStart < 1) return skip('the outline inset leaves no width here');
+
+  const tol = p.sampleTolerance;
+  const top = sampleCurve((s) => ({ x: u(s), y: yHalfAt(s) }), sStart, len, tol);
+  const bottom = sampleCurve((s) => ({ x: u(s), y: -yHalfAt(s) }), len, sStart, tol);
+
+  // Centreline slot from the aft edge, spanning the overlap with the stringer.
+  const u1 = u(len);
+  const yAft = yHalfAt(len);
+  const slotW = p.materialThickness + p.slotFit;
+  const tip = Math.max(p.endMargin, 1);
+  const lap = len - tip;
+  let slot: Pt[] = [];
+  if (lap <= 0.3) {
+    warn({
+      code: 'block-lap-skipped',
+      partId: id,
+      message: `${label} ends before the stringer does (it is shorter than the end margin) — no cross-lap cut`,
+    });
+  } else if (yAft > slotW / 2 + 0.3) {
+    const uSlot = u1 - lap / cosT;
+    slot = [
+      { x: u1, y: slotW / 2 },
+      { x: uSlot, y: slotW / 2 },
+      { x: uSlot, y: -slotW / 2 },
+      { x: u1, y: -slotW / 2 },
+    ];
+  }
+
+  const contour = dedupe([...top, ...slot, ...bottom]);
+  if (contour.length < 4) return skip('degenerate contour');
+  const lit = buildLightening(contour, p, []);
+  if (p.lighteningStyle !== 'none' && lit.length === 0) {
+    warn({
+      code: 'lightening-dropped',
+      partId: id,
+      message: `${label}: no lightening fits — the web margin / hole size leaves no room`,
+    });
+  }
+  return {
+    id,
+    label,
+    loops: [loop('cut', true, contour), ...lit],
+    labels: [{ text: label, at: { x: u1 * 0.35, y: 0.8 }, height: 1 }],
+  };
+};
+
+const buildRailParts = (
+  board: BezierBoard,
+  p: HwsParams,
+  stations: readonly number[],
+  warn: Warn,
+): Part[] =>
+  p.railLamination === 'horizontal'
+    ? buildHorizontalRailParts(board, p, stations, warn)
+    : buildVerticalRailParts(board, p, stations, warn);
 
 /**
  * Build the HWS internal-frame templates for `board`. Missing params fall back to
  * {@link DEFAULT_HWS_PARAMS}. Coordinates are centimetres; feed the result to
  * `sheetToDxf` / `sheetToSvg` / `sheetToPdf`.
  *
- * By default the geometry is **true** — tool-diameter offsets are the operator's
- * job in CAM/CNC programming. Set `kerfDiameter` to bake kerf compensation in.
+ * The geometry is always **true size** — tool-diameter (kerf) offsets are the
+ * operator's job in CAM/CNC programming.
  */
 export const buildHwsTemplates = (
   board: BezierBoard,
@@ -1058,24 +1280,35 @@ export const buildHwsTemplates = (
 ): TemplateSheet => {
   const p: HwsParams = { ...DEFAULT_HWS_PARAMS, ...paramsIn };
   const stations = ribStations(board, p);
+  const warnings: TemplateWarning[] = [];
+  const warn: Warn = (w) => warnings.push(w);
 
   const parts: Part[] = [];
-  if (p.includeStringer) parts.push(buildStringer(board, p, stations));
+  if (p.includeStringer) parts.push(buildStringer(board, p, stations, warn));
   if (p.includeRibs) {
     stations.forEach((x, i) => {
-      const rib = buildRib(board, p, x, i);
+      const rib = buildRib(board, p, x, i, warn);
       if (rib) parts.push(rib);
     });
   }
   if (p.includeDeckSkin) parts.push(buildSkin(board, p, stations, 'deck'));
   if (p.includeBottomSkin) parts.push(buildSkin(board, p, stations, 'bottom'));
   if (p.includeRailTemplate && railOffset(p) > 0) {
-    parts.push(...buildRailParts(board, p, stations));
+    parts.push(...buildRailParts(board, p, stations, warn));
+  }
+  if (p.includeNoseBlock) {
+    const b = buildBlock(board, p, 'nose', warn);
+    if (b) parts.push(b);
+  }
+  if (p.includeTailBlock) {
+    const b = buildBlock(board, p, 'tail', warn);
+    if (b) parts.push(b);
   }
 
   return {
-    parts: p.kerfDiameter > 0 ? applyKerf(parts, p.kerfDiameter) : parts,
+    parts,
     units: 'cm',
+    ...(warnings.length > 0 ? { warnings } : {}),
     meta: { title: 'Hollow Wood Frame', generator: 'OpenShaper' },
   };
 };

@@ -10,12 +10,15 @@ import {
   knot as kKnot,
   outlineInsetHalfWidthAt,
   splineFromKnots as kSplineFromKnots,
+  valueAt as kValueAt,
   vec2 as kVec2,
 } from '@openshaper/kernel';
 import { makeTestBoard } from '../fixture.test-helper';
+import { BRAND_LINE } from '../brand';
 import { buildHwsTemplates } from './hws';
 import { DEFAULT_HWS_PARAMS, type Part, type Pt } from './types';
 import { bboxOfPts } from './geom';
+import { paperSizeById } from '../paper';
 import { sheetToDxf } from '../sheet-dxf';
 import { sheetToSvg } from '../sheet-svg';
 import { sheetToPdf } from '../sheet-pdf';
@@ -592,62 +595,6 @@ describe('buildHwsTemplates — rib rail cut-back (the old railInset bug)', () =
   });
 });
 
-describe('buildHwsTemplates — kerf compensation', () => {
-  const params = {
-    ribMode: 'evenCount',
-    ribCount: 1,
-    lighteningStyle: 'circles',
-    holeDiameter: 4,
-    holeSpacing: 5,
-    webMargin: 1,
-  } as const;
-  const kerf = 0.4;
-
-  const ribOf = (kerfDiameter: number) =>
-    buildHwsTemplates(board, { ...params, kerfDiameter }).parts.find((p) =>
-      p.id.startsWith('rib-'),
-    )!;
-
-  it('kerf 0 (default) draws the true geometry', () => {
-    expect(buildHwsTemplates(board, params)).toEqual(
-      buildHwsTemplates(board, { ...params, kerfDiameter: 0 }),
-    );
-  });
-
-  it('offsets cut contours outward and holes inward by half the kerf', () => {
-    const trueRib = ribOf(0);
-    const kerfed = ribOf(kerf);
-
-    // Outer contour grows by kerf/2 per side.
-    const bbTrue = bboxOfPts([...cutLoop(trueRib).pts]);
-    const bbKerf = bboxOfPts([...cutLoop(kerfed).pts]);
-    expect(bbKerf.maxX - bbKerf.minX).toBeCloseTo(bbTrue.maxX - bbTrue.minX + kerf, 1);
-    expect(bbKerf.maxY - bbKerf.minY).toBeCloseTo(bbTrue.maxY - bbTrue.minY + kerf, 1);
-
-    // Holes shrink by kerf/2 per side; the toFixed band absorbs Clipper rounding.
-    const maxHoleDia = (part: Part): number =>
-      Math.max(
-        ...part.loops
-          .filter((l) => l.kind === 'cutInner')
-          .map((l) => {
-            const bb = bboxOfPts([...l.pts]);
-            return bb.maxX - bb.minX;
-          }),
-      );
-    expect(maxHoleDia(kerfed)).toBeCloseTo(maxHoleDia(trueRib) - kerf, 1);
-  });
-
-  it('drops holes the kerf consumes entirely', () => {
-    const sheet = buildHwsTemplates(board, {
-      ...params,
-      holeDiameter: 0.7, // > the 3 mm minimum, < the 8 mm kerf below
-      kerfDiameter: 0.8,
-    });
-    const rib = sheet.parts.find((p) => p.id.startsWith('rib-'))!;
-    expect(rib.loops.filter((l) => l.kind === 'cutInner')).toHaveLength(0);
-  });
-});
-
 describe('sheet writers', () => {
   const sheet = buildHwsTemplates(board, { ribMode: 'evenCount', ribCount: 4 });
 
@@ -714,6 +661,45 @@ describe('sheet writers', () => {
     expect(s.trimEnd().endsWith('%%EOF')).toBe(true);
   });
 
+  it('brands every writer with the openshaper.com credit (never as DXF geometry)', () => {
+    const dxf = sheetToDxf(sheet);
+    expect(dxf).toContain(BRAND_LINE);
+    // Comment-only in DXF: the brand precedes the ENTITIES section, so no machine
+    // could mistake it for something to cut.
+    expect(dxf.indexOf(BRAND_LINE)).toBeLessThan(dxf.indexOf('ENTITIES'));
+
+    expect(sheetToSvg(sheet)).toContain(BRAND_LINE);
+
+    const bytes = sheetToPdf(sheet);
+    let s = '';
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]!);
+    // Once per page.
+    expect(s.split(BRAND_LINE).length - 1).toBe(sheet.parts.length);
+  });
+
+  it('tiles parts across the chosen paper; untiled output is unchanged', () => {
+    const a4 = paperSizeById('a4')!;
+    const bytes = sheetToPdf(sheet, {
+      tiling: { paper: a4, orientation: 'auto', overlapCm: 1, cutMarks: true, labels: true },
+    });
+    let s = '';
+    for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]!);
+    // The ~84 cm stringer alone needs several A4 tiles.
+    const count = Number(s.match(/\/Count (\d+)/)![1]);
+    expect(count).toBeGreaterThan(sheet.parts.length);
+    // Every page is exactly paper-sized (auto orientation may swap w/h).
+    const maxDim = Math.max(a4.wPt, a4.hPt);
+    for (const m of s.matchAll(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/g)) {
+      expect(Number(m[1])).toBeLessThanOrEqual(maxDim + 0.01);
+      expect(Number(m[2])).toBeLessThanOrEqual(maxDim + 0.01);
+    }
+    // Tile codes + assembly labels are printed.
+    expect(s).toContain('A1');
+    expect(s).toContain('print at 100%');
+    // No tiling option → byte-identical to the plain call.
+    expect(sheetToPdf(sheet, {})).toEqual(sheetToPdf(sheet));
+  });
+
   it('prints the meta.note on every writer', () => {
     const NOTE = 'OpenShaper HWS test note';
     const noted = { ...sheet, meta: { ...sheet.meta, note: NOTE } };
@@ -723,6 +709,181 @@ describe('sheet writers', () => {
     let s = '';
     for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]!);
     expect(s).toContain(NOTE);
+  });
+});
+
+describe('buildHwsTemplates — nose/tail blocks', () => {
+  const L = getLength(board); // 100 cm fixture
+  const params = { ribMode: 'evenCount', ribCount: 3 } as const;
+  const skin = DEFAULT_HWS_PARAMS.skinThickness;
+  const mid = (x: number): number => (kValueAt(board.deck, x) + kValueAt(board.bottom, x)) / 2;
+
+  it('defaults emit no block parts', () => {
+    const ids = buildHwsTemplates(board, params).parts.map((q) => q.id);
+    expect(ids.some((id) => id.startsWith('block-'))).toBe(false);
+  });
+
+  it('emits a symmetric tail block developed by the mid-plane angle', () => {
+    const len = 20;
+    const sheet = buildHwsTemplates(board, {
+      ...params,
+      includeTailBlock: true,
+      tailBlockLength: len,
+    });
+    const block = sheet.parts.find((q) => q.id === 'block-tail')!;
+    expect(block).toBeDefined();
+    const cut = cutLoop(block);
+    expect(hasSelfIntersection(cut.pts)).toBe(false);
+    for (const q of cut.pts) {
+      expect(Number.isFinite(q.x)).toBe(true);
+      expect(Number.isFinite(q.y)).toBe(true);
+    }
+    const bb = bboxOfPts([...cut.pts]);
+    // Symmetric about the centreline.
+    expect(bb.maxY).toBeCloseTo(-bb.minY, 1);
+    // Developed length: span stretched by the mid-plane tilt, never shorter than plan.
+    const span = len - 0.5;
+    const cosT = Math.cos(Math.atan2(Math.abs(mid(L - len) - mid(L - 0.5)), span));
+    const width = bb.maxX - bb.minX;
+    expect(width).toBeGreaterThanOrEqual(span - 1.5);
+    expect(width).toBeLessThanOrEqual(span / cosT + 0.01);
+    expect(span / cosT - width).toBeLessThan(1.5);
+    // Lateral edge matches the skin-inset outline half-width at the aft edge.
+    expect(bb.maxY).toBeCloseTo(outlineInsetHalfWidthAt(board, L - len, skin), 1);
+  });
+
+  it('cuts a centreline slot from the aft edge spanning the stringer overlap', () => {
+    const len = 20;
+    const sheet = buildHwsTemplates(board, {
+      ...params,
+      includeTailBlock: true,
+      tailBlockLength: len,
+    });
+    const cut = cutLoop(sheet.parts.find((q) => q.id === 'block-tail')!);
+    const slotHalf = (DEFAULT_HWS_PARAMS.materialThickness + DEFAULT_HWS_PARAMS.slotFit) / 2;
+    const slotPts = cut.pts.filter((q) => Math.abs(Math.abs(q.y) - slotHalf) < 1e-6);
+    expect(slotPts.length).toBeGreaterThanOrEqual(4);
+    const bb = bboxOfPts([...cut.pts]);
+    const span = len - 0.5;
+    const cosT = Math.cos(Math.atan2(Math.abs(mid(L - len) - mid(L - 0.5)), span));
+    const lap = len - DEFAULT_HWS_PARAMS.endMargin; // overlap with the stringer
+    const slotMinX = Math.min(...slotPts.map((q) => q.x));
+    expect(bb.maxX - slotMinX).toBeCloseTo(lap / cosT, 1);
+  });
+
+  it('notches the stringer end at mid-height for the block cross-lap', () => {
+    const len = 20;
+    const tip = DEFAULT_HWS_PARAMS.endMargin;
+    const xi = L - len; // inner end of the notch (x1 - lap)
+    const near = (part: Part): Pt[] =>
+      cutLoop(part).pts.filter((q) => Math.abs(q.x - xi) < 0.05 && Math.abs(q.y - mid(xi)) < 1.0);
+    const notched = buildHwsTemplates(board, {
+      ...params,
+      includeTailBlock: true,
+      tailBlockLength: len,
+    });
+    const stringer = notched.parts.find((q) => q.id === 'stringer')!;
+    expect(near(stringer).length).toBeGreaterThanOrEqual(2);
+    expect(hasSelfIntersection(cutLoop(stringer).pts)).toBe(false);
+    // The stringer still ends at L - endMargin (the notch opens at the end face).
+    expect(bboxOfPts([...cutLoop(stringer).pts]).maxX).toBeGreaterThan(L - tip - 0.5);
+
+    const plain = buildHwsTemplates(board, params).parts.find((q) => q.id === 'stringer')!;
+    expect(near(plain).length).toBe(0);
+  });
+
+  it('skips the cross-lap with a warning when the block is shorter than the end margin', () => {
+    const sheet = buildHwsTemplates(board, {
+      ...params,
+      includeTailBlock: true,
+      tailBlockLength: 6, // < endMargin 8 → no stringer overlap
+    });
+    expect(sheet.parts.some((q) => q.id === 'block-tail')).toBe(true);
+    expect((sheet.warnings ?? []).some((w) => w.code === 'block-lap-skipped')).toBe(true);
+  });
+
+  it('emits a nose block too, mirrored from the nose tip', () => {
+    const sheet = buildHwsTemplates(board, {
+      ...params,
+      includeNoseBlock: true,
+      noseBlockLength: 18,
+    });
+    const block = sheet.parts.find((q) => q.id === 'block-nose')!;
+    expect(block).toBeDefined();
+    expect(hasSelfIntersection(cutLoop(block).pts)).toBe(false);
+    const bb = bboxOfPts([...cutLoop(block).pts]);
+    expect(bb.maxY).toBeCloseTo(outlineInsetHalfWidthAt(board, 18, skin), 1);
+  });
+});
+
+describe('buildHwsTemplates — part counts', () => {
+  const params = {
+    ribMode: 'evenCount',
+    ribCount: 3,
+    railLaminations: 4,
+    railStripThickness: 0.5,
+  } as const;
+
+  it('single parts default to count 1 (unset)', () => {
+    const sheet = buildHwsTemplates(board, { ribMode: 'evenCount', ribCount: 3 });
+    expect(sheet.parts.find((p) => p.id === 'stringer')!.count ?? 1).toBe(1);
+  });
+
+  it('butt rail band cuts layers × 2 sides from one template', () => {
+    const sheet = buildHwsTemplates(board, params);
+    expect(sheet.parts.find((p) => p.id === 'rail-band')!.count).toBe(8);
+  });
+
+  it('tabSlot splits a 2-off layer-1 template from the remaining layers', () => {
+    const sheet = buildHwsTemplates(board, { ...params, railJoint: 'tabSlot' });
+    expect(sheet.parts.find((p) => p.id === 'rail-band-slotted')!.count).toBe(2);
+    expect(sheet.parts.find((p) => p.id === 'rail-band')!.count).toBe(6);
+  });
+});
+
+describe('buildHwsTemplates — warnings', () => {
+  it('a clean default build reports no warnings', () => {
+    const sheet = buildHwsTemplates(board);
+    expect(sheet.warnings ?? []).toHaveLength(0);
+  });
+
+  it('reports lightening that could not fit, naming the part', () => {
+    const sheet = buildHwsTemplates(board, {
+      ribMode: 'evenCount',
+      ribCount: 1,
+      lighteningStyle: 'circles',
+      holeDiameter: 0.5, // capped radius falls below the 3 mm hole minimum
+      webMargin: 1,
+    });
+    const rib = sheet.parts.find((q) => q.id.startsWith('rib-'))!;
+    expect(rib.loops.filter((l) => l.kind === 'cutInner')).toHaveLength(0);
+    const w = (sheet.warnings ?? []).find((q) => q.code === 'lightening-dropped');
+    expect(w).toBeDefined();
+    expect(w!.partId).toBe(rib.id);
+    expect(w!.message).toMatch(/lightening/i);
+  });
+
+  it('reports rib stations whose stringer notches fall inside the trimmed ends', () => {
+    // evenCount places the first/last stations exactly on the end margin, where
+    // the stringer has no material left for a half-lap notch.
+    const sheet = buildHwsTemplates(board, { ribMode: 'evenCount', ribCount: 4 });
+    const ws = (sheet.warnings ?? []).filter((q) => q.code === 'stringer-slots-trimmed');
+    expect(ws).toHaveLength(1);
+    expect(ws[0]!.partId).toBe('stringer');
+    expect(ws[0]!.message).toContain('2');
+  });
+
+  it('reports a rib left untrimmed when the rail-band offset is degenerate there', () => {
+    // A band offset nearly as deep as the half-width leaves no vertical face.
+    const sheet = buildHwsTemplates(board, {
+      ribMode: 'evenCount',
+      ribCount: 1,
+      railLamination: 'horizontal',
+      railBandWidth: 24.7,
+    });
+    const ws = (sheet.warnings ?? []).filter((q) => q.code === 'rail-cutback-skipped');
+    expect(ws.length).toBeGreaterThanOrEqual(1);
+    expect(ws[0]!.partId).toBe('rib-0');
   });
 });
 

@@ -7,6 +7,7 @@
  * the spec sheet (`spec-sheet.ts`, printed to PDF by the browser); the PDF exporter
  * here is the true 1:1, print-at-100% trace template.
  */
+export { BRAND_LINE } from './brand';
 export { exportStl, type StlOptions } from './stl';
 export { exportDxf, type DxfOptions, type DxfCurveMode } from './dxf';
 export {
@@ -39,11 +40,21 @@ export {
   type HwsParams,
   type RibMode,
   type TemplateSheet,
+  type TemplateWarning,
   type Part,
   type Loop,
   type LoopKind,
 } from './construction/types';
+export { cuttingList, totalPieces, type CutItem } from './construction/cutlist';
+export {
+  nestParts,
+  layoutNestedSheet,
+  nestedSheetViews,
+  type NestSpec,
+  type NestResult,
+  type NestPlacement,
+} from './construction/nest';
 export { sheetToDxf, type DxfSheetOptions } from './sheet-dxf';
 export { sheetToSvg, type SvgOptions } from './sheet-svg';
-export { sheetToPdf } from './sheet-pdf';
+export { sheetToPdf, type SheetPdfOptions } from './sheet-pdf';
 export type { SheetUnit } from './construction/units';
