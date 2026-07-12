@@ -20,11 +20,12 @@ describe('<App /> smoke', () => {
     expect(screen.getByText('Board')).toBeTruthy();
     expect(screen.getAllByText('Outline').length).toBeGreaterThan(0); // tab + pane title
 
-    // The sample board was parsed into the store on mount.
-    expect(boardStore.getState().board).not.toBeNull();
-
     // The spec sidebar rendered values for the settled board (volume is always litres).
     expect((await screen.findAllByText(/[\d.]+ liters/)).length).toBeGreaterThan(0);
+
+    // The sample board was parsed into the store on mount (session hydration is
+    // async — no stored session in this environment, so the sample is the fallback).
+    expect(boardStore.getState().board).not.toBeNull();
   });
 
   it('Ctrl+K opens the command palette over the menu actions', async () => {

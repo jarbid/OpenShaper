@@ -5,6 +5,8 @@ import {
   lifeSizeViewport,
   pan,
   screenToWorld,
+  viewportCenter,
+  viewportFromCenter,
   worldToScreen,
   zoomAt,
 } from './viewport';
@@ -42,6 +44,35 @@ describe('viewport', () => {
 
   it('pan shifts the origin', () => {
     expect(pan(vp, 10, -5)).toEqual({ scale: 2, originX: 110, originY: 195 });
+  });
+});
+
+describe('viewportFromCenter / viewportCenter', () => {
+  it('places the world center point at the canvas center', () => {
+    const vp = viewportFromCenter({ cx: 80, cy: -3, scale: 4 }, 600, 400);
+    expect(vp.scale).toBe(4);
+    const atCenter = screenToWorld(vp, { x: 300, y: 200 });
+    expect(atCenter.x).toBeCloseTo(80, 9);
+    expect(atCenter.y).toBeCloseTo(-3, 9);
+  });
+
+  it('viewportCenter reports the world point under the canvas center', () => {
+    const vp = { scale: 2, originX: 100, originY: 200 };
+    const c = viewportCenter(vp, 400, 300);
+    expect(c.scale).toBe(2);
+    expect(c.cx).toBeCloseTo(50, 9); // (200-100)/2
+    expect(c.cy).toBeCloseTo(25, 9); // (200-150)/2
+  });
+
+  it('round-trips through a different canvas size (size-independent framing)', () => {
+    const original = { scale: 3.5, originX: 42, originY: 77 };
+    const c = viewportCenter(original, 800, 600);
+    const restored = viewportFromCenter(c, 1024, 512);
+    // The same world point sits under the (new) canvas center at the same zoom.
+    const atCenter = screenToWorld(restored, { x: 512, y: 256 });
+    expect(restored.scale).toBeCloseTo(original.scale, 9);
+    expect(atCenter.x).toBeCloseTo(c.cx, 9);
+    expect(atCenter.y).toBeCloseTo(c.cy, 9);
   });
 });
 

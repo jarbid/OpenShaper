@@ -7,4 +7,5 @@ export {
   type LightingPreset,
   type MaterialPreset,
   type AnalysisMode,
+  type CameraPose,
 } from './Board3DView';

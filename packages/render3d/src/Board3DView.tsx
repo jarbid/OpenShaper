@@ -23,6 +23,12 @@ export type MaterialPreset = 'foam' | 'gloss' | 'matte';
 /** Surface-analysis overlay (replaces the shaded material). */
 export type AnalysisMode = 'none' | 'zebra' | 'curvature' | 'slope';
 
+/** Orbit pose: camera position and look-at target, world cm. */
+export interface CameraPose {
+  position: [number, number, number];
+  target: [number, number, number];
+}
+
 export interface Board3DViewProps {
   store: StoreApi<BoardState>;
   /** Surface rendering mode (defaults to 'shaded'). */
@@ -43,6 +49,14 @@ export interface Board3DViewProps {
   sectionX?: number | null;
   /** @deprecated use `mode="wireframe"`. Kept for back-compat. */
   wireframe?: boolean;
+  /**
+   * Restored orbit pose applied at mount instead of the default framing, so a
+   * reloaded session reopens with the camera where it was. Pass a stable
+   * object — it is read as the Canvas's initial camera state.
+   */
+  initialCamera?: CameraPose;
+  /** Report the orbit pose whenever the user moves the camera (for persistence). */
+  onCameraChange?: (pose: CameraPose) => void;
   className?: string;
 }
 
@@ -314,6 +328,8 @@ export function Board3DView({
   targetFaceSize = DEFAULT_FACE_SIZE,
   sectionX = null,
   wireframe = false,
+  initialCamera,
+  onCameraChange,
   className,
 }: Board3DViewProps) {
   const board = useSyncExternalStore(store.subscribe, () => store.getState().board);
@@ -325,7 +341,13 @@ export function Board3DView({
     <div className={className} style={{ width: '100%', height: '100%' }}>
       <Canvas
         dpr={[1, 2]}
-        camera={{ position: [0, -d, d * 0.45], up: [0, 0, 1], fov: 35, near: 1, far: span * 50 }}
+        camera={{
+          position: initialCamera?.position ?? [0, -d, d * 0.45],
+          up: [0, 0, 1],
+          fov: 35,
+          near: 1,
+          far: span * 50,
+        }}
       >
         <color attach="background" args={[BACKGROUND[lighting]]} />
         <Lights preset={lighting} span={span} />
@@ -343,7 +365,24 @@ export function Board3DView({
           <Fins3D board={board} targetFaceSize={targetFaceSize} color={finColor} />
         )}
         {board && sectionX != null && <SectionPlane board={board} x={sectionX} />}
-        <OrbitControls makeDefault enableDamping dampingFactor={0.1} />
+        <OrbitControls
+          makeDefault
+          enableDamping
+          dampingFactor={0.1}
+          target={initialCamera?.target}
+          onChange={
+            onCameraChange
+              ? (e) => {
+                  const controls = e?.target;
+                  if (!controls) return;
+                  onCameraChange({
+                    position: controls.object.position.toArray() as [number, number, number],
+                    target: controls.target.toArray() as [number, number, number],
+                  });
+                }
+              : undefined
+          }
+        />
         <GizmoHelper alignment="bottom-right" margin={[56, 56]}>
           <GizmoViewport axisColors={['#22D3EE', '#2DD4BF', '#A78BFA']} labelColor="#E6EDF5" />
         </GizmoHelper>

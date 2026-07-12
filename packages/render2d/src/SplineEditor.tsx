@@ -46,8 +46,11 @@ import {
   lifeSizeViewport,
   pan,
   screenToWorld,
+  viewportCenter,
+  viewportFromCenter,
   worldToScreen,
   zoomAt,
+  type ViewCenter,
   type Viewport,
 } from './viewport';
 import {
@@ -151,6 +154,17 @@ export interface SplineEditorProps {
    * to go back to `undefined` between presses — every increment triggers the effect.
    */
   viewCommand?: { seq: number; kind: 'fit' | 'lifeSize' };
+  /**
+   * Restored framing (world center + zoom) applied instead of the first
+   * auto-fit, so a reloaded session reopens looking at the same spot. Later
+   * refits (target-set change, container resize) behave as usual.
+   */
+  initialView?: ViewCenter;
+  /**
+   * Report the current framing whenever it changes (zoom, pan, fit, resize),
+   * for persistence by the owner. Called with world center + zoom.
+   */
+  onViewChange?: (v: ViewCenter) => void;
   className?: string;
 }
 
@@ -360,6 +374,8 @@ export function SplineEditor({
   controlPointSize,
   curveThickness,
   viewCommand,
+  initialView,
+  onViewChange,
   className,
 }: SplineEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -421,8 +437,18 @@ export function SplineEditor({
   }, []);
 
   // Re-fit when the target set changes, or we first get a board + a size.
+  // A restored framing (initialView) replaces only the first fit of the mount;
+  // every later refit trigger behaves as before.
+  const initialViewApplied = useRef(false);
   useEffect(() => {
     if (!board || size.w === 0) return;
+    if (!initialViewApplied.current) {
+      initialViewApplied.current = true;
+      if (initialView) {
+        setVp(viewportFromCenter(initialView, size.w, size.h));
+        return;
+      }
+    }
     const all = targets.flatMap((t) => sampleSpline(getTargetSpline(board, t)));
     if (all.length === 0) return;
     let pts = all;
@@ -431,6 +457,15 @@ export function SplineEditor({
     setVp(fitToBounds(boundsOf(pts), size.w, size.h));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, board === null, size.w, size.h]);
+
+  // Report the current framing (world center + zoom) for persistence. The
+  // callback lives in a ref so a new identity per owner render doesn't refire.
+  const onViewChangeRef = useRef(onViewChange);
+  onViewChangeRef.current = onViewChange;
+  useEffect(() => {
+    if (!vp || size.w === 0) return;
+    onViewChangeRef.current?.(viewportCenter(vp, size.w, size.h));
+  }, [vp, size.w, size.h]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

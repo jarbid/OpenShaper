@@ -321,6 +321,8 @@ export function EditorPane({
   calibration,
   onCalibrationClick,
   viewCommand,
+  initialView,
+  onViewChange,
   headerActions,
   settings,
 }: {
@@ -340,6 +342,8 @@ export function EditorPane({
   calibration?: React.ComponentProps<typeof SplineEditor>['calibration'];
   onCalibrationClick?: React.ComponentProps<typeof SplineEditor>['onCalibrationClick'];
   viewCommand?: React.ComponentProps<typeof SplineEditor>['viewCommand'];
+  initialView?: React.ComponentProps<typeof SplineEditor>['initialView'];
+  onViewChange?: React.ComponentProps<typeof SplineEditor>['onViewChange'];
   headerActions?: React.ReactNode;
   /** Optional visual settings (colors, sizes). When absent the draw defaults apply. */
   settings?: EditorSettings;
@@ -379,6 +383,8 @@ export function EditorPane({
           controlPointSize={settings?.controlPointSize}
           curveThickness={settings?.curveThickness}
           viewCommand={viewCommand}
+          initialView={initialView}
+          onViewChange={onViewChange}
         />
       </PanelBody>
     </Panel>

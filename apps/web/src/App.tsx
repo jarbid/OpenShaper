@@ -60,6 +60,8 @@ import {
   parseLen,
 } from './format';
 import { openHtmlInNewTab, specSheetHtmlFor } from './spec-sheet-open';
+import { loadSession, saveSession } from './session-store';
+import { loadViewState, saveViewState } from './view-state';
 import { Brandmark } from './components/marks';
 import { CommandPalette, commandsFromMenus } from './CommandPalette';
 import { ConstructionPanel } from './ConstructionPanel';
@@ -118,14 +120,53 @@ function AppShell() {
   const canRedo =
     useSyncExternalStore(boardStore.subscribe, () => boardStore.getState().future.length) > 0;
 
+  // Silent session restore: rehydrate the autosaved working board (and ghost)
+  // from IndexedDB; fall back to the bundled sample when nothing usable is
+  // stored. Hydration is async so it never blocks first paint; autosave stays
+  // off (`hydrated`) until the decision lands, so a slow load can't be
+  // clobbered by an autosave of the empty/sample state.
+  const hydrated = useRef(false);
   useEffect(() => {
-    if (boardStore.getState().board) return;
-    try {
-      const { board } = parseBrd(sampleBrd);
-      boardStore.getState().load(board);
-    } catch (e) {
-      console.error('Failed to load sample board', e);
+    if (boardStore.getState().board) {
+      hydrated.current = true;
+      return;
     }
+    let cancelled = false;
+    void (async () => {
+      const session = await loadSession();
+      if (cancelled) return;
+      if (session) {
+        try {
+          const { board: sBoard, metadata } = readBoardJson(session.boardJson);
+          let sGhost: BezierBoard | null = null;
+          if (session.ghostJson) {
+            try {
+              sGhost = readBoardJson(session.ghostJson).board;
+            } catch {
+              // A broken ghost snapshot must not block restoring the board.
+            }
+          }
+          hydrated.current = true;
+          boardStore.getState().load(sBoard);
+          setMeta((metadata as BoardMeta) ?? {});
+          if (sGhost) setGhost(sGhost);
+          return;
+        } catch (e) {
+          console.error('Failed to restore session', e);
+        }
+      }
+      try {
+        const { board } = parseBrd(sampleBrd);
+        hydrated.current = true;
+        boardStore.getState().load(board);
+      } catch (e) {
+        console.error('Failed to load sample board', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Overlay toggles are declared early so the dist flag can be forwarded to the
@@ -151,7 +192,37 @@ function AppShell() {
   // calls per settled-board change.
   const volumeDist = workerResult?.distribution;
 
-  const [view, setView] = useState<View>('quad');
+  // View-state restore: active tab, per-pane 2D framing, 3D camera pose —
+  // read once at boot (synchronous localStorage), then live changes are
+  // debounce-persisted. Each pane's stored framing is "pending" until that
+  // pane first mounts and applies it; afterwards remounts auto-fit as usual.
+  // The camera instead tracks the latest pose so 3D remounts keep continuity.
+  const bootViewState = useRef(loadViewState());
+  const liveViewState = useRef(bootViewState.current);
+  const pendingViews2d = useRef({ ...bootViewState.current.views2d });
+  const [view, setView] = useState<View>(bootViewState.current.view);
+  const viewSaveTimer = useRef<number>();
+  const scheduleViewSave = useCallback(() => {
+    window.clearTimeout(viewSaveTimer.current);
+    viewSaveTimer.current = window.setTimeout(() => saveViewState(liveViewState.current), 500);
+  }, []);
+  useEffect(() => {
+    liveViewState.current = { ...liveViewState.current, view };
+    scheduleViewSave();
+  }, [view, scheduleViewSave]);
+  /** Per-pane framing report: consume the pending restore, persist the live value. */
+  const reportPaneView = (kind: EditorKind) => (v: { cx: number; cy: number; scale: number }) => {
+    delete pendingViews2d.current[kind];
+    liveViewState.current.views2d[kind] = v;
+    scheduleViewSave();
+  };
+  const onCameraChange = useCallback(
+    (pose: { position: [number, number, number]; target: [number, number, number] }) => {
+      liveViewState.current.camera3d = pose;
+      scheduleViewSave();
+    },
+    [scheduleViewSave],
+  );
   // Editor layout tier: at `lg`+ the sidebar sits beside the viewport; below it the
   // sidebar moves into a draggable bottom sheet and the quad view stacks vertically.
   const isDesktop = useIsDesktop();
@@ -183,6 +254,39 @@ function AppShell() {
   const [meta, setMeta] = useState<BoardMeta>({});
   const metaRef = useRef(meta); // for the Ctrl+S handler (stable keydown effect)
   metaRef.current = meta;
+  const ghostRef = useRef(ghost); // for the pagehide session flush (stable listener)
+  ghostRef.current = ghost;
+
+  // Continuous autosave: after every committed change to the board, its
+  // metadata, or the ghost, snapshot the session to IndexedDB (debounced —
+  // store commits land on pointer-up, so this coalesces bursts of edits).
+  const persistSession = useCallback(() => {
+    const b = boardStore.getState().board;
+    if (!b || !hydrated.current) return;
+    const m = metaRef.current;
+    const metadata = Object.values(m).some(Boolean) ? (m as Record<string, unknown>) : undefined;
+    const g = ghostRef.current;
+    void saveSession({
+      boardJson: writeBoardJson(b, metadata),
+      ...(g ? { ghostJson: writeBoardJson(g) } : {}),
+    });
+  }, []);
+  const sessionSaveTimer = useRef<number>();
+  useEffect(() => {
+    if (!board || !hydrated.current) return;
+    window.clearTimeout(sessionSaveTimer.current);
+    sessionSaveTimer.current = window.setTimeout(persistSession, 800);
+  }, [board, meta, ghost, persistSession]);
+  // Flush a pending debounce when the tab is being closed/backgrounded, so
+  // "edit, then immediately close" still lands in the session.
+  useEffect(() => {
+    const flush = () => {
+      window.clearTimeout(sessionSaveTimer.current);
+      persistSession();
+    };
+    window.addEventListener('pagehide', flush);
+    return () => window.removeEventListener('pagehide', flush);
+  }, [persistSession]);
   const [resize, setResize] = useState<ResizeFields>({ l: '', w: '', t: '' });
   const [templateKind, setTemplateKind] = useState<'hws' | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -725,6 +829,8 @@ function AppShell() {
       {...traceProps('outline')}
       settings={settings}
       viewCommand={viewCmd}
+      initialView={pendingViews2d.current.outline}
+      onViewChange={reportPaneView('outline')}
     />,
     <EditorPane
       key="crossSection"
@@ -737,6 +843,8 @@ function AppShell() {
       viewCommand={viewCmd}
       headerActions={csControls}
       settings={settings}
+      initialView={pendingViews2d.current.crossSection}
+      onViewChange={reportPaneView('crossSection')}
     />,
     <EditorPane
       key="rocker"
@@ -753,6 +861,8 @@ function AppShell() {
       {...traceProps('rocker')}
       settings={settings}
       viewCommand={viewCmd}
+      initialView={pendingViews2d.current.rocker}
+      onViewChange={reportPaneView('rocker')}
     />,
     <Panel key="3d" className="flex min-h-0 flex-col">
       <PanelHeader className="flex items-center justify-between gap-2">
@@ -770,6 +880,8 @@ function AppShell() {
           analysis={view3d.analysis}
           targetFaceSize={faceSizeFor(view3d.meshQuality)}
           sectionX={sectionX}
+          initialCamera={liveViewState.current.camera3d}
+          onCameraChange={onCameraChange}
         />
       </PanelBody>
     </Panel>,
@@ -967,6 +1079,8 @@ function AppShell() {
                   analysis={view3d.analysis}
                   targetFaceSize={faceSizeFor(view3d.meshQuality)}
                   sectionX={sectionX}
+                  initialCamera={liveViewState.current.camera3d}
+                  onCameraChange={onCameraChange}
                 />
               </PanelBody>
             </Panel>
@@ -992,6 +1106,8 @@ function AppShell() {
               viewCommand={viewCmd}
               headerActions={view === 'crossSection' ? csControls : undefined}
               settings={settings}
+              initialView={pendingViews2d.current[view]}
+              onViewChange={reportPaneView(view)}
             />
           )}
         </div>

@@ -66,6 +66,31 @@ export const fitToBounds = (
   };
 };
 
+/**
+ * Size-independent framing: the world point under the canvas center plus the
+ * zoom. Unlike Viewport (whose origin is a pixel offset), this survives being
+ * restored into a different canvas/window size, so it is what gets persisted.
+ */
+export interface ViewCenter {
+  readonly cx: number;
+  readonly cy: number;
+  /** Pixels per cm, same meaning as Viewport.scale. */
+  readonly scale: number;
+}
+
+/** Build a viewport that puts `c`'s world center under the canvas center. */
+export const viewportFromCenter = (c: ViewCenter, canvasW: number, canvasH: number): Viewport => ({
+  scale: c.scale,
+  originX: canvasW / 2 - c.cx * c.scale,
+  originY: canvasH / 2 + c.cy * c.scale,
+});
+
+/** The world point currently under the canvas center, with the zoom. */
+export const viewportCenter = (vp: Viewport, canvasW: number, canvasH: number): ViewCenter => {
+  const world = screenToWorld(vp, { x: canvasW / 2, y: canvasH / 2 });
+  return { cx: world.x, cy: world.y, scale: vp.scale };
+};
+
 /** Zoom by `factor` about a screen anchor, keeping that point fixed. */
 export const zoomAt = (vp: Viewport, anchor: ScreenPoint, factor: number): Viewport => {
   const world = screenToWorld(vp, anchor);
