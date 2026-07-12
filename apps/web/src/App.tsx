@@ -6,7 +6,7 @@ import {
   type BezierBoard,
   type Spline,
 } from '@openshaper/kernel';
-import { type EditorOverlays } from '@openshaper/render2d';
+import { type EditorOverlays, type SimilarityParams } from '@openshaper/render2d';
 import type { Board3DViewProps } from '@openshaper/render3d';
 import { selectSpecs } from '@openshaper/store';
 import {
@@ -76,6 +76,7 @@ import { useKeyboardShortcuts } from './use-keyboard-shortcuts';
 import { useSettledBoard } from './use-settled-board';
 import { useIsDesktop } from './useMediaQuery';
 import { useSpecsWorker } from './use-specs-worker';
+import { useTrace, type TraceView } from './use-trace';
 import {
   EditorPane,
   faceSizeFor,
@@ -178,10 +179,7 @@ function AppShell() {
   const patchView3d = (patch: Partial<View3DSettings>) => setView3d((s) => ({ ...s, ...patch }));
   const [csClipboard, setCsClipboard] = useState<Spline | null>(null);
   const [ghost, setGhost] = useState<BezierBoard | null>(null);
-  const [trace, setTrace] = useState<HTMLImageElement | null>(null);
-  const [traceOpacity, setTraceOpacity] = useState(0.5);
-  const [traceScale, setTraceScale] = useState(1);
-  const [traceOffset, setTraceOffset] = useState({ x: 0, y: 0 });
+  const trace = useTrace();
   const [meta, setMeta] = useState<BoardMeta>({});
   const metaRef = useRef(meta); // for the Ctrl+S handler (stable keydown effect)
   metaRef.current = meta;
@@ -280,20 +278,14 @@ function AppShell() {
   // shape for the 2D overlays (plan footprint + box; profile blade silhouette).
   const resolvedFins = useMemo(() => (board ? resolveFins(board) : []), [board]);
 
-  // Reference-image placement for tracing on the outline (world-space, centered).
-  const traceBg =
-    trace && board
-      ? {
-          image: trace,
-          opacity: traceOpacity,
-          rect: (() => {
-            const len = getLength(board);
-            const w = len * traceScale;
-            const aspect = trace.naturalWidth / trace.naturalHeight || 1;
-            return { x: len / 2 + traceOffset.x, y: traceOffset.y, w, h: w / aspect };
-          })(),
-        }
-      : undefined;
+  // Per-view trace-image interaction props for an EditorPane (outline / rocker).
+  const traceProps = (view: TraceView) => ({
+    background: trace.backgroundFor(view),
+    traceInteractive: trace.activeView === view && trace.interactive,
+    onTraceTransform: (t: SimilarityParams) => trace.commitTransform(view, t),
+    calibration: trace.activeView === view ? trace.calibration : undefined,
+    onCalibrationClick: trace.activeView === view ? trace.onCalibrationClick : undefined,
+  });
 
   const foamType = (meta.foamType as FoamType) ?? 'PU';
   const glassSchedule = (meta.glassSchedule as GlassSchedule) ?? '4+4';
@@ -481,13 +473,17 @@ function AppShell() {
   };
 
   const traceInput = useRef<HTMLInputElement>(null);
+  // Which view a just-opened file picker targets (File menu / Sidebar share the input).
+  const pendingTraceView = useRef<TraceView>('outline');
+  const openTracePicker = (view: TraceView) => {
+    pendingTraceView.current = view;
+    traceInput.current?.click();
+  };
   const onOpenTrace = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
-    const img = new Image();
-    img.onload = () => setTrace(img);
-    img.src = URL.createObjectURL(file);
+    trace.loadImage(pendingTraceView.current, file, board ? getLength(board) : 0);
   };
 
   const tab = (v: View, label: string) => (
@@ -557,7 +553,7 @@ function AppShell() {
           { kind: 'separator' } as MenuItem,
         ] satisfies MenuItem[])
       : []),
-    { kind: 'action', label: 'Load trace image…', onSelect: () => traceInput.current?.click() },
+    { kind: 'action', label: 'Load trace image…', onSelect: () => openTracePicker('outline') },
   ];
 
   const exportMenu: MenuItem[] = [
@@ -726,7 +722,7 @@ function AppShell() {
       onScrub={setScrubX}
       overlays={overlaysFor('outline')}
       ghostSplines={ghostSplinesFor('outline')}
-      background={traceBg}
+      {...traceProps('outline')}
       settings={settings}
       viewCommand={viewCmd}
     />,
@@ -754,6 +750,7 @@ function AppShell() {
       onScrub={setScrubX}
       overlays={overlaysFor('rocker')}
       ghostSplines={ghostSplinesFor('rocker')}
+      {...traceProps('rocker')}
       settings={settings}
       viewCommand={viewCmd}
     />,
@@ -792,15 +789,7 @@ function AppShell() {
       glassSchedule={glassSchedule}
       weight={weight}
       trace={trace}
-      setTrace={setTrace}
-      traceInput={traceInput}
-      onOpenTrace={onOpenTrace}
-      traceOpacity={traceOpacity}
-      setTraceOpacity={setTraceOpacity}
-      traceScale={traceScale}
-      setTraceScale={setTraceScale}
-      traceOffset={traceOffset}
-      setTraceOffset={setTraceOffset}
+      onLoadTrace={openTracePicker}
       overlayToggles={overlayToggles}
       setOverlayToggles={setOverlayToggles}
       ghost={!!ghost}
@@ -911,13 +900,21 @@ function AppShell() {
           </Button>
         </div>
 
-        {/* Hidden file inputs (the trace input lives in the Sidebar, sharing traceInput). */}
+        {/* Hidden file inputs. The trace input is shared by the File menu + Sidebar,
+            targeting whichever view `openTracePicker` last set on `pendingTraceView`. */}
         <input
           ref={fileInput}
           type="file"
           accept=".board,.board.json,.json,.brd,.s3d,.s3dx,.srf"
           className="hidden"
           onChange={onOpenFile}
+        />
+        <input
+          ref={traceInput}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={onOpenTrace}
         />
         <input
           ref={ghostInput}
@@ -991,7 +988,7 @@ function AppShell() {
               onScrub={setScrubX}
               overlays={overlaysFor(view)}
               ghostSplines={ghostSplinesFor(view)}
-              background={traceBg}
+              {...(view === 'crossSection' ? {} : traceProps(view))}
               viewCommand={viewCmd}
               headerActions={view === 'crossSection' ? csControls : undefined}
               settings={settings}

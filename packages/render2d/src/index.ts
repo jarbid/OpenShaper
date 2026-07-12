@@ -37,4 +37,16 @@ export {
   type SectionMarker,
   type EditorOverlays,
 } from './draw';
-export { SplineEditor, type SplineEditorProps } from './SplineEditor';
+export { SplineEditor, type SplineEditorProps, type Calibration } from './SplineEditor';
+export {
+  solveSimilarity,
+  scaleFromTypedLength,
+  imgToWorld,
+  worldToImg,
+  imageCenterWorld,
+  toggleFlip,
+  setRotationAboutCenter,
+  traceCanvasMatrix,
+  type SimilarityParams,
+  type CanvasMatrix,
+} from './trace-transform';
