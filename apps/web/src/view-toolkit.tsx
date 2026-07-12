@@ -316,6 +316,10 @@ export function EditorPane({
   overlays,
   ghostSplines,
   background,
+  traceInteractive,
+  onTraceTransform,
+  calibration,
+  onCalibrationClick,
   viewCommand,
   headerActions,
   settings,
@@ -331,6 +335,10 @@ export function EditorPane({
   overlays?: EditorOverlays;
   ghostSplines?: Spline[];
   background?: React.ComponentProps<typeof SplineEditor>['background'];
+  traceInteractive?: React.ComponentProps<typeof SplineEditor>['traceInteractive'];
+  onTraceTransform?: React.ComponentProps<typeof SplineEditor>['onTraceTransform'];
+  calibration?: React.ComponentProps<typeof SplineEditor>['calibration'];
+  onCalibrationClick?: React.ComponentProps<typeof SplineEditor>['onCalibrationClick'];
   viewCommand?: React.ComponentProps<typeof SplineEditor>['viewCommand'];
   headerActions?: React.ReactNode;
   /** Optional visual settings (colors, sizes). When absent the draw defaults apply. */
@@ -361,7 +369,11 @@ export function EditorPane({
           measureCursor={kind === 'crossSection'}
           overlays={overlays}
           ghostSplines={ghostSplines}
-          background={kind === 'outline' ? background : undefined}
+          background={background}
+          traceInteractive={traceInteractive}
+          onTraceTransform={onTraceTransform}
+          calibration={calibration}
+          onCalibrationClick={onCalibrationClick}
           ghostColor={settings?.ghostColor}
           gridColor={settings?.gridColor}
           controlPointSize={settings?.controlPointSize}

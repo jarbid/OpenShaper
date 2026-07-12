@@ -10,17 +10,18 @@ import type { BoardSpecs } from '@openshaper/store';
 import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { Copy } from 'lucide-react';
 import {
+  useState,
   useSyncExternalStore,
   type Dispatch,
   type ReactNode,
-  type RefObject,
   type SetStateAction,
 } from 'react';
 import { ControlPointInspector } from './ControlPointInspector';
 import { CoffeeIcon } from './components/Support';
 import { SUPPORT_URL } from './support';
 import type { BoardMeta } from './file-io';
-import { fmtDimsHeadline, fmtLen, fmtVol, type LengthUnit } from './format';
+import { fmtDimsHeadline, fmtLen, fmtVol, parseLen, type LengthUnit } from './format';
+import type { TraceView, UseTrace } from './use-trace';
 import { FinPanel } from './FinPanel';
 import { boardStore } from './store';
 import { OverlayToggle, Sel, SpecRow } from './view-toolkit';
@@ -122,16 +123,9 @@ export interface SidebarProps {
   glassSchedule: GlassSchedule;
   weight: WeightBreakdown | null;
 
-  trace: HTMLImageElement | null;
-  setTrace: Dispatch<SetStateAction<HTMLImageElement | null>>;
-  traceInput: RefObject<HTMLInputElement>;
-  onOpenTrace: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  traceOpacity: number;
-  setTraceOpacity: Dispatch<SetStateAction<number>>;
-  traceScale: number;
-  setTraceScale: Dispatch<SetStateAction<number>>;
-  traceOffset: { x: number; y: number };
-  setTraceOffset: Dispatch<SetStateAction<{ x: number; y: number }>>;
+  trace: UseTrace;
+  /** Open the OS file picker for a given view's trace image. */
+  onLoadTrace: (view: TraceView) => void;
 
   overlayToggles: OverlayToggles;
   setOverlayToggles: Dispatch<SetStateAction<OverlayToggles>>;
@@ -153,15 +147,7 @@ export function Sidebar({
   glassSchedule,
   weight,
   trace,
-  setTrace,
-  traceInput,
-  onOpenTrace,
-  traceOpacity,
-  setTraceOpacity,
-  traceScale,
-  setTraceScale,
-  traceOffset,
-  setTraceOffset,
+  onLoadTrace,
   overlayToggles,
   setOverlayToggles,
   ghost,
@@ -352,81 +338,7 @@ export function Sidebar({
         </PanelBody>
       </Panel>
 
-      <Panel>
-        <PanelHeader>
-          <PanelTitle>Trace image</PanelTitle>
-        </PanelHeader>
-        <PanelBody className="space-y-2 text-sm">
-          <input
-            ref={traceInput}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={onOpenTrace}
-          />
-          <div className="flex gap-2">
-            <Button size="sm" variant="ghost" onClick={() => traceInput.current?.click()}>
-              {trace ? 'Replace…' : 'Load image…'}
-            </Button>
-            {trace && (
-              <Button size="sm" variant="ghost" onClick={() => setTrace(null)}>
-                Clear
-              </Button>
-            )}
-          </div>
-          {trace && (
-            <>
-              <label className="flex items-center gap-2">
-                <span className="w-14 text-muted-foreground">Opacity</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={traceOpacity}
-                  onChange={(e) => setTraceOpacity(Number(e.target.value))}
-                  className="flex-1"
-                />
-              </label>
-              <label className="flex items-center gap-2">
-                <span className="w-14 text-muted-foreground">Scale</span>
-                <input
-                  type="range"
-                  min={0.3}
-                  max={2}
-                  step={0.02}
-                  value={traceScale}
-                  onChange={(e) => setTraceScale(Number(e.target.value))}
-                  className="flex-1"
-                />
-              </label>
-              <div className="flex gap-2">
-                <label className="flex flex-1 items-center gap-1">
-                  <span className="text-muted-foreground">X</span>
-                  <Input
-                    value={String(traceOffset.x)}
-                    onChange={(e) =>
-                      setTraceOffset((o) => ({ ...o, x: Number(e.target.value) || 0 }))
-                    }
-                  />
-                </label>
-                <label className="flex flex-1 items-center gap-1">
-                  <span className="text-muted-foreground">Y</span>
-                  <Input
-                    value={String(traceOffset.y)}
-                    onChange={(e) =>
-                      setTraceOffset((o) => ({ ...o, y: Number(e.target.value) || 0 }))
-                    }
-                  />
-                </label>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Shows behind the outline — align with opacity/scale/offset, then trace.
-              </p>
-            </>
-          )}
-        </PanelBody>
-      </Panel>
+      <TracePanel trace={trace} onLoadTrace={onLoadTrace} units={units} />
 
       <Panel>
         <PanelHeader>
@@ -509,5 +421,109 @@ export function Sidebar({
         </a>
       )}
     </div>
+  );
+}
+
+/** Trace-image controls: per-view load/clear, opacity, mirror, and the two calibration flows. */
+function TracePanel({
+  trace,
+  onLoadTrace,
+  units,
+}: {
+  trace: UseTrace;
+  onLoadTrace: (view: TraceView) => void;
+  units: LengthUnit;
+}) {
+  const [lenText, setLenText] = useState('');
+  const view = trace.activeView;
+  const img = trace.traces[view];
+  const submitLength = () => {
+    trace.applyLength(parseLen(lenText, units));
+    setLenText('');
+  };
+  return (
+    <Panel>
+      <PanelHeader>
+        <PanelTitle>Trace image</PanelTitle>
+      </PanelHeader>
+      <PanelBody className="space-y-2 text-sm">
+        <div className="flex gap-1">
+          {(['outline', 'rocker'] as TraceView[]).map((v) => (
+            <Button
+              key={v}
+              size="sm"
+              variant={view === v ? 'secondary' : 'ghost'}
+              onClick={() => trace.setActiveView(v)}
+            >
+              {v === 'outline' ? 'Outline' : 'Rocker'}
+              {trace.traces[v] ? ' ●' : ''}
+            </Button>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="ghost" onClick={() => onLoadTrace(view)}>
+            {img ? 'Replace…' : 'Load image…'}
+          </Button>
+          {img && (
+            <Button size="sm" variant="ghost" onClick={() => trace.clear(view)}>
+              Clear
+            </Button>
+          )}
+        </div>
+        {img && (
+          <>
+            <label className="flex items-center gap-2">
+              <span className="w-14 text-muted-foreground">Opacity</span>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={img.opacity}
+                onChange={(e) => trace.setOpacity(view, Number(e.target.value))}
+                className="flex-1"
+              />
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="ghost" onClick={() => trace.beginAlign(view)}>
+                Align (4-click)
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => trace.beginLength(view)}>
+                Set scale…
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => trace.flip(view)}>
+                Flip
+              </Button>
+            </div>
+            {trace.calibration && (
+              <p className="text-xs text-muted-foreground">
+                Follow the prompts on the {view} view. Press Esc to cancel.
+              </p>
+            )}
+            {trace.lengthPending && (
+              <label className="flex items-center gap-2">
+                <span className="shrink-0 text-muted-foreground">Distance</span>
+                <Input
+                  autoFocus
+                  value={lenText}
+                  placeholder="e.g. 30in"
+                  onChange={(e) => setLenText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') submitLength();
+                  }}
+                />
+                <Button size="sm" variant="secondary" onClick={submitLength}>
+                  Set
+                </Button>
+              </label>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Drag the image to move, use the top handle to rotate. Align maps two image points onto
+              two drawing points (auto-scales); Set scale uses a typed real-world distance.
+            </p>
+          </>
+        )}
+      </PanelBody>
+    </Panel>
   );
 }

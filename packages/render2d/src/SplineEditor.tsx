@@ -50,6 +50,14 @@ import {
   zoomAt,
   type Viewport,
 } from './viewport';
+import {
+  imageCenterWorld,
+  imgToWorld,
+  setRotationAboutCenter,
+  traceCanvasMatrix,
+  worldToImg,
+  type SimilarityParams,
+} from './trace-transform';
 
 export interface SplineEditorProps {
   store: StoreApi<BoardState>;
@@ -88,12 +96,33 @@ export interface SplineEditorProps {
   overlays?: EditorOverlays;
   /** Reference (ghost) splines drawn dashed underneath for comparison. */
   ghostSplines?: Spline[];
-  /** Reference image drawn behind the curves for tracing (world-space rect, centered). */
+  /**
+   * Reference image drawn behind the curves for tracing. Placed by a similarity
+   * transform (translate + uniform scale + rotation + mirror) mapping image-pixel
+   * space to world cm; see `trace-transform.ts`.
+   */
   background?: {
     image: CanvasImageSource;
     opacity: number;
-    rect: { x: number; y: number; w: number; h: number };
+    naturalWidth: number;
+    naturalHeight: number;
+    transform: SimilarityParams;
   };
+  /**
+   * When true, the trace image is directly manipulable: drag its body to move,
+   * grab the handle above it to rotate. Commits fire on pointer-up via
+   * `onTraceTransform`. Ignored when there is no `background`.
+   */
+  traceInteractive?: boolean;
+  /** Commit a new trace transform (drag/rotate end). */
+  onTraceTransform?: (t: SimilarityParams) => void;
+  /**
+   * Active calibration flow (controlled by the owner). While set, canvas clicks
+   * are captured as calibration points instead of editing splines.
+   */
+  calibration?: Calibration;
+  /** Report a calibration click: image-pixel point for image steps, world cm for drawing steps. */
+  onCalibrationClick?: (pt: Vec2) => void;
   /**
    * Color for ghost/reference splines. Defaults to the draw module's built-in
    * semi-transparent silver when omitted.
@@ -140,7 +169,33 @@ type DragState =
       startY: number;
       moved: boolean;
     }
+  // Dragging the trace image body to reposition it.
+  | { mode: 'traceMove'; startWorld: Vec2; start: SimilarityParams }
+  // Dragging the rotate handle above the trace image.
+  | {
+      mode: 'traceRotate';
+      center: Vec2;
+      startAngle: number;
+      start: SimilarityParams;
+      w: number;
+      h: number;
+    }
   | null;
+
+/**
+ * A calibration flow in progress. `align` collects two image points then two
+ * matching drawing points; `length` collects two image points then the owner
+ * prompts for a real distance. `step` is the count of points already captured.
+ */
+export type Calibration =
+  | { tool: 'align'; step: 0 | 1 | 2 | 3; imgPts: Vec2[]; worldPts: Vec2[] }
+  | { tool: 'length'; step: 0 | 1; imgPts: Vec2[] }
+  | null;
+
+/** Rotate-handle offset above the image top edge, in screen px. */
+const TRACE_HANDLE_OFFSET = 28;
+/** Rotate-handle hit radius, in screen px. */
+const TRACE_HANDLE_R = 9;
 
 /** Max pointer travel (px) for a right-button press+release to count as a tap, not a pan. */
 const TAP_SLOP = 4;
@@ -164,6 +219,122 @@ const splineDistance = (s: Spline, p: Vec2): number => {
   return Math.hypot(pt.x - p.x, pt.y - p.y);
 };
 
+interface TraceBackground {
+  image: CanvasImageSource;
+  opacity: number;
+  naturalWidth: number;
+  naturalHeight: number;
+  transform: SimilarityParams;
+}
+
+/** Screen-space geometry of the trace image: its four corners, centre, and rotate handle. */
+const traceScreenGeom = (vp: Viewport, bg: TraceBackground) => {
+  const { naturalWidth: w, naturalHeight: h, transform } = bg;
+  const toScreen = (u: number, v: number) =>
+    worldToScreen(vp, imgToWorld(transform, { x: u, y: v }));
+  const corners = [toScreen(0, 0), toScreen(w, 0), toScreen(w, h), toScreen(0, h)];
+  const center = worldToScreen(vp, imageCenterWorld(transform, w, h));
+  const topMid = toScreen(w / 2, 0);
+  // Push the handle out past the top edge, along the (center → top-mid) direction.
+  const dx = topMid.x - center.x;
+  const dy = topMid.y - center.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const handle = {
+    x: topMid.x + (dx / len) * TRACE_HANDLE_OFFSET,
+    y: topMid.y + (dy / len) * TRACE_HANDLE_OFFSET,
+  };
+  return { corners, center, topMid, handle };
+};
+
+/** Outline the trace image and draw its rotate handle (interactive mode). */
+const drawTraceHandles = (
+  ctx: CanvasRenderingContext2D,
+  vp: Viewport,
+  bg: TraceBackground,
+): void => {
+  const { corners, topMid, handle } = traceScreenGeom(vp, bg);
+  ctx.save();
+  ctx.strokeStyle = '#22D3EE';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(corners[0]!.x, corners[0]!.y);
+  for (let i = 1; i < corners.length; i++) ctx.lineTo(corners[i]!.x, corners[i]!.y);
+  ctx.closePath();
+  ctx.stroke();
+  // stem + knob for the rotate handle
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(topMid.x, topMid.y);
+  ctx.lineTo(handle.x, handle.y);
+  ctx.stroke();
+  ctx.fillStyle = '#22D3EE';
+  ctx.beginPath();
+  ctx.arc(handle.x, handle.y, TRACE_HANDLE_R, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+};
+
+/**
+ * Draw captured calibration points and the rubber-band lines between a pair. The
+ * instruction text is rendered as a DOM overlay (see `CalibrationHud`), not on the
+ * canvas, so it can sit above the readout HUD instead of being clipped by it.
+ */
+const drawCalibrationOverlay = (
+  ctx: CanvasRenderingContext2D,
+  vp: Viewport,
+  cal: NonNullable<Calibration>,
+  bg: TraceBackground | undefined,
+): void => {
+  const pts: { x: number; y: number }[] = [];
+  // Image points map through the current transform; drawing points are already world.
+  if (bg) for (const p of cal.imgPts) pts.push(worldToScreen(vp, imgToWorld(bg.transform, p)));
+  if (cal.tool === 'align') for (const q of cal.worldPts) pts.push(worldToScreen(vp, q));
+
+  ctx.save();
+  ctx.strokeStyle = '#F59E0B';
+  ctx.fillStyle = '#F59E0B';
+  ctx.lineWidth = 1.5;
+  pts.forEach((p, i) => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.fillText(String(i + 1), p.x + 7, p.y - 7);
+    ctx.fillStyle = '#F59E0B';
+  });
+  ctx.setLineDash([4, 3]);
+  const line = (a: { x: number; y: number }, b: { x: number; y: number }) => {
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  };
+  if (pts.length >= 2) line(pts[0]!, pts[1]!); // image pair
+  if (cal.tool === 'align' && pts.length >= 4) line(pts[2]!, pts[3]!); // drawing pair
+  ctx.restore();
+};
+
+/** Instruction text for the current calibration step. */
+const calibrationHint = (cal: NonNullable<Calibration>): string => {
+  if (cal.tool === 'length') {
+    return cal.step === 0
+      ? 'Click the first point on the image'
+      : 'Click the second point on the image';
+  }
+  switch (cal.step) {
+    case 0:
+      return 'Align: click the first reference point on the image (e.g. tail tip)';
+    case 1:
+      return 'Align: click the second reference point on the image (e.g. nose tip)';
+    case 2:
+      return 'Align: click the matching first point on the drawing';
+    default:
+      return 'Align: click the matching second point on the drawing';
+  }
+};
+
 /** A canvas editor for one or more board splines (outline / deck+bottom / cross-section). */
 export function SplineEditor({
   store,
@@ -180,6 +351,10 @@ export function SplineEditor({
   overlays,
   ghostSplines,
   background,
+  traceInteractive = false,
+  onTraceTransform,
+  calibration,
+  onCalibrationClick,
   ghostColor,
   gridColor,
   controlPointSize,
@@ -193,6 +368,8 @@ export function SplineEditor({
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [vp, setVp] = useState<Viewport | null>(null);
   const [hover, setHover] = useState<Vec2 | null>(null);
+  // Live trace transform while dragging/rotating the image; committed on pointer-up.
+  const [liveTrace, setLiveTrace] = useState<SimilarityParams | null>(null);
   const drag = useRef<DragState>(null);
   const spaceHeld = useRef(false);
   // Active touch points (by pointerId) for multi-touch gestures, plus the last
@@ -266,15 +443,21 @@ export function SplineEditor({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     clear(ctx, size.w, size.h);
     if (overlays?.grid) drawGrid(ctx, vp, size.w, size.h, gridColor);
-    if (background) {
-      const { image, opacity, rect } = background;
-      const tl = worldToScreen(vp, { x: rect.x - rect.w / 2, y: rect.y + rect.h / 2 });
-      const br = worldToScreen(vp, { x: rect.x + rect.w / 2, y: rect.y - rect.h / 2 });
+    const effBg = background
+      ? { ...background, transform: liveTrace ?? background.transform }
+      : undefined;
+    if (effBg) {
+      const { image, opacity, transform } = effBg;
+      const m = traceCanvasMatrix(vp, transform, dpr);
       ctx.save();
       ctx.globalAlpha = opacity;
-      ctx.drawImage(image, tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+      ctx.setTransform(m.a, m.b, m.c, m.d, m.e, m.f);
+      ctx.drawImage(image, 0, 0);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0); // restore base transform
       ctx.restore();
+      if (traceInteractive) drawTraceHandles(ctx, vp, effBg);
     }
+    if (calibration) drawCalibrationOverlay(ctx, vp, calibration, effBg);
     if (sectionMarkers && sectionMarkers.length > 0) {
       drawSectionMarkers(ctx, sectionMarkers, vp, size.h);
     }
@@ -344,6 +527,9 @@ export function SplineEditor({
     overlays,
     ghostSplines,
     background,
+    liveTrace,
+    traceInteractive,
+    calibration,
     measureCursor,
     hover,
     ghostColor,
@@ -411,6 +597,21 @@ export function SplineEditor({
       if (!vp || !board) return;
       setMenu(null);
       const p = localPoint(e);
+
+      // Trace calibration takes precedence over all editing: a click captures a point.
+      // Steps that pick points ON THE IMAGE report image-pixel coords; steps that pick
+      // points ON THE DRAWING report world cm.
+      if (calibration && onCalibrationClick && e.button === 0) {
+        const world = screenToWorld(vp, p);
+        const onImage = calibration.tool === 'length' || calibration.step <= 1;
+        if (onImage) {
+          if (!background) return;
+          onCalibrationClick(worldToImg(background.transform, world));
+        } else {
+          onCalibrationClick(world);
+        }
+        return;
+      }
 
       // Touch: track the pointer and route multi-touch / long-press gestures. A single
       // finger then falls through to the normal left-button select/edit path below.
@@ -496,6 +697,30 @@ export function SplineEditor({
         drag.current = { mode: 'edit', target: picked.target, hit: picked.hit };
         return;
       }
+      // Interactive trace image (after control points so curve edits still win): grab the
+      // rotate handle above the image, or drag its body to reposition it.
+      if (traceInteractive && background && e.button === 0 && !spaceHeld.current) {
+        const { naturalWidth: iw, naturalHeight: ih, transform } = background;
+        const geom = traceScreenGeom(vp, background);
+        if (Math.hypot(p.x - geom.handle.x, p.y - geom.handle.y) <= TRACE_HANDLE_R + 4) {
+          const center = imageCenterWorld(transform, iw, ih);
+          const w = screenToWorld(vp, p);
+          drag.current = {
+            mode: 'traceRotate',
+            center,
+            startAngle: Math.atan2(w.y - center.y, w.x - center.x),
+            start: transform,
+            w: iw,
+            h: ih,
+          };
+          return;
+        }
+        const uv = worldToImg(transform, screenToWorld(vp, p));
+        if (uv.x >= 0 && uv.x <= iw && uv.y >= 0 && uv.y <= ih) {
+          drag.current = { mode: 'traceMove', startWorld: screenToWorld(vp, p), start: transform };
+          return;
+        }
+      }
       // A fin (plan pane) takes the click after control points: select + start dragging.
       if (overlays?.fins && overlays.finView !== 'profile') {
         const finIndex = hitFin(overlays.fins, vp, p);
@@ -531,6 +756,10 @@ export function SplineEditor({
       mirrorY,
       fitView,
       onAddSectionAt,
+      calibration,
+      onCalibrationClick,
+      traceInteractive,
+      background,
     ],
   );
 
@@ -601,6 +830,21 @@ export function SplineEditor({
         return;
       }
       const world = screenToWorld(vp, p);
+      if (d.mode === 'traceMove') {
+        setLiveTrace({
+          ...d.start,
+          tx: d.start.tx + (world.x - d.startWorld.x),
+          ty: d.start.ty + (world.y - d.startWorld.y),
+        });
+        return;
+      }
+      if (d.mode === 'traceRotate') {
+        const ang = Math.atan2(world.y - d.center.y, world.x - d.center.x);
+        setLiveTrace(
+          setRotationAboutCenter(d.start, d.w, d.h, d.start.rotation + (ang - d.startAngle)),
+        );
+        return;
+      }
       if (d.mode === 'fin') {
         store.getState().moveFin(d.index, world);
         return;
@@ -627,6 +871,14 @@ export function SplineEditor({
         }
       }
       const d = drag.current;
+      // Commit a trace move/rotate: hand the live transform to the owner, then clear it.
+      if (d?.mode === 'traceMove' || d?.mode === 'traceRotate') {
+        if (liveTrace) onTraceTransform?.(liveTrace);
+        setLiveTrace(null);
+        drag.current = null;
+        canvasRef.current?.releasePointerCapture(e.pointerId);
+        return;
+      }
       if (d?.mode === 'edit' || d?.mode === 'fin') store.getState().endEdit();
       // A right-button tap (no pan) opens the context menu at the cursor.
       if (d?.mode === 'rightpan' && !d.moved && vp && board) {
@@ -650,7 +902,20 @@ export function SplineEditor({
       canvasRef.current?.releasePointerCapture(e.pointerId);
       setCursor(spaceHeld.current ? 'grab' : 'crosshair');
     },
-    [store, vp, board, targets, mirrorX, mirrorY, hitAny, fitView, onAddSectionAt, cancelLongPress],
+    [
+      store,
+      vp,
+      board,
+      targets,
+      mirrorX,
+      mirrorY,
+      hitAny,
+      fitView,
+      onAddSectionAt,
+      cancelLongPress,
+      liveTrace,
+      onTraceTransform,
+    ],
   );
 
   // A cancelled pointer (browser claimed the gesture, palm-rejection, etc.) ends any drag
@@ -661,6 +926,9 @@ export function SplineEditor({
       pointers.current.delete(e.pointerId);
       if (pointers.current.size < 2) pinch.current = null;
       if (drag.current?.mode === 'edit' || drag.current?.mode === 'fin') store.getState().endEdit();
+      if (drag.current?.mode === 'traceMove' || drag.current?.mode === 'traceRotate') {
+        setLiveTrace(null); // drop the uncommitted preview
+      }
       drag.current = null;
       setCursor(spaceHeld.current ? 'grab' : 'crosshair');
     },
@@ -746,7 +1014,8 @@ export function SplineEditor({
         onDoubleClick={onDoubleClick}
         onWheel={onWheel}
       />
-      {readout && hover && <ReadoutHud rows={readout(hover)} />}
+      {readout && hover && !calibration && <ReadoutHud rows={readout(hover)} />}
+      {calibration && <CalibrationHud text={calibrationHint(calibration)} />}
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />
       )}
@@ -778,6 +1047,31 @@ function ReadoutHud({ rows }: { rows: { label: string; value: string; color?: st
           <span style={{ color: r.color }}>{r.value}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** Calibration instruction banner, pinned top-center above the canvas overlays. */
+function CalibrationHud({ text }: { text: string }) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 8,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        maxWidth: 'calc(100% - 16px)',
+        pointerEvents: 'none',
+        background: 'rgba(217,119,6,0.92)',
+        color: '#fff',
+        font: '12px system-ui, sans-serif',
+        padding: '5px 10px',
+        borderRadius: 6,
+        textAlign: 'center',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.35)',
+      }}
+    >
+      {text} <span style={{ opacity: 0.8 }}>· Esc to cancel</span>
     </div>
   );
 }
