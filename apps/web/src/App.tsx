@@ -46,6 +46,7 @@ import {
   type BoardMeta,
   type ExportFormat,
 } from './file-io';
+import { initAnalytics, track } from './analytics';
 import { ImportWarningsDialog } from './ImportWarningsDialog';
 import type { ImportWarning } from '@openshaper/io';
 import { ExportPdf1to1Dialog } from './ExportPdf1to1Dialog';
@@ -125,6 +126,10 @@ function AppShell() {
   // stored. Hydration is async so it never blocks first paint; autosave stays
   // off (`hydrated`) until the decision lands, so a slow load can't be
   // clobbered by an autosave of the empty/sample state.
+  useEffect(() => {
+    initAnalytics();
+  }, []);
+
   const hydrated = useRef(false);
   useEffect(() => {
     if (boardStore.getState().board) {
@@ -555,6 +560,7 @@ function AppShell() {
       // Record the template load so it appears in the recent-boards list.
       recordRecentBoard(t.name, writeBoardJson(tBoard, { model: t.name }));
       setRecentBoards(getRecentBoards());
+      track('template_loaded', { template: t.name });
     } catch (err) {
       console.error('Failed to load template', err);
     }
@@ -631,6 +637,7 @@ function AppShell() {
       onSelect: () => {
         if (!board) return;
         downloadBoard(board, meta);
+        track('save_board', { format: 'board' });
         // downloadBoard records internally; refresh the menu's snapshot.
         setRecentBoards(getRecentBoards());
       },
@@ -671,9 +678,11 @@ function AppShell() {
       kind: 'action' as const,
       label,
       disabled: !board,
-      onSelect: () =>
-        board &&
-        exportBoard(board as Parameters<typeof exportBoard>[0], f, meta, units, ghost ?? undefined),
+      onSelect: () => {
+        if (!board) return;
+        exportBoard(board as Parameters<typeof exportBoard>[0], f, meta, units, ghost ?? undefined);
+        track('export_board', { format: f });
+      },
     })),
     {
       kind: 'action',
@@ -695,7 +704,11 @@ function AppShell() {
       kind: 'action',
       label: 'Legacy .brd',
       disabled: !board,
-      onSelect: () => board && downloadBrd(board, meta),
+      onSelect: () => {
+        if (!board) return;
+        downloadBrd(board, meta);
+        track('save_board', { format: 'brd' });
+      },
     },
   ];
 
@@ -1175,6 +1188,7 @@ function AppShell() {
             savePdf1to1(s);
             setPdf1to1(s);
             downloadPdf1to1(board, s, meta, units);
+            track('export_board', { format: 'pdf-1to1-custom' });
           }}
           onClose={() => setPdfDialogOpen(false)}
         />
