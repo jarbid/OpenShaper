@@ -11,7 +11,10 @@ let enabled = false;
 
 export function initAnalytics(): void {
   if (typeof window === 'undefined') return;
-  if (import.meta.env.VITEST) return; // never fire real events from the test suite
+  if (import.meta.env.VITEST) return; // never fire real events from the Vitest suite
+  // Suppress automated browsers: Playwright e2e runs `pnpm dev`, so the VITEST
+  // guard above doesn't cover it. Real users don't set navigator.webdriver.
+  if (navigator.webdriver) return;
   const key = import.meta.env.VITE_POSTHOG_KEY;
   if (!key) return;
   posthog.init(key, {
