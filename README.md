@@ -83,8 +83,7 @@ no server code. `wrangler.toml` declares the assets directory; `.node-version` p
 - **Canonical/OG origin:** `VITE_SITE_URL` build env var (defaults to `https://openshaper.com`)
 
 `_headers` (in `apps/web/public/`) is honored. The build's `base` is `/` for the root domain
-and switches to `./` only under a Tauri build. A GitHub Pages workflow
-(`.github/workflows/deploy-pages.yml`) remains as an unused fallback.
+and switches to `./` only under a Tauri build.
 
 ### One-time setup (manual)
 
