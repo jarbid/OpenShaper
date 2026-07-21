@@ -1,7 +1,10 @@
 /**
  * Minimal, privacy-respecting PostHog wrapper. Anonymous only: no cookies, no
- * localStorage, no persistent visitor id (`persistence: 'memory'`), autocapture and
- * session recording disabled — so there's nothing that requires visitor consent.
+ * localStorage, no persistent visitor id (`persistence: 'memory'`), full
+ * element-level autocapture and session recording disabled — so there's nothing
+ * that requires visitor consent. Web Vitals / rageclick / dead-click detection
+ * are separate, lightweight, purpose-built signals (not gated behind
+ * autocapture) and don't touch identity either.
  * Configured via `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` (see `.env.example`); with
  * no key set (local clones, forks, PR previews) every call below is a no-op.
  */
@@ -24,6 +27,11 @@ export function initAnalytics(): void {
     disable_session_recording: true,
     disable_surveys: true,
     persistence: 'memory',
+    // UX signals, not identity: none of these set a persistent id or record
+    // content, so the anonymous/no-consent-banner posture above is unchanged.
+    capture_performance: { web_vitals: true }, // Core Web Vitals (LCP/CLS/INP)
+    rageclick: true, // rapid repeated clicks in one spot
+    capture_dead_clicks: true, // clicks on non-interactive elements
   });
   enabled = true;
 }
