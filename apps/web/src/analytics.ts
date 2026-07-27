@@ -4,11 +4,13 @@
  *
  * - Baseline (always on, no consent needed): anonymous only — no cookies, no
  *   localStorage, no persistent visitor id (`persistence: 'memory'`), no
- *   autocapture, no session recording. Web Vitals / rageclick / dead-click
- *   detection are separate, lightweight, purpose-built signals that don't
- *   touch identity either.
+ *   autocapture, no session recording. Web Vitals / rageclick / dead-click /
+ *   exception detection are separate, lightweight, purpose-built signals
+ *   that don't touch identity either.
  * - Full tracking (only after explicit accept, via `upgradeToFullTracking`):
- *   persistent cross-session id, full autocapture, session recording.
+ *   persistent cross-session id, full autocapture, session recording,
+ *   heatmaps, and a `tracking_tier: 'full'` super property tagging every
+ *   subsequent event from this browser.
  *
  * `respect_dnt: true` means browser Do-Not-Track overrides everything above —
  * even the anonymous baseline — since it's a stronger, standing signal than
@@ -50,6 +52,15 @@ export function initAnalytics(): void {
       // since supplying this list replaces posthog-js's built-in default.
       css_selector_ignorelist: ['.ph-no-capture', '.ph-no-deadclick', 'canvas'],
     },
+    capture_exceptions: {
+      // Independent of autocapture/session recording, and carries no more
+      // identity risk than the pageview capture already sends (same
+      // unmasked $current_url) — a canvas/WebGL-heavy app is worth watching
+      // for real crashes from every visitor, not just consenting ones.
+      capture_unhandled_errors: true,
+      capture_unhandled_rejections: true,
+      capture_console_errors: false, // arbitrary console.error content is harder to reason about than a genuine uncaught exception
+    },
   });
   enabled = true;
   // Returning visitor who already accepted full tracking: upgrade immediately,
@@ -67,7 +78,22 @@ export function upgradeToFullTracking(): void {
   if (!enabled) return;
   posthog.set_config({ persistence: 'localStorage+cookie' });
   posthog.set_config({ autocapture: true });
+  posthog.set_config({ capture_heatmaps: true });
   posthog.startSessionRecording();
+  // Tags every future event from this browser — lets dashboards segment
+  // full-tracking vs. baseline-only traffic with no cohort computation.
+  posthog.register({ tracking_tier: 'full' });
+}
+
+/**
+ * Clear the tracking_tier tag before /privacy's "turn off" reloads the page —
+ * the reload itself resets persistence/autocapture/session recording/heatmaps
+ * back to the Tier 1 baseline (a fresh posthog.init call), so this just
+ * avoids leaving a stale `tracking_tier: 'full'` sitting in storage.
+ */
+export function downgradeFromFullTracking(): void {
+  if (!enabled) return;
+  posthog.unregister('tracking_tier');
 }
 
 export function track(event: string, props?: Record<string, unknown>): void {

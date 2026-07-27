@@ -17,6 +17,17 @@
   - Plus PostHog's own automatic pageview capture.
 - UX signals that don't touch identity: Core Web Vitals, rageclick, dead-click
   detection (canvas/SVG excluded from the latter — see `analytics.ts`).
+- **Exception autocapture** (`capture_exceptions`): uncaught JS errors and
+  unhandled promise rejections (not `console.error`, which is left off since
+  arbitrary logged content is harder to reason about than a genuine crash).
+  This lives in Tier 1, not Tier 2, because it's independent of
+  autocapture/session recording in `posthog-js` and its `$exception` events
+  carry no more identity risk than the pageview capture already sends today
+  (same unmasked `$current_url`; stack frames reference bundled asset URLs
+  like `/assets/index-xyz.js`, never filesystem paths or identity). Worth
+  having from every visitor, not just consenting ones, given this is a
+  canvas/WebGL-heavy app (2D editors + Three.js) where a real crash is easy
+  to miss otherwise.
 
 This tier is the same anonymous/cookieless posture Plausible and Umami use by
 default, and it's what every visitor gets until they make a choice — accepting
@@ -29,6 +40,18 @@ changes anything.
   `device_id`, set via an actual cookie in addition to localStorage.
 - `autocapture: true` — full click/input capture.
 - Session recording/replay, turned on live via `posthog.startSessionRecording()`.
+- `capture_heatmaps: true` — click/scroll density per page, gated here (not
+  Tier 1) even though it's technically independent of session recording in
+  `posthog-js`, since it's an autocapture-adjacent signal like the ones
+  above.
+- A `tracking_tier: 'full'` super property (`posthog.register(...)`), tagging
+  every subsequent event from this browser — lets any dashboard/insight
+  segment full-tracking vs. baseline-only traffic without a cohort, and is
+  what makes retention analysis (D1/D7/D30 return) possible for the first
+  time, since Tier 1 has no persistent identity to measure return visits
+  against. Cleared via `downgradeFromFullTracking()` (calls
+  `posthog.unregister('tracking_tier')`) when a visitor turns tracking back
+  off on `/privacy`, right before the page reloads.
 
 The upgrade happens **in place**, with no reload and no identity
 discontinuity: `posthog.set_config({ persistence: 'localStorage+cookie' })`
@@ -87,6 +110,10 @@ inside a form control) before adding new UI that might be recorded.
 - `upgradeToFullTracking()` — the Tier 1 → Tier 2 upgrade, called from the
   banner's Accept button, `/privacy`'s Accept button, and from `initAnalytics()`
   for returning consenting visitors.
+- `downgradeFromFullTracking()` — clears the `tracking_tier` super property;
+  called from `/privacy`'s "turn off" control right before it reloads the
+  page (the reload itself resets everything else back to the Tier 1
+  baseline).
 - `track(event, props?)` — unchanged; gated only on `initAnalytics()` having
   run (i.e. a key being configured), never on consent.
 
@@ -100,13 +127,18 @@ An earlier privacy pass set project-level settings including
 `autocapture_opt_out: true`. **That needs revisiting** — if the project-level
 autocapture opt-out is enforced via PostHog's remote config, it could silently
 override a consenting visitor's client-side `autocapture: true`. Likewise,
-session recording is typically a project-level product toggle independent of
-the client SDK call — `startSessionRecording()` is a no-op if the project
-itself doesn't have session replay enabled. Before relying on Tier 2 data in
-production, check (via the PostHog dashboard or MCP connector) that:
+session recording, heatmaps, and error tracking are each typically a
+project-level product toggle independent of the client SDK call —
+`startSessionRecording()`, `capture_heatmaps`, and `capture_exceptions` are
+each a no-op if the project itself doesn't have the corresponding product
+enabled. Before relying on any of Tier 1's exception tracking or Tier 2's
+data in production, check (via the PostHog dashboard or MCP connector) that:
 
 - Autocapture is allowed at the project level (not opted out).
 - Session replay/recording is enabled as a product for this project.
+- Heatmaps opt-in is on at the project level.
+- Error tracking / exception autocapture is activated as a product for this
+  project.
 
 ## Env vars
 

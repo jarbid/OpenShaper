@@ -3,7 +3,7 @@ import { Button } from '@openshaper/ui';
 import { ArticleHero, Container, CtaBand } from '../components/content';
 import { Seo } from '../seo/Seo';
 import { getConsent, setConsent, subscribeConsent } from '../consent';
-import { upgradeToFullTracking } from '../analytics';
+import { downgradeFromFullTracking, upgradeToFullTracking } from '../analytics';
 
 function TrackingControls() {
   const consent = useSyncExternalStore(subscribeConsent, getConsent, () => null);
@@ -17,6 +17,7 @@ function TrackingControls() {
   // turning full tracking back off reloads the page — the next load's
   // initAnalytics() reads the new (rejected) consent and never attaches them.
   const turnOff = () => {
+    downgradeFromFullTracking();
     setConsent('rejected');
     window.location.reload();
   };
