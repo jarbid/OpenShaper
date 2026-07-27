@@ -22,9 +22,9 @@ export function ConsentBanner() {
     >
       <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-3 sm:flex-row sm:justify-between">
         <p className="text-sm text-muted-foreground">
-          OpenShaper uses privacy-friendly analytics to see how the app is used. Accept to help us
-          improve it with fuller tracking (session replay, click tracking), or keep browsing with
-          today&apos;s anonymous, aggregate-only analytics.{' '}
+          Hi — I&apos;m building OpenShaper solo, and seeing how it&apos;s really used helps me know
+          what to build next. Accepting lets me see richer usage data to guide that; Reject keeps
+          things anonymous and aggregate-only, same as today.{' '}
           <Link to="/privacy" className="text-foreground underline underline-offset-2">
             Learn more
           </Link>
