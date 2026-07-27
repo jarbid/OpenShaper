@@ -60,11 +60,6 @@ docs/specs      extracted legacy specs + golden reference data
 ## Commands
 
 ```sh
-pnpm install
-pnpm test         # turbo: all package tests (kernel golden tests must pass)
-pnpm typecheck
-pnpm dev          # web app dev server
-pnpm build
 pnpm --filter @openshaper/kernel test:watch   # focus one package
 ```
 
@@ -84,25 +79,8 @@ pnpm is provided via the user's npm global prefix (`%APPDATA%\npm`), not corepac
 - Edited files are auto-formatted with Prettier by a PostToolUse hook
   (`.claude/hooks/format-edited.mjs`) — don't hand-format to match style.
 
-### Display units follow the editor's unit selector (no hardcoded units)
-
-Internal geometry is always **centimetres**. Whenever a UI element shows or edits a
-**length**, it MUST render in the editor's globally-selected length unit — the one set
-by the toolbar dropdown (`mm / cm / in / ft·in`, persisted to `localStorage
-'bs.lengthUnit'`). Switching the dropdown re-renders everything; no length is ever shown
-in a fixed unit.
-
-- The active unit is a `LengthUnit` (`apps/web/src/format.ts`), resolved in `App.tsx` as
-  `units = lengthUnitByKey(unitKey)` and threaded as a `units: LengthUnit` prop to every
-  consumer (`EditorPane`, `ControlPointInspector`, `ConstructionPanel`, spec readouts, …).
-- Never write a literal `mm`/`cm`/`in` suffix or call `.toFixed()` on a raw cm value in
-  JSX. Use the `format.ts` helpers: `fmtLen` (display), `cmToUnitNumber` + `unitDecimals`
-  - `unitSuffix` (editable fields), `parseLen` (input → cm), `fmtDimsHeadline` (headline).
-    File exports map via `exportUnitFor`.
-- New components that display/edit a length take a `units: LengthUnit` prop — they do not
-  read the unit themselves or assume a default. Dimensionless fields (counts, fractions)
-  stay unitless.
-- Exception by design: **volume** is always litres (`fmtVol`), matching legacy.
+See `apps/web/CLAUDE.md` for the display-units convention (loads automatically when
+working under `apps/web`).
 
 ## Model delegation
 
@@ -117,15 +95,4 @@ in a fixed unit.
 - `claude-api` — Phase-3 AI shaping assistant (with prompt caching)
 - `verify` / `run` / `code-review` / `simplify` — per-PR quality loop
 
-## Roadmap (where we are)
-
-1. **Foundation** (done): monorepo, orchestration, golden-data harness.
-2. **Kernel** (done): cadcore + board ported behind golden tests; io reads real `.brd`.
-3. **Editors + 3D** (done): store/undo, 2D editors, QuadView, spec panel, three.js view.
-4. **Export → SHIP** (done): STL/DXF/PDF export; static deploy via Cloudflare
-   Workers (`openshaper.com`). Native save isn't wired yet — both web and desktop
-   currently save via browser download.
-5. **Templating** (in progress): hollow-wood-strip rail-band construction templates
-   and the starter board-template library (Shortboard/Funboard/Longboard) are
-   shipped; more construction templates, plugin support, and an AI shaping
-   assistant remain.
+Current project status/roadmap: see `docs/ROADMAP.md`.
