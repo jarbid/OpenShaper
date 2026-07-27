@@ -5,6 +5,7 @@
  */
 import { Button, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { DEFAULT_SETTINGS, type EditorSettings } from './settings';
 
 // ---- tiny form atoms -------------------------------------------------------
@@ -234,9 +235,17 @@ export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProp
 
         {/* Footer actions */}
         <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-3">
-          <Button size="sm" variant="ghost" onClick={resetToDefaults}>
-            Reset to defaults
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button size="sm" variant="ghost" onClick={resetToDefaults}>
+              Reset to defaults
+            </Button>
+            <Link
+              to="/privacy"
+              className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+            >
+              Privacy &amp; analytics
+            </Link>
+          </div>
           <div className="flex gap-2">
             <Button size="sm" variant="ghost" onClick={onClose}>
               Cancel

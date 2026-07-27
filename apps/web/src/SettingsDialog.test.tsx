@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { DEFAULT_SETTINGS } from './settings';
 import { SettingsDialog } from './SettingsDialog';
@@ -7,14 +8,25 @@ beforeEach(() => {
   localStorage.clear();
 });
 
+// SettingsDialog links to /privacy via react-router's Link, so it needs a
+// Router context — mirrors how it's actually mounted in the app (under
+// RootLayout's router), same as production.
+function renderDialog(props: React.ComponentProps<typeof SettingsDialog>) {
+  return render(
+    <MemoryRouter>
+      <SettingsDialog {...props} />
+    </MemoryRouter>,
+  );
+}
+
 describe('<SettingsDialog />', () => {
   it('renders without crashing and shows the title', () => {
-    render(<SettingsDialog settings={DEFAULT_SETTINGS} onSave={vi.fn()} onClose={vi.fn()} />);
+    renderDialog({ settings: DEFAULT_SETTINGS, onSave: vi.fn(), onClose: vi.fn() });
     expect(screen.getByText(/settings/i)).toBeTruthy();
   });
 
   it('shows color inputs for all curve / overlay fields', () => {
-    render(<SettingsDialog settings={DEFAULT_SETTINGS} onSave={vi.fn()} onClose={vi.fn()} />);
+    renderDialog({ settings: DEFAULT_SETTINGS, onSave: vi.fn(), onClose: vi.fn() });
     // There should be 6 color inputs (outline, deck, bottom, cross-section, ghost, grid).
     const colorInputs = document.querySelectorAll('input[type="color"]');
     expect(colorInputs.length).toBeGreaterThanOrEqual(6);
@@ -22,7 +34,7 @@ describe('<SettingsDialog />', () => {
 
   it('calls onClose when the close button is clicked', () => {
     const onClose = vi.fn();
-    render(<SettingsDialog settings={DEFAULT_SETTINGS} onSave={vi.fn()} onClose={onClose} />);
+    renderDialog({ settings: DEFAULT_SETTINGS, onSave: vi.fn(), onClose });
     const closeBtn = screen.getByTitle(/close/i);
     fireEvent.click(closeBtn);
     expect(onClose).toHaveBeenCalledOnce();
@@ -30,7 +42,7 @@ describe('<SettingsDialog />', () => {
 
   it('calls onSave with updated settings when Apply is clicked', () => {
     const onSave = vi.fn();
-    render(<SettingsDialog settings={DEFAULT_SETTINGS} onSave={onSave} onClose={vi.fn()} />);
+    renderDialog({ settings: DEFAULT_SETTINGS, onSave, onClose: vi.fn() });
     // Change the outline color.
     const outlineInput = screen.getByLabelText(/outline/i) as HTMLInputElement;
     fireEvent.change(outlineInput, { target: { value: '#ff0000' } });
@@ -44,7 +56,7 @@ describe('<SettingsDialog />', () => {
   it('resets to defaults when "Reset to defaults" is clicked', () => {
     const onSave = vi.fn();
     const modified = { ...DEFAULT_SETTINGS, outlineColor: '#ff0000' };
-    render(<SettingsDialog settings={modified} onSave={onSave} onClose={vi.fn()} />);
+    renderDialog({ settings: modified, onSave, onClose: vi.fn() });
     fireEvent.click(screen.getByText(/reset to defaults/i));
     fireEvent.click(screen.getByText(/apply/i));
     const saved = onSave.mock.calls[0]![0];
@@ -53,9 +65,11 @@ describe('<SettingsDialog />', () => {
 
   it('closes when the backdrop is clicked', () => {
     const onClose = vi.fn();
-    const { container } = render(
-      <SettingsDialog settings={DEFAULT_SETTINGS} onSave={vi.fn()} onClose={onClose} />,
-    );
+    const { container } = renderDialog({
+      settings: DEFAULT_SETTINGS,
+      onSave: vi.fn(),
+      onClose,
+    });
     // The outermost div is the backdrop.
     const backdrop = container.firstChild as HTMLElement;
     fireEvent.click(backdrop);

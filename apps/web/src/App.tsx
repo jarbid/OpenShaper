@@ -46,7 +46,7 @@ import {
   type BoardMeta,
   type ExportFormat,
 } from './file-io';
-import { initAnalytics, track } from './analytics';
+import { track } from './analytics';
 import { ImportWarningsDialog } from './ImportWarningsDialog';
 import type { ImportWarning } from '@openshaper/io';
 import { ExportPdf1to1Dialog } from './ExportPdf1to1Dialog';
@@ -126,10 +126,6 @@ function AppShell() {
   // stored. Hydration is async so it never blocks first paint; autosave stays
   // off (`hydrated`) until the decision lands, so a slow load can't be
   // clobbered by an autosave of the empty/sample state.
-  useEffect(() => {
-    initAnalytics();
-  }, []);
-
   const hydrated = useRef(false);
   useEffect(() => {
     if (boardStore.getState().board) {

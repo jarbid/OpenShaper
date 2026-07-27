@@ -31,7 +31,10 @@ export function ImportWarningsDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <PanelHeader>
-          <PanelTitle>Import will change &quot;{fileName}&quot;</PanelTitle>
+          {/* File names are user-controlled and rendered as plain text (not an
+              input), so they sit outside PostHog's default input masking —
+              ph-mask covers them explicitly once session recording is on. */}
+          <PanelTitle className="ph-mask">Import will change &quot;{fileName}&quot;</PanelTitle>
         </PanelHeader>
 
         <PanelBody className="space-y-4 text-sm">

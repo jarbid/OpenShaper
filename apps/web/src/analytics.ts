@@ -1,14 +1,24 @@
 /**
- * Minimal, privacy-respecting PostHog wrapper. Anonymous only: no cookies, no
- * localStorage, no persistent visitor id (`persistence: 'memory'`), full
- * element-level autocapture and session recording disabled — so there's nothing
- * that requires visitor consent. Web Vitals / rageclick / dead-click detection
- * are separate, lightweight, purpose-built signals (not gated behind
- * autocapture) and don't touch identity either.
+ * PostHog wrapper with two tiers, gated by visitor consent (see consent.ts
+ * and docs/design/analytics.md):
+ *
+ * - Baseline (always on, no consent needed): anonymous only — no cookies, no
+ *   localStorage, no persistent visitor id (`persistence: 'memory'`), no
+ *   autocapture, no session recording. Web Vitals / rageclick / dead-click
+ *   detection are separate, lightweight, purpose-built signals that don't
+ *   touch identity either.
+ * - Full tracking (only after explicit accept, via `upgradeToFullTracking`):
+ *   persistent cross-session id, full autocapture, session recording.
+ *
+ * `respect_dnt: true` means browser Do-Not-Track overrides everything above —
+ * even the anonymous baseline — since it's a stronger, standing signal than
+ * whatever this site's own consent state says.
+ *
  * Configured via `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` (see `.env.example`); with
  * no key set (local clones, forks, PR previews) every call below is a no-op.
  */
 import posthog from 'posthog-js';
+import { getConsent } from './consent';
 
 let enabled = false;
 
@@ -27,8 +37,9 @@ export function initAnalytics(): void {
     disable_session_recording: true,
     disable_surveys: true,
     persistence: 'memory',
+    respect_dnt: true,
     // UX signals, not identity: none of these set a persistent id or record
-    // content, so the anonymous/no-consent-banner posture above is unchanged.
+    // content, so the anonymous baseline above is unchanged.
     capture_performance: { web_vitals: true }, // Core Web Vitals (LCP/CLS/INP)
     rageclick: true, // rapid repeated clicks in one spot
     capture_dead_clicks: {
@@ -41,6 +52,22 @@ export function initAnalytics(): void {
     },
   });
   enabled = true;
+  // Returning visitor who already accepted full tracking: upgrade immediately,
+  // no banner, no gap in coverage.
+  if (getConsent() === 'accepted') upgradeToFullTracking();
+}
+
+/**
+ * Upgrade the current (already anonymous) session to full tracking in place —
+ * no reload, no new identity. `set_config` re-persists the existing
+ * distinct_id/device_id into the new storage backend, so the same visitor
+ * keeps the same id across the switch.
+ */
+export function upgradeToFullTracking(): void {
+  if (!enabled) return;
+  posthog.set_config({ persistence: 'localStorage+cookie' });
+  posthog.set_config({ autocapture: true });
+  posthog.startSessionRecording();
 }
 
 export function track(event: string, props?: Record<string, unknown>): void {

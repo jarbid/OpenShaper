@@ -15,6 +15,7 @@ const SITEMAP_ROUTES: { path: string; priority: string; changefreq: string }[] =
   { path: '/surfboard-volume-calculator', priority: '0.7', changefreq: 'monthly' },
   { path: '/build-a-hollow-wooden-surfboard', priority: '0.7', changefreq: 'monthly' },
   { path: '/about', priority: '0.6', changefreq: 'monthly' },
+  { path: '/privacy', priority: '0.3', changefreq: 'yearly' },
 ];
 
 function writeSitemap(outDir: string) {
