@@ -15,3 +15,9 @@ compatibility_date = "2026-06-01"
 # html_handling serves /about -> /about/index.html; unknown paths 404 (no SPA
 # catch-all needed, since every real route is prerendered).
 directory = "apps/web/dist"
+# Every internal link/route/canonical URL uses no trailing slash (e.g. /app,
+# not /app/). The default auto-trailing-slash handling 308-redirects a direct
+# load of /app to /app/ (only app/index.html exists on disk), which fragments
+# analytics into two pages for what's really one route. drop-trailing-slash
+# flips the redirect direction to match the canonical form used everywhere else.
+html_handling = "drop-trailing-slash"

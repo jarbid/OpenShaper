@@ -31,7 +31,14 @@ export function initAnalytics(): void {
     // content, so the anonymous/no-consent-banner posture above is unchanged.
     capture_performance: { web_vitals: true }, // Core Web Vitals (LCP/CLS/INP)
     rageclick: true, // rapid repeated clicks in one spot
-    capture_dead_clicks: true, // clicks on non-interactive elements
+    capture_dead_clicks: {
+      // Dead-click detection has no interactive-element allowlist (unlike
+      // autocapture) — the 2D/3D editor canvases are valid candidates by
+      // default and dominate the signal with noise. Excluding them keeps the
+      // defaults (`.ph-no-capture`/`.ph-no-deadclick`) and adds `canvas`,
+      // since supplying this list replaces posthog-js's built-in default.
+      css_selector_ignorelist: ['.ph-no-capture', '.ph-no-deadclick', 'canvas'],
+    },
   });
   enabled = true;
 }

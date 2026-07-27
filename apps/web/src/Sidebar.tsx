@@ -162,28 +162,26 @@ export function Sidebar({
         <PanelBody className="space-y-1 text-sm">
           {specs ? (
             <>
-              <div className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-2 py-1.5">
+              <button
+                type="button"
+                title="Copy dimensions"
+                aria-label="Copy dimensions"
+                className="flex w-full items-center justify-between gap-2 rounded-md bg-muted/40 px-2 py-1.5 text-left hover:bg-muted"
+                onClick={() => {
+                  const text = fmtDimsHeadline(
+                    specs.length,
+                    specs.maxWidth,
+                    specs.thickness,
+                    units,
+                  );
+                  void navigator.clipboard?.writeText(text)?.catch(() => {});
+                }}
+              >
                 <span className="font-mono text-[13px] tabular-nums text-foreground">
                   {fmtDimsHeadline(specs.length, specs.maxWidth, specs.thickness, units)}
                 </span>
-                <button
-                  type="button"
-                  title="Copy dimensions"
-                  aria-label="Copy dimensions"
-                  className="shrink-0 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                  onClick={() => {
-                    const text = fmtDimsHeadline(
-                      specs.length,
-                      specs.maxWidth,
-                      specs.thickness,
-                      units,
-                    );
-                    void navigator.clipboard?.writeText(text)?.catch(() => {});
-                  }}
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                </button>
-              </div>
+                <Copy className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              </button>
 
               <SpecGroup title="Nose">
                 <SpecRow label={'Width @ 12"'} value={fmtLen(specs.noseWidth, units)} />
