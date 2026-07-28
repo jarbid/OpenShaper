@@ -24,6 +24,40 @@ import { getConsent } from './consent';
 
 let enabled = false;
 
+const INTERNAL_KEY = 'bs.internal';
+
+/**
+ * Marks this browser as my own traffic, so it can be filtered out of every
+ * dashboard.
+ *
+ * Necessary because `persistence: 'memory'` leaves no stable person id, which
+ * means PostHog's usual "internal users" cohort has nothing to match on and
+ * can never contain anyone. Marking at the source is the only thing that
+ * works. Visit `?internal=1` once per browser to set it, `?internal=0` to
+ * clear it; the project's test-account filter then excludes
+ * `internal_traffic`.
+ *
+ * The one key this writes is the deliberate exception to the no-persistent-
+ * storage rule: a single boolean, in my own browser, holding no visitor data.
+ */
+export function resolveInternalTraffic(): boolean {
+  let flag: string | null = null;
+  try {
+    flag = new URLSearchParams(window.location.search).get('internal');
+  } catch {
+    // Malformed query string — fall through to whatever is already stored.
+  }
+  try {
+    if (flag === '1') localStorage.setItem(INTERNAL_KEY, '1');
+    else if (flag === '0') localStorage.removeItem(INTERNAL_KEY);
+    return localStorage.getItem(INTERNAL_KEY) === '1';
+  } catch {
+    // localStorage unavailable (private browsing, quota). Honour the URL flag
+    // for this page load rather than silently mixing the traffic back in.
+    return flag === '1';
+  }
+}
+
 export function initAnalytics(): void {
   if (typeof window === 'undefined') return;
   if (import.meta.env.VITEST) return; // never fire real events from the Vitest suite
@@ -63,6 +97,10 @@ export function initAnalytics(): void {
     },
   });
   enabled = true;
+  // Tag my own traffic so dashboards can exclude it. Registered rather than
+  // opting out entirely, so it stays inspectable in isolation instead of
+  // vanishing.
+  if (resolveInternalTraffic()) posthog.register({ internal_traffic: true });
   // Returning visitor who already accepted full tracking: upgrade immediately,
   // no banner, no gap in coverage.
   if (getConsent() === 'accepted') upgradeToFullTracking();

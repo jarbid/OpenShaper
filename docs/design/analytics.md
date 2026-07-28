@@ -9,12 +9,10 @@
 - `autocapture: false`, `disable_session_recording: true`,
   `disable_surveys: true` — only the explicit `track(...)` calls and the UX
   signals below ever send anything.
-- Five product actions, chosen as a proxy for "serious usage" beyond casual
-  browsing:
-  - `template_loaded` — `{ template }` — New board from Shortboard/Funboard/Longboard
-  - `save_board` — `{ format: 'board' | 'brd' }` — File → Save / Legacy .brd
-  - `export_board` — `{ format }` — STL / DXF (polyline or spline) / PDF 1:1
-  - Plus PostHog's own automatic pageview capture.
+- Hand-instrumented product actions, chosen as a proxy for "serious usage"
+  beyond casual browsing — see the [event catalogue](#event-catalogue) for the
+  full list and the rules governing it. Plus PostHog's own automatic pageview
+  capture.
 - UX signals that don't touch identity: Core Web Vitals, rageclick, dead-click
   detection (canvas/SVG excluded from the latter — see `analytics.ts`).
 - **Exception autocapture** (`capture_exceptions`): uncaught JS errors and
@@ -121,24 +119,126 @@ All of the above are no-ops if `VITE_POSTHOG_KEY` isn't set at build time — so
 a fresh clone, a fork, or a PR preview build never loads the PostHog script at
 all.
 
-## Project-level requirement (manual, not yet verified)
+## Project-level settings (verified 2026-07-28)
 
-An earlier privacy pass set project-level settings including
-`autocapture_opt_out: true`. **That needs revisiting** — if the project-level
-autocapture opt-out is enforced via PostHog's remote config, it could silently
-override a consenting visitor's client-side `autocapture: true`. Likewise,
-session recording, heatmaps, and error tracking are each typically a
-project-level product toggle independent of the client SDK call —
-`startSessionRecording()`, `capture_heatmaps`, and `capture_exceptions` are
-each a no-op if the project itself doesn't have the corresponding product
-enabled. Before relying on any of Tier 1's exception tracking or Tier 2's
-data in production, check (via the PostHog dashboard or MCP connector) that:
+Every client-side switch above needs a matching project-level toggle, because
+`startSessionRecording()`, `capture_heatmaps` and `capture_exceptions` are all
+no-ops if the corresponding product is off for the project. An earlier privacy
+pass had set `autocapture_opt_out: true`, which would have silently overridden
+a consenting visitor's client-side `autocapture: true`.
 
-- Autocapture is allowed at the project level (not opted out).
-- Session replay/recording is enabled as a product for this project.
-- Heatmaps opt-in is on at the project level.
-- Error tracking / exception autocapture is activated as a product for this
-  project.
+All of it was read back from project `521211` on 2026-07-28 and is correct:
+
+| Setting                          | Value   |
+| -------------------------------- | ------- |
+| `autocapture_opt_out`            | `false` |
+| `session_recording_opt_in`       | `true`  |
+| `heatmaps_opt_in`                | `true`  |
+| `autocapture_exceptions_opt_in`  | `true`  |
+| `autocapture_web_vitals_opt_in`  | `true`  |
+| `capture_dead_clicks`            | `true`  |
+| `anonymize_ips`                  | `true`  |
+| `surveys_opt_in`                 | `false` |
+
+`anonymize_ips` and `surveys_opt_in` match the client config (`disable_surveys`).
+No error-tracking rate limits are configured.
+
+One thing this does **not** establish: `$exception` has recorded zero events
+since launch despite both ends being enabled. At current traffic that is
+plausible rather than alarming, but it has not been confirmed by a deliberate
+test throw — so treat a flat zero as unverified, not as good news. The
+"Any JS exception" alert on the Health & UX dashboard exists to settle this the
+first time one fires.
+
+## What the data can and cannot say
+
+Two constraints fall out of the design above and shape every dashboard:
+
+- **`persistence: 'memory'` means one page load is one "person."** Confirmed in
+  the data: over the first 30 days `$pageview` was 70 events across 70 people.
+  Unique-user counts, DAU/WAU and cross-visit retention are therefore
+  unmeasurable for baseline traffic — not merely noisy. Anything claiming
+  otherwise is either scoped to `tracking_tier: 'full'` or wrong.
+- **What _is_ measurable is within-session depth.** `/app` is an SPA, so one
+  page load is one entire editing session and the anonymous id survives it.
+  Funnels and `session_summary` are honest for that reason.
+
+The one exception to the first constraint is `recent_board_opened`: the recent
+list lives in `localStorage` (`bs.recent`), so reopening from it proves a repeat
+visit with no persistent analytics identity involved. It is the only
+return-visitor signal the baseline has.
+
+`/app` vs `/app/` was split across two paths before the `drop-trailing-slash`
+fix. A project-level path-cleaning rule (`^/app/$` → `/app`) collapses the
+historical rows at query time, which the code fix cannot do retroactively.
+
+## Internal traffic
+
+PostHog's usual "internal users" cohort cannot work here — with no stable person
+id there is nothing for it to match on, and the cohort sat at 0 members
+permanently. Own-dev traffic is instead marked at the source:
+`resolveInternalTraffic()` in `analytics.ts` stores one boolean under
+`bs.internal` when the page is loaded with `?internal=1` (`?internal=0` clears
+it), and registers `internal_traffic: true` as a super property. The project's
+test-account filter excludes it.
+
+That single key is the deliberate exception to the no-persistent-storage rule:
+one boolean, in my own browser, carrying no visitor data. A super property is
+used rather than `opt_out_capturing()` so my traffic stays inspectable in
+isolation instead of disappearing.
+
+## Event catalogue
+
+Three rules govern every event:
+
+1. **Never send user content.** No file names, no board names, no trace images.
+   Categorical facets and counts only. (`ImportWarningsDialog.tsx` already
+   `ph-mask`s a filename for replay — same principle.)
+2. **Never track raw canvas interaction.** Drags fire at frame rate. Continuous
+   work is aggregated into one `session_summary` per session instead.
+3. **All calls live in `apps/web`**, behind `track()`. Nothing analytics-related
+   enters `kernel` / `store` / `io` — that would violate the pure-kernel rule.
+
+| Event                 | Properties                                                                   | Why                                                                       |
+| --------------------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `template_loaded`     | `template`                                                                   | Which starter board people begin from                                     |
+| `save_board`          | `format` (`board` \| `brd`)                                                  | Native vs legacy round-tripping                                           |
+| `export_board`        | `format` (`stl` \| `dxf` \| `dxf-spline` \| `pdf-1to1-custom`)               | The "got real value" action                                               |
+| `recent_board_opened` | `position`                                                                   | The only return-visitor proof on the baseline                             |
+| `board_imported`      | `source`, `warning_count`, `dropped_count`                                   | The BoardCAD on-ramp, previously unmeasured                               |
+| `import_failed`       | `source`, `reason`                                                           | Worst outcome in the app; used to fail silently                           |
+| `units_changed`       | `units`                                                                      | Imperial vs metric vs fractions — who the audience actually is            |
+| `overlay_toggled`     | `overlay`, `enabled`                                                         | Whether the comb / CoM / distribution overlays earn their upkeep          |
+| `hws_template_opened` | —                                                                            | Templating is the roadmap phase in progress                               |
+| `hws_template_exported` | `format`, `nested`, `parts`                                                | …and this is it actually being used; the gap between the two is the signal |
+| `spec_sheet_opened`   | —                                                                            |                                                                           |
+| `trace_image_loaded`  | `target`                                                                     | Distinctive feature, zero prior visibility                                |
+| `consent_banner`      | `action` (`shown` \| `accepted` \| `rejected`)                               | Distinguishes bad copy from a banner nobody sees                          |
+| `session_summary`     | `edits`, `views_used`, `view_count`, `exported`, `saved`, `imported`, `template_used`, `duration_s` | Session depth without a per-action stream |
+
+`session_summary` (`apps/web/src/session-metrics.ts`) is emitted once on
+`pagehide`. `edits` is read from the undo stack's depth at flush time rather
+than counted per edit, so the drag path is untouched. `views_used` is how editor
+usage is measured — autocapture cannot see the panes, because they are canvases.
+
+Known gap: `board_imported` reports warning *counts* only. `ImportWarning`
+(`packages/io/src/import-warning.ts`) carries a free-text `message` with line
+numbers interpolated into it, which would make a useless high-cardinality
+breakdown. Giving that type a stable `code` is the follow-up that would make
+warning *kinds* analysable.
+
+## Dashboards
+
+- [OpenShaper — Product](https://us.posthog.com/project/521211/dashboard/1916803)
+  (primary): funnels, template and format splits, plus a consent-tier section.
+- [OpenShaper — Health & UX](https://us.posthog.com/project/521211/dashboard/1916806):
+  Web Vitals, exceptions, and the dead-click signal.
+- [Starter (archived)](https://us.posthog.com/project/521211/dashboard/1878189):
+  PostHog's generated content, unpinned. Its DAU/WAU/retention tiles measure
+  cross-visit identity and are misleading here — see the constraints above.
+
+Each dashboard leads with a text tile restating the caveats, so a number is
+never read out of context.
 
 ## Env vars
 

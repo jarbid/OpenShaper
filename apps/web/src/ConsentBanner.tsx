@@ -18,11 +18,11 @@
  * same anchor and z-order otherwise, so without this offset the banner sits
  * directly on top of it.
  */
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
 import { Button, cn } from '@openshaper/ui';
 import { getConsent, setConsent, subscribeConsent } from './consent';
-import { upgradeToFullTracking } from './analytics';
+import { track, upgradeToFullTracking } from './analytics';
 
 const SEEN_KEY = 'bs.consentBannerSeen';
 const FIRST_DELAY_MS = 15000;
@@ -51,6 +51,18 @@ export function ConsentBanner() {
     return () => clearTimeout(timer);
   }, [visible]);
 
+  // Report that the banner was actually put in front of someone. Without this
+  // a low acceptance rate is uninterpretable — there's no way to tell a copy
+  // problem from a banner that is never seen (it slides in on a delay, and on
+  // mobile it sits above the editor's bottom sheet). The ref guards against
+  // StrictMode's double-invoked effects in dev.
+  const reportedShown = useRef(false);
+  useEffect(() => {
+    if (!visible || consent !== null || reportedShown.current) return;
+    reportedShown.current = true;
+    track('consent_banner', { action: 'shown' });
+  }, [visible, consent]);
+
   if (consent !== null) return null;
 
   return (
@@ -72,12 +84,22 @@ export function ConsentBanner() {
           </Link>
         </p>
         <div className="flex shrink-0 gap-2">
-          <Button size="sm" variant="ghost" onClick={() => setConsent('rejected')}>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              // Safe to record on the anonymous baseline: rejecting means
+              // "stay anonymous", which is where this event already lives.
+              track('consent_banner', { action: 'rejected' });
+              setConsent('rejected');
+            }}
+          >
             Reject
           </Button>
           <Button
             size="sm"
             onClick={() => {
+              track('consent_banner', { action: 'accepted' });
               setConsent('accepted');
               upgradeToFullTracking();
             }}

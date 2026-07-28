@@ -43,10 +43,19 @@ import {
   downloadPdf1to1,
   exportBoard,
   openBoardFile,
+  sourceExtension,
   type BoardMeta,
   type ExportFormat,
 } from './file-io';
 import { track } from './analytics';
+import {
+  installSessionSummary,
+  markExport,
+  markImport,
+  markSave,
+  markTemplate,
+  markView,
+} from './session-metrics';
 import { ImportWarningsDialog } from './ImportWarningsDialog';
 import type { ImportWarning } from '@openshaper/io';
 import { ExportPdf1to1Dialog } from './ExportPdf1to1Dialog';
@@ -178,6 +187,16 @@ function AppShell() {
     com: false,
     dist: false,
   });
+  // Flip one overlay and report it. These four are entirely unmeasured
+  // otherwise — the curvature comb and volume distribution in particular are
+  // expensive to maintain, so knowing whether anyone turns them on is the
+  // difference between investing in them and retiring them.
+  const toggleOverlay = (key: keyof OverlayToggles) => {
+    // Reported outside the updater: StrictMode double-invokes updaters in dev,
+    // which would double-count the event.
+    track('overlay_toggled', { overlay: key, enabled: !overlayToggles[key] });
+    setOverlayToggles((s) => ({ ...s, [key]: !s[key] }));
+  };
 
   // Specs (and the distribution overlay) read the settled board so they don't
   // re-integrate on every drag move — see useSettledBoard. The integrals run in
@@ -288,6 +307,14 @@ function AppShell() {
     window.addEventListener('pagehide', flush);
     return () => window.removeEventListener('pagehide', flush);
   }, [persistSession]);
+  // One `session_summary` per editing session, sent on pagehide. Edit depth is
+  // read from the history stack at flush time rather than counted per edit, so
+  // nothing is added to the drag path. See session-metrics.ts for why this is
+  // an aggregate rather than a per-action stream.
+  useEffect(
+    () => installSessionSummary(() => boardStore.getState().past.length),
+    [],
+  );
   const [resize, setResize] = useState<ResizeFields>({ l: '', w: '', t: '' });
   const [templateKind, setTemplateKind] = useState<'hws' | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -523,9 +550,27 @@ function AppShell() {
         recordRecentBoard(baseName, writeBoardJson(board, metadata));
         setRecentBoards(getRecentBoards());
       };
+      // Import is the on-ramp from legacy BoardCAD and was previously
+      // unmeasured in both directions. Counts only: `ImportWarning` carries a
+      // free-text `message` with line numbers and positions interpolated in,
+      // which would be a useless high-cardinality breakdown. Giving the type a
+      // stable `code` in @openshaper/io is the follow-up that would make
+      // warning *kinds* analysable. The file name is never sent — user content.
+      track('board_imported', {
+        source: sourceExtension(file.name),
+        warning_count: warnings.length,
+        dropped_count: warnings.filter((w) => w.severity === 'dropped').length,
+      });
+      markImport();
       applyImport(file.name, warnings, commit);
     } catch (err) {
       console.error('Failed to open board', err);
+      // A visitor who cannot open their own board is the worst outcome in the
+      // app, and until now it failed silently as far as analytics went.
+      track('import_failed', {
+        source: sourceExtension(file.name),
+        reason: (err as Error).message.slice(0, 200),
+      });
       showError(`Could not open ${file.name}: ${(err as Error).message}`);
     }
   };
@@ -557,13 +602,14 @@ function AppShell() {
       recordRecentBoard(t.name, writeBoardJson(tBoard, { model: t.name }));
       setRecentBoards(getRecentBoards());
       track('template_loaded', { template: t.name });
+      markTemplate();
     } catch (err) {
       console.error('Failed to load template', err);
     }
   };
 
   /** Load a board that was previously recorded in the recent list. */
-  const loadFromRecent = (entry: { name: string; boardJson: string }) => {
+  const loadFromRecent = (entry: { name: string; boardJson: string }, position: number) => {
     try {
       const { board: rBoard, metadata } = readBoardJson(entry.boardJson);
       boardStore.getState().load(rBoard);
@@ -572,6 +618,13 @@ function AppShell() {
       // Refresh the recent list so this entry bubbles to top (re-record updates savedAt).
       recordRecentBoard(entry.name, entry.boardJson);
       setRecentBoards(getRecentBoards());
+      // The only return-visitor signal available on the anonymous baseline:
+      // the recent list lives in localStorage, so reopening from it proves a
+      // repeat visit without any persistent analytics identity. Retention
+      // insights can't see this. The board name is deliberately omitted — it's
+      // user content; position alone says whether the list is browsed or only
+      // ever used for the newest entry.
+      track('recent_board_opened', { position });
     } catch (err) {
       console.error('Failed to load recent board', err);
       showError(`Could not reload "${entry.name}": ${(err as Error).message}`);
@@ -589,11 +642,23 @@ function AppShell() {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    // Distinctive feature (shape from a photo) with zero visibility until now.
+    // Only the target view is sent — never the image or its name.
+    track('trace_image_loaded', { target: pendingTraceView.current });
     trace.loadImage(pendingTraceView.current, file, board ? getLength(board) : 0);
   };
 
+  // Which editors get used is invisible to autocapture — the panes are
+  // canvases. Recorded once per session per view (markView dedupes) so the
+  // question "is 3D a core tool or a curiosity" becomes answerable without a
+  // per-click stream.
+  const selectView = (v: View) => {
+    setView(v);
+    markView(v);
+  };
+
   const tab = (v: View, label: string) => (
-    <Button size="sm" variant={view === v ? 'secondary' : 'ghost'} onClick={() => setView(v)}>
+    <Button size="sm" variant={view === v ? 'secondary' : 'ghost'} onClick={() => selectView(v)}>
       {label}
     </Button>
   );
@@ -634,6 +699,7 @@ function AppShell() {
         if (!board) return;
         downloadBoard(board, meta);
         track('save_board', { format: 'board' });
+        markSave();
         // downloadBoard records internally; refresh the menu's snapshot.
         setRecentBoards(getRecentBoards());
       },
@@ -643,10 +709,10 @@ function AppShell() {
     ...(recentBoards.length > 0
       ? ([
           { kind: 'label', label: 'Open recent' } as MenuItem,
-          ...recentBoards.map((e) => ({
+          ...recentBoards.map((e, i) => ({
             kind: 'action' as const,
             label: e.name,
-            onSelect: () => loadFromRecent(e),
+            onSelect: () => loadFromRecent(e, i),
           })),
           { kind: 'separator' } as MenuItem,
           {
@@ -678,6 +744,7 @@ function AppShell() {
         if (!board) return;
         exportBoard(board as Parameters<typeof exportBoard>[0], f, meta, units, ghost ?? undefined);
         track('export_board', { format: f });
+        markExport();
       },
     })),
     {
@@ -686,14 +753,28 @@ function AppShell() {
       disabled: !board,
       onSelect: () => setPdfDialogOpen(true),
     },
-    { kind: 'action', label: 'Spec sheet…', disabled: !board, onSelect: openSpecSheet },
+    {
+      kind: 'action',
+      label: 'Spec sheet…',
+      disabled: !board,
+      onSelect: () => {
+        track('spec_sheet_opened');
+        openSpecSheet();
+      },
+    },
     { kind: 'separator' },
     { kind: 'label', label: 'Templates' },
     {
       kind: 'action',
       label: 'Hollow Wood Frame…',
       disabled: !board,
-      onSelect: () => setTemplateKind('hws'),
+      onSelect: () => {
+        // Templating is the roadmap phase currently in progress, and shipped
+        // with no instrumentation at all. This is the ship-or-cut signal for
+        // the work in flight.
+        track('hws_template_opened');
+        setTemplateKind('hws');
+      },
     },
     { kind: 'separator' },
     {
@@ -704,6 +785,7 @@ function AppShell() {
         if (!board) return;
         downloadBrd(board, meta);
         track('save_board', { format: 'brd' });
+        markSave();
       },
     },
   ];
@@ -737,25 +819,25 @@ function AppShell() {
       kind: 'checkbox',
       label: 'Grid & guides',
       checked: overlayToggles.grid,
-      onSelect: () => setOverlayToggles((s) => ({ ...s, grid: !s.grid })),
+      onSelect: () => toggleOverlay('grid'),
     },
     {
       kind: 'checkbox',
       label: 'Curvature comb',
       checked: overlayToggles.comb,
-      onSelect: () => setOverlayToggles((s) => ({ ...s, comb: !s.comb })),
+      onSelect: () => toggleOverlay('comb'),
     },
     {
       kind: 'checkbox',
       label: 'Center of mass',
       checked: overlayToggles.com,
-      onSelect: () => setOverlayToggles((s) => ({ ...s, com: !s.com })),
+      onSelect: () => toggleOverlay('com'),
     },
     {
       kind: 'checkbox',
       label: 'Volume distribution',
       checked: overlayToggles.dist,
-      onSelect: () => setOverlayToggles((s) => ({ ...s, dist: !s.dist })),
+      onSelect: () => toggleOverlay('dist'),
     },
     { kind: 'separator' },
     { kind: 'label', label: 'Zoom' },
@@ -775,7 +857,13 @@ function AppShell() {
       kind: 'checkbox' as const,
       label: u.label,
       checked: unitKey === u.key,
-      onSelect: () => setUnitKey(u.key),
+      onSelect: () => {
+        setUnitKey(u.key);
+        // Imperial vs metric vs fractional inches is the clearest read on who
+        // the audience actually is — a US shaper working in fractions wants
+        // different defaults from a European one in millimetres.
+        track('units_changed', { units: u.key });
+      },
     })),
   ];
 
@@ -1185,6 +1273,7 @@ function AppShell() {
             setPdf1to1(s);
             downloadPdf1to1(board, s, meta, units);
             track('export_board', { format: 'pdf-1to1-custom' });
+            markExport();
           }}
           onClose={() => setPdfDialogOpen(false)}
         />

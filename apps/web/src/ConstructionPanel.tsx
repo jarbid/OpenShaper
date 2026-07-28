@@ -18,6 +18,7 @@ import type { BezierBoard } from '@openshaper/kernel';
 import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { downloadTemplateSheet, slugifyName, type TemplateFormat } from './file-io';
+import { track } from './analytics';
 import {
   HWS_SETTINGS_VERSION,
   type HwsOutputSettings,
@@ -729,7 +730,7 @@ export function ConstructionPanel({
                   <Button
                     key={f}
                     size="sm"
-                    onClick={() =>
+                    onClick={() => {
                       downloadTemplateSheet(
                         // DXF/SVG take the nested layout when enabled; PDF stays per part.
                         f !== 'pdf' && nestedLayout ? nestedLayout : sheet,
@@ -737,8 +738,17 @@ export function ConstructionPanel({
                         exportUnit,
                         `${slugifyName(boardName)}-hws-frame`,
                         pdfTiling,
-                      )
-                    }
+                      );
+                      // Templating is the roadmap phase in progress. Opening the
+                      // panel is curiosity; getting a sheet out of it is the
+                      // feature actually being used, so both are recorded and
+                      // the gap between them is the signal.
+                      track('hws_template_exported', {
+                        format: f,
+                        nested: f !== 'pdf' && !!nestedLayout,
+                        parts: partCount,
+                      });
+                    }}
                   >
                     {f.toUpperCase()}
                   </Button>

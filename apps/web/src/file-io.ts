@@ -147,6 +147,20 @@ export async function openBoardFile(
   return ext ? BOARD_FILE_READERS[ext]!(file) : readBoardJsonFile(file);
 }
 
+/**
+ * Which importer {@link openBoardFile} would pick, as a bare format name
+ * ('brd', 's3d', …, or 'board' for the native fallback). Lives here so it
+ * resolves against the same registry rather than drifting from it.
+ *
+ * Deliberately derives only the format, never the file name — callers use this
+ * for analytics, where the name would be user content.
+ */
+export function sourceExtension(fileName: string): string {
+  const name = fileName.toLowerCase();
+  const ext = Object.keys(BOARD_FILE_READERS).find((e) => name.endsWith(e));
+  return ext ? ext.slice(1) : 'board';
+}
+
 export interface ImportDecision {
   /** 'confirm' → show the blocking dialog first; 'load' → load now. */
   readonly action: 'confirm' | 'load';
