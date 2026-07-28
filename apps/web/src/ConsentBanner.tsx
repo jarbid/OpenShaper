@@ -11,6 +11,12 @@
  * on top of this component naturally staying mounted across in-app
  * navigation (it lives in RootLayout, which React Router keeps mounted while
  * only the routed page content underneath it changes).
+ *
+ * `bottom-28` (matching `Toast`'s clearance) keeps this above the /app
+ * editor's mobile bottom sheet, which is always present below `lg` at a
+ * minimum height of `PEEK_PX` (`packages/ui/src/components/sheet.tsx`) —
+ * same anchor and z-order otherwise, so without this offset the banner sits
+ * directly on top of it.
  */
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
@@ -52,7 +58,7 @@ export function ConsentBanner() {
       role="region"
       aria-label="Analytics consent"
       className={cn(
-        'fixed inset-x-0 bottom-0 z-50 border-t border-border bg-card px-4 py-3 text-card-foreground shadow-lg transition-transform duration-500 ease-out',
+        'fixed inset-x-0 bottom-28 z-50 border-t border-border bg-card px-4 py-3 text-card-foreground shadow-lg transition-transform duration-500 ease-out lg:bottom-0',
         visible ? 'translate-y-0 pointer-events-auto' : 'translate-y-full pointer-events-none',
       )}
     >
