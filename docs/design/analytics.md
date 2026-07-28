@@ -57,6 +57,36 @@ re-persists the same in-memory `distinct_id`/`device_id` into the new storage
 backend, so a visitor's anonymous activity and post-consent activity share
 one id.
 
+### Session replay does not show the board — deliberately (decided 2026-07-28)
+
+Replays show the toolbar, menus and panels, and a **blank rectangle where the
+editor is**. That is expected, not a misconfiguration, and it is not going to
+be fixed.
+
+Replay is rrweb, which serializes DOM mutations. A `<canvas>` is an opaque
+pixel buffer with no DOM inside it, so it records as an empty box — and
+OpenShaper's whole editing surface is a canvas (`SplineEditor.tsx`) plus a
+three.js view (`Board3DView.tsx`). Capturing it needs canvas recording enabled
+in the project's replay settings, which PostHog keeps opt-in precisely because
+[canvas contents cannot be masked](https://posthog.com/docs/session-replay/canvas-recording).
+
+We leave it off. The canvas isn't chrome, it's the visitor's board geometry —
+their actual design work — and there is no way to redact it once captured.
+Storing that, unmaskable, against a project whose stated posture is "anonymous
+analytics only, no cookies, no persistent visitor id" is not a trade worth
+making to watch someone drag a control point.
+
+Two things to know if this is ever revisited:
+
+- The 3D pane would stay black even with canvas recording on. WebGL capture
+  needs `preserveDrawingBuffer: true` on the context or `toDataURL()` reads
+  back blank; react-three-fiber defaults it to `false` and `Board3DView.tsx`
+  passes no `gl` prop. Setting it costs render performance on every frame for
+  every visitor, not just recorded ones.
+- Watching people use the editor is what the hand-instrumented events are
+  for — `session_summary`, `editor` view usage, `overlay_toggled` — precisely
+  because neither replay nor autocapture can see inside a canvas.
+
 ## Consent flow
 
 - `apps/web/src/consent.ts` — a tiny reactive store (`useSyncExternalStore`
