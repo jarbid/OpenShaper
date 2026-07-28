@@ -84,7 +84,22 @@ export function initAnalytics(): void {
       // default and dominate the signal with noise. Excluding them keeps the
       // defaults (`.ph-no-capture`/`.ph-no-deadclick`) and adds `canvas`,
       // since supplying this list replaces posthog-js's built-in default.
-      css_selector_ignorelist: ['.ph-no-capture', '.ph-no-deadclick', 'canvas'],
+      //
+      // Form controls are excluded for the same reason, on evidence: of the
+      // dead clicks carrying an element chain in the first 30 days, `select`
+      // (139) and `input`/`label` (~100) were the two largest buckets. Both
+      // are false positives — opening a native select, focusing an input, or
+      // clicking a label mutates no DOM, so the heuristic's "nothing happened"
+      // timeout expires even though the click worked perfectly. Left in, they
+      // bury the real misses.
+      css_selector_ignorelist: [
+        '.ph-no-capture',
+        '.ph-no-deadclick',
+        'canvas',
+        'select',
+        'input',
+        'label',
+      ],
     },
     capture_exceptions: {
       // Independent of autocapture/session recording, and carries no more
