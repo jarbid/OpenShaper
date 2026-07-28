@@ -3,22 +3,58 @@
  * decide; never re-shown once a choice is made. Doesn't gate access to
  * anything — the anonymous analytics baseline (see analytics.ts) keeps
  * running whether or not the visitor ever interacts with this.
+ *
+ * Slides into view rather than appearing instantly, so it's more likely to
+ * actually be noticed. On the first page load of a browsing session it waits
+ * before sliding in; on any later page (still undecided) it's shown right
+ * away — tracked via a sessionStorage flag as a backstop for hard reloads,
+ * on top of this component naturally staying mounted across in-app
+ * navigation (it lives in RootLayout, which React Router keeps mounted while
+ * only the routed page content underneath it changes).
  */
-import { useSyncExternalStore } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { Link } from 'react-router-dom';
-import { Button } from '@openshaper/ui';
+import { Button, cn } from '@openshaper/ui';
 import { getConsent, setConsent, subscribeConsent } from './consent';
 import { upgradeToFullTracking } from './analytics';
 
+const SEEN_KEY = 'bs.consentBannerSeen';
+const FIRST_DELAY_MS = 15000;
+
 export function ConsentBanner() {
   const consent = useSyncExternalStore(subscribeConsent, getConsent, () => null);
+  const [visible, setVisible] = useState(() => {
+    try {
+      return sessionStorage.getItem(SEEN_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    if (visible) return;
+    const timer = setTimeout(() => {
+      setVisible(true);
+      try {
+        sessionStorage.setItem(SEEN_KEY, '1');
+      } catch {
+        // sessionStorage unavailable (private browsing, quota) — the delay
+        // just resets on the next mount, which is a harmless fallback.
+      }
+    }, FIRST_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [visible]);
+
   if (consent !== null) return null;
 
   return (
     <div
       role="region"
       aria-label="Analytics consent"
-      className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-card px-4 py-3 text-card-foreground shadow-lg"
+      className={cn(
+        'fixed inset-x-0 bottom-0 z-50 border-t border-border bg-card px-4 py-3 text-card-foreground shadow-lg transition-transform duration-500 ease-out',
+        visible ? 'translate-y-0 pointer-events-auto' : 'translate-y-full pointer-events-none',
+      )}
     >
       <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-3 sm:flex-row sm:justify-between">
         <p className="text-sm text-muted-foreground">
