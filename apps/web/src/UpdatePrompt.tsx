@@ -1,7 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * Registers the service worker and surfaces its two user-visible moments:
- * "ready to work offline" (once, on first install) and "update available".
+ * Registers the service worker and surfaces its one user-visible moment:
+ * "a new version is available".
+ *
+ * The first install is deliberately silent. Caching an app's own code is
+ * ordinary PWA behaviour that users neither ask for nor expect to be told about
+ * — announcing it reads as the app doing something unrequested. (The opt-in
+ * "work offline" switches in Google Docs and Gmail are about caching a user's
+ * *documents*; OpenShaper's boards were already local in IndexedDB, and this
+ * worker caches app code only.) Discoverability comes from the browser's own
+ * install affordance instead.
  *
  * Mounted from EditorPage so registration only ever happens on /app — see
  * pwa.ts and docs/design/offline.md for why the marketing pages stay
@@ -19,14 +27,10 @@ import { useRegisterSW } from 'virtual:pwa-register/react';
 import { canUseServiceWorker, createIdleGate } from './pwa';
 import { boardStore } from './store';
 
-/** How long the "ready to work offline" confirmation stays up (matches App.tsx's toasts). */
-const OFFLINE_TOAST_MS = 6000;
-
 export function UpdatePrompt() {
   const supported = canUseServiceWorker();
 
   const {
-    offlineReady: [offlineReady, setOfflineReady],
     needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({
@@ -47,12 +51,6 @@ export function UpdatePrompt() {
     return gate.onSettled(() => setSettled(true));
   }, [needRefresh]);
 
-  useEffect(() => {
-    if (!offlineReady) return;
-    const t = window.setTimeout(() => setOfflineReady(false), OFFLINE_TOAST_MS);
-    return () => window.clearTimeout(t);
-  }, [offlineReady, setOfflineReady]);
-
   if (!supported) return null;
 
   if (needRefresh && settled) {
@@ -72,10 +70,6 @@ export function UpdatePrompt() {
         </button>
       </Toast>
     );
-  }
-
-  if (offlineReady) {
-    return <Toast>Ready to work offline.</Toast>;
   }
 
   return null;

@@ -100,6 +100,26 @@ the gate keeps the interruption out of the user's way.
 Consequence worth knowing: the SSG build hash is `Math.random()`-derived, so it changes
 on **every** build. Every deploy therefore offers an update, even a no-op rebuild.
 
+## The first install is silent, deliberately
+
+There is no "ready to work offline" confirmation. An earlier version showed one, and
+testing on Android made the problem obvious: it appears on a first visit, unprompted,
+for something the visitor never asked for — it reads as the app taking an action rather
+than as good news.
+
+Caching an app's own code without asking is ordinary PWA behaviour (Excalidraw, tldraw,
+Squoosh, most Vite/Next PWA setups do it), close to an extension of HTTP caching, and
+none of them announce it. The opt-in "work offline" switches in Google Docs, Drive and
+Gmail are a different case: those cache a user's *documents*, where privacy and storage
+make the choice genuinely the user's. OpenShaper's boards were already local in
+IndexedDB long before this feature, and the worker caches app code only — so it sits on
+the automatic side of that line.
+
+Discoverability comes from the browser's own install affordance instead. Chrome dropped
+the service-worker requirement for installability (v108 mobile, v112 desktop), so the
+manifest alone earns the native "Install app" entry; nothing here depends on the worker
+existing. `UpdatePrompt.test.tsx` pins the silence, so it cannot creep back in.
+
 ## Fonts
 
 Instrument Sans — the only face the editor uses — is self-hosted via

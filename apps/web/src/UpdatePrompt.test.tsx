@@ -28,17 +28,19 @@ describe('UpdatePrompt', () => {
   describe('with service worker support', () => {
     beforeEach(withServiceWorkerSupport);
 
-    it('confirms offline readiness, then clears itself', () => {
+    // Caching the app's own code is ordinary PWA behaviour; announcing it reads
+    // as the app doing something unrequested. The first install must stay silent.
+    it('says nothing when the worker finishes its first install', () => {
       vi.useFakeTimers();
-      setRegisterSWState({ offlineReady: true });
-      render(<UpdatePrompt />);
+      setRegisterSWState({ offlineReady: true, needRefresh: false });
+      const { container } = render(<UpdatePrompt />);
 
-      expect(screen.getByRole('alert').textContent).toMatch(/ready to work offline/i);
+      expect(container.innerHTML).toBe('');
 
       act(() => {
-        vi.advanceTimersByTime(6000);
+        vi.advanceTimersByTime(60_000);
       });
-      expect(screen.queryByRole('alert')).toBeNull();
+      expect(container.innerHTML).toBe('');
     });
 
     // The whole point of the idle gate: a pending update must not interrupt an
