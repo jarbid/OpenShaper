@@ -58,6 +58,35 @@ export function resolveInternalTraffic(): boolean {
   }
 }
 
+/** How the app is being presented: its own installed window, or a browser tab. */
+export type DisplayMode = 'standalone' | 'browser';
+
+/**
+ * Whether this page is running as an installed PWA.
+ *
+ * Registered as a super property (not an event) so every existing event can be
+ * segmented by it — without that, an installed app and a browser tab are
+ * indistinguishable, and there is no way to tell whether the offline/install
+ * work is used at all. It describes the window, not the visitor: no identity,
+ * nothing persistent, so it sits inside the anonymous baseline.
+ */
+export function resolveDisplayMode(nav?: { standalone?: boolean }): DisplayMode {
+  // `standalone` is an iOS Safari extension, absent from the standard Navigator
+  // type — hence the cast rather than a typed default parameter.
+  const n = nav ?? (globalThis.navigator as unknown as { standalone?: boolean } | undefined);
+  // iOS Safari never implemented the display-mode media query for home-screen
+  // apps and exposes this flag instead.
+  if (n?.standalone === true) return 'standalone';
+  try {
+    // `minimal-ui` / `fullscreen` are launch modes we don't request, so
+    // `standalone` is the only installed presentation to look for.
+    if (window.matchMedia('(display-mode: standalone)').matches) return 'standalone';
+  } catch {
+    // matchMedia missing or unsupported query — fall through to 'browser'.
+  }
+  return 'browser';
+}
+
 export function initAnalytics(): void {
   if (typeof window === 'undefined') return;
   if (import.meta.env.VITEST) return; // never fire real events from the Vitest suite
@@ -116,6 +145,13 @@ export function initAnalytics(): void {
   // opting out entirely, so it stays inspectable in isolation instead of
   // vanishing.
   if (resolveInternalTraffic()) posthog.register({ internal_traffic: true });
+  // Segments every event by installed-app vs browser tab.
+  posthog.register({ display_mode: resolveDisplayMode() });
+  // The moment of conversion. Fires while online, so unlike anything captured
+  // offline it actually sends. `display_mode` still reads 'browser' on this
+  // event — the current window keeps running as a tab; subsequent launches
+  // from the installed icon report 'standalone'.
+  window.addEventListener('appinstalled', () => track('pwa_installed'), { once: true });
   // Returning visitor who already accepted full tracking: upgrade immediately,
   // no banner, no gap in coverage.
   if (getConsent() === 'accepted') upgradeToFullTracking();

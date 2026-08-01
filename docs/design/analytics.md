@@ -244,12 +244,31 @@ Three rules govern every event:
 | `spec_sheet_opened`   | —                                                                            |                                                                           |
 | `trace_image_loaded`  | `target`                                                                     | Distinctive feature, zero prior visibility                                |
 | `consent_banner`      | `action` (`shown` \| `accepted` \| `rejected`)                               | Distinguishes bad copy from a banner nobody sees                          |
+| `pwa_installed`       | —                                                                            | The install conversion; fires online, so unlike offline usage it sends     |
 | `session_summary`     | `edits`, `views_used`, `view_count`, `exported`, `saved`, `imported`, `template_used`, `duration_s` | Session depth without a per-action stream |
 
 `session_summary` (`apps/web/src/session-metrics.ts`) is emitted once on
 `pagehide`. `edits` is read from the undo stack's depth at flush time rather
 than counted per edit, so the drag path is untouched. `views_used` is how editor
 usage is measured — autocapture cannot see the panes, because they are canvases.
+
+### `display_mode` (super property)
+
+`resolveDisplayMode()` registers `display_mode: 'standalone' | 'browser'` on every
+event, so all of the above can be split by installed-PWA vs browser tab. Without
+it the two are indistinguishable and the offline/install work looks unused rather
+than unmeasured. It describes the window, not the visitor — no identity, nothing
+persistent — so it belongs to the anonymous baseline. Detection is the
+`(display-mode: standalone)` media query plus `navigator.standalone` for iOS
+Safari, which never implemented the query for home-screen apps.
+
+**Offline usage is deliberately not tracked.** `posthog-js` holds failed requests
+in an in-memory queue (exponential backoff, flushed on the browser's `online`
+event), and the baseline runs `persistence: 'memory'`, so events captured offline
+are lost on reload or tab close. Any "offline sessions" metric would under-count
+in an unknown, non-random way — worse than not measuring. If it becomes important,
+the honest version is a local counter reported once on the next online load.
+See `docs/design/offline.md`.
 
 Known gap: `board_imported` reports warning *counts* only. `ImportWarning`
 (`packages/io/src/import-warning.ts`) carries a free-text `message` with line

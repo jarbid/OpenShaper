@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { resolveInternalTraffic } from './analytics';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resolveDisplayMode, resolveInternalTraffic } from './analytics';
 
 /**
  * The internal-traffic marker is the only thing that can separate my own
@@ -46,5 +46,47 @@ describe('resolveInternalTraffic', () => {
   it('leaves unrelated query params alone', () => {
     window.history.replaceState({}, '', '/app?utm_source=forum');
     expect(resolveInternalTraffic()).toBe(false);
+  });
+});
+
+/**
+ * `display_mode` is the only thing separating installed-PWA usage from an
+ * ordinary browser tab — nothing else in the payload differs. If it silently
+ * started reporting 'browser' for everyone, the offline/install work would look
+ * unused rather than unmeasured, so pin both detection paths.
+ */
+describe('resolveDisplayMode', () => {
+  const setMatchMedia = (matches: boolean) => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("is 'browser' in an ordinary tab", () => {
+    setMatchMedia(false);
+    expect(resolveDisplayMode()).toBe('browser');
+  });
+
+  it("is 'standalone' when launched from an installed icon", () => {
+    setMatchMedia(true);
+    expect(resolveDisplayMode()).toBe('standalone');
+  });
+
+  // iOS Safari never implemented the display-mode query for home-screen apps.
+  it("is 'standalone' via navigator.standalone on iOS", () => {
+    setMatchMedia(false);
+    expect(resolveDisplayMode({ standalone: true })).toBe('standalone');
+  });
+
+  it('falls back to browser when matchMedia is unavailable', () => {
+    vi.stubGlobal('matchMedia', undefined);
+    expect(resolveDisplayMode()).toBe('browser');
   });
 });
