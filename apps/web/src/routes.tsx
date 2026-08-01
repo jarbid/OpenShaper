@@ -1,6 +1,7 @@
 import type { RouteRecord } from 'vite-react-ssg';
 import { MarketingLayout } from './layouts/MarketingLayout';
 import { RootLayout } from './layouts/RootLayout';
+import { RouteErrorBoundary } from './RouteErrorBoundary';
 
 /**
  * Adapt a default-exporting page module to react-router's data-router `lazy`
@@ -21,11 +22,15 @@ const page = (importer: () => Promise<{ default: React.ComponentType }>) => asyn
  *   layout and are fully prerendered to static HTML for SEO.
  * - `/app` is the editor: a client-only island (see EditorPage) prerendered as a
  *   lightweight, `noindex` hydration shell.
+ * - `errorElement` sits on both the root and `/app`: an error in the root's own
+ *   (vite-react-ssg synthetic) loader bubbles to its own boundary, not a child's,
+ *   so the editor needs its own to keep failures scoped.
  */
 export const routes: RouteRecord[] = [
   {
     element: <RootLayout />,
     entry: 'src/layouts/RootLayout.tsx',
+    errorElement: <RouteErrorBoundary />,
     children: [
       {
         path: '/',
@@ -56,6 +61,7 @@ export const routes: RouteRecord[] = [
       {
         path: 'app',
         lazy: page(() => import('./pages/EditorPage')),
+        errorElement: <RouteErrorBoundary />,
       },
     ],
   },

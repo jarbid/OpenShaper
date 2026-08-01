@@ -1,0 +1,125 @@
+<!doctype html>
+<!--
+  Offline fallback, served by the service worker's catch handler when a
+  navigation to a non-editor route fails (see apps/web/src/sw.ts).
+
+  Deliberately a static file rather than a prerendered route: a route would pull
+  in React, RootLayout's analytics init and vite-react-ssg's synthetic route
+  loader — so the offline page could itself fail offline. Everything here is
+  inline: no script, no webfont, no external image.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#0A1424" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Offline · OpenShaper</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+        background: #0a1424;
+        color: #e6edf7;
+        font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        line-height: 1.55;
+      }
+      main {
+        max-width: 27rem;
+        text-align: center;
+      }
+      svg {
+        width: 56px;
+        height: 56px;
+      }
+      h1 {
+        margin: 1.25rem 0 0.5rem;
+        font-size: 1.5rem;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+      }
+      p {
+        margin: 0 0 1.75rem;
+        color: #9fb0c9;
+      }
+      .actions {
+        display: flex;
+        gap: 0.75rem;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+      a,
+      button {
+        font: inherit;
+        font-weight: 500;
+        padding: 0.6rem 1.1rem;
+        border-radius: 0.5rem;
+        cursor: pointer;
+        border: 1px solid transparent;
+      }
+      a {
+        background: #22d3ee;
+        color: #04121d;
+        text-decoration: none;
+      }
+      button {
+        background: transparent;
+        border-color: #26364f;
+        color: #e6edf7;
+      }
+      a:hover {
+        background: #67e3f6;
+      }
+      button:hover {
+        border-color: #3c5478;
+      }
+      :focus-visible {
+        outline: 2px solid #22d3ee;
+        outline-offset: 2px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <svg viewBox="0 0 32 32" role="img" aria-label="OpenShaper" fill="none">
+        <rect width="32" height="32" rx="8" fill="#0A1424" />
+        <rect
+          x="0.6"
+          y="0.6"
+          width="30.8"
+          height="30.8"
+          rx="7.4"
+          fill="none"
+          stroke="#22D3EE"
+          stroke-opacity="0.3"
+        />
+        <g transform="rotate(-26 16 16)">
+          <g transform="translate(16 4.3) scale(4.5 23.4)">
+            <path
+              fill="#22D3EE"
+              d="M0 0 L0.0236 0 L0.0665 0.0001 L0.1041 0.0003 L0.1211 0.0005 L0.2943 0.0145 L0.4056 0.0357 L0.5284 0.0671 L0.6535 0.1101 L0.7718 0.1659 L0.8741 0.2357 L0.9513 0.3207 L0.9943 0.4222 L1 0.4795 L0.9862 0.5565 L0.9441 0.6314 L0.8724 0.7036 L0.7696 0.7724 L0.6344 0.8372 L0.4656 0.8972 L0.2616 0.9517 L0.0213 1 L-0.0213 1 L-0.2616 0.9517 L-0.4656 0.8972 L-0.6344 0.8372 L-0.7696 0.7724 L-0.8724 0.7036 L-0.9441 0.6314 L-0.9862 0.5565 L-1 0.4795 L-0.9943 0.4222 L-0.9513 0.3207 L-0.8741 0.2357 L-0.7718 0.1659 L-0.6535 0.1101 L-0.5284 0.0671 L-0.4056 0.0357 L-0.2943 0.0145 L-0.1211 0.0005 L-0.1041 0.0003 L-0.0665 0.0001 L-0.0236 0 Z"
+            />
+          </g>
+          <line x1="16" y1="5.6" x2="16" y2="27.1" stroke="#0A1424" stroke-width="0.9" />
+        </g>
+      </svg>
+      <h1>You're offline</h1>
+      <p>This page needs a connection. The design app keeps working without one.</p>
+      <div class="actions">
+        <a href="/app">Open the design app</a>
+        <button type="button" onclick="location.reload()">Try again</button>
+      </div>
+    </main>
+  </body>
+</html>

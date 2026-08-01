@@ -20,10 +20,12 @@
 
 7. **Interop + reach** (next): make the browser-native bet pay off and stop designs
    being trapped in any one tool.
-   1. **Offline first — the next task.** No manifest or service worker exists today,
-      so a workshop with spotty wi-fi loses the app entirely. Ship a PWA: installable,
-      full offline editing, cached templates and assets. Everything already runs
-      client-side, so this is packaging, not architecture.
+   1. **Offline (done).** The `/app` editor is a PWA: installable, fully usable with
+      no network, with a branded fallback for the marketing pages (which stay
+      network-served and are never precached). Instrument Sans is self-hosted so the
+      editor makes no third-party request. A build-time guard fails CI if anything
+      outside the editor's asset graph enters the precache.
+      See `docs/design/offline.md`.
    2. **STEP export** — legacy BoardCAD shipped it and we dropped it; open surface
       export is the wedge against proprietary lock-in.
    3. **Share-by-URL** — encode a board into a link, no backend, no account.

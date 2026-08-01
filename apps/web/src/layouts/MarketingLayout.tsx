@@ -1,6 +1,7 @@
 import { buttonVariants, cn } from '@openshaper/ui';
 import { useEffect } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Head } from 'vite-react-ssg';
 import { Brandmark, WaveLines } from '../components/marks';
 import { CoffeeIcon } from '../components/Support';
 import { CONTACT_EMAIL, CONTACT_MAILTO, GITHUB_URL, SITE_NAME } from '../seo/site';
@@ -45,6 +46,17 @@ export function MarketingLayout() {
 
   return (
     <div className="marketing grain flex min-h-screen flex-col overflow-x-clip">
+      {/* The two display faces are marketing-only, so they load here rather than
+          from index.html — that keeps third-party requests off the /app editor,
+          which has to render with no network. Instrument Sans is self-hosted
+          globally in index.css. */}
+      <Head>
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=JetBrains+Mono:wght@400;500;700&display=swap"
+          rel="stylesheet"
+        />
+      </Head>
       {/* ---- Header ---- */}
       <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-md">
         {/* swell-line bottom edge in place of a flat hairline */}

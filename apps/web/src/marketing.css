@@ -10,7 +10,7 @@
  */
 
 .marketing {
-  font-family: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+  font-family: 'Instrument Sans Variable', 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   letter-spacing: -0.005em;

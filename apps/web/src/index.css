@@ -3,6 +3,14 @@
 /* OpenShaper design tokens (light/dark CSS vars + @theme mapping). */
 @import '@openshaper/ui/styles.css';
 
+/* Instrument Sans is self-hosted rather than loaded from Google Fonts: the
+   editor has to render correctly with no network at all, and a render-blocking
+   cross-origin stylesheet also stalls first paint on the flaky workshop
+   connections this app is built for. Vite emits the woff2 into assets/, where
+   the service worker precaches it. The two display faces used only by the
+   marketing pages are still loaded from Google, from MarketingLayout. */
+@import '@fontsource-variable/instrument-sans';
+
 /* Scan the design-system package for utility classes used by its components. */
 @source '../../../packages/ui/src';
 
@@ -16,6 +24,7 @@ body,
 body {
   @apply bg-background text-foreground;
   font-family:
+    'Instrument Sans Variable',
     'Instrument Sans',
     ui-sans-serif,
     system-ui,

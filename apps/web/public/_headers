@@ -9,3 +9,16 @@
 # Fingerprinted build assets never change — cache them hard.
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
+
+# The browser byte-compares the service worker on every update check. If a CDN
+# caches it, updates never reach anyone who already has the app installed.
+/sw.js
+  Cache-Control: no-cache
+
+/manifest.webmanifest
+  Cache-Control: public, max-age=3600
+  Content-Type: application/manifest+json
+
+# Unhashed by design — the web app manifest references these paths literally.
+/icons/*
+  Cache-Control: public, max-age=604800
