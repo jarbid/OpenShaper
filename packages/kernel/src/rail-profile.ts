@@ -438,8 +438,14 @@ export interface RailPreset {
  * near the bottom, picking up more edge as it goes, which is the progression a shortboard
  * runs from nose to tail. The last four vary volume and shape at a roughly fixed ratio.
  *
- * The band figures are anchored on real stations from `docs/specs/golden/shortboard.brd`,
- * which turn the deck from about 22% of half-width in and the bottom from only 7%.
+ * The bands follow the proportions in Greenlight's dimensioned rail-band drawing: the
+ * deck is worked from several times further in than the bottom, roughly 4:1 here. That
+ * asymmetry is the shape of the thing — a board's bottom stays flat almost to the rail.
+ *
+ * Their absolute figures are wider than these, and deliberately so: a shaper marks bands
+ * on a square blank, where the deck is flat and there is nothing to preserve. We are
+ * refining a section that has already been shaped, so the deck-side blend stops short of
+ * the crown rather than planing through it.
  *
  * Ids are kebab-case, deliberately unlike `FinFoil`'s `'50/50'` / `'80/20'` (`fins.ts`),
  * which describe a fin's foil and have nothing to do with rails.
@@ -450,56 +456,56 @@ export const RAIL_PRESETS = [
     label: '50/50 soft',
     summary:
       'Apex at mid-rail, round and symmetric. Forgiving and easy to lean on — longboards, noseriders, and the nose of most boards.',
-    params: { apex: 0.5, edge: 0.05, fullness: 0.65, deckBand: 0.3, bottomBand: 0.26 },
+    params: { apex: 0.5, edge: 0.05, fullness: 0.65, deckBand: 0.38, bottomBand: 0.1 },
   },
   {
     id: '60-40-tucked',
     label: '60/40 tucked',
     summary:
       'Apex 40% up with a tucked-under edge. The all-round rail through the middle of a board: holds in a turn, releases once there is speed.',
-    params: { apex: 0.4, edge: 0.5, fullness: 0.55, deckBand: 0.24, bottomBand: 0.14 },
+    params: { apex: 0.4, edge: 0.5, fullness: 0.55, deckBand: 0.32, bottomBand: 0.08 },
   },
   {
     id: '70-30-tucked',
     label: '70/30 tucked',
     summary:
       'A step lower and harder than 60/40. Sits between the middle of the board and the fin area.',
-    params: { apex: 0.3, edge: 0.65, fullness: 0.5, deckBand: 0.22, bottomBand: 0.09 },
+    params: { apex: 0.3, edge: 0.65, fullness: 0.5, deckBand: 0.28, bottomBand: 0.07 },
   },
   {
     id: '80-20-hard',
     label: '80/20 hard',
     summary:
       'Apex low, with the bottom running flat to a crisp edge that sheds water cleanly. The last stretch of a performance tail.',
-    params: { apex: 0.2, edge: 1, fullness: 0.45, deckBand: 0.22, bottomBand: 0.07 },
+    params: { apex: 0.2, edge: 1, fullness: 0.45, deckBand: 0.26, bottomBand: 0.06 },
   },
   {
     id: 'boxy',
     label: 'Boxy',
     summary:
       'Full, high-volume rail that holds its width and rolls over from well inboard. Stable and buoyant — beginner boards and small-wave shapes.',
-    params: { apex: 0.45, edge: 0.35, fullness: 1, deckBand: 0.35, bottomBand: 0.24 },
+    params: { apex: 0.45, edge: 0.35, fullness: 1, deckBand: 0.4, bottomBand: 0.09 },
   },
   {
     id: 'pinched',
     label: 'Pinched',
     summary:
       'Low-volume rail that turns in late and thin. Sensitive and quick to bite; wants an experienced back foot, and a domed deck under it.',
-    params: { apex: 0.35, edge: 0.6, fullness: 0.15, deckBand: 0.22, bottomBand: 0.09 },
+    params: { apex: 0.35, edge: 0.6, fullness: 0.15, deckBand: 0.28, bottomBand: 0.07 },
   },
   {
     id: 'egg',
     label: 'Egg',
     summary:
       'Drawn-out elliptical 50/50 with a soft apex and a long roll. Smooth and predictable — retro and hybrid shapes.',
-    params: { apex: 0.5, edge: 0, fullness: 0.4, deckBand: 0.32, bottomBand: 0.28 },
+    params: { apex: 0.5, edge: 0, fullness: 0.4, deckBand: 0.4, bottomBand: 0.11 },
   },
   {
     id: 'knifey',
     label: 'Knifey',
     summary:
       'Very thin, almost flat ellipse with minimal buoyancy. Use at the tips only — it catches if carried through the middle.',
-    params: { apex: 0.45, edge: 0.1, fullness: 0, deckBand: 0.24, bottomBand: 0.2 },
+    params: { apex: 0.45, edge: 0.1, fullness: 0, deckBand: 0.3, bottomBand: 0.08 },
   },
 ] as const satisfies readonly RailPreset[];
 

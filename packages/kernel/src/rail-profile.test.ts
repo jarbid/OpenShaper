@@ -226,6 +226,33 @@ describe('applyRailProfile: the rail itself', () => {
   });
 
   /**
+   * The definitional case, and the cleanest oracle there is for the naming. On a square
+   * blank — flat deck, flat bottom, vertical rail face, which is exactly how the guide's
+   * dimensioned band drawing is laid out — every way of reading the ratio agrees, so a
+   * 50/50 must put its apex at precisely half the thickness and an 80/20 at a fifth.
+   */
+  it('lands every ratio exactly on a square blank', () => {
+    const T = 6;
+    const HW = 25;
+    const slab = crossSection(
+      60,
+      splineFromKnots([
+        knot(vec2(0, 0), vec2(-12, 0), vec2(12, 0)),
+        knot(vec2(HW, 0), vec2(HW - 6, 0), vec2(HW, 0.01)),
+        knot(vec2(HW, T), vec2(HW, T - 0.01), vec2(HW - 6, T)),
+        knot(vec2(0, T), vec2(12, T), vec2(-12, T)),
+      ]),
+    );
+    for (const preset of RAIL_PRESETS) {
+      const out = applyRailProfile(slab, preset.params);
+      expect(widestSampled(out.spline).y / T, `${preset.id} on a square blank`).toBeCloseTo(
+        preset.params.apex,
+        3,
+      );
+    }
+  });
+
+  /**
    * The ratio is "the midpoint of the rail radius itself", not of the deck and bottom
    * planes — so on a shortboard, whose deck domes away while the bottom stays flat, even
    * a 50/50 apex sits below mid-thickness. Domed the bottom too, as a longboard or hull
