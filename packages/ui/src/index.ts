@@ -7,4 +7,5 @@ export { Toolbar, ToolbarSeparator } from './components/toolbar';
 export { MenuBar, Menu, renderMenuItems, type MenuItem } from './components/menu';
 export { ContextMenu, type ContextMenuProps } from './components/context-menu';
 export { Toast } from './components/toast';
+export { Tooltip, type TooltipProps } from './components/tooltip';
 export { BottomSheet, type BottomSheetProps, type SheetSnap } from './components/sheet';

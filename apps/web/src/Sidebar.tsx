@@ -7,9 +7,10 @@
  */
 import type { InterpolationType } from '@openshaper/kernel';
 import type { BoardSpecs } from '@openshaper/store';
-import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
-import { Copy } from 'lucide-react';
+import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle, Tooltip } from '@openshaper/ui';
+import { Check, Copy } from 'lucide-react';
 import {
+  useEffect,
   useState,
   useSyncExternalStore,
   type Dispatch,
@@ -153,6 +154,14 @@ export function Sidebar({
   ghost,
   ghostSpecs,
 }: SidebarProps) {
+  // Brief confirmation after copying the dimensions headline; resets itself.
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const t = window.setTimeout(() => setCopied(false), 1500);
+    return () => window.clearTimeout(t);
+  }, [copied]);
+
   return (
     <div className="flex w-full min-h-0 shrink-0 flex-col gap-3 overflow-y-auto pr-0.5 lg:w-72">
       <Panel>
@@ -162,26 +171,37 @@ export function Sidebar({
         <PanelBody className="space-y-1 text-sm">
           {specs ? (
             <>
-              <button
-                type="button"
-                title="Copy dimensions"
-                aria-label="Copy dimensions"
-                className="flex w-full items-center justify-between gap-2 rounded-md bg-muted/40 px-2 py-1.5 text-left hover:bg-muted"
-                onClick={() => {
-                  const text = fmtDimsHeadline(
-                    specs.length,
-                    specs.maxWidth,
-                    specs.thickness,
-                    units,
-                  );
-                  void navigator.clipboard?.writeText(text)?.catch(() => {});
-                }}
-              >
-                <span className="font-mono text-[13px] tabular-nums text-foreground">
-                  {fmtDimsHeadline(specs.length, specs.maxWidth, specs.thickness, units)}
-                </span>
-                <Copy className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              </button>
+              <Tooltip label={copied ? 'Copied' : 'Copy dimensions'}>
+                <button
+                  type="button"
+                  aria-label="Copy dimensions"
+                  className="flex w-full items-center justify-between gap-2 rounded-md bg-muted/40 px-2 py-1.5 text-left hover:bg-muted"
+                  onClick={() => {
+                    const text = fmtDimsHeadline(
+                      specs.length,
+                      specs.maxWidth,
+                      specs.thickness,
+                      units,
+                    );
+                    void navigator.clipboard
+                      ?.writeText(text)
+                      ?.then(() => setCopied(true))
+                      ?.catch(() => {});
+                  }}
+                >
+                  <span className="font-mono text-[13px] tabular-nums text-foreground">
+                    {fmtDimsHeadline(specs.length, specs.maxWidth, specs.thickness, units)}
+                  </span>
+                  {/* Copying changes nothing on screen, so without this the click reads
+                      as broken — people click again. It was one of the editor's
+                      most-repeated dead clicks before the tick was added. */}
+                  {copied ? (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  )}
+                </button>
+              </Tooltip>
 
               <SpecGroup title="Nose">
                 <SpecRow label={'Width @ 12"'} value={fmtLen(specs.noseWidth, units)} />

@@ -1,4 +1,4 @@
-import { Button } from '@openshaper/ui';
+import { Button, Tooltip } from '@openshaper/ui';
 import { ChevronLeft, ChevronRight, ClipboardPaste, Copy, Plus, Trash2 } from 'lucide-react';
 
 export interface CrossSectionControlsProps {
@@ -17,6 +17,9 @@ export interface CrossSectionControlsProps {
  * Compact cross-section management cluster for the cross-section pane header (quad +
  * standalone). Icon buttons keep it small enough for the quad-view cell. Mirrors the
  * legacy BoardCAD-LE Cross-sections menu: navigate, add, delete, copy, paste.
+ *
+ * Every button is icon-only, so each is wrapped in a `Tooltip` — `aria-label` alone
+ * covers screen readers but leaves sighted users guessing at a glyph.
  */
 export function CrossSectionControls({
   index,
@@ -32,74 +35,80 @@ export function CrossSectionControls({
   const icon = 'h-7 w-7 p-0';
   return (
     <div className="flex items-center gap-0.5">
-      <Button
-        size="sm"
-        variant="ghost"
-        className={icon}
-        disabled={index <= 1}
-        onClick={onPrev}
-        aria-label="Previous cross-section"
-        title="Previous cross-section ( [ )"
-      >
-        <ChevronLeft />
-      </Button>
+      <Tooltip label="Previous cross-section" shortcut="[">
+        <Button
+          size="sm"
+          variant="ghost"
+          className={icon}
+          disabled={index <= 1}
+          onClick={onPrev}
+          aria-label="Previous cross-section"
+        >
+          <ChevronLeft />
+        </Button>
+      </Tooltip>
       <span className="min-w-10 px-0.5 text-center text-xs tabular-nums text-muted-foreground">
         {index}/{total}
       </span>
-      <Button
-        size="sm"
-        variant="ghost"
-        className={icon}
-        disabled={index >= total}
-        onClick={onNext}
-        aria-label="Next cross-section"
-        title="Next cross-section ( ] )"
-      >
-        <ChevronRight />
-      </Button>
+      <Tooltip label="Next cross-section" shortcut="]">
+        <Button
+          size="sm"
+          variant="ghost"
+          className={icon}
+          disabled={index >= total}
+          onClick={onNext}
+          aria-label="Next cross-section"
+        >
+          <ChevronRight />
+        </Button>
+      </Tooltip>
       <span className="mx-0.5 h-5 w-px bg-border" />
-      <Button
-        size="sm"
-        variant="ghost"
-        className={icon}
-        onClick={onAdd}
-        aria-label="Add cross-section"
-        title="Add a cross-section here"
-      >
-        <Plus />
-      </Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        className={icon}
-        disabled={total <= 1}
-        onClick={onDelete}
-        aria-label="Delete cross-section"
-        title="Delete this cross-section"
-      >
-        <Trash2 />
-      </Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        className={icon}
-        onClick={onCopy}
-        aria-label="Copy cross-section"
-        title="Copy this cross-section"
-      >
-        <Copy />
-      </Button>
-      <Button
-        size="sm"
-        variant="ghost"
-        className={icon}
-        disabled={!canPaste}
-        onClick={onPaste}
-        aria-label="Paste cross-section"
-        title="Paste the copied cross-section shape here"
-      >
-        <ClipboardPaste />
-      </Button>
+      <Tooltip label="Add a cross-section here">
+        <Button
+          size="sm"
+          variant="ghost"
+          className={icon}
+          onClick={onAdd}
+          aria-label="Add cross-section"
+        >
+          <Plus />
+        </Button>
+      </Tooltip>
+      <Tooltip label="Delete this cross-section">
+        <Button
+          size="sm"
+          variant="ghost"
+          className={icon}
+          disabled={total <= 1}
+          onClick={onDelete}
+          aria-label="Delete cross-section"
+        >
+          <Trash2 />
+        </Button>
+      </Tooltip>
+      <Tooltip label="Copy this cross-section">
+        <Button
+          size="sm"
+          variant="ghost"
+          className={icon}
+          onClick={onCopy}
+          aria-label="Copy cross-section"
+        >
+          <Copy />
+        </Button>
+      </Tooltip>
+      <Tooltip label="Paste the copied cross-section shape here">
+        <Button
+          size="sm"
+          variant="ghost"
+          className={icon}
+          disabled={!canPaste}
+          onClick={onPaste}
+          aria-label="Paste cross-section"
+        >
+          <ClipboardPaste />
+        </Button>
+      </Tooltip>
     </div>
   );
 }
