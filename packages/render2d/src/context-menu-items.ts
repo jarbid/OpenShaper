@@ -1,4 +1,5 @@
 import {
+  RAIL_PRESETS,
   closestPointOnSpline,
   value,
   type BezierBoard,
@@ -48,8 +49,14 @@ export interface ContextMenuRequest {
  *  - on a curve (but not a handle) → Add point here;
  *  - empty space → just the view group.
  *
- * "Fit view" is always offered. All actions dispatch existing, individually-undoable
- * store commands. Pure: it only wires `onSelect` handlers and reads a board snapshot.
+ * "Fit view" is always offered, and in the cross-section pane so is the "Rail preset"
+ * submenu — that one restyles the pane's active section rather than whatever sits under
+ * the cursor, so like "Fit view" it is offered from all three branches. Gating it on the
+ * hit test would mean a right-click landing within a few pixels of one of the five
+ * handles silently lost the feature.
+ *
+ * All actions dispatch existing, individually-undoable store commands. Pure: it only
+ * wires `onSelect` handlers and reads a board snapshot.
  */
 export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
   const { board, targets, vp, screen, mirrorX, mirrorY, store, onFitView, onAddSectionAt } = req;
@@ -57,6 +64,28 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
     { kind: 'separator' },
     { kind: 'action', label: 'Fit view', onSelect: onFitView },
   ];
+
+  // The nose and tail dummies carry a single knot and have no rail to shape. `App.tsx`
+  // clamps the active section away from them, but this builder is pure and unit-tested
+  // standalone, so it guards for itself.
+  const csTarget = targets.find(
+    (t): t is Extract<SplineTarget, { kind: 'crossSection' }> =>
+      t.kind === 'crossSection' && t.index > 0 && t.index < board.crossSections.length - 1,
+  );
+  const railGroup: MenuItem[] = csTarget
+    ? [
+        {
+          kind: 'submenu',
+          label: 'Rail preset',
+          items: RAIL_PRESETS.map((preset) => ({
+            kind: 'action' as const,
+            label: preset.label,
+            onSelect: () => store.getState().applyRailPreset(csTarget.index, preset.id),
+          })),
+        },
+      ]
+    : [];
+  const tail: MenuItem[] = [...railGroup, ...viewGroup];
 
   // 1. Did we land on a control-point handle?
   for (const target of targets) {
@@ -80,7 +109,7 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
       shortcut: 'Del',
       onSelect: () => store.getState().deleteControlPoint(target, hit.index),
     });
-    return [...items, ...viewGroup];
+    return [...items, ...tail];
   }
 
   // 2. Otherwise, are we close enough to a curve to insert a point there?
@@ -114,7 +143,8 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
     });
   }
 
-  // 3. Otherwise — the gathered items (if any) plus the view group, else view group only.
-  if (items.length > 0) return [...items, ...viewGroup];
-  return viewGroup.slice(1);
+  // 3. Otherwise — the gathered items (if any) plus the tail, else the tail alone with
+  // its leading separator dropped (nothing precedes it to separate from).
+  if (items.length > 0) return [...items, ...tail];
+  return railGroup.length > 0 ? tail : viewGroup.slice(1);
 }

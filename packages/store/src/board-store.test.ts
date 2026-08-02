@@ -629,3 +629,84 @@ describe('selectors: nose/tail station readouts', () => {
     expect(selectSpecs(b)).toBe(selectSpecs(b));
   });
 });
+
+describe('board store: applyRailPreset', () => {
+  const load = () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+    return store;
+  };
+
+  it('restyles the section in one undoable step', () => {
+    const store = load();
+    const before = store.getState().board!.crossSections[1]!.spline;
+    const history = store.getState().past.length;
+
+    store.getState().applyRailPreset(1, 'boxy');
+
+    const after = store.getState().board!.crossSections[1]!.spline;
+    expect(after).not.toBe(before);
+    expect(after.knots).toHaveLength(5);
+    expect(store.getState().past).toHaveLength(history + 1);
+    expect(store.getState().past.at(-1)!.label).toBe('Rail preset: Boxy');
+
+    store.getState().undo();
+    expect(store.getState().board!.crossSections[1]!.spline).toBe(before);
+  });
+
+  /**
+   * The load-bearing one. A preset restyles the rail and nothing else: it must not move
+   * the board curves (which would happen if `propagateCrossSectionToCurves` saw the
+   * width or centreline heights change), and it must not be quietly resized by the
+   * commit-time `adjustCrossSectionsToThicknessAndWidth` pass. Both show up here as the
+   * curve splines keeping their identity.
+   */
+  it('leaves the outline, deck and rocker untouched', () => {
+    const store = load();
+    const before = store.getState().board!;
+    const width = getWidthAtPos(before, 50);
+    const thickness = getThicknessAtPos(before, 50);
+    const csBefore = before.crossSections[1]!;
+
+    store.getState().applyRailPreset(1, '80-20-hard');
+
+    const after = store.getState().board!;
+    expect(after.outline).toBe(before.outline);
+    expect(after.deck).toBe(before.deck);
+    expect(after.bottom).toBe(before.bottom);
+    expect(getWidthAtPos(after, 50)).toBeCloseTo(width, 9);
+    expect(getThicknessAtPos(after, 50)).toBeCloseTo(thickness, 9);
+    // The station keeps the dimensions it had, so the commit-time rescale has nothing
+    // to correct and the profile the shaper picked is the profile they get.
+    const csAfter = after.crossSections[1]!;
+    expect(csWidth(csAfter)).toBeCloseTo(csWidth(csBefore), 6);
+    expect(csCenterThickness(csAfter)).toBeCloseTo(csCenterThickness(csBefore), 6);
+  });
+
+  it('survives the commit pipeline unchanged when applied twice', () => {
+    const store = load();
+    store.getState().applyRailPreset(1, '60-40-tucked');
+    const once = store.getState().board!.crossSections[1]!.spline.knots;
+    store.getState().applyRailPreset(1, '60-40-tucked');
+    expect(store.getState().board!.crossSections[1]!.spline.knots).toEqual(once);
+  });
+
+  it('clears a stale control-point selection', () => {
+    const store = load();
+    store.getState().select({ target: { kind: 'crossSection', index: 1 }, index: 1 });
+    store.getState().applyRailPreset(1, 'egg');
+    expect(store.getState().selection).toBeNull();
+  });
+
+  it('ignores the nose and tail dummies and unknown presets', () => {
+    const store = load();
+    const before = store.getState().board!;
+    const history = store.getState().past.length;
+    store.getState().applyRailPreset(0, 'egg');
+    store.getState().applyRailPreset(before.crossSections.length - 1, 'egg');
+    // @ts-expect-error — an id the kernel does not define.
+    store.getState().applyRailPreset(1, 'not-a-preset');
+    expect(store.getState().board).toBe(before);
+    expect(store.getState().past).toHaveLength(history);
+  });
+});

@@ -1,4 +1,5 @@
 import {
+  RAIL_PRESETS,
   board,
   crossSection,
   knot,
@@ -49,11 +50,23 @@ const setup = () => {
   return { store, onFitView, build };
 };
 
+/** Top-level row labels; a submenu contributes its own label, not its children's. */
 const labels = (items: MenuItem[]): string[] =>
-  items.flatMap((i) => (i.kind === 'action' || i.kind === 'checkbox' ? [i.label] : []));
+  items.flatMap((i) =>
+    i.kind === 'action' || i.kind === 'checkbox' || i.kind === 'submenu' ? [i.label] : [],
+  );
 
 const find = (items: MenuItem[], label: string) =>
-  items.find((i) => (i.kind === 'action' || i.kind === 'checkbox') && i.label === label);
+  items.find(
+    (i) =>
+      (i.kind === 'action' || i.kind === 'checkbox' || i.kind === 'submenu') && i.label === label,
+  );
+
+const submenu = (items: MenuItem[], label: string): Extract<MenuItem, { kind: 'submenu' }> => {
+  const found = find(items, label);
+  if (found?.kind !== 'submenu') throw new Error(`no submenu labelled ${label}`);
+  return found;
+};
 
 describe('buildContextMenuItems', () => {
   it('on an interior point: offers smooth/corner toggle + an enabled Delete, plus Fit view', () => {
@@ -137,5 +150,101 @@ describe('buildContextMenuItems', () => {
     const { build } = setup();
     const items = build(worldToScreen(VP, vec2(30, 50)));
     expect(labels(items)).not.toContain('Add cross-section here');
+  });
+});
+
+describe('buildContextMenuItems: rail presets', () => {
+  /**
+   * A board whose cross-sections are big enough to right-click *between* the handles —
+   * the shared `makeBoard` profile is only a few world units across, so at this
+   * viewport scale every point on it falls inside the handle-pick radius.
+   */
+  const makeCsBoard = (): BezierBoard => {
+    const k = (ex: number, ey: number) => knot(vec2(ex, ey), vec2(ex - 5, ey), vec2(ex + 5, ey));
+    const outline = splineFromKnots([k(0, 0), k(50, 20), k(100, 0)]);
+    const bottom = splineFromKnots([k(0, 0), k(50, 0), k(100, 0)]);
+    const deck = splineFromKnots([k(0, 0), k(50, 12), k(100, 0)]);
+    const prof = splineFromKnots([
+      knot(vec2(0, 0), vec2(-8, 0), vec2(8, 0)),
+      knot(vec2(20, 6), vec2(20, 2), vec2(20, 10)),
+      knot(vec2(0, 12), vec2(8, 12), vec2(-8, 12)),
+    ]);
+    const cs = [crossSection(0, prof), crossSection(50, prof), crossSection(100, prof)];
+    return board(outline, bottom, deck, cs);
+  };
+
+  const csSetup = (targets: SplineTarget[] = [{ kind: 'crossSection', index: 1 }]) => {
+    const store = createBoardStore();
+    store.getState().load(makeCsBoard());
+    const build = (screen: { x: number; y: number }): MenuItem[] =>
+      buildContextMenuItems({
+        board: store.getState().board!,
+        targets,
+        vp: VP,
+        screen,
+        mirrorX: true,
+        mirrorY: false,
+        store,
+        onFitView: vi.fn(),
+      });
+    // Three places a right-click can land, in the cross-section pane's own space.
+    const spline = store.getState().board!.crossSections[1]!.spline;
+    const onHandle = worldToScreen(VP, spline.knots[1]!.end);
+    const onCurve = worldToScreen(VP, value(spline.coeffs[0]!, 0.5));
+    const empty = worldToScreen(VP, vec2(900, 900));
+    return { store, build, onHandle, onCurve, empty };
+  };
+
+  /**
+   * The preset acts on the pane's active section, not on whatever is under the cursor,
+   * so it has to be reachable from every right-click — including one that happens to
+   * land within the handle-pick radius of a control point.
+   */
+  it('is offered wherever the click lands in the cross-section pane', () => {
+    const { build, onHandle, onCurve, empty } = csSetup();
+    expect(labels(build(onHandle))).toContain('Rail preset');
+    expect(labels(build(onCurve))).toContain('Rail preset');
+    expect(labels(build(empty))).toContain('Rail preset');
+    // Still a hit-test-driven menu underneath.
+    expect(labels(build(onHandle))).toContain('Delete point');
+    expect(labels(build(onCurve))).toContain('Add point here');
+  });
+
+  it('lists every preset, in kernel order, as an action', () => {
+    const { build, empty } = csSetup();
+    const items = submenu(build(empty), 'Rail preset').items;
+    expect(items.map((i) => (i.kind === 'action' ? i.label : null))).toEqual(
+      RAIL_PRESETS.map((p) => p.label),
+    );
+  });
+
+  it('applies the chosen preset to the pane’s active section', () => {
+    const { store, build, empty } = csSetup();
+    const before = store.getState().board!.crossSections[1]!.spline;
+    const item = submenu(build(empty), 'Rail preset').items.find(
+      (i) => i.kind === 'action' && i.label === '80/20 hard',
+    );
+    expect(item?.kind).toBe('action');
+    if (item?.kind === 'action') item.onSelect();
+
+    const after = store.getState().board!;
+    expect(after.crossSections[1]!.spline).not.toBe(before);
+    expect(store.getState().past.at(-1)!.label).toBe('Rail preset: 80/20 hard');
+    // The neighbouring stations are the shaper's business, not the preset's.
+    expect(after.crossSections[0]).toBe(store.getState().past.at(-1)!.board.crossSections[0]);
+  });
+
+  it('is not offered outside the cross-section pane', () => {
+    const { build, empty } = csSetup([{ kind: 'outline' }]);
+    expect(labels(build(empty))).not.toContain('Rail preset');
+    const rocker = csSetup([{ kind: 'deck' }, { kind: 'bottom' }]);
+    expect(labels(rocker.build(rocker.empty))).not.toContain('Rail preset');
+  });
+
+  it('is not offered for the nose and tail dummy stations', () => {
+    for (const index of [0, 2]) {
+      const { build, empty } = csSetup([{ kind: 'crossSection', index }]);
+      expect(labels(build(empty)), `station ${index}`).not.toContain('Rail preset');
+    }
   });
 });

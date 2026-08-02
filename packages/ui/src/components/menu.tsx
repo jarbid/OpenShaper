@@ -9,15 +9,111 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from 'react';
-import { Check } from 'lucide-react';
+import { Check, ChevronRight } from 'lucide-react';
 import { cn } from '../lib/cn';
 
-/** One row in a dropdown menu. `checkbox` is also used for radio-style groups. */
+/**
+ * One row in a dropdown menu. `checkbox` is also used for radio-style groups.
+ *
+ * `submenu` opens a flyout of further items. The flyout is nested *inside* the parent
+ * panel rather than portalled, so `ContextMenu`'s outside-click check still sees it as
+ * inside the menu. That has one consequence worth knowing: a panel that clips its
+ * overflow will clip the flyout too, which is why submenus are used in `ContextMenu`
+ * (no clipping) and not yet in the menubar `Menu`, whose panel scrolls.
+ */
 export type MenuItem =
   | { kind: 'action'; label: string; onSelect: () => void; disabled?: boolean; shortcut?: string }
   | { kind: 'checkbox'; label: string; checked: boolean; onSelect: () => void }
+  | { kind: 'submenu'; label: string; items: MenuItem[]; disabled?: boolean }
   | { kind: 'label'; label: string }
   | { kind: 'separator' };
+
+/** Shared row chrome, so submenu rows sit flush with action and checkbox rows. */
+const ROW_CLASS =
+  'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 pointer-coarse:py-2.5';
+
+/**
+ * A row that opens a flyout of further items. Opens on hover, click or ArrowRight;
+ * closes on ArrowLeft or Escape without dismissing the menu it sits in. Choosing an
+ * item inside runs `onAfterAction`, closing the whole stack.
+ */
+function SubmenuRow({
+  label,
+  items,
+  disabled,
+  onAfterAction,
+}: {
+  label: string;
+  items: MenuItem[];
+  disabled?: boolean;
+  onAfterAction: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  // Flip the flyout to the left when opening rightward would run off-screen.
+  const [flip, setFlip] = useState(false);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      setFlip(false);
+      return;
+    }
+    const el = panelRef.current;
+    if (!el) return;
+    setFlip(el.getBoundingClientRect().right > window.innerWidth - 8);
+  }, [open]);
+
+  useEffect(() => {
+    if (open) panelRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+  }, [open]);
+
+  return (
+    <div
+      className="relative"
+      onPointerEnter={() => !disabled && setOpen(true)}
+      onPointerLeave={() => setOpen(false)}
+    >
+      <button
+        type="button"
+        role="menuitem"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            setOpen(true);
+          }
+        }}
+        className={ROW_CLASS}
+      >
+        <span className="w-4 shrink-0" />
+        <span className="flex-1">{label}</span>
+        <ChevronRight className="size-3.5 text-muted-foreground" />
+      </button>
+      {open && (
+        <div
+          ref={panelRef}
+          role="menu"
+          onKeyDown={(e) => {
+            if (e.key !== 'ArrowLeft' && e.key !== 'Escape') return;
+            // Close just the flyout — the menu around it stays open.
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen(false);
+          }}
+          className={cn(
+            'absolute top-0 z-10 min-w-48 rounded-md border border-border bg-card p-1 text-card-foreground shadow-lg',
+            flip ? 'right-full mr-1' : 'left-full ml-1',
+          )}
+        >
+          {renderMenuItems(items, onAfterAction)}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * Render a flat `MenuItem[]` as menu rows. Shared by the menubar `Menu` and the
@@ -38,6 +134,16 @@ export function renderMenuItems(items: MenuItem[], onAfterAction: () => void): R
           {item.label}
         </div>
       );
+    if (item.kind === 'submenu')
+      return (
+        <SubmenuRow
+          key={idx}
+          label={item.label}
+          items={item.items}
+          disabled={item.disabled}
+          onAfterAction={onAfterAction}
+        />
+      );
     const isCheckbox = item.kind === 'checkbox';
     return (
       <button
@@ -50,7 +156,7 @@ export function renderMenuItems(items: MenuItem[], onAfterAction: () => void): R
           item.onSelect();
           if (item.kind === 'action') onAfterAction();
         }}
-        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 pointer-coarse:py-2.5"
+        className={ROW_CLASS}
       >
         <span className="flex w-4 shrink-0 justify-center">
           {isCheckbox && item.checked && <Check className="size-3.5" />}

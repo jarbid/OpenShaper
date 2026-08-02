@@ -35,6 +35,7 @@ export type FeatureKind =
   | 'fin-profile'
   | 'export-format'
   | 'board-template'
+  | 'rail-preset'
   | 'shortcut';
 
 export interface DocEntry {
@@ -65,6 +66,19 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
   ...entries('fin-profile', '/docs/fins', ['thruster', 'single', 'noserider', 'keel']),
   ...entries('export-format', '/docs/export', ['stl', 'dxf', 'dxf-spline', 'pdf-1to1']),
   ...entries('board-template', '/docs/files', ['Shortboard', 'Funboard', 'Longboard']),
+  // Spelled out rather than imported from the kernel on purpose: the registry is an
+  // independent claim that the coverage test diffs against `RAIL_PRESETS`. Import the
+  // array here and the assertion becomes `x === x`.
+  ...entries('rail-preset', '/docs/editing', [
+    '50-50-soft',
+    '60-40-tucked',
+    '70-30-tucked',
+    '80-20-hard',
+    'boxy',
+    'pinched',
+    'egg',
+    'knifey',
+  ]),
   ...entries('shortcut', '/docs/shortcuts', [
     'undo',
     'redo',

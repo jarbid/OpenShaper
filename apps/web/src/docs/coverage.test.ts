@@ -15,7 +15,7 @@
  * *accurate*. What it removes is silent omission, which is the failure mode that
  * actually happens.
  */
-import { FIN_PROFILES_LIST, FIN_SETUPS, FIN_SYSTEMS } from '@openshaper/kernel';
+import { FIN_PROFILES_LIST, FIN_SETUPS, FIN_SYSTEMS, RAIL_PRESETS } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
 import { EXPORT_FORMATS } from '../file-io';
 import { SHORTCUTS } from '../shortcuts';
@@ -66,6 +66,13 @@ describe('docs coverage', () => {
     expectDocumented(
       'board-template',
       BOARD_TEMPLATES.map((t) => t.name),
+    );
+  });
+
+  it('documents every rail preset', () => {
+    expectDocumented(
+      'rail-preset',
+      RAIL_PRESETS.map((p) => p.id),
     );
   });
 

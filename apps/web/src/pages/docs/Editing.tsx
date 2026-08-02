@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { Link } from 'react-router-dom';
+import { RAIL_PRESETS } from '@openshaper/kernel';
 import { shortcutKeys } from '../../shortcuts';
 import { DocsPage, Section, Term, Terms } from './DocsPage';
 
@@ -13,6 +14,7 @@ export default function DocsEditing() {
         { id: 'views', label: 'The four views' },
         { id: 'points', label: 'Control points & tangents' },
         { id: 'sections', label: 'Cross-sections' },
+        { id: 'rails', label: 'Rail presets' },
         { id: 'tail', label: 'Concave tails' },
         { id: 'undo', label: 'Undo & history' },
       ]}
@@ -67,6 +69,32 @@ export default function DocsEditing() {
           Sections can be copied and pasted, which is the quickest way to hold a rail shape constant
           through a stretch of the board and then vary it deliberately.
         </p>
+      </Section>
+
+      <Section id="rails" title="Rail presets">
+        <p>
+          Right-click in the cross-section view and pick a shape under <em>Rail preset</em> to
+          restyle the station you are on. It applies to that one section — build a rail that changes
+          along the board by stepping through stations and choosing as you go, which is what a
+          shaper does anyway: soft through the nose, tucked through the middle, hard off the tail.
+        </p>
+        <p>
+          A preset keeps the station&rsquo;s width and thickness, so the outline and rocker do not
+          move; only the rail shape between them changes. It lands as one undo step, and what you
+          get back is an ordinary profile — drag the points afterwards, or leave it.
+        </p>
+        <p>
+          The ratio in a name is the height of the rail&rsquo;s apex — its widest point — as a
+          fraction of the thickness, measured up from the bottom. A 50/50 puts it at mid-rail; an
+          80/20 puts it near the bottom, where it makes an edge for water to leave from.
+        </p>
+        <Terms>
+          {RAIL_PRESETS.map((preset) => (
+            <Term key={preset.id} name={preset.label}>
+              {preset.summary}
+            </Term>
+          ))}
+        </Terms>
       </Section>
 
       <Section id="tail" title="Concave tails">
