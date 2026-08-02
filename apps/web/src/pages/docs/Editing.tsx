@@ -79,14 +79,22 @@ export default function DocsEditing() {
           shaper does anyway: soft through the nose, tucked through the middle, hard off the tail.
         </p>
         <p>
-          A preset keeps the station&rsquo;s width and thickness, so the outline and rocker do not
-          move; only the rail shape between them changes. It lands as one undo step, and what you
-          get back is an ordinary profile — drag the points afterwards, or leave it.
+          Only the rail band is re-cut. Like marking bands in from the rail and planing just those,
+          a preset works between two blend points — one in from the rail on the deck, a narrower one
+          on the bottom — and joins smoothly to what is already there. Your deck crown, your vee,
+          your concave: all untouched. The station&rsquo;s width and thickness do not move either,
+          so the outline and rocker stay put.
         </p>
         <p>
-          The ratio in a name is the height of the rail&rsquo;s apex — its widest point — as a
-          fraction of the thickness, measured up from the bottom. A 50/50 puts it at mid-rail; an
-          80/20 puts it near the bottom, where it makes an edge for water to leave from.
+          It lands as one undo step, and what you get back is an ordinary profile — drag the points
+          afterwards, or leave it.
+        </p>
+        <p>
+          The ratio in a name is where the rail&rsquo;s apex — its widest point — sits between those
+          two marks. A 50/50 puts it halfway up the rail; an 80/20 puts it near the bottom, where it
+          makes an edge for water to leave from. Note that this is measured up the <em>rail</em>,
+          not up the centre of the board, which is why even a 50/50 apex sits below the midpoint of
+          the deck and bottom: the deck has already domed away by the time you reach the rail.
         </p>
         <Terms>
           {RAIL_PRESETS.map((preset) => (
