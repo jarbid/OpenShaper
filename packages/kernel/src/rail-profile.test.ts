@@ -394,6 +394,29 @@ describe('applyRailProfile: curve quality', () => {
     }
   });
 
+  /**
+   * `fullness` is what separates a round rail from a knifey one, and roundness at the
+   * apex is exactly low curvature there. Holding everything else fixed, winding fullness
+   * up must open the apex out. Without this the round presets can quietly drift sharp —
+   * which is how the 50/50 came to look square.
+   */
+  it('opens the apex out as fullness rises', () => {
+    const cs = realSection();
+    const base = railPresetById('50-50-soft')!.params;
+    const apexCurvature = (fullness: number): number => {
+      const s = applyRailProfile(cs, { ...base, fullness }).spline;
+      const a = apexKnotIndex(s);
+      return Math.abs(curvature(s.coeffs[a]!, 0));
+    };
+    const series = [0, 0.25, 0.5, 0.75, 1].map(apexCurvature);
+    for (let i = 1; i < series.length; i++) {
+      expect(series[i]!, `fullness step ${i}`).toBeLessThan(series[i - 1]!);
+    }
+    // And the round end of the range really is round: a radius of centimetres, not
+    // millimetres, on a station this size.
+    expect(apexCurvature(1)).toBeLessThan(0.8);
+  });
+
   it('does not put a cusp at the apex', () => {
     const cs = realSection();
     // A radius tighter than a millimetre is a crease, not a rail.

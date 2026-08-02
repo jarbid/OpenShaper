@@ -456,56 +456,56 @@ export const RAIL_PRESETS = [
     label: '50/50 soft',
     summary:
       'Apex at mid-rail, round and symmetric. Forgiving and easy to lean on — longboards, noseriders, and the nose of most boards.',
-    params: { apex: 0.5, edge: 0.05, fullness: 0.65, deckBand: 0.38, bottomBand: 0.1 },
+    params: { apex: 0.5, edge: 0.05, fullness: 0.8, deckBand: 0.16, bottomBand: 0.1 },
   },
   {
     id: '60-40-tucked',
     label: '60/40 tucked',
     summary:
       'Apex 40% up with a tucked-under edge. The all-round rail through the middle of a board: holds in a turn, releases once there is speed.',
-    params: { apex: 0.4, edge: 0.5, fullness: 0.55, deckBand: 0.32, bottomBand: 0.08 },
+    params: { apex: 0.4, edge: 0.5, fullness: 0.6, deckBand: 0.22, bottomBand: 0.08 },
   },
   {
     id: '70-30-tucked',
     label: '70/30 tucked',
     summary:
       'A step lower and harder than 60/40. Sits between the middle of the board and the fin area.',
-    params: { apex: 0.3, edge: 0.65, fullness: 0.5, deckBand: 0.28, bottomBand: 0.07 },
+    params: { apex: 0.3, edge: 0.65, fullness: 0.5, deckBand: 0.22, bottomBand: 0.07 },
   },
   {
     id: '80-20-hard',
     label: '80/20 hard',
     summary:
       'Apex low, with the bottom running flat to a crisp edge that sheds water cleanly. The last stretch of a performance tail.',
-    params: { apex: 0.2, edge: 1, fullness: 0.45, deckBand: 0.26, bottomBand: 0.06 },
+    params: { apex: 0.2, edge: 1, fullness: 0.45, deckBand: 0.22, bottomBand: 0.06 },
   },
   {
     id: 'boxy',
     label: 'Boxy',
     summary:
       'Full, high-volume rail that holds its width and rolls over from well inboard. Stable and buoyant — beginner boards and small-wave shapes.',
-    params: { apex: 0.45, edge: 0.35, fullness: 1, deckBand: 0.4, bottomBand: 0.09 },
+    params: { apex: 0.45, edge: 0.35, fullness: 1, deckBand: 0.2, bottomBand: 0.09 },
   },
   {
     id: 'pinched',
     label: 'Pinched',
     summary:
       'Low-volume rail that turns in late and thin. Sensitive and quick to bite; wants an experienced back foot, and a domed deck under it.',
-    params: { apex: 0.35, edge: 0.6, fullness: 0.15, deckBand: 0.28, bottomBand: 0.07 },
+    params: { apex: 0.35, edge: 0.6, fullness: 0.3, deckBand: 0.22, bottomBand: 0.07 },
   },
   {
     id: 'egg',
     label: 'Egg',
     summary:
       'Drawn-out elliptical 50/50 with a soft apex and a long roll. Smooth and predictable — retro and hybrid shapes.',
-    params: { apex: 0.5, edge: 0, fullness: 0.4, deckBand: 0.4, bottomBand: 0.11 },
+    params: { apex: 0.5, edge: 0, fullness: 0.8, deckBand: 0.18, bottomBand: 0.11 },
   },
   {
     id: 'knifey',
     label: 'Knifey',
     summary:
       'Very thin, almost flat ellipse with minimal buoyancy. Use at the tips only — it catches if carried through the middle.',
-    params: { apex: 0.45, edge: 0.1, fullness: 0, deckBand: 0.3, bottomBand: 0.08 },
+    params: { apex: 0.45, edge: 0.1, fullness: 0.05, deckBand: 0.18, bottomBand: 0.08 },
   },
 ] as const satisfies readonly RailPreset[];
 
