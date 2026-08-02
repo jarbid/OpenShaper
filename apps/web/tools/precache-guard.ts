@@ -24,14 +24,26 @@ export interface PrecacheEntry {
 }
 
 /**
- * On disk the prerenderer emits `dist/app/index.html`, but the canonical URL is
- * `/app` with no trailing slash (wrangler.toml sets `html_handling =
- * "drop-trailing-slash"`, and commit b796761 fixed analytics splitting across the
- * two forms). Precaching `app/index.html` would cache a URL nobody requests, so
- * rewrite the entry to `app` — which is what the browser actually navigates to.
+ * On disk the prerenderer emits `dist/app/index.html` and `dist/docs/fins/index.html`,
+ * but the canonical URLs are `/app` and `/docs/fins` with no trailing slash
+ * (wrangler.toml sets `html_handling = "drop-trailing-slash"`, and commit b796761
+ * fixed analytics splitting across the two forms).
+ *
+ * Precaching the on-disk path caches a URL nobody ever requests. Workbox matches the
+ * exact request URL, and its `directoryIndex` fallback only applies to paths ending
+ * in `/` — so a navigation to `/docs/fins` would miss the cache entirely and fall
+ * through to the offline page, with the content sitting right there unused.
+ * Rewriting to the canonical form is what makes these entries reachable at all.
  */
 export function rewriteAppShellUrl<T extends PrecacheEntry>(entries: T[]): T[] {
-  return entries.map((e) => (e.url === 'app/index.html' ? { ...e, url: 'app' } : e));
+  return entries.map((e) => {
+    if (e.url === 'app/index.html') return { ...e, url: 'app' };
+    if (e.url === 'docs/index.html') return { ...e, url: 'docs' };
+    if (e.url.startsWith('docs/') && e.url.endsWith('/index.html')) {
+      return { ...e, url: e.url.slice(0, -'/index.html'.length) };
+    }
+    return e;
+  });
 }
 
 /** Total precache budget. Generous enough for three.js, tight enough to catch a runaway glob. */
@@ -41,6 +53,14 @@ export const MAX_PRECACHE_BYTES = 12 * 1024 * 1024;
 const MIN_JS_ENTRIES = 5;
 
 const isHtml = (url: string) => url.endsWith('.html') || url === 'app';
+
+/**
+ * HTML that is *meant* to be precached: the editor shell, the offline fallback,
+ * and the reference docs. Everything else — the landing page, the guide pillars —
+ * stays network-served, so it can never go stale in a cache.
+ */
+const isAllowedHtml = (url: string) =>
+  url === 'app' || url === 'offline.html' || url === 'docs/index.html' || url.startsWith('docs/');
 
 export class PrecacheGuardError extends Error {
   constructor(problems: string[]) {
@@ -93,9 +113,15 @@ export function assertEditorPrecache(entries: readonly PrecacheEntry[]): void {
   }
 
   // --- forbidden ---
-  const marketingHtml = urls.filter((u) => isHtml(u) && u !== 'app' && u !== 'offline.html');
+  const marketingHtml = urls.filter((u) => isHtml(u) && !isAllowedHtml(u));
   if (marketingHtml.length > 0) {
     problems.push(`marketing HTML must not be precached: ${marketingHtml.join(', ')}`);
+  }
+
+  // A docs glob that matches nothing still builds — it just quietly ships docs
+  // that can't be read offline, which is the whole reason they're precached.
+  if (countMatching(/^docs(\/|$)/) < 2) {
+    problems.push('fewer than 2 docs pages precached — the docs glob probably matched nothing');
   }
 
   const images = urls.filter((u) => u.startsWith('images/'));

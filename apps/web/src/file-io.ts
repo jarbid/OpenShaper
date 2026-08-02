@@ -207,6 +207,24 @@ export function downloadTemplateSheet(
 export type ExportFormat = 'stl' | 'dxf' | 'dxf-spline' | 'pdf-1to1';
 
 /**
+ * Display names for each export format. Typed as a full `Record`, which is what
+ * makes it exhaustive: adding a member to `ExportFormat` without adding it here
+ * is a compile error. Mirrors the `FIN_*_LABELS` convention in the kernel.
+ */
+export const EXPORT_FORMAT_LABELS: Record<ExportFormat, string> = {
+  stl: 'STL (3D mesh)',
+  dxf: 'DXF (polylines)',
+  'dxf-spline': 'DXF (true curves)',
+  'pdf-1to1': 'PDF (1:1 template)',
+};
+
+/**
+ * The formats as runtime values, so they can be enumerated — the docs coverage
+ * test walks this to check every export format is documented.
+ */
+export const EXPORT_FORMATS = Object.keys(EXPORT_FORMAT_LABELS) as ExportFormat[];
+
+/**
  * Export the board to STL / DXF / 1:1-PDF and download it. `meta` + `units`
  * feed the PDF labels (designer / model / surfer / comments). A loaded `ghost`
  * comparison board is overlaid on the DXF's GHOST layer.

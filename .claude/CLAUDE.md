@@ -88,6 +88,26 @@ working under `apps/web`).
 | ------------------------------------------------------------------------------------------- | --------------------------------------------- | ----------------------------------------------------- |
 | Architecture decisions; geometry algorithm correctness; the kernel port; adversarial review | Feature implementation, UI, I/O, store, tests | Scaffolding, boilerplate, mechanical codegen, renames |
 
+## User-facing features must be documented
+
+`/docs` (`apps/web/src/pages/docs/`) is the reference documentation for the editor.
+Adding a fin setup or system, an export format, a starter template or a keyboard
+shortcut requires an entry in `apps/web/src/docs/registry.ts` and a section on the
+page it names — `apps/web/src/docs/coverage.test.ts` enumerates the app's own
+definitions and **fails the build** otherwise.
+
+Its limit, stated plainly: the test proves an entry _exists_, never that the prose
+is _accurate_. It can be satisfied with a heading and a filler sentence. What it
+removes is silent omission — features shipping while nobody remembers docs exist.
+
+Two related rules:
+
+- Keyboard shortcuts live in `apps/web/src/shortcuts.ts`, not in the key handler.
+  The handler, the tooltips and `/docs/shortcuts` all read that table, so a chord
+  is defined once.
+- Docs pages are precached by the service worker (unlike the marketing pages), so
+  they stay readable offline. `tools/precache-guard.ts` enforces both directions.
+
 ## Skills to use
 
 - `port-kernel-fn` — port a legacy kernel function behind a golden test

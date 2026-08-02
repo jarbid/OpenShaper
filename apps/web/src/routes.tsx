@@ -56,6 +56,19 @@ export const routes: RouteRecord[] = [
             path: 'build-a-hollow-wooden-surfboard',
             lazy: page(() => import('./pages/HollowWoodenSurfboard')),
           },
+          // Reference documentation for the editor. Shares the marketing layout
+          // (and so the marketing chrome), but unlike the guide pillars above it
+          // is precached by the service worker so it stays readable offline —
+          // see docs/design/offline.md.
+          { path: 'docs', lazy: page(() => import('./pages/docs/Overview')) },
+          { path: 'docs/editing', lazy: page(() => import('./pages/docs/Editing')) },
+          { path: 'docs/specs', lazy: page(() => import('./pages/docs/Specs')) },
+          { path: 'docs/fins', lazy: page(() => import('./pages/docs/Fins')) },
+          { path: 'docs/construction', lazy: page(() => import('./pages/docs/Construction')) },
+          { path: 'docs/export', lazy: page(() => import('./pages/docs/Export')) },
+          { path: 'docs/files', lazy: page(() => import('./pages/docs/Files')) },
+          { path: 'docs/offline', lazy: page(() => import('./pages/docs/Offline')) },
+          { path: 'docs/shortcuts', lazy: page(() => import('./pages/docs/Shortcuts')) },
         ],
       },
       {

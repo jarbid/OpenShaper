@@ -892,6 +892,21 @@ function AppShell() {
   const helpMenu: MenuItem[] = [
     {
       kind: 'action',
+      label: 'Documentation',
+      onSelect: () => {
+        window.location.href = '/docs';
+      },
+    },
+    {
+      kind: 'action',
+      label: 'Keyboard shortcuts',
+      onSelect: () => {
+        window.location.href = '/docs/shortcuts';
+      },
+    },
+    { kind: 'separator' },
+    {
+      kind: 'action',
       label: 'About & guides',
       onSelect: () => {
         window.location.href = '/about';

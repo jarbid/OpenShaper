@@ -1,5 +1,6 @@
 import { Button, Tooltip } from '@openshaper/ui';
 import { ChevronLeft, ChevronRight, ClipboardPaste, Copy, Plus, Trash2 } from 'lucide-react';
+import { shortcutKeys } from './shortcuts';
 
 export interface CrossSectionControlsProps {
   index: number;
@@ -35,7 +36,7 @@ export function CrossSectionControls({
   const icon = 'h-7 w-7 p-0';
   return (
     <div className="flex items-center gap-0.5">
-      <Tooltip label="Previous cross-section" shortcut="[">
+      <Tooltip label="Previous cross-section" shortcut={shortcutKeys('cross-section-prev')}>
         <Button
           size="sm"
           variant="ghost"
@@ -50,7 +51,7 @@ export function CrossSectionControls({
       <span className="min-w-10 px-0.5 text-center text-xs tabular-nums text-muted-foreground">
         {index}/{total}
       </span>
-      <Tooltip label="Next cross-section" shortcut="]">
+      <Tooltip label="Next cross-section" shortcut={shortcutKeys('cross-section-next')}>
         <Button
           size="sm"
           variant="ghost"

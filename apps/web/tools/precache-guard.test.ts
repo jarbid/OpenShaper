@@ -23,6 +23,10 @@ function validManifest(): PrecacheEntry[] {
     { url: 'assets/tessellate.worker-DYN.js', revision: null, size: 16_000 },
     { url: 'assets/EditorPage-DQk.js', revision: null, size: 2_000 },
     { url: 'icons/icon-192.png', revision: 'mno', size: 6_000 },
+    // Post-rewrite form: the guard runs after rewriteAppShellUrl in vite.config.ts.
+    { url: 'docs', revision: 'd0' },
+    { url: 'docs/editing', revision: 'd1' },
+    { url: 'docs/shortcuts', revision: 'd2' },
   ];
 }
 
@@ -39,6 +43,16 @@ describe('rewriteAppShellUrl', () => {
   it("maps the prerendered shell to the canonical '/app' URL", () => {
     const out = rewriteAppShellUrl([{ url: 'app/index.html', revision: 'x' }]);
     expect(out).toEqual([{ url: 'app', revision: 'x' }]);
+  });
+
+  // Without this, docs are cached under a URL nobody navigates to and the offline
+  // page shows instead — cached, but unreachable.
+  it('maps docs pages to their canonical no-trailing-slash URLs', () => {
+    const out = rewriteAppShellUrl([
+      { url: 'docs/index.html', revision: 'a' },
+      { url: 'docs/fins/index.html', revision: 'b' },
+    ]);
+    expect(out.map((e) => e.url)).toEqual(['docs', 'docs/fins']);
   });
 
   it('leaves every other entry untouched', () => {
@@ -95,6 +109,18 @@ describe('assertEditorPrecache', () => {
   it('rejects precached marketing HTML', () => {
     const entries = [...validManifest(), { url: 'about/index.html', revision: 'a' }];
     expect(messageOf(() => assertEditorPrecache(entries))).toMatch(/marketing HTML/);
+  });
+
+  // Docs are the one exception: they're precached deliberately so they're
+  // readable in a workshop with no signal.
+  it('accepts precached docs pages', () => {
+    const entries = [...validManifest(), { url: 'docs/fins', revision: 'd' }];
+    expect(() => assertEditorPrecache(entries)).not.toThrow();
+  });
+
+  it('rejects a docs glob that matched nothing', () => {
+    const entries = validManifest().filter((e) => !e.url.startsWith('docs/'));
+    expect(messageOf(() => assertEditorPrecache(entries))).toMatch(/docs glob/);
   });
 
   it('rejects precached guide images', () => {

@@ -53,6 +53,22 @@ test.describe('offline editor', () => {
     expect(errors).toEqual([]);
   });
 
+  // Docs are precached deliberately: being unable to read how a feature works is
+  // worst precisely when there's no signal. This also pins the URL rewrite —
+  // they're emitted as docs/fins/index.html but navigated to as /docs/fins, and
+  // without the rewrite they'd be cached under a key nobody ever requests.
+  test('reference docs are readable offline', async ({ page, context }) => {
+    await warmServiceWorker(page);
+    await context.setOffline(true);
+
+    const fresh = await context.newPage();
+    await fresh.goto('/docs/fins').catch(() => {});
+    await expect(fresh.getByRole('heading', { level: 1 })).toContainText(/Fins/i);
+
+    await fresh.goto('/docs/shortcuts').catch(() => {});
+    await expect(fresh.getByRole('heading', { level: 1 })).toContainText(/shortcuts/i);
+  });
+
   test('marketing routes fall back to the branded offline page', async ({ page, context }) => {
     await warmServiceWorker(page);
     await context.setOffline(true);

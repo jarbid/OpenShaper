@@ -95,6 +95,10 @@ export default defineConfig({
         globPatterns: [
           'assets/**/*.{js,css,woff2}',
           'app/index.html',
+          // Reference docs ride along: a few KB of HTML, and being unable to read
+          // how a feature works is worst precisely when there's no signal.
+          'docs/index.html',
+          'docs/**/index.html',
           'offline.html',
           'static-loader-data-manifest-*.json',
           'manifest.webmanifest',
