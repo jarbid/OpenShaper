@@ -288,14 +288,18 @@ export const applyRailProfile = (cs: CrossSection, p: RailProfileParams): CrossS
   // 3. The apex: endpoint and both handles on x = halfWidth, so by the convex-hull
   // property no point of the curve can reach past it and the apex attains it — which is
   // what keeps the station's width exactly where it was.
-  // The apex handle takes at most half the vertical run to its neighbour, leaving the
-  // other half for the blend's own handle. Split it any more generously and the two
-  // handles cannot both point outward without the control polygon doubling back in y —
-  // which is an S-curve in the rail, and reads as a step where the band meets the deck.
+  // Handle lengths come from the quarter-arc a rail actually is. A cubic whose handles
+  // reach CIRCLE of the run traces a near-perfect arc; `fullness` opens and closes it
+  // around that, which is the difference between a round 50/50 and a knifey rail.
+  //
+  // The rail turns through a quarter: horizontal at the tuck, vertical at the apex, back
+  // toward horizontal at the deck. So each apex handle reaches along its *vertical* run
+  // and each neighbour's along its *horizontal* run to the apex.
   const toTuck = apexEnd.y - tuck.end.y;
   const toDeck = deckBlend.end.y - apexEnd.y;
-  const hDown = Math.min(thickness * mix(0.1, 0.26, p.fullness), Math.max(toTuck * 0.5, 0));
-  const hUp = Math.min(thickness * mix(0.13, 0.32, p.fullness), Math.max(toDeck * 0.5, 0));
+  const arc = mix(0.42, 0.72, p.fullness);
+  const hDown = Math.max(toTuck, 0) * arc;
+  const hUp = Math.max(toDeck, 0) * arc;
   const provisional = knot(
     apexEnd,
     vec2(halfWidth, apexEnd.y - hDown),
@@ -308,7 +312,10 @@ export const applyRailProfile = (cs: CrossSection, p: RailProfileParams): CrossS
   // collinear with it, so the join is tangent-continuous and the `continuous` flag is
   // honest. Length tracks the retained handle — that is what keeps the curvature step
   // across the join small, which is what stops the join reading as a shoulder.
-  const reach = mix(1, 1.6, p.fullness);
+  // A handle must stop short of the apex line. Reaching it puts four control points on
+  // x = halfWidth, which makes the curve run dead straight into the widest point — a flat
+  // vertical wall where the rail should be turning. That is what makes a rail look square.
+  const APPROACH = 0.8;
 
   const hard = p.edge >= HARD_EDGE;
   const tuckSpan = dist(tuck.end, apexEnd);
@@ -327,16 +334,17 @@ export const applyRailProfile = (cs: CrossSection, p: RailProfileParams): CrossS
         vec2(mix(bottomDir.x, chordDir.x, 0.6), mix(bottomDir.y, chordDir.y, 0.6)),
       )
     : bottomDir;
+  const dxTuck = halfWidth - tuck.end.x;
   const newTuck = knot(
     tuck.end,
     tuck.tangentToPrev,
     handle(
       tuck.end,
       tuckDir,
-      dist(tuck.end, tuck.tangentToPrev) * reach,
-      tuckSpan * 0.15,
-      tuckSpan * 0.9,
-      halfWidth,
+      (arc * dxTuck) / Math.max(tuckDir.x, 0.35),
+      tuckSpan * 0.05,
+      tuckSpan,
+      tuck.end.x + APPROACH * dxTuck,
       // Stop short of the apex's own handle, keeping the polygon rising in y.
       { min: -Infinity, max: provisional.tangentToPrev.y },
     ),
@@ -345,15 +353,17 @@ export const applyRailProfile = (cs: CrossSection, p: RailProfileParams): CrossS
   );
 
   const deckSpan = dist(deckBlend.end, apexEnd);
+  const deckDir = dirFrom(deckBlend.tangentToNext, deckBlend.end);
+  const dxDeck = halfWidth - deckBlend.end.x;
   const newDeckBlend = knot(
     deckBlend.end,
     handle(
       deckBlend.end,
-      dirFrom(deckBlend.tangentToNext, deckBlend.end),
-      dist(deckBlend.end, deckBlend.tangentToNext) * reach,
-      deckSpan * 0.2,
-      deckSpan * 0.95,
-      halfWidth,
+      deckDir,
+      (arc * dxDeck) / Math.max(deckDir.x, 0.35),
+      deckSpan * 0.05,
+      deckSpan,
+      deckBlend.end.x + APPROACH * dxDeck,
       { min: provisional.tangentToNext.y, max: Infinity },
     ),
     deckBlend.tangentToNext,
@@ -440,21 +450,21 @@ export const RAIL_PRESETS = [
     label: '50/50 soft',
     summary:
       'Apex at mid-rail, round and symmetric. Forgiving and easy to lean on — longboards, noseriders, and the nose of most boards.',
-    params: { apex: 0.5, edge: 0.05, fullness: 0.65, deckBand: 0.3, bottomBand: 0.16 },
+    params: { apex: 0.5, edge: 0.05, fullness: 0.65, deckBand: 0.3, bottomBand: 0.26 },
   },
   {
     id: '60-40-tucked',
     label: '60/40 tucked',
     summary:
       'Apex 40% up with a tucked-under edge. The all-round rail through the middle of a board: holds in a turn, releases once there is speed.',
-    params: { apex: 0.4, edge: 0.5, fullness: 0.55, deckBand: 0.24, bottomBand: 0.1 },
+    params: { apex: 0.4, edge: 0.5, fullness: 0.55, deckBand: 0.24, bottomBand: 0.14 },
   },
   {
     id: '70-30-tucked',
     label: '70/30 tucked',
     summary:
       'A step lower and harder than 60/40. Sits between the middle of the board and the fin area.',
-    params: { apex: 0.3, edge: 0.65, fullness: 0.5, deckBand: 0.22, bottomBand: 0.07 },
+    params: { apex: 0.3, edge: 0.65, fullness: 0.5, deckBand: 0.22, bottomBand: 0.09 },
   },
   {
     id: '80-20-hard',
@@ -468,7 +478,7 @@ export const RAIL_PRESETS = [
     label: 'Boxy',
     summary:
       'Full, high-volume rail that holds its width and rolls over from well inboard. Stable and buoyant — beginner boards and small-wave shapes.',
-    params: { apex: 0.45, edge: 0.35, fullness: 1, deckBand: 0.35, bottomBand: 0.13 },
+    params: { apex: 0.45, edge: 0.35, fullness: 1, deckBand: 0.35, bottomBand: 0.24 },
   },
   {
     id: 'pinched',
@@ -482,14 +492,14 @@ export const RAIL_PRESETS = [
     label: 'Egg',
     summary:
       'Drawn-out elliptical 50/50 with a soft apex and a long roll. Smooth and predictable — retro and hybrid shapes.',
-    params: { apex: 0.5, edge: 0, fullness: 0.4, deckBand: 0.32, bottomBand: 0.18 },
+    params: { apex: 0.5, edge: 0, fullness: 0.4, deckBand: 0.32, bottomBand: 0.28 },
   },
   {
     id: 'knifey',
     label: 'Knifey',
     summary:
       'Very thin, almost flat ellipse with minimal buoyancy. Use at the tips only — it catches if carried through the middle.',
-    params: { apex: 0.45, edge: 0.1, fullness: 0, deckBand: 0.24, bottomBand: 0.12 },
+    params: { apex: 0.45, edge: 0.1, fullness: 0, deckBand: 0.24, bottomBand: 0.2 },
   },
 ] as const satisfies readonly RailPreset[];
 

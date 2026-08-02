@@ -92,9 +92,14 @@ export default function DocsEditing() {
         <p>
           The ratio in a name is where the rail&rsquo;s apex — its widest point — sits between those
           two marks. A 50/50 puts it halfway up the rail; an 80/20 puts it near the bottom, where it
-          makes an edge for water to leave from. Note that this is measured up the <em>rail</em>,
-          not up the centre of the board, which is why even a 50/50 apex sits below the midpoint of
-          the deck and bottom: the deck has already domed away by the time you reach the rail.
+          makes an edge for water to leave from.
+        </p>
+        <p>
+          It is the midpoint of the <em>rail</em>, not of the deck and bottom planes. On a board
+          with a flat bottom and a domed deck the rail blends into that dome up top and into the
+          flat underneath, so even a 50/50 apex measures below mid-thickness — a third of the way up
+          is normal on a shortboard. Dome the bottom too, as a longboard or a hull does, and the
+          apex climbs back toward the middle on its own.
         </p>
         <Terms>
           {RAIL_PRESETS.map((preset) => (

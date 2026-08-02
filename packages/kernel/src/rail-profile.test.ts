@@ -163,8 +163,9 @@ describe('applyRailProfile: what it must not disturb', () => {
   it('keeps the deck and bottom identical inboard of the bands', () => {
     const cs = realSection();
     for (const { preset, out } of applied(cs)) {
-      // Well inboard of even the widest bottom band (0.18 of half-width).
-      for (const x of [2, 5, 9, 13, 17]) {
+      // Well inboard of even the widest bottom band, which is 0.28 of the 23.485 cm
+      // half-width — so the re-cut starts no further in than x = 16.9.
+      for (const x of [2, 5, 9, 13, 16]) {
         expect(bottomYAt(out.spline, x), `${preset.id} bottom at x=${x}`).toBeCloseTo(
           bottomYAt(cs.spline, x),
           4,
@@ -222,6 +223,41 @@ describe('applyRailProfile: the rail itself', () => {
       (id) => widestSampled(applyRailProfile(cs, railPresetById(id)!.params).spline).y,
     );
     for (let i = 1; i < heights.length; i++) expect(heights[i]!).toBeLessThan(heights[i - 1]!);
+  });
+
+  /**
+   * The ratio is "the midpoint of the rail radius itself", not of the deck and bottom
+   * planes — so on a shortboard, whose deck domes away while the bottom stays flat, even
+   * a 50/50 apex sits below mid-thickness. Domed the bottom too, as a longboard or hull
+   * is, and the apex is pushed back toward the middle. Both fall out of measuring up the
+   * rail, and this pins the pair of them.
+   *
+   * Reference: Greenlight's surfboard rail design guide.
+   */
+  it('sits below mid-thickness on a flat bottom, and rises when the bottom domes too', () => {
+    const heightOf = (cs: CrossSection): number => {
+      const s = applyRailProfile(cs, railPresetById('50-50-soft')!.params).spline;
+      const y0 = s.knots[0]!.end.y;
+      return (widestSampled(s).y - y0) / csCenterThickness(cs);
+    };
+
+    // Flat bottom, domed deck — the golden shortboard station.
+    const flatBottom = heightOf(realSection());
+    expect(flatBottom).toBeGreaterThan(0.25);
+    expect(flatBottom).toBeLessThan(0.45);
+
+    // Same station, but with the bottom domed up toward the rail as a hull's would be.
+    const domed = crossSection(
+      92.71,
+      splineFromKnots([
+        knot(vec2(0, 0), vec2(-9, 0), vec2(9, 0)),
+        knot(vec2(21.9, 1.5), vec2(17, 1.2), vec2(23, 1.6)),
+        knot(vec2(23.485, 2.9), vec2(23.485, 2.1), vec2(23.485, 4)),
+        knot(vec2(18.4, 4.9), vec2(22, 4.4), vec2(13.8, 5.5)),
+        knot(vec2(0, 5.964), vec2(6.35, 5.964), vec2(-9.9, 5.964)),
+      ]),
+    );
+    expect(heightOf(domed)).toBeGreaterThan(flatBottom + 0.05);
   });
 
   /** A 50/50 is symmetric by definition: as much rail above the apex as below it. */
