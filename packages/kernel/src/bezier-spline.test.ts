@@ -5,11 +5,14 @@ import { knotFromArray } from './knot';
 import {
   closestPointOnSpline,
   maxYInRange,
+  pointByCurveLength,
+  pointByTT,
   splineFromKnots,
   splineLength,
   valueAt,
   xForMaxYInRange,
 } from './bezier-spline';
+import { reslice } from './test-support/reslice';
 import { distance } from './vec2';
 
 /**
@@ -79,5 +82,55 @@ describe('closestPointOnSpline', () => {
   it('returns null for a spline with no curves', () => {
     const single = splineFromKnots([shortboardOutline.knots[0]!]);
     expect(closestPointOnSpline(single, { x: 0, y: 0 })).toBeNull();
+  });
+});
+
+describe('arc-length sampling is invariant to reslicing (segment-index sampling is not)', () => {
+  // The same curve as shortboardOutline, with 2 extra knots spliced in via exact
+  // de Casteljau split (splitCurve reproduces the original curve exactly — this
+  // mirrors what matchControlPointCounts does when two adjacent cross-sections
+  // have different knot counts).
+  const resliced = splineFromKnots(
+    reslice(shortboardOutline.knots, [
+      { seg: 1, t: 0.5 },
+      { seg: 2, t: 0.4 },
+    ]),
+  );
+
+  it('control: reslicing is exact (same curve, more knots)', () => {
+    expect(resliced.knots.length).toBe(shortboardOutline.knots.length + 2);
+    // Endpoints of the original curve are still reproduced exactly by the resliced one.
+    for (const tt of [0, 1]) {
+      expect(distance(pointByTT(shortboardOutline, tt), pointByTT(resliced, tt))).toBeLessThan(
+        1e-9,
+      );
+    }
+  });
+
+  it('control: segment-index (tt) sampling diverges after reslicing', () => {
+    // floor(tt * n) parametrizes by segment count, which changed — interior tt
+    // values should land on visibly different points despite being the same curve.
+    let maxDiff = 0;
+    for (const tt of [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]) {
+      maxDiff = Math.max(
+        maxDiff,
+        distance(pointByTT(shortboardOutline, tt), pointByTT(resliced, tt)),
+      );
+    }
+    expect(maxDiff).toBeGreaterThan(0.3);
+  });
+
+  it('fix: arc-length (s) sampling agrees after reslicing', () => {
+    // curveLength/tForLength are adaptive numerical searches bounded by
+    // LENGTH_TOLERANCE (0.001 cm); more segments means more accumulated search
+    // error, but it stays tiny relative to the segment-index divergence above
+    // (0.3 cm) — two orders of magnitude apart, not the same failure mode.
+    const totalOriginal = splineLength(shortboardOutline);
+    const totalResliced = splineLength(resliced);
+    for (const sFrac of [0, 0.1, 0.25, 0.5, 0.75, 0.9, 1]) {
+      const a = pointByCurveLength(shortboardOutline, sFrac * totalOriginal);
+      const b = pointByCurveLength(resliced, sFrac * totalResliced);
+      expect(distance(a, b)).toBeLessThan(0.01);
+    }
   });
 });
