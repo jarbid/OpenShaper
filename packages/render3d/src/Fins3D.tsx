@@ -6,7 +6,7 @@ import {
 } from '@openshaper/kernel';
 import { useEffect, useMemo, useState } from 'react';
 import { BufferAttribute, BufferGeometry, DoubleSide } from 'three';
-import { tessellateAsync } from './geometry';
+import { boardCenter, tessellateAsync } from './geometry';
 
 /** On-brand cyan-blue resin (the OpenShaper accent) so the blades read against the hull. */
 const FIN_COLOR = '#22D3EE';
@@ -19,29 +19,6 @@ const rawGeometry = (mesh: BoardMesh): BufferGeometry => {
   g.setIndex(new BufferAttribute(new Uint32Array(mesh.indices), 1));
   g.computeBoundingBox();
   return g;
-};
-
-/** The bounding-box center of the board mesh = what `geometry.center()` subtracts. */
-const boardCenter = (mesh: BoardMesh): [number, number, number] => {
-  const p = mesh.positions;
-  let minX = Infinity;
-  let minY = Infinity;
-  let minZ = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-  let maxZ = -Infinity;
-  for (let i = 0; i < p.length; i += 3) {
-    const x = p[i]!;
-    const y = p[i + 1]!;
-    const z = p[i + 2]!;
-    if (x < minX) minX = x;
-    if (y < minY) minY = y;
-    if (z < minZ) minZ = z;
-    if (x > maxX) maxX = x;
-    if (y > maxY) maxY = y;
-    if (z > maxZ) maxZ = z;
-  }
-  return [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
 };
 
 /**
