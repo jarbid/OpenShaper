@@ -197,11 +197,21 @@ describe('boardCenter', () => {
     const c = boardCenter(mesh);
     let minX = Infinity;
     let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
     for (let i = 0; i < mesh.positions.length; i += 3) {
       minX = Math.min(minX, mesh.positions[i]!);
       maxX = Math.max(maxX, mesh.positions[i]!);
+      minY = Math.min(minY, mesh.positions[i + 1]!);
+      maxY = Math.max(maxY, mesh.positions[i + 1]!);
+      minZ = Math.min(minZ, mesh.positions[i + 2]!);
+      maxZ = Math.max(maxZ, mesh.positions[i + 2]!);
     }
     expect(c[0]).toBeCloseTo((minX + maxX) / 2, 4);
+    expect(c[1]).toBeCloseTo((minY + maxY) / 2, 4);
+    expect(c[2]).toBeCloseTo((minZ + maxZ) / 2, 4);
 
     // And the centred geometry really is centred on the origin.
     const g = boardGeometry(makeBoard());
