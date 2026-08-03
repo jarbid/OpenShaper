@@ -9,3 +9,5 @@ export {
   type AnalysisMode,
   type CameraPose,
 } from './Board3DView';
+export { Guides3D } from './Guides3D';
+export { guideLines, type GuideLine, type GuideLines } from './guide-lines';
