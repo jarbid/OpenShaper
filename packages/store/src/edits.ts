@@ -224,7 +224,7 @@ export const propagateCrossSectionToCurves = (
   if (!prevCs || !nextCs) return next;
   const pk = prevCs.spline.knots;
   const nk = nextCs.spline.knots;
-  if (pk.length === 0 || pk.length !== nk.length) return next;
+  if (pk.length === 0 || nk.length === 0) return next;
 
   const x = nextCs.position;
   const bottomDelta = nk[0]!.end.y - pk[0]!.end.y;

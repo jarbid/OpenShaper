@@ -4,8 +4,9 @@ import {
   getLength,
   getRockerAtPos,
   hasTailCutout,
-  pointByTT,
+  pointByCurveLengthAt,
   resolveFins,
+  splineLength,
   tessellateBoard,
   tessellationSteps,
   type BezierBoard,
@@ -45,18 +46,23 @@ const f = (n: number): string => (Number.isFinite(n) ? n : 0).toExponential(6);
  * Sample a single longitudinal station into a ring of 3D points.
  *
  * The interpolated cross-section profile runs (x = distance from centerline ≥ 0,
- * y = height) from bottom-centre (tt=0) to deck-centre (tt=1). We sample it with
- * `pointByTT` and lift it by the bottom rocker at this station so z is absolute
- * board height. `+x` gives one rail; we mirror `-x` for the other rail when stitching.
+ * y = height) from bottom-centre (tt=0) to deck-centre (tt=1). We sample it by
+ * fractional arc length (not fractional segment index — adjacent stations can
+ * interpolate against splines with different knot counts, and a segment-index
+ * parametrization would land on different physical points for "the same" tt on
+ * either side of a real cross-section) and lift it by the bottom rocker at this
+ * station so z is absolute board height. `+x` gives one rail; we mirror `-x` for
+ * the other rail when stitching.
  */
 const sampleRing = (board: BezierBoard, pos: number, ringSteps: number): P3[] | null => {
   const cs = getInterpolatedCrossSection(board, pos);
   if (!cs) return null;
   const rocker = getRockerAtPos(board, pos);
+  const total = splineLength(cs.spline);
   const ring: P3[] = [];
   for (let r = 0; r <= ringSteps; r++) {
     const tt = r / ringSteps;
-    const p = pointByTT(cs.spline, tt);
+    const p = pointByCurveLengthAt(cs.spline, tt * total, total);
     ring.push({ x: pos, y: p.x, z: p.y + rocker });
   }
   return ring;

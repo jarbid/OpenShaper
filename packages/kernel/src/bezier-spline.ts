@@ -114,9 +114,12 @@ export const ttByNormal = (s: Spline, angle: number): number =>
 export const pointByS = (s: Spline, sFrac: number): Vec2 =>
   pointByCurveLength(s, sFrac * splineLength(s));
 
-/** Point at a given cumulative arc length (legacy getPointByCurveLength). */
-export const pointByCurveLength = (s: Spline, curveLengthAbs: number): Vec2 => {
-  const total = splineLength(s);
+/**
+ * Point at a given cumulative arc length, given a precomputed `total` (the
+ * spline's own arc length doesn't change between samples, so callers sampling
+ * many points off one spline — e.g. a mesh ring — should compute it once).
+ */
+export const pointByCurveLengthAt = (s: Spline, curveLengthAbs: number, total: number): Vec2 => {
   if (curveLengthAbs <= 0) return value(s.coeffs[0]!, T_ZERO);
   if (curveLengthAbs >= total) return value(s.coeffs[s.coeffs.length - 1]!, T_ONE);
 
@@ -130,6 +133,10 @@ export const pointByCurveLength = (s: Spline, curveLengthAbs: number): Vec2 => {
   // Fallback (shouldn't reach): last point.
   return value(s.coeffs[s.coeffs.length - 1]!, T_ONE);
 };
+
+/** Point at a given cumulative arc length (legacy getPointByCurveLength). */
+export const pointByCurveLength = (s: Spline, curveLengthAbs: number): Vec2 =>
+  pointByCurveLengthAt(s, curveLengthAbs, splineLength(s));
 
 /** Cumulative arc length of segments [startIndex, endIndex) (legacy getLengthByControlPointIndex). */
 const lengthByControlPointIndex = (s: Spline, startIndex: number, endIndex: number): number => {

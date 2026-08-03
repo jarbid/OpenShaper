@@ -7,7 +7,7 @@ import {
   getRockerAtPos,
   type BezierBoard,
 } from './board';
-import { pointByTT } from './bezier-spline';
+import { pointByCurveLengthAt, splineLength } from './bezier-spline';
 import { CUTOUT_EPS, cachedOutlineSegments, hasTailCutout, yInOut } from './outline-cutout';
 
 /**
@@ -84,6 +84,13 @@ interface Vert3 {
  * describes the +Y rail half. We walk tt 0..1 down the +Y side, then mirror the
  * tt 1..0 sweep onto the -Y side, giving a closed loop around the section.
  * Returns null if the section is missing or degenerate (NaN / collapsed).
+ *
+ * Sampled by fractional ARC LENGTH, not fractional segment index: adjacent
+ * stations can interpolate against splines with different knot counts (see
+ * `matchControlPointCounts`), and a segment-index parametrization would then
+ * land on different physical points for "the same" tt on either side of a
+ * real cross-section — a pinch in the loft. Arc length is invariant to how
+ * many segments the curve is sliced into, so it stays continuous regardless.
  */
 const buildRing = (board: BezierBoard, x: number, ringSteps: number): Vert3[] | null => {
   const cs = getInterpolatedCrossSection(board, x);
@@ -92,6 +99,8 @@ const buildRing = (board: BezierBoard, x: number, ringSteps: number): Vert3[] | 
   const rocker = getRockerAtPos(board, x);
   if (!Number.isFinite(rocker)) return null;
 
+  const total = splineLength(cs.spline);
+
   // Half the ring on each rail. Use an even count so both sides match.
   const half = Math.max(2, Math.floor(ringSteps / 2));
   const ring: Vert3[] = [];
@@ -99,7 +108,7 @@ const buildRing = (board: BezierBoard, x: number, ringSteps: number): Vert3[] | 
   // +Y rail: tt 0 (bottom centerline) -> tt 1 (deck centerline).
   for (let i = 0; i < half; i++) {
     const tt = i / (half - 1);
-    const p = pointByTT(cs.spline, tt);
+    const p = pointByCurveLengthAt(cs.spline, tt * total, total);
     const vx = x;
     const vy = p.x;
     const vz = p.y + rocker;
@@ -111,7 +120,7 @@ const buildRing = (board: BezierBoard, x: number, ringSteps: number): Vert3[] | 
   // Skip the two shared centerline endpoints (tt=1 and tt=0) to avoid duplicates.
   for (let i = half - 2; i >= 1; i--) {
     const tt = i / (half - 1);
-    const p = pointByTT(cs.spline, tt);
+    const p = pointByCurveLengthAt(cs.spline, tt * total, total);
     const vx = x;
     const vy = -p.x;
     const vz = p.y + rocker;
@@ -401,13 +410,14 @@ const tessellateCutout = (
     if (yOut < yIn + CUTOUT_EPS) yOut = yIn; // collapsed tip → zero-width sliver
     yIns.push(yIn);
 
+    const total = splineLength(cs.spline);
     const scale = yOut > 1e-6 ? (yOut - yIn) / yOut : 0;
     const right: number[] = [];
     const left: number[] = [];
     let ok = true;
     for (let i = 0; i < half; i++) {
       const tt = i / (half - 1);
-      const p = pointByTT(cs.spline, tt);
+      const p = pointByCurveLengthAt(cs.spline, tt * total, total);
       const mapped = yIn + p.x * scale; // p.x ∈ [0, yOut] → [yIn, yOut]
       const z = p.y + rocker;
       if (!isFinite3(x, mapped, z)) {

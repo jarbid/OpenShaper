@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { getLength } from './board';
+import { getLength, getVolume } from './board';
 import { tessellateBoard, tessellationSteps } from './tessellate';
 import { parseBrdGeometry } from './test-support/brd-geometry';
 
@@ -65,38 +65,91 @@ describe('tessellateBoard: shortboard', () => {
   });
 });
 
-/** Fraction of vertices whose normal points away from the mesh centroid. */
-const outwardFraction = (mesh: ReturnType<typeof tessellateBoard>): number => {
-  const n = mesh.positions.length / 3;
-  let cx = 0;
-  let cy = 0;
-  let cz = 0;
-  for (let i = 0; i < mesh.positions.length; i += 3) {
-    cx += mesh.positions[i]!;
-    cy += mesh.positions[i + 1]!;
-    cz += mesh.positions[i + 2]!;
+/**
+ * Signed volume via the divergence theorem: Σ dot(v0, (v1−v0)×(v2−v0)) / 6.
+ * Positive means the triangle winding is consistently OUTWARD; a shell built
+ * inside-out (what `orientOutward` exists to prevent) gives a negative value.
+ * Its magnitude is the enclosed volume, so it doubles as a sanity check that
+ * the mesh really is the board and not a self-intersecting tangle.
+ */
+const signedVolume = (mesh: ReturnType<typeof tessellateBoard>): number => {
+  const p = mesh.positions;
+  let vol = 0;
+  for (let t = 0; t < mesh.indices.length; t += 3) {
+    const ia = mesh.indices[t]! * 3;
+    const ib = mesh.indices[t + 1]! * 3;
+    const ic = mesh.indices[t + 2]! * 3;
+    const e1x = p[ib]! - p[ia]!;
+    const e1y = p[ib + 1]! - p[ia + 1]!;
+    const e1z = p[ib + 2]! - p[ia + 2]!;
+    const e2x = p[ic]! - p[ia]!;
+    const e2y = p[ic + 1]! - p[ia + 1]!;
+    const e2z = p[ic + 2]! - p[ia + 2]!;
+    const nx = e1y * e2z - e1z * e2y;
+    const ny = e1z * e2x - e1x * e2z;
+    const nz = e1x * e2y - e1y * e2x;
+    vol += (p[ia]! * nx + p[ia + 1]! * ny + p[ia + 2]! * nz) / 6;
   }
-  cx /= n;
-  cy /= n;
-  cz /= n;
-  let outward = 0;
-  for (let v = 0; v < n; v++) {
-    const rx = mesh.positions[v * 3]! - cx;
-    const ry = mesh.positions[v * 3 + 1]! - cy;
-    const rz = mesh.positions[v * 3 + 2]! - cz;
-    const d =
-      mesh.normals[v * 3]! * rx + mesh.normals[v * 3 + 1]! * ry + mesh.normals[v * 3 + 2]! * rz;
-    if (d > 0) outward++;
-  }
-  return outward / n;
+  return vol;
 };
 
+/** Fraction of faces whose stored vertex normal agrees with its own face normal. */
+const faceNormalAgreement = (mesh: ReturnType<typeof tessellateBoard>): number => {
+  const p = mesh.positions;
+  let agree = 0;
+  let total = 0;
+  for (let t = 0; t < mesh.indices.length; t += 3) {
+    const ia = mesh.indices[t]! * 3;
+    const ib = mesh.indices[t + 1]! * 3;
+    const ic = mesh.indices[t + 2]! * 3;
+    const e1x = p[ib]! - p[ia]!;
+    const e1y = p[ib + 1]! - p[ia + 1]!;
+    const e1z = p[ib + 2]! - p[ia + 2]!;
+    const e2x = p[ic]! - p[ia]!;
+    const e2y = p[ic + 1]! - p[ia + 1]!;
+    const e2z = p[ic + 2]! - p[ia + 2]!;
+    const nx = e1y * e2z - e1z * e2y;
+    const ny = e1z * e2x - e1x * e2z;
+    const nz = e1x * e2y - e1y * e2x;
+    const len = Math.hypot(nx, ny, nz);
+    if (len < 1e-12) continue; // degenerate sliver: no meaningful direction
+    if (mesh.normals[ia]! * nx + mesh.normals[ia + 1]! * ny + mesh.normals[ia + 2]! * nz > 0)
+      agree++;
+    total++;
+  }
+  return agree / total;
+};
+
+/**
+ * Orientation is asserted by signed volume and per-face normal agreement rather
+ * than by "does each vertex normal point away from the mesh centroid".
+ *
+ * That older heuristic is not a correctness test: near the nose and tail the
+ * board is thin and lifted by rocker, so a deck vertex's radial vector from the
+ * GLOBAL centroid points mostly along ±x while its normal points up — the dot
+ * product goes slightly negative even though the surface faces correctly
+ * outward. Its result therefore tracks how ring samples happen to be
+ * distributed along the profile, not whether the shell is inside-out. Signed
+ * volume answers the actual question (and would flip negative on a genuine
+ * inversion, which is what `orientOutward` guards against).
+ */
 describe('tessellateBoard: outward orientation', () => {
-  it('orients normals outward for every golden board', () => {
+  it('orients the shell outward for every golden board', () => {
     for (const name of ['shortboard', 'funboard', 'longboard']) {
-      const mesh = tessellateBoard(loadBoard(name));
-      // The overwhelming majority of vertices should face away from the centroid.
-      expect(outwardFraction(mesh)).toBeGreaterThan(0.9);
+      const board = loadBoard(name);
+      const mesh = tessellateBoard(board);
+
+      // Outward winding ⇒ positive; inside-out ⇒ negative.
+      expect(signedVolume(mesh)).toBeGreaterThan(0);
+
+      // ...and it encloses the board: a faceted hull slightly under-fills the
+      // curved solid, so allow a few percent under but no overshoot.
+      const kernelVolume = getVolume(board);
+      expect(signedVolume(mesh)).toBeGreaterThan(kernelVolume * 0.9);
+      expect(signedVolume(mesh)).toBeLessThan(kernelVolume * 1.02);
+
+      // Lighting and face culling must agree everywhere.
+      expect(faceNormalAgreement(mesh)).toBe(1);
     }
   });
 });
