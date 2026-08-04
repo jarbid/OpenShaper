@@ -17,7 +17,7 @@
  * station. `guides.test.ts` pins guide rings to the mesh so the two cannot
  * silently diverge; it is what caught this when the mesh convention changed.
  */
-import { pointByTT } from './bezier-spline';
+import { arcLengthTable, pointAtArcFraction } from './bezier-spline';
 import {
   getInterpolatedCrossSection,
   getLength,
@@ -65,11 +65,12 @@ export const crossSectionRing = (
   const rocker = getRockerAtPos(board, x);
   if (!Number.isFinite(rocker)) return null;
 
+  const arc = arcLengthTable(cs.spline);
   const half = ringHalf(steps);
   const ring: GuidePoint[] = [];
 
   const push = (tt: number, mirror: boolean): boolean => {
-    const p = pointByTT(cs.spline, tt);
+    const p = pointAtArcFraction(arc, tt);
     const y = mirror ? -p.x : p.x;
     const z = p.y + rocker;
     if (!isFinite3(x, y, z)) return false;

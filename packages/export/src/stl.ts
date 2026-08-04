@@ -6,7 +6,8 @@ import {
   hasTailCutout,
   loftBoard,
   resolveFins,
-  pointByTT,
+  arcLengthTable,
+  pointAtArcFraction,
   tessellateBoard,
   tessellationSteps,
   type BezierBoard,
@@ -60,10 +61,11 @@ const sampleRing = (board: BezierBoard, pos: number, ringSteps: number): P3[] | 
   const cs = getInterpolatedCrossSection(board, pos);
   if (!cs) return null;
   const rocker = getRockerAtPos(board, pos);
+  const arc = arcLengthTable(cs.spline);
   const ring: P3[] = [];
   for (let r = 0; r <= ringSteps; r++) {
     const tt = r / ringSteps;
-    const p = pointByTT(cs.spline, tt);
+    const p = pointAtArcFraction(arc, tt);
     ring.push({ x: pos, y: p.x, z: p.y + rocker });
   }
   return ring;

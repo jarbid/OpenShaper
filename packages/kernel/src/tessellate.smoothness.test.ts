@@ -107,15 +107,26 @@ describe('tessellateBoard: correspondence smoothness between differing stations'
    * zero. Any departure is the sampler failing to hold a consistent
    * correspondence.
    *
-   * Measured on this fixture (max over all ring vertices, cm):
-   *   arc-length sampling, per-pair knot matching   3.2e-3   <- the reported bug
-   *   arc-length sampling, normalised knot counts   3.2e-3   <- sampler, not matching
-   *   segment index, per-pair knot matching         6.2e-15 between stations,
-   *                                                 but 1.3 cm AT one
-   *   segment index + normalised (shipped)          6.2e-15, 1.1e-6 in float32
+   * Sampling by segment index makes that second difference exactly zero (6.2e-15,
+   * machine epsilon) because it evaluates both endpoint curves at a FIXED
+   * parameter, and bezier evaluation at a fixed parameter is affine in the
+   * control points. That property was measured, and then deliberately given up:
+   * segment index gives every segment the same share of the ring's points
+   * regardless of its length, so two knots close together starve the rest of the
+   * profile — a 330:1 point-spacing ratio for a 0.5 mm knot gap. See the
+   * point-distribution tests below, which is the defect users actually see.
    *
-   * The threshold sits above the float32 storage floor and ~300x below what
-   * arc-length sampling produces, so it fails loudly on a regression either way.
+   * Arc-length sampling costs a genuinely non-affine correspondence. Measured
+   * here (max over all ring vertices, cm):
+   *   segment index                    6.2e-15  but 330:1 spacing starvation
+   *   arc length, fixed-resolution     1.6e-3   spacing 1.6:1
+   *   arc length, adaptive (PR #24)    3.2e-3   spacing 1.6:1, plus real noise
+   *
+   * The threshold sits above the converged arc-length figure and below the
+   * adaptive sampler's, so it still fails if the adaptive integration path — the
+   * one whose threshold-triggered recursion produced visible blotching — is ever
+   * reinstated. The convergence test below is what distinguishes "genuine map"
+   * from "numerical noise"; without it this bound would just be a number.
    */
   it('sweeps ring vertices near-linearly within a station interval', () => {
     let maxD2 = 0;
@@ -128,16 +139,17 @@ describe('tessellateBoard: correspondence smoothness between differing stations'
         maxD2 = Math.max(maxD2, Math.hypot(cy - 2 * by + ay, cz - 2 * bz + az));
       }
     }
-    expect(maxD2).toBeLessThan(1e-5);
+    expect(maxD2).toBeLessThan(2e-3);
   });
 
   /**
    * The visible symptom is not the magnitude of the second difference but its
    * high-frequency content: shading derives normals from neighbouring vertices,
    * and the curvature overlay differentiates those again, so jitter blotches
-   * where a smooth trend would not. Arc-length sampling's jitter was 2.6e-3 cm —
-   * 85% of its own magnitude, i.e. essentially noise rather than curvature.
-   * Normalising knot counts and sampling by segment index leaves 5.3e-15.
+   * where a smooth trend would not. The adaptive arc-length sampler's jitter was
+   * 2.6e-3 cm; the fixed-resolution table's is 1.6e-3 and CONVERGED — it barely
+   * moves between 64 and 256 samples per segment, which is what says it is the
+   * arc-length map itself rather than integration noise.
    */
   it('has no high-frequency jitter in that sweep', () => {
     let maxJitter = 0;
@@ -153,6 +165,6 @@ describe('tessellateBoard: correspondence smoothness between differing stations'
         maxJitter = Math.max(maxJitter, Math.abs(d2(r + 1, i) - d2(r, i)));
       }
     }
-    expect(maxJitter).toBeLessThan(1e-5);
+    expect(maxJitter).toBeLessThan(2e-3);
   });
 });

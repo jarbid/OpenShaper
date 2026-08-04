@@ -138,6 +138,86 @@ export const pointByCurveLengthAt = (s: Spline, curveLengthAbs: number, total: n
 export const pointByCurveLength = (s: Spline, curveLengthAbs: number): Vec2 =>
   pointByCurveLengthAt(s, curveLengthAbs, splineLength(s));
 
+// --- fixed-resolution arc-length table (lofting) ---------------------------
+
+/**
+ * Samples per segment for {@link arcLengthTable}. Chord error falls as O(1/n²),
+ * so 64 puts the table's own approximation orders of magnitude below anything
+ * visible, while costing a fixed, predictable amount of work.
+ */
+export const ARC_TABLE_SAMPLES = 64;
+
+/** A precomputed arc-length parametrization of one spline. See {@link arcLengthTable}. */
+export interface ArcTable {
+  readonly pts: readonly Vec2[];
+  /** Cumulative chord length at each sample; `cum[0] === 0`, ascending. */
+  readonly cum: readonly number[];
+  readonly total: number;
+}
+
+/**
+ * Build a fixed-resolution cumulative-chord-length table for `s`.
+ *
+ * A loft must place ring points by ARC LENGTH, not by segment index. Segment
+ * index gives every segment the same share of the points regardless of its
+ * length, so a profile carrying two knots close together spends that share on a
+ * sliver while the long spans go starved — measured at a 330:1 spacing ratio for
+ * a 0.5 mm knot gap, against 1.6:1 by arc length. Raising mesh quality cannot
+ * help, because the share per segment is fixed no matter how many points there
+ * are, which is why the artifact looks identical at every quality setting.
+ *
+ * The map has to be SMOOTH as well as arc-length-based. `pointByCurveLengthAt`
+ * is not: `curveLength` recurses on `poly - chord > LENGTH_TOLERANCE` and
+ * `tForLength` stops on its own tolerance test, so both step discontinuously as
+ * a blended cross-section varies along the board, and that lands in the mesh as
+ * jitter. A fixed sample count has no thresholds, so this table is a continuous,
+ * piecewise-linear function of the control points — and cheaper than the
+ * adaptive recursion it replaces.
+ *
+ * {@link pointByCurveLengthAt} is kept for non-loft callers, where per-call
+ * exactness matters more than smoothness across calls.
+ */
+export const arcLengthTable = (s: Spline, samplesPerSegment = ARC_TABLE_SAMPLES): ArcTable => {
+  const n = Math.max(2, Math.floor(samplesPerSegment));
+  const pts: Vec2[] = [];
+  const cum: number[] = [];
+  let acc = 0;
+  for (let i = 0; i < s.coeffs.length; i++) {
+    const k = s.coeffs[i]!;
+    // Skip j=0 after the first segment: it repeats the previous endpoint.
+    for (let j = i === 0 ? 0 : 1; j <= n; j++) {
+      const p = value(k, j / n);
+      const prev = pts[pts.length - 1];
+      if (prev) acc += Math.hypot(p.x - prev.x, p.y - prev.y);
+      pts.push(p);
+      cum.push(acc);
+    }
+  }
+  return { pts, cum, total: acc };
+};
+
+/** Point at fractional arc length `f` ∈ [0,1], by interpolation within {@link arcLengthTable}. */
+export const pointAtArcFraction = (table: ArcTable, f: number): Vec2 => {
+  const { pts, cum, total } = table;
+  if (pts.length === 0) return vec2(0, 0);
+  if (!Number.isFinite(f) || f <= 0 || total <= 0) return pts[0]!;
+  if (f >= 1) return pts[pts.length - 1]!;
+
+  const target = f * total;
+  let lo = 0;
+  let hi = cum.length - 1;
+  while (lo + 1 < hi) {
+    const mid = (lo + hi) >> 1;
+    if (cum[mid]! <= target) lo = mid;
+    else hi = mid;
+  }
+  const span = cum[hi]! - cum[lo]!;
+  const t = span > 0 ? (target - cum[lo]!) / span : 0;
+  const a = pts[lo]!;
+  const b = pts[hi]!;
+  return vec2(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
+};
+
 /** Cumulative arc length of segments [startIndex, endIndex) (legacy getLengthByControlPointIndex). */
 const lengthByControlPointIndex = (s: Spline, startIndex: number, endIndex: number): number => {
   let length = 0;

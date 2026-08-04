@@ -8,7 +8,7 @@ import {
   getRockerAtPos,
   type BezierBoard,
 } from './board';
-import { pointByTT } from './bezier-spline';
+import { arcLengthTable, pointAtArcFraction } from './bezier-spline';
 import { CUTOUT_EPS, cachedOutlineSegments, hasTailCutout, yInOut } from './outline-cutout';
 
 /**
@@ -115,15 +115,15 @@ const buildRing = (board: BezierBoard, x: number, ringSteps: number): Vert3[] | 
   const rocker = getRockerAtPos(board, x);
   if (!Number.isFinite(rocker)) return null;
 
-
   // Half the ring on each rail. Use an even count so both sides match.
+  const arc = arcLengthTable(cs.spline);
   const half = Math.max(2, Math.floor(ringSteps / 2));
   const ring: Vert3[] = [];
 
   // +Y rail: tt 0 (bottom centerline) -> tt 1 (deck centerline).
   for (let i = 0; i < half; i++) {
     const tt = i / (half - 1);
-    const p = pointByTT(cs.spline, tt);
+    const p = pointAtArcFraction(arc, tt);
     const vx = x;
     const vy = p.x;
     const vz = p.y + rocker;
@@ -135,7 +135,7 @@ const buildRing = (board: BezierBoard, x: number, ringSteps: number): Vert3[] | 
   // Skip the two shared centerline endpoints (tt=1 and tt=0) to avoid duplicates.
   for (let i = half - 2; i >= 1; i--) {
     const tt = i / (half - 1);
-    const p = pointByTT(cs.spline, tt);
+    const p = pointAtArcFraction(arc, tt);
     const vx = x;
     const vy = -p.x;
     const vz = p.y + rocker;
@@ -424,18 +424,19 @@ const tessellateCutout = (
       leftRows.push(null);
       continue;
     }
+    const arc = arcLengthTable(cs.spline);
     let { yIn, yOut } = yInOut(segments, x);
     if (yIn < CUTOUT_EPS) yIn = 0;
     if (yOut < yIn + CUTOUT_EPS) yOut = yIn; // collapsed tip → zero-width sliver
     yIns.push(yIn);
 
-      const scale = yOut > 1e-6 ? (yOut - yIn) / yOut : 0;
+    const scale = yOut > 1e-6 ? (yOut - yIn) / yOut : 0;
     const right: number[] = [];
     const left: number[] = [];
     let ok = true;
     for (let i = 0; i < half; i++) {
       const tt = i / (half - 1);
-      const p = pointByTT(cs.spline, tt);
+      const p = pointAtArcFraction(arc, tt);
       const mapped = yIn + p.x * scale; // p.x ∈ [0, yOut] → [yIn, yOut]
       const z = p.y + rocker;
       if (!isFinite3(x, mapped, z)) {
