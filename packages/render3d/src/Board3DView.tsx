@@ -1,18 +1,13 @@
-import {
-  getLength,
-  getMaxRocker,
-  getMaxThickness,
-  getMaxWidth,
-  type BezierBoard,
-} from '@openshaper/kernel';
+import type { BezierBoard } from '@openshaper/kernel';
 import type { BoardState } from '@openshaper/store';
-import { Edges, GizmoHelper, GizmoViewport, OrbitControls } from '@react-three/drei';
+import { GizmoHelper, GizmoViewport, OrbitControls } from '@react-three/drei';
 import { Canvas } from '@react-three/fiber';
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { DoubleSide, ShaderMaterial, type BufferGeometry } from 'three';
 import type { StoreApi } from 'zustand/vanilla';
 import { boardSpan, meshToGeometry, tessellateAsync } from './geometry';
 import { Fins3D } from './Fins3D';
+import { Guides3D } from './Guides3D';
 
 /** How the board surface is drawn. */
 export type Board3DMode = 'shaded' | 'wireframe' | 'shaded-wire' | 'normals';
@@ -45,8 +40,12 @@ export interface Board3DViewProps {
   analysis?: AnalysisMode;
   /** Target tessellation face size in cm (smaller = finer mesh). Defaults to ~0.9 cm. */
   targetFaceSize?: number;
-  /** Board-length position of the active cross-section to highlight on the mesh, or null. */
-  sectionX?: number | null;
+  /** Draw the stringer plane's silhouette on the hull (defaults to false). */
+  showStringer?: boolean;
+  /** Draw a ring at every real cross-section (defaults to false). */
+  showSections?: boolean;
+  /** Board-length position of the active cross-section, drawn in cyan. */
+  activeSectionX?: number | null;
   /** @deprecated use `mode="wireframe"`. Kept for back-compat. */
   wireframe?: boolean;
   /**
@@ -290,32 +289,6 @@ function BoardMesh({
   );
 }
 
-/**
- * Translucent plane marking the active cross-section's length position. The mesh is
- * centered by geometry.center() (length axis = X, spanning ≈[0,length]), so the
- * station at board-x `x` sits at centered X = x − length/2; the plane is centered on
- * Y/Z (which are also centered) and sized to comfortably cover the section.
- */
-function SectionPlane({ board, x }: { board: BezierBoard; x: number }) {
-  const length = getLength(board);
-  const yExtent = getMaxWidth(board) * 1.12;
-  const zExtent = (getMaxThickness(board) + getMaxRocker(board)) * 1.4;
-  return (
-    <mesh position={[x - length / 2, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
-      {/* local X→world Z (height), local Y→world Y (width) after the Y-rotation. */}
-      <planeGeometry args={[zExtent, yExtent]} />
-      <meshBasicMaterial
-        color="#22D3EE"
-        transparent
-        opacity={0.16}
-        side={DoubleSide}
-        depthWrite={false}
-      />
-      <Edges color="#22D3EE" />
-    </mesh>
-  );
-}
-
 /** Orbitable 3D view of the board, meshed from the kernel tessellation. */
 export function Board3DView({
   store,
@@ -326,7 +299,9 @@ export function Board3DView({
   finColor,
   analysis = 'none',
   targetFaceSize = DEFAULT_FACE_SIZE,
-  sectionX = null,
+  showStringer = false,
+  showSections = false,
+  activeSectionX = null,
   wireframe = false,
   initialCamera,
   onCameraChange,
@@ -364,7 +339,15 @@ export function Board3DView({
         {board && board.fins.setup !== 'none' && (
           <Fins3D board={board} targetFaceSize={targetFaceSize} color={finColor} />
         )}
-        {board && sectionX != null && <SectionPlane board={board} x={sectionX} />}
+        {board && (showStringer || showSections) && (
+          <Guides3D
+            board={board}
+            targetFaceSize={targetFaceSize}
+            showStringer={showStringer}
+            showSections={showSections}
+            activeSectionX={activeSectionX}
+          />
+        )}
         <OrbitControls
           makeDefault
           enableDamping

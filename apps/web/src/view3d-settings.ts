@@ -65,8 +65,10 @@ export interface View3DSettings {
   color: string;
   analysis: AnalysisMode;
   meshQuality: MeshQuality;
-  /** Highlight the active cross-section's location on the 3D mesh. */
-  showSection: boolean;
+  /** Draw the stringer plane's silhouette on the hull. */
+  showStringer: boolean;
+  /** Draw a ring at every real cross-section, the active one highlighted. */
+  showSections: boolean;
 }
 
 export const DEFAULT_VIEW_3D: View3DSettings = {
@@ -76,5 +78,6 @@ export const DEFAULT_VIEW_3D: View3DSettings = {
   color: '#E8EEF5',
   analysis: 'none',
   meshQuality: 'standard',
-  showSection: false,
+  showStringer: false,
+  showSections: false,
 };

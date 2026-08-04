@@ -84,6 +84,7 @@ import sampleBrd from './sample-board.brd?raw';
 import { boardStore } from './store';
 import { SUPPORT_URL } from './support';
 import { BOARD_TEMPLATES } from './templates';
+import { clampSectionIndex } from './section-index';
 import { useKeyboardShortcuts } from './use-keyboard-shortcuts';
 import { useSettledBoard } from './use-settled-board';
 import { useIsDesktop } from './useMediaQuery';
@@ -97,6 +98,7 @@ import {
   type View,
   type View3DSettings,
 } from './view-toolkit';
+import { DEFAULT_VIEW_3D } from './view3d-settings';
 import { estimateWeight, type FoamType, type GlassSchedule } from './weights';
 
 // three.js / fiber / drei are the bulk of the bundle and are only needed once a 3D
@@ -258,15 +260,7 @@ function AppShell() {
   useEffect(() => {
     localStorage.setItem('bs.lengthUnit', unitKey);
   }, [unitKey]);
-  const [view3d, setView3d] = useState<View3DSettings>({
-    mode: 'shaded',
-    lighting: 'studio',
-    material: 'gloss',
-    color: '#E8EEF5',
-    analysis: 'none',
-    meshQuality: 'standard',
-    showSection: false,
-  });
+  const [view3d, setView3d] = useState<View3DSettings>(DEFAULT_VIEW_3D);
   const patchView3d = (patch: Partial<View3DSettings>) => setView3d((s) => ({ ...s, ...patch }));
   const [csClipboard, setCsClipboard] = useState<Spline | null>(null);
   const [ghost, setGhost] = useState<BezierBoard | null>(null);
@@ -311,10 +305,7 @@ function AppShell() {
   // read from the history stack at flush time rather than counted per edit, so
   // nothing is added to the drag path. See session-metrics.ts for why this is
   // an aggregate rather than a per-action stream.
-  useEffect(
-    () => installSessionSummary(() => boardStore.getState().past.length),
-    [],
-  );
+  useEffect(() => installSessionSummary(() => boardStore.getState().past.length), []);
   const [resize, setResize] = useState<ResizeFields>({ l: '', w: '', t: '' });
   const [templateKind, setTemplateKind] = useState<'hws' | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -349,11 +340,11 @@ function AppShell() {
 
   const sectionCount = board?.crossSections.length ?? 0;
   const lastReal = Math.max(1, sectionCount - 2);
-  const clampedCs = Math.min(Math.max(csIndex, 1), lastReal);
+  const clampedCs = clampSectionIndex(csIndex, sectionCount);
 
-  // Active cross-section's length position, for the optional 3D mesh highlight.
-  const sectionX =
-    view3d.showSection && board ? (board.crossSections[clampedCs]?.position ?? null) : null;
+  // The active station's length position. Derived unconditionally — the toggle
+  // governs whether the guide is drawn, not whether the position is known.
+  const activeSectionX = board ? (board.crossSections[clampedCs]?.position ?? null) : null;
 
   // Real cross-sections (skip the nose/tail dummies) as pickable outline markers.
   const sectionMarkers = board
@@ -991,7 +982,9 @@ function AppShell() {
           finColor={settings.finColor}
           analysis={view3d.analysis}
           targetFaceSize={faceSizeFor(view3d.meshQuality)}
-          sectionX={sectionX}
+          showStringer={view3d.showStringer}
+          showSections={view3d.showSections}
+          activeSectionX={activeSectionX}
           initialCamera={liveViewState.current.camera3d}
           onCameraChange={onCameraChange}
         />
@@ -1190,7 +1183,9 @@ function AppShell() {
                   finColor={settings.finColor}
                   analysis={view3d.analysis}
                   targetFaceSize={faceSizeFor(view3d.meshQuality)}
-                  sectionX={sectionX}
+                  showStringer={view3d.showStringer}
+                  showSections={view3d.showSections}
+                  activeSectionX={activeSectionX}
                   initialCamera={liveViewState.current.camera3d}
                   onCameraChange={onCameraChange}
                 />

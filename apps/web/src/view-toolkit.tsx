@@ -144,11 +144,19 @@ export function ThreeDControls({
       />
       <Button
         size="sm"
-        variant={settings.showSection ? 'secondary' : 'ghost'}
-        onClick={() => set({ showSection: !settings.showSection })}
-        title="Highlight the active cross-section's location on the mesh"
+        variant={settings.showStringer ? 'secondary' : 'ghost'}
+        onClick={() => set({ showStringer: !settings.showStringer })}
+        title="Draw the stringer line down the centre of the board"
       >
-        Section
+        Stringer
+      </Button>
+      <Button
+        size="sm"
+        variant={settings.showSections ? 'secondary' : 'ghost'}
+        onClick={() => set({ showSections: !settings.showSections })}
+        title="Draw a ring at every cross-section (the active one in cyan)"
+      >
+        Sections
       </Button>
       {!compact && (
         <>
