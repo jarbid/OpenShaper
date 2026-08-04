@@ -4,9 +4,9 @@ import {
   getLength,
   getRockerAtPos,
   hasTailCutout,
-  pointByCurveLengthAt,
+  loftBoard,
   resolveFins,
-  splineLength,
+  pointByTT,
   tessellateBoard,
   tessellationSteps,
   type BezierBoard,
@@ -48,21 +48,22 @@ const f = (n: number): string => (Number.isFinite(n) ? n : 0).toExponential(6);
  * The interpolated cross-section profile runs (x = distance from centerline ≥ 0,
  * y = height) from bottom-centre (tt=0) to deck-centre (tt=1). We sample it by
  * fractional arc length (not fractional segment index — adjacent stations can
- * interpolate against splines with different knot counts, and a segment-index
- * parametrization would land on different physical points for "the same" tt on
- * either side of a real cross-section) and lift it by the bottom rocker at this
- * station so z is absolute board height. `+x` gives one rail; we mirror `-x` for
- * the other rail when stitching.
+ * Sampled by segment index, which keeps the sweep between two stations exactly
+ * affine (bezier evaluation at a fixed parameter is linear in the control
+ * points, and `interpolateCrossSection` lerps them). `exportStl` normalises the
+ * board's knot counts first via `loftBoard`, so segment `i` denotes the same
+ * place at every station; without that a station between neighbours of
+ * differing density is resliced differently from each side and the same tt
+ * lands on different physical points.
  */
 const sampleRing = (board: BezierBoard, pos: number, ringSteps: number): P3[] | null => {
   const cs = getInterpolatedCrossSection(board, pos);
   if (!cs) return null;
   const rocker = getRockerAtPos(board, pos);
-  const total = splineLength(cs.spline);
   const ring: P3[] = [];
   for (let r = 0; r <= ringSteps; r++) {
     const tt = r / ringSteps;
-    const p = pointByCurveLengthAt(cs.spline, tt * total, total);
+    const p = pointByTT(cs.spline, tt);
     ring.push({ x: pos, y: p.x, z: p.y + rocker });
   }
   return ring;
@@ -106,7 +107,11 @@ const writeFacet = (out: string[], a: P3, b: P3, c: P3): void => {
  * triangles) on the `+y` side and a mirrored band on the `-y` side; the nose and
  * tail rings are fanned to a centre point to cap the ends.
  */
-export const exportStl = (board: BezierBoard, opts: StlOptions = {}): string => {
+export const exportStl = (raw: BezierBoard, opts: StlOptions = {}): string => {
+  // One knot count across all stations, so segment index means the same thing at
+  // every station and the loft stays affine between them (see sampleRing).
+  const board = loftBoard(raw);
+
   // Derive density from a fine target face size unless explicit counts are given.
   // The kernel ring count covers the full closed loop; STL samples one rail (per
   // side) and mirrors it, so use half the loop count.

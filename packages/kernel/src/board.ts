@@ -18,6 +18,7 @@ import {
   csCenterThickness,
   csWidth,
   interpolateCrossSection,
+  normalizeCrossSectionKnots,
   scaleCrossSection,
   type CrossSection,
 } from './cross-section';
@@ -231,6 +232,50 @@ const getNextCrossSectionPos = (b: BezierBoard, pos: number): number => {
 };
 
 /** Interpolated + board-scaled cross-section at x (legacy getInterpolatedCrossSection). */
+const LOFT_BOARD_CACHE = new WeakMap<BezierBoard, BezierBoard>();
+
+/**
+ * The board with every cross-section grown to one common knot count, ready to loft.
+ *
+ * A loft is smooth only while "control point `i`" means the same thing at every
+ * station: bezier evaluation at a fixed parameter is affine in the control points
+ * and `interpolateCrossSection` lerps them, so ring vertex `i` then sweeps a
+ * straight line between stations — exactly. Per-pair matching breaks that, because
+ * a station between neighbours of differing density gets resliced differently
+ * depending on which side it is approached from. See
+ * {@link normalizeCrossSectionKnots}.
+ *
+ * Insertion is an exact de Casteljau split, so no station's shape moves. Falls
+ * back to the board unchanged when normalisation can't be done, which just means
+ * the caller keeps the old per-pair behaviour.
+ *
+ * Memoised on board identity — boards are immutable and a new reference is
+ * produced on every edit, so a stale entry can't be observed.
+ */
+export const loftBoard = (b: BezierBoard): BezierBoard => {
+  const hit = LOFT_BOARD_CACHE.get(b);
+  if (hit) return hit;
+
+  // Only the REAL stations are normalised. Index 0 and the last index are the
+  // nose/tail dummies: they are degenerate (often a single collapsed knot, with
+  // no segment to split) and interpolation never reads them — see
+  // `getNearestCrossSectionIndex`, which scans 1..length-2.
+  const interior = b.crossSections.slice(1, -1);
+  const normalized = interior.length > 1 ? normalizeCrossSectionKnots(interior) : null;
+  const out = normalized
+    ? {
+        ...b,
+        crossSections: [
+          b.crossSections[0]!,
+          ...normalized,
+          b.crossSections[b.crossSections.length - 1]!,
+        ],
+      }
+    : b;
+  LOFT_BOARD_CACHE.set(b, out);
+  return out;
+};
+
 export const getInterpolatedCrossSection = (b: BezierBoard, x: number): CrossSection | null => {
   const cs = b.crossSections;
   if (cs.length === 0 || x < 0 || x > getLength(b)) return null;

@@ -2,12 +2,13 @@
 import {
   getInterpolatedCrossSection,
   getLength,
+  loftBoard,
   getMaxThickness,
   getMaxWidth,
   getRockerAtPos,
   type BezierBoard,
 } from './board';
-import { pointByCurveLengthAt, splineLength } from './bezier-spline';
+import { pointByTT } from './bezier-spline';
 import { CUTOUT_EPS, cachedOutlineSegments, hasTailCutout, yInOut } from './outline-cutout';
 
 /**
@@ -85,12 +86,27 @@ interface Vert3 {
  * tt 1..0 sweep onto the -Y side, giving a closed loop around the section.
  * Returns null if the section is missing or degenerate (NaN / collapsed).
  *
- * Sampled by fractional ARC LENGTH, not fractional segment index: adjacent
- * stations can interpolate against splines with different knot counts (see
- * `matchControlPointCounts`), and a segment-index parametrization would then
- * land on different physical points for "the same" tt on either side of a
- * real cross-section — a pinch in the loft. Arc length is invariant to how
- * many segments the curve is sliced into, so it stays continuous regardless.
+ * Sampled by fractional SEGMENT INDEX, which is what makes the loft smooth:
+ * bezier evaluation at a fixed parameter is affine in the control points, and
+ * `interpolateCrossSection` lerps control points, so ring vertex `i` sweeps a
+ * straight line between two stations — exactly, to machine precision.
+ *
+ * That holds only while "segment `i`" means the same thing at every station,
+ * which is why `tessellateBoard` lofts `loftBoard(board)`: it normalises all
+ * cross-sections to one knot count up front. Without that, a station between
+ * neighbours of differing density is resliced differently depending on which
+ * side it is approached from, and the same tt lands on different physical
+ * points — the pinch this used to have.
+ *
+ * Sampling by arc length instead also removes that pinch, but at the cost of
+ * the affine property: the parameter becomes a nonlinear function of the
+ * control points, computed by `curveLength`'s threshold-triggered recursion and
+ * `tForLength`'s bisection, both of which step discontinuously as a blended
+ * section varies along the board. Measured on a board with one edited station,
+ * that leaves second-difference jitter of 2.6e-3 cm — ~85% of its own
+ * magnitude, i.e. essentially noise — which curvature shading amplifies into
+ * visible blotches. Normalising and sampling by segment index measures 5.3e-15.
+ * See `tessellate.smoothness.test.ts`.
  */
 const buildRing = (board: BezierBoard, x: number, ringSteps: number): Vert3[] | null => {
   const cs = getInterpolatedCrossSection(board, x);
@@ -99,7 +115,6 @@ const buildRing = (board: BezierBoard, x: number, ringSteps: number): Vert3[] | 
   const rocker = getRockerAtPos(board, x);
   if (!Number.isFinite(rocker)) return null;
 
-  const total = splineLength(cs.spline);
 
   // Half the ring on each rail. Use an even count so both sides match.
   const half = Math.max(2, Math.floor(ringSteps / 2));
@@ -108,7 +123,7 @@ const buildRing = (board: BezierBoard, x: number, ringSteps: number): Vert3[] | 
   // +Y rail: tt 0 (bottom centerline) -> tt 1 (deck centerline).
   for (let i = 0; i < half; i++) {
     const tt = i / (half - 1);
-    const p = pointByCurveLengthAt(cs.spline, tt * total, total);
+    const p = pointByTT(cs.spline, tt);
     const vx = x;
     const vy = p.x;
     const vz = p.y + rocker;
@@ -120,7 +135,7 @@ const buildRing = (board: BezierBoard, x: number, ringSteps: number): Vert3[] | 
   // Skip the two shared centerline endpoints (tt=1 and tt=0) to avoid duplicates.
   for (let i = half - 2; i >= 1; i--) {
     const tt = i / (half - 1);
-    const p = pointByCurveLengthAt(cs.spline, tt * total, total);
+    const p = pointByTT(cs.spline, tt);
     const vx = x;
     const vy = -p.x;
     const vz = p.y + rocker;
@@ -148,7 +163,11 @@ const addVert = (positions: number[], v: Vert3): number => {
  *
  * Robust against null/degenerate sections (skipped) and NaN samples.
  */
-export const tessellateBoard = (board: BezierBoard, opts: TessellateOptions = {}): BoardMesh => {
+export const tessellateBoard = (raw: BezierBoard, opts: TessellateOptions = {}): BoardMesh => {
+  // One knot count for the whole board, so segment index means the same thing at
+  // every station (see buildRing).
+  const board = loftBoard(raw);
+
   // A target face size derives step counts unless explicit counts are given.
   const derived =
     opts.targetFaceSize !== undefined ? tessellationSteps(board, opts.targetFaceSize) : null;
@@ -410,14 +429,13 @@ const tessellateCutout = (
     if (yOut < yIn + CUTOUT_EPS) yOut = yIn; // collapsed tip → zero-width sliver
     yIns.push(yIn);
 
-    const total = splineLength(cs.spline);
-    const scale = yOut > 1e-6 ? (yOut - yIn) / yOut : 0;
+      const scale = yOut > 1e-6 ? (yOut - yIn) / yOut : 0;
     const right: number[] = [];
     const left: number[] = [];
     let ok = true;
     for (let i = 0; i < half; i++) {
       const tt = i / (half - 1);
-      const p = pointByCurveLengthAt(cs.spline, tt * total, total);
+      const p = pointByTT(cs.spline, tt);
       const mapped = yIn + p.x * scale; // p.x ∈ [0, yOut] → [yIn, yOut]
       const z = p.y + rocker;
       if (!isFinite3(x, mapped, z)) {
