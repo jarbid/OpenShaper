@@ -9,15 +9,22 @@
  * a faceted sample of that same surface. Keeping this separate means overlays can
  * never destabilise mesh generation.
  *
- * What IS shared with the tessellator is the sampling convention: fractional ARC
- * LENGTH, not fractional segment index. Adjacent stations can interpolate against
- * splines with different knot counts, and a segment-index parametrisation would
- * then land on different physical points for "the same" tt (the crease bug fixed
- * in PR #24). `guides.test.ts` pins guide rings to the mesh so the two conventions
- * cannot silently diverge.
+ * What IS shared with the tessellator is the sampling convention: `loftBoard` to
+ * normalise every station to one knot count, then fractional SEGMENT INDEX. That
+ * pairing is what keeps a loft smooth — bezier evaluation at a fixed parameter is
+ * affine in the control points, so ring vertex `i` sweeps a straight line between
+ * stations, and normalising first makes "segment `i`" mean the same place at every
+ * station. `guides.test.ts` pins guide rings to the mesh so the two cannot
+ * silently diverge; it is what caught this when the mesh convention changed.
  */
-import { pointByCurveLengthAt, splineLength } from './bezier-spline';
-import { getInterpolatedCrossSection, getLength, getRockerAtPos, type BezierBoard } from './board';
+import { pointByTT } from './bezier-spline';
+import {
+  getInterpolatedCrossSection,
+  getLength,
+  getRockerAtPos,
+  loftBoard,
+  type BezierBoard,
+} from './board';
 import { CUTOUT_EPS, cachedOutlineSegments, hasTailCutout, yInOut } from './outline-cutout';
 
 /** A point on the board surface, in board cm: x = length, y = width, z = height. */
@@ -38,15 +45,17 @@ const ringHalf = (steps: number): number =>
  * A closed ring around the hull at station `x`.
  *
  * The profile spline runs (distance from centreline, height) and describes the
- * +Y rail half, so we walk it once by arc length and mirror it back.
+ * +Y rail half, so we walk it once by segment index and mirror it back.
  *
  * Returns null if the section is missing or degenerate.
  */
 export const crossSectionRing = (
-  board: BezierBoard,
+  raw: BezierBoard,
   x: number,
   steps: number,
 ): GuidePoint[] | null => {
+  // Same normalised board the mesh is lofted from, or the guides drift off it.
+  const board = loftBoard(raw);
   const length = getLength(board);
   if (!Number.isFinite(length) || length <= 0) return null;
 
@@ -56,14 +65,11 @@ export const crossSectionRing = (
   const rocker = getRockerAtPos(board, x);
   if (!Number.isFinite(rocker)) return null;
 
-  const total = splineLength(cs.spline);
-  if (!Number.isFinite(total) || total <= 0) return null;
-
   const half = ringHalf(steps);
   const ring: GuidePoint[] = [];
 
   const push = (tt: number, mirror: boolean): boolean => {
-    const p = pointByCurveLengthAt(cs.spline, tt * total, total);
+    const p = pointByTT(cs.spline, tt);
     const y = mirror ? -p.x : p.x;
     const z = p.y + rocker;
     if (!isFinite3(x, y, z)) return false;
