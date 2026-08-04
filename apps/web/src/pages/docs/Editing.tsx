@@ -12,6 +12,7 @@ export default function DocsEditing() {
       lede="Control points, tangent handles, the four views, and how cross-sections interpolate."
       toc={[
         { id: 'views', label: 'The four views' },
+        { id: 'guides', label: 'Guides in 3D' },
         { id: 'points', label: 'Control points & tangents' },
         { id: 'sections', label: 'Cross-sections' },
         { id: 'rails', label: 'Rail presets' },
@@ -30,16 +31,41 @@ export default function DocsEditing() {
             thickness flow.
           </Term>
           <Term name="Cross-section">
-            One station across the board, rail to rail. Use <code>{shortcutKeys('cross-section-prev')}</code>{' '}
-            and <code>{shortcutKeys('cross-section-next')}</code> to page through stations.
+            One station across the board, rail to rail. Use{' '}
+            <code>{shortcutKeys('cross-section-prev')}</code> and{' '}
+            <code>{shortcutKeys('cross-section-next')}</code> to page through stations.
           </Term>
           <Term name="3D">
             The tessellated surface. Useful for spotting a bump you cannot see in a single profile.
           </Term>
         </Terms>
         <p>
-          The quad view shows all four at once. Number keys switch views —
-          see <Link to="/docs/shortcuts">shortcuts</Link>.
+          The quad view shows all four at once. Number keys switch views — see{' '}
+          <Link to="/docs/shortcuts">shortcuts</Link>.
+        </p>
+      </Section>
+
+      <Section id="guides" title="Guides in 3D">
+        <p>
+          The 3D view can draw reference lines directly on the surface. Two buttons in the 3D
+          controls toggle them independently.
+        </p>
+        <Terms>
+          <Term name="Stringer">
+            An amber line tracing the centreline: down the deck from nose to tail, and back along
+            the bottom. Together they outline the stringer plane, so you read the rocker and the
+            deck crown at the same time.
+          </Term>
+          <Term name="Sections">
+            A red ring around the board at every cross-section, with the station you are currently
+            editing drawn in cyan. Useful for judging whether your stations are spaced sensibly, and
+            for seeing which one a change belongs to.
+          </Term>
+        </Terms>
+        <p>
+          The lines are computed from the same surface the mesh is built from, so they sit on the
+          board rather than floating near it. Both toggles are remembered between sessions, along
+          with the rest of the 3D appearance settings.
         </p>
       </Section>
 
@@ -123,9 +149,9 @@ export default function DocsEditing() {
 
       <Section id="undo" title="Undo & history">
         <p>
-          Every edit lands on a labelled undo stack —{' '}
-          <code>{shortcutKeys('undo')}</code> and <code>{shortcutKeys('redo')}</code>. A drag is one
-          step, not one step per pixel, so undo moves in the units you actually think in.
+          Every edit lands on a labelled undo stack — <code>{shortcutKeys('undo')}</code> and{' '}
+          <code>{shortcutKeys('redo')}</code>. A drag is one step, not one step per pixel, so undo
+          moves in the units you actually think in.
         </p>
         <p>
           Your working board is saved to this device continuously, so closing the tab and coming
