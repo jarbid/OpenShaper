@@ -10,6 +10,15 @@
  * pane size re-centers correctly.
  */
 import type { EditorKind, View } from './view-toolkit';
+import {
+  ANALYSIS_3D,
+  DEFAULT_VIEW_3D,
+  LIGHTING_3D,
+  MATERIAL_3D,
+  MODE_3D,
+  QUALITY_3D,
+  type View3DSettings,
+} from './view3d-settings';
 
 const STORAGE_KEY = 'bs.viewState';
 
@@ -36,6 +45,8 @@ export interface ViewState {
   /** Per-pane 2D framing; a missing entry means "auto-fit as usual". */
   views2d: Partial<Record<EditorKind, View2D>>;
   camera3d?: Camera3D;
+  /** 3D appearance + analysis settings; absent on blobs written before they were saved. */
+  view3d?: View3DSettings;
 }
 
 export const DEFAULT_VIEW_STATE: ViewState = {
@@ -66,6 +77,32 @@ const sanitizeCamera = (v: unknown): Camera3D | undefined => {
     : undefined;
 };
 
+const oneOf = <T extends string>(v: unknown, allowed: readonly { value: T }[], fallback: T): T =>
+  allowed.some((o) => o.value === v) ? (v as T) : fallback;
+
+const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean' ? v : fallback);
+
+/**
+ * Per-field sanitising: an unrecognised value falls back to that field's default
+ * and leaves its siblings alone, matching the policy the 2D and camera
+ * sanitisers follow. A colour must be a hex triplet — it reaches a DOM attribute.
+ */
+const sanitizeView3D = (v: unknown): View3DSettings | undefined => {
+  if (!v || typeof v !== 'object') return undefined;
+  const o = v as Record<string, unknown>;
+  const d = DEFAULT_VIEW_3D;
+  return {
+    mode: oneOf(o.mode, MODE_3D, d.mode),
+    lighting: oneOf(o.lighting, LIGHTING_3D, d.lighting),
+    material: oneOf(o.material, MATERIAL_3D, d.material),
+    color: typeof o.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(o.color) ? o.color : d.color,
+    analysis: oneOf(o.analysis, ANALYSIS_3D, d.analysis),
+    meshQuality: oneOf(o.meshQuality, QUALITY_3D, d.meshQuality),
+    showStringer: bool(o.showStringer, d.showStringer),
+    showSections: bool(o.showSections, d.showSections),
+  };
+};
+
 /**
  * Read the persisted view state. Returns defaults when the key is absent, the
  * JSON is malformed, or the schema version doesn't match; individually invalid
@@ -84,11 +121,13 @@ export function loadViewState(): ViewState {
       if (v) views2d[kind] = v;
     }
     const camera3d = sanitizeCamera(parsed.camera3d);
+    const view3d = sanitizeView3D(parsed.view3d);
     return {
       version: VIEW_STATE_VERSION,
       view: VIEWS.includes(parsed.view as View) ? (parsed.view as View) : DEFAULT_VIEW_STATE.view,
       views2d,
       ...(camera3d ? { camera3d } : {}),
+      ...(view3d ? { view3d } : {}),
     };
   } catch {
     return DEFAULT_VIEW_STATE;

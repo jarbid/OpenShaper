@@ -16,9 +16,10 @@ import {
   tessellateBoard,
   vec2,
   type BezierBoard,
+  type BoardMesh,
 } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
-import { boardGeometry, boardSpan } from './geometry';
+import { boardCenter, boardGeometry, boardSpan } from './geometry';
 
 // ---------------------------------------------------------------------------
 // Shared test board — same shape used in board-store.test.ts so the tessellator
@@ -173,5 +174,48 @@ describe('boardGeometry (Three.js wrapper)', () => {
     expect((bb.min.x + bb.max.x) / 2).toBeCloseTo(0, 3);
     expect((bb.min.y + bb.max.y) / 2).toBeCloseTo(0, 3);
     expect((bb.min.z + bb.max.z) / 2).toBeCloseTo(0, 3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// boardCenter — bounding-box centre of a board mesh.
+// ---------------------------------------------------------------------------
+describe('boardCenter', () => {
+  it('is the bounding-box centre, not the average vertex', () => {
+    // bbox x[0,2] y[0,4] z[0,6] → centre (1, 2, 3). The vertex mean is
+    // (1, 5/3, 7/3), so a centroid implementation fails this.
+    const mesh: BoardMesh = {
+      positions: new Float32Array([0, 0, 0, 2, 4, 6, 1, 1, 1]),
+      indices: new Uint32Array([0, 1, 2]),
+      normals: new Float32Array(9),
+    };
+    expect(boardCenter(mesh)).toEqual([1, 2, 3]);
+  });
+
+  it('is exactly what geometry.center() subtracts from a real board', () => {
+    const mesh = tessellateBoard(makeBoard());
+    const c = boardCenter(mesh);
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      minX = Math.min(minX, mesh.positions[i]!);
+      maxX = Math.max(maxX, mesh.positions[i]!);
+      minY = Math.min(minY, mesh.positions[i + 1]!);
+      maxY = Math.max(maxY, mesh.positions[i + 1]!);
+      minZ = Math.min(minZ, mesh.positions[i + 2]!);
+      maxZ = Math.max(maxZ, mesh.positions[i + 2]!);
+    }
+    expect(c[0]).toBeCloseTo((minX + maxX) / 2, 4);
+    expect(c[1]).toBeCloseTo((minY + maxY) / 2, 4);
+    expect(c[2]).toBeCloseTo((minZ + maxZ) / 2, 4);
+
+    // And the centred geometry really is centred on the origin.
+    const g = boardGeometry(makeBoard());
+    g.computeBoundingBox();
+    expect(Math.abs((g.boundingBox!.min.x + g.boundingBox!.max.x) / 2)).toBeLessThan(1e-3);
   });
 });

@@ -94,6 +94,35 @@ export function boardGeometry(board: BezierBoard, targetFaceSize?: number): Buff
 }
 
 /**
+ * The bounding-box centre of a board mesh — exactly what `geometry.center()`
+ * subtracts in {@link meshToGeometry}.
+ *
+ * Anything built in board coordinates (fins, guide lines) must be wrapped in a
+ * group translated by the negation of this to stay aligned with the hull.
+ */
+export const boardCenter = (mesh: BoardMesh): [number, number, number] => {
+  const p = mesh.positions;
+  let minX = Infinity;
+  let minY = Infinity;
+  let minZ = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let maxZ = -Infinity;
+  for (let i = 0; i < p.length; i += 3) {
+    const x = p[i]!;
+    const y = p[i + 1]!;
+    const z = p[i + 2]!;
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (z < minZ) minZ = z;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+    if (z > maxZ) maxZ = z;
+  }
+  return [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
+};
+
+/**
  * Rough board size (cm) for camera framing, computed straight from kernel getters
  * — no tessellation needed, so it stays synchronous and cheap.
  */

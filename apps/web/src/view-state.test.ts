@@ -11,6 +11,7 @@ import {
   VIEW_STATE_VERSION,
   type ViewState,
 } from './view-state';
+import { DEFAULT_VIEW_3D } from './view3d-settings';
 
 beforeEach(() => {
   localStorage.clear();
@@ -86,5 +87,66 @@ describe('view-state', () => {
     });
     expect(() => saveViewState(sample)).not.toThrow();
     spy.mockRestore();
+  });
+});
+
+describe('view3d persistence', () => {
+  it('round-trips the 3D settings', () => {
+    const s: ViewState = {
+      ...DEFAULT_VIEW_STATE,
+      view3d: { ...DEFAULT_VIEW_3D, showStringer: true, showSections: true, meshQuality: 'fine' },
+    };
+    saveViewState(s);
+    expect(loadViewState().view3d).toEqual(s.view3d);
+  });
+
+  it('falls back per field, leaving valid siblings intact', () => {
+    saveViewState({
+      ...DEFAULT_VIEW_STATE,
+      view3d: { ...DEFAULT_VIEW_3D, showSections: true },
+    });
+    const raw = JSON.parse(localStorage.getItem('bs.viewState')!);
+    raw.view3d.lighting = 'disco';
+    raw.view3d.meshQuality = 42;
+    raw.view3d.showStringer = 'yes';
+    localStorage.setItem('bs.viewState', JSON.stringify(raw));
+
+    const v = loadViewState().view3d!;
+    expect(v.lighting).toBe(DEFAULT_VIEW_3D.lighting);
+    expect(v.meshQuality).toBe(DEFAULT_VIEW_3D.meshQuality);
+    expect(v.showStringer).toBe(DEFAULT_VIEW_3D.showStringer);
+    expect(v.showSections).toBe(true); // the one good field survives
+  });
+
+  it('rejects a colour that is not a hex triplet', () => {
+    saveViewState({ ...DEFAULT_VIEW_STATE, view3d: DEFAULT_VIEW_3D });
+    const raw = JSON.parse(localStorage.getItem('bs.viewState')!);
+    raw.view3d.color = 'javascript:alert(1)';
+    localStorage.setItem('bs.viewState', JSON.stringify(raw));
+    expect(loadViewState().view3d!.color).toBe(DEFAULT_VIEW_3D.color);
+  });
+
+  it('omits view3d entirely when the stored blob has none', () => {
+    saveViewState(DEFAULT_VIEW_STATE);
+    expect(loadViewState().view3d).toBeUndefined();
+  });
+
+  it('still restores an older blob written before view3d existed', () => {
+    // The no-bump guarantee: adding an optional field must not orphan saved
+    // camera poses and pane framing.
+    localStorage.setItem(
+      'bs.viewState',
+      JSON.stringify({
+        version: 1,
+        view: 'outline',
+        views2d: { outline: { cx: 1, cy: 2, scale: 3 } },
+        camera3d: { position: [1, 2, 3], target: [0, 0, 0] },
+      }),
+    );
+    const v = loadViewState();
+    expect(v.view).toBe('outline');
+    expect(v.views2d.outline).toEqual({ cx: 1, cy: 2, scale: 3 });
+    expect(v.camera3d).toEqual({ position: [1, 2, 3], target: [0, 0, 0] });
+    expect(v.view3d).toBeUndefined();
   });
 });

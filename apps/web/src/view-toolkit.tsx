@@ -18,21 +18,27 @@ import {
   type EditorOverlays,
   type SectionMarker,
 } from '@openshaper/render2d';
-import type {
-  AnalysisMode,
-  Board3DMode,
-  LightingPreset,
-  MaterialPreset,
-} from '@openshaper/render3d';
 import type { SplineTarget } from '@openshaper/store';
 import { Button, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { useMemo } from 'react';
 import { fmtLen, type LengthUnit } from './format';
 import { boardStore } from './store';
 import type { EditorSettings } from './settings';
+import {
+  ANALYSIS_3D,
+  LIGHTING_3D,
+  MATERIAL_3D,
+  MODE_3D,
+  QUALITY_3D,
+  type View3DSettings,
+} from './view3d-settings';
 
 export type EditorKind = 'outline' | 'rocker' | 'crossSection';
 export type View = 'quad' | EditorKind | '3d';
+
+// Re-export 3D settings so existing importers from view-toolkit keep working
+export { faceSizeFor } from './view3d-settings';
+export type { MeshQuality, View3DSettings } from './view3d-settings';
 
 // --- small atoms -----------------------------------------------------------
 
@@ -99,62 +105,6 @@ export function OverlayToggle({
 
 // --- 3D appearance controls ------------------------------------------------
 
-const MODE_3D: { value: Board3DMode; label: string }[] = [
-  { value: 'shaded', label: 'Shaded' },
-  { value: 'shaded-wire', label: '+Wire' },
-  { value: 'wireframe', label: 'Wire' },
-  { value: 'normals', label: 'Normals' },
-];
-
-const LIGHTING_3D: { value: LightingPreset; label: string }[] = [
-  { value: 'studio', label: 'Studio' },
-  { value: 'shaping-bay', label: 'Shaping bay' },
-  { value: 'neutral', label: 'Neutral' },
-];
-
-const MATERIAL_3D: { value: MaterialPreset; label: string }[] = [
-  { value: 'gloss', label: 'Glassed gloss' },
-  { value: 'foam', label: 'Raw foam' },
-  { value: 'matte', label: 'Matte' },
-];
-
-const ANALYSIS_3D: { value: AnalysisMode; label: string }[] = [
-  { value: 'none', label: 'No analysis' },
-  { value: 'zebra', label: 'Zebra' },
-  { value: 'curvature', label: 'Curvature' },
-  { value: 'slope', label: 'Slope' },
-];
-
-/** Viewport mesh density. Maps to a kernel target face size (cm) — smaller = finer. */
-export type MeshQuality = 'draft' | 'standard' | 'fine';
-
-const QUALITY_3D: { value: MeshQuality; label: string }[] = [
-  { value: 'draft', label: 'Draft' },
-  { value: 'standard', label: 'Standard' },
-  { value: 'fine', label: 'Fine' },
-];
-
-const FACE_SIZE: Record<MeshQuality, number> = {
-  draft: 1.5,
-  standard: 0.9,
-  fine: 0.5,
-};
-
-/** Resolve a mesh-quality setting to a kernel target face size in cm. */
-export const faceSizeFor = (q: MeshQuality): number => FACE_SIZE[q];
-
-/** All 3D-view appearance + analysis settings, lifted so quad + full views share them. */
-export interface View3DSettings {
-  mode: Board3DMode;
-  lighting: LightingPreset;
-  material: MaterialPreset;
-  color: string;
-  analysis: AnalysisMode;
-  meshQuality: MeshQuality;
-  /** Highlight the active cross-section's location on the 3D mesh. */
-  showSection: boolean;
-}
-
 /**
  * 3D appearance + analysis controls. `compact` (quad view) shows render mode,
  * lighting, the section toggle, analysis, and mesh quality; the full 3D view also
@@ -194,11 +144,19 @@ export function ThreeDControls({
       />
       <Button
         size="sm"
-        variant={settings.showSection ? 'secondary' : 'ghost'}
-        onClick={() => set({ showSection: !settings.showSection })}
-        title="Highlight the active cross-section's location on the mesh"
+        variant={settings.showStringer ? 'secondary' : 'ghost'}
+        onClick={() => set({ showStringer: !settings.showStringer })}
+        title="Draw the stringer line down the centre of the board"
       >
-        Section
+        Stringer
+      </Button>
+      <Button
+        size="sm"
+        variant={settings.showSections ? 'secondary' : 'ghost'}
+        onClick={() => set({ showSections: !settings.showSections })}
+        title="Draw a ring at every cross-section (the active one in cyan)"
+      >
+        Sections
       </Button>
       {!compact && (
         <>
