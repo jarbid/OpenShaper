@@ -260,8 +260,14 @@ function AppShell() {
   useEffect(() => {
     localStorage.setItem('bs.lengthUnit', unitKey);
   }, [unitKey]);
-  const [view3d, setView3d] = useState<View3DSettings>(DEFAULT_VIEW_3D);
+  const [view3d, setView3d] = useState<View3DSettings>(
+    bootViewState.current.view3d ?? DEFAULT_VIEW_3D,
+  );
   const patchView3d = (patch: Partial<View3DSettings>) => setView3d((s) => ({ ...s, ...patch }));
+  useEffect(() => {
+    liveViewState.current = { ...liveViewState.current, view3d };
+    scheduleViewSave();
+  }, [view3d, scheduleViewSave]);
   const [csClipboard, setCsClipboard] = useState<Spline | null>(null);
   const [ghost, setGhost] = useState<BezierBoard | null>(null);
   const trace = useTrace();
