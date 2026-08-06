@@ -3,7 +3,7 @@
  * and docs/design/analytics.md):
  *
  * - Baseline (always on, no consent needed): anonymous only — no cookies, no
- *   localStorage, no persistent visitor id (`persistence: 'memory'`), no
+ *   localStorage, no persistent visitor id stored in the browser, no
  *   autocapture, no session recording. Web Vitals / rageclick / dead-click /
  *   exception detection are separate, lightweight, purpose-built signals
  *   that don't touch identity either.
@@ -20,7 +20,22 @@
  * no key set (local clones, forks, PR previews) every call below is a no-op.
  */
 import posthog from 'posthog-js';
+import type { PostHogConfig } from 'posthog-js';
 import { getConsent } from './consent';
+
+/**
+ * `cookieless_mode` ships in posthog-js's runtime but is missing from the
+ * public `PostHogConfig` type as of 1.404.1 (the type only references it from a
+ * doc comment on `opt_out_capturing_by_default`), so it has to be attached
+ * outside the checked object literal. Drop this once the type catches up.
+ *
+ * `'on_reject'` — not `'always'`: under `'always'` posthog-js throws
+ * `SessionIdManager cannot be used with cookieless_mode="always"` and refuses
+ * to start session recording at all, which would make Tier 2 unimplementable.
+ * `'on_reject'` keeps the hash for baseline traffic and hands consenting
+ * visitors the full stack.
+ */
+type CookielessConfig = Partial<PostHogConfig> & { cookieless_mode: 'always' | 'on_reject' };
 
 let enabled = false;
 
@@ -30,10 +45,10 @@ const INTERNAL_KEY = 'bs.internal';
  * Marks this browser as my own traffic, so it can be filtered out of every
  * dashboard.
  *
- * Necessary because `persistence: 'memory'` leaves no stable person id, which
- * means PostHog's usual "internal users" cohort has nothing to match on and
- * can never contain anyone. Marking at the source is the only thing that
- * works. Visit `?internal=1` once per browser to set it, `?internal=0` to
+ * Necessary because the cookieless baseline's person id is a server-side hash
+ * that resets with the daily salt, so PostHog's usual "internal users" cohort
+ * would empty out every night. Marking at the source is the only thing that
+ * survives. Visit `?internal=1` once per browser to set it, `?internal=0` to
  * clear it; the project's test-account filter then excludes
  * `internal_traffic`.
  *
@@ -101,7 +116,14 @@ export function initAnalytics(): void {
     capture_pageview: true,
     disable_session_recording: true,
     disable_surveys: true,
-    persistence: 'memory',
+    // Baseline identity comes from PostHog's server-side privacy-preserving
+    // hash, not from anything stored in the browser. This replaces
+    // `persistence: 'memory'`, which left no id at all — every page load
+    // became a fresh person AND a fresh session, so "unique visitors" and
+    // "sessions" were both just page-load counts. Requires
+    // `cookieless_server_hash_mode` to be on for the project; with it off the
+    // events arrive with no usable identity.
+    cookieless_mode: 'on_reject',
     respect_dnt: true,
     // UX signals, not identity: none of these set a persistent id or record
     // content, so the anonymous baseline above is unchanged.
@@ -139,8 +161,18 @@ export function initAnalytics(): void {
       capture_unhandled_rejections: true,
       capture_console_errors: false, // arbitrary console.error content is harder to reason about than a genuine uncaught exception
     },
-  });
+  } satisfies CookielessConfig as Partial<PostHogConfig>);
   enabled = true;
+  // Under `cookieless_mode: 'on_reject'` posthog-js treats an *undecided*
+  // visitor as opted out and captures nothing at all until a choice is made —
+  // `isOptedOut()` is true while consent is pending. That would silently drop
+  // every visitor who ignores the banner, which is most of them. Declaring the
+  // rejection up front puts undecided visitors on the cookieless baseline
+  // immediately, matching the pre-existing behaviour: everyone is measured
+  // anonymously, and Accept is the only thing that changes anything.
+  // (The accepted case is handled by the upgrade call at the end of this
+  // function, which opts in.)
+  if (getConsent() !== 'accepted') posthog.opt_out_capturing();
   // Tag my own traffic so dashboards can exclude it. Registered rather than
   // opting out entirely, so it stays inspectable in isolation instead of
   // vanishing.
@@ -159,13 +191,19 @@ export function initAnalytics(): void {
 
 /**
  * Upgrade the current (already anonymous) session to full tracking in place —
- * no reload, no new identity. `set_config` re-persists the existing
- * distinct_id/device_id into the new storage backend, so the same visitor
- * keeps the same id across the switch.
+ * no reload.
+ *
+ * `opt_in_capturing()` is what leaves cookieless mode: under
+ * `cookieless_mode: 'on_reject'` posthog-js picks the storage backend from the
+ * consent state itself, so opting in switches persistence to
+ * localStorage+cookie without a `set_config({ persistence })` call. Unlike the
+ * old memory-persistence path this does start a new id — the server-side hash
+ * is deliberately not reversible into a client-side distinct_id, so a
+ * visitor's pre-consent and post-consent activity no longer share one id.
  */
 export function upgradeToFullTracking(): void {
   if (!enabled) return;
-  posthog.set_config({ persistence: 'localStorage+cookie' });
+  posthog.opt_in_capturing();
   posthog.set_config({ autocapture: true });
   posthog.set_config({ capture_heatmaps: true });
   posthog.startSessionRecording();
@@ -175,14 +213,17 @@ export function upgradeToFullTracking(): void {
 }
 
 /**
- * Clear the tracking_tier tag before /privacy's "turn off" reloads the page —
- * the reload itself resets persistence/autocapture/session recording/heatmaps
- * back to the Tier 1 baseline (a fresh posthog.init call), so this just
- * avoids leaving a stale `tracking_tier: 'full'` sitting in storage.
+ * Return to the cookieless baseline before /privacy's "turn off" reloads the
+ * page. `opt_out_capturing()` is the half that matters: it flips posthog-js
+ * back into cookieless mode and clears the stored id, so the reload doesn't
+ * come back up still holding a cookie. Unregistering the tag first avoids
+ * leaving a stale `tracking_tier: 'full'` behind; the reload resets
+ * autocapture/session recording/heatmaps via a fresh posthog.init call.
  */
 export function downgradeFromFullTracking(): void {
   if (!enabled) return;
   posthog.unregister('tracking_tier');
+  posthog.opt_out_capturing();
 }
 
 export function track(event: string, props?: Record<string, unknown>): void {

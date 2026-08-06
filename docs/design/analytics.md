@@ -4,8 +4,12 @@
 
 **Tier 1 — anonymous baseline (everyone, always, no consent needed):**
 
-- `persistence: 'memory'` — no localStorage, no cookie, no cross-session
-  identity. Each page load is independent; there's nothing to consent to.
+- `cookieless_mode: 'on_reject'` — no localStorage, no cookie, nothing written
+  to the browser at all. Identity is a privacy-preserving hash computed on
+  PostHog's servers from `(team_id, daily_salt, ip, user_agent, hostname)`;
+  the salt is regenerated daily, so the hash is not reversible and does not
+  carry across days. See [what the data can and cannot say](#what-the-data-can-and-cannot-say)
+  for what that buys and what it still can't measure.
 - `autocapture: false`, `disable_session_recording: true`,
   `disable_surveys: true` — only the explicit `track(...)` calls and the UX
   signals below ever send anything.
@@ -51,11 +55,22 @@ changes anything.
   `posthog.unregister('tracking_tier')`) when a visitor turns tracking back
   off on `/privacy`, right before the page reloads.
 
-The upgrade happens **in place**, with no reload and no identity
-discontinuity: `posthog.set_config({ persistence: 'localStorage+cookie' })`
-re-persists the same in-memory `distinct_id`/`device_id` into the new storage
-backend, so a visitor's anonymous activity and post-consent activity share
-one id.
+The upgrade happens **in place**, with no reload: `posthog.opt_in_capturing()`
+is what leaves cookieless mode, and posthog-js picks the storage backend from
+the consent state itself — there is no `set_config({ persistence })` call any
+more.
+
+**It is not identity-continuous, and that is a deliberate loss.** Under the
+old `persistence: 'memory'` baseline the in-memory `distinct_id` could be
+re-persisted into the new backend, so pre- and post-consent activity shared one
+id. The server-side hash has no such handle: it is computed on ingest and is
+deliberately not reversible into a client-side `distinct_id`. A visitor who
+accepts therefore starts a new id at the moment of consent, and their
+pre-consent pageviews stay attached to the hash. Funnels that straddle the
+Accept click will show a drop that isn't real. This is the price of the
+baseline actually counting people at all; the alternative (memory persistence)
+bought continuity across an event almost nobody triggers, at the cost of every
+unique-visitor number in the project.
 
 ### Session replay does not show the board — deliberately (decided 2026-07-28)
 
@@ -111,6 +126,17 @@ Two things to know if this is ever revisited:
   signal forces PostHog's own consent state to denied, overriding *even* the
   anonymous baseline. This is a stronger, standing signal than our own
   accepted/rejected state.
+- **`initAnalytics()` calls `posthog.opt_out_capturing()` for anyone who
+  hasn't accepted, and this is load-bearing.** Under
+  `cookieless_mode: 'on_reject'`, posthog-js treats an *undecided* visitor as
+  opted out and captures **nothing at all** until a choice is made
+  (`isOptedOut()` returns true while consent is pending — see
+  [posthog-js#2841](https://github.com/PostHog/posthog-js/issues/2841)).
+  Since most visitors never touch the banner, leaving this to the default
+  would silently drop nearly all baseline traffic. Declaring the rejection up
+  front puts undecided visitors straight onto the cookieless baseline, which
+  is the behaviour the banner copy already promises. Pinned by
+  `analytics.test.ts`.
 
 ## Session-recording masking
 
@@ -169,9 +195,22 @@ All of it was read back from project `521211` on 2026-07-28 and is correct:
 | `capture_dead_clicks`            | `true`  |
 | `anonymize_ips`                  | `true`  |
 | `surveys_opt_in`                 | `false` |
+| `cookieless_server_hash_mode`    | `1`     |
 
 `anonymize_ips` and `surveys_opt_in` match the client config (`disable_surveys`).
 No error-tracking rate limits are configured.
+
+`cookieless_server_hash_mode` was `0` (disabled) until 2026-08-06 and is the
+server half of `cookieless_mode: 'on_reject'` — without it the client change is
+inert. It is set to `1` (**stateless**) rather than `2` (stateful): the two
+differ only in whether PostHog keeps a Redis-backed counter to stop a visitor
+colliding with themselves across `identify()` calls, and OpenShaper has no
+accounts and never calls `identify()`, so the counter is permanently zero and
+both modes compute the same hash. Stateless gets there without PostHog holding
+per-visitor state.
+
+Note `anonymize_ips: true` does not conflict with the hash: the IP is an input
+to the hash at ingest time and is dropped rather than stored.
 
 One thing this does **not** establish: `$exception` has recorded zero events
 since launch despite both ends being enabled. At current traffic that is
@@ -182,21 +221,49 @@ first time one fires.
 
 ## What the data can and cannot say
 
-Two constraints fall out of the design above and shape every dashboard:
+Constraints that fall out of the design above and shape every dashboard:
 
-- **`persistence: 'memory'` means one page load is one "person."** Confirmed in
-  the data: over the first 30 days `$pageview` was 70 events across 70 people.
-  Unique-user counts, DAU/WAU and cross-visit retention are therefore
-  unmeasurable for baseline traffic — not merely noisy. Anything claiming
-  otherwise is either scoped to `tracking_tier: 'full'` or wrong.
-- **What _is_ measurable is within-session depth.** `/app` is an SPA, so one
-  page load is one entire editing session and the anonymous id survives it.
-  Funnels and `session_summary` are honest for that reason.
+- **Within a UTC day, unique visitors and sessions are real.** The server-side
+  hash is stable for the same (ip, user-agent, host) pair for as long as the
+  daily salt lives, so same-day visitor counts, session counts and
+  session-scoped funnels are honest for baseline traffic.
+- **Across days, they are not.** The salt is regenerated daily, so a returning
+  visitor is a new person tomorrow. Cross-day retention, DAU-vs-WAU ratios and
+  "returning visitor" splits remain unmeasurable for baseline traffic —
+  anything claiming otherwise is either scoped to `tracking_tier: 'full'` or
+  wrong.
+- **The hash can collide.** Two visitors sharing an IP and user-agent string
+  (an office, a campus, a NAT, two phones on the same carrier) merge into one
+  person. Same-day visitor counts are therefore a slight *under*-count, in a
+  direction that varies with audience. Treat them as a good floor, not a
+  headcount.
+- **Within-session depth is the strongest signal.** `/app` is an SPA, so one
+  page load is one entire editing session. Funnels and `session_summary` are
+  honest for that reason and were unaffected by the identity change.
 
-The one exception to the first constraint is `recent_board_opened`: the recent
-list lives in `localStorage` (`bs.recent`), so reopening from it proves a repeat
-visit with no persistent analytics identity involved. It is the only
-return-visitor signal the baseline has.
+`recent_board_opened` remains the one return-visitor signal that survives the
+daily reset: the recent list lives in `localStorage` (`bs.recent`), so
+reopening from it proves a repeat visit with no persistent analytics identity
+involved.
+
+### The bug this replaced (fixed 2026-08-06)
+
+The baseline previously ran `persistence: 'memory'`, which stored *nothing* —
+and with `cookieless_server_hash_mode` disabled at the project level there was
+no server-side fallback either. Every page load therefore minted a fresh
+`distinct_id`, `device_id` **and** `session_id`. Measured across 90 days before
+the fix: 4,910 events collapsed into 308 persons and 371 sessions against 303
+pageviews — i.e. persons ≈ sessions ≈ pageviews, to within rounding.
+
+Two things are worth remembering from it:
+
+- The original write-up documented the effect on *persons* but not on
+  *sessions*. `session_id` lives in the same persistence backend, so memory
+  persistence silently took session counting with it, and "sessions" was a
+  page-load count wearing a different label for the project's whole life.
+- Both halves were required. The client config alone does nothing while
+  `cookieless_server_hash_mode` is `0` — the events still arrive, just with no
+  usable identity, which is exactly the failure mode that looks like success.
 
 `/app` vs `/app/` was split across two paths before the `drop-trailing-slash`
 fix. A project-level path-cleaning rule (`^/app/$` → `/app`) collapses the
@@ -204,9 +271,11 @@ historical rows at query time, which the code fix cannot do retroactively.
 
 ## Internal traffic
 
-PostHog's usual "internal users" cohort cannot work here — with no stable person
-id there is nothing for it to match on, and the cohort sat at 0 members
-permanently. Own-dev traffic is instead marked at the source:
+PostHog's usual "internal users" cohort cannot work here — the cookieless hash
+resets daily, so a cohort pinned to a person id would go empty every night
+(before the cookieless switch there was no id to match on at all, and the
+cohort sat at 0 members permanently). Own-dev traffic is instead marked at the
+source:
 `resolveInternalTraffic()` in `analytics.ts` stores one boolean under
 `bs.internal` when the page is loaded with `?internal=1` (`?internal=0` clears
 it), and registers `internal_traffic: true` as a super property. The project's

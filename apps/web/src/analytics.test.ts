@@ -1,11 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveDisplayMode, resolveInternalTraffic } from './analytics';
 
+vi.mock('posthog-js', () => ({
+  default: {
+    init: vi.fn(),
+    register: vi.fn(),
+    capture: vi.fn(),
+    unregister: vi.fn(),
+    set_config: vi.fn(),
+    opt_in_capturing: vi.fn(),
+    opt_out_capturing: vi.fn(),
+    startSessionRecording: vi.fn(),
+  },
+}));
+
 /**
  * The internal-traffic marker is the only thing that can separate my own
- * traffic from real visitors — `persistence: 'memory'` leaves no stable person
- * id for a PostHog cohort to match on. If it silently stopped sticking, every
- * dashboard would quietly absorb my usage again, so pin the behaviour.
+ * traffic from real visitors — the cookieless baseline exposes no stable
+ * client-side id for a PostHog cohort to match on. If it silently stopped
+ * sticking, every dashboard would quietly absorb my usage again, so pin the
+ * behaviour.
  */
 describe('resolveInternalTraffic', () => {
   beforeEach(() => {
@@ -88,5 +102,74 @@ describe('resolveDisplayMode', () => {
   it('falls back to browser when matchMedia is unavailable', () => {
     vi.stubGlobal('matchMedia', undefined);
     expect(resolveDisplayMode()).toBe('browser');
+  });
+});
+
+/**
+ * The consent gate under `cookieless_mode: 'on_reject'`.
+ *
+ * posthog-js treats an *undecided* visitor as opted out and captures nothing
+ * at all until a choice is made (`isOptedOut()` is true while consent is
+ * pending). Most visitors never touch the banner, so without the explicit
+ * `opt_out_capturing()` on load the baseline silently collects nothing — the
+ * failure is invisible from the code and only shows up as an empty dashboard
+ * weeks later. That is exactly the class of bug this file exists to catch.
+ */
+describe('initAnalytics consent gating', () => {
+  beforeEach(async () => {
+    vi.resetModules();
+    localStorage.clear();
+    window.history.replaceState({}, '', '/');
+    vi.stubEnv('VITEST', '');
+    vi.stubEnv('VITE_POSTHOG_KEY', 'phc_test');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.clearAllMocks();
+  });
+
+  const load = async () => {
+    const posthog = (await import('posthog-js')).default;
+    const { initAnalytics } = await import('./analytics');
+    return { posthog, initAnalytics };
+  };
+
+  it('opts an undecided visitor out, so the cookieless baseline still captures', async () => {
+    const { posthog, initAnalytics } = await load();
+    initAnalytics();
+    expect(posthog.opt_out_capturing).toHaveBeenCalled();
+    expect(posthog.opt_in_capturing).not.toHaveBeenCalled();
+  });
+
+  it('opts a rejected visitor out too — reject means baseline, not silence', async () => {
+    localStorage.setItem('bs.consent', 'rejected');
+    const { posthog, initAnalytics } = await load();
+    initAnalytics();
+    expect(posthog.opt_out_capturing).toHaveBeenCalled();
+    expect(posthog.opt_in_capturing).not.toHaveBeenCalled();
+  });
+
+  it('opts a returning accepted visitor in, with no baseline opt-out first', async () => {
+    localStorage.setItem('bs.consent', 'accepted');
+    const { posthog, initAnalytics } = await load();
+    initAnalytics();
+    expect(posthog.opt_in_capturing).toHaveBeenCalled();
+    expect(posthog.opt_out_capturing).not.toHaveBeenCalled();
+    expect(posthog.startSessionRecording).toHaveBeenCalled();
+  });
+
+  // `'always'` makes posthog-js throw from SessionIdManager, which would take
+  // session replay (Tier 2) down with it.
+  it("initialises in cookieless 'on_reject' mode, never 'always'", async () => {
+    const { posthog, initAnalytics } = await load();
+    initAnalytics();
+    const config = vi.mocked(posthog.init).mock.calls[0]?.[1] as
+      | { cookieless_mode?: string; persistence?: string }
+      | undefined;
+    expect(config?.cookieless_mode).toBe('on_reject');
+    // The bug this replaced: memory persistence left no id, so every page load
+    // counted as a fresh person *and* a fresh session.
+    expect(config?.persistence).toBeUndefined();
   });
 });
