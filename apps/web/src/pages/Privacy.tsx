@@ -65,21 +65,13 @@ export default function Privacy() {
           <h2>Anonymous by default</h2>
           <p>
             Every visitor starts here, and it never changes unless you say so. Nothing is stored in
-            your browser — no cookies, no localStorage, no id following you around. We only see:
-            anonymous pageviews, three feature-usage events (loading a starter template, saving, and
-            exporting a board), and lightweight UX health signals (page load speed, rapid frustrated
-            clicks, clicks on things that don&apos;t respond). It never leaves this anonymous mode on
-            its own.
-          </p>
-          <p>
-            To count visits without storing anything, our analytics provider derives a temporary
-            identifier on its own servers by hashing your IP address, your browser&apos;s user-agent
-            string and our domain together with a secret that is thrown away and regenerated every
-            day. The hash can&apos;t be reversed back into any of those inputs, and because the daily
-            secret changes, the identifier does too — so you appear as a new visitor each day, and
-            there is no way to follow you from one day to the next. Two people behind the same IP
-            and the same browser version can land on the same identifier; we accept that
-            imprecision as the cost of not tracking you.
+            your browser — no cookies, no localStorage, no id following you around. To count visits
+            without storing anything, our analytics provider works out a temporary identifier on its
+            own servers; it resets daily and can&apos;t be traced back to you. We only see: anonymous
+            pageviews, three feature-usage events (loading a starter template, saving, and exporting
+            a board), and lightweight UX health signals (page load speed, rapid frustrated clicks,
+            clicks on things that don&apos;t respond). It never leaves this anonymous mode on its
+            own.
           </p>
 
           <h2>Full tracking, only if you accept</h2>
