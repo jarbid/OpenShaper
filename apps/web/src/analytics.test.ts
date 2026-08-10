@@ -172,4 +172,20 @@ describe('initAnalytics consent gating', () => {
     // counted as a fresh person *and* a fresh session.
     expect(config?.persistence).toBeUndefined();
   });
+
+  /**
+   * Every internal link is a React Router `<Link>`, so with the plain `true`
+   * that posthog-js still defaults to, the whole marketing → /app → /docs
+   * journey collapses into one pageview for the landing URL. Nothing errors
+   * and events keep flowing — the funnel just silently doesn't exist, which
+   * is why this is pinned rather than left to the config comment.
+   */
+  it('captures pageviews on SPA route changes, not just the initial load', async () => {
+    const { posthog, initAnalytics } = await load();
+    initAnalytics();
+    const config = vi.mocked(posthog.init).mock.calls[0]?.[1] as
+      | { capture_pageview?: boolean | string }
+      | undefined;
+    expect(config?.capture_pageview).toBe('history_change');
+  });
 });

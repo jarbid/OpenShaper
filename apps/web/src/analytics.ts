@@ -113,7 +113,20 @@ export function initAnalytics(): void {
   posthog.init(key, {
     api_host: import.meta.env.VITE_POSTHOG_HOST ?? 'https://us.i.posthog.com',
     autocapture: false,
-    capture_pageview: true,
+    // `true` captures a pageview on the initial page load only. Every internal
+    // link here is a React Router `<Link>` (client-side, no reload), so under
+    // `true` the entire marketing → /app → /docs journey collapsed into a
+    // single pageview for the landing URL: the core conversion funnel was
+    // unmeasurable and /docs looked unread (3 pageviews in 30 days) because it
+    // is reached by navigation. posthog-js only resolves this to
+    // 'history_change' on its own from `defaults: '2025-05-24'` onward; set
+    // explicitly rather than adopting a whole defaults bundle, since every
+    // other option in this block is explicit and commented.
+    //
+    // Safe against phantom events: HistoryAutocapture compares pathname only,
+    // so `?internal=1` and hash changes don't fire, and the app itself never
+    // calls pushState/replaceState. /app is one route, so editing adds none.
+    capture_pageview: 'history_change',
     disable_session_recording: true,
     disable_surveys: true,
     // Baseline identity comes from PostHog's server-side privacy-preserving

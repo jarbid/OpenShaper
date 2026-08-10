@@ -16,7 +16,8 @@
 - Hand-instrumented product actions, chosen as a proxy for "serious usage"
   beyond casual browsing — see the [event catalogue](#event-catalogue) for the
   full list and the rules governing it. Plus PostHog's own automatic pageview
-  capture.
+  capture, which since 2026-08-11 includes SPA route changes — see
+  [pageviews](#pageviews-include-spa-route-changes).
 - UX signals that don't touch identity: Core Web Vitals, rageclick, dead-click
   detection (canvas/SVG excluded from the latter — see `analytics.ts`).
 - **Exception autocapture** (`capture_exceptions`): uncaught JS errors and
@@ -212,12 +213,11 @@ per-visitor state.
 Note `anonymize_ips: true` does not conflict with the hash: the IP is an input
 to the hash at ingest time and is dropped rather than stored.
 
-One thing this does **not** establish: `$exception` has recorded zero events
-since launch despite both ends being enabled. At current traffic that is
-plausible rather than alarming, but it has not been confirmed by a deliberate
-test throw — so treat a flat zero as unverified, not as good news. The
-"Any JS exception" alert on the Health & UX dashboard exists to settle this the
-first time one fires.
+**Resolved 2026-08-11:** exception capture is confirmed working end to end.
+This previously recorded a standing worry that `$exception` had logged zero
+events since launch and that a flat zero should be treated as unverified rather
+than as good news. It has since fired 6 times in 30 days, so the pipeline is
+live and the caveat no longer applies.
 
 ## What the data can and cannot say
 
@@ -268,6 +268,38 @@ Two things are worth remembering from it:
 `/app` vs `/app/` was split across two paths before the `drop-trailing-slash`
 fix. A project-level path-cleaning rule (`^/app/$` → `/app`) collapses the
 historical rows at query time, which the code fix cannot do retroactively.
+
+### Pageviews include SPA route changes (fixed 2026-08-11)
+
+`capture_pageview` was `true`, which captures a pageview on the **initial page
+load only**. posthog-js resolves it to `'history_change'` on its own only from
+`defaults: '2025-05-24'` onward, and `defaults` was never set. Every internal
+link is a React Router `<Link>`, so client-side navigation produced no pageview
+at all and the whole journey collapsed into one pageview for whatever URL the
+visitor happened to land on.
+
+What that cost, measured over the 30 days before the fix:
+
+- **The `/` → `/app` funnel did not exist.** `/app`'s 123 pageviews were direct
+  landings; everyone who arrived at `/` and clicked the CTA was invisible.
+- **`/docs` recorded 3 pageviews**, not because nobody reads it but because it
+  is reached by navigation. `/docs/shortcuts` had 5.
+- Bounce rate was inflated (every session looked single-page) and the Paths
+  insight was meaningless.
+
+Now set explicitly to `'history_change'`, and pinned by `analytics.test.ts` —
+the failure mode is silent, so the config comment alone isn't enough.
+
+**Reading trends across this date:** pageviews step up because more of them are
+recorded, not because traffic grew. The same applies to any per-session or
+per-path metric. Landing-page counts are the one comparable series, since a
+landing pageview was always captured.
+
+Note this interacts with the identity fix above: while `persistence: 'memory'`
+was live, every page load also started a new session, so no session could ever
+hold more than one pageview (the pre-fix distribution was 383 sessions with
+exactly one and 89 with none — never two). Both fixes have to ship before
+pageviews-per-session means anything.
 
 ## Internal traffic
 
@@ -357,6 +389,22 @@ warning *kinds* analysable.
 
 Each dashboard leads with a text tile restating the caveats, so a number is
 never read out of context.
+
+## Known gaps
+
+**No reverse proxy.** `api_host` points straight at `us.i.posthog.com`, so any
+visitor running an ad-blocker, uBlock Origin, Brave shields or Firefox strict
+mode has their events dropped before they leave the browser. This is invisible
+from inside PostHog — blocked events never arrive, so there is no metric that
+shows the loss, and no amount of client-side config detects it. It is plausibly
+a larger distortion than either identity bug above, and it biases towards
+under-counting exactly the technical audience most likely to use a CAD tool.
+
+The fix is proxying `/ingest/*` through our own origin, which PostHog still
+lists as an incomplete setup task for the project. It is deferred because
+`wrangler.toml` is deliberately an assets-only Worker with no server code
+(see its header comment); proxying means adding a fetch handler and moving the
+deploy off that model, which is a separate change with its own risk.
 
 ## Env vars
 
