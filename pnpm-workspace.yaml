@@ -1,3 +1,7 @@
 packages:
   - "apps/*"
   - "packages/*"
+  # Deploy-time Cloudflare Worker (the PostHog reverse proxy). Lives at the repo
+  # root rather than under packages/ because wrangler.toml resolves `main`
+  # relative to itself, and it is infrastructure rather than a kernel library.
+  - "worker"

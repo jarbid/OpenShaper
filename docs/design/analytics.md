@@ -390,21 +390,54 @@ warning *kinds* analysable.
 Each dashboard leads with a text tile restating the caveats, so a number is
 never read out of context.
 
-## Known gaps
+## Reverse proxy (added 2026-08-11)
 
-**No reverse proxy.** `api_host` points straight at `us.i.posthog.com`, so any
-visitor running an ad-blocker, uBlock Origin, Brave shields or Firefox strict
-mode has their events dropped before they leave the browser. This is invisible
-from inside PostHog — blocked events never arrive, so there is no metric that
-shows the loss, and no amount of client-side config detects it. It is plausibly
-a larger distortion than either identity bug above, and it biases towards
-under-counting exactly the technical audience most likely to use a CAD tool.
+`api_host` pointed straight at `us.i.posthog.com`, so any visitor running
+uBlock Origin, Brave shields or Firefox strict mode had their events dropped
+before they left the browser. That loss is invisible from inside PostHog —
+blocked events never arrive, so no metric shows it and no client-side config
+detects it — and it biases towards under-counting exactly the technical
+audience most likely to use a CAD tool.
 
-The fix is proxying `/ingest/*` through our own origin, which PostHog still
-lists as an incomplete setup task for the project. It is deferred because
-`wrangler.toml` is deliberately an assets-only Worker with no server code
-(see its header comment); proxying means adding a fetch handler and moving the
-deploy off that model, which is a separate change with its own risk.
+Events now go to `/edge` on our own origin, which `worker/index.ts` forwards to
+PostHog. Same-origin requests are not on those blocklists.
+
+**How it fits the deploy.** `wrangler.toml` was deliberately an assets-only
+Worker with no server code. It now has a `main`, but the Worker does only two
+things: proxy the `/edge` prefix, and hand every other request to the `ASSETS`
+binding. Static serving — `html_handling`, `_headers`, 404s for unknown paths —
+is unchanged because it is still the assets runtime doing it.
+
+Three details that are load-bearing:
+
+- **The client IP must be forwarded.** A Worker's outbound `fetch` presents
+  Cloudflare's egress IP, and the cookieless person hash takes the client IP as
+  an input. Without `X-Forwarded-For` set from `CF-Connecting-IP`, every
+  visitor would hash to the *same* person and unique visitors would collapse to
+  1 — trading one silent identity bug for a worse one. Pinned by
+  `worker/index.test.ts`.
+- **`/static/` goes to a different upstream host.** posthog-js fetches its
+  optional bundles from `${api_host}/static/...`, but those live on
+  `us-assets.i.posthog.com`, not the ingestion host. Sending them to the API
+  host 404s and silently breaks session replay.
+- **`ui_host` must be set.** With a proxied `api_host`, posthog-js otherwise
+  builds toolbar and settings links against our own domain, which serves no
+  such pages.
+
+The prefix is `/edge` rather than `/ingest`, `/analytics` or `/posthog`
+precisely because those names appear in blocklists themselves. The proxy
+changes where events are sent, not what is collected — `/privacy` describes the
+same data either way.
+
+The service worker needs no changes: it only intercepts
+`request.mode === 'navigate'` (`apps/web/src/sw.ts`), and analytics calls are
+`fetch`/XHR.
+
+**Still unverified:** whether this measurably recovers traffic. The gain is by
+construction invisible in the before/after — the events it recovers were never
+recorded to compare against. A step up in pageviews after this deploy is
+recovered ad-blocked traffic, not growth, and is impossible to separate cleanly
+from the SPA-pageview change landing at the same time.
 
 ## Env vars
 
@@ -413,3 +446,10 @@ See `apps/web/.env.example`. `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` are read v
 (`apps/web/src/seo/site.ts`). Local dev key goes in `apps/web/.env.local`
 (gitignored); the production build sets it as a Cloudflare Workers dashboard
 build variable.
+
+**`VITE_POSTHOG_HOST` must be set to `https://openshaper.com/edge` in the
+Cloudflare build variables** for the reverse proxy above to be used. It is not
+defaulted in code: the fallback is the direct PostHog host, so local dev, forks
+and any deploy without the Worker keep working. The consequence is that leaving
+it unset silently gives up the proxy — events still flow, just ad-blockable
+again. Verify after deploy with the checklist in the proxy section.

@@ -111,7 +111,15 @@ export function initAnalytics(): void {
   const key = import.meta.env.VITE_POSTHOG_KEY;
   if (!key) return;
   posthog.init(key, {
+    // Production sets this to the same-origin proxy (`/edge`, see
+    // worker/index.ts) so ad-blockers don't drop events before they leave the
+    // browser. The fallback is the direct host, which is what local dev and
+    // any fork without the Worker get.
     api_host: import.meta.env.VITE_POSTHOG_HOST ?? 'https://us.i.posthog.com',
+    // Where PostHog itself lives, as opposed to where events are sent. Without
+    // this, a proxied api_host makes posthog-js build toolbar/settings links
+    // against our own domain, which serves no such pages.
+    ui_host: 'https://us.posthog.com',
     autocapture: false,
     // `true` captures a pageview on the initial page load only. Every internal
     // link here is a React Router `<Link>` (client-side, no reload), so under

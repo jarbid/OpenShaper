@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    // WebWorker supplies Request/Response/fetch/Cache without pulling in a
+    // Cloudflare types dependency; `types: []` keeps @types/node's globals out,
+    // since they conflict with the Workers runtime's.
+    "lib": ["ES2022", "WebWorker"],
+    "types": [],
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["index.ts", "index.test.ts"]
+}

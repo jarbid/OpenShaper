@@ -1,16 +1,27 @@
 # Cloudflare Workers (Static Assets) configuration.
 #
 # The repo is deployed via `npx wrangler deploy`, which publishes the prerendered
-# static build in `apps/web/dist` as an assets-only Worker (no server code).
+# static build in `apps/web/dist`.
+#
+# This was an assets-only Worker (no server code) until the PostHog reverse
+# proxy landed. `worker/index.ts` now handles exactly one path prefix (`/edge`,
+# proxied to PostHog so ad-blockers don't silently drop analytics) and hands
+# everything else to the ASSETS binding, so static serving — including 404s for
+# unknown paths — behaves exactly as it did before.
 #
 # `name` MUST match the Worker's name in your Cloudflare dashboard. `_headers`
 # and `_redirects` in the assets directory are honored. Node version is pinned by
 # the repo's .node-version file; the build command (`pnpm build`) is set in the
 # dashboard.
 name = "openshaper"
+main = "worker/index.ts"
 compatibility_date = "2026-06-01"
 
 [assets]
+# Lets the Worker delegate non-proxy requests back to static-asset serving.
+# Without this binding the Worker would have to reimplement html_handling and
+# the 404 behaviour below.
+binding = "ASSETS"
 # `pnpm build` prerenders every route to its own index.html here. Default
 # html_handling serves /about -> /about/index.html; unknown paths 404 (no SPA
 # catch-all needed, since every real route is prerendered).

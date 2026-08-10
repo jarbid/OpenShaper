@@ -1,0 +1,16 @@
+{
+  "name": "@openshaper/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Worker fronting the static site — PostHog reverse proxy",
+  "license": "GPL-3.0-or-later",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.9"
+  }
+}
