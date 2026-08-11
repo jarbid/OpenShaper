@@ -311,55 +311,6 @@ const matchControlPointCounts = (
  * When resampling cannot find a valid insertion point the legacy bails and returns
  * the (unscaled) source clone; that behaviour is reproduced.
  */
-/**
- * Grow every cross-section to a common knot count, so that lofting sees one
- * consistent control-point structure for the whole board.
- *
- * Why a loft needs this: bezier evaluation at a fixed parameter is affine in the
- * control points, and {@link interpolateCrossSection} lerps control points — so
- * sampling ring vertex `i` at a fixed parameter sweeps it along a straight line
- * between two stations, exactly. That property is what makes a loft smooth, and
- * it holds only while "control point `i`" means the same thing on both sides of
- * a station. It does not, normally: `matchControlPointCounts` runs per PAIR, so
- * a station between two neighbours of differing density gets resliced into a
- * different number of segments depending on which side it is approached from,
- * and the same parameter then lands on different physical points — a pinch.
- *
- * Normalising once per board removes the mismatch at its source. Growth uses the
- * same legacy matching heuristic, against the densest station as a common
- * reference, so the inserted knots stay where the ported morph would put them
- * rather than at arbitrary positions.
- *
- * Insertion is an exact de Casteljau split, so **no station's own shape moves** —
- * only its parametrization gains detail. Returns null if any station cannot be
- * matched, letting callers fall back to the per-pair path.
- */
-export const normalizeCrossSectionKnots = (
-  sections: readonly CrossSection[],
-): CrossSection[] | null => {
-  if (sections.length === 0) return null;
-  // A section with under two knots has no segment to split, so it cannot be
-  // grown; bail rather than crash inside the de Casteljau split.
-  if (sections.some((cs) => cs.spline.knots.length < 2)) return null;
-
-  let densest = sections[0]!;
-  for (const cs of sections) if (cs.spline.knots.length > densest.spline.knots.length) densest = cs;
-  const n = densest.spline.knots.length;
-  if (sections.every((cs) => cs.spline.knots.length === n)) return [...sections];
-
-  const out: CrossSection[] = [];
-  for (const cs of sections) {
-    if (cs.spline.knots.length === n) {
-      out.push(cs);
-      continue;
-    }
-    const matched = matchControlPointCounts(densest.spline.knots, cs.spline.knots);
-    if (!matched.ok || matched.target.length !== n) return null;
-    out.push(crossSection(cs.position, splineFromKnots(matched.target)));
-  }
-  return out;
-};
-
 export const interpolateCrossSection = (
   source: CrossSection,
   target: CrossSection,

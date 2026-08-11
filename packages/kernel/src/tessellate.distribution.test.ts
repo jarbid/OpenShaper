@@ -18,6 +18,14 @@
  * unchanged. Any fix has to distribute by arc length, and this file is the
  * oracle for that. The measurement is the ratio of the largest to the smallest
  * gap between neighbouring ring points — 1 would be perfectly even.
+ *
+ * Scope, since it reads like a contradiction otherwise: what is pinned here is
+ * the arc-length MAP (`arcLengthTable` / `pointAtArcFraction`), where evenness
+ * is the correct property and knot topology must not show through. The ring
+ * built on top of it is deliberately NOT even — `ringFractions` biases points
+ * toward curvature so hard rails get resolved (`loft.ladder.test.ts`). That is a
+ * choice made in fraction space; it only works because the map underneath it is
+ * the honest, topology-free one this file guards.
  */
 import { describe, expect, it } from 'vitest';
 import { arcLengthTable, pointAtArcFraction, splineFromKnots, type Spline } from './bezier-spline';

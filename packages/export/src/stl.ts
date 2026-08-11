@@ -1,13 +1,11 @@
 import {
   buildFinBladeMesh,
-  getInterpolatedCrossSection,
   getLength,
-  getRockerAtPos,
   hasTailCutout,
-  loftBoard,
+  loftPoint,
+  loftSection,
+  ringFractions,
   resolveFins,
-  arcLengthTable,
-  pointAtArcFraction,
   tessellateBoard,
   tessellationSteps,
   type BezierBoard,
@@ -44,29 +42,25 @@ interface P3 {
 const f = (n: number): string => (Number.isFinite(n) ? n : 0).toExponential(6);
 
 /**
- * Sample a single longitudinal station into a ring of 3D points.
+ * Sample a single longitudinal station into one rail's worth of 3D points.
  *
- * The interpolated cross-section profile runs (x = distance from centerline ≥ 0,
- * y = height) from bottom-centre (tt=0) to deck-centre (tt=1). We sample it by
- * fractional arc length (not fractional segment index — adjacent stations can
- * Sampled by segment index, which keeps the sweep between two stations exactly
- * affine (bezier evaluation at a fixed parameter is linear in the control
- * points, and `interpolateCrossSection` lerps them). `exportStl` normalises the
- * board's knot counts first via `loftBoard`, so segment `i` denotes the same
- * place at every station; without that a station between neighbours of
- * differing density is resliced differently from each side and the same tt
- * lands on different physical points.
+ * Only the +Y half: the caller mirrors it. `f` runs 0 (bottom centreline) to 1
+ * (deck centreline) as fractional arc length along the profile.
+ *
+ * The STL is a second, independent loft from the viewport mesh — different
+ * station formula, different ring count — so it goes through the kernel's
+ * `loftSection` to guarantee the two describe the same surface. See `loft.ts`
+ * for why the surface is defined by blending sampled points rather than control
+ * points.
  */
 const sampleRing = (board: BezierBoard, pos: number, ringSteps: number): P3[] | null => {
-  const cs = getInterpolatedCrossSection(board, pos);
-  if (!cs) return null;
-  const rocker = getRockerAtPos(board, pos);
-  const arc = arcLengthTable(cs.spline);
+  const section = loftSection(board, pos);
+  if (!section) return null;
+  const fs = ringFractions(board, ringSteps + 1);
   const ring: P3[] = [];
   for (let r = 0; r <= ringSteps; r++) {
-    const tt = r / ringSteps;
-    const p = pointAtArcFraction(arc, tt);
-    ring.push({ x: pos, y: p.x, z: p.y + rocker });
+    const p = loftPoint(section, fs[r]!);
+    ring.push({ x: pos, y: p.x, z: p.y + section.rocker });
   }
   return ring;
 };
@@ -109,11 +103,7 @@ const writeFacet = (out: string[], a: P3, b: P3, c: P3): void => {
  * triangles) on the `+y` side and a mirrored band on the `-y` side; the nose and
  * tail rings are fanned to a centre point to cap the ends.
  */
-export const exportStl = (raw: BezierBoard, opts: StlOptions = {}): string => {
-  // One knot count across all stations, so segment index means the same thing at
-  // every station and the loft stays affine between them (see sampleRing).
-  const board = loftBoard(raw);
-
+export const exportStl = (board: BezierBoard, opts: StlOptions = {}): string => {
   // Derive density from a fine target face size unless explicit counts are given.
   // The kernel ring count covers the full closed loop; STL samples one rail (per
   // side) and mirrors it, so use half the loop count.

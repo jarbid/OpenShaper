@@ -24,6 +24,7 @@ export * from './outline-cutout';
 export * from './board';
 export * from './surface';
 export * from './rail-band';
+export * from './loft';
 export * from './tessellate';
 export * from './guides';
 export * from './fins';

@@ -101,32 +101,23 @@ describe('tessellateBoard: correspondence smoothness between differing stations'
   });
 
   /**
-   * Bezier evaluation at a fixed parameter is affine in the control points, and
-   * `interpolateCrossSection` lerps control points, so a correct loft sweeps each
-   * ring vertex along a straight line between two stations — second difference
-   * zero. Any departure is the sampler failing to hold a consistent
-   * correspondence.
+   * A correct loft sweeps each ring vertex along a straight line between two
+   * stations — second difference zero. Any departure is the loft failing to hold
+   * a consistent correspondence.
    *
-   * Sampling by segment index makes that second difference exactly zero (6.2e-15,
-   * machine epsilon) because it evaluates both endpoint curves at a FIXED
-   * parameter, and bezier evaluation at a fixed parameter is affine in the
-   * control points. That property was measured, and then deliberately given up:
-   * segment index gives every segment the same share of the ring's points
-   * regardless of its length, so two knots close together starve the rest of the
-   * profile — a 330:1 point-spacing ratio for a 0.5 mm knot gap. See the
-   * point-distribution tests below, which is the defect users actually see.
+   * The point-blended loft (`loft.ts`) gets that for free and exactly: ring
+   * vertex `i` is `lerp(p_i(A), p_i(B), d)` where both points are constants, so
+   * the only curvature in the sweep comes from the board's own thickness / width
+   * / rocker curves. What remains here is those curves, not the loft.
    *
-   * Arc-length sampling costs a genuinely non-affine correspondence. Measured
-   * here (max over all ring vertices, cm):
-   *   segment index                    6.2e-15  but 330:1 spacing starvation
-   *   arc length, fixed-resolution     1.6e-3   spacing 1.6:1
-   *   arc length, adaptive (PR #24)    3.2e-3   spacing 1.6:1, plus real noise
+   * Measured on this fixture (max over all ring vertices, cm):
+   *   arc length, adaptive (PR #24)        3.2e-3   plus real high-frequency noise
+   *   arc length, fixed table + CP blend   1.6e-3
+   *   point blend (current)                1.1e-6
    *
-   * The threshold sits above the converged arc-length figure and below the
-   * adaptive sampler's, so it still fails if the adaptive integration path — the
-   * one whose threshold-triggered recursion produced visible blotching — is ever
-   * reinstated. The convergence test below is what distinguishes "genuine map"
-   * from "numerical noise"; without it this bound would just be a number.
+   * The threshold is set an order of magnitude above the current figure and
+   * three below the previous one, so any return to blending control points —
+   * whose knot-index pairing is what put the extra motion there — fails here.
    */
   it('sweeps ring vertices near-linearly within a station interval', () => {
     let maxD2 = 0;
@@ -139,7 +130,7 @@ describe('tessellateBoard: correspondence smoothness between differing stations'
         maxD2 = Math.max(maxD2, Math.hypot(cy - 2 * by + ay, cz - 2 * bz + az));
       }
     }
-    expect(maxD2).toBeLessThan(2e-3);
+    expect(maxD2).toBeLessThan(1e-5);
   });
 
   /**
@@ -147,9 +138,9 @@ describe('tessellateBoard: correspondence smoothness between differing stations'
    * high-frequency content: shading derives normals from neighbouring vertices,
    * and the curvature overlay differentiates those again, so jitter blotches
    * where a smooth trend would not. The adaptive arc-length sampler's jitter was
-   * 2.6e-3 cm; the fixed-resolution table's is 1.6e-3 and CONVERGED — it barely
-   * moves between 64 and 256 samples per segment, which is what says it is the
-   * arc-length map itself rather than integration noise.
+   * 2.6e-3 cm and the fixed-resolution table with a control-point blend 1.6e-3;
+   * the point-blended loft is 1.1e-6 — i.e. the whole second difference is now
+   * the board's own curves, with no high-frequency component left to separate.
    */
   it('has no high-frequency jitter in that sweep', () => {
     let maxJitter = 0;
@@ -165,6 +156,6 @@ describe('tessellateBoard: correspondence smoothness between differing stations'
         maxJitter = Math.max(maxJitter, Math.abs(d2(r + 1, i) - d2(r, i)));
       }
     }
-    expect(maxJitter).toBeLessThan(2e-3);
+    expect(maxJitter).toBeLessThan(1e-5);
   });
 });

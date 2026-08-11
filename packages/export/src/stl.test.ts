@@ -188,20 +188,23 @@ describe('exportStl: continuity across a mismatched knot-count station', () => {
     // should be near axis-parallel. Segment-index sampling instead skews the
     // band by ~5 cm at the station whose knot count is not a local max.
     //
-    // The bound is 1 mm rather than 0: where knot counts differ, the legacy
-    // control-point morph (`interpolateCrossSection`) blends two differently
-    // resliced control polygons of the same curve, which does not reproduce
-    // that curve exactly. That residual measures ~0.07 cm here — ~70x smaller
-    // than the sampling defect this guards, and inherent to the ported morph
-    // rather than to ring sampling.
-    expect(bandJump(stlOf(prism()))).toBeLessThan(0.1);
+    // This used to be bounded at 1 mm rather than 0, because the loft blended
+    // two differently resliced control polygons of the same curve and did not
+    // reproduce it exactly — a ~0.07 cm residual. Lofting sampled points instead
+    // (`loft.ts`) removes it: fractional arc length along a curve is invariant
+    // to how the curve was resliced. Measured 3.2e-6 cm, which is the ASCII
+    // format's own 7-significant-figure quantisation, not geometry.
+    expect(bandJump(stlOf(prism()))).toBeLessThan(1e-4);
   });
 
-  it('is no worse than the uniform-knot-count baseline by more than the morph residual', () => {
-    // Control: identical geometry with the same knot count everywhere, so no
-    // control-point morph runs at all and the loft should be essentially exact.
+  it('is no worse than the uniform-knot-count baseline', () => {
+    // Control: identical geometry with the same knot count everywhere, so even a
+    // control-point loft has nothing to reconcile and should be exact. It
+    // measures exactly 0. The mismatched-knot prism must now match it, not merely
+    // come close — that equality IS the fix, since a point loft never looks at
+    // knot counts in the first place.
     const uniform = bandJump(stlOf(uniformPrism()));
-    expect(uniform).toBeLessThan(0.02);
-    expect(bandJump(stlOf(prism()))).toBeLessThan(uniform + 0.1);
+    expect(uniform).toBeLessThan(1e-6);
+    expect(bandJump(stlOf(prism()))).toBeLessThan(uniform + 1e-4);
   });
 });

@@ -1,14 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import {
-  getInterpolatedCrossSection,
-  getLength,
-  loftBoard,
-  getMaxThickness,
-  getMaxWidth,
-  getRockerAtPos,
-  type BezierBoard,
-} from './board';
-import { arcLengthTable, pointAtArcFraction } from './bezier-spline';
+import { getLength, getMaxThickness, getMaxWidth, type BezierBoard } from './board';
+import { loftPoint, loftRing, loftSection, ringFractions, ringHalf, type Vert3 } from './loft';
 import { CUTOUT_EPS, cachedOutlineSegments, hasTailCutout, yInOut } from './outline-cutout';
 
 /**
@@ -72,81 +64,6 @@ export const tessellationSteps = (
 const isFinite3 = (x: number, y: number, z: number): boolean =>
   Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z);
 
-interface Vert3 {
-  x: number;
-  y: number;
-  z: number;
-}
-
-/**
- * Build a full cross-section ring at station `x` as `ringSteps` 3D points.
- *
- * The profile spline runs in (x = distance from centerline, y = height) and
- * describes the +Y rail half. We walk tt 0..1 down the +Y side, then mirror the
- * tt 1..0 sweep onto the -Y side, giving a closed loop around the section.
- * Returns null if the section is missing or degenerate (NaN / collapsed).
- *
- * Sampled by fractional SEGMENT INDEX, which is what makes the loft smooth:
- * bezier evaluation at a fixed parameter is affine in the control points, and
- * `interpolateCrossSection` lerps control points, so ring vertex `i` sweeps a
- * straight line between two stations — exactly, to machine precision.
- *
- * That holds only while "segment `i`" means the same thing at every station,
- * which is why `tessellateBoard` lofts `loftBoard(board)`: it normalises all
- * cross-sections to one knot count up front. Without that, a station between
- * neighbours of differing density is resliced differently depending on which
- * side it is approached from, and the same tt lands on different physical
- * points — the pinch this used to have.
- *
- * Sampling by arc length instead also removes that pinch, but at the cost of
- * the affine property: the parameter becomes a nonlinear function of the
- * control points, computed by `curveLength`'s threshold-triggered recursion and
- * `tForLength`'s bisection, both of which step discontinuously as a blended
- * section varies along the board. Measured on a board with one edited station,
- * that leaves second-difference jitter of 2.6e-3 cm — ~85% of its own
- * magnitude, i.e. essentially noise — which curvature shading amplifies into
- * visible blotches. Normalising and sampling by segment index measures 5.3e-15.
- * See `tessellate.smoothness.test.ts`.
- */
-const buildRing = (board: BezierBoard, x: number, ringSteps: number): Vert3[] | null => {
-  const cs = getInterpolatedCrossSection(board, x);
-  if (!cs) return null;
-
-  const rocker = getRockerAtPos(board, x);
-  if (!Number.isFinite(rocker)) return null;
-
-  // Half the ring on each rail. Use an even count so both sides match.
-  const arc = arcLengthTable(cs.spline);
-  const half = Math.max(2, Math.floor(ringSteps / 2));
-  const ring: Vert3[] = [];
-
-  // +Y rail: tt 0 (bottom centerline) -> tt 1 (deck centerline).
-  for (let i = 0; i < half; i++) {
-    const tt = i / (half - 1);
-    const p = pointAtArcFraction(arc, tt);
-    const vx = x;
-    const vy = p.x;
-    const vz = p.y + rocker;
-    if (!isFinite3(vx, vy, vz)) return null;
-    ring.push({ x: vx, y: vy, z: vz });
-  }
-
-  // -Y rail: tt 1 -> tt 0, mirrored across the centerline (y = -profile.x).
-  // Skip the two shared centerline endpoints (tt=1 and tt=0) to avoid duplicates.
-  for (let i = half - 2; i >= 1; i--) {
-    const tt = i / (half - 1);
-    const p = pointAtArcFraction(arc, tt);
-    const vx = x;
-    const vy = -p.x;
-    const vz = p.y + rocker;
-    if (!isFinite3(vx, vy, vz)) return null;
-    ring.push({ x: vx, y: vy, z: vz });
-  }
-
-  if (ring.length < 3) return null;
-  return ring;
-};
-
 const addVert = (positions: number[], v: Vert3): number => {
   const index = positions.length / 3;
   positions.push(v.x, v.y, v.z);
@@ -163,11 +80,7 @@ const addVert = (positions: number[], v: Vert3): number => {
  *
  * Robust against null/degenerate sections (skipped) and NaN samples.
  */
-export const tessellateBoard = (raw: BezierBoard, opts: TessellateOptions = {}): BoardMesh => {
-  // One knot count for the whole board, so segment index means the same thing at
-  // every station (see buildRing).
-  const board = loftBoard(raw);
-
+export const tessellateBoard = (board: BezierBoard, opts: TessellateOptions = {}): BoardMesh => {
   // A target face size derives step counts unless explicit counts are given.
   const derived =
     opts.targetFaceSize !== undefined ? tessellationSteps(board, opts.targetFaceSize) : null;
@@ -202,7 +115,7 @@ export const tessellateBoard = (raw: BezierBoard, opts: TessellateOptions = {}):
 
   for (let s = 0; s < lengthSteps; s++) {
     const x = x0 + ((x1 - x0) * s) / (lengthSteps - 1);
-    const ring = buildRing(board, x, ringSteps);
+    const ring = loftRing(board, x, ringSteps);
     if (!ring) continue;
     const idx = ring.map((v) => addVert(positions, v));
     rings.push(idx);
@@ -363,7 +276,8 @@ const tessellateCutout = (
   const eps = Math.min(0.5, length * 1e-3);
   const x0 = eps;
   const x1 = length - eps;
-  const half = Math.max(2, Math.floor(ringSteps / 2));
+  const half = ringHalf(ringSteps);
+  const fs = ringFractions(board, half);
 
   const positions: number[] = [];
   const indices: number[] = [];
@@ -416,15 +330,13 @@ const tessellateCutout = (
   const leftRows: (number[] | null)[] = [];
 
   for (const x of xs) {
-    const cs = getInterpolatedCrossSection(board, x);
-    const rocker = getRockerAtPos(board, x);
-    if (!cs || !Number.isFinite(rocker)) {
+    const section = loftSection(board, x);
+    if (!section) {
       yIns.push(0);
       rightRows.push(null);
       leftRows.push(null);
       continue;
     }
-    const arc = arcLengthTable(cs.spline);
     let { yIn, yOut } = yInOut(segments, x);
     if (yIn < CUTOUT_EPS) yIn = 0;
     if (yOut < yIn + CUTOUT_EPS) yOut = yIn; // collapsed tip → zero-width sliver
@@ -435,10 +347,9 @@ const tessellateCutout = (
     const left: number[] = [];
     let ok = true;
     for (let i = 0; i < half; i++) {
-      const tt = i / (half - 1);
-      const p = pointAtArcFraction(arc, tt);
+      const p = loftPoint(section, fs[i]!);
       const mapped = yIn + p.x * scale; // p.x ∈ [0, yOut] → [yIn, yOut]
-      const z = p.y + rocker;
+      const z = p.y + section.rocker;
       if (!isFinite3(x, mapped, z)) {
         ok = false;
         break;

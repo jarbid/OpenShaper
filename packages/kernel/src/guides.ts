@@ -3,28 +3,18 @@
  * Reference geometry for the 3D overlay: a ring around the hull at a station,
  * and the stringer plane's silhouette.
  *
- * Deliberately built on the PUBLIC surface definition — `getInterpolatedCrossSection`
- * plus `getRockerAtPos` — rather than by reaching into the tessellator. The loft
- * surface is continuous, so a ring computed at any x lies on it; the mesh is just
- * a faceted sample of that same surface. Keeping this separate means overlays can
- * never destabilise mesh generation.
+ * Built on the PUBLIC surface definition in `loft.ts` rather than by reaching into
+ * the tessellator. The loft surface is continuous, so a ring computed at any x
+ * lies on it; the mesh is just a faceted sample of that same surface. Keeping
+ * this separate means overlays can never destabilise mesh generation.
  *
- * What IS shared with the tessellator is the sampling convention: `loftBoard` to
- * normalise every station to one knot count, then fractional SEGMENT INDEX. That
- * pairing is what keeps a loft smooth — bezier evaluation at a fixed parameter is
- * affine in the control points, so ring vertex `i` sweeps a straight line between
- * stations, and normalising first makes "segment `i`" mean the same place at every
- * station. `guides.test.ts` pins guide rings to the mesh so the two cannot
- * silently diverge; it is what caught this when the mesh convention changed.
+ * Because both go through `loftRing`, a guide ring and a mesh ring at the same x
+ * are the same points in the same order. `guides.test.ts` pins that to a micron
+ * so the two cannot silently diverge; it is what caught this the last time the
+ * mesh's sampling convention changed.
  */
-import { arcLengthTable, pointAtArcFraction } from './bezier-spline';
-import {
-  getInterpolatedCrossSection,
-  getLength,
-  getRockerAtPos,
-  loftBoard,
-  type BezierBoard,
-} from './board';
+import { getLength, type BezierBoard } from './board';
+import { loftRing, ringHalf } from './loft';
 import { CUTOUT_EPS, cachedOutlineSegments, hasTailCutout, yInOut } from './outline-cutout';
 
 /** A point on the board surface, in board cm: x = length, y = width, z = height. */
@@ -34,56 +24,20 @@ export interface GuidePoint {
   z: number;
 }
 
-const isFinite3 = (x: number, y: number, z: number): boolean =>
-  Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z);
-
-/** Points sampled up one rail; the ring mirrors all but the two shared centreline points. */
-const ringHalf = (steps: number): number =>
-  Math.max(2, Math.floor(Math.max(4, Math.floor(steps)) / 2));
-
 /**
- * A closed ring around the hull at station `x`.
- *
- * The profile spline runs (distance from centreline, height) and describes the
- * +Y rail half, so we walk it once by segment index and mirror it back.
+ * A closed ring around the hull at station `x` — the mesh's own ring, unfaceted.
  *
  * Returns null if the section is missing or degenerate.
  */
 export const crossSectionRing = (
-  raw: BezierBoard,
+  board: BezierBoard,
   x: number,
   steps: number,
 ): GuidePoint[] | null => {
-  // Same normalised board the mesh is lofted from, or the guides drift off it.
-  const board = loftBoard(raw);
   const length = getLength(board);
   if (!Number.isFinite(length) || length <= 0) return null;
-
-  const cs = getInterpolatedCrossSection(board, x);
-  if (!cs) return null;
-
-  const rocker = getRockerAtPos(board, x);
-  if (!Number.isFinite(rocker)) return null;
-
-  const arc = arcLengthTable(cs.spline);
-  const half = ringHalf(steps);
-  const ring: GuidePoint[] = [];
-
-  const push = (tt: number, mirror: boolean): boolean => {
-    const p = pointAtArcFraction(arc, tt);
-    const y = mirror ? -p.x : p.x;
-    const z = p.y + rocker;
-    if (!isFinite3(x, y, z)) return false;
-    ring.push({ x, y, z });
-    return true;
-  };
-
-  // +Y rail: tt 0 (bottom centreline) -> tt 1 (deck centreline).
-  for (let i = 0; i < half; i++) if (!push(i / (half - 1), false)) return null;
-  // -Y rail: back down, skipping the two shared centreline endpoints.
-  for (let i = half - 2; i >= 1; i--) if (!push(i / (half - 1), true)) return null;
-
-  return ring.length >= 3 ? ring : null;
+  const ring = loftRing(board, x, steps);
+  return ring && ring.length >= 3 ? ring : null;
 };
 
 /** Stations along the length, inset a hair from the tips where the section goes null. */

@@ -107,12 +107,17 @@ describe('tessellateBoard: continuity across a mismatched knot-count station', (
 
     // The board's real shape never varies along x (every station is the exact
     // same curve, just resliced differently) — a correct loft is a constant
-    // cross-section prism, so ring-to-ring shape motion should be near-zero
-    // everywhere (bounded only by pointByCurveLength's LENGTH_TOLERANCE-scale
-    // numerical noise). A segment-index-based sampler instead shows a jump of
-    // order the profile's own scale (~5 cm, empirically ~4.8 cm) exactly at the
-    // ring pair straddling station B — the station that isn't a local max of
-    // knot count among its neighbors.
-    expect(maxJump).toBeLessThan(0.05);
+    // cross-section prism, so ring-to-ring shape motion should be zero. A
+    // segment-index sampler instead shows a jump of order the profile's own
+    // scale (~4.8 cm) exactly at the ring pair straddling station B, the station
+    // that isn't a local max of knot count among its neighbours.
+    //
+    // The point-blended loft (`loft.ts`) makes this case exact rather than
+    // merely small: fractional arc length along a curve doesn't care how that
+    // curve was resliced, so all four knot counts sample the identical points.
+    // Measured 1.5e-6 cm, against 0.05 when the loft blended control points —
+    // the residual there was the morph reconstructing the curve imperfectly from
+    // two different control polygons of it.
+    expect(maxJump).toBeLessThan(1e-5);
   });
 });
