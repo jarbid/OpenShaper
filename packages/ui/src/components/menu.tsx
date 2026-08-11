@@ -33,9 +33,35 @@ const ROW_CLASS =
   'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground disabled:pointer-events-none disabled:opacity-50 pointer-coarse:py-2.5';
 
 /**
+ * Grace period before a hovered-away flyout closes, in ms.
+ *
+ * Reaching a flyout means travelling diagonally off the row that opened it, and a
+ * pointer does not follow a straight line — it dips below the row, or overshoots
+ * past the panel's edge, before arriving. Closing the instant the pointer leaves
+ * turns that into a race the user loses, worst of all when the flyout is flipped
+ * to the LEFT and the natural rightward drift of the hand carries the pointer
+ * away from the target.
+ *
+ * 300 ms is the usual figure for this (it is roughly what desktop menus use). Long
+ * enough to absorb a wobbly diagonal, short enough that a deliberate move away
+ * still feels like it closed immediately.
+ */
+const SUBMENU_CLOSE_DELAY_MS = 300;
+
+/**
  * A row that opens a flyout of further items. Opens on hover, click or ArrowRight;
  * closes on ArrowLeft or Escape without dismissing the menu it sits in. Choosing an
  * item inside runs `onAfterAction`, closing the whole stack.
+ *
+ * Two things make the flyout reachable, and it needs both:
+ *
+ *  - The visual gap between row and panel is PADDING on a wrapper, not a margin on
+ *    the panel. Pointer-leave semantics treat descendants as inside, so the flyout
+ *    being a child of the hover region already covers the panel itself — but a
+ *    margin would leave the gap belonging to neither, so crossing it would close
+ *    the menu you are crossing toward.
+ *  - A close delay ({@link SUBMENU_CLOSE_DELAY_MS}) covers everything the geometry
+ *    cannot: overshoot past the panel, and the dip below the row on a diagonal.
  */
 function SubmenuRow({
   label,
@@ -50,8 +76,33 @@ function SubmenuRow({
 }) {
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Flip the flyout to the left when opening rightward would run off-screen.
   const [flip, setFlip] = useState(false);
+
+  const cancelClose = () => {
+    if (closeTimer.current === null) return;
+    clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+  };
+
+  /** Close now — for keyboard and selection, which are unambiguous. */
+  const closeNow = () => {
+    cancelClose();
+    setOpen(false);
+  };
+
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimer.current = setTimeout(() => {
+      closeTimer.current = null;
+      setOpen(false);
+    }, SUBMENU_CLOSE_DELAY_MS);
+  };
+
+  // The menu around this can unmount while a close is pending (an outside click,
+  // or an item chosen in a sibling row).
+  useEffect(() => cancelClose, []);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -70,8 +121,11 @@ function SubmenuRow({
   return (
     <div
       className="relative"
-      onPointerEnter={() => !disabled && setOpen(true)}
-      onPointerLeave={() => setOpen(false)}
+      onPointerEnter={() => {
+        cancelClose();
+        if (!disabled) setOpen(true);
+      }}
+      onPointerLeave={scheduleClose}
     >
       <button
         type="button"
@@ -79,10 +133,14 @@ function SubmenuRow({
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          cancelClose();
+          setOpen((v) => !v);
+        }}
         onKeyDown={(e) => {
           if (e.key === 'ArrowRight') {
             e.preventDefault();
+            cancelClose();
             setOpen(true);
           }
         }}
@@ -93,22 +151,23 @@ function SubmenuRow({
         <ChevronRight className="size-3.5 text-muted-foreground" />
       </button>
       {open && (
-        <div
-          ref={panelRef}
-          role="menu"
-          onKeyDown={(e) => {
-            if (e.key !== 'ArrowLeft' && e.key !== 'Escape') return;
-            // Close just the flyout — the menu around it stays open.
-            e.preventDefault();
-            e.stopPropagation();
-            setOpen(false);
-          }}
-          className={cn(
-            'absolute top-0 z-10 min-w-48 rounded-md border border-border bg-card p-1 text-card-foreground shadow-lg',
-            flip ? 'right-full mr-1' : 'left-full ml-1',
-          )}
-        >
-          {renderMenuItems(items, onAfterAction)}
+        // Outer element owns the gap as padding, so it is hoverable; the inner one
+        // is the panel you can actually see.
+        <div className={cn('absolute top-0 z-10', flip ? 'right-full pr-1' : 'left-full pl-1')}>
+          <div
+            ref={panelRef}
+            role="menu"
+            onKeyDown={(e) => {
+              if (e.key !== 'ArrowLeft' && e.key !== 'Escape') return;
+              // Close just the flyout — the menu around it stays open.
+              e.preventDefault();
+              e.stopPropagation();
+              closeNow();
+            }}
+            className="min-w-48 rounded-md border border-border bg-card p-1 text-card-foreground shadow-lg"
+          >
+            {renderMenuItems(items, onAfterAction)}
+          </div>
         </div>
       )}
     </div>

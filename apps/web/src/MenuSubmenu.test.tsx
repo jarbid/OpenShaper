@@ -13,7 +13,7 @@
  * a regression there.
  */
 import { ContextMenu, type MenuItem } from '@openshaper/ui';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 const setup = () => {
@@ -47,7 +47,13 @@ describe('submenu menu items', () => {
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
     expect(screen.getByText('50/50 soft')).not.toBeNull();
 
-    fireEvent.pointerLeave(trigger.parentElement!);
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerLeave(trigger.parentElement!);
+      act(() => void vi.advanceTimersByTime(500));
+    } finally {
+      vi.useRealTimers();
+    }
     expect(screen.queryByText('50/50 soft')).toBeNull();
 
     fireEvent.keyDown(trigger, { key: 'ArrowRight' });
@@ -65,6 +71,59 @@ describe('submenu menu items', () => {
     fireEvent.pointerEnter(trigger);
     const wrapper = trigger.parentElement!;
     expect(wrapper.contains(screen.getByText('50/50 soft'))).toBe(true);
+  });
+
+  /**
+   * The reported complaint: the flyout closed before the pointer could reach it,
+   * especially when flipped to the left, where the hand's natural rightward drift
+   * pulls away from the target. Leaving the row must start a grace period, not an
+   * immediate close.
+   */
+  it('does not close the instant the pointer leaves the row', () => {
+    const { trigger } = setup();
+    fireEvent.pointerEnter(trigger);
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerLeave(trigger.parentElement!);
+      // Still open right after leaving, and still open partway through the grace period.
+      expect(screen.getByText('50/50 soft')).not.toBeNull();
+      act(() => void vi.advanceTimersByTime(200));
+      expect(screen.getByText('50/50 soft')).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('cancels the pending close when the pointer comes back', () => {
+    const { trigger } = setup();
+    fireEvent.pointerEnter(trigger);
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerLeave(trigger.parentElement!);
+      act(() => void vi.advanceTimersByTime(200));
+      // Arriving at the flyout re-enters the wrapper, which must call the close off
+      // for good — not merely postpone it.
+      fireEvent.pointerEnter(trigger.parentElement!);
+      act(() => void vi.advanceTimersByTime(5000));
+      expect(screen.getByText('50/50 soft')).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * The gap between the row and the panel has to belong to the hover region. As a
+   * margin on the panel it belongs to neither, so crossing it — which is the only
+   * way in — would close the thing being crossed toward.
+   */
+  it('leaves no dead gap between the row and the flyout', () => {
+    const { trigger } = setup();
+    fireEvent.pointerEnter(trigger);
+    const panel = screen.getByText('50/50 soft').closest('[role="menu"]')!;
+    expect(panel.className).not.toMatch(/\bm[lr]-\d/);
+    const spacer = panel.parentElement!;
+    expect(spacer.className).toMatch(/\bp[lr]-\d/);
+    expect(trigger.parentElement!.contains(spacer)).toBe(true);
   });
 
   /**
