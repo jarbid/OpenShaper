@@ -25,6 +25,7 @@ export * from './board';
 export * from './surface';
 export * from './rail-band';
 export * from './loft';
+export * from './bspline-surface';
 export * from './tessellate';
 export * from './guides';
 export * from './fins';
