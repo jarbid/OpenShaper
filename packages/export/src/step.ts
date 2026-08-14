@@ -81,6 +81,12 @@ export interface StepOptions {
   lengthRows?: number;
   /** Profile samples per half-section. */
   ringCols?: number;
+  /**
+   * How closely the fitted surfaces track the lofted hull, in centimetres.
+   * Defaults to the kernel's `DEFAULT_TOLERANCE`. Smaller means more control
+   * points, a bigger file and a longer fit.
+   */
+  tolerance?: number;
   /** `PRODUCT` name written into the file. Default 'board'. */
   name?: string;
   /**
@@ -360,6 +366,7 @@ export const exportStep = (board: BezierBoard, opts: StepOptions = {}): string =
   const model = fitBoardSurface(board, {
     lengthRows: opts.lengthRows,
     ringCols: opts.ringCols,
+    tolerance: opts.tolerance,
   });
 
   const w = createWriter(factor);

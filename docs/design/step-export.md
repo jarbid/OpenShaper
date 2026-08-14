@@ -137,6 +137,27 @@ What remains at 0.15 mm is confined to the last centimetre of a pointed tip.
 probes a coarser grid than the tests do and reads about 3× optimistic on the
 funboard.
 
+### The dialog
+
+`Export ▸ STEP (surfaces)…` opens `ExportStepDialog` with exactly two controls,
+persisted under `bs.step`:
+
+- **Units** — `auto` (follow the editor's selector) or an explicit mm/cm/in. The
+  file declares its own unit, so this is cosmetic: an importer lands the board at
+  the right size whatever it says. Worth exposing anyway, because the numbers
+  inside the file are what someone reads when debugging a CAM setup.
+- **Accuracy** — draft 0.02 cm / standard 0.005 cm / fine 0.002 cm, mapped by
+  `STEP_TOLERANCE_CM` onto the fit's `tolerance`.
+
+Station rows and ring columns are deliberately **not** exposed. They are means to
+the accuracy end, and surfacing them would ask a shaper to reason about B-spline
+control nets to get a board out. Accuracy is the one knob they can judge against
+something real — a blank cutter's finishing pass.
+
+Note that even `draft` is finer than that finishing pass, so the control mostly
+exists to let someone shrink a longboard file; there is rarely a reason to move
+off `standard`.
+
 ## Not included, on purpose
 
 - **Fins.** Including them means either fitting foiled blade surfaces (a second,
@@ -176,6 +197,14 @@ Rhino, SolidWorks and FreeCAD** × **shortboard, longboard, and a board with an
 
 Record results (app name + version) below when the pass is run.
 
-| date | app | board | result |
-| ---- | --- | ----- | ------ |
-|      |     |       |        |
+| date       | app                    | board                           | result                          |
+| ---------- | ---------------------- | ------------------------------- | ------------------------------- |
+| 2026-08-14 | Autodesk online viewer | shortboard, funboard, longboard | Imports and displays correctly. |
+| 2026-08-14 | Rhino 8                | shortboard, funboard, longboard | Extensive testing, no problems. |
+
+Still unexercised: SolidWorks and FreeCAD, and the `80-20-hard` rail board (whose
+profile crease is the case most likely to expose a v-direction fitting problem).
+Rhino accepting the solid does settle the two things most likely to be wrong —
+that it arrives as one closed solid rather than loose faces, and that it is not
+inside-out — so the no-`PCURVE` decision and the per-patch `same_sense` derivation
+are both confirmed against a real kernel.

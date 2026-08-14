@@ -6,7 +6,7 @@ import { expect, test } from '@playwright/test';
  *  - The native .board.json save triggers a download too.
  */
 test.describe('Export', () => {
-  for (const fmt of ['PDF', 'STL', 'STEP', 'DXF'] as const) {
+  for (const fmt of ['PDF', 'STL', 'DXF'] as const) {
     test(`exports ${fmt} as a download`, async ({ page }) => {
       await page.goto('/');
       const button = page.getByRole('button', { name: fmt, exact: true });

@@ -42,6 +42,7 @@ import {
   downloadBoard,
   downloadBrd,
   downloadPdf1to1,
+  downloadStep,
   exportBoard,
   openBoardFile,
   sourceExtension,
@@ -60,7 +61,9 @@ import {
 import { ImportWarningsDialog } from './ImportWarningsDialog';
 import type { ImportWarning } from '@openshaper/io';
 import { ExportPdf1to1Dialog } from './ExportPdf1to1Dialog';
+import { ExportStepDialog } from './ExportStepDialog';
 import { loadPdf1to1, savePdf1to1, type Pdf1to1Settings } from './pdf-export-settings';
+import { loadStep, saveStep, type StepSettings } from './step-export-settings';
 import { clearRecentBoards, getRecentBoards, recordRecentBoard } from './recent-boards';
 import {
   DEFAULT_LENGTH_UNIT,
@@ -319,6 +322,8 @@ function AppShell() {
   const togglePalette = useCallback(() => setPaletteOpen((o) => !o), []);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
+  const [stepDialogOpen, setStepDialogOpen] = useState(false);
+  const [stepSettings, setStepSettings] = useState<StepSettings>(() => loadStep());
   const [pdf1to1, setPdf1to1] = useState<Pdf1to1Settings>(() => loadPdf1to1());
   const [settings, setSettings] = useState<EditorSettings>(() => loadSettings());
   const handleSaveSettings = (s: EditorSettings) => {
@@ -736,15 +741,13 @@ function AppShell() {
     ...(
       [
         ['stl', 'STL'],
-        ['step', 'STEP (surfaces)'],
         ['dxf', 'DXF (polyline)'],
         ['dxf-spline', 'DXF (spline)'],
       ] as [ExportFormat, string][]
     ).map(([f, label]) => ({
       kind: 'action' as const,
       label,
-      disabled: !board || (f === 'step' && stepSupport?.ok === false),
-      title: f === 'step' && stepSupport?.ok === false ? stepSupport.reason : undefined,
+      disabled: !board,
       onSelect: () => {
         if (!board) return;
         exportBoard(board as Parameters<typeof exportBoard>[0], f, meta, units, ghost ?? undefined);
@@ -752,6 +755,13 @@ function AppShell() {
         markExport();
       },
     })),
+    {
+      kind: 'action',
+      label: 'STEP (surfaces)…',
+      disabled: !board || stepSupport?.ok === false,
+      title: stepSupport?.ok === false ? stepSupport.reason : undefined,
+      onSelect: () => setStepDialogOpen(true),
+    },
     {
       kind: 'action',
       label: 'PDF 1:1…',
@@ -1285,6 +1295,21 @@ function AppShell() {
           settings={settings}
           onSave={handleSaveSettings}
           onClose={() => setSettingsOpen(false)}
+        />
+      )}
+
+      {stepDialogOpen && board && (
+        <ExportStepDialog
+          units={units}
+          settings={stepSettings}
+          onExport={(s) => {
+            saveStep(s);
+            setStepSettings(s);
+            downloadStep(board, s, meta, units);
+            track('export_board', { format: 'step' });
+            markExport();
+          }}
+          onClose={() => setStepDialogOpen(false)}
         />
       )}
 

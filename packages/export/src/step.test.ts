@@ -571,6 +571,25 @@ describe('exportStep: every face points out of the solid', () => {
   });
 });
 
+describe('exportStep: accuracy', () => {
+  it('trades file size for fidelity', () => {
+    // The dialog's Accuracy control is only meaningful if the option reaches the
+    // fit. A coarser tolerance must produce a smaller control net.
+    const draft = exportStep(board, { timestamp: FIXED, tolerance: 0.02 });
+    const fine = exportStep(board, { timestamp: FIXED, tolerance: 0.002 });
+    expect(draft.length).toBeLessThan(fine.length);
+  });
+
+  it('still describes the same hull at the coarse setting', () => {
+    // Coarser must mean fewer control points, not a different board.
+    const coarse = parse(exportStep(board, { timestamp: FIXED, unit: 'cm', tolerance: 0.02 }));
+    const surface = [...coarse.values()].find((e) => e.name === 'B_SPLINE_SURFACE_WITH_KNOTS')!;
+    const s = decodeSurface(surface, coarse);
+    const xs = s.ctrl.flat().map((p) => p.x);
+    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(getLength(board) * 0.99);
+  });
+});
+
 describe('stepExportSupport', () => {
   it('accepts a normal board', () => {
     expect(stepExportSupport(board).ok).toBe(true);

@@ -17,6 +17,7 @@ import {
 import { Unit } from '@openshaper/units';
 import { exportUnitFor, type LengthUnit } from './format';
 import type { Pdf1to1Settings } from './pdf-export-settings';
+import { STEP_TOLERANCE_CM, type StepSettings } from './step-export-settings';
 import {
   parseBrdFile,
   parseS3d,
@@ -286,6 +287,26 @@ export function exportBoard(
  * paper-size tiling, overlap/cut marks, combined/per-part packaging) and download the
  * resulting PDF file(s). `units` only affects the printed labels + calibration ruler.
  */
+/**
+ * Export STEP per the dialog `settings`. The plain `exportBoard('step')` path
+ * stays as the no-options default; this is the one the menu uses.
+ */
+export function downloadStep(
+  board: BezierBoard,
+  settings: StepSettings,
+  meta?: BoardMeta,
+  units?: LengthUnit,
+): void {
+  const slug = slugifyName(meta?.model);
+  const unit: SheetUnit =
+    settings.unit === 'auto' ? (units ? exportUnitFor(units) : 'mm') : settings.unit;
+  return download(
+    exportStep(board, { unit, name: slug, tolerance: STEP_TOLERANCE_CM[settings.accuracy] }),
+    `${slug}.step`,
+    'model/step',
+  );
+}
+
 export function downloadPdf1to1(
   board: BezierBoard,
   settings: Pdf1to1Settings,

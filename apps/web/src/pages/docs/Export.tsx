@@ -75,6 +75,13 @@ export default function DocsExport() {
           — can machine directly.
         </p>
         <p>
+          STEP opens a small dialog first. <strong>Units</strong> only changes the numbers written
+          into the file — it states its own unit, so the board lands at the right size either way.
+          <strong> Accuracy</strong> is how closely the exported surfaces track your design; even
+          the draft setting is finer than a blank cutter&rsquo;s finishing pass, so there is rarely
+          a reason to leave Standard.
+        </p>
+        <p>
           Two things to know about the STEP file. It is the bare blank surface: fin boxes and plug
           footprints are not cut into it, and live instead on the DXF's fin layer at true scale and
           position. And boards with a concave tail — a swallow or fish — cannot be exported yet,
