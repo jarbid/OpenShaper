@@ -87,8 +87,8 @@ describe('tessellateBoard: correspondence smoothness between differing stations'
 
   const mesh = tessellateBoard(makeBoard(), { lengthSteps, ringSteps });
   const ringLen = (mesh.positions.length / 3 - 2) / lengthSteps; // −2 tip-cap vertices
-  const eps = Math.min(0.5, LEN * 1e-3);
-  const xOf = (r: number) => eps + ((LEN - 2 * eps) * r) / (lengthSteps - 1);
+  // Mirrors the station formula in `tessellateBoard`: stations span the full length.
+  const xOf = (r: number) => (LEN * r) / (lengthSteps - 1);
 
   /** Ring vertex (y, z). x is the station's own position and is excluded by design. */
   const yz = (r: number, i: number): [number, number] => {

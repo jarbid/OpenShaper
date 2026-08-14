@@ -1,6 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { getLength, getMaxThickness, getMaxWidth, type BezierBoard } from './board';
-import { loftPoint, loftRing, loftSection, ringFractions, ringHalf, type Vert3 } from './loft';
+import {
+  getLength,
+  getMaxThickness,
+  getMaxWidth,
+  getWidthAtPos,
+  type BezierBoard,
+} from './board';
+import {
+  MIN_DIM,
+  loftPoint,
+  loftRing,
+  loftSection,
+  ringFractions,
+  ringHalf,
+  type Vert3,
+} from './loft';
 import { CUTOUT_EPS, cachedOutlineSegments, hasTailCutout, yInOut } from './outline-cutout';
 
 /**
@@ -102,10 +116,32 @@ export const tessellateBoard = (board: BezierBoard, opts: TessellateOptions = {}
     return tessellateCutout(board, length, lengthSteps, ringSteps);
   }
 
-  // A tiny inset keeps us off the exact tips where the interpolated section is null.
+  // How each end is closed depends on whether the board really comes to a point
+  // there.
+  //
+  // `loftSection` floors width and thickness at MIN_DIM, so sampling a station at a
+  // tip whose true width is 0 does not give a point — it gives a 5 mm ring, and the
+  // band leading into it becomes a near-vertical wall that shades badly. But an end
+  // with real width (a squash or round tail) is the opposite case: fanning it to a
+  // single off-plane apex, as this used to do unconditionally, collapses a full-width
+  // transom to a point in the mesh, and so in the STL a shaper cuts.
+  //
+  // So branch per end on the UNfloored width:
+  //   - pointed (< MIN_DIM): inset the last station and fan to a true apex at the tip,
+  //     which is what the board actually does;
+  //   - blunt: put the station on the tip itself and fan IN ITS OWN PLANE, making the
+  //     cap the flat face the geometry has.
+  // Either way the mesh still spans the full length — the apex sits at 0 / `length`.
+  //
+  // (`loftSection` itself is defined on the closed interval: `getNearestCrossSectionIndex`
+  // only ever returns a real station, and the clamps collapse the pair at either tip. The
+  // inset that used to be applied unconditionally guarded `getInterpolatedCrossSection`,
+  // which the mesh has not gone through since the loft became point-blended.)
   const eps = Math.min(0.5, length * 1e-3);
-  const x0 = eps;
-  const x1 = length - eps;
+  const pointed0 = getWidthAtPos(board, 0) < MIN_DIM;
+  const pointed1 = getWidthAtPos(board, length) < MIN_DIM;
+  const x0 = pointed0 ? eps : 0;
+  const x1 = pointed1 ? length - eps : length;
 
   const positions: number[] = [];
   const indices: number[] = [];
@@ -143,15 +179,17 @@ export const tessellateBoard = (board: BezierBoard, opts: TessellateOptions = {}
     }
   }
 
-  // Cap the ends with a tip vertex fan.
-  const capEnd = (ring: number[], tipX: number, reverse: boolean): void => {
+  // Fan the end ring to a hub vertex on the centerline at `capX` — the tip itself for
+  // a pointed end (a cone), the ring's own plane for a blunt one (a flat cap). The hub
+  // takes the ring's mean height, which is its centroid: the ring is symmetric about
+  // y = 0 by construction (`loftRing`).
+  const capEnd = (ring: number[], capX: number, reverse: boolean): void => {
     if (ring.length < 3) return;
-    // Tip vertex = centroid of the ring collapsed to the centerline (y=0).
     let zSum = 0;
     for (const vi of ring) zSum += positions[vi * 3 + 2]!;
     const tipZ = zSum / ring.length;
-    if (!isFinite3(tipX, 0, tipZ)) return;
-    const tip = addVert(positions, { x: tipX, y: 0, z: tipZ });
+    if (!isFinite3(capX, 0, tipZ)) return;
+    const tip = addVert(positions, { x: capX, y: 0, z: tipZ });
     const n = ring.length;
     for (let i = 0; i < n; i++) {
       const i0 = ring[i]!;
@@ -161,8 +199,8 @@ export const tessellateBoard = (board: BezierBoard, opts: TessellateOptions = {}
     }
   };
 
-  capEnd(rings[0]!, x0 - eps, true);
-  capEnd(rings[rings.length - 1]!, x1 + eps, false);
+  capEnd(rings[0]!, pointed0 ? 0 : x0, true);
+  capEnd(rings[rings.length - 1]!, pointed1 ? length : x1, false);
 
   return finalizeMesh(positions, indices);
 };

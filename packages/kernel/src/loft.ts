@@ -100,8 +100,15 @@ export interface LoftedSection {
 const isFinite3 = (x: number, y: number, z: number): boolean =>
   Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z);
 
-/** Below this (cm) a scaled dimension is treated as degenerate — legacy floor. */
-const MIN_DIM = 0.5;
+/**
+ * Below this (cm) a scaled dimension is treated as degenerate — legacy floor.
+ *
+ * Exported because it is the threshold at which a station stops describing real
+ * geometry: an end whose true width is under `MIN_DIM` is a point that the floor
+ * inflates into a small ring, and consumers that care about the shape of the tip
+ * (the mesh's end caps, the STEP exporter's cap faces) have to branch on that.
+ */
+export const MIN_DIM = 0.5;
 
 /**
  * Prepare the surface at station `x` for sampling, or null where there is none.
