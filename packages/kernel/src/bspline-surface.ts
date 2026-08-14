@@ -574,7 +574,11 @@ export const surfaceBoundaryCurve = (s: BSplineSurface, edge: SurfaceEdge): BSpl
     case 'v0':
       return { degree: s.uDegree, ctrl: s.ctrl.map((row) => row[0]!), knots: s.uKnots };
     case 'v1':
-      return { degree: s.uDegree, ctrl: s.ctrl.map((row) => row[row.length - 1]!), knots: s.uKnots };
+      return {
+        degree: s.uDegree,
+        ctrl: s.ctrl.map((row) => row[row.length - 1]!),
+        knots: s.uKnots,
+      };
     case 'u0':
       return { degree: s.vDegree, ctrl: [...s.ctrl[0]!], knots: s.vKnots };
     case 'u1':

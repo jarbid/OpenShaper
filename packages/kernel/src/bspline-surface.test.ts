@@ -78,6 +78,47 @@ describe('interpolateCurve', () => {
   });
 });
 
+describe('interpolateCurve: convergence order', () => {
+  // The discriminator for the whole module. Asserting "the error is small" cannot
+  // tell a correct cubic interpolant from a lucky one; only the ORDER can, and a
+  // cubic must be O(h^4) — halve the spacing, cut the error sixteenfold.
+  //
+  // It is tested here, on a smooth analytic curve, rather than on a board: the
+  // lofted hull is piecewise LINEAR around the ring (`loftPoint` interpolates an
+  // arc-length table), so it is only C0 and no high-order convergence against it is
+  // possible or meaningful. The surface is a tensor product of exactly this
+  // machinery in each direction, so the order established here is the order it has.
+  // A GRAPH curve: x is monotone, so the fitted point's own x says exactly which
+  // point of the true curve to compare against. That removes the nearest-point
+  // search, and with it any chance of measuring the distance to a different part of
+  // a curve that loops near itself — which floors the measurement and hides the
+  // very convergence being tested.
+  const SPAN = 3;
+  const truth = (x: number): Vert3 => v3(x, Math.sin(x), 0.3 * x * x);
+
+  const errAt = (n: number): number => {
+    const pts = Array.from({ length: n + 1 }, (_, i) => truth((i / n) * SPAN));
+    const c = interpolateCurve(pts, CUBIC, CENTRIPETAL);
+    let worst = 0;
+    for (let k = 0; k <= 400; k++) {
+      const p = evalCurve(c, k / 400);
+      const want = truth(p.x);
+      worst = Math.max(worst, Math.hypot(p.y - want.y, p.z - want.z));
+    }
+    return worst;
+  };
+
+  it('is fourth-order on smooth data', () => {
+    const e1 = errAt(8);
+    const e2 = errAt(16);
+    const e3 = errAt(32);
+    // Theory says 16x per halving; 8 leaves room for the weaker boundary order that
+    // clamped interpolation without end-derivative conditions has at the two ends.
+    expect(e1 / e2).toBeGreaterThan(8);
+    expect(e2 / e3).toBeGreaterThan(8);
+  });
+});
+
 describe('averagedKnots', () => {
   it('is clamped and non-decreasing, with the right length', () => {
     const params = pointParams(
