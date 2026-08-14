@@ -1,3 +1,4 @@
+import { stepExportSupport } from '@openshaper/export';
 import { parseBrd, readBoardJson, writeBoardJson } from '@openshaper/io';
 import {
   getInterpolatedCrossSection,
@@ -726,17 +727,24 @@ function AppShell() {
     { kind: 'action', label: 'Load trace image…', onSelect: () => openTracePicker('outline') },
   ];
 
+  // STEP cannot describe a concave (swallow / fish) tail yet, so the item is
+  // disabled with the reason rather than silently emitting a solid with the notch
+  // filled in.
+  const stepSupport = board ? stepExportSupport(board as BezierBoard) : null;
+
   const exportMenu: MenuItem[] = [
     ...(
       [
         ['stl', 'STL'],
+        ['step', 'STEP (surfaces)'],
         ['dxf', 'DXF (polyline)'],
         ['dxf-spline', 'DXF (spline)'],
       ] as [ExportFormat, string][]
     ).map(([f, label]) => ({
       kind: 'action' as const,
       label,
-      disabled: !board,
+      disabled: !board || (f === 'step' && stepSupport?.ok === false),
+      title: f === 'step' && stepSupport?.ok === false ? stepSupport.reason : undefined,
       onSelect: () => {
         if (!board) return;
         exportBoard(board as Parameters<typeof exportBoard>[0], f, meta, units, ghost ?? undefined);

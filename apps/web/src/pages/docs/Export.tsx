@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { EXPORT_FORMAT_LABELS } from '../../file-io';
+import { EXPORT_FORMAT_LABELS, EXPORT_FORMATS, type ExportFormat } from '../../file-io';
 import { DocsPage, Section, Term, Terms } from './DocsPage';
 
 /**
@@ -21,8 +21,11 @@ export default function DocsExport() {
     >
       <Section id="formats" title="Formats">
         <Terms>
-          {Object.entries(EXPORT_FORMAT_LABELS).map(([id, label]) => (
-            <Term key={id} name={label}>
+          {/* Keyed off EXPORT_FORMATS rather than Object.entries so `id` stays an
+              ExportFormat: that is what makes a missing FORMAT_NOTES entry a
+              compile error instead of a blank row. */}
+          {EXPORT_FORMATS.map((id) => (
+            <Term key={id} name={EXPORT_FORMAT_LABELS[id]}>
               {FORMAT_NOTES[id]}
             </Term>
           ))}
@@ -65,18 +68,40 @@ export default function DocsExport() {
           widely compatible, at the cost of approximating curves as many short segments.
         </p>
         <p>
-          The editor does not yet generate machine G-code directly; you take the DXF or STL into
-          your machine's own CAM software.
+          For 3D work, prefer STEP over STL. STL is a mesh: your CAD system sees thousands of flat
+          triangles, not a surface, so it cannot offset it for a hot-wire allowance, shell it for a
+          hollow build, or run a clean finishing toolpath over it. STEP carries the real curved
+          surfaces as one solid body, which every major package — Fusion, Rhino, SolidWorks, FreeCAD
+          — can machine directly.
+        </p>
+        <p>
+          Two things to know about the STEP file. It is the bare blank surface: fin boxes and plug
+          footprints are not cut into it, and live instead on the DXF's fin layer at true scale and
+          position. And boards with a concave tail — a swallow or fish — cannot be exported yet,
+          because the notch needs surfaces of its own; the menu item is disabled for those, and STL
+          or DXF still work.
+        </p>
+        <p>
+          The editor does not yet generate machine G-code directly; you take the STEP, DXF or STL
+          into your machine's own CAM software.
         </p>
       </Section>
     </DocsPage>
   );
 }
 
-const FORMAT_NOTES: Record<string, string> = {
+/**
+ * Typed as a full `Record<ExportFormat, string>` so a new format without a note
+ * here is a compile error rather than an empty row on the page — the same trick
+ * `EXPORT_FORMAT_LABELS` uses one file over. The coverage test can only prove an
+ * entry exists, never that it says anything.
+ */
+const FORMAT_NOTES: Record<ExportFormat, string> = {
   stl: 'The tessellated 3D surface. For 3D printing, rendering, or importing into other 3D software.',
+  step: 'The hull as true B-spline surfaces, as one solid body. This is the one to use for CAD and CAM: it can be offset, shelled and machined, and the file is around fifty times smaller than the equivalent STL. Fin boxes are not included.',
   dxf: 'Outline, rocker and cross-section curves as polylines — approximated as short straight segments, which almost every CAD and CAM package reads.',
-  'dxf-spline': 'The same curves as true splines. Smaller files and exact geometry, if your software supports them.',
+  'dxf-spline':
+    'The same curves as true splines. Smaller files and exact geometry, if your software supports them.',
   'pdf-1to1':
     'Full-scale printable templates, tiled across your paper size with overlap and cut marks.',
 };

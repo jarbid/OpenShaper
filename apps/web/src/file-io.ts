@@ -3,6 +3,7 @@ import {
   exportBoardPdf1to1,
   exportBoardPdf1to1Files,
   exportDxf,
+  exportStep,
   exportStl,
   PAPER_SIZES,
   paperSizeById,
@@ -14,7 +15,7 @@ import {
   type TemplateSheet,
 } from '@openshaper/export';
 import { Unit } from '@openshaper/units';
-import { type LengthUnit } from './format';
+import { exportUnitFor, type LengthUnit } from './format';
 import type { Pdf1to1Settings } from './pdf-export-settings';
 import {
   parseBrdFile,
@@ -204,7 +205,7 @@ export function downloadTemplateSheet(
   }
 }
 
-export type ExportFormat = 'stl' | 'dxf' | 'dxf-spline' | 'pdf-1to1';
+export type ExportFormat = 'stl' | 'step' | 'dxf' | 'dxf-spline' | 'pdf-1to1';
 
 /**
  * Display names for each export format. Typed as a full `Record`, which is what
@@ -213,6 +214,7 @@ export type ExportFormat = 'stl' | 'dxf' | 'dxf-spline' | 'pdf-1to1';
  */
 export const EXPORT_FORMAT_LABELS: Record<ExportFormat, string> = {
   stl: 'STL (3D mesh)',
+  step: 'STEP (3D surfaces)',
   dxf: 'DXF (polylines)',
   'dxf-spline': 'DXF (true curves)',
   'pdf-1to1': 'PDF (1:1 template)',
@@ -259,9 +261,22 @@ export function exportBoard(
         `${slug}-spline.dxf`,
         'application/dxf',
       );
+    case 'step':
+      return download(
+        exportStep(board, { unit: units ? exportUnitFor(units) : 'mm', name: slug }),
+        `${slug}.step`,
+        'model/step',
+      );
     case 'pdf-1to1': {
       const pdf = exportBoardPdf1to1(board, { units: pdfUnit, meta: pdfMeta });
       return download(pdf as unknown as BlobPart, `${slug}-1to1.pdf`, 'application/pdf');
+    }
+    default: {
+      // Adding a member to `ExportFormat` without a case here used to compile
+      // cleanly and silently download nothing: the function returns void and
+      // `noImplicitReturns` is off. This makes the omission a type error.
+      const never: never = format;
+      return never;
     }
   }
 }

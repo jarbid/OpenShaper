@@ -395,7 +395,7 @@ Three rules govern every event:
 | ----------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | `template_loaded`       | `template`                                                                                          | Which starter board people begin from                                      |
 | `save_board`            | `format` (`board` \| `brd`)                                                                         | Native vs legacy round-tripping                                            |
-| `export_board`          | `format` (`stl` \| `dxf` \| `dxf-spline` \| `pdf-1to1-custom`)                                      | The "got real value" action                                                |
+| `export_board`          | `format` (`stl` \| `step` \| `dxf` \| `dxf-spline` \| `pdf-1to1-custom`)                            | The "got real value" action                                                |
 | `recent_board_opened`   | `position`                                                                                          | The only return-visitor proof on the baseline                              |
 | `board_imported`        | `source`, `warning_count`, `dropped_count`                                                          | The BoardCAD on-ramp, previously unmeasured                                |
 | `import_failed`         | `source`, `reason`                                                                                  | Worst outcome in the app; used to fail silently                            |

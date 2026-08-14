@@ -13,7 +13,7 @@ export default function EditorPage() {
     <>
       <Seo
         title="Design app"
-        description="OpenShaper's surfboard design app — draw outlines, rocker and cross-sections, see live volume and weight, and export STL, DXF and PDF."
+        description="OpenShaper's surfboard design app — draw outlines, rocker and cross-sections, see live volume and weight, and export STEP, STL, DXF and PDF."
         path="/app"
         noindex
       />

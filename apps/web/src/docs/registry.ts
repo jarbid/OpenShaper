@@ -64,7 +64,7 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
   ]),
   ...entries('fin-system', '/docs/fins', ['glass-on', 'fcs-ii', 'fcs-x2', 'futures']),
   ...entries('fin-profile', '/docs/fins', ['thruster', 'single', 'noserider', 'keel']),
-  ...entries('export-format', '/docs/export', ['stl', 'dxf', 'dxf-spline', 'pdf-1to1']),
+  ...entries('export-format', '/docs/export', ['stl', 'step', 'dxf', 'dxf-spline', 'pdf-1to1']),
   ...entries('board-template', '/docs/files', ['Shortboard', 'Funboard', 'Longboard']),
   // Spelled out rather than imported from the kernel on purpose: the registry is an
   // independent claim that the coverage test diffs against `RAIL_PRESETS`. Import the

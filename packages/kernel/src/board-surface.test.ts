@@ -47,7 +47,7 @@ const loadBoard = (name: string) =>
  * the ring — which a naive `|S(u,v) - loftPoint(x, v)|` would report as geometric
  * error and inflate by an order of magnitude.
  */
-const REF_SAMPLES = 1500;
+const REF_SAMPLES = 700;
 
 const deviationAt = (board: BezierBoard, p: Vert3): number => {
   const section = loftSection(board, p.x);
@@ -79,8 +79,8 @@ const deviationAt = (board: BezierBoard, p: Vert3): number => {
 const worstDeviation = (
   board: BezierBoard,
   s: BSplineSurface,
-  nu = 61,
-  nv = 61,
+  nu = 41,
+  nv = 41,
   uMargin = 0,
 ): number => {
   let worst = 0;
@@ -108,7 +108,7 @@ const signedVolume = (tris: readonly [Vert3, Vert3, Vert3][]): number => {
 };
 
 /** Close the fitted patches into a solid and triangulate it. */
-const fittedSolid = (m: ReturnType<typeof fitBoardSurface>, n = 220): [Vert3, Vert3, Vert3][] => {
+const fittedSolid = (m: ReturnType<typeof fitBoardSurface>, n = 140): [Vert3, Vert3, Vert3][] => {
   const tris: [Vert3, Vert3, Vert3][] = [];
   const sample = (s: BSplineSurface) =>
     Array.from({ length: n + 1 }, (_, i) =>

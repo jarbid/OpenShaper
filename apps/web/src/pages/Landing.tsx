@@ -21,7 +21,7 @@ const FEATURES = [
     body: 'A lofted 3D model rebuilds as you edit. Spin it, check the foil, and catch problems before they reach foam or timber.',
   },
   {
-    title: 'Export STL, DXF & PDF',
+    title: 'Export STEP, STL, DXF & PDF',
     body: 'Send an STL to a CNC machine or 3D printer, DXF outlines to a cutter, or print 1:1 PDF templates for hand-shaping.',
   },
   {

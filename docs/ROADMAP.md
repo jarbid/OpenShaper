@@ -26,10 +26,21 @@
       editor makes no third-party request. A build-time guard fails CI if anything
       outside the editor's asset graph enters the precache.
       See `docs/design/offline.md`.
-   2. **STEP export** — legacy BoardCAD shipped it and we dropped it; open surface
-      export is the wedge against proprietary lock-in.
+   2. **STEP export (done).** The board as a solid bounded by true B-spline
+      surfaces (ISO 10303-21, AP214) — offsettable, shellable and machinable in
+      Fusion / Rhino / SolidWorks / FreeCAD, and ~50x smaller than the equivalent
+      STL. Open surface export is the wedge against proprietary lock-in.
+      Not yet: concave (swallow / fish) tails, which need their own surfaces.
+      See `docs/design/step-export.md`.
+
+      > An earlier version of this line said legacy BoardCAD shipped STEP and we
+      > dropped it. It did not — `docs/specs/ASSESSMENT.md` lists domain I as
+      > `DxfExport`, `StlExport`, `GCodeDraw` and a dead `PdfDraw`. This was new
+      > work, so the golden-data rule's porting phase never applied to it.
+
    3. **Share-by-URL** — encode a board into a link, no backend, no account.
    4. **i18n** — legacy shipped 6 locales (en, es, fr, nl, no, pt); we are English-only.
+
 8. **CAM / G-code** (after phase 7): port the last big legacy domain — `MachineConfig`,
    `SurfaceSplitsToolpathGenerator`, cutters, holding systems, and the GCode/Atua
    writers (see `docs/specs/ASSESSMENT.md`, domain J). Today we emit DXF/STL cut files

@@ -44,8 +44,8 @@ export default function DocsOffline() {
             Fully. Draw, edit, compute volume, switch views, and restore your last board.
           </Term>
           <Term name="Exports">
-            All of them. Files are generated on your device, so STL, DXF, PDF and the spec sheet all
-            work with no connection.
+            All of them. Files are generated on your device, so STEP, STL, DXF, PDF and the spec
+            sheet all work with no connection.
           </Term>
           <Term name="These docs">
             Yes — the documentation is stored alongside the app so it is readable in the workshop.
@@ -59,8 +59,8 @@ export default function DocsOffline() {
 
       <Section id="updates" title="Updates">
         <p>
-          New versions download quietly in the background. When one is ready you'll see a small
-          "new version is available" prompt with a Reload button — nothing reloads on its own, so a
+          New versions download quietly in the background. When one is ready you'll see a small "new
+          version is available" prompt with a Reload button — nothing reloads on its own, so a
           half-finished board is never interrupted. The prompt also waits until you have stopped
           editing before it appears.
         </p>

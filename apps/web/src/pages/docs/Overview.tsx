@@ -46,10 +46,10 @@ export default function DocsOverview() {
 
       <Section id="model" title="How a board is described">
         <p>
-          A board is three families of curves: the <strong>outline</strong> (plan shape),
-          the <strong>rocker</strong> (deck and bottom profiles), and a series
-          of <strong>cross-sections</strong> down its length. Everything else — volume, area,
-          the 3D mesh, every export — is computed from those.
+          A board is three families of curves: the <strong>outline</strong> (plan shape), the{' '}
+          <strong>rocker</strong> (deck and bottom profiles), and a series of{' '}
+          <strong>cross-sections</strong> down its length. Everything else — volume, area, the 3D
+          mesh, every export — is computed from those.
         </p>
         <p>
           Each curve is a Bézier spline you edit by dragging control points and their tangent
@@ -70,14 +70,18 @@ export default function DocsOverview() {
           <Term name={<Link to="/docs/construction">Construction templates</Link>}>
             Hollow wood strip, cutting lists, nesting.
           </Term>
-          <Term name={<Link to="/docs/export">Exporting</Link>}>STL, DXF, 1:1 PDF, spec sheet.</Term>
+          <Term name={<Link to="/docs/export">Exporting</Link>}>
+            STEP, STL, DXF, 1:1 PDF, spec sheet.
+          </Term>
           <Term name={<Link to="/docs/files">Files &amp; templates</Link>}>
             Saving, opening, importing from other tools.
           </Term>
           <Term name={<Link to="/docs/offline">Offline &amp; installing</Link>}>
             Working without a connection.
           </Term>
-          <Term name={<Link to="/docs/shortcuts">Keyboard shortcuts</Link>}>Every key binding.</Term>
+          <Term name={<Link to="/docs/shortcuts">Keyboard shortcuts</Link>}>
+            Every key binding.
+          </Term>
         </Terms>
       </Section>
     </DocsPage>

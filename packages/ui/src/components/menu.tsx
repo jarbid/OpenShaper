@@ -22,7 +22,18 @@ import { cn } from '../lib/cn';
  * (no clipping) and not yet in the menubar `Menu`, whose panel scrolls.
  */
 export type MenuItem =
-  | { kind: 'action'; label: string; onSelect: () => void; disabled?: boolean; shortcut?: string }
+  | {
+      kind: 'action';
+      label: string;
+      onSelect: () => void;
+      disabled?: boolean;
+      shortcut?: string;
+      /**
+       * Hover text. Mainly for saying WHY an item is disabled — a greyed-out
+       * option with no explanation is a dead end for the user.
+       */
+      title?: string;
+    }
   | { kind: 'checkbox'; label: string; checked: boolean; onSelect: () => void }
   | { kind: 'submenu'; label: string; items: MenuItem[]; disabled?: boolean }
   | { kind: 'label'; label: string }
@@ -211,6 +222,7 @@ export function renderMenuItems(items: MenuItem[], onAfterAction: () => void): R
         role={isCheckbox ? 'menuitemcheckbox' : 'menuitem'}
         aria-checked={isCheckbox ? item.checked : undefined}
         disabled={item.kind === 'action' && item.disabled}
+        title={item.kind === 'action' ? item.title : undefined}
         onClick={() => {
           item.onSelect();
           if (item.kind === 'action') onAfterAction();
