@@ -83,6 +83,13 @@ export default function Privacy() {
             few known plain-text fields (like an imported file&apos;s name) are masked explicitly
             too.
           </p>
+          <p>
+            Accepting is also the only way you&apos;ll ever be asked a question here — an occasional
+            short in-app survey, like what you&apos;re building or what&apos;s missing. OpenShaper
+            has no accounts and no server to email you from, so this is the only channel that
+            exists. Answers are yours to give: every survey can be dismissed, and dismissing one
+            doesn&apos;t bring it back.
+          </p>
 
           <h2>Rejecting is a real choice</h2>
           <p>

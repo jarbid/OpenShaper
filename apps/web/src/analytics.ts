@@ -136,7 +136,16 @@ export function initAnalytics(): void {
     // calls pushState/replaceState. /app is one route, so editing adds none.
     capture_pageview: 'history_change',
     disable_session_recording: true,
-    disable_surveys: true,
+    // Surveys are deliberately *not* disabled here, and need no consent check
+    // of our own: posthog-js refuses to load them whenever `cookieless_mode` is
+    // set and the visitor is opted out ("Not loading surveys in cookieless mode
+    // without consent"), which is every Tier 1 visitor. So they reach only
+    // people who accepted — the same gate as session recording, enforced by the
+    // SDK rather than by us. Requires `surveys_opt_in` on the project; with it
+    // off the survey script never loads for anyone.
+    //
+    // Worth the reach they lose: the app has no backend and no accounts, so a
+    // survey is the only built-in way to ask a visitor anything at all.
     // Baseline identity comes from PostHog's server-side privacy-preserving
     // hash, not from anything stored in the browser. This replaces
     // `persistence: 'memory'`, which left no id at all — every page load

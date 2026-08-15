@@ -10,14 +10,15 @@
   the salt is regenerated daily, so the hash is not reversible and does not
   carry across days. See [what the data can and cannot say](#what-the-data-can-and-cannot-say)
   for what that buys and what it still can't measure.
-- `autocapture: false`, `disable_session_recording: true`,
-  `disable_surveys: true` — only the explicit `track(...)` calls and the UX
-  signals below ever send anything.
+- `autocapture: false`, `disable_session_recording: true` — only the explicit
+  `track(...)` calls and the UX signals below ever send anything. Surveys are
+  not disabled in config but never load here either; posthog-js gates them on
+  consent itself (see [surveys](#surveys)).
 - Hand-instrumented product actions, chosen as a proxy for "serious usage"
   beyond casual browsing — see the [event catalogue](#event-catalogue) for the
   full list and the rules governing it. Plus PostHog's own automatic pageview
   capture, which since 2026-08-11 includes SPA route changes — see
-  [pageviews](#pageviews-include-spa-route-changes).
+  [pageviews](#pageviews-include-spa-route-changes-fixed-2026-08-11).
 - UX signals that don't touch identity: Core Web Vitals, rageclick, dead-click
   detection (canvas/SVG excluded from the latter — see `analytics.ts`).
 - **Exception autocapture** (`capture_exceptions`): uncaught JS errors and
@@ -47,6 +48,8 @@ changes anything.
   Tier 1) even though it's technically independent of session recording in
   `posthog-js`, since it's an autocapture-adjacent signal like the ones
   above.
+- **Surveys** — in-app questions, the only way this app can ask a visitor
+  anything (see [surveys](#surveys)).
 - A `tracking_tier: 'full'` super property (`posthog.register(...)`), tagging
   every subsequent event from this browser — lets any dashboard/insight
   segment full-tracking vs. baseline-only traffic without a cohort, and is
@@ -150,6 +153,48 @@ heading text in `ImportWarningsDialog.tsx` — that element carries an explicit
 for similar cases (any user-entered value rendered as plain text rather than
 inside a form control) before adding new UI that might be recorded.
 
+## Surveys
+
+In-app questions — "what are you building?", "what's missing?" — shown to
+consenting visitors only. Enabled 2026-08-15.
+
+**Why they earn their place despite that reach.** OpenShaper has no backend and
+no accounts: there is no contact form, no feedback endpoint, nothing
+server-side to receive a message and no address to reply from. A PostHog survey
+is the only channel that can ask a visitor anything without building
+infrastructure that the all-client-side principle rules out.
+
+**We write no consent logic for them.** posthog-js gates surveys itself:
+
+```
+else if (config.cookieless_mode && consent.isOptedOut())
+  → "Not loading surveys in cookieless mode without consent."
+```
+
+Every Tier 1 visitor is opted out (that is what `cookieless_mode: 'on_reject'`
+means here), so the survey script never loads for them. `disable_surveys` is
+therefore absent from the config rather than set to `false` — adding our own
+check would duplicate a gate the SDK already enforces, with two places to get
+it wrong. The same guard covers `conversations`.
+
+**This is why `cookieless_mode: 'always'` stays rejected.** It would take
+surveys down with session replay, since both hang off the same consent gate —
+two features, not one. That trade was reconsidered on 2026-08-15 and the
+two-tier design kept for exactly this reason.
+
+**Reach is small and should be planned around.** Surveys reach only the ~28% of
+visitors who accept (45 accepted / 160 shown / 14 rejected over the fortnight
+to 2026-08-15) — on current traffic, roughly 4–5 people a day. Enough for a
+slow-burn open question; not enough to A/B the wording or read anything as
+statistically significant. The lever, if more is needed, is the banner's accept
+rate rather than the survey itself.
+
+**Storage.** Survey state (`seenSurvey_<id>`, `lastSeenSurveyDate`) is written
+straight to `localStorage`, bypassing posthog-js's persistence backend. That
+does not breach the no-storage-before-consent rule only because surveys cannot
+load pre-consent at all — the gate above is what keeps it honest. Anything that
+would load a survey earlier breaks that guarantee.
+
 ## Wiring
 
 `apps/web/src/analytics.ts` exports:
@@ -195,11 +240,12 @@ All of it was read back from project `521211` on 2026-07-28 and is correct:
 | `autocapture_web_vitals_opt_in` | `true`  |
 | `capture_dead_clicks`           | `true`  |
 | `anonymize_ips`                 | `true`  |
-| `surveys_opt_in`                | `false` |
+| `surveys_opt_in`                | `true`  |
 | `cookieless_server_hash_mode`   | `1`     |
 
-`anonymize_ips` and `surveys_opt_in` match the client config (`disable_surveys`).
-No error-tracking rate limits are configured.
+`surveys_opt_in` was `false` until 2026-08-15; see [surveys](#surveys) for why
+it was turned on and what gates them. No error-tracking rate limits are
+configured.
 
 `cookieless_server_hash_mode` was `0` (disabled) until 2026-08-06 and is the
 server half of `cookieless_mode: 'on_reject'` — without it the client change is
