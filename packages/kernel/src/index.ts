@@ -24,6 +24,13 @@ export * from './outline-cutout';
 export * from './board';
 export * from './surface';
 export * from './rail-band';
+export * from './rail-facets';
+export {
+  bisectionLadder,
+  RAIL_ANGLE_MODES,
+  type RailAngleMode,
+  type RailLeftover,
+} from './rail-facet-fit';
 export * from './loft';
 export * from './bspline-surface';
 export * from './board-surface';

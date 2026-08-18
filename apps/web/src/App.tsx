@@ -42,6 +42,7 @@ import {
   downloadBoard,
   downloadBrd,
   downloadPdf1to1,
+  downloadRailBands,
   downloadStep,
   exportBoard,
   openBoardFile,
@@ -62,8 +63,10 @@ import { ImportWarningsDialog } from './ImportWarningsDialog';
 import type { ImportWarning } from '@openshaper/io';
 import { ExportPdf1to1Dialog } from './ExportPdf1to1Dialog';
 import { ExportStepDialog } from './ExportStepDialog';
+import { ExportRailBandsDialog } from './ExportRailBandsDialog';
 import { loadPdf1to1, savePdf1to1, type Pdf1to1Settings } from './pdf-export-settings';
 import { loadStep, saveStep, type StepSettings } from './step-export-settings';
+import { loadRailBands, saveRailBands, type RailBandsSettings } from './rail-bands-settings';
 import { clearRecentBoards, getRecentBoards, recordRecentBoard } from './recent-boards';
 import {
   DEFAULT_LENGTH_UNIT,
@@ -324,6 +327,10 @@ function AppShell() {
   const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
   const [stepDialogOpen, setStepDialogOpen] = useState(false);
   const [stepSettings, setStepSettings] = useState<StepSettings>(() => loadStep());
+  const [railBandsDialogOpen, setRailBandsDialogOpen] = useState(false);
+  const [railBandsSettings, setRailBandsSettings] = useState<RailBandsSettings>(() =>
+    loadRailBands(),
+  );
   const [pdf1to1, setPdf1to1] = useState<Pdf1to1Settings>(() => loadPdf1to1());
   const [settings, setSettings] = useState<EditorSettings>(() => loadSettings());
   const handleSaveSettings = (s: EditorSettings) => {
@@ -767,6 +774,12 @@ function AppShell() {
       label: 'PDF 1:1…',
       disabled: !board,
       onSelect: () => setPdfDialogOpen(true),
+    },
+    {
+      kind: 'action',
+      label: 'Rail bands…',
+      disabled: !board,
+      onSelect: () => setRailBandsDialogOpen(true),
     },
     {
       kind: 'action',
@@ -1310,6 +1323,22 @@ function AppShell() {
             markExport();
           }}
           onClose={() => setStepDialogOpen(false)}
+        />
+      )}
+
+      {railBandsDialogOpen && board && (
+        <ExportRailBandsDialog
+          board={board as BezierBoard}
+          units={units}
+          settings={railBandsSettings}
+          onExport={(s) => {
+            saveRailBands(s);
+            setRailBandsSettings(s);
+            downloadRailBands(board as BezierBoard, s, meta, units);
+            track('export_board', { format: 'rail-bands' });
+            markExport();
+          }}
+          onClose={() => setRailBandsDialogOpen(false)}
         />
       )}
 
