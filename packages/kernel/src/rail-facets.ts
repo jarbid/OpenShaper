@@ -71,13 +71,13 @@ import {
   type RailLeftover,
 } from './rail-facet-fit';
 import {
-  getInterpolatedCrossSection,
   getLength,
   getMaxWidthPos,
   getThicknessAtPos,
   getWidthAtPos,
   type BezierBoard,
 } from './board';
+import { loftCrossSection } from './loft';
 import type { CrossSection } from './cross-section';
 
 // --- options -------------------------------------------------------------------
@@ -1134,13 +1134,29 @@ const measureStation = (
   };
 };
 
-/** Build the facet set at station `x`, or null when the board has no section there. */
+/**
+ * Build the facet set at station `x`, or null when the board has no section there.
+ *
+ * The section comes off {@link loftCrossSection} — the surface the 3D view and the STL
+ * are built from — and deliberately NOT off `getInterpolatedCrossSection`, whose
+ * control-point blend can invent curvature that neither neighbouring station has. This
+ * fit chooses a facet by where the section's own slope reaches an angle, so invented
+ * curvature does not blur a number here, it fabricates one: on a longboard carrying a
+ * different rail preset per station the blended sections put the first band at 17 deg,
+ * 65.5 deg and 41.5 deg at three consecutive stations of a rail that is 21 deg the whole
+ * way, and warned `unvalidated-bottom` at four stations whose bottoms are perfectly
+ * ordinary. `loft.ts` has the full account of why the blend does that.
+ *
+ * The stations either side of one being cut are a shaper's own reference for whether a
+ * number looks right, so a template whose numbers do not vary smoothly along the board
+ * is worse than useless. Pinned by `rail-facets.loft.test.ts`.
+ */
 export const railFacetsAt = (
   board: BezierBoard,
   x: number,
   opts: RailFacetOptions = {},
 ): RailStationFacets | null => {
-  const cs = getInterpolatedCrossSection(board, x);
+  const cs = loftCrossSection(board, x);
   return cs ? railFacetsForSection(cs, opts) : null;
 };
 

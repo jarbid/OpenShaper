@@ -41,6 +41,24 @@ mesh fix. Reconciling it means moving `getControlPointCrossSectionAreaAt` onto
 `loft.ts` and re-banding `golden.json`'s volume/CoM — worth doing, deliberately
 not done here.
 
+**2026-08-22 — rail bands crossed over.** `railFacetsAt` now takes its station
+section from `loftCrossSection` (`loft.ts`) rather than
+`getInterpolatedCrossSection`, so the rail-band sheet sits on the same surface as
+the 3D view and the STL. No table row: BoardCAD-LE has no rail bands, so no
+legacy value is superseded — this is one internal model replacing another. It is
+listed here because the paragraph above enumerates who is on which side, and that
+list is now: **sampled points** — 3D view, STL, rail bands; **control points** —
+volume, centre of mass, 2D section preview, `insertCrossSection`, DXF/PDF section
+curves, HWS ribs. The magnitude on the moved caller is not small: on a longboard
+carrying a different rail preset per station the blended section stood 4.96 mm
+off the lofted surface, and the fitted first band read 17.0°, 65.5°, 41.5° at
+three consecutive stations of a rail that is ~21° throughout. `docs/design/rail-bands.md`
+("Where a station's section comes from") has the account; oracles are
+`rail-facets.loft.test.ts` (re-knotting a station, which cannot change the board,
+moves no printed number by more than 0.02 mm) and `loft.section.test.ts` (the
+rebuilt curve tracks the exact arc-length blend to 0.076 mm and never blends a
+section sharper than the stations either side of it).
+
 ## `.brd` writer (`packages/io/src/brd-writer.ts`)
 
 `writeBrd` (the export-to-legacy path, paired with the existing `parseBrd` reader) is

@@ -300,6 +300,61 @@ The original method was tested on one board with seven sections. What is added h
 now runs on the three golden boards at every station, with the convexity property
 asserted, and every failure surfaces as a warning rather than a number.
 
+## Where a station's section comes from
+
+Stations sit between cross-sections — 12 in apart by default, on boards drawn with five
+or six sections — so almost every one has to be interpolated. There are two ways to do
+that in this codebase, and the difference is not cosmetic.
+
+`getInterpolatedCrossSection` blends the two neighbours' **control points**, pairing
+their knots by array index. `loft.ts` has the full account of why that is wrong; the
+short version is that a knot gets blended with whichever knot happens to share its
+position in the list, which may sit somewhere else entirely on the profile, and the
+tangent handles are lerped along with it. Handles lerped between mismatched partners
+collapse or cross, and the blended cubic carries a near-cusp that neither station has.
+It is a malformed curve, not a malformed sampling of a good one, so no amount of
+resolution helps. The 3D view and the STL were moved off it in August 2026.
+
+Rail bands are the caller least able to tolerate that, because this module does not
+merely *draw* the section — it picks each facet by finding where the section's own slope
+reaches an angle. Curvature the board does not have therefore does not blur a printed
+number, it fabricates one. Measured on a longboard carrying a different rail preset at
+each station, the blended sections stood **4.96 mm** off the surface the 3D view and the
+STL show, and the fitted first band came out
+
+    26.0  27.0  25.5  23.0  17.0  65.5  41.5  21.5  17.5   degrees
+
+down a rail whose angle actually walks 24.0 to 17.5 the whole way. Four stations were
+flagged `unvalidated-bottom` for creases the blend had put in bottoms that are perfectly
+ordinary. A shaper judges a number by reading the stations either side of it, so a 65.5
+next to a 17.0 is not a small error — it is a template that cannot be used.
+
+So `railFacetsAt` takes its section from `loftCrossSection` instead: sample the lofted
+surface on the mesh's own `ringFractions` ladder and interpolate those points with a C1
+cubic Hermite spline. Rebuilding a curve from points rather than blending one into
+existence is what removes knot topology from the answer entirely. Because the ladder is
+the mesh's, the printed section's knots land exactly where the rendered ring points land
+— the sheet and the screen show the same curve by construction rather than by
+coincidence.
+
+The rebuild costs accuracy, and it is worth stating how much. Against the exact blend
+(true arc-length sampling, no table) the rebuilt curve is within **0.076 mm** worst case
+on the golden boards, of which the loft's own fixed-resolution table accounts for
+0.068 mm — the rebuild itself contributes under 0.01 mm, and stops improving past 64
+knots. `LOFT_SECTION_KNOTS` is 96.
+
+None of this is a departure from BoardCAD-LE. The legacy shipped two surface models and
+its GUI defaulted to the sampled one
+(`BezierBoardSLinearInterpolationSurfaceModel.getPointAt`); we had ported the other.
+Rail bands now sit on the same side of that choice as the mesh and the STL.
+
+Pinned by `rail-facets.loft.test.ts` — re-knotting a station by exact de Casteljau split
+traces the identical curve, so not one printed number may move by more than 0.02 mm
+(worst measured 0.0092 mm, and that residual is the arc-length table's per-segment
+resolution, not float noise) — and by `loft.section.test.ts`, which holds the rebuilt
+curve to the pinch property the mesh is held to: a section between two stations is never
+sharper than the sharper of the two.
+
 ## No golden fixture
 
 BoardCAD-LE has no rail bands, so there is no legacy oracle to port against and none to
