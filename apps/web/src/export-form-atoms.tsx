@@ -7,6 +7,7 @@
  * to drift, and it is exactly the rule that must not.
  */
 import { cmToUnitNumber, parseLen, unitDecimals, unitSuffix, type LengthUnit } from './format';
+import { useNumericField } from './use-numeric-field';
 
 export function Group({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -60,20 +61,20 @@ export function LenField({
 }) {
   const decimals = unitDecimals(units);
   const display = Math.round(cmToUnitNumber(cm, units) * 10 ** decimals) / 10 ** decimals;
+  const field = useNumericField({
+    shown: String(display),
+    parse: (text) => parseLen(text, units),
+    onCommit: onChange,
+  });
   return (
     <label className={`flex items-center justify-between gap-3 ${disabled ? 'opacity-40' : ''}`}>
       <span className="text-sm text-muted-foreground">{label}</span>
       <span className="flex items-center gap-1">
         <input
           type="number"
-          value={display}
           disabled={disabled}
           step={units.key === 'in' ? 0.0625 : units.key === 'mm' ? 0.5 : 0.1}
-          onChange={(e) => {
-            if (e.target.value === '') return;
-            const next = parseLen(e.target.value, units);
-            if (Number.isFinite(next)) onChange(next);
-          }}
+          {...field}
           className="h-8 w-20 rounded border border-border bg-background px-2 text-right text-sm"
         />
         <span className="w-6 text-xs text-muted-foreground">{unitSuffix(units)}</span>
@@ -96,19 +97,21 @@ export function IntField({
   max: number;
   onChange: (v: number) => void;
 }) {
+  const field = useNumericField({
+    shown: String(value),
+    parse: (text) => Math.round(parseFloat(text)),
+    onCommit: onChange,
+    clamp: (n) => Math.min(max, Math.max(min, n)),
+  });
   return (
     <label className="flex items-center justify-between gap-3">
       <span className="text-sm text-muted-foreground">{label}</span>
       <input
         type="number"
-        value={value}
         min={min}
         max={max}
         step={1}
-        onChange={(e) => {
-          const n = Math.round(parseFloat(e.target.value));
-          if (Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n)));
-        }}
+        {...field}
         className="h-8 w-20 rounded border border-border bg-background px-2 text-right text-sm"
       />
     </label>

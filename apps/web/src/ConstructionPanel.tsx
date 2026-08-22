@@ -19,6 +19,7 @@ import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@opens
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { downloadTemplateSheet, slugifyName, type TemplateFormat } from './file-io';
 import { track } from './analytics';
+import { useNumericField } from './use-numeric-field';
 import {
   HWS_SETTINGS_VERSION,
   type HwsOutputSettings,
@@ -804,6 +805,12 @@ function NumField({
     ? Math.round(display * 10 ** decimals) / 10 ** decimals
     : '';
   const defaultStep = isLen ? (suffix === 'mm' ? 0.5 : suffix === 'in' ? 0.0625 : 0.1) : 0.1;
+  const field = useNumericField({
+    shown: String(rounded),
+    parse: (text) => (isLen ? parseLen(text, units!) : parseFloat(text)),
+    onCommit: onChange,
+    ...(min !== undefined ? { clamp: (n: number) => Math.max(min, n) } : {}),
+  });
   return (
     <label className="flex items-center justify-between gap-2">
       <span className="text-muted-foreground">{label}</span>
@@ -811,15 +818,9 @@ function NumField({
         <Input
           type="number"
           className="h-8 w-20 text-right"
-          value={rounded}
           step={step ?? defaultStep}
           min={min}
-          onChange={(e) => {
-            if (e.target.value === '') return;
-            const next = isLen ? parseLen(e.target.value, units!) : parseFloat(e.target.value);
-            if (!Number.isFinite(next)) return;
-            onChange(next);
-          }}
+          {...field}
         />
         <span className="w-5 text-xs text-muted-foreground">{suffix}</span>
       </span>
