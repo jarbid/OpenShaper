@@ -54,7 +54,9 @@ now:
 
 - **sampled points (the loft):** 3D view, STL, rail bands, DXF/PDF section curves,
   HWS ribs and rail strips, 2D section preview.
-- **control points:** volume, centre of mass, `insertCrossSection`.
+- **control points:** volume and centre of mass only. `insertCrossSection` keeps
+  the blend where it is provably right and fits the loft where it is not — see
+  below.
 
 The magnitude on the moved callers is not small. On a longboard carrying a
 different rail preset per station the blended section stood 4.96 mm off the lofted
@@ -70,21 +72,32 @@ DXF and PDF sections are the lofted curve, segment for segment).
 
 **The two still on control points, and why.**
 
-- **`insertCrossSection`** promises to be shape-preserving and is not: with
-  neighbouring stations carrying different rails it moves the lofted surface by up
-  to **4.59 mm** on the golden longboard. It is left alone because the obvious fix
-  is worse than the bug. An inserted station is a *hand-editable* one, so it needs
-  a handful of control points, and a low-knot rebuild of the lofted curve cannot
-  deliver that: Hermite interpolation needs 16–28 knots to hold 0.2 mm even on a
-  stock board, and at 5–8 knots it is no better than the blend it replaced
-  (3.5–4.9 mm). Meanwhile on a board whose neighbours share a profile the blend is
-  *exact* at 5 knots, so a blanket swap would trade an exact common case for a
-  0.2 mm one with twenty control points. Doing this properly means a least-squares
-  fit at a chosen knot budget, and choosing that budget is a product decision about
-  how editable an inserted station should be.
-- **Volume and centre of mass** would additionally need the module cycle broken
-  (`board.ts` is what `loft.ts` is built on) and `golden.json` re-banded against a
-  new oracle, which is the work the paragraph above already describes.
+- **`insertCrossSection`** was fixed separately, and not by swapping the model.
+  It promises to be shape-preserving and was not: with neighbouring stations
+  carrying different rails it moved the lofted surface by up to **4.73 mm** on the
+  golden longboard. But an inserted station is a *hand-editable* one, so storing
+  the 96-knot lofted curve would replace the bug with a worse one, and a low-knot
+  *interpolation* of that curve cannot bridge the gap — it needs 16–28 knots to
+  hold 0.2 mm even on a stock board, and at 5–8 it is no better than the blend
+  (3.5–4.9 mm). Meanwhile where the two neighbours share a profile the blend is
+  **exact** at five knots, which is most boards most of the time.
+
+  So `editableCrossSection` (`section-fit.ts`) measures first: it keeps the blend
+  wherever that is already within 0.5 mm of the lofted surface, and otherwise fits
+  the surface with a C1 cubic spline at the smallest knot count that gets there
+  (fixed-end-tangent least squares per span, knots on the `ringFractions` ladder).
+  On the three golden boards every ordinary station keeps its five or six knots
+  untouched; the three stations the blend got wrong go 1.20 mm → 0.21 mm at 12
+  knots, 4.73 mm → 0.48 mm at 8, and 1.48 mm → 0.33 mm at 8. The tolerance is set
+  by the reference's own resolution, not by taste — the lofted curve itself stands
+  0.07–0.15 mm off the exact blend, so a tighter threshold spends control points
+  chasing table noise (at 0.2 mm it ran an ordinary funboard station from five
+  knots to sixteen to buy 0.16 mm). Oracle: `section-fit.test.ts`.
+
+- **Volume and centre of mass** are the one caller still on the blend. Moving them
+  additionally needs the module cycle broken (`board.ts` is what `loft.ts` is built
+  on) and `golden.json` re-banded against a new oracle, which is the work the
+  paragraph above already describes. Deliberately not done here.
 
 ## `.brd` writer (`packages/io/src/brd-writer.ts`)
 

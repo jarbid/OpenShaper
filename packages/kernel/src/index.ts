@@ -32,6 +32,7 @@ export {
   type RailLeftover,
 } from './rail-facet-fit';
 export * from './loft';
+export * from './section-fit';
 export * from './bspline-surface';
 export * from './board-surface';
 export * from './tessellate';
