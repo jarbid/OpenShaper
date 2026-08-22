@@ -403,6 +403,35 @@ export const LOFT_SECTION_KNOTS = 96;
 const COINCIDENT = 1e-7;
 
 /**
+ * Float dust on a profile endpoint's distance from the centreline (cm), which is
+ * snapped away. Anything larger is a profile that genuinely does not start there.
+ *
+ * Both profile ends sit on x = 0 by construction — it is the anchor that makes the
+ * fractional-arc-length correspondence work at all (see "Why correspondence works out"
+ * above). But an endpoint is reached here by evaluating a cubic at its own end, and that
+ * sum does not land on exactly zero: 3.6e-15 measured on `curvyBoard`. That is enough to
+ * put x = 0 *outside* the rebuilt spline's range, where `valueAtReverse` reports 0 rather
+ * than the deck height — `deckZAt` at the stringer came back as the bare rocker.
+ */
+const CENTRELINE_DUST = 1e-9;
+
+/**
+ * Most recent sections per board, so a caller asking about one station twice pays once.
+ *
+ * `deckZAt` and `bottomZAt` (`surface.ts`) are the reason: they take a plan point and
+ * answer for one surface each, so every sample of a rail band asks for the same station
+ * twice in a row, and the adaptive sampler behind it asks thousands of times per export.
+ * Rebuilding is not cheap — two arc-length tables and a 96-knot spline.
+ *
+ * Keyed on the board object, which is immutable, so a stale entry cannot be observed;
+ * the same argument {@link ringFractions} already makes. Bounded and insertion-ordered:
+ * a few entries cover the back-to-back pattern, and an adaptive sampler walking new
+ * stations forever must not be able to grow this without limit.
+ */
+const SECTION_CACHE = new WeakMap<BezierBoard, Map<string, CrossSection | null>>();
+const SECTION_CACHE_MAX = 8;
+
+/**
  * The lofted surface at station `x` as a **cross-section curve**, for the callers that
  * need tangents rather than points.
  *
@@ -433,6 +462,28 @@ export const loftCrossSection = (
   x: number,
   knotCount = LOFT_SECTION_KNOTS,
 ): CrossSection | null => {
+  let cache = SECTION_CACHE.get(b);
+  if (!cache) {
+    cache = new Map();
+    SECTION_CACHE.set(b, cache);
+  }
+  const key = `${x}:${knotCount}`;
+  if (cache.has(key)) return cache.get(key)!;
+
+  const built = buildLoftCrossSection(b, x, knotCount);
+  if (cache.size >= SECTION_CACHE_MAX) {
+    const oldest = cache.keys().next();
+    if (!oldest.done) cache.delete(oldest.value);
+  }
+  cache.set(key, built);
+  return built;
+};
+
+const buildLoftCrossSection = (
+  b: BezierBoard,
+  x: number,
+  knotCount: number,
+): CrossSection | null => {
   const section = loftSection(b, x);
   if (!section) return null;
 
@@ -448,6 +499,14 @@ export const loftCrossSection = (
     pts.push(p);
   }
   if (pts.length < 3) return null;
+
+  // Put the two ends back on the centreline they came off. See CENTRELINE_DUST.
+  const snap = (i: number): void => {
+    const p = pts[i]!;
+    if (p.x !== 0 && Math.abs(p.x) < CENTRELINE_DUST) pts[i] = vec2(0, p.y);
+  };
+  snap(0);
+  snap(pts.length - 1);
 
   const n = pts.length;
   const knots = pts.map((p, i) => {

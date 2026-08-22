@@ -1,21 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { normalAngle, valueAt, valueAtReverse } from './bezier-spline';
-import {
-  getInterpolatedCrossSection,
-  getLength,
-  getRockerAtPos,
-  widthBoundsAt,
-  type BezierBoard,
-} from './board';
+import { getLength, getRockerAtPos, widthBoundsAt, type BezierBoard } from './board';
+import { loftCrossSection } from './loft';
 import { vec2, type Vec2 } from './vec2';
 
 /**
  * Board-surface evaluation at an arbitrary plan-view point (x = station along the
  * length, y = lateral distance from the centreline, both cm).
  *
- * The z assembly matches the mesh loft in `tessellate.ts` exactly: the interpolated
- * cross-section runs in (lateral, height) with the bottom branch read by `valueAt`
- * and the deck branch by `valueAtReverse`, plus the bottom rocker. On a concave-tail
+ * The z assembly matches the mesh loft in `tessellate.ts` exactly, and since 2026-08-22
+ * so does the section it reads: `loftCrossSection` rebuilds the lofted surface as a
+ * curve, where this used to blend the two stations' control points and could land
+ * millimetres off the surface the 3D view and the STL show. That mattered here because
+ * these two functions are what `rail-band.ts` measures a wooden board's rail strips
+ * with — a cut part, not a picture. The section runs in (lateral, height) with the
+ * bottom branch read by `valueAt` and the deck branch by `valueAtReverse`, plus the
+ * bottom rocker. On a concave-tail
  * (swallow / fish) board the section is laterally remapped into the foam band
  * [y_in, y_out], so these helpers agree with the rendered surface inside the notch
  * too. `y` is clamped into the local band; out-of-length stations return NaN.
@@ -39,7 +39,7 @@ const sectionLateral = (b: BezierBoard, x: number, y: number): number | null => 
 
 const surfaceZAt = (b: BezierBoard, x: number, y: number, side: 'deck' | 'bottom'): number => {
   if (x < 0 || x > getLength(b)) return NaN;
-  const cs = getInterpolatedCrossSection(b, x);
+  const cs = loftCrossSection(b, x);
   if (!cs) return NaN;
   const rocker = getRockerAtPos(b, x);
   if (!Number.isFinite(rocker)) return NaN;

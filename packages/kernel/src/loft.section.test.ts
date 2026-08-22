@@ -21,7 +21,9 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { arcLengthTable, pointAtArcFraction, pointByS } from './bezier-spline';
 import {
+  getDeckAtPos,
   getNearestCrossSectionIndex,
+  getRockerAtPos,
   getThicknessAtPos,
   getWidthAtPos,
   type BezierBoard,
@@ -30,10 +32,13 @@ import { scaleCrossSection } from './cross-section';
 import { loftCrossSection, loftPoint, loftSection, MIN_DIM } from './loft';
 import { railFacetStations } from './rail-facets';
 import { applyRailProfile, RAIL_PRESETS } from './rail-profile';
+import { bottomZAt, deckZAt } from './surface';
 import { parseBrdGeometry } from './test-support/brd-geometry';
+import { curvyBoard } from './test-support/synthetic-boards';
 import { vec2, type Vec2 } from './vec2';
 
 const here = dirname(fileURLToPath(import.meta.url));
+const GOLDEN_FILES = ['shortboard.brd', 'funboard.brd', 'longboard.brd'] as const;
 const golden = (file: string): BezierBoard =>
   parseBrdGeometry(readFileSync(resolve(here, `../../../docs/specs/golden/${file}`), 'utf8'));
 
@@ -123,7 +128,7 @@ describe('loftCrossSection', () => {
    */
   const POSITION_TOL_CM = 0.01;
 
-  it.each(['shortboard.brd', 'funboard.brd', 'longboard.brd'])(
+  it.each(GOLDEN_FILES)(
     'traces the exact blend on %s, with a different rail at every station',
     (file) => {
       const board = mixedRails(golden(file));
@@ -168,6 +173,70 @@ describe('loftCrossSection', () => {
         const x = lo + ((hi - lo) * k) / 8;
         // 1% of headroom for the discrete curvature estimate itself, no more.
         expect(peakCurvature(denseCurve(board, x, 800))).toBeLessThan(sharpest * 1.01);
+      }
+    }
+  });
+
+  /**
+   * Both ends of a profile sit on the centreline, and "nearly" is not good enough: a
+   * lateral of exactly 0 has to fall INSIDE the rebuilt spline's x range, or
+   * `valueAtReverse` finds no segment and answers 0. That is not a rounding error in the
+   * result, it is the wrong number entirely — `deckZAt` at the stringer came back as the
+   * bare rocker, a whole board thickness low.
+   */
+  it('lands both ends exactly on the centreline', () => {
+    for (const file of GOLDEN_FILES) {
+      const board = mixedRails(golden(file));
+      for (const x of railFacetStations(board)) {
+        const knots = loftCrossSection(board, x)!.spline.knots;
+        expect(knots[0]!.end.x).toBe(0);
+        expect(knots[knots.length - 1]!.end.x).toBe(0);
+      }
+    }
+    // ...and on the synthetic board that first exposed it, where the deck centreline
+    // has to read back as the deck curve rather than as the rocker.
+    const b = curvyBoard();
+    for (const x of [20, 50, 80]) {
+      expect(deckZAt(b, x, 0)).toBeCloseTo(getDeckAtPos(b, x), 6);
+      expect(bottomZAt(b, x, 0)).toBeCloseTo(getRockerAtPos(b, x), 6);
+    }
+  });
+
+  /**
+   * `deckZAt` / `bottomZAt` answer "how high is the board at this plan point", and
+   * `rail-band.ts` measures a wooden board's rail strips with them — a cut part. They
+   * used to read the control-point blend while the 3D view read the loft, so the two
+   * could disagree by millimetres on a board whose rail changes along its length.
+   *
+   * Probed away from the centreline and the rail edge, where a lateral maps
+   * unambiguously onto one branch of the profile.
+   */
+  it('answers surface heights off the same loft the mesh uses', () => {
+    const board = mixedRails(golden('longboard.brd'));
+    for (const x of railFacetStations(board)) {
+      const surface = loftSection(board, x)!;
+      const half = Math.max(...Array.from({ length: 401 }, (_, i) => loftPoint(surface, i / 400).x));
+      for (const frac of [0.15, 0.35, 0.55, 0.75, 0.88, 0.95]) {
+        const y = half * frac;
+        // Where the lofted profile crosses this lateral, interpolated between samples:
+        // the lowest crossing is the bottom, the highest the deck. Both read off the
+        // surface, never off a blend.
+        let lo = Infinity;
+        let hi = -Infinity;
+        let prev = loftPoint(surface, 0);
+        for (let i = 1; i <= 4000; i++) {
+          const p = loftPoint(surface, i / 4000);
+          if ((prev.x - y) * (p.x - y) <= 0 && prev.x !== p.x) {
+            const t = (y - prev.x) / (p.x - prev.x);
+            const h = prev.y + (p.y - prev.y) * t;
+            lo = Math.min(lo, h);
+            hi = Math.max(hi, h);
+          }
+          prev = p;
+        }
+        expect(Number.isFinite(lo)).toBe(true);
+        expect(bottomZAt(board, x, y) - surface.rocker).toBeCloseTo(lo, 2);
+        expect(deckZAt(board, x, y) - surface.rocker).toBeCloseTo(hi, 2);
       }
     }
   });

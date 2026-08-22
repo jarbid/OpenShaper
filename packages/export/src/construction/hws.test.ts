@@ -516,25 +516,68 @@ describe('buildHwsTemplates — rib profile survives a bottom that dips near the
     return makeBoard(base.outline, base.bottom, base.deck, sections, base.interpolationType);
   };
 
-  it.each([[0], [5]] as const)('rib keeps a sampled bottom edge (%d laminations)', (count) => {
-    const sheet = buildHwsTemplates(dippedBoard(), {
+  /** Distance from `p` to the nearest point of a closed polyline. */
+  const distToLoop = (p: Pt, loop: readonly Pt[]): number => {
+    let best = Infinity;
+    for (let i = 0; i < loop.length; i++) {
+      const a = loop[i]!;
+      const b = loop[(i + 1) % loop.length]!;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const L2 = dx * dx + dy * dy;
+      const t = L2 > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2)) : 0;
+      best = Math.min(best, Math.hypot(p.x - (a.x + dx * t), p.y - (a.y + dy * t)));
+    }
+    return best;
+  };
+
+  const ribsAt = (tolerance: number, railLaminations: number) =>
+    buildHwsTemplates(dippedBoard(), {
       ribMode: 'evenCount',
       ribCount: 5,
-      railLaminations: count,
+      railLaminations,
       railStripThickness: 0.6,
-    });
-    for (const rib of sheet.parts.filter((p) => p.id.startsWith('rib-'))) {
-      const pts = cutLoop(rib).pts;
-      const bb = bboxOfPts([...pts]);
-      const H = bb.maxY - bb.minY;
-      const maxX = Math.max(...pts.map((p) => p.x));
-      // The bottom edge between the slot mouth and the rail must be a sampled
-      // curve (many vertices), not one straight chord: count vertices in the
-      // lower quarter, away from the centreline slot.
-      const bottomEdge = pts.filter(
-        (p) => p.y < bb.minY + H * 0.25 && Math.abs(p.x) > 1 && Math.abs(p.x) < maxX - 0.5,
-      );
-      expect(bottomEdge.length).toBeGreaterThanOrEqual(8);
+      sampleTolerance: tolerance,
+    }).parts.filter((p) => p.id.startsWith('rib-'));
+
+  /**
+   * A convergence oracle, replacing a vertex count.
+   *
+   * This used to require eight or more vertices in the rib's lower quarter, on the
+   * reasoning that a curve needs many and a collapsed chord has two. That is a proxy for
+   * fidelity, and it turned out to be measuring something else: `sampleAdaptive`
+   * subdivides dyadically in the curve's PARAMETER, so how many vertices a given
+   * tolerance buys depends on how the section spline happens to be knotted. Moving ribs
+   * onto `loftCrossSection` (2026-08-22) re-knotted every section and the count fell to
+   * two on the end ribs — while the rib itself stayed within tolerance of the same
+   * shape. The old threshold had been passing on an accident of the old parameterisation.
+   *
+   * So test the tolerance the sampler actually promises: a rib built at the default
+   * 0.2 mm must lie within 0.2 mm of the same rib built ten times finer. That is
+   * strictly stronger than counting vertices — the diamond-rib collapse this guards
+   * against (the whole bottom edge replaced by one straight chord) misses by
+   * centimetres, not by a tenth of a millimetre — and it cannot be satisfied by a
+   * sampler that merely emits a lot of points.
+   *
+   * No vertex count is kept alongside it. The bug being guarded against is not a coarsely
+   * sampled bottom edge — it is `extractRightHalf` keeping only the rail-face-to-deck
+   * fragment and discarding the whole lower lobe, which misses by most of the rib's
+   * height. Any threshold low enough to survive a legitimately sparse end rib is far too
+   * low to add anything to a check that already resolves a fifth of a millimetre.
+   */
+  it.each([[0], [5]] as const)('rib keeps a sampled bottom edge (%d laminations)', (count) => {
+    const coarse = ribsAt(DEFAULT_HWS_PARAMS.sampleTolerance, count);
+    const fine = ribsAt(DEFAULT_HWS_PARAMS.sampleTolerance / 10, count);
+    expect(coarse.length).toBe(5);
+
+    for (let i = 0; i < coarse.length; i++) {
+      const pts = cutLoop(coarse[i]!).pts;
+      const reference = cutLoop(fine[i]!).pts;
+      // The finer rib has strictly more detail, so every point of it must sit on the
+      // coarse one — a collapsed bottom edge leaves the dip stranded far away.
+      for (const p of reference) {
+        expect(distToLoop(p, pts)).toBeLessThanOrEqual(DEFAULT_HWS_PARAMS.sampleTolerance);
+      }
       expect(hasSelfIntersection(pts)).toBe(false);
     }
   });
