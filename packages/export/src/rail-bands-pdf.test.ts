@@ -113,12 +113,12 @@ describe('exportRailBandsPdf', () => {
     // A sheet found on a bench a week later has to say which placement produced it —
     // the marks are meaningless against the wrong one.
     const board = makeTestBoard();
-    const plan = railFacetPlan(board, { ...STATIONS, angleMode: 'balanced' });
+    const plan = railFacetPlan(board, { ...STATIONS, angleMode: 'least-foam' });
     const wp = plan.stations.find((st) => st.position >= plan.widePoint) ?? plan.stations[0]!;
-    const balanced = pdfText({ facets: { angleMode: 'balanced' } });
-    expect(balanced).toContain('balanced placement');
+    const fitted = pdfText({ facets: { angleMode: 'least-foam' } });
+    expect(fitted).toContain('fitted for least foam');
     // the widepoint's own angles, since that is the section a rail is designed around
-    expect(balanced).toContain(wp.deckFacets.map((f) => `${f.targetAngle}`).join('° / '));
+    expect(fitted).toContain(wp.deckFacets.map((f) => `${f.targetAngle}`).join('° / '));
 
     const ladder = pdfText({ facets: { angleMode: 'ladder' } });
     expect(ladder).toContain('halving ladder');
@@ -144,6 +144,35 @@ describe('exportRailBandsPdf', () => {
     const mark = inner.marks.find((m) => m.ref.kind === 'deckPlane')!;
     const text = pdfText({ detailCropCm: 4 });
     expect(text).toContain(`${mark.distance.toFixed(1)} cm`);
+  });
+
+  it('dimensions the rail apex as a height, and does not name the rail', () => {
+    // The apex is what a shaper judges rail volume by. It is dimensioned as a plain
+    // height: "50/50" and "60/40" count from the deck and along the rail's curve, so a
+    // ratio printed against the blank's thickness would read two ways.
+    const board = makeTestBoard();
+    const x = railFacetStations(board, {
+      targetSpacingCm: STATIONS.stationSpacingCm,
+      endMarginCm: STATIONS.endMarginCm,
+    })[0]!;
+    const st = railFacetsAt(board, x)!;
+    const pct = Math.round(((st.apex.y - st.blank.bottomY) / st.blank.thickness) * 100);
+    const text = pdfText();
+    expect(text).toContain(`${(st.apex.y - st.blank.bottomY).toFixed(1)} cm`);
+    expect(text).not.toContain(`${pct}/${100 - pct}`);
+  });
+
+  it('draws and names the overcut when hand marks cut into the rail', () => {
+    // Manual mode keeps the shaper's numbers and reports the damage; the sheet has to
+    // show where it is, not just that it exists.
+    const deep = exportRailBandsPdf(makeTestBoard(), {
+      ...STATIONS,
+      facets: { angleMode: 'manual' },
+      manual: { by: 'distance', railPercent: 25, deckInCm: [1] },
+    });
+    expect(deep.warnings.some((w) => w.code === 'cuts-inside')).toBe(true);
+    const text = decode(deep.file.bytes);
+    expect(text).toContain('marked by hand');
   });
 
   it('labels the map as a diagram and the detail pages as templates', () => {

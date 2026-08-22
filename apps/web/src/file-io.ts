@@ -20,6 +20,7 @@ import { Unit } from '@openshaper/units';
 import { exportUnitFor, fmtLen, type LengthUnit } from './format';
 import type { Pdf1to1Settings } from './pdf-export-settings';
 import { DEFAULT_RAIL_BANDS, type RailBandsSettings } from './rail-bands-settings';
+import { manualSpecOf } from './ExportRailBandsDialog';
 import { STEP_TOLERANCE_CM, type StepSettings } from './step-export-settings';
 import {
   parseBrdFile,
@@ -350,6 +351,7 @@ export function downloadRailBands(
       angleMode: settings.angleMode,
       bottomAngle: settings.bottomAngle,
     },
+    manual: manualSpecOf(settings),
     stationSpacingCm: settings.stationSpacingCm,
     endMarginCm: settings.endMarginCm,
     detailPages: settings.detailPages,

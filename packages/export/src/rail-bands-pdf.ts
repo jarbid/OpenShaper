@@ -38,6 +38,7 @@ import {
   type RailFacetOptions,
   type RailAngleMode,
   type RailFacetWarning,
+  type RailManualSpec,
   type RailStationFacets,
 } from '@openshaper/kernel';
 import {
@@ -71,6 +72,8 @@ export interface RailBandsPdfOptions {
   meta?: PdfMeta;
   /** Band count, angles, tuck angle, zone width. */
   facets?: RailFacetOptions;
+  /** The shaper's own marks, for `facets.angleMode: 'manual'`. */
+  manual?: RailManualSpec;
   /**
    * Target station spacing, fitted to the banded length so stations land on both ends.
    * Default 30.48 cm = 12 in.
@@ -115,13 +118,13 @@ const DEFAULT_CROP_CM = 12;
 const MAP_HEIGHT_CM = 5;
 
 /** Room kept to the right of the rail plane for the vertical dimensions and their text. */
-const DIM_GUTTER_CM = 3.2;
+const DIM_GUTTER_CM = 4.1;
 
 /** How each placement is named on the sheet, so a reprint can be told from its original. */
 const PLACEMENT_LABELS: Record<RailAngleMode, string> = {
-  balanced: 'balanced placement',
-  'least-foam': 'least-foam placement',
+  'least-foam': 'fitted for least foam',
   ladder: 'halving ladder',
+  manual: 'marked by hand',
 };
 
 // --- palette -------------------------------------------------------------------
@@ -135,10 +138,13 @@ const BAND_COLORS: readonly Rgb[] = [
   [0.45, 0.2, 0.62], // 5 purple
   [0.0, 0.5, 0.55], // 6 teal
 ];
-const TUCK_COLOR: Rgb = [0.78, 0.1, 0.55];
+const TUCK_COLOR: Rgb = [0.78, 0.1, 0.55]; // magenta
 /** The foam still standing proud of the finished shape. Pale enough to draw over. */
-const LEFTOVER_TINT: Rgb = [0.98, 0.93, 0.62]; // magenta
+const LEFTOVER_TINT: Rgb = [0.98, 0.93, 0.62];
+/** Foam a hand-marked band would take out of the finished rail. Has to alarm. */
+const OVERCUT_TINT: Rgb = [0.94, 0.55, 0.55];
 const STATION_COLOR: Rgb = [0.13, 0.62, 0.75]; // cyan, for the centre lines
+/** The rail apex, on the map and now dimensioned on each station page. */
 const APEX_COLOR: Rgb = [0.35, 0.35, 0.35];
 const THICKNESS_COLOR: Rgb = [0.1, 0.1, 0.1];
 
@@ -230,6 +236,42 @@ const leftoverOutline = (st: RailStationFacets): Pt[] => {
   return [...cut, ...back];
 };
 
+
+/**
+ * The foam a hand-marked band would take out of the finished rail: the lens between the
+ * facet's plane and the part of the section standing outside it.
+ *
+ * Only manual marks can produce one — a fitted facet is a tangent and cannot cut inside —
+ * and it is drawn rather than merely warned about because "your band 2 is 1.3 mm deep
+ * into the rail, here" is the thing a shaper can act on.
+ */
+const overcutOutlines = (st: RailStationFacets, f: FacetLine): Pt[][] => {
+  const nu = ((f.side === 'deck' ? f.angle : 180 - f.angle) * Math.PI) / 180;
+  const out = { x: Math.sin(nu), y: Math.cos(nu) };
+  const dir = { x: -Math.cos(nu), y: Math.sin(nu) };
+  const proj = (q: Pt): Pt => {
+    const t = (q.x - f.touch.x) * dir.x + (q.y - f.touch.y) * dir.y;
+    return { x: f.touch.x + dir.x * t, y: f.touch.y + dir.y * t };
+  };
+  const polys: Pt[][] = [];
+  let run: Pt[] = [];
+  const n = 400;
+  for (let i = 0; i <= n; i++) {
+    const q = pointByTT(st.section.spline, i / n);
+    const d = (q.x - f.touch.x) * out.x + (q.y - f.touch.y) * out.y;
+    if (d > 0) {
+      run.push(q);
+    } else if (run.length > 1) {
+      polys.push([proj(run[0]!), ...run, proj(run[run.length - 1]!)]);
+      run = [];
+    } else {
+      run = [];
+    }
+  }
+  if (run.length > 1) polys.push([proj(run[0]!), ...run, proj(run[run.length - 1]!)]);
+  return polys;
+};
+
 // --- the band lines running along the board -------------------------------------
 
 /**
@@ -265,6 +307,7 @@ const traceBands = (
   board: BezierBoard,
   stations: readonly RailStationFacets[],
   facets: RailFacetOptions | undefined,
+  manual: RailManualSpec | undefined,
   bands: number,
 ): BandTraces => {
   const first = stations[0]!.position;
@@ -295,10 +338,30 @@ const traceBands = (
     );
   };
 
+  // Hand-marked bands are traced by re-resolving the marks, not by interpolating the
+  // angles they happen to produce: the marks are the instruction, and a band that starts
+  // at the midpoint of the one before it is not recoverable from its angle alone. One
+  // plan call over every sample position, rather than one per sample.
+  const marked =
+    manual && manual.by !== 'angle'
+      ? railFacetPlan(board, {
+          ...facets,
+          manual,
+          stations: Array.from(
+            { length: SAMPLES + 1 },
+            (_, i) => first + ((last - first) * i) / SAMPLES,
+          ),
+        }).stations
+      : null;
+
   for (let i = 0; i <= SAMPLES; i++) {
     const x = first + ((last - first) * i) / SAMPLES;
-    const deckAngles = anglesAt(x);
-    const st = deckAngles.length > 0 ? railFacetsAt(board, x, { ...facets, deckAngles }) : null;
+    const deckAngles = marked ? [] : anglesAt(x);
+    const st = marked
+      ? marked[i]
+      : deckAngles.length > 0
+        ? railFacetsAt(board, x, { ...facets, angleMode: undefined, deckAngles })
+        : null;
     if (!st) continue;
     // Section-local y is measured from the bottom centreline, which sits on the rocker.
     const zOf = (sectionY: number): number => valueAt(board.bottom, x) + sectionY;
@@ -632,6 +695,16 @@ const drawStation = (
     ctx.poly(leftoverOutline(st), { fill: LEFTOVER_TINT, stroke: false });
   });
 
+  // 2c. where a hand-marked band cuts into the shape instead of leaving it
+  ctx.clip(crop, () => {
+    for (const f of [...st.deckFacets, ...st.bottomFacets]) {
+      if (!f.cutsInside) continue;
+      for (const poly of overcutOutlines(st, f)) {
+        ctx.poly(poly, { fill: OVERCUT_TINT, stroke: false });
+      }
+    }
+  });
+
   // 3. the facets. Heavy where the face survives; thin where the next cut eats it back.
   for (const f of [...st.deckFacets, ...st.bottomFacets]) {
     const color = f.side === 'deck' ? bandColor(f.index) : TUCK_COLOR;
@@ -719,7 +792,25 @@ const drawStation = (
     }
   }
 
-  // 5. the overall thickness of the blank at this station, off to the inboard side where
+  // 5. the apex — the widest point of the rail, and where the vertical face left between
+  //    the rail mark and the tuck tells a shaper how much rail there is.
+  //
+  //    Stacked outside band 1's rail mark, with its label slid up the line: all three
+  //    vertical dimensions here share the bottom corner as their origin, so at the
+  //    midpoint their labels would sit at nearly the same height however far apart the
+  //    lines are.
+  //
+  //    A height, and only a height. The obvious addition is the rail's name — 50/50,
+  //    60/40 — but that nomenclature counts from the *deck* ("60% of the curve above the
+  //    apex, 40% below") and along the rail's curve, not up the blank's thickness. Two
+  //    plausible readings of one printed ratio is worse than no ratio.
+  ctx.dot(st.apex, 0.05, 0, APEX_COLOR);
+  ctx.dim({ x: railX, y: bottomY }, { x: railX, y: st.apex.y }, -2.9, L(st.apex.y - bottomY), {
+    color: APEX_COLOR,
+    labelAtFrac: 0.78,
+  });
+
+  // 6. the overall thickness of the blank at this station, off to the inboard side where
   //    nothing else is drawn — the number every band mark is implicitly a fraction of.
   ctx.dim(
     { x: crop.minX + 0.5, y: bottomY },
@@ -847,7 +938,10 @@ const buildDetailPage = (
     });
   };
 
-  const fits = cropW + DIM_GUTTER_CM <= contentW && neededH <= contentH;
+  // The epsilon is not cosmetic: the crop is capped at exactly `contentW - DIM_GUTTER_CM`,
+  // so this sum reconstructs `contentW` and lands a hair above it in binary. Without the
+  // tolerance every capped page reports itself oversized while being exactly A4.
+  const fits = cropW + DIM_GUTTER_CM <= contentW + 1e-9 && neededH <= contentH;
   if (fits) {
     return buildFixedPage(
       paper,
@@ -889,12 +983,15 @@ export const exportRailBandsPdf = (
 
   const plan = railFacetPlan(board, {
     ...opts.facets,
+    manual: opts.manual,
     targetSpacingCm: opts.stationSpacingCm,
     endMarginCm: opts.endMarginCm,
   });
   const bands = Math.max(1, ...plan.stations.map((st) => st.deckFacets.length));
   const traces =
-    plan.stations.length > 1 ? traceBands(board, plan.stations, opts.facets, bands) : EMPTY_TRACES;
+    plan.stations.length > 1
+      ? traceBands(board, plan.stations, opts.facets, opts.manual, bands)
+      : EMPTY_TRACES;
 
   const name = opts.meta?.model || 'Surfboard';
   const title = `${name} · Rail bands`;
@@ -908,7 +1005,7 @@ export const exportRailBandsPdf = (
     st?.deckFacets.map((f) => `${f.targetAngle}°`).join(' / ') ?? '—';
   const angles = angleList(mid);
   const varies = plan.stations.some((st) => angleList(st) !== angles);
-  const placement = PLACEMENT_LABELS[opts.facets?.angleMode ?? 'balanced'];
+  const placement = PLACEMENT_LABELS[opts.facets?.angleMode ?? 'least-foam'];
   const tuckAngle = plan.stations[0]?.bottomFacets[0]?.targetAngle;
   // Report the spacing the fit actually produced, not the target that was asked for —
   // the two differ by design, and the sheet is the thing being measured against.

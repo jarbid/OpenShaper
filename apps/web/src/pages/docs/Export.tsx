@@ -76,22 +76,52 @@ export default function DocsExport() {
           band you cut goes on halving the gap that was already smallest.
         </p>
         <Terms>
-          <Term name="Balanced">
-            The default. Bands placed to remove as much foam as possible, with the first held at 45°
-            or steeper, which leaves the rail corner exactly where the ladder leaves it. On the
-            boards this was measured against it takes out about 95% of the foam standing proud,
-            against 84% for the ladder, and leaves the deepest spot about half as deep.
-          </Term>
           <Term name="Least foam">
-            The same placement without that constraint. It removes a fraction more foam and opens
-            the first band out past 60°, which leaves the rail corner about twice as proud —
-            worth it on a soft, full rail, not on a knifey one.
+            The default. Every band is solved from your own cross-section at that station, so the
+            angles change down the length of the board. On the boards this was measured against it
+            takes out about 95% of the foam standing proud, against 84% for the ladder. It opens
+            the first band wider than tradition does, which leaves the rail corner about twice as
+            proud &mdash; use manual mode if you want that corner held.
           </Term>
           <Term name="Halving ladder">
-            45°, then halving. The angles printed on every reference card, if you would rather work
-            from numbers you already know.
+            45&deg;, then halving. The angles printed on every reference card, if you would rather
+            work from numbers you already know.
+          </Term>
+          <Term name="Manual">
+            Your own numbers, either as angles or as the marks you would pencil on the blank. The
+            sheet still checks them against the board and flags any band that would cut into the
+            finished rail.
           </Term>
         </Terms>
+        <p>
+          Manual marks are the ones the trade already uses: a <strong>rail mark</strong> up from
+          the bottom corner, and a <strong>deck mark</strong> in from the top corner for each band.
+          The first band joins those two; every band after it starts at the{' '}
+          <strong>midpoint of the band before</strong>, which is why one new number per band is
+          enough. The tuck takes two marks of its own, up from and in from the bottom corner.
+        </p>
+        <p>
+          The rail mark is set as a <strong>percentage of thickness</strong> rather than a length,
+          so it holds as the board thins — the thickness multiplier a shaper applies by eye at the
+          nose and tail. Measured against the fitted mode on real boards it holds well: 45&ndash;56%
+          from tail to nose. Deck marks and the tuck are entered at the widepoint and scale with
+          thickness alongside it.
+        </p>
+        <p>
+          They do not hold as well, and the sheet does not pretend otherwise: a rail hardens toward
+          the tips rather than just getting smaller, so one set of marks run down a whole board sits
+          proud in places and cuts in in others — which is what a shaper corrects by eye. Set the
+          rail percentage and the mark scale at the ends to steer it, and use{' '}
+          <strong>Start from the fitted marks</strong> to begin from numbers already true of your
+          board rather than a chart written for someone else&rsquo;s.
+        </p>
+        <p>
+          That percentage is the <em>mark</em>, not the rail. Naming a rail
+          &ldquo;60/40&rdquo; describes where the finished apex sits along the rail curve counted
+          from the deck — 60% of the curve above it, 40% below — and the apex ends up below the
+          mark you cut to. The station pages dimension the apex so you can see where it actually
+          landed.
+        </p>
         <p>
           The dialog reports what each band count would remove before you export, so you can see
           where another pass stops being worth cutting. Add a single band on the bottom — the tuck —
@@ -129,7 +159,16 @@ export default function DocsExport() {
         <p>
           The shaded area on each 1:1 page is the foam the cuts do not reach — what is left between
           the last facet and the finished rail, which is what you blend away. The footer says how
-          much of the proud foam these passes take out and how deep the worst remaining spot is.
+          much of the proud foam these passes take out and how deep the worst remaining spot is. A
+          red area is the opposite and only appears on hand-marked bands: foam those marks would
+          take <em>out</em> of the finished rail. The numbers are left exactly as you entered them
+          — a mark you did not choose has no business on the sheet — and the overcut is measured
+          instead.
+        </p>
+        <p>
+          Each station page also dimensions the <strong>rail apex</strong> — the widest point of
+          the rail — as a height up from the bottom corner. The vertical face left between the rail
+          mark and the tuck is what tells you how much rail there is.
         </p>
         <p>
           Because the angles are fitted to each station, they change gradually down the board; the

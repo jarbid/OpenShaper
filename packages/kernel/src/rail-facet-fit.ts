@@ -14,7 +14,7 @@
  * spends every extra band halving the smallest gap it already has. Three bands at equal
  * 22.5° gaps leave 59% less foam than the same three ladder bands.
  *
- * ## One dynamic program, three placements
+ * ## One dynamic program, per section
  *
  * The leftover region decomposes: the foam between the finished section and the cut
  * polygon is a sum of independent **caps**, one per pair of consecutive facets, and a
@@ -23,48 +23,36 @@
  * falls out with the answer for *every* band count at once, which is what tells a shaper
  * whether another pass is worth cutting.
  *
- * Every placement minimises `Σ cap area`. They differ only in what they are allowed to
- * do at the rail:
+ * The search is built from **the section in front of it**: candidates are the tangents to
+ * that cross-section's own convex hull, so every angle comes out of that station's
+ * curvature and nothing is drawn from a list. Angles differ station to station along a
+ * board, which is the point.
  *
- * - **`balanced`** (the default) holds the first band at 45° or steeper.
- * - **`least-foam`** is unconstrained.
+ * - **`least-foam`** minimises `Σ cap area`, unconstrained.
  * - **`ladder`** is not fitted at all — 45°, then halving — but is still *priced* through
- *   the same cap table, so the dialog can compare it honestly.
+ *   the same cap table, so the two can be compared honestly.
+ * - **`manual`** is not fitted either: the shaper supplies the marks and
+ *   `rail-facets.ts` constructs the facets from them.
  *
- * ### Why the constraint
+ * ### The grid is a rounding, not a menu
  *
- * Bands are scored all the way in to the stringer, and over that span the deck crown
- * holds far more removable foam than the rail turn does. Left unconstrained the fit
- * spends its bands flattening deck: on the golden shortboard at three bands it opens the
- * first gap to 64° and leaves **2.8 mm** proud at the rail corner, against 1.2 mm for the
- * ladder. That is the one trade a shaper will not take — a rail's character lives in its
- * last couple of millimetres, while the same error on a near-flat deck is one skim.
+ * Candidates sit every half degree, so a printed angle is one a bevel gauge can be set
+ * to. The objective is flat near its optimum — moving a tangent off it costs area only to
+ * second order — so quantising to half a degree gives up under a tenth of a percent of
+ * the leftover, which is far below what a hand plane holds.
  *
- * Pinning the first band at 45°, where every printed reference card already puts it,
- * costs half a percent of the foam and buys the rail back. Three bands on the shortboard,
- * foam removed / worst left overall / left at the rail corner:
+ * ### What unconstrained costs at the rail
  *
- * | placement    | angles            | removed | worst  | at the rail |
- * | ------------ | ----------------- | ------- | ------ | ----------- |
- * | ladder       | 45 / 22.5 / 11.25 | 83.8%   | 4.7 mm | 1.21 mm     |
- * | `least-foam` | 25.5 / 9.5 / 4.5  | 95.1%   | 2.8 mm | 2.77 mm     |
- * | `balanced`   | 45 / 11.5 / 5     | 94.6%   | 2.4 mm | 1.21 mm     |
+ * Scoring runs all the way in to the stringer, and over that span the deck crown holds
+ * far more removable foam than the rail turn does. So the fit spends bands flattening
+ * deck: on the golden shortboard at three bands it opens the first gap to 64° and leaves
+ * **2.77 mm** proud at the rail corner, against 1.21 mm for the halving ladder, while
+ * removing 95.1% of the foam against the ladder's 83.8%.
  *
- * `balanced` is the only one that beats the ladder on both measures at once while
- * leaving the rail corner exactly where tradition leaves it. The constraint is
- * one-sided: a tight rail better served by a steeper first band still gets one.
- *
- * ### An objective that was tried and dropped
- *
- * A scale-free variant — minimising `Σ cap area / ρ²`, so a 1 mm leftover on a 15 mm rail
- * radius scores like a 60 mm leftover on a 900 mm deck — is the obvious way to protect
- * the rail without a hard constraint, and it works: equal angular gaps, 0.33 mm at the
- * corner, the finest of any placement. It was removed anyway. **0.33 mm is finer than a
- * hand plane holds**, so it leaves nothing to fair and banks on the cut not having
- * wandered; and it pays for that with 60% foam removal against balanced's 95%, because
- * it spends every band inside the turn and leaves the whole crown to one gap. An option
- * that is worst on every number the sheet prints, in exchange for a precision the tool
- * cannot deliver, is one nobody should be choosing.
+ * An earlier `balanced` mode pinned the first band at 45° to prevent exactly that. It was
+ * removed because it duplicated `least-foam` everywhere except that first band. A shaper
+ * who wants the corner held now sets it explicitly in `manual` mode, which is a better
+ * answer than a mode that only differed in one number.
   */
 import { vec2, type Vec2 } from './vec2';
 import { DEG_TO_RAD, T_ONE } from './constants';
@@ -177,9 +165,9 @@ export const maxYAt = (
 // --- options --------------------------------------------------------------------
 
 /** How the band angles are chosen. */
-export type RailAngleMode = 'balanced' | 'least-foam' | 'ladder';
+export type RailAngleMode = 'least-foam' | 'ladder' | 'manual';
 
-export const RAIL_ANGLE_MODES: readonly RailAngleMode[] = ['balanced', 'least-foam', 'ladder'];
+export const RAIL_ANGLE_MODES: readonly RailAngleMode[] = ['least-foam', 'ladder', 'manual'];
 
 /**
  * The bisection ladder: each band halves the remaining angle to the flat.
@@ -200,11 +188,6 @@ export const bisectionLadder = (n: number): number[] => {
 export interface DeckFitOptions {
   readonly mode?: RailAngleMode;
   /**
-   * The first band may not sit shallower than this, degrees. Default 45 for `balanced`,
-   * unset otherwise. This is the constraint that protects the rail.
-   */
-  readonly firstBandMinDeg?: number;
-  /**
    * Angle grid, degrees. Default 0.5 — every angle that comes out is a half-degree a
    * bevel gauge can actually be set to, and the answer is optimal *on that grid* rather
    * than a fabricated 63.184°.
@@ -219,8 +202,6 @@ export interface DeckFitOptions {
 }
 
 const DEFAULT_STEP_DEG = 0.5;
-/** Where the first band has to sit to leave the rail turn no coarser than tradition does. */
-export const DEFAULT_FIRST_BAND_MIN_DEG = 45;
 const DEFAULT_MIN_GAP_DEG = 4;
 const DEFAULT_MIN_ANGLE_DEG = 3;
 const DEFAULT_MAX_BANDS = 6;
@@ -381,8 +362,7 @@ export const fitDeck = (s: Spline, ttApex: number, o: DeckFitOptions = {}): Deck
   const minGap = o.minGapDeg ?? DEFAULT_MIN_GAP_DEG;
   const minAngle = o.minAngleDeg ?? DEFAULT_MIN_ANGLE_DEG;
   const maxBands = o.maxBands ?? DEFAULT_MAX_BANDS;
-  const mode = o.mode ?? 'balanced';
-  const firstMin = o.firstBandMinDeg ?? (mode === 'balanced' ? DEFAULT_FIRST_BAND_MIN_DEG : 0);
+  const mode = o.mode ?? 'least-foam';
 
   const ttDeck = maxYAt(s, ttApex, T_ONE).tt;
   if (!(ttDeck > ttApex)) return null;
@@ -432,7 +412,7 @@ export const fitDeck = (s: Spline, ttApex: number, o: DeckFitOptions = {}): Deck
   let best: number[] = new Array<number>(n).fill(Infinity);
   let chains: number[][] = Array.from({ length: n }, () => []);
   for (let j = 0; j < n; j++) {
-    if (!usable(j) || cand[j]!.angle < firstMin) continue;
+    if (!usable(j)) continue;
     best[j] = cost(0, j);
     chains[j] = [j];
   }

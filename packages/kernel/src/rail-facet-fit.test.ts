@@ -20,14 +20,21 @@ import { vec2, type Vec2 } from './vec2';
 import { normalByTT, pointByTT } from './bezier-spline';
 import { parseBrdGeometry } from './test-support/brd-geometry';
 import { circleRailSection, ellipseRailSection, oracle } from './test-support/rail-sections';
-import { clearOf, measureLeftover, type RailAngleMode } from './rail-facet-fit';
+import {
+  bisectionLadder,
+  clearOf,
+  measureLeftover,
+  type RailAngleMode,
+} from './rail-facet-fit';
 import {
   MAX_BANDS,
   railBandTradeoff,
   railFacetPlan,
   railFacetsForSection,
+  type RailManualMarks,
   type RailStationFacets,
 } from './rail-facets';
+import type { CrossSection } from './cross-section';
 import type { BezierBoard } from './board';
 
 const W = 25;
@@ -80,12 +87,16 @@ describe('placing bands on an exactly circular rail', () => {
     expect(st.leftover.deck.removed).toBeGreaterThan(0.95);
   });
 
-  it('costs nothing to protect the rail here, because the optimum already does', () => {
-    // Equal gaps put band 1 at 90n/(n+1), which is ≥ 45° for every n. The `balanced`
-    // constraint is therefore inactive on a circle, and the two modes must agree.
-    for (const n of [1, 2, 3, 4]) {
-      expect(anglesOf(fit(n, 'balanced'))).toEqual(anglesOf(fit(n, 'least-foam')));
-    }
+  it('is a rounding of the answer, not a menu of answers', () => {
+    // Every angle lands on the half-degree grid, but the *values* come from the section:
+    // a circle of a different radius puts its bands in the same place because it is the
+    // same shape, while a different shape does not. The grid rounds; it does not choose.
+    expect(anglesOf(fit(3, 'least-foam', circleRailSection(50, 12)))).toEqual(
+      anglesOf(fit(3, 'least-foam', circleRailSection(25, 6))),
+    );
+    expect(anglesOf(fit(3, 'least-foam', ellipseRailSection(25, 12, 2.5)))).not.toEqual(
+      anglesOf(fit(3, 'least-foam', circleRailSection(25, 6))),
+    );
   });
 });
 
@@ -127,34 +138,49 @@ const worstAtRail = (st: RailStationFacets, fromDeg = 45): number => {
   return worst;
 };
 
-describe('what the rail constraint is worth', () => {
-  // A circle cannot show it — equal gaps put band 1 at 90n/(n+1), which already clears
-  // 45°. Nor can a chunky ellipse: the constraint only starts to bind at board-like
-  // proportions, where there is enough flat deck for the crown to outbid the rail. This
-  // one is 5 cm thick over a 25 cm half-width, which is a real shortboard's midsection.
-  const cs = ellipseRailSection(W, 12, 2.5);
 
-  it('least-foam removes more overall by opening the rail gap', () => {
-    const bal = fit(3, 'balanced', cs);
-    const least = fit(3, 'least-foam', cs);
-    // by construction least-foam is the unconstrained minimum
-    expect(least.leftover.deck.areaCm2).toBeLessThanOrEqual(bal.leftover.deck.areaCm2 + 1e-9);
-    // and it pays for it where it matters
-    expect(anglesOf(least)[0]!).toBeLessThan(45);
-    expect(anglesOf(bal)[0]!).toBeGreaterThanOrEqual(45);
-    // the constraint costs area, but not much of it
-    expect(bal.leftover.deck.areaCm2).toBeLessThan(least.leftover.deck.areaCm2 * 1.5);
+/**
+ * The marks that reproduce a given set of tangent angles — how a shaper would transcribe
+ * a fitted sheet back onto a blank.
+ */
+const marksFromAngles = (cs: CrossSection, angles: readonly number[]): RailManualMarks => {
+  const st = railFacetsForSection(cs, { deckAngles: angles });
+  const railUp = st.deckFacets[0]!.marks.find((m) => m.ref.kind === 'railPlane')!.distance;
+  return {
+    railPercent: (railUp / st.blank.thickness) * 100,
+    deckIn: st.deckFacets.map(
+      (f) => f.marks.find((m) => m.ref.kind === 'deckPlane')!.distance,
+    ),
+  };
+};
+
+describe('holding the rail corner is manual mode now', () => {
+  // Scoring runs in to the stringer, where the deck crown holds more removable foam than
+  // the rail turn does, so the unconstrained fit trades the corner away for crown. There
+  // used to be a `balanced` mode pinning band 1 at 45°; it duplicated `least-foam`
+  // everywhere else, and a shaper who wants the corner held now says so directly.
+  const cs = ellipseRailSection(W, 12, 2.5);
+  const manual45 = railFacetsForSection(cs, {
+    angleMode: 'manual',
+    manualMarks: marksFromAngles(cs, [45, 15, 6]),
   });
 
-  it('and the corner it opens is the whole reason to constrain it', () => {
-    expect(worstAtRail(fit(3, 'least-foam', cs))).toBeGreaterThan(
-      worstAtRail(fit(3, 'balanced', cs)),
+  it('least-foam opens the first gap past 45°, and pays for it at the corner', () => {
+    const least = fit(3, 'least-foam', cs);
+    expect(anglesOf(least)[0]!).toBeLessThan(45);
+    expect(worstAtRail(least)).toBeGreaterThan(worstAtRail(manual45));
+  });
+
+  it('and it is still the unconstrained minimum on area, which is what it is for', () => {
+    const least = fit(3, 'least-foam', cs);
+    expect(least.leftover.deck.areaCm2).toBeLessThanOrEqual(
+      manual45.leftover.deck.areaCm2 + 1e-9,
     );
   });
 });
 
 describe('the angles are usable numbers', () => {
-  for (const mode of ['balanced', 'least-foam'] as const) {
+  for (const mode of ['least-foam'] as const) {
     it(`${mode}: on the half-degree grid, decreasing, spaced, above the floor`, () => {
       const angles = anglesOf(fit(4, mode));
       expect(angles).toHaveLength(4);
@@ -172,7 +198,7 @@ describe('the angles are usable numbers', () => {
   it('honours an explicit ladder over any fit', () => {
     const st = railFacetsForSection(circleRailSection(W, R), {
       deckAngles: [50, 20, 8],
-      angleMode: 'balanced',
+      angleMode: 'least-foam',
     });
     expect(anglesOf(st)).toEqual([50, 20, 8]);
   });
@@ -183,7 +209,7 @@ describe('the angles are usable numbers', () => {
 });
 
 describe('more bands always leave less foam', () => {
-  for (const mode of ['balanced', 'least-foam'] as const) {
+  for (const mode of ['least-foam'] as const) {
     it(`${mode}: strictly decreasing leftover, 1..${MAX_BANDS} bands`, () => {
       let prev = Infinity;
       for (let n = 1; n <= MAX_BANDS; n++) {
@@ -198,13 +224,13 @@ describe('more bands always leave less foam', () => {
     // A dialog showing the fitted placement's numbers next to a ladder the user chose
     // would be describing a board they are not going to cut.
     const ladder = railBandTradeoff(circleRailSection(W, R), { angleMode: 'ladder' });
-    const balanced = railBandTradeoff(circleRailSection(W, R), { angleMode: 'balanced' });
+    const fitted = railBandTradeoff(circleRailSection(W, R), { angleMode: 'least-foam' });
     expect(ladder).toHaveLength(MAX_BANDS);
     // At one band they agree — the ladder's 45° is also where the constrained optimum
     // puts it. From the second band on, the ladder falls behind and keeps falling.
-    expect(ladder[0]!.removed).toBeCloseTo(balanced[0]!.removed, 6);
+    expect(ladder[0]!.removed).toBeCloseTo(fitted[0]!.removed, 6);
     for (let i = 1; i < MAX_BANDS; i++) {
-      expect(ladder[i]!.removed).toBeLessThan(balanced[i]!.removed);
+      expect(ladder[i]!.removed).toBeLessThan(fitted[i]!.removed);
     }
     // and it is the actual ladder being priced, not a fit that happens to be near it
     const three = railFacetsForSection(circleRailSection(W, R), {
@@ -215,7 +241,7 @@ describe('more bands always leave less foam', () => {
   });
 
   it('reports the whole curve at once, so a shaper can see the returns die', () => {
-    const curve = railBandTradeoff(circleRailSection(W, R), { angleMode: 'balanced' });
+    const curve = railBandTradeoff(circleRailSection(W, R), { angleMode: 'least-foam' });
     expect(curve).toHaveLength(MAX_BANDS);
     for (let i = 1; i < curve.length; i++) {
       expect(curve[i]!.removed).toBeGreaterThan(curve[i - 1]!.removed);
@@ -266,6 +292,157 @@ describe('measuring the leftover', () => {
   });
 });
 
+
+describe('manual marks, the way a shaper pencils them', () => {
+  const cs = circleRailSection(W, R);
+  // 8 cm up a 12 cm blank is a 66.7% rail
+  const marks = { railPercent: (8 / (2 * R)) * 100, deckIn: [4, 9, 14] } as const;
+  const st = railFacetsForSection(cs, { angleMode: 'manual', manualMarks: marks });
+
+  it('prints back exactly the numbers it was given', () => {
+    // The whole point of a manual mode: a mark the shaper did not type has no business
+    // on the sheet.
+    const railMark = st.deckFacets[0]!.marks.find((m) => m.ref.kind === 'railPlane')!;
+    expect(railMark.distance).toBeCloseTo(8, 9);
+    st.deckFacets.forEach((f, i) => {
+      const deck = f.marks.find((m) => m.ref.kind === 'deckPlane')!;
+      expect(deck.distance).toBeCloseTo(marks.deckIn[i]!, 9);
+    });
+  });
+
+  it('starts each later band at the midpoint of the one before it', () => {
+    // Greenlight's rule, and the reason one new number per band is enough: by the time
+    // band 2 is marked, band 1 is a flat face whose middle can be found by eye.
+    for (let i = 1; i < st.deckFacets.length; i++) {
+      const prev = st.deckFacets[i - 1]!;
+      const mid = vec2((prev.cutFrom.x + prev.cutTo.x) / 2, (prev.cutFrom.y + prev.cutTo.y) / 2);
+      expect(st.deckFacets[i]!.cutFrom.x).toBeCloseTo(mid.x, 9);
+      expect(st.deckFacets[i]!.cutFrom.y).toBeCloseTo(mid.y, 9);
+    }
+  });
+
+  it('band 1 runs from the rail mark to the deck mark, and nowhere else', () => {
+    const f = st.deckFacets[0]!;
+    expect(f.cutFrom.x).toBeCloseTo(W, 9);
+    expect(f.cutFrom.y).toBeCloseTo(8, 9);
+    expect(f.cutTo.x).toBeCloseTo(W - marks.deckIn[0]!, 9);
+    expect(f.cutTo.y).toBeCloseTo(2 * R, 9);
+  });
+
+  it('reproduces the tangent construction when given the tangent’s own marks', () => {
+    // Transcribing a fitted sheet back onto a blank must land the same first band.
+    const fitted = railFacetsForSection(cs, { deckAngles: [45] });
+    const back = railFacetsForSection(cs, {
+      angleMode: 'manual',
+      manualMarks: marksFromAngles(cs, [45]),
+    });
+    expect(back.deckFacets[0]!.angle).toBeCloseTo(fitted.deckFacets[0]!.angle, 3);
+    expect(back.deckFacets[0]!.cutsInside).toBeUndefined();
+    expect(back.warnings.some((w) => w.code === 'cuts-inside')).toBe(false);
+  });
+
+  it('measures a band that cuts into the rail instead of quietly moving it', () => {
+    // Marks pulled deliberately deep: the facet stays exactly where it was told to go,
+    // and the damage is reported.
+    const deep = railFacetsForSection(cs, {
+      angleMode: 'manual',
+      manualMarks: { railPercent: 25, deckIn: [3] },
+    });
+    const f = deep.deckFacets[0]!;
+    expect(f.cutFrom.y).toBeCloseTo(3, 9); // 25% of a 12 cm blank; not nudged
+    expect(deep.warnings.some((w) => w.code === 'cuts-inside')).toBe(true);
+    expect(f.cutsInside).toBeGreaterThan(0.01);
+
+    // and the depth agrees with an independent measure of the same thing
+    const out = vec2(Math.sin((f.angle * Math.PI) / 180), Math.cos((f.angle * Math.PI) / 180));
+    let worst = 0;
+    for (let i = 0; i <= 800; i++) {
+      const q = pointByTT(cs.spline, i / 800);
+      worst = Math.max(worst, (q.x - f.cutFrom.x) * out.x + (q.y - f.cutFrom.y) * out.y);
+    }
+    expect(f.cutsInside!).toBeCloseTo(worst, 2);
+  });
+
+  it('refuses marks that run backwards rather than drawing them', () => {
+    const bad = railFacetsForSection(cs, {
+      angleMode: 'manual',
+      manualMarks: { railPercent: 66.7, deckIn: [9, 4] },
+    });
+    expect(bad.warnings.some((w) => w.code === 'facet-inverted')).toBe(true);
+    expect(bad.deckFacets).toHaveLength(1);
+  });
+
+  it('builds the tuck from its two marks', () => {
+    const t = railFacetsForSection(cs, {
+      angleMode: 'manual',
+      manualMarks: { railPercent: 66.7, deckIn: [4], tuckUp: 1.27, tuckIn: 2.22 },
+    }).bottomFacets[0]!;
+    expect(t.marks.find((m) => m.ref.kind === 'railPlane')!.distance).toBeCloseTo(1.27, 9);
+    expect(t.marks.find((m) => m.ref.kind === 'bottomPlane')!.distance).toBeCloseTo(2.22, 9);
+  });
+});
+
+describe('marks travelling down the board', () => {
+  const board = ((): BezierBoard =>
+    parseBrdGeometry(
+      readFileSync(
+        resolve(
+          dirname(fileURLToPath(import.meta.url)),
+          '../../../docs/specs/golden/shortboard.brd',
+        ),
+        'utf8',
+      ),
+    ))();
+
+  const plan = railFacetPlan(board, {
+    deckBands: 2,
+    angleMode: 'manual',
+    manual: { by: 'distance', railPercent: 60, deckInCm: [2.5, 5.5] },
+  });
+
+  it('keeps the rail mark at the percentage of thickness it was given', () => {
+    // A 60/40 rail is 60% at every station, which is what makes one number work for a
+    // whole board — Greenlight's "1 5/8 inch at 2 1/2 thick reduces to 1 inch at 1 5/8".
+    expect(plan.stations.length).toBeGreaterThan(2);
+    for (const st of plan.stations) {
+      const railUp = st.deckFacets[0]!.marks.find((m) => m.ref.kind === 'railPlane')!.distance;
+      expect(railUp / st.blank.thickness).toBeCloseTo(0.6, 6);
+    }
+  });
+
+  it('scales the deck marks with thickness, which holds the angle', () => {
+    // The corner being cut is a triangle whose height is the thickness, so scaling both
+    // marks with it keeps the band angle roughly constant as the foil thins.
+    const angles = plan.stations.map((st) => st.deckFacets[0]!.angle);
+    const spread = Math.max(...angles) - Math.min(...angles);
+    expect(spread).toBeLessThan(6);
+  });
+
+  it('varies the rail percentage toward a tip when asked', () => {
+    const tapered = railFacetPlan(board, {
+      deckBands: 2,
+      angleMode: 'manual',
+      manual: { by: 'distance', railPercent: 60, railPercentTail: 45, deckInCm: [2.5, 5.5] },
+    });
+    const pct = (st: RailStationFacets): number =>
+      st.deckFacets[0]!.marks.find((m) => m.ref.kind === 'railPlane')!.distance /
+      st.blank.thickness;
+    expect(pct(tapered.stations[0]!)).toBeCloseTo(0.45, 3);
+    expect(pct(tapered.stations[tapered.stations.length - 1]!)).toBeCloseTo(0.6, 3);
+  });
+
+  it('takes explicit angles straight through when asked by angle', () => {
+    const byAngle = railFacetPlan(board, {
+      deckBands: 3,
+      angleMode: 'manual',
+      manual: { by: 'angle', angles: [50, 20, 8] },
+    });
+    for (const st of byAngle.stations) {
+      expect(st.deckFacets.map((f) => f.targetAngle)).toEqual([50, 20, 8]);
+    }
+  });
+});
+
 describe('real boards', () => {
   const goldenDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../docs/specs/golden');
   const load = (name: string): BezierBoard =>
@@ -278,47 +455,49 @@ describe('real boards', () => {
         railFacetPlan(board, { deckBands: 3, bottomAngle: 30, angleMode: mode });
 
       it('beats the halving ladder on foam left AND on the worst spot', () => {
-        // The claim the default rests on, station by station. Both directions matter:
-        // removing more foam by leaving the rail coarser is exactly the trade `balanced`
-        // exists to refuse.
-        const bal = plan('balanced').stations;
+        // Station by station. Both directions matter: removing more foam by leaving a
+        // deeper spot behind would be no gain at all.
+        const fitted = plan('least-foam').stations;
         const lad = plan('ladder').stations;
-        expect(bal.length).toBe(lad.length);
-        for (let i = 0; i < bal.length; i++) {
-          expect(bal[i]!.leftover.deck.areaCm2).toBeLessThan(lad[i]!.leftover.deck.areaCm2);
-          expect(bal[i]!.leftover.deck.worstDepth).toBeLessThan(lad[i]!.leftover.deck.worstDepth);
+        expect(fitted.length).toBe(lad.length);
+        for (let i = 0; i < fitted.length; i++) {
+          expect(fitted[i]!.leftover.deck.areaCm2).toBeLessThan(lad[i]!.leftover.deck.areaCm2);
+          expect(fitted[i]!.leftover.deck.worstDepth).toBeLessThan(
+            lad[i]!.leftover.deck.worstDepth,
+          );
         }
       });
 
-      it('never opens the rail gap wider than the ladder does', () => {
-        // Band 1 at 45° or steeper is the constraint; it is what keeps the rail turn from
-        // being spent on deck crown.
-        for (const st of plan('balanced').stations) {
-          expect(st.deckFacets[0]!.targetAngle).toBeGreaterThanOrEqual(45);
+      it('solves every band from the section, with nothing preset', () => {
+        // The property that would be lost if a floor or a default ever crept back in.
+        // Under the old `balanced` mode band 1 read 45° at every station on every board;
+        // it cannot now, because nothing pins it.
+        const sts = plan('least-foam').stations;
+        expect(sts.length).toBeGreaterThan(2);
+        for (let b = 0; b < 3; b++) {
+          const angles = sts.map((st) => st.deckFacets[b]?.targetAngle);
+          expect(new Set(angles).size).toBeGreaterThan(1);
+        }
+        // and no station's set is the ladder wearing a different name
+        for (const st of sts) {
+          expect(anglesOf(st)).not.toEqual(bisectionLadder(st.deckFacets.length));
         }
       });
 
-      it('leaves the rail corner exactly where the ladder leaves it', () => {
-        // Not "close to" — identical. Both pin band 1 at 45°, so the corner is untouched
-        // by the change and every gain shows up further in.
-        const bal = plan('balanced').stations;
-        const lad = plan('ladder').stations;
-        for (let i = 0; i < bal.length; i++) {
-          expect(worstAtRail(bal[i]!)).toBeCloseTo(worstAtRail(lad[i]!), 6);
-        }
-      });
-
-      it('unconstrained least-foam leaves the corner proud, which is why it is not the default', () => {
-        const bal = plan('balanced').stations;
+      it('opens the rail corner doing it, which is the known cost', () => {
+        // Stated rather than prevented. A shaper who wants the corner held sets band 1
+        // themselves in manual mode; see the `holding the rail corner` block above.
         const least = plan('least-foam').stations;
-        for (let i = 0; i < bal.length; i++) {
-          expect(anglesOf(least[i]!)[0]!).toBeLessThan(45);
-          expect(worstAtRail(least[i]!)).toBeGreaterThan(worstAtRail(bal[i]!));
+        const lad = plan('ladder').stations;
+        let opened = 0;
+        for (let i = 0; i < least.length; i++) {
+          if (worstAtRail(least[i]!) > worstAtRail(lad[i]!)) opened++;
         }
+        expect(opened).toBeGreaterThan(least.length / 2);
       });
 
       it('removes most of the proud foam with three passes', () => {
-        for (const st of plan('balanced').stations) {
+        for (const st of plan('least-foam').stations) {
           expect(st.leftover.deck.removed).toBeGreaterThan(0.85);
         }
       });
@@ -326,7 +505,7 @@ describe('real boards', () => {
       it('still never cuts a facet inside the shape it is meant to leave', () => {
         // The module's whole reason for existing, re-asserted for the fitted angles —
         // which reach into deck crown, where a real board is not quite convex.
-        for (const mode of ['balanced', 'least-foam', 'ladder'] as const) {
+        for (const mode of ['least-foam', 'ladder'] as const) {
           for (const st of plan(mode).stations) {
             for (const f of [...st.deckFacets, ...st.bottomFacets]) {
               const nu = ((f.side === 'deck' ? f.angle : 180 - f.angle) * Math.PI) / 180;

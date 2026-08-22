@@ -87,8 +87,8 @@ export interface RailFacetOptions {
   /** Deck-side band count, 1..{@link MAX_BANDS}. Default 3. */
   readonly deckBands?: number;
   /**
-   * How the deck angles are chosen. Default `'balanced'` — see `rail-facet-fit.ts` for
-   * the table of what each one leaves behind, and why the default is not `'least-foam'`.
+   * How the deck angles are chosen. Default `'least-foam'`, which fits every band to this
+   * section's own curvature. `'manual'` needs {@link RailFacetOptions.manualMarks}.
    */
   readonly angleMode?: RailAngleMode;
   /** Angle grid for the fitted modes, degrees. Default 0.5. */
@@ -103,6 +103,11 @@ export interface RailFacetOptions {
    * re-fitting at every sample along the way.
    */
   readonly deckAngles?: readonly number[];
+  /**
+   * Marks for `angleMode: 'manual'`, already resolved to centimetres for this station —
+   * {@link railFacetPlan} does the scaling, because only it knows the widepoint.
+   */
+  readonly manualMarks?: RailManualMarks;
   /** Bottom (tuck) facet angle off the bottom plane, degrees. Default 30 — a common plane setting. */
   readonly bottomAngle?: number;
   /** How far in from the rail counts as "rail zone", as a fraction of half-width. Default 0.45. */
@@ -111,6 +116,47 @@ export interface RailFacetOptions {
   readonly minEdgeRadius?: number;
   /** Above this a radius fit is treated as a straight run, not a round (cm). Default 15. */
   readonly maxEdgeRadius?: number;
+}
+
+/**
+ * Manual marks as the shaper enters them once, for the whole board.
+ *
+ * The rail mark is a **percentage of the local thickness**, which is the trade's own way
+ * of putting it — Greenlight's worked example reads "a 2 1/2\" thick midpoint rail mark
+ * of 1 5/8\" [~60% for a 60/40 rail] will reduce down to 1\" if the foil thickness is
+ * 1 5/8\" @ 12\" from the nose". A 60/40 rail *is* 60%, so the number a shaper types is
+ * the name of the rail they are cutting, and it stays true as the board thins.
+ *
+ * Rail character is varied along the board by varying that percentage — lower and harder
+ * toward the tail, fuller toward the nose — which costs two more numbers rather than two
+ * more sets of marks. Deck marks are entered at the widepoint and scale with thickness
+ * alongside it, which holds the band angle roughly constant as the foil thins.
+ */
+export interface RailManualSpec {
+  /** Marks given as angles instead: the fitted machinery, with the shaper's numbers. */
+  readonly by?: 'angle' | 'distance';
+  /** `by: 'angle'` — degrees, outer→inner. */
+  readonly angles?: readonly number[];
+  /** `by: 'distance'` — rail mark as a percentage of thickness. Default 60 (a 60/40 rail). */
+  readonly railPercent?: number;
+  /** Optional tip values; unset means "hold the centre percentage all the way". */
+  readonly railPercentTail?: number;
+  readonly railPercentNose?: number;
+  /**
+   * Extra scale on the deck and tuck marks toward each tip, 1 = thickness alone.
+   *
+   * Thickness scaling is right for the rail mark and only approximate for the rest.
+   * Measured on the golden boards, the fitted deck marks run 108-166% of thickness on a
+   * shortboard and the tuck 5-13% — the rail's character changes toward the tips, not
+   * just its size, which is why the trade adjusts "separately in nose, middle, and tail".
+   */
+  readonly markScaleTail?: number;
+  readonly markScaleNose?: number;
+  /** Deck marks at the widepoint (cm), in from the top corner, increasing. */
+  readonly deckInCm?: readonly number[];
+  /** Tuck marks at the widepoint (cm). */
+  readonly tuckUpCm?: number;
+  readonly tuckInCm?: number;
 }
 
 /** Station selection: a target spacing, fitted to the length being banded. */
@@ -126,6 +172,38 @@ export interface RailFacetStationOptions {
   readonly endMarginCm?: number;
   /** Explicit stations (cm from tail); overrides the fit. */
   readonly stations?: readonly number[];
+  /** The marks, for `angleMode: 'manual'`. Resolved per station by {@link railFacetPlan}. */
+  readonly manual?: RailManualSpec;
+}
+
+/**
+ * The marks a shaper pencils on the blank, in the trade's own terms.
+ *
+ * Greenlight's guide names them: the **rail mark** goes on the vertical face measured up
+ * from the bottom corner, the **deck marks** on the deck measured in from the top corner.
+ * The primary band joins the rail mark to deck mark 1; each later band starts at the
+ * **midpoint of the band before it**, which is why one new number per band is enough.
+ */
+export interface RailManualMarks {
+  /**
+   * Rail mark as a **percentage of this station's blank thickness** — 60 is a 60/40 rail.
+   *
+   * A percentage rather than a length because that is what the shaper is choosing: the
+   * mark's job is to sit the apex at a fraction of the thickness, and the fraction is the
+   * name of the rail. Resolved against the blank's own corner-to-corner height, which is
+   * what the tape is laid against, not the board's nominal thickness.
+   */
+  readonly railPercent: number;
+  /** In from the top corner, one per band, increasing (cm), at {@link refThickness}. */
+  readonly deckIn: readonly number[];
+  /** Tuck, up from and in from the bottom corner (cm), at {@link refThickness}. */
+  readonly tuckUp?: number;
+  readonly tuckIn?: number;
+  /**
+   * Blank thickness the deck and tuck marks were measured at (cm). Marks scale by this
+   * station's thickness over it; omit to use them as given.
+   */
+  readonly refThickness?: number;
 }
 
 export const MAX_BANDS = 6;
@@ -198,6 +276,14 @@ export interface FacetLine {
   readonly width: number;
   /** How much farther in this band's flat-plane mark sits than the previous band's (cm). */
   readonly step: number;
+  /**
+   * How deep this facet cuts into the finished section (cm), when it does.
+   *
+   * Only ever set for manually marked bands: a fitted facet is a tangent and cannot. The
+   * marks are left exactly as the shaper typed them and the damage is measured instead of
+   * corrected, because a silently moved line is worse than a flagged one.
+   */
+  readonly cutsInside?: number;
   readonly marks: readonly RailFacetMark[];
 }
 
@@ -209,6 +295,7 @@ export type RailFacetWarningCode =
   | 'non-convex-rail-zone'
   | 'tangent-not-found'
   | 'facet-inverted'
+  | 'cuts-inside'
   | 'unvalidated-bottom';
 
 /** Something the shaper needs to know before trusting a number. Never embeds a length. */
@@ -270,7 +357,7 @@ const validAngle = (a: number): boolean => Number.isFinite(a) && a > 0 && a < 90
 
 /** Fit options pulled straight off the facet options, so the defaults live in one place. */
 const fitOptsFrom = (o: RailFacetOptions, bands: number) => ({
-  mode: o.angleMode ?? 'balanced',
+  mode: o.angleMode ?? 'least-foam',
   stepDeg: o.angleStepDeg,
   minGapDeg: o.minAngleGapDeg,
   minAngleDeg: o.minBandAngleDeg,
@@ -550,6 +637,174 @@ const fitCircle = (pts: readonly Vec2[]): { c: Vec2; r: number; rms: number } | 
   return { c, r, rms: Math.sqrt(acc / n) };
 };
 
+
+/** How deep the section pokes through a facet's plane (cm); 0 when it clears. */
+const intrusionOf = (line: Line, pts: readonly Vec2[]): number => {
+  const out = vec2(line.d.y, -line.d.x);
+  let worst = 0;
+  for (const q of pts) {
+    worst = Math.max(worst, (q.x - line.p.x) * out.x + (q.y - line.p.y) * out.y);
+  }
+  return worst;
+};
+
+/** Below this an "intrusion" is spline noise, not a cut. 0.1 mm. */
+const CUTS_INSIDE_TOL = 0.01;
+
+/** How much this station's marks shrink from the ones the shaper measured. */
+const markScale = (marks: RailManualMarks, blank: BlankRef): number =>
+  marks.refThickness && marks.refThickness > 1e-9 ? blank.thickness / marks.refThickness : 1;
+
+const lineThrough = (a: Vec2, b: Vec2): Line | null => {
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  if (!(len > 1e-9)) return null;
+  return { p: a, d: vec2((b.x - a.x) / len, (b.y - a.y) / len) };
+};
+
+/**
+ * Deck facets built from the shaper's own marks, the way the bands are actually cut.
+ *
+ * The primary band joins the rail mark to deck mark 1. Every later band starts at the
+ * **midpoint of the band before it** — Greenlight's rule, and the reason a shaper needs
+ * only one new number per band: by the time band 2 is marked, band 1 is a flat face whose
+ * middle can be found by eye.
+ *
+ * Nothing here is nudged to clear the section. A marked band *can* cut into the finished
+ * rail, and when it does the depth is measured and reported rather than corrected —
+ * printing a number the shaper did not type would defeat the point of a manual mode, and
+ * the warning is the most useful thing this mode does.
+ */
+const manualDeckFacets = (
+  marks: RailManualMarks,
+  blank: BlankRef,
+  sectionPts: readonly Vec2[],
+  x: number,
+  push: (w: RailFacetWarning) => void,
+): FacetLine[] => {
+  const { railX, deckY, bottomY } = blank;
+  const out: FacetLine[] = [];
+  const railUp = (blank.thickness * marks.railPercent) / 100;
+  const scale = markScale(marks, blank);
+  const railAt = vec2(railX, bottomY + railUp);
+  if (railUp <= 0 || railUp >= deckY - bottomY) {
+    push(warn('bad-angle-input', 'the rail mark has to sit between the two corners', x));
+    return out;
+  }
+  let start = railAt;
+  let prevDeckX = railX;
+  for (let i = 0; i < marks.deckIn.length; i++) {
+    const inset = marks.deckIn[i]! * scale;
+    const cutTo = vec2(railX - inset, deckY);
+    if (!(inset > 0) || cutTo.x <= 0) {
+      push(warn('bad-angle-input', 'a deck mark has to sit on the deck, in from the rail', x, i + 1)); // prettier-ignore
+      break;
+    }
+    if (cutTo.x >= prevDeckX) {
+      push(warn('facet-inverted', 'this deck mark is not further in than the one before it', x, i + 1)); // prettier-ignore
+      break;
+    }
+    const line = lineThrough(start, cutTo);
+    if (!line) {
+      push(warn('facet-inverted', 'this band collapses to a point', x, i + 1));
+      break;
+    }
+    const cut = intrusionOf(line, sectionPts);
+    if (cut > CUTS_INSIDE_TOL) {
+      push(
+        warn(
+          'cuts-inside',
+          'these marks cut into the finished rail — the shaded overcut on the station page is what they would remove',
+          x,
+          i + 1,
+        ),
+      );
+    }
+    const nu = Math.atan2(line.d.y, -line.d.x);
+    const marksOut: RailFacetMark[] = [];
+    if (i === 0) {
+      marksOut.push({ ref: { kind: 'deckPlane' }, distance: inset, at: cutTo });
+      marksOut.push({ ref: { kind: 'railPlane' }, distance: railUp, at: railAt });
+    } else {
+      const prev = out[out.length - 1]!;
+      marksOut.push({
+        ref: { kind: 'facet', index: prev.index },
+        distance: dist(prev.cutTo, start),
+        at: start,
+      });
+      marksOut.push({ ref: { kind: 'deckPlane' }, distance: inset, at: cutTo });
+    }
+    out.push({
+      index: out.length + 1,
+      side: 'deck',
+      targetAngle: Math.round(nu * RAD_TO_DEG * 10) / 10,
+      angle: nu * RAD_TO_DEG,
+      touch: start,
+      cutFrom: start,
+      cutTo,
+      keepFrom: start,
+      keepTo: cutTo,
+      width: dist(start, cutTo),
+      step: prevDeckX - cutTo.x,
+      marks: marksOut,
+      ...(cut > CUTS_INSIDE_TOL ? { cutsInside: cut } : {}),
+    });
+    // The next band starts halfway along the face just cut.
+    start = vec2((start.x + cutTo.x) / 2, (start.y + cutTo.y) / 2);
+    prevDeckX = cutTo.x;
+  }
+  return out;
+};
+
+/** The tuck from its two marks, up from and in from the bottom corner. */
+const manualTuck = (
+  marks: RailManualMarks,
+  blank: BlankRef,
+  sectionPts: readonly Vec2[],
+  x: number,
+  push: (w: RailFacetWarning) => void,
+): FacetLine[] => {
+  const { railX, bottomY } = blank;
+  if (!marks.tuckUp || !marks.tuckIn) return [];
+  const scale = markScale(marks, blank);
+  const up = marks.tuckUp * scale;
+  const inn = marks.tuckIn * scale;
+  const railAt = vec2(railX, bottomY + up);
+  const flatAt = vec2(railX - inn, bottomY);
+  // Built inboard→outboard, unlike a deck band. The outward side of a facet is
+  // `(d.y, -d.x)`, so running this one from the rail face down to the flat would point it
+  // up into the foam and measure the distance to the deck as if it were an overcut.
+  const line = lineThrough(flatAt, railAt);
+  if (!line) {
+    push(warn('facet-inverted', 'the tuck marks collapse to a point', x, 1));
+    return [];
+  }
+  const cut = intrusionOf(line, sectionPts);
+  if (cut > CUTS_INSIDE_TOL) {
+    push(warn('cuts-inside', 'the tuck marks cut into the finished rail', x, 1));
+  }
+  const nu = Math.atan2(line.d.y, -line.d.x);
+  return [
+    {
+      index: 1,
+      side: 'bottom',
+      targetAngle: Math.round((180 - nu * RAD_TO_DEG) * 10) / 10,
+      angle: 180 - nu * RAD_TO_DEG,
+      touch: railAt,
+      cutFrom: railAt,
+      cutTo: flatAt,
+      keepFrom: railAt,
+      keepTo: flatAt,
+      width: dist(railAt, flatAt),
+      step: railX - flatAt.x,
+      marks: [
+        { ref: { kind: 'railPlane' }, distance: up, at: railAt },
+        { ref: { kind: 'bottomPlane' }, distance: inn, at: flatAt },
+      ],
+      ...(cut > CUTS_INSIDE_TOL ? { cutsInside: cut } : {}),
+    },
+  ];
+};
+
 // --- one station ---------------------------------------------------------------
 
 const warn = (
@@ -616,9 +871,15 @@ export const railFacetsForSection = (
   const blank: BlankRef = { deckY, bottomY, railX, thickness: deckY - bottomY };
 
   // --- the angles themselves ---
-  // Resolved here rather than at the top because two of the three modes read the section
-  // to place their bands, and none of that is knowable before the apex is.
-  const { angles: deckAngles, error, fallback } = resolveDeckAngles(opts, s, ttApex);
+  // Resolved here rather than at the top because the fitted mode reads the section to
+  // place its bands, and none of that is knowable before the apex is.
+  const manual = opts.angleMode === 'manual' ? opts.manualMarks : undefined;
+  if (opts.angleMode === 'manual' && !manual) {
+    warnings.push(warn('bad-angle-input', 'manual mode needs the marks to build from', x));
+  }
+  const { angles: deckAngles, error, fallback } = manual
+    ? { angles: [] as number[], error: undefined, fallback: undefined }
+    : resolveDeckAngles(opts, s, ttApex);
   if (error) warnings.push(warn('bad-angle-input', error, x));
   if (fallback) warnings.push(warn('angle-fit-failed', fallback, x));
 
@@ -630,7 +891,9 @@ export const railFacetsForSection = (
   warnings.push(...bottomZoneWarnings(s, ttZoneLo, ttApex, x));
 
   // --- deck facets, outer (steepest) to inner ---
-  const deckFacets: FacetLine[] = [];
+  const deckFacets: FacetLine[] = manual
+    ? manualDeckFacets(manual, blank, sectionPts, x, (w) => warnings.push(w))
+    : [];
   const lines: Line[] = [];
   const cutTos: Vec2[] = [];
   let prevDeckMarkX = railX;
@@ -730,9 +993,11 @@ export const railFacetsForSection = (
   }
 
   // --- bottom tuck ---
-  const bottomFacets: FacetLine[] = [];
+  const bottomFacets: FacetLine[] = manual
+    ? manualTuck(manual, blank, sectionPts, x, (w) => warnings.push(w))
+    : [];
   let tuckTT: number | null = null;
-  if (validAngle(bottomAngle)) {
+  if (!manual && validAngle(bottomAngle)) {
     const target = (180 - bottomAngle) * DEG_TO_RAD;
     tuckTT = findTangentTT(s, ttApex, ttZoneLo, target);
     if (tuckTT === null) {
@@ -1081,6 +1346,51 @@ export const railFacetStations = (
   return [...side(wp, lo), wp, ...side(wp, hi)].sort((p, q) => p - q);
 };
 
+const DEFAULT_RAIL_PERCENT = 60;
+
+/**
+ * Resolve the shaper's one set of marks into centimetres for a station.
+ *
+ * Thickness is the only scale that matters here: the corner being cut off is a triangle
+ * whose height is the blank's thickness, so scaling the marks with it holds the band
+ * angles roughly constant while the foil thins — which is what "keep the planer lower in
+ * the tail and nose, higher in the center" describes.
+ */
+const resolveMarks = (
+  spec: RailManualSpec,
+  x: number,
+  wpPos: number,
+  span: { lo: number; hi: number },
+  refThickness: number,
+): RailManualMarks => {
+  const centre = spec.railPercent ?? DEFAULT_RAIL_PERCENT;
+  // Linear either side of the widepoint, so an unset tip simply holds the centre value.
+  const at = (end: number, from: number, to: number): number => {
+    const t = Math.abs(to - from) > 1e-9 ? (x - from) / (to - from) : 0;
+    return centre + (end - centre) * Math.min(1, Math.max(0, t));
+  };
+
+  // The same blend, run on the mark scale, which starts at 1 in the middle.
+  const blend = (end: number, from: number, to: number, mid: number): number => {
+    const t = Math.abs(to - from) > 1e-9 ? (x - from) / (to - from) : 0;
+    return mid + (end - mid) * Math.min(1, Math.max(0, t));
+  };
+  const scale =
+    x <= wpPos
+      ? blend(spec.markScaleTail ?? 1, wpPos, span.lo, 1)
+      : blend(spec.markScaleNose ?? 1, wpPos, span.hi, 1);
+  return {
+    railPercent:
+      x <= wpPos
+        ? at(spec.railPercentTail ?? centre, wpPos, span.lo)
+        : at(spec.railPercentNose ?? centre, wpPos, span.hi),
+    deckIn: (spec.deckInCm ?? []).map((d) => d * scale),
+    ...(spec.tuckUpCm !== undefined ? { tuckUp: spec.tuckUpCm * scale } : {}),
+    ...(spec.tuckInCm !== undefined ? { tuckIn: spec.tuckInCm * scale } : {}),
+    refThickness,
+  };
+};
+
 /** Facet sets for every station on the board, with all warnings collected. */
 export const railFacetPlan = (
   board: BezierBoard,
@@ -1089,6 +1399,17 @@ export const railFacetPlan = (
   const stations = opts.stations ? [...opts.stations].sort((a, b) => a - b) : railFacetStations(board, opts); // prettier-ignore
   const out: RailStationFacets[] = [];
   const warnings: RailFacetWarning[] = [];
+  const widePoint = getMaxWidthPos(board);
+  const span = { lo: stations[0] ?? 0, hi: stations[stations.length - 1] ?? getLength(board) };
+  const spec = opts.manual;
+  // The reference the shaper's deck marks were measured at: the *blank's* corner-to-corner
+  // height at the widepoint, read off the same construction the sheet dimensions, not the
+  // board's nominal thickness. A probe call, once, not per station.
+  const refThickness =
+    spec && spec.by !== 'angle'
+      ? (railFacetsAt(board, widePoint, { ...opts, angleMode: undefined })?.blank.thickness ??
+        getThicknessAtPos(board, widePoint))
+      : 0;
   for (const x of stations) {
     if (
       getWidthAtPos(board, x) < MIN_STATION_DIM ||
@@ -1097,7 +1418,14 @@ export const railFacetPlan = (
       warnings.push(warn('degenerate-station', 'this station is too close to the tip to band', x));
       continue;
     }
-    const st = railFacetsAt(board, x, opts);
+    // Marks are entered once for the board; each station gets its own resolved copy.
+    const perStation: RailFacetOptions =
+      opts.angleMode === 'manual' && spec
+        ? spec.by === 'angle'
+          ? { ...opts, angleMode: undefined, deckAngles: spec.angles ?? [] }
+          : { ...opts, manualMarks: resolveMarks(spec, x, widePoint, span, refThickness) }
+        : opts;
+    const st = railFacetsAt(board, x, perStation);
     if (!st) {
       warnings.push(warn('no-section', 'the board has no section at this station', x));
       continue;
@@ -1105,5 +1433,5 @@ export const railFacetPlan = (
     out.push(st);
     warnings.push(...st.warnings);
   }
-  return { stations: out, widePoint: getMaxWidthPos(board), warnings };
+  return { stations: out, widePoint, warnings };
 };

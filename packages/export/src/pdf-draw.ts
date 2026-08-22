@@ -60,6 +60,13 @@ export interface DimOpts {
   color?: Rgb;
   /** Extra room between the dimension line and its label (cm). */
   labelGapCm?: number;
+  /**
+   * Where the label sits along the dimension line, 0..1. Default 0.5.
+   *
+   * Stacked dimensions that share an origin put their labels at the same height however
+   * far apart their lines are, so one of them has to slide along to stay readable.
+   */
+  labelAtFrac?: number;
 }
 
 /** How a run of text is placed and painted. */
@@ -400,7 +407,8 @@ const compose = (
         ctx.arrow(B, dir, head, gray, color);
       }
       const gap = opts.labelGapCm ?? 0.14;
-      const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+      const f = opts.labelAtFrac ?? 0.5;
+      const mid = { x: A.x + (B.x - A.x) * f, y: A.y + (B.y - A.y) * f };
       const side = offsetCm >= 0 ? 1 : -1;
       const at = tight
         ? { x: B.x + ux * head * 2 + nx * gap * side, y: B.y + uy * head * 2 + ny * gap * side }
