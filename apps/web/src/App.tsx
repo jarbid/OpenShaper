@@ -381,7 +381,12 @@ function AppShell() {
     const pos = next > cur ? (cur + next) / 2 : cur + 5; // midpoint, or nudge past the last
     addSectionAt(pos);
   };
-  const deleteSection = () => boardStore.getState().deleteCrossSection(clampedCs);
+  const deleteSectionAt = (index: number) => {
+    boardStore.getState().deleteCrossSection(index);
+    const count = boardStore.getState().board?.crossSections.length ?? 0;
+    setCsIndex(clampSectionIndex(index, count));
+  };
+  const deleteSection = () => deleteSectionAt(clampedCs);
   const copySection = () => {
     const b = boardStore.getState().board;
     if (b) setCsClipboard(b.crossSections[clampedCs]?.spline ?? null);
@@ -949,6 +954,7 @@ function AppShell() {
       units={units}
       sectionMarkers={sectionMarkers}
       onPickSection={setCsIndex}
+      onDeleteSection={deleteSectionAt}
       onAddSectionAt={addSectionAt}
       onScrub={setScrubX}
       overlays={overlaysFor('outline')}
@@ -981,6 +987,7 @@ function AppShell() {
       units={units}
       sectionMarkers={sectionMarkers}
       onPickSection={setCsIndex}
+      onDeleteSection={deleteSectionAt}
       onAddSectionAt={addSectionAt}
       onScrub={setScrubX}
       overlays={overlaysFor('rocker')}

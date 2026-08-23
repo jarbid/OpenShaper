@@ -151,6 +151,59 @@ describe('buildContextMenuItems', () => {
     const items = build(worldToScreen(VP, vec2(30, 50)));
     expect(labels(items)).not.toContain('Add cross-section here');
   });
+
+  it('offers the slice offset and delete actions when opened from a section marker', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+    store.getState().addCrossSection(25);
+    const onAddSectionAt = vi.fn();
+    const onDeleteSection = vi.fn();
+    const items = buildContextMenuItems({
+      board: store.getState().board!,
+      targets: TARGETS,
+      vp: VP,
+      screen: worldToScreen(VP, vec2(50, 20)),
+      mirrorX: false,
+      mirrorY: false,
+      store,
+      onFitView: vi.fn(),
+      onAddSectionAt,
+      sectionMarker: { pos: 50, index: 2, active: true },
+      onDeleteSection,
+    });
+
+    expect(labels(items)).toEqual([
+      'Add new slice to the right (+10cm)',
+      'Add new slice to the left (-10cm)',
+      'Delete slice',
+    ]);
+    (find(items, 'Add new slice to the right (+10cm)') as { onSelect: () => void }).onSelect();
+    (find(items, 'Add new slice to the left (-10cm)') as { onSelect: () => void }).onSelect();
+    (find(items, 'Delete slice') as { onSelect: () => void }).onSelect();
+    expect(onAddSectionAt.mock.calls).toEqual([[60], [40]]);
+    expect(onDeleteSection).toHaveBeenCalledWith(2);
+  });
+
+  it('disables marker actions that would cross a board end or remove the last real slice', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+    const items = buildContextMenuItems({
+      board: store.getState().board!,
+      targets: TARGETS,
+      vp: VP,
+      screen: worldToScreen(VP, vec2(50, 20)),
+      mirrorX: false,
+      mirrorY: false,
+      store,
+      onFitView: vi.fn(),
+      onAddSectionAt: vi.fn(),
+      sectionMarker: { pos: 95, index: 1, active: true },
+      onDeleteSection: vi.fn(),
+    });
+
+    expect(find(items, 'Add new slice to the right (+10cm)')).toMatchObject({ disabled: true });
+    expect(find(items, 'Delete slice')).toMatchObject({ disabled: true });
+  });
 });
 
 describe('buildContextMenuItems: rail presets', () => {

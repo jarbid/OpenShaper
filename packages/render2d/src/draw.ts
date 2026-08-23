@@ -266,6 +266,12 @@ export interface SectionMarker {
   active: boolean;
 }
 
+/** Vertical inset for the two pick handles on a cross-section marker. */
+export const SECTION_MARKER_HANDLE_OFFSET = 28;
+
+/** Base half-size of a cross-section marker's diamond handle. */
+const SECTION_MARKER_HANDLE_RADIUS = 5;
+
 /**
  * Draw vertical section-position markers across the outline/rocker view (legacy
  * "cross-section positions"). Dashed and cyan/teal so they read as *stations*,
@@ -277,35 +283,54 @@ export const drawSectionMarkers = (
   markers: readonly SectionMarker[],
   vp: Viewport,
   height: number,
+  hoveredIndex: number | null = null,
 ): void => {
   ctx.save();
   for (const m of markers) {
     const x = worldToScreen(vp, { x: m.pos, y: 0 }).x;
-    ctx.strokeStyle = m.active ? '#22D3EE' : 'rgba(45,212,191,0.55)';
-    ctx.lineWidth = m.active ? 2 : 1;
-    ctx.setLineDash(m.active ? [] : [5, 4]);
+    const highlighted = m.active || m.index === hoveredIndex;
+    const color = highlighted ? '#22D3EE' : 'rgba(45,212,191,0.65)';
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = highlighted ? 2 : 1;
+    ctx.setLineDash(highlighted ? [] : [3, 4]);
     ctx.beginPath();
     ctx.moveTo(x, 0);
     ctx.lineTo(x, height);
     ctx.stroke();
+
+    const radius = highlighted ? SECTION_MARKER_HANDLE_RADIUS + 2 : SECTION_MARKER_HANDLE_RADIUS;
+    for (const y of [SECTION_MARKER_HANDLE_OFFSET, height - SECTION_MARKER_HANDLE_OFFSET]) {
+      ctx.beginPath();
+      ctx.moveTo(x, y - radius);
+      ctx.lineTo(x + radius, y);
+      ctx.lineTo(x, y + radius);
+      ctx.lineTo(x - radius, y);
+      ctx.closePath();
+      ctx.fill();
+    }
   }
   ctx.restore();
 };
 
-/** Index of the section marker nearest `screenX` within `tolPx`, or null. */
+/** Section marker whose top or bottom diamond contains `screen`, or null. */
 export const hitSectionMarker = (
   markers: readonly SectionMarker[],
   vp: Viewport,
-  screenX: number,
-  tolPx = 6,
-): number | null => {
-  let best: { index: number; d: number } | null = null;
+  screen: { x: number; y: number },
+  height: number,
+  tolPx = 10,
+): SectionMarker | null => {
+  let best: { marker: SectionMarker; d: number } | null = null;
   for (const m of markers) {
     const x = worldToScreen(vp, { x: m.pos, y: 0 }).x;
-    const d = Math.abs(x - screenX);
-    if (d <= tolPx && (!best || d < best.d)) best = { index: m.index, d };
+    const d = Math.min(
+      Math.hypot(x - screen.x, SECTION_MARKER_HANDLE_OFFSET - screen.y),
+      Math.hypot(x - screen.x, height - SECTION_MARKER_HANDLE_OFFSET - screen.y),
+    );
+    if (d <= tolPx && (!best || d < best.d)) best = { marker: m, d };
   }
-  return best ? best.index : null;
+  return best?.marker ?? null;
 };
 
 /**

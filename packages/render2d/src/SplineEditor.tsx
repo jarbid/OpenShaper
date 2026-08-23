@@ -76,6 +76,8 @@ export interface SplineEditorProps {
   sectionMarkers?: SectionMarker[];
   /** Called when a section marker is clicked. */
   onPickSection?: (index: number) => void;
+  /** Called when a section marker's context menu requests deletion. */
+  onDeleteSection?: (index: number) => void;
   /**
    * Insert a cross-section at a board-length position (cursor x), surfaced as an
    * "Add cross-section here" context-menu item. Length-axis panes (outline/rocker) only.
@@ -358,6 +360,7 @@ export function SplineEditor({
   colors,
   sectionMarkers,
   onPickSection,
+  onDeleteSection,
   onAddSectionAt,
   onScrub,
   readout,
@@ -384,6 +387,7 @@ export function SplineEditor({
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [vp, setVp] = useState<Viewport | null>(null);
   const [hover, setHover] = useState<Vec2 | null>(null);
+  const [hoveredSection, setHoveredSection] = useState<number | null>(null);
   // Live trace transform while dragging/rotating the image; committed on pointer-up.
   const [liveTrace, setLiveTrace] = useState<SimilarityParams | null>(null);
   const drag = useRef<DragState>(null);
@@ -394,7 +398,7 @@ export function SplineEditor({
   const pinch = useRef<{ dist: number; cx: number; cy: number } | null>(null);
   const longPress = useRef<{ x: number; y: number } | null>(null);
   const longPressTimer = useRef<number | null>(null);
-  const [cursor, setCursor] = useState<'crosshair' | 'grab' | 'grabbing'>('crosshair');
+  const [cursor, setCursor] = useState<'crosshair' | 'pointer' | 'grab' | 'grabbing'>('crosshair');
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const selection = useSyncExternalStore(store.subscribe, () => store.getState().selection);
   const selectedFin = useSyncExternalStore(store.subscribe, () => store.getState().selectedFin);
@@ -494,7 +498,7 @@ export function SplineEditor({
     }
     if (calibration) drawCalibrationOverlay(ctx, vp, calibration, effBg);
     if (sectionMarkers && sectionMarkers.length > 0) {
-      drawSectionMarkers(ctx, sectionMarkers, vp, size.h);
+      drawSectionMarkers(ctx, sectionMarkers, vp, size.h, hoveredSection);
     }
     if (overlays?.distribution) drawDistribution(ctx, overlays.distribution, vp, size.h);
     if (overlays?.verticalMarkers) drawVerticalMarkers(ctx, overlays.verticalMarkers, vp, size.h);
@@ -559,6 +563,7 @@ export function SplineEditor({
     colors,
     targets,
     sectionMarkers,
+    hoveredSection,
     overlays,
     ghostSplines,
     background,
@@ -617,6 +622,12 @@ export function SplineEditor({
       return null;
     },
     [vp, board, targets],
+  );
+
+  const sectionMarkerAt = useCallback(
+    (p: { x: number; y: number }) =>
+      vp && sectionMarkers ? hitSectionMarker(sectionMarkers, vp, p, size.h) : null,
+    [vp, sectionMarkers, size.h],
   );
 
   const cancelLongPress = useCallback(() => {
@@ -683,7 +694,9 @@ export function SplineEditor({
             store.getState().endEdit();
           }
           drag.current = null;
-          const picked = hitAny(p);
+          const marker = sectionMarkerAt(p);
+          if (marker) onPickSection?.(marker.index);
+          const picked = marker ? null : hitAny(p);
           if (picked) store.getState().select({ target: picked.target, index: picked.hit.index });
           const items = buildContextMenuItems({
             board,
@@ -695,6 +708,8 @@ export function SplineEditor({
             store,
             onFitView: fitView,
             onAddSectionAt,
+            sectionMarker: marker ?? undefined,
+            onDeleteSection,
           });
           setMenu({ x: clientX, y: clientY, items });
         }, LONG_PRESS_MS);
@@ -725,6 +740,11 @@ export function SplineEditor({
         return;
       }
       // Left button is select/edit only — never pans.
+      const marker = sectionMarkerAt(p);
+      if (marker && onPickSection) {
+        onPickSection(marker.index);
+        return;
+      }
       const picked = hitAny(p);
       if (picked) {
         store.getState().select({ target: picked.target, index: picked.hit.index });
@@ -766,14 +786,6 @@ export function SplineEditor({
           return;
         }
       }
-      // Clicking a section marker (outline view) picks that section.
-      if (sectionMarkers && onPickSection) {
-        const marker = hitSectionMarker(sectionMarkers, vp, p.x);
-        if (marker !== null) {
-          onPickSection(marker);
-          return;
-        }
-      }
       // Empty space: just deselect.
       store.getState().select(null);
     },
@@ -782,8 +794,8 @@ export function SplineEditor({
       board,
       store,
       hitAny,
-      sectionMarkers,
       onPickSection,
+      onDeleteSection,
       overlays,
       cancelLongPress,
       targets,
@@ -795,6 +807,7 @@ export function SplineEditor({
       onCalibrationClick,
       traceInteractive,
       background,
+      sectionMarkerAt,
     ],
   );
 
@@ -836,6 +849,9 @@ export function SplineEditor({
         const w = screenToWorld(vp, p);
         if (readout) setHover(w);
         onScrub?.(w.x);
+        const marker = sectionMarkerAt(p);
+        setHoveredSection(marker?.index ?? null);
+        if (!spaceHeld.current) setCursor(marker ? 'pointer' : 'crosshair');
         return;
       }
       if (d.mode === 'pan') {
@@ -887,7 +903,7 @@ export function SplineEditor({
       if (d.hit.kind === 'end') store.getState().moveControlPoint(d.target, d.hit.index, world);
       else store.getState().moveTangent(d.target, d.hit.index, d.hit.kind, world);
     },
-    [vp, store, readout, onScrub, cancelLongPress],
+    [vp, store, readout, onScrub, cancelLongPress, sectionMarkerAt],
   );
 
   const onPointerUp = useCallback(
@@ -918,7 +934,9 @@ export function SplineEditor({
       // A right-button tap (no pan) opens the context menu at the cursor.
       if (d?.mode === 'rightpan' && !d.moved && vp && board) {
         const p = localPoint(e);
-        const picked = hitAny(p);
+        const marker = sectionMarkerAt(p);
+        if (marker) onPickSection?.(marker.index);
+        const picked = marker ? null : hitAny(p);
         if (picked) store.getState().select({ target: picked.target, index: picked.hit.index });
         const items = buildContextMenuItems({
           board,
@@ -930,6 +948,8 @@ export function SplineEditor({
           store,
           onFitView: fitView,
           onAddSectionAt,
+          sectionMarker: marker ?? undefined,
+          onDeleteSection,
         });
         setMenu({ x: e.clientX, y: e.clientY, items });
       }
@@ -947,6 +967,9 @@ export function SplineEditor({
       hitAny,
       fitView,
       onAddSectionAt,
+      onPickSection,
+      onDeleteSection,
+      sectionMarkerAt,
       cancelLongPress,
       liveTrace,
       onTraceTransform,
@@ -1044,6 +1067,8 @@ export function SplineEditor({
         onPointerCancel={onPointerCancel}
         onPointerLeave={() => {
           setHover(null);
+          setHoveredSection(null);
+          if (!spaceHeld.current) setCursor('crosshair');
           onScrub?.(null);
         }}
         onDoubleClick={onDoubleClick}

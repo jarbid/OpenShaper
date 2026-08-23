@@ -10,6 +10,7 @@ import { getTargetSpline, type BoardState, type SplineTarget } from '@openshaper
 import type { MenuItem } from '@openshaper/ui';
 import type { StoreApi } from 'zustand/vanilla';
 import { hitTest } from './hit';
+import type { SectionMarker } from './draw';
 import { screenToWorld, type ScreenPoint, type Viewport } from './viewport';
 
 /** Distance from a world point to the nearest point on a spline. */
@@ -38,12 +39,17 @@ export interface ContextMenuRequest {
    * cross-section here". The cross-section pane's x is lateral, so it omits this.
    */
   onAddSectionAt?: (x: number) => void;
+  /** Marker under the pointer, when the context menu was opened from its diamond handle. */
+  sectionMarker?: SectionMarker;
+  /** Remove the indicated real cross-section. */
+  onDeleteSection?: (index: number) => void;
 }
 
 /**
  * Build the right-click context menu for a 2D editor pane, adapting to what is under
  * the cursor (modern enhancement over the legacy's single static popup):
  *
+ *  - on a cross-section marker → add a slice ±10 cm or delete that slice;
  *  - on a control-point handle → Make smooth/corner (interior only) + Delete point
  *    (disabled on endpoints, matching `canDeleteKnot`);
  *  - on a curve (but not a handle) → Add point here;
@@ -59,7 +65,49 @@ export interface ContextMenuRequest {
  * wires `onSelect` handlers and reads a board snapshot.
  */
 export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
-  const { board, targets, vp, screen, mirrorX, mirrorY, store, onFitView, onAddSectionAt } = req;
+  const {
+    board,
+    targets,
+    vp,
+    screen,
+    mirrorX,
+    mirrorY,
+    store,
+    onFitView,
+    onAddSectionAt,
+    sectionMarker,
+    onDeleteSection,
+  } = req;
+
+  if (sectionMarker && onAddSectionAt && onDeleteSection) {
+    const first = board.crossSections[0]?.position ?? 0;
+    const last = board.crossSections.at(-1)?.position ?? first;
+    const right = sectionMarker.pos + 10;
+    const left = sectionMarker.pos - 10;
+    const occupied = (position: number) =>
+      board.crossSections.some((section) => Math.abs(section.position - position) < 1e-6);
+    return [
+      {
+        kind: 'action',
+        label: 'Add new slice to the right (+10cm)',
+        disabled: right >= last || occupied(right),
+        onSelect: () => onAddSectionAt(right),
+      },
+      {
+        kind: 'action',
+        label: 'Add new slice to the left (-10cm)',
+        disabled: left <= first || occupied(left),
+        onSelect: () => onAddSectionAt(left),
+      },
+      { kind: 'separator' },
+      {
+        kind: 'action',
+        label: 'Delete slice',
+        disabled: board.crossSections.length <= 3,
+        onSelect: () => onDeleteSection(sectionMarker.index),
+      },
+    ];
+  }
   const viewGroup: MenuItem[] = [
     { kind: 'separator' },
     { kind: 'action', label: 'Fit view', onSelect: onFitView },
