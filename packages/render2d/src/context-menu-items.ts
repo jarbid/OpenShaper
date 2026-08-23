@@ -89,13 +89,13 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
     return [
       {
         kind: 'action',
-        label: 'Add new slice to the right (+10cm)',
+        label: 'Add new slice to the right',
         disabled: right >= last || occupied(right),
         onSelect: () => onAddSectionAt(right),
       },
       {
         kind: 'action',
-        label: 'Add new slice to the left (-10cm)',
+        label: 'Add new slice to the left',
         disabled: left <= first || occupied(left),
         onSelect: () => onAddSectionAt(left),
       },

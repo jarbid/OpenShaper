@@ -82,6 +82,7 @@ import { ConstructionPanel } from './ConstructionPanel';
 import { SettingsDialog } from './SettingsDialog';
 import { loadSettings, saveSettings, type EditorSettings } from './settings';
 import { CrossSectionControls } from './CrossSectionControls';
+import { SectionPositionEditor } from './SectionPositionEditor';
 import { CoffeeIcon } from './components/Support';
 import { Sidebar, type OverlayToggles, type ResizeFields } from './Sidebar';
 import sampleBrd from './sample-board.brd?raw';
@@ -258,6 +259,22 @@ function AppShell() {
   // Transient cross-pane scrub: the board-length x being hovered in the rocker/outline,
   // mirrored to the other panes as a vertical guide + an interpolated section preview.
   const [scrubX, setScrubX] = useState<number | null>(null);
+  const focusSection = useCallback((index: number | null) => {
+    if (index !== null) setScrubX(null);
+    setFocusedSection(index);
+  }, []);
+  const scrubSection = useCallback(
+    (position: number | null) => setScrubX(focusedSection === null ? position : null),
+    [focusedSection],
+  );
+  useEffect(() => {
+    if (focusedSection === null) return;
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFocusedSection(null);
+    };
+    window.addEventListener('keydown', dismissOnEscape);
+    return () => window.removeEventListener('keydown', dismissOnEscape);
+  }, [focusedSection]);
   const [unitKey, setUnitKey] = useState<string>(
     () => localStorage.getItem('bs.lengthUnit') ?? DEFAULT_LENGTH_UNIT.key,
   );
@@ -964,11 +981,11 @@ function AppShell() {
       sectionMarkers={sectionMarkers}
       onPickSection={setCsIndex}
       focusedSection={focusedSection}
-      onFocusSection={setFocusedSection}
+      onFocusSection={focusSection}
       onMoveSection={moveSection}
       onDeleteSection={deleteSectionAt}
       onAddSectionAt={addSectionAt}
-      onScrub={setScrubX}
+      onScrub={scrubSection}
       overlays={overlaysFor('outline')}
       ghostSplines={ghostSplinesFor('outline')}
       {...traceProps('outline')}
@@ -984,7 +1001,7 @@ function AppShell() {
       csIndex={clampedCs}
       units={units}
       focusedSection={focusedSection}
-      onFocusSection={setFocusedSection}
+      onFocusSection={focusSection}
       overlays={overlaysFor('crossSection')}
       ghostSplines={ghostSplinesFor('crossSection')}
       viewCommand={viewCmd}
@@ -1002,11 +1019,11 @@ function AppShell() {
       sectionMarkers={sectionMarkers}
       onPickSection={setCsIndex}
       focusedSection={focusedSection}
-      onFocusSection={setFocusedSection}
+      onFocusSection={focusSection}
       onMoveSection={moveSection}
       onDeleteSection={deleteSectionAt}
       onAddSectionAt={addSectionAt}
-      onScrub={setScrubX}
+      onScrub={scrubSection}
       overlays={overlaysFor('rocker')}
       ghostSplines={ghostSplinesFor('rocker')}
       {...traceProps('rocker')}
@@ -1140,6 +1157,14 @@ function AppShell() {
             {tab('crossSection', 'Cross-section')}
             {tab('3d', '3D')}
           </div>
+          {focusedSection !== null && board?.crossSections[focusedSection] && (
+            <SectionPositionEditor
+              valueCm={board.crossSections[focusedSection].position}
+              units={units}
+              onCommit={(position) => moveSection(focusedSection, position)}
+              onDismiss={() => setFocusedSection(null)}
+            />
+          )}
           <select
             value={unitKey}
             onChange={(e) => setUnitKey(e.target.value)}
@@ -1254,10 +1279,10 @@ function AppShell() {
               sectionMarkers={sectionMarkers}
               onPickSection={setCsIndex}
               focusedSection={focusedSection}
-              onFocusSection={setFocusedSection}
+              onFocusSection={focusSection}
               onMoveSection={moveSection}
               onAddSectionAt={addSectionAt}
-              onScrub={setScrubX}
+              onScrub={scrubSection}
               overlays={overlaysFor(view)}
               ghostSplines={ghostSplinesFor(view)}
               {...(view === 'crossSection' ? {} : traceProps(view))}

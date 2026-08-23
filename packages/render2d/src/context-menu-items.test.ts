@@ -173,12 +173,12 @@ describe('buildContextMenuItems', () => {
     });
 
     expect(labels(items)).toEqual([
-      'Add new slice to the right (+10cm)',
-      'Add new slice to the left (-10cm)',
+      'Add new slice to the right',
+      'Add new slice to the left',
       'Delete slice',
     ]);
-    (find(items, 'Add new slice to the right (+10cm)') as { onSelect: () => void }).onSelect();
-    (find(items, 'Add new slice to the left (-10cm)') as { onSelect: () => void }).onSelect();
+    (find(items, 'Add new slice to the right') as { onSelect: () => void }).onSelect();
+    (find(items, 'Add new slice to the left') as { onSelect: () => void }).onSelect();
     (find(items, 'Delete slice') as { onSelect: () => void }).onSelect();
     expect(onAddSectionAt.mock.calls).toEqual([[60], [40]]);
     expect(onDeleteSection).toHaveBeenCalledWith(2);
@@ -201,7 +201,7 @@ describe('buildContextMenuItems', () => {
       onDeleteSection: vi.fn(),
     });
 
-    expect(find(items, 'Add new slice to the right (+10cm)')).toMatchObject({ disabled: true });
+    expect(find(items, 'Add new slice to the right')).toMatchObject({ disabled: true });
     expect(find(items, 'Delete slice')).toMatchObject({ disabled: true });
   });
 });
