@@ -441,7 +441,7 @@ Three rules govern every event:
 | ----------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | `template_loaded`       | `template`                                                                                          | Which starter board people begin from                                      |
 | `save_board`            | `format` (`board` \| `brd`)                                                                         | Native vs legacy round-tripping                                            |
-| `export_board`          | `format` (`stl` \| `step` \| `dxf` \| `dxf-spline` \| `pdf-1to1-custom`)                            | The "got real value" action                                                |
+| `export_board`          | `format` (`stl` \| `step` \| `dxf` \| `dxf-spline` \| `pdf-1to1-custom` \| `rail-bands`)             | The "got real value" action                                                |
 | `recent_board_opened`   | `position`                                                                                          | The only return-visitor proof on the baseline                              |
 | `board_imported`        | `source`, `warning_count`, `dropped_count`                                                          | The BoardCAD on-ramp, previously unmeasured                                |
 | `import_failed`         | `source`, `reason`                                                                                  | Worst outcome in the app; used to fail silently                            |
@@ -449,11 +449,47 @@ Three rules govern every event:
 | `overlay_toggled`       | `overlay`, `enabled`                                                                                | Whether the comb / CoM / distribution overlays earn their upkeep           |
 | `hws_template_opened`   | —                                                                                                   | Templating is the roadmap phase in progress                                |
 | `hws_template_exported` | `format`, `nested`, `parts`                                                                         | …and this is it actually being used; the gap between the two is the signal |
-| `spec_sheet_opened`     | —                                                                                                   |                                                                            |
+| `rail_bands_opened`     | —                                                                                                   | The dialog asks for a marking mode before it gives anything — see below     |
+| `rail_bands_exported`   | `angle_mode`, `manual_by`, `bands`, `stations`, `paper`, `detail_pages`, `varied_along_board`, `cuts_inside`, `warnings` | …and this is a shaper who got through it                                   |
+| `spec_sheet_opened`     | —                                                                                                   | Cheapest thing in the Export menu; the floor the others are read against    |
 | `trace_image_loaded`    | `target`                                                                                            | Distinctive feature, zero prior visibility                                 |
 | `consent_banner`        | `action` (`shown` \| `accepted` \| `rejected`)                                                      | Distinguishes bad copy from a banner nobody sees                           |
 | `pwa_installed`         | —                                                                                                   | The install conversion; fires online, so unlike offline usage it sends     |
 | `session_summary`       | `edits`, `views_used`, `view_count`, `exported`, `saved`, `imported`, `template_used`, `duration_s` | Session depth without a per-action stream                                  |
+
+### Rail bands, and the two questions it was built to answer
+
+`rail_bands_exported` (`ExportRailBandsDialog.tsx`) carries more than the other
+export events because two of its properties are not dashboard filler — they are
+the open questions the feature shipped with.
+
+- **`angle_mode`** (`ladder` | `least-foam` | `manual`). The mode set was cut from
+  four to three and `manual` was added in its place, on the argument that a shaper
+  who wants a particular rail will mark it themselves rather than accept a fit.
+  That argument is a guess until this splits.
+- **`cuts_inside`**. Manual marks are deliberately *not* corrected when they cut
+  into the finished section — the depth is measured and flagged instead, on the
+  reasoning that silently moving a shaper's line is worse than telling them about
+  it. If this is always zero the checker is dead weight; if it is common, the
+  dialog should be doing more than counting.
+
+The rest are ordinary: `bands` and `stations` size the sheet, `paper` and
+`detail_pages` say how it is printed, and `varied_along_board` records only
+*whether* the tail/nose disclosure was used, never what was put in it.
+
+It fires from the dialog rather than from `App.tsx` because the plan — and so the
+warning counts — is already computed there; `ConstructionPanel` reports the HWS
+export the same way. `export_board` still fires alongside it, so rail bands stay
+in the one export funnel with every other format.
+
+### Keeping this table honest
+
+`analytics.coverage.test.ts` reads every `track()` call in `apps/web/src` and every
+row of the table above, and fails the build if they disagree in either direction.
+It was written because the table had already drifted: `export_board` was missing
+the `rail-bands` format it had been sending for a release, and `spec_sheet_opened`
+sat here with an empty reason. Same limit as the `/docs` coverage test — it proves
+a row exists, never that the properties beside it are complete.
 
 `session_summary` (`apps/web/src/session-metrics.ts`) is emitted once on
 `pagehide`. `edits` is read from the undo stack's depth at flush time rather

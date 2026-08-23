@@ -17,6 +17,7 @@ import {
 import { PAPER_SIZES } from '@openshaper/export';
 import { Button, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { useEffect, useMemo, useState } from 'react';
+import { track } from './analytics';
 import { fmtLen, type LengthUnit } from './format';
 import { CheckRow, Group, IntField, LenField, SelectRow } from './export-form-atoms';
 import { DEFAULT_RAIL_BANDS, type RailBandsSettings } from './rail-bands-settings';
@@ -201,6 +202,31 @@ export function ExportRailBandsDialog({
   const removedNow = tradeoff.find((t) => t.bands === draft.bands)?.removed;
 
   const exportNow = () => {
+    // Tracked here rather than in App.tsx because the plan is already in hand: the
+    // warning counts are the point, and recomputing a plan just to count them would
+    // duplicate the dialog's own work. `ConstructionPanel` reports its HWS export the
+    // same way, for the same reason. App.tsx still fires `export_board`, so rail bands
+    // stay in the one export funnel with every other format.
+    //
+    // Dials only — counts and categories, never a length, a board name or a file name
+    // (docs/design/analytics.md, rule 1). Two of these exist to answer questions the
+    // feature was built on rather than to fill a dashboard: `angle_mode` is whether
+    // manual marking earned its place beside the fit, and `cuts_inside` is whether the
+    // overcut checker ever actually catches anything — it is the reason manual marks are
+    // measured against the section instead of being quietly corrected.
+    track('rail_bands_exported', {
+      angle_mode: draft.angleMode,
+      ...(draft.angleMode === 'manual' ? { manual_by: draft.manualBy } : {}),
+      bands: draft.bands,
+      stations: plan.stations.length,
+      paper: draft.paperId,
+      detail_pages: draft.detailPages,
+      // Whether the "vary along the board" disclosure was used at all, rather than what
+      // was put in it: the question is if a shaper wants one rail or three.
+      varied_along_board: draft.railPercentTail !== null || draft.railPercentNose !== null,
+      cuts_inside: plan.warnings.filter((w) => w.code === 'cuts-inside').length,
+      warnings: plan.warnings.length,
+    });
     onExport(draft);
     onClose();
   };

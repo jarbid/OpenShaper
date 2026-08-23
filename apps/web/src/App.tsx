@@ -779,7 +779,14 @@ function AppShell() {
       kind: 'action',
       label: 'Rail bands…',
       disabled: !board,
-      onSelect: () => setRailBandsDialogOpen(true),
+      onSelect: () => {
+        // Opening is interest, exporting is use; the gap between the two is the signal —
+        // the same pair `hws_template_opened` / `hws_template_exported` measures. It
+        // matters more here than for a one-click format, because this dialog asks the
+        // shaper to choose a marking mode before it will give them anything.
+        track('rail_bands_opened');
+        setRailBandsDialogOpen(true);
+      },
     },
     {
       kind: 'action',
