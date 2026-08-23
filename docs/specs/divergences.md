@@ -41,23 +41,63 @@ mesh fix. Reconciling it means moving `getControlPointCrossSectionAreaAt` onto
 `loft.ts` and re-banding `golden.json`'s volume/CoM — worth doing, deliberately
 not done here.
 
-**2026-08-22 — rail bands crossed over.** `railFacetsAt` now takes its station
-section from `loftCrossSection` (`loft.ts`) rather than
-`getInterpolatedCrossSection`, so the rail-band sheet sits on the same surface as
-the 3D view and the STL. No table row: BoardCAD-LE has no rail bands, so no
-legacy value is superseded — this is one internal model replacing another. It is
-listed here because the paragraph above enumerates who is on which side, and that
-list is now: **sampled points** — 3D view, STL, rail bands; **control points** —
-volume, centre of mass, 2D section preview, `insertCrossSection`, DXF/PDF section
-curves, HWS ribs. The magnitude on the moved caller is not small: on a longboard
-carrying a different rail preset per station the blended section stood 4.96 mm
-off the lofted surface, and the fitted first band read 17.0°, 65.5°, 41.5° at
-three consecutive stations of a rail that is ~21° throughout. `docs/design/rail-bands.md`
-("Where a station's section comes from") has the account; oracles are
+**2026-08-22 — everything that draws or measures a section crossed over.** A new
+`loftCrossSection` (`loft.ts`) rebuilds the lofted surface as a *curve*, so callers
+that need tangents rather than points can share it. Moved onto it: rail bands
+(`railFacetsAt`), the DXF and 1:1-PDF section curves (`board-curves.ts`), the HWS
+ribs (`hws.ts`), the surface-height probes `deckZAt` / `bottomZAt` (`surface.ts`,
+and through them the HWS rail strips in `rail-band.ts`), and the editor's 2D
+section preview. No table row: none of these has a legacy counterpart whose value
+is being superseded — this is one internal model replacing another. It is recorded
+here because the paragraph above enumerates who is on which side, and that list is
+now:
+
+- **sampled points (the loft):** 3D view, STL, rail bands, DXF/PDF section curves,
+  HWS ribs and rail strips, 2D section preview.
+- **control points:** volume and centre of mass only. `insertCrossSection` keeps
+  the blend where it is provably right and fits the loft where it is not — see
+  below.
+
+The magnitude on the moved callers is not small. On a longboard carrying a
+different rail preset per station the blended section stood 4.96 mm off the lofted
+surface, and the fitted first rail band read 17.0°, 65.5°, 41.5° at three
+consecutive stations of a rail that is ~21° throughout.
+`docs/design/rail-bands.md` ("Where a station's section comes from") has the
+account; the oracles are `loft.section.test.ts` (the rebuilt curve tracks the exact
+arc-length blend to 0.076 mm, never blends a section sharper than the stations
+either side of it, and agrees with what `deckZAt` / `bottomZAt` report),
 `rail-facets.loft.test.ts` (re-knotting a station, which cannot change the board,
-moves no printed number by more than 0.02 mm) and `loft.section.test.ts` (the
-rebuilt curve tracks the exact arc-length blend to 0.076 mm and never blends a
-section sharper than the stations either side of it).
+moves no printed number by more than 0.02 mm) and `board-curves.loft.test.ts` (the
+DXF and PDF sections are the lofted curve, segment for segment).
+
+**The two still on control points, and why.**
+
+- **`insertCrossSection`** was fixed separately, and not by swapping the model.
+  It promises to be shape-preserving and was not: with neighbouring stations
+  carrying different rails it moved the lofted surface by up to **4.73 mm** on the
+  golden longboard. But an inserted station is a *hand-editable* one, so storing
+  the 96-knot lofted curve would replace the bug with a worse one, and a low-knot
+  *interpolation* of that curve cannot bridge the gap — it needs 16–28 knots to
+  hold 0.2 mm even on a stock board, and at 5–8 it is no better than the blend
+  (3.5–4.9 mm). Meanwhile where the two neighbours share a profile the blend is
+  **exact** at five knots, which is most boards most of the time.
+
+  So `editableCrossSection` (`section-fit.ts`) measures first: it keeps the blend
+  wherever that is already within 0.5 mm of the lofted surface, and otherwise fits
+  the surface with a C1 cubic spline at the smallest knot count that gets there
+  (fixed-end-tangent least squares per span, knots on the `ringFractions` ladder).
+  On the three golden boards every ordinary station keeps its five or six knots
+  untouched; the three stations the blend got wrong go 1.20 mm → 0.21 mm at 12
+  knots, 4.73 mm → 0.48 mm at 8, and 1.48 mm → 0.33 mm at 8. The tolerance is set
+  by the reference's own resolution, not by taste — the lofted curve itself stands
+  0.07–0.15 mm off the exact blend, so a tighter threshold spends control points
+  chasing table noise (at 0.2 mm it ran an ordinary funboard station from five
+  knots to sixteen to buy 0.16 mm). Oracle: `section-fit.test.ts`.
+
+- **Volume and centre of mass** are the one caller still on the blend. Moving them
+  additionally needs the module cycle broken (`board.ts` is what `loft.ts` is built
+  on) and `golden.json` re-banded against a new oracle, which is the work the
+  paragraph above already describes. Deliberately not done here.
 
 ## `.brd` writer (`packages/io/src/brd-writer.ts`)
 

@@ -6,7 +6,7 @@ import {
   curveFromPoints,
   curveLength,
   defaultFinConfig,
-  getInterpolatedCrossSection,
+  editableCrossSection,
   getLength,
   getWidthAtPos,
   hasTailCutout,
@@ -258,17 +258,24 @@ export const withCrossSections = (b: BezierBoard, list: readonly CrossSection[])
 
 /**
  * Insert a shape-preserving cross-section at `position` (legacy
- * BrdAddCrossSectionCommand). The new station is the interpolated surface
- * section at that x — already scaled to the board's width/thickness there — so
- * adding it does not change the board shape; it just gives an editable station.
- * Returns the new board + the inserted section's index, or null if `position` is
- * out of range.
+ * BrdAddCrossSectionCommand). The new station is the surface section at that x —
+ * already scaled to the board's width/thickness there — so adding it does not change
+ * the board shape; it just gives an editable station. Returns the new board + the
+ * inserted section's index, or null if `position` is out of range.
+ *
+ * "Does not change the board shape" used to be false. The section came off
+ * `getInterpolatedCrossSection`, whose control-point blend can sit millimetres from the
+ * surface the 3D view and the STL show — up to 4.59 mm on the golden longboard with a
+ * different rail at each station — so the user asked for a handle and silently got a
+ * different board. `editableCrossSection` keeps that blend wherever it is already right
+ * (usually exactly right, at five knots) and fits the lofted surface where it is not.
+ * See `section-fit.ts` for why an inserted station cannot simply be the lofted curve.
  */
 export const insertCrossSection = (
   b: BezierBoard,
   position: number,
 ): { board: BezierBoard; index: number } | null => {
-  const cs = getInterpolatedCrossSection(b, position);
+  const cs = editableCrossSection(b, position);
   if (!cs) return null;
   const list = [...b.crossSections, cs].sort((a, c) => a.position - c.position);
   return { board: withCrossSections(b, list), index: list.indexOf(cs) };

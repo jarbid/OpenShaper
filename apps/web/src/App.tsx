@@ -1,7 +1,7 @@
 import { stepExportSupport } from '@openshaper/export';
 import { parseBrd, readBoardJson, writeBoardJson } from '@openshaper/io';
 import {
-  getInterpolatedCrossSection,
+  loftCrossSection,
   getLength,
   resolveFins,
   type BezierBoard,
@@ -472,14 +472,16 @@ function AppShell() {
       else {
         const pos = board?.crossSections[clampedCs]?.position;
         if (pos !== undefined) {
-          const cs = getInterpolatedCrossSection(ghost, pos);
+          const cs = loftCrossSection(ghost, pos);
           if (cs) out.push(cs.spline);
         }
       }
     }
     if (kind === 'crossSection' && board) {
       if (scrubX != null) {
-        const preview = getInterpolatedCrossSection(board, scrubX);
+        // The lofted surface, so the section under the scrub reads the same here as it
+        // does in the 3D view beside it.
+        const preview = loftCrossSection(board, scrubX);
         if (preview) out.push(preview.spline);
       }
       // Adjacent real stations (skip the nose/tail dummies at 0 / last).

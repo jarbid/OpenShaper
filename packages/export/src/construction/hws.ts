@@ -16,7 +16,7 @@ import {
   boxSpan,
   developHorizontalRailBand,
   developRailBand,
-  getInterpolatedCrossSection,
+  loftCrossSection,
   getLength,
   getMaxThickness,
   outlineInsetHalfWidthAt,
@@ -420,7 +420,9 @@ const buildRib = (
     warn({ code: 'rib-skipped', partId: id, message: `Rib ${index + 1} skipped: ${why}` });
     return null;
   };
-  const cs = getInterpolatedCrossSection(board, x);
+  // The lofted surface, not the control-point blend: a rib is a cut part, and its
+  // profile has to be the shape the 3D view and the STL agree on. See `loft.ts`.
+  const cs = loftCrossSection(board, x);
   if (!cs) return skip('no cross-section here');
   const tol = p.sampleTolerance;
   const skin = p.skinThickness;

@@ -3,11 +3,17 @@
  * Shared board-curve samplers used by the DXF and 1:1-PDF exporters, so both draw
  * **identical** geometry from the same board. All coordinates are in centimetres
  * (the kernel's internal unit); plan coords are x = length, y = lateral (rail).
+ *
+ * Cross-sections come from `loftCrossSection` — the surface the 3D view and the STL are
+ * built from — rather than from `getInterpolatedCrossSection`, whose control-point blend
+ * can put curvature in a section that neither neighbouring station has. A printed
+ * template that disagrees with the model it was exported from is worse than no template,
+ * and these are printed at 1:1 to be cut against.
  */
 import {
-  getInterpolatedCrossSection,
   getLength,
   hasTailCutout,
+  loftCrossSection,
   pointByTT,
   valueAt,
   type BezierBoard,
@@ -134,7 +140,7 @@ export const chainSegs = (segs: readonly CurveSeg[], closed: boolean): CurveSeg[
 
 /** Closed cross-section ring at `pos` as exact bezier segments (−x half mirrored + +x half). */
 export const crossSectionBeziers = (board: BezierBoard, pos: number): CurveSeg[] | null => {
-  const cs = getInterpolatedCrossSection(board, pos);
+  const cs = loftCrossSection(board, pos);
   if (!cs) return null;
   const half = splineSegments(cs.spline);
   const mirrored = [...half].reverse().map(reverseMirrorX);
@@ -214,7 +220,7 @@ export const crossSectionRing = (
   pos: number,
   ringSteps: number,
 ): Pt[] | null => {
-  const cs = getInterpolatedCrossSection(board, pos);
+  const cs = loftCrossSection(board, pos);
   if (!cs) return null;
   const ring: Pt[] = [];
   for (let r = ringSteps; r >= 0; r--) {

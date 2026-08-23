@@ -67,6 +67,17 @@ export const drawSpline = (
 };
 
 /** Stroke a ghost/reference spline (dashed, muted, no handles) under the live curves. */
+/**
+ * Total samples a ghost outline is drawn with, spread over however many segments it has.
+ *
+ * `sampleSpline`'s default is per SEGMENT, which is right for a hand-drawn curve of four
+ * or five knots and wrong for one rebuilt from a surface: the interpolated section
+ * preview comes off `loftCrossSection` at 96 knots, so a per-segment budget would stroke
+ * ~2,300 dashed points every frame of a scrub to draw a line a few hundred pixels long.
+ * A total budget makes a ghost cost what it looks like.
+ */
+const GHOST_SAMPLES = 240;
+
 export const drawGhostSpline = (
   ctx: CanvasRenderingContext2D,
   spline: Spline,
@@ -74,7 +85,8 @@ export const drawGhostSpline = (
   mirror: Mirror = {},
   color?: string,
 ): void => {
-  const pts = sampleSpline(spline);
+  const segments = Math.max(1, spline.coeffs.length);
+  const pts = sampleSpline(spline, Math.max(3, Math.min(24, Math.ceil(GHOST_SAMPLES / segments))));
   if (pts.length === 0) return;
   ctx.save();
   // If a custom color is supplied use it at 55% opacity; otherwise fall back to
