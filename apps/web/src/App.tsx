@@ -254,6 +254,7 @@ function AppShell() {
   const isDesktop = useIsDesktop();
   const [sheetSnap, setSheetSnap] = useState<SheetSnap>('peek');
   const [csIndex, setCsIndex] = useState(1);
+  const [focusedSection, setFocusedSection] = useState<number | null>(null);
   // Transient cross-pane scrub: the board-length x being hovered in the rocker/outline,
   // mirrored to the other panes as a vertical guide + an interpolated section preview.
   const [scrubX, setScrubX] = useState<number | null>(null);
@@ -371,7 +372,14 @@ function AppShell() {
   /** Insert a station at an explicit board-length x (the rocker/outline right-click action). */
   const addSectionAt = (pos: number) => {
     const idx = boardStore.getState().addCrossSection(pos);
-    if (idx > 0) setCsIndex(idx);
+    if (idx > 0) {
+      setFocusedSection(null);
+      setCsIndex(idx);
+    }
+  };
+  const moveSection = (index: number, position: number) => {
+    boardStore.getState().moveCrossSection(index, position);
+    setCsIndex(index);
   };
   const addSection = () => {
     const b = boardStore.getState().board;
@@ -383,6 +391,7 @@ function AppShell() {
   };
   const deleteSectionAt = (index: number) => {
     boardStore.getState().deleteCrossSection(index);
+    setFocusedSection(null);
     const count = boardStore.getState().board?.crossSections.length ?? 0;
     setCsIndex(clampSectionIndex(index, count));
   };
@@ -954,6 +963,9 @@ function AppShell() {
       units={units}
       sectionMarkers={sectionMarkers}
       onPickSection={setCsIndex}
+      focusedSection={focusedSection}
+      onFocusSection={setFocusedSection}
+      onMoveSection={moveSection}
       onDeleteSection={deleteSectionAt}
       onAddSectionAt={addSectionAt}
       onScrub={setScrubX}
@@ -971,6 +983,8 @@ function AppShell() {
       kind="crossSection"
       csIndex={clampedCs}
       units={units}
+      focusedSection={focusedSection}
+      onFocusSection={setFocusedSection}
       overlays={overlaysFor('crossSection')}
       ghostSplines={ghostSplinesFor('crossSection')}
       viewCommand={viewCmd}
@@ -987,6 +1001,9 @@ function AppShell() {
       units={units}
       sectionMarkers={sectionMarkers}
       onPickSection={setCsIndex}
+      focusedSection={focusedSection}
+      onFocusSection={setFocusedSection}
+      onMoveSection={moveSection}
       onDeleteSection={deleteSectionAt}
       onAddSectionAt={addSectionAt}
       onScrub={setScrubX}
@@ -1236,6 +1253,9 @@ function AppShell() {
               units={units}
               sectionMarkers={sectionMarkers}
               onPickSection={setCsIndex}
+              focusedSection={focusedSection}
+              onFocusSection={setFocusedSection}
+              onMoveSection={moveSection}
               onAddSectionAt={addSectionAt}
               onScrub={setScrubX}
               overlays={overlaysFor(view)}

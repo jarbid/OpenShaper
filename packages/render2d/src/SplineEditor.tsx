@@ -76,6 +76,12 @@ export interface SplineEditorProps {
   sectionMarkers?: SectionMarker[];
   /** Called when a section marker is clicked. */
   onPickSection?: (index: number) => void;
+  /** Section marker with explicit interaction focus, or null. */
+  focusedSection?: number | null;
+  /** Focus or blur a section marker. */
+  onFocusSection?: (index: number | null) => void;
+  /** Move a focused section marker along the board length axis. */
+  onMoveSection?: (index: number, position: number) => void;
   /** Called when a section marker's context menu requests deletion. */
   onDeleteSection?: (index: number) => void;
   /**
@@ -172,6 +178,7 @@ export interface SplineEditorProps {
 
 type DragState =
   | { mode: 'edit'; target: SplineTarget; hit: Hit }
+  | { mode: 'section'; index: number; started: boolean }
   // Dragging a fin to re-place it (plan pane).
   | { mode: 'fin'; index: number }
   // Middle-button / Space+left pan.
@@ -360,6 +367,9 @@ export function SplineEditor({
   colors,
   sectionMarkers,
   onPickSection,
+  focusedSection,
+  onFocusSection,
+  onMoveSection,
   onDeleteSection,
   onAddSectionAt,
   onScrub,
@@ -398,7 +408,9 @@ export function SplineEditor({
   const pinch = useRef<{ dist: number; cx: number; cy: number } | null>(null);
   const longPress = useRef<{ x: number; y: number } | null>(null);
   const longPressTimer = useRef<number | null>(null);
-  const [cursor, setCursor] = useState<'crosshair' | 'pointer' | 'grab' | 'grabbing'>('crosshair');
+  const [cursor, setCursor] = useState<'crosshair' | 'pointer' | 'grab' | 'grabbing' | 'ew-resize'>(
+    'crosshair',
+  );
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const selection = useSyncExternalStore(store.subscribe, () => store.getState().selection);
   const selectedFin = useSyncExternalStore(store.subscribe, () => store.getState().selectedFin);
@@ -498,7 +510,7 @@ export function SplineEditor({
     }
     if (calibration) drawCalibrationOverlay(ctx, vp, calibration, effBg);
     if (sectionMarkers && sectionMarkers.length > 0) {
-      drawSectionMarkers(ctx, sectionMarkers, vp, size.h, hoveredSection);
+      drawSectionMarkers(ctx, sectionMarkers, vp, size.h, hoveredSection, focusedSection);
     }
     if (overlays?.distribution) drawDistribution(ctx, overlays.distribution, vp, size.h);
     if (overlays?.verticalMarkers) drawVerticalMarkers(ctx, overlays.verticalMarkers, vp, size.h);
@@ -564,6 +576,7 @@ export function SplineEditor({
     targets,
     sectionMarkers,
     hoveredSection,
+    focusedSection,
     overlays,
     ghostSplines,
     background,
@@ -666,7 +679,11 @@ export function SplineEditor({
         if (pointers.current.size === 2) {
           // Second finger: abandon any in-progress one-finger edit and start a pinch.
           cancelLongPress();
-          if (drag.current?.mode === 'edit' || drag.current?.mode === 'fin') {
+          if (
+            drag.current?.mode === 'edit' ||
+            drag.current?.mode === 'fin' ||
+            (drag.current?.mode === 'section' && drag.current.started)
+          ) {
             store.getState().endEdit();
           }
           drag.current = null;
@@ -690,7 +707,11 @@ export function SplineEditor({
         longPressTimer.current = window.setTimeout(() => {
           longPressTimer.current = null;
           if (pointers.current.size !== 1 || !vp || !board) return;
-          if (drag.current?.mode === 'edit' || drag.current?.mode === 'fin') {
+          if (
+            drag.current?.mode === 'edit' ||
+            drag.current?.mode === 'fin' ||
+            (drag.current?.mode === 'section' && drag.current.started)
+          ) {
             store.getState().endEdit();
           }
           drag.current = null;
@@ -742,9 +763,16 @@ export function SplineEditor({
       // Left button is select/edit only — never pans.
       const marker = sectionMarkerAt(p);
       if (marker && onPickSection) {
+        if (focusedSection === marker.index && onMoveSection) {
+          drag.current = { mode: 'section', index: marker.index, started: false };
+          setCursor('ew-resize');
+          return;
+        }
+        onFocusSection?.(marker.index);
         onPickSection(marker.index);
         return;
       }
+      onFocusSection?.(null);
       const picked = hitAny(p);
       if (picked) {
         store.getState().select({ target: picked.target, index: picked.hit.index });
@@ -795,6 +823,9 @@ export function SplineEditor({
       store,
       hitAny,
       onPickSection,
+      focusedSection,
+      onFocusSection,
+      onMoveSection,
       onDeleteSection,
       overlays,
       cancelLongPress,
@@ -851,7 +882,14 @@ export function SplineEditor({
         onScrub?.(w.x);
         const marker = sectionMarkerAt(p);
         setHoveredSection(marker?.index ?? null);
-        if (!spaceHeld.current) setCursor(marker ? 'pointer' : 'crosshair');
+        if (!spaceHeld.current)
+          setCursor(
+            marker && marker.index === focusedSection
+              ? 'ew-resize'
+              : marker
+                ? 'pointer'
+                : 'crosshair',
+          );
         return;
       }
       if (d.mode === 'pan') {
@@ -881,6 +919,14 @@ export function SplineEditor({
         return;
       }
       const world = screenToWorld(vp, p);
+      if (d.mode === 'section') {
+        if (!d.started) {
+          store.getState().beginEdit('Move cross-section');
+          d.started = true;
+        }
+        onMoveSection?.(d.index, world.x);
+        return;
+      }
       if (d.mode === 'traceMove') {
         setLiveTrace({
           ...d.start,
@@ -903,7 +949,7 @@ export function SplineEditor({
       if (d.hit.kind === 'end') store.getState().moveControlPoint(d.target, d.hit.index, world);
       else store.getState().moveTangent(d.target, d.hit.index, d.hit.kind, world);
     },
-    [vp, store, readout, onScrub, cancelLongPress, sectionMarkerAt],
+    [vp, store, readout, onScrub, cancelLongPress, sectionMarkerAt, focusedSection, onMoveSection],
   );
 
   const onPointerUp = useCallback(
@@ -930,7 +976,8 @@ export function SplineEditor({
         canvasRef.current?.releasePointerCapture(e.pointerId);
         return;
       }
-      if (d?.mode === 'edit' || d?.mode === 'fin') store.getState().endEdit();
+      if (d?.mode === 'edit' || d?.mode === 'fin' || (d?.mode === 'section' && d.started))
+        store.getState().endEdit();
       // A right-button tap (no pan) opens the context menu at the cursor.
       if (d?.mode === 'rightpan' && !d.moved && vp && board) {
         const p = localPoint(e);
@@ -983,7 +1030,12 @@ export function SplineEditor({
       cancelLongPress();
       pointers.current.delete(e.pointerId);
       if (pointers.current.size < 2) pinch.current = null;
-      if (drag.current?.mode === 'edit' || drag.current?.mode === 'fin') store.getState().endEdit();
+      if (
+        drag.current?.mode === 'edit' ||
+        drag.current?.mode === 'fin' ||
+        (drag.current?.mode === 'section' && drag.current.started)
+      )
+        store.getState().endEdit();
       if (drag.current?.mode === 'traceMove' || drag.current?.mode === 'traceRotate') {
         setLiveTrace(null); // drop the uncommitted preview
       }

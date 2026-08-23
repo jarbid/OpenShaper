@@ -269,6 +269,9 @@ export function EditorPane({
   units,
   sectionMarkers,
   onPickSection,
+  focusedSection,
+  onFocusSection,
+  onMoveSection,
   onDeleteSection,
   onAddSectionAt,
   onScrub,
@@ -291,6 +294,9 @@ export function EditorPane({
   units: LengthUnit;
   sectionMarkers?: SectionMarker[];
   onPickSection?: (index: number) => void;
+  focusedSection?: number | null;
+  onFocusSection?: (index: number | null) => void;
+  onMoveSection?: (index: number, position: number) => void;
   onDeleteSection?: (index: number) => void;
   onAddSectionAt?: (x: number) => void;
   onScrub?: (x: number | null) => void;
@@ -327,6 +333,9 @@ export function EditorPane({
           mirrorX={p.mirrorX}
           sectionMarkers={kind !== 'crossSection' ? sectionMarkers : undefined}
           onPickSection={kind !== 'crossSection' ? onPickSection : undefined}
+          focusedSection={focusedSection}
+          onFocusSection={onFocusSection}
+          onMoveSection={kind !== 'crossSection' ? onMoveSection : undefined}
           onDeleteSection={kind !== 'crossSection' ? onDeleteSection : undefined}
           onAddSectionAt={kind !== 'crossSection' ? onAddSectionAt : undefined}
           onScrub={kind !== 'crossSection' ? onScrub : undefined}

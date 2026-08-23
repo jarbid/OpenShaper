@@ -82,6 +82,21 @@ describe('board store: editing + undo/redo', () => {
     store.getState().undo();
     expect(store.getState().board).toBe(original);
   });
+  it('coalesces a cross-section drag into one undoable move', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+
+    store.getState().beginEdit('Move cross-section');
+    store.getState().moveCrossSection(1, 40);
+    store.getState().moveCrossSection(1, 35);
+    store.getState().endEdit();
+
+    expect(store.getState().board!.crossSections[1]!.position).toBe(35);
+    expect(store.getState().past).toHaveLength(1);
+    expect(store.getState().past[0]!.label).toBe('Move cross-section');
+    store.getState().undo();
+    expect(store.getState().board!.crossSections[1]!.position).toBe(50);
+  });
 });
 
 describe('board store: history labels + jumpTo', () => {

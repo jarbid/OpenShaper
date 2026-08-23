@@ -112,6 +112,15 @@ describe('cross-section markers', () => {
     expect(ctx.strokeStyle).toBe('#22D3EE');
     expect(ctx.lineWidth).toBe(2);
   });
+
+  it('draws a focused marker with an orange diamond and highlighted line', () => {
+    const { ctx } = makeCtx();
+    drawSectionMarkers(ctx, [marker], VP, height, null, marker.index);
+
+    expect(ctx.fillStyle).toBe('#F97316');
+    expect(ctx.strokeStyle).toBe('#22D3EE');
+    expect(ctx.lineWidth).toBe(2);
+  });
 });
 
 // ---------------------------------------------------------------------------

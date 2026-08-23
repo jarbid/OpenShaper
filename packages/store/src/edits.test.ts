@@ -34,6 +34,7 @@ import {
   enforceJunctions,
   getTargetSpline,
   insertCrossSection,
+  moveCrossSectionPosition,
   moveKnotEnd,
   moveKnotTangent,
   propagateCrossSectionToCurves,
@@ -373,6 +374,26 @@ describe('removeCrossSection', () => {
     expect(removeCrossSection(b, 0)).toBe(b); // nose dummy
     expect(removeCrossSection(b, b.crossSections.length - 1)).toBe(b); // tail dummy
     expect(removeCrossSection(b, 1)).toBe(b); // would leave zero real sections
+  });
+});
+
+describe('moveCrossSectionPosition', () => {
+  it('moves a real station without changing its index or spline', () => {
+    const b = insertCrossSection(makeBoard(), 25)!.board; // 0,25,50,100
+    const spline = b.crossSections[1]!.spline;
+    const moved = moveCrossSectionPosition(b, 1, 40);
+
+    expect(moved.crossSections.map((section) => section.position)).toEqual([0, 40, 50, 100]);
+    expect(moved.crossSections[1]!.spline).toBe(spline);
+  });
+
+  it('keeps a dragged station between its neighbours and ignores dummy endpoints', () => {
+    const b = insertCrossSection(makeBoard(), 25)!.board;
+    const moved = moveCrossSectionPosition(b, 1, 90);
+
+    expect(moved.crossSections[1]!.position).toBeCloseTo(50 - 1e-3, 9);
+    expect(moveCrossSectionPosition(b, 0, 10)).toBe(b);
+    expect(moveCrossSectionPosition(b, b.crossSections.length - 1, 90)).toBe(b);
   });
 });
 

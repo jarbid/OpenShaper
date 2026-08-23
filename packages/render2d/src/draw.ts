@@ -284,14 +284,15 @@ export const drawSectionMarkers = (
   vp: Viewport,
   height: number,
   hoveredIndex: number | null = null,
+  focusedIndex: number | null = null,
 ): void => {
   ctx.save();
   for (const m of markers) {
     const x = worldToScreen(vp, { x: m.pos, y: 0 }).x;
-    const highlighted = m.active || m.index === hoveredIndex;
+    const highlighted = m.active || m.index === hoveredIndex || m.index === focusedIndex;
     const color = highlighted ? '#22D3EE' : 'rgba(45,212,191,0.65)';
     ctx.strokeStyle = color;
-    ctx.fillStyle = color;
+    ctx.fillStyle = m.index === focusedIndex ? '#F97316' : color;
     ctx.lineWidth = highlighted ? 2 : 1;
     ctx.setLineDash(highlighted ? [] : [3, 4]);
     ctx.beginPath();
