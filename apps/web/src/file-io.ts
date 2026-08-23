@@ -3,11 +3,13 @@ import {
   exportBoardPdf1to1,
   exportBoardPdf1to1Files,
   exportDxf,
+  exportRailBandsPdf,
   exportStep,
   exportStl,
   PAPER_SIZES,
   paperSizeById,
   type PdfTiling,
+  type RailBandsWarning,
   type SheetUnit,
   sheetToDxf,
   sheetToPdf,
@@ -15,8 +17,10 @@ import {
   type TemplateSheet,
 } from '@openshaper/export';
 import { Unit } from '@openshaper/units';
-import { exportUnitFor, type LengthUnit } from './format';
+import { exportUnitFor, fmtLen, type LengthUnit } from './format';
 import type { Pdf1to1Settings } from './pdf-export-settings';
+import { DEFAULT_RAIL_BANDS, type RailBandsSettings } from './rail-bands-settings';
+import { manualSpecOf } from './ExportRailBandsDialog';
 import { STEP_TOLERANCE_CM, type StepSettings } from './step-export-settings';
 import {
   parseBrdFile,
@@ -206,7 +210,7 @@ export function downloadTemplateSheet(
   }
 }
 
-export type ExportFormat = 'stl' | 'step' | 'dxf' | 'dxf-spline' | 'pdf-1to1';
+export type ExportFormat = 'stl' | 'step' | 'dxf' | 'dxf-spline' | 'pdf-1to1' | 'rail-bands';
 
 /**
  * Display names for each export format. Typed as a full `Record`, which is what
@@ -219,6 +223,7 @@ export const EXPORT_FORMAT_LABELS: Record<ExportFormat, string> = {
   dxf: 'DXF (polylines)',
   'dxf-spline': 'DXF (true curves)',
   'pdf-1to1': 'PDF (1:1 template)',
+  'rail-bands': 'PDF (rail bands)',
 };
 
 /**
@@ -272,6 +277,13 @@ export function exportBoard(
       const pdf = exportBoardPdf1to1(board, { units: pdfUnit, meta: pdfMeta });
       return download(pdf as unknown as BlobPart, `${slug}-1to1.pdf`, 'application/pdf');
     }
+    case 'rail-bands': {
+      // The menu opens the dialog; this no-options path exists so the format is
+      // exportable from the same switch as the rest. Warnings are dropped here — the
+      // dialog is where they are shown, and they are printed on the sheet regardless.
+      downloadRailBands(board, DEFAULT_RAIL_BANDS, meta, units);
+      return;
+    }
     default: {
       // Adding a member to `ExportFormat` without a case here used to compile
       // cleanly and silently download nothing: the function returns void and
@@ -305,6 +317,50 @@ export function downloadStep(
     `${slug}.step`,
     'model/step',
   );
+}
+
+/**
+ * Export the rail-band sheet per the dialog `settings` and download it.
+ *
+ * The editor's own length formatter is handed to the exporter rather than a unit flag,
+ * because these numbers get marked onto foam with a tape measure: an inch user needs
+ * `1 1/4"`, not `1.25 in`. `packages/export` cannot reach `@openshaper/units` itself
+ * (nor should it), so the formatter crosses the boundary as a function.
+ *
+ * Returns the geometry warnings so the caller can surface them; they are also printed
+ * on the sheet.
+ */
+export function downloadRailBands(
+  board: BezierBoard,
+  settings: RailBandsSettings,
+  meta?: BoardMeta,
+  units?: LengthUnit,
+): readonly RailBandsWarning[] {
+  const slug = slugifyName(meta?.model);
+  const res = exportRailBandsPdf(board, {
+    units: units?.unit === Unit.INCHES ? 'in' : 'cm',
+    fmt: units ? (cm: number) => fmtLen(cm, units) : undefined,
+    meta: {
+      designer: meta?.designer,
+      model: meta?.model,
+      surfer: meta?.surfer,
+      comments: meta?.comments,
+    },
+    facets: {
+      deckBands: settings.bands,
+      angleMode: settings.angleMode,
+      bottomAngle: settings.bottomAngle,
+    },
+    manual: manualSpecOf(settings),
+    stationSpacingCm: settings.stationSpacingCm,
+    endMarginCm: settings.endMarginCm,
+    detailPages: settings.detailPages,
+    ghostSection: settings.ghostSection,
+    calibration: settings.calibration,
+    paper: paperSizeById(settings.paperId),
+  });
+  download(res.file.bytes as unknown as BlobPart, `${slug}-rail-bands.pdf`, 'application/pdf');
+  return res.warnings;
 }
 
 export function downloadPdf1to1(

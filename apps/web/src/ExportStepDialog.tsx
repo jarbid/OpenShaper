@@ -13,6 +13,7 @@
 import { Button, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { useEffect, useState } from 'react';
 import { unitSuffix, type LengthUnit } from './format';
+import { SelectRow } from './export-form-atoms';
 import {
   DEFAULT_STEP,
   STEP_TOLERANCE_CM,
@@ -21,34 +22,6 @@ import {
   type StepUnitChoice,
 } from './step-export-settings';
 
-function SelectRow({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: { value: string; label: string }[];
-  onChange: (v: string) => void;
-}) {
-  return (
-    <label className="flex items-center justify-between gap-3">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-8 rounded border border-border bg-background px-2 text-sm"
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
 
 /** What each accuracy setting means, in terms a shaper can weigh. */
 const ACCURACY_NOTES: Record<StepAccuracy, string> = {

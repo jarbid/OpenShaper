@@ -30,6 +30,12 @@ export {
   type PaperSize,
   type Orientation,
 } from './paper';
+export {
+  exportRailBandsPdf,
+  type RailBandsPdfOptions,
+  type RailBandsPdfResult,
+  type RailBandsWarning,
+} from './rail-bands-pdf';
 export { boardDiagramSvg, type BoardDiagramOptions } from './board-diagram';
 export { specSheetHtml, type SpecSheetDoc, type SpecSection } from './spec-sheet';
 

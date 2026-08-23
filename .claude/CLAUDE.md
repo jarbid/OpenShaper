@@ -110,9 +110,12 @@ Two related rules:
 
 ## Skills to use
 
+Repo skills (`.claude/skills/`):
+
 - `port-kernel-fn` — port a legacy kernel function behind a golden test
 - `preview-deploy` — ship a Cloudflare preview URL
-- `claude-api` — Phase-3 AI shaping assistant (with prompt caching)
-- `verify` / `run` / `code-review` / `simplify` — per-PR quality loop
+- `verify` — the per-PR quality gate
+
+Built-in commands that pair with these: `/run`, `/code-review`, `/simplify`.
 
 Current project status/roadmap: see `docs/ROADMAP.md`.

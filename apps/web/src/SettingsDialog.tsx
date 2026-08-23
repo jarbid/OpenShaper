@@ -7,6 +7,7 @@ import { Button, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/u
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { DEFAULT_SETTINGS, type EditorSettings } from './settings';
+import { useNumericField } from './use-numeric-field';
 
 // ---- tiny form atoms -------------------------------------------------------
 
@@ -51,19 +52,21 @@ function NumberRow({
   step: number;
   onChange: (v: number) => void;
 }) {
+  const field = useNumericField({
+    shown: String(value),
+    parse: parseFloat,
+    onCommit: onChange,
+    clamp: (n) => Math.min(max, Math.max(min, n)),
+  });
   return (
     <label className="flex items-center justify-between gap-3">
       <span className="text-sm text-muted-foreground">{label}</span>
       <input
         type="number"
-        value={value}
         min={min}
         max={max}
         step={step}
-        onChange={(e) => {
-          const n = parseFloat(e.target.value);
-          if (Number.isFinite(n)) onChange(n);
-        }}
+        {...field}
         className="h-8 w-20 rounded border border-border bg-background px-2 text-right text-sm"
       />
     </label>

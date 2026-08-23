@@ -24,11 +24,11 @@ import {
   sampleProfile,
   splineSegments,
   ySpan,
-  type CurveSeg,
   type Pt,
 } from './board-curves';
-import { buildPdf, esc, n, type PageDoc } from './pdf-core';
+import { buildPdf, type PageDoc } from './pdf-core';
 import { orient, POINTS_PER_CM } from './paper';
+import { buildDrawing, type Box, type DrawCtx } from './pdf-draw';
 import { tileDrawing, type PartDrawing, type PdfTiling } from './pdf-tile';
 
 /** Board metadata shown on exported PDFs (mirrors apps/web BoardMeta's text fields). */
@@ -92,28 +92,6 @@ const DEFAULT_LENGTH_STEPS = 200;
 const DEFAULT_RING_STEPS = 64;
 const DEFAULT_CS_COUNT = 7;
 
-interface DrawOpts {
-  closed?: boolean;
-  dashed?: boolean;
-  width?: number;
-  gray?: number;
-}
-
-interface DrawCtx {
-  poly(pts: readonly Pt[], opts?: DrawOpts): void;
-  /** Draw a path of exact cubic-bezier segments (smooth, resolution-independent). */
-  bezier(segs: readonly CurveSeg[], opts?: DrawOpts): void;
-  seg(a: Pt, b: Pt, opts?: DrawOpts): void;
-  label(at: Pt, str: string, sizePt?: number, gray?: number): void;
-}
-
-interface Box {
-  minX: number;
-  minY: number;
-  maxX: number;
-  maxY: number;
-}
-
 /** A board part category, used to name per-part files. */
 type PartCategory = 'outline' | 'rocker' | 'sections';
 
@@ -121,35 +99,6 @@ interface TaggedPart {
   category: PartCategory;
   drawing: PartDrawing;
 }
-
-/** Draw a 1:1 calibration ruler in the bottom-right margin so the shaper can verify 100% print. */
-const drawCalibration = (c: string[], width: number, inches: boolean): void => {
-  const sideCm = inches ? 2.54 * 2 : 5; // a 2 in / 5 cm reference length
-  const side = sideCm * CM_TO_PT;
-  const label = inches ? '2 in @100%' : '5 cm @100%';
-  const yb = MARGIN_CM * CM_TO_PT * 0.55;
-  const x1 = width - MARGIN_CM * CM_TO_PT;
-  const x0 = x1 - side;
-  const tick = 4;
-  c.push(
-    '0 0 0 RG',
-    '0.5 w',
-    '[] 0 d',
-    `${n(x0)} ${n(yb)} m`,
-    `${n(x1)} ${n(yb)} l`,
-    `${n(x0)} ${n(yb - tick)} m`,
-    `${n(x0)} ${n(yb + tick)} l`,
-    `${n(x1)} ${n(yb - tick)} m`,
-    `${n(x1)} ${n(yb + tick)} l`,
-    'S',
-    '0.4 0.4 0.4 rg',
-    'BT',
-    '/F1 7 Tf',
-    `${n(x0)} ${n(yb + tick + 2)} Td`,
-    `(${esc(label)}) Tj`,
-    'ET',
-  );
-};
 
 /** Build one full-size part drawing sized to `bb` (cm), drawing via a cm-coordinate context. */
 const buildPart = (
@@ -161,87 +110,8 @@ const buildPart = (
   calibration: boolean,
   inches: boolean,
 ): TaggedPart => {
-  const m = MARGIN_CM;
-  const width = (bb.maxX - bb.minX + 2 * m) * CM_TO_PT;
-  const height = (bb.maxY - bb.minY + 2 * m) * CM_TO_PT;
-  const px = (x: number): number => (x - bb.minX + m) * CM_TO_PT;
-  const py = (y: number): number => (y - bb.minY + m) * CM_TO_PT; // PDF y-up, same as cm
-
-  const c: string[] = [];
-  const ctx: DrawCtx = {
-    poly(pts, opts = {}) {
-      if (pts.length < 2) return;
-      const g = opts.gray ?? 0;
-      c.push(
-        `${n(g)} ${n(g)} ${n(g)} RG`,
-        `${n(opts.width ?? 0.5)} w`,
-        opts.dashed ? '[4 3] 0 d' : '[] 0 d',
-      );
-      c.push(`${n(px(pts[0]!.x))} ${n(py(pts[0]!.y))} m`);
-      for (let i = 1; i < pts.length; i++) c.push(`${n(px(pts[i]!.x))} ${n(py(pts[i]!.y))} l`);
-      c.push(opts.closed ? 'h S' : 'S');
-    },
-    bezier(segs, opts = {}) {
-      if (segs.length === 0) return;
-      const g = opts.gray ?? 0;
-      c.push(
-        `${n(g)} ${n(g)} ${n(g)} RG`,
-        `${n(opts.width ?? 0.5)} w`,
-        opts.dashed ? '[4 3] 0 d' : '[] 0 d',
-      );
-      let cur = segs[0]!.p0;
-      c.push(`${n(px(cur.x))} ${n(py(cur.y))} m`);
-      for (const s of segs) {
-        // Bridge any discontinuity between segments with a straight edge (tail/nose cut).
-        if (s.p0.x !== cur.x || s.p0.y !== cur.y) c.push(`${n(px(s.p0.x))} ${n(py(s.p0.y))} l`);
-        c.push(
-          `${n(px(s.c1.x))} ${n(py(s.c1.y))} ${n(px(s.c2.x))} ${n(py(s.c2.y))} ${n(px(s.p3.x))} ${n(py(s.p3.y))} c`,
-        );
-        cur = s.p3;
-      }
-      c.push(opts.closed ? 'h S' : 'S');
-    },
-    seg(a, b, opts = {}) {
-      ctx.poly([a, b], opts);
-    },
-    label(at, str, sizePt = 8, gray = 0.35) {
-      c.push(
-        `${n(gray)} ${n(gray)} ${n(gray)} rg`,
-        'BT',
-        `/F1 ${n(sizePt)} Tf`,
-        `${n(px(at.x))} ${n(py(at.y))} Td`,
-        `(${esc(str)}) Tj`,
-        'ET',
-      );
-    },
-  };
-
-  // Title in the top-left margin.
-  c.push(
-    '0 0 0 rg',
-    'BT',
-    '/F1 12 Tf',
-    `${n(MARGIN_CM * CM_TO_PT)} ${n(height - 16)} Td`,
-    `(${esc(title)}) Tj`,
-    'ET',
-  );
-  draw(ctx);
-  // Board-info + units note in the bottom margin.
-  if (note) {
-    c.push(
-      '0.4 0.4 0.4 rg',
-      'BT',
-      '/F1 8 Tf',
-      `${n(MARGIN_CM * CM_TO_PT)} ${n(MARGIN_CM * CM_TO_PT * 0.35)} Td`,
-      `(${esc(note)}) Tj`,
-      'ET',
-    );
-  }
-  if (calibration) drawCalibration(c, width, inches);
-  return {
-    category,
-    drawing: { title, widthPt: width, heightPt: height, content: c.join('\n') + '\n' },
-  };
+  const d = buildDrawing(bb, MARGIN_CM, { title, note, calibration, inches }, draw);
+  return { category, drawing: { title, ...d } };
 };
 
 /** Draw resolved fins (toed base footprint + box/plug router templates) in plan coords. */

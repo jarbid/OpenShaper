@@ -61,7 +61,7 @@
  * deliberately not `pointByS` / `pointByCurveLengthAt`, whose threshold-triggered
  * recursion steps discontinuously and lands in the mesh as jitter.
  */
-import { arcLengthTable, pointAtArcFraction, type ArcTable } from './bezier-spline';
+import { arcLengthTable, pointAtArcFraction, splineFromKnots, type ArcTable } from './bezier-spline';
 import {
   getLength,
   getNearestCrossSectionIndex,
@@ -70,7 +70,8 @@ import {
   getWidthAtPos,
   type BezierBoard,
 } from './board';
-import { scaleCrossSection } from './cross-section';
+import { crossSection, scaleCrossSection, type CrossSection } from './cross-section';
+import { knot } from './knot';
 import { vec2, type Vec2 } from './vec2';
 
 /** A point in board space (cm): X along the length, Y across, Z up. */
@@ -374,4 +375,98 @@ export const loftRing = (b: BezierBoard, x: number, ringSteps: number): Vert3[] 
 
   if (ring.length < 3) return null;
   return ring;
+};
+
+// --- the same surface, as a curve ----------------------------------------------
+
+/**
+ * Knots used to rebuild a lofted profile as a curve. See {@link loftCrossSection}.
+ *
+ * Measured against the exact blend (arc-length sampling with no table, every station
+ * of the golden boards carrying a different rail preset), worst deviation of the
+ * rebuilt curve:
+ *
+ *   knots   shortboard   longboard
+ *   48        60.4 um      82.4 um
+ *   64        59.0 um      75.6 um
+ *   96        58.7 um      75.2 um
+ *   128       58.7 um      74.9 um
+ *
+ * against 59.3 / 68.0 um for the loft's own polyline — so past 64 the residual is
+ * the sampled surface itself, not the rebuild, and the rebuild adds under 10 um to
+ * it. 96 sits comfortably inside that floor and is still cheap: this runs a few
+ * dozen times per export, not per frame.
+ */
+export const LOFT_SECTION_KNOTS = 96;
+
+/** Points closer than this (cm) are the same point, and one knot is enough for both. */
+const COINCIDENT = 1e-7;
+
+/**
+ * The lofted surface at station `x` as a **cross-section curve**, for the callers that
+ * need tangents rather than points.
+ *
+ * `getInterpolatedCrossSection` (board.ts) answers the same question by blending the
+ * two stations' CONTROL POINTS, and carries the defect this module exists to avoid:
+ * index pairing lerps mismatched tangent handles, which can put a near-cusp in the
+ * blended curve that neither station has. Sampling cannot remove it, because the curve
+ * itself is malformed. Anything reading SLOPE off a section — the rail-band tangent fit
+ * above all, which picks a facet by where the section's own slope reaches an angle —
+ * reads that invented curvature as real shape. Measured on a longboard carrying a
+ * different rail preset at each station, the blended section stood 4.96 mm off the
+ * surface the mesh and the STL show, and the fitted first band came out 17 deg, 65.5
+ * deg, 41.5 deg at three consecutive stations of a rail that is 21 deg all the way
+ * along.
+ *
+ * So the curve is rebuilt from the surface rather than blended into existence: sample
+ * {@link loftPoint} on the {@link ringFractions} ladder and interpolate those points
+ * with a C1 cubic Hermite spline (handles one third of the neighbouring chord, tangent
+ * directions by central difference — exact on a circular arc, which is what a rail zone
+ * nearly is). Because the ladder is the mesh's own, the knots land exactly where the
+ * rendered ring points land: the printed section and the rendered surface are the same
+ * curve by construction rather than by coincidence.
+ *
+ * Returns null wherever {@link loftSection} does.
+ */
+export const loftCrossSection = (
+  b: BezierBoard,
+  x: number,
+  knotCount = LOFT_SECTION_KNOTS,
+): CrossSection | null => {
+  const section = loftSection(b, x);
+  if (!section) return null;
+
+  // Drop repeats before anything else: a profile that collapses toward a tip can put
+  // two ladder stops on one point, and a zero-length segment has no tangent for
+  // `normalByTT` to find.
+  const pts: Vec2[] = [];
+  for (const f of ringFractions(b, Math.max(4, Math.floor(knotCount)))) {
+    const p = loftPoint(section, f);
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+    const last = pts[pts.length - 1];
+    if (last && Math.hypot(p.x - last.x, p.y - last.y) < COINCIDENT) continue;
+    pts.push(p);
+  }
+  if (pts.length < 3) return null;
+
+  const n = pts.length;
+  const knots = pts.map((p, i) => {
+    // Central difference; one-sided at the two ends, where there is no other choice.
+    const a = pts[Math.max(0, i - 1)]!;
+    const c = pts[Math.min(n - 1, i + 1)]!;
+    const len = Math.hypot(c.x - a.x, c.y - a.y);
+    const ux = len > 0 ? (c.x - a.x) / len : 1;
+    const uy = len > 0 ? (c.y - a.y) / len : 0;
+    const back = i > 0 ? Math.hypot(p.x - pts[i - 1]!.x, p.y - pts[i - 1]!.y) / 3 : 0;
+    const fwd = i < n - 1 ? Math.hypot(pts[i + 1]!.x - p.x, pts[i + 1]!.y - p.y) / 3 : 0;
+    return knot(
+      p,
+      vec2(p.x - ux * back, p.y - uy * back),
+      vec2(p.x + ux * fwd, p.y + uy * fwd),
+      true,
+      false,
+    );
+  });
+
+  return crossSection(x, splineFromKnots(knots));
 };
