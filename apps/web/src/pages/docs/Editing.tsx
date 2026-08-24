@@ -95,6 +95,24 @@ export default function DocsEditing() {
           Sections can be copied and pasted, which is the quickest way to hold a rail shape constant
           through a stretch of the board and then vary it deliberately.
         </p>
+        <p>
+          Every station shows as a dashed vertical line in the outline and rocker views, with a
+          diamond handle at each end. Click a handle to select the station — it turns orange — then
+          drag it along the board to reposition it. The position appears beside the handle as you
+          drag, in your chosen units, and a station can never pass its neighbours, so the order
+          never changes under you. The whole drag is a single undo step. Press{' '}
+          <code>{shortcutKeys('cross-section-blur')}</code> to release the handle.
+        </p>
+        <p>
+          Right-clicking a handle offers to add a station either side of it, or to delete it. For an
+          exact position, type into the field beside the station counter in the cross-section pane
+          header, or use its steppers — they nudge by a sensible amount for the current unit.
+        </p>
+        <p>
+          Moving a station carries its profile with it, so the surface between the neighbouring
+          stations changes shape. That is deliberate: you are sliding a control station, not
+          re-sampling the existing surface.
+        </p>
       </Section>
 
       <Section id="rails" title="Rail presets">

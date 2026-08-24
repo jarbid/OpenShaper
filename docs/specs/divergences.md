@@ -99,6 +99,30 @@ DXF and PDF sections are the lofted curve, segment for segment).
   on) and `golden.json` re-banded against a new oracle, which is the work the
   paragraph above already describes. Deliberately not done here.
 
+## Moving a cross-section (`moveCrossSectionPosition`, `packages/store/src/edits.ts`)
+
+BoardCAD-LE has no way to move a station: the legacy Cross-sections menu only adds,
+deletes and navigates. So this is an added behaviour rather than a changed value, and
+it has no legacy oracle.
+
+The behaviour worth recording is that **moving a station carries its profile with it**,
+which reshapes the loft between the two neighbouring stations. That is the opposite of
+its sibling `insertCrossSection`, which fits the new station to the *existing* surface
+via `editableCrossSection` precisely so that inserting never changes the board.
+
+The asymmetry is deliberate. Inserting is a refinement — the user is asking for another
+control point on a shape they already like, so the shape must not move. Dragging is an
+edit — the user is sliding a control station along the board and expects the shape to
+follow the handle, the same way dragging a control point moves the curve. Re-fitting on
+drag would make the interaction look broken: the marker would move and nothing else
+would.
+
+Ordering is preserved: a station clamps to `previous + 1e-3` / `next - 1e-3` cm, so a
+drag can never reorder the list and change which section subsequent edits address.
+
+Oracle: analytic, in `edits.test.ts` (`moveCrossSectionPosition`) — index and spline
+identity preserved, neighbours clamped, dummy endpoints refused.
+
 ## `.brd` writer (`packages/io/src/brd-writer.ts`)
 
 `writeBrd` (the export-to-legacy path, paired with the existing `parseBrd` reader) is
