@@ -39,6 +39,7 @@ export {
   type Mirror,
   type SectionMarker,
   type SectionMarkerLabel,
+  type SectionHandle,
   type EditorOverlays,
 } from './draw';
 export { SplineEditor, type SplineEditorProps, type Calibration } from './SplineEditor';

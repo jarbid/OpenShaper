@@ -37,6 +37,7 @@ import {
   hitSectionMarker,
   type DrawStyle,
   type EditorOverlays,
+  type SectionHandle,
   type SectionMarker,
 } from './draw';
 import { hitTest, type Hit } from './hit';
@@ -183,7 +184,7 @@ export interface SplineEditorProps {
 
 type DragState =
   | { mode: 'edit'; target: SplineTarget; hit: Hit }
-  | { mode: 'section'; index: number; started: boolean }
+  | { mode: 'section'; index: number; started: boolean; handle: SectionHandle }
   // Dragging a fin to re-place it (plan pane).
   | { mode: 'fin'; index: number }
   // Middle-button / Space+left pan.
@@ -404,8 +405,12 @@ export function SplineEditor({
   const [vp, setVp] = useState<Viewport | null>(null);
   const [hover, setHover] = useState<Vec2 | null>(null);
   const [hoveredSection, setHoveredSection] = useState<number | null>(null);
-  // Which marker is mid-drag, so the position chip renders and clears with the drag.
-  const [draggingSection, setDraggingSection] = useState<number | null>(null);
+  // Which marker is mid-drag and which of its grips was grabbed, so the position
+  // chip renders beside the handle under the cursor and clears with the drag.
+  const [draggingSection, setDraggingSection] = useState<{
+    index: number;
+    handle: SectionHandle;
+  } | null>(null);
   // Live trace transform while dragging/rotating the image; committed on pointer-up.
   const [liveTrace, setLiveTrace] = useState<SimilarityParams | null>(null);
   const drag = useRef<DragState>(null);
@@ -518,10 +523,9 @@ export function SplineEditor({
     }
     if (calibration) drawCalibrationOverlay(ctx, vp, calibration, effBg);
     if (sectionMarkers && sectionMarkers.length > 0) {
-      const dragged =
-        draggingSection !== null
-          ? sectionMarkers.find((m) => m.index === draggingSection)
-          : undefined;
+      const dragged = draggingSection
+        ? sectionMarkers.find((m) => m.index === draggingSection.index)
+        : undefined;
       drawSectionMarkers(
         ctx,
         sectionMarkers,
@@ -529,8 +533,12 @@ export function SplineEditor({
         size.h,
         hoveredSection,
         focusedSection,
-        dragged && formatSectionPosition
-          ? { index: dragged.index, text: formatSectionPosition(dragged.pos) }
+        dragged && draggingSection && formatSectionPosition
+          ? {
+              index: dragged.index,
+              handle: draggingSection.handle,
+              text: formatSectionPosition(dragged.pos),
+            }
           : null,
       );
     }
@@ -790,7 +798,12 @@ export function SplineEditor({
       const marker = sectionMarkerAt(p);
       if (marker && onPickSection) {
         if (focusedSection === marker.index && onMoveSection) {
-          drag.current = { mode: 'section', index: marker.index, started: false };
+          drag.current = {
+            mode: 'section',
+            index: marker.index,
+            started: false,
+            handle: p.y < size.h / 2 ? 'top' : 'bottom',
+          };
           setCursor('ew-resize');
           return;
         }
@@ -949,7 +962,10 @@ export function SplineEditor({
         if (!d.started) {
           store.getState().beginEdit('Move cross-section');
           d.started = true;
-          setDraggingSection(d.index);
+          setDraggingSection({ index: d.index, handle: d.handle });
+          // The HUD freezes at wherever the pointer last hovered, so it would sit
+          // there showing a stale position next to a live one. Drop it for the drag.
+          setHover(null);
         }
         onMoveSection?.(d.index, world.x);
         return;

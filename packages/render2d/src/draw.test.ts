@@ -122,11 +122,28 @@ describe('cross-section markers', () => {
     const { ctx } = makeCtx();
     drawSectionMarkers(ctx, [marker, other], VP, height, null, marker.index, {
       index: marker.index,
+      handle: 'bottom',
       text: '25.0 cm',
     });
 
     expect(ctx.fillText).toHaveBeenCalledTimes(1);
     expect(ctx.fillText).toHaveBeenCalledWith('25.0 cm', expect.any(Number), expect.any(Number));
+  });
+
+  it('puts the chip beside whichever grip is being dragged', () => {
+    const chipY = (handle: 'top' | 'bottom') => {
+      const { ctx } = makeCtx();
+      drawSectionMarkers(ctx, [marker], VP, height, null, marker.index, {
+        index: marker.index,
+        handle,
+        text: '25.0 cm',
+      });
+      return ctx.fillText.mock.calls[0]![2] as number;
+    };
+
+    // Each chip sits on its grip's row, not in a fixed corner.
+    expect(chipY('top')).toBe(SECTION_MARKER_HANDLE_OFFSET);
+    expect(chipY('bottom')).toBe(height - SECTION_MARKER_HANDLE_OFFSET);
   });
 
   it('flips the chip to the left of the line when it would overflow the canvas', () => {
@@ -135,6 +152,7 @@ describe('cross-section markers', () => {
     const { ctx } = makeCtx();
     drawSectionMarkers(ctx, [nearRightEdge], VP, height, null, nearRightEdge.index, {
       index: nearRightEdge.index,
+      handle: 'top',
       text: 'a label long enough to overhang the right-hand edge of the canvas',
     });
 
