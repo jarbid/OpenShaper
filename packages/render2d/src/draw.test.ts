@@ -25,9 +25,12 @@ import {
   drawFinsPlan,
   drawGrid,
   drawMeasureCursor,
+  drawSectionMarkers,
   drawSpline,
   gridStep,
   hitFin,
+  hitSectionMarker,
+  SECTION_MARKER_HANDLE_OFFSET,
 } from './draw';
 import type { Vec2 } from '@openshaper/kernel';
 import { worldToScreen, type Viewport } from './viewport';
@@ -52,6 +55,7 @@ function makeCtx() {
     closePath: vi.fn(() => calls.push('closePath')),
     moveTo: vi.fn((_x: number, _y: number) => calls.push('moveTo')),
     lineTo: vi.fn((_x: number, _y: number) => calls.push('lineTo')),
+    setLineDash: vi.fn(() => calls.push('setLineDash')),
     stroke: vi.fn(() => calls.push('stroke')),
     arc: vi.fn(() => calls.push('arc')),
     fill: vi.fn(() => calls.push('fill')),
@@ -68,6 +72,56 @@ const makeSpline = () =>
     knot(vec2(50, 0), vec2(40, 0), vec2(60, 0)),
     knot(vec2(100, 0), vec2(90, 0), vec2(100, 0)),
   ]);
+
+// ---------------------------------------------------------------------------
+// cross-section markers
+// ---------------------------------------------------------------------------
+
+describe('cross-section markers', () => {
+  const marker = { pos: 25, index: 2, active: false };
+  const height = 240;
+  const screenX = worldToScreen(VP, vec2(marker.pos, 0)).x;
+
+  it('draws a diamond handle at the top and bottom of every marker', () => {
+    const { ctx } = makeCtx();
+    drawSectionMarkers(ctx, [marker], VP, height);
+
+    expect(ctx.fill).toHaveBeenCalledTimes(2);
+    expect(ctx.closePath).toHaveBeenCalledTimes(2);
+  });
+
+  it('hits either diamond without turning the whole vertical guide into a hit target', () => {
+    expect(
+      hitSectionMarker([marker], VP, { x: screenX, y: SECTION_MARKER_HANDLE_OFFSET }, height),
+    ).toEqual(marker);
+    expect(
+      hitSectionMarker(
+        [marker],
+        VP,
+        { x: screenX, y: height - SECTION_MARKER_HANDLE_OFFSET },
+        height,
+      ),
+    ).toEqual(marker);
+    expect(hitSectionMarker([marker], VP, { x: screenX, y: height / 2 }, height)).toBeNull();
+  });
+
+  it('promotes a hovered marker to the active cyan line treatment', () => {
+    const { ctx } = makeCtx();
+    drawSectionMarkers(ctx, [marker], VP, height, marker.index);
+
+    expect(ctx.strokeStyle).toBe('#22D3EE');
+    expect(ctx.lineWidth).toBe(2);
+  });
+
+  it('draws a focused marker with an orange diamond and highlighted line', () => {
+    const { ctx } = makeCtx();
+    drawSectionMarkers(ctx, [marker], VP, height, null, marker.index);
+
+    expect(ctx.fillStyle).toBe('#F97316');
+    expect(ctx.strokeStyle).toBe('#22D3EE');
+    expect(ctx.lineWidth).toBe(2);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // defaultStyle

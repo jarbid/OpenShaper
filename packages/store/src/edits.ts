@@ -296,6 +296,32 @@ export const removeCrossSection = (b: BezierBoard, index: number): BezierBoard =
 };
 
 /**
+ * Move a real cross-section along the board while preserving its list index.
+ * Stations cannot pass their neighbours: keeping the order stable means a drag
+ * never starts editing one section and finishes editing another.
+ */
+export const moveCrossSectionPosition = (
+  b: BezierBoard,
+  index: number,
+  position: number,
+): BezierBoard => {
+  const n = b.crossSections.length;
+  if (index < 1 || index > n - 2 || !Number.isFinite(position)) return b;
+  const current = b.crossSections[index]!;
+  const previous = b.crossSections[index - 1]!;
+  const next = b.crossSections[index + 1]!;
+  const min = previous.position + 1e-3;
+  const max = next.position - 1e-3;
+  if (min > max) return b;
+  const clamped = Math.min(max, Math.max(min, position));
+  if (clamped === current.position) return b;
+  const sections = b.crossSections.map((section, i) =>
+    i === index ? crossSection(clamped, section.spline) : section,
+  );
+  return board(b.outline, b.bottom, b.deck, sections, b.interpolationType, b.fins);
+};
+
+/**
  * Scale the whole board (legacy "Scale Board") by independent factors for length,
  * width, and thickness. Outline = half-width(y) vs length(x); deck/bottom =
  * height(y) vs length(x); cross-sections = height(y) vs width(x), with their

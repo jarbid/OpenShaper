@@ -85,6 +85,7 @@ import { ConstructionPanel } from './ConstructionPanel';
 import { SettingsDialog } from './SettingsDialog';
 import { loadSettings, saveSettings, type EditorSettings } from './settings';
 import { CrossSectionControls } from './CrossSectionControls';
+import { SectionPositionEditor } from './SectionPositionEditor';
 import { CoffeeIcon } from './components/Support';
 import { Sidebar, type OverlayToggles, type ResizeFields } from './Sidebar';
 import sampleBrd from './sample-board.brd?raw';
@@ -257,9 +258,26 @@ function AppShell() {
   const isDesktop = useIsDesktop();
   const [sheetSnap, setSheetSnap] = useState<SheetSnap>('peek');
   const [csIndex, setCsIndex] = useState(1);
+  const [focusedSection, setFocusedSection] = useState<number | null>(null);
   // Transient cross-pane scrub: the board-length x being hovered in the rocker/outline,
   // mirrored to the other panes as a vertical guide + an interpolated section preview.
   const [scrubX, setScrubX] = useState<number | null>(null);
+  const focusSection = useCallback((index: number | null) => {
+    if (index !== null) setScrubX(null);
+    setFocusedSection(index);
+  }, []);
+  const scrubSection = useCallback(
+    (position: number | null) => setScrubX(focusedSection === null ? position : null),
+    [focusedSection],
+  );
+  useEffect(() => {
+    if (focusedSection === null) return;
+    const dismissOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFocusedSection(null);
+    };
+    window.addEventListener('keydown', dismissOnEscape);
+    return () => window.removeEventListener('keydown', dismissOnEscape);
+  }, [focusedSection]);
   const [unitKey, setUnitKey] = useState<string>(
     () => localStorage.getItem('bs.lengthUnit') ?? DEFAULT_LENGTH_UNIT.key,
   );
@@ -378,7 +396,14 @@ function AppShell() {
   /** Insert a station at an explicit board-length x (the rocker/outline right-click action). */
   const addSectionAt = (pos: number) => {
     const idx = boardStore.getState().addCrossSection(pos);
-    if (idx > 0) setCsIndex(idx);
+    if (idx > 0) {
+      setFocusedSection(null);
+      setCsIndex(idx);
+    }
+  };
+  const moveSection = (index: number, position: number) => {
+    boardStore.getState().moveCrossSection(index, position);
+    setCsIndex(index);
   };
   const addSection = () => {
     const b = boardStore.getState().board;
@@ -388,7 +413,13 @@ function AppShell() {
     const pos = next > cur ? (cur + next) / 2 : cur + 5; // midpoint, or nudge past the last
     addSectionAt(pos);
   };
-  const deleteSection = () => boardStore.getState().deleteCrossSection(clampedCs);
+  const deleteSectionAt = (index: number) => {
+    boardStore.getState().deleteCrossSection(index);
+    setFocusedSection(null);
+    const count = boardStore.getState().board?.crossSections.length ?? 0;
+    setCsIndex(clampSectionIndex(index, count));
+  };
+  const deleteSection = () => deleteSectionAt(clampedCs);
   const copySection = () => {
     const b = boardStore.getState().board;
     if (b) setCsClipboard(b.crossSections[clampedCs]?.spline ?? null);
@@ -971,8 +1002,12 @@ function AppShell() {
       units={units}
       sectionMarkers={sectionMarkers}
       onPickSection={setCsIndex}
+      focusedSection={focusedSection}
+      onFocusSection={focusSection}
+      onMoveSection={moveSection}
+      onDeleteSection={deleteSectionAt}
       onAddSectionAt={addSectionAt}
-      onScrub={setScrubX}
+      onScrub={scrubSection}
       overlays={overlaysFor('outline')}
       ghostSplines={ghostSplinesFor('outline')}
       {...traceProps('outline')}
@@ -987,6 +1022,8 @@ function AppShell() {
       kind="crossSection"
       csIndex={clampedCs}
       units={units}
+      focusedSection={focusedSection}
+      onFocusSection={focusSection}
       overlays={overlaysFor('crossSection')}
       ghostSplines={ghostSplinesFor('crossSection')}
       viewCommand={viewCmd}
@@ -1003,8 +1040,12 @@ function AppShell() {
       units={units}
       sectionMarkers={sectionMarkers}
       onPickSection={setCsIndex}
+      focusedSection={focusedSection}
+      onFocusSection={focusSection}
+      onMoveSection={moveSection}
+      onDeleteSection={deleteSectionAt}
       onAddSectionAt={addSectionAt}
-      onScrub={setScrubX}
+      onScrub={scrubSection}
       overlays={overlaysFor('rocker')}
       ghostSplines={ghostSplinesFor('rocker')}
       {...traceProps('rocker')}
@@ -1138,6 +1179,14 @@ function AppShell() {
             {tab('crossSection', 'Cross-section')}
             {tab('3d', '3D')}
           </div>
+          {focusedSection !== null && board?.crossSections[focusedSection] && (
+            <SectionPositionEditor
+              valueCm={board.crossSections[focusedSection].position}
+              units={units}
+              onCommit={(position) => moveSection(focusedSection, position)}
+              onDismiss={() => setFocusedSection(null)}
+            />
+          )}
           <select
             value={unitKey}
             onChange={(e) => setUnitKey(e.target.value)}
@@ -1251,8 +1300,11 @@ function AppShell() {
               units={units}
               sectionMarkers={sectionMarkers}
               onPickSection={setCsIndex}
+              focusedSection={focusedSection}
+              onFocusSection={focusSection}
+              onMoveSection={moveSection}
               onAddSectionAt={addSectionAt}
-              onScrub={setScrubX}
+              onScrub={scrubSection}
               overlays={overlaysFor(view)}
               ghostSplines={ghostSplinesFor(view)}
               {...(view === 'crossSection' ? {} : traceProps(view))}

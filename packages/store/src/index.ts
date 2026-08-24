@@ -16,6 +16,7 @@ export {
   insertKnotAt,
   moveKnotEnd,
   moveKnotTangent,
+  moveCrossSectionPosition,
   removeCrossSection,
   scaleBoard,
   setKnotContinuous,

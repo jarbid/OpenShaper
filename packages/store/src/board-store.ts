@@ -17,6 +17,7 @@ import {
   insertKnotAt,
   moveKnotEnd,
   moveKnotTangent,
+  moveCrossSectionPosition,
   propagateCrossSectionToCurves,
   removeCrossSection,
   scaleBoard,
@@ -90,6 +91,8 @@ export interface BoardState {
   addCrossSection: (position: number) => number;
   /** Remove a real cross-section by index (no-op for the nose/tail dummies). */
   deleteCrossSection: (index: number) => void;
+  /** Move a real cross-section to a new longitudinal position. */
+  moveCrossSection: (index: number, position: number) => void;
   /** Replace a cross-section's whole spline (e.g. paste a copied section shape). */
   pasteCrossSection: (index: number, spline: Spline) => void;
   /**
@@ -263,6 +266,14 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         if (next === board) return;
         commit(enforceJunctions(next), 'Delete cross-section');
         set({ selection: null });
+      },
+
+      moveCrossSection: (index, position) => {
+        const { board } = get();
+        if (!board) return;
+        const next = moveCrossSectionPosition(board, index, position);
+        if (next === board) return;
+        commit(next, 'Move cross-section');
       },
 
       pasteCrossSection: (index, spline) => {
