@@ -85,7 +85,6 @@ import { ConstructionPanel } from './ConstructionPanel';
 import { SettingsDialog } from './SettingsDialog';
 import { loadSettings, saveSettings, type EditorSettings } from './settings';
 import { CrossSectionControls } from './CrossSectionControls';
-import { SectionPositionEditor } from './SectionPositionEditor';
 import { CoffeeIcon } from './components/Support';
 import { Sidebar, type OverlayToggles, type ResizeFields } from './Sidebar';
 import sampleBrd from './sample-board.brd?raw';
@@ -262,22 +261,23 @@ function AppShell() {
   // Transient cross-pane scrub: the board-length x being hovered in the rocker/outline,
   // mirrored to the other panes as a vertical guide + an interpolated section preview.
   const [scrubX, setScrubX] = useState<number | null>(null);
+  // Mirrored into a ref so the Escape shortcut can tell "a marker was focused" from
+  // "nothing to release" without re-binding the global key listener on every focus.
+  const focusedSectionRef = useRef<number | null>(null);
   const focusSection = useCallback((index: number | null) => {
     if (index !== null) setScrubX(null);
+    focusedSectionRef.current = index;
     setFocusedSection(index);
   }, []);
+  const clearSectionFocus = useCallback(() => {
+    if (focusedSectionRef.current === null) return false;
+    focusSection(null);
+    return true;
+  }, [focusSection]);
   const scrubSection = useCallback(
     (position: number | null) => setScrubX(focusedSection === null ? position : null),
     [focusedSection],
   );
-  useEffect(() => {
-    if (focusedSection === null) return;
-    const dismissOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setFocusedSection(null);
-    };
-    window.addEventListener('keydown', dismissOnEscape);
-    return () => window.removeEventListener('keydown', dismissOnEscape);
-  }, [focusedSection]);
   const [unitKey, setUnitKey] = useState<string>(
     () => localStorage.getItem('bs.lengthUnit') ?? DEFAULT_LENGTH_UNIT.key,
   );
@@ -373,7 +373,13 @@ function AppShell() {
   // it stays in sync with saves/opens from this session.
   const [recentBoards, setRecentBoards] = useState(() => getRecentBoards());
 
-  useKeyboardShortcuts({ setView, setCsIndex, metaRef, onCommandPalette: togglePalette });
+  useKeyboardShortcuts({
+    setView,
+    setCsIndex,
+    metaRef,
+    onCommandPalette: togglePalette,
+    clearSectionFocus,
+  });
 
   const sectionCount = board?.crossSections.length ?? 0;
   const lastReal = Math.max(1, sectionCount - 2);
@@ -397,7 +403,7 @@ function AppShell() {
   const addSectionAt = (pos: number) => {
     const idx = boardStore.getState().addCrossSection(pos);
     if (idx > 0) {
-      setFocusedSection(null);
+      focusSection(null);
       setCsIndex(idx);
     }
   };
@@ -415,7 +421,7 @@ function AppShell() {
   };
   const deleteSectionAt = (index: number) => {
     boardStore.getState().deleteCrossSection(index);
-    setFocusedSection(null);
+    focusSection(null);
     const count = boardStore.getState().board?.crossSections.length ?? 0;
     setCsIndex(clampSectionIndex(index, count));
   };
@@ -719,6 +725,9 @@ function AppShell() {
       onCopy={copySection}
       onPaste={pasteSection}
       canPaste={!!csClipboard}
+      positionCm={board?.crossSections[clampedCs]?.position ?? null}
+      units={units}
+      onMoveTo={(position) => moveSection(clampedCs, position)}
     />
   );
 
@@ -1179,14 +1188,6 @@ function AppShell() {
             {tab('crossSection', 'Cross-section')}
             {tab('3d', '3D')}
           </div>
-          {focusedSection !== null && board?.crossSections[focusedSection] && (
-            <SectionPositionEditor
-              valueCm={board.crossSections[focusedSection].position}
-              units={units}
-              onCommit={(position) => moveSection(focusedSection, position)}
-              onDismiss={() => setFocusedSection(null)}
-            />
-          )}
           <select
             value={unitKey}
             onChange={(e) => setUnitKey(e.target.value)}
@@ -1303,6 +1304,7 @@ function AppShell() {
               focusedSection={focusedSection}
               onFocusSection={focusSection}
               onMoveSection={moveSection}
+              onDeleteSection={deleteSectionAt}
               onAddSectionAt={addSectionAt}
               onScrub={scrubSection}
               overlays={overlaysFor(view)}

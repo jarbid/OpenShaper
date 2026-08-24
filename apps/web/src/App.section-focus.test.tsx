@@ -12,7 +12,12 @@ vi.mock('@openshaper/render2d', async (importOriginal) => {
     SplineEditor: (props: React.ComponentProps<typeof actual.SplineEditor>) => {
       const kind = props.targets[0]?.kind ?? 'unknown';
       return (
-        <div data-testid={`editor-${kind}`} data-scrub={props.overlays?.scrubProbe ?? ''}>
+        <div
+          data-testid={`editor-${kind}`}
+          data-scrub={props.overlays?.scrubProbe ?? ''}
+          data-can-delete={props.onDeleteSection ? 'yes' : 'no'}
+          data-drag-label={props.formatSectionPosition?.(12.7) ?? ''}
+        >
           <button
             aria-label={`Focus slice from ${kind}`}
             onClick={() => {
@@ -27,7 +32,13 @@ vi.mock('@openshaper/render2d', async (importOriginal) => {
   };
 });
 
-describe('cross-section marker focus', () => {
+/**
+ * Switch to a single maximized pane via its view shortcut — the tab label alone is
+ * ambiguous, since the pane headers carry the same words.
+ */
+const showOnly = (key: string) => fireEvent.keyDown(window, { key });
+
+describe('cross-section station controls', () => {
   beforeEach(() => {
     const values = new Map<string, string>();
     vi.stubGlobal('localStorage', {
@@ -38,7 +49,61 @@ describe('cross-section marker focus', () => {
     });
   });
 
-  it('shows an exact position editor, suppresses scrubbing, and dismisses on Escape', async () => {
+  it('edits the current station from the cross-section pane header, in display units', async () => {
+    render(<App />);
+    await waitFor(() => expect(boardStore.getState().board).not.toBeNull());
+
+    // The editor rides with the other per-station controls, so it is on screen
+    // without focusing a marker first — no toolbar reflow when focus changes.
+    const position = (
+      await screen.findAllByRole('textbox', {
+        name: 'Selected slice position',
+      })
+    )[0] as HTMLInputElement;
+    expect(position.value).toBe('9.53');
+
+    const increase = screen.getAllByRole('button', { name: 'Increase slice position' })[0]!;
+    const decrease = screen.getAllByRole('button', { name: 'Decrease slice position' })[0]!;
+    expect(increase.title).toBe('Increase by 10 mm');
+
+    fireEvent.click(increase);
+    expect(boardStore.getState().board!.crossSections[1]!.position).toBeCloseTo(1.953);
+    expect(position.value).toBe('19.53');
+
+    fireEvent.click(decrease);
+    expect(boardStore.getState().board!.crossSections[1]!.position).toBeCloseTo(0.953);
+    expect(position.value).toBe('9.53');
+
+    fireEvent.change(position, { target: { value: '20' } });
+    fireEvent.keyDown(position, { key: 'Enter' });
+    expect(boardStore.getState().board!.crossSections[1]!.position).toBe(2);
+  });
+
+  it('re-renders the stepper and the drag chip in the selected unit', async () => {
+    render(<App />);
+    await waitFor(() => expect(boardStore.getState().board).not.toBeNull());
+    await screen.findAllByRole('textbox', { name: 'Selected slice position' });
+
+    const increase = screen.getAllByRole('button', { name: 'Increase slice position' })[0]!;
+    const unitSelector = screen.getByTitle('Display units');
+    const dragLabel = () => screen.getAllByTestId('editor-outline')[0]!.dataset.dragLabel;
+
+    // 12.7 cm is 127 mm / 5" exactly, so every unit has an unambiguous rendering.
+    expect(dragLabel()).toBe('127.0 mm');
+
+    fireEvent.change(unitSelector, { target: { value: 'cm' } });
+    expect(increase.title).toBe('Increase by 1 cm');
+    expect(dragLabel()).toBe('12.70 cm');
+
+    fireEvent.change(unitSelector, { target: { value: 'in' } });
+    expect(increase.title).toBe('Increase by 0.5 in');
+    expect(dragLabel()).toBe('5"');
+
+    fireEvent.change(unitSelector, { target: { value: 'ftin' } });
+    expect(increase.title).toBe('Increase by 0.5 in');
+  });
+
+  it('suppresses the scrub overlay while a marker is focused, and releases it on Escape', async () => {
     render(<App />);
     await waitFor(() => expect(boardStore.getState().board).not.toBeNull());
 
@@ -46,45 +111,35 @@ describe('cross-section marker focus', () => {
     expect(screen.getAllByTestId('editor-outline')[0]!.dataset.scrub).toBe('20');
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Focus slice from outline' })[0]!);
-    const position = await screen.findByRole('textbox', { name: 'Selected slice position' });
-    expect((position as HTMLInputElement).value).toBe('9.53');
-    expect(position.className).toContain('w-20');
     expect(screen.getAllByTestId('editor-outline')[0]!.dataset.scrub).toBe('');
 
-    fireEvent.focus(position);
-    fireEvent.blur(position);
-    expect(boardStore.getState().board!.crossSections[1]!.position).toBe(0.9525);
-
-    const increase = screen.getByRole('button', { name: 'Increase slice position' });
-    const decrease = screen.getByRole('button', { name: 'Decrease slice position' });
-    expect(increase.title).toBe('Increase by 10 mm');
-    expect(screen.getByTestId('section-position-editor').className).toContain('mr-2');
-
-    fireEvent.click(increase);
-    expect(boardStore.getState().board!.crossSections[1]!.position).toBeCloseTo(1.953);
-    expect((position as HTMLInputElement).value).toBe('19.53');
-
-    fireEvent.click(decrease);
-    expect(boardStore.getState().board!.crossSections[1]!.position).toBeCloseTo(0.953);
-    expect((position as HTMLInputElement).value).toBe('9.53');
-
-    const unitSelector = screen.getByTitle('Display units');
-    fireEvent.change(unitSelector, { target: { value: 'cm' } });
-    expect(increase.title).toBe('Increase by 1 cm');
-    fireEvent.change(unitSelector, { target: { value: 'in' } });
-    expect(increase.title).toBe('Increase by 0.5 in');
-    fireEvent.change(unitSelector, { target: { value: 'ftin' } });
-    expect(increase.title).toBe('Increase by 0.5 in');
-    fireEvent.change(unitSelector, { target: { value: 'mm' } });
-
+    // Still suppressed: a focused marker owns the pane.
     fireEvent.click(screen.getAllByRole('button', { name: 'Scrub outline' })[0]!);
     expect(screen.getAllByTestId('editor-outline')[0]!.dataset.scrub).toBe('');
 
-    fireEvent.change(position, { target: { value: '20' } });
-    fireEvent.keyDown(position, { key: 'Enter' });
-    expect(boardStore.getState().board!.crossSections[1]!.position).toBe(2);
-
+    // Escape comes from the shortcut table (`cross-section-blur`), not a local listener.
     fireEvent.keyDown(window, { key: 'Escape' });
-    expect(screen.queryByRole('textbox', { name: 'Selected slice position' })).toBeNull();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Scrub outline' })[0]!);
+    expect(screen.getAllByTestId('editor-outline')[0]!.dataset.scrub).toBe('20');
+  });
+
+  it('offers marker deletion in the maximized panes, not just the quad view', async () => {
+    render(<App />);
+    await waitFor(() => expect(boardStore.getState().board).not.toBeNull());
+
+    // Quad renders every pane; both length-axis panes must be able to delete.
+    for (const pane of screen.getAllByTestId('editor-outline')) {
+      expect(pane.dataset.canDelete).toBe('yes');
+    }
+
+    // `buildContextMenuItems` needs onDeleteSection to build the marker menu at all,
+    // so a maximized pane missing it loses add-slice too, not just delete. Queried by
+    // attribute rather than testid: the rocker pane's first target is the deck curve.
+    for (const key of ['2', '3']) {
+      showOnly(key);
+      const panes = document.querySelectorAll<HTMLElement>('[data-can-delete]');
+      expect(panes).toHaveLength(1);
+      expect(panes[0]!.dataset.canDelete).toBe('yes');
+    }
   });
 });

@@ -108,6 +108,15 @@ export const SHORTCUTS: readonly Shortcut[] = [
     group: 'Cross-sections',
     match: { keys: [']'], notInField: true },
   },
+  {
+    id: 'cross-section-blur',
+    keys: 'Esc',
+    label: 'Release the focused station marker',
+    group: 'Cross-sections',
+    // Not `notInField`: Escape inside the position field is handled by the field
+    // itself, which blurs the marker on its way out.
+    match: { keys: ['escape'], notInField: true },
+  },
   ...VIEW_KEYS.map(
     ({ key, label }): Shortcut => ({
       id: `view-${key}`,

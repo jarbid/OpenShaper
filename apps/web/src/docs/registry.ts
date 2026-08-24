@@ -95,6 +95,7 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
     'command-palette',
     'cross-section-prev',
     'cross-section-next',
+    'cross-section-blur',
     'view-1',
     'view-2',
     'view-3',

@@ -12,7 +12,8 @@ export function SectionPositionEditor({
   valueCm: number;
   units: LengthUnit;
   onCommit: (cm: number) => void;
-  onDismiss: () => void;
+  /** Optional Escape handler. Omitted where the editor is always on screen. */
+  onDismiss?: () => void;
 }) {
   const shown = cmToUnitNumber(valueCm, units).toFixed(2);
   const [text, setText] = useState(shown);
@@ -51,9 +52,9 @@ export function SectionPositionEditor({
   return (
     <div
       data-testid="section-position-editor"
-      className="mr-2 flex shrink-0 items-center gap-1 text-xs text-muted-foreground"
+      className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground"
+      title="Length position of this cross-section"
     >
-      <span className="hidden md:inline">Slice position</span>
       <div className="flex shrink-0 items-stretch">
         <Input
           aria-label="Selected slice position"
@@ -68,7 +69,7 @@ export function SectionPositionEditor({
             if (event.key === 'Enter') {
               commit();
               event.currentTarget.blur();
-            } else if (event.key === 'Escape') {
+            } else if (event.key === 'Escape' && onDismiss) {
               event.preventDefault();
               onDismiss();
             }
