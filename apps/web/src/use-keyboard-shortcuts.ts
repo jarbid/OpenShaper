@@ -19,12 +19,18 @@ export function useKeyboardShortcuts({
   setCsIndex,
   metaRef,
   onCommandPalette,
+  clearSectionFocus,
 }: {
   setView: Dispatch<SetStateAction<View>>;
   setCsIndex: Dispatch<SetStateAction<number>>;
   metaRef: MutableRefObject<BoardMeta>;
   /** Ctrl/Cmd+K. Pass a stable callback — the listener re-binds when it changes. */
   onCommandPalette: () => void;
+  /**
+   * Release the focused station marker. Returns whether one was focused, so a
+   * stray Escape still reaches whatever else is listening (menus, dialogs).
+   */
+  clearSectionFocus: () => boolean;
 }): void {
   useEffect(() => {
     /** Step the cross-section index, clamped to the editable stations. */
@@ -67,6 +73,9 @@ export function useKeyboardShortcuts({
         case 'cross-section-next':
           pageCrossSection(1);
           return true;
+        // No marker focused: let Escape through to menus and dialogs.
+        case 'cross-section-blur':
+          return clearSectionFocus();
         default: {
           const view = VIEW_KEYS.find((v) => `view-${v.key}` === id);
           if (!view) return false;
@@ -90,5 +99,5 @@ export function useKeyboardShortcuts({
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [setView, setCsIndex, metaRef, onCommandPalette]);
+  }, [setView, setCsIndex, metaRef, onCommandPalette, clearSectionFocus]);
 }

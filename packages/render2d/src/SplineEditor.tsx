@@ -37,6 +37,7 @@ import {
   hitSectionMarker,
   type DrawStyle,
   type EditorOverlays,
+  type SectionHandle,
   type SectionMarker,
 } from './draw';
 import { hitTest, type Hit } from './hit';
@@ -84,6 +85,11 @@ export interface SplineEditorProps {
   onMoveSection?: (index: number, position: number) => void;
   /** Called when a section marker's context menu requests deletion. */
   onDeleteSection?: (index: number) => void;
+  /**
+   * Formats a board-length position for the chip shown beside a station while it
+   * is dragged. Omit to drag without a readout.
+   */
+  formatSectionPosition?: (cm: number) => string;
   /**
    * Insert a cross-section at a board-length position (cursor x), surfaced as an
    * "Add cross-section here" context-menu item. Length-axis panes (outline/rocker) only.
@@ -178,7 +184,7 @@ export interface SplineEditorProps {
 
 type DragState =
   | { mode: 'edit'; target: SplineTarget; hit: Hit }
-  | { mode: 'section'; index: number; started: boolean }
+  | { mode: 'section'; index: number; started: boolean; handle: SectionHandle }
   // Dragging a fin to re-place it (plan pane).
   | { mode: 'fin'; index: number }
   // Middle-button / Space+left pan.
@@ -371,6 +377,7 @@ export function SplineEditor({
   onFocusSection,
   onMoveSection,
   onDeleteSection,
+  formatSectionPosition,
   onAddSectionAt,
   onScrub,
   readout,
@@ -398,6 +405,12 @@ export function SplineEditor({
   const [vp, setVp] = useState<Viewport | null>(null);
   const [hover, setHover] = useState<Vec2 | null>(null);
   const [hoveredSection, setHoveredSection] = useState<number | null>(null);
+  // Which marker is mid-drag and which of its grips was grabbed, so the position
+  // chip renders beside the handle under the cursor and clears with the drag.
+  const [draggingSection, setDraggingSection] = useState<{
+    index: number;
+    handle: SectionHandle;
+  } | null>(null);
   // Live trace transform while dragging/rotating the image; committed on pointer-up.
   const [liveTrace, setLiveTrace] = useState<SimilarityParams | null>(null);
   const drag = useRef<DragState>(null);
@@ -510,7 +523,24 @@ export function SplineEditor({
     }
     if (calibration) drawCalibrationOverlay(ctx, vp, calibration, effBg);
     if (sectionMarkers && sectionMarkers.length > 0) {
-      drawSectionMarkers(ctx, sectionMarkers, vp, size.h, hoveredSection, focusedSection);
+      const dragged = draggingSection
+        ? sectionMarkers.find((m) => m.index === draggingSection.index)
+        : undefined;
+      drawSectionMarkers(
+        ctx,
+        sectionMarkers,
+        vp,
+        size.h,
+        hoveredSection,
+        focusedSection,
+        dragged && draggingSection && formatSectionPosition
+          ? {
+              index: dragged.index,
+              handle: draggingSection.handle,
+              text: formatSectionPosition(dragged.pos),
+            }
+          : null,
+      );
     }
     if (overlays?.distribution) drawDistribution(ctx, overlays.distribution, vp, size.h);
     if (overlays?.verticalMarkers) drawVerticalMarkers(ctx, overlays.verticalMarkers, vp, size.h);
@@ -577,6 +607,8 @@ export function SplineEditor({
     sectionMarkers,
     hoveredSection,
     focusedSection,
+    draggingSection,
+    formatSectionPosition,
     overlays,
     ghostSplines,
     background,
@@ -686,6 +718,7 @@ export function SplineEditor({
           ) {
             store.getState().endEdit();
           }
+          setDraggingSection(null);
           drag.current = null;
           const pts = [...pointers.current.values()];
           const a = pts[0]!;
@@ -714,6 +747,7 @@ export function SplineEditor({
           ) {
             store.getState().endEdit();
           }
+          setDraggingSection(null);
           drag.current = null;
           const marker = sectionMarkerAt(p);
           if (marker) onPickSection?.(marker.index);
@@ -764,7 +798,12 @@ export function SplineEditor({
       const marker = sectionMarkerAt(p);
       if (marker && onPickSection) {
         if (focusedSection === marker.index && onMoveSection) {
-          drag.current = { mode: 'section', index: marker.index, started: false };
+          drag.current = {
+            mode: 'section',
+            index: marker.index,
+            started: false,
+            handle: p.y < size.h / 2 ? 'top' : 'bottom',
+          };
           setCursor('ew-resize');
           return;
         }
@@ -923,6 +962,10 @@ export function SplineEditor({
         if (!d.started) {
           store.getState().beginEdit('Move cross-section');
           d.started = true;
+          setDraggingSection({ index: d.index, handle: d.handle });
+          // The HUD freezes at wherever the pointer last hovered, so it would sit
+          // there showing a stale position next to a live one. Drop it for the drag.
+          setHover(null);
         }
         onMoveSection?.(d.index, world.x);
         return;
@@ -978,6 +1021,7 @@ export function SplineEditor({
       }
       if (d?.mode === 'edit' || d?.mode === 'fin' || (d?.mode === 'section' && d.started))
         store.getState().endEdit();
+      if (d?.mode === 'section') setDraggingSection(null);
       // A right-button tap (no pan) opens the context menu at the cursor.
       if (d?.mode === 'rightpan' && !d.moved && vp && board) {
         const p = localPoint(e);
@@ -1036,6 +1080,7 @@ export function SplineEditor({
         (drag.current?.mode === 'section' && drag.current.started)
       )
         store.getState().endEdit();
+      if (drag.current?.mode === 'section') setDraggingSection(null);
       if (drag.current?.mode === 'traceMove' || drag.current?.mode === 'traceRotate') {
         setLiveTrace(null); // drop the uncommitted preview
       }

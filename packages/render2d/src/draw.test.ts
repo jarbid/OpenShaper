@@ -56,6 +56,10 @@ function makeCtx() {
     moveTo: vi.fn((_x: number, _y: number) => calls.push('moveTo')),
     lineTo: vi.fn((_x: number, _y: number) => calls.push('lineTo')),
     setLineDash: vi.fn(() => calls.push('setLineDash')),
+    rect: vi.fn(() => calls.push('rect')),
+    fillText: vi.fn((_t: string, _x: number, _y: number) => calls.push('fillText')),
+    measureText: vi.fn((t: string) => ({ width: t.length * 6 })),
+    canvas: { width: 600, height: 300 },
     stroke: vi.fn(() => calls.push('stroke')),
     arc: vi.fn(() => calls.push('arc')),
     fill: vi.fn(() => calls.push('fill')),
@@ -111,6 +115,55 @@ describe('cross-section markers', () => {
 
     expect(ctx.strokeStyle).toBe('#22D3EE');
     expect(ctx.lineWidth).toBe(2);
+  });
+
+  it('draws the position chip only for the marker being dragged', () => {
+    const other = { pos: 60, index: 3, active: false };
+    const { ctx } = makeCtx();
+    drawSectionMarkers(ctx, [marker, other], VP, height, null, marker.index, {
+      index: marker.index,
+      handle: 'bottom',
+      text: '25.0 cm',
+    });
+
+    expect(ctx.fillText).toHaveBeenCalledTimes(1);
+    expect(ctx.fillText).toHaveBeenCalledWith('25.0 cm', expect.any(Number), expect.any(Number));
+  });
+
+  it('puts the chip beside whichever grip is being dragged', () => {
+    const chipY = (handle: 'top' | 'bottom') => {
+      const { ctx } = makeCtx();
+      drawSectionMarkers(ctx, [marker], VP, height, null, marker.index, {
+        index: marker.index,
+        handle,
+        text: '25.0 cm',
+      });
+      return ctx.fillText.mock.calls[0]![2] as number;
+    };
+
+    // Each chip sits on its grip's row, not in a fixed corner.
+    expect(chipY('top')).toBe(SECTION_MARKER_HANDLE_OFFSET);
+    expect(chipY('bottom')).toBe(height - SECTION_MARKER_HANDLE_OFFSET);
+  });
+
+  it('flips the chip to the left of the line when it would overflow the canvas', () => {
+    const nearRightEdge = { pos: 99, index: 4, active: false };
+    const x = worldToScreen(VP, vec2(nearRightEdge.pos, 0)).x;
+    const { ctx } = makeCtx();
+    drawSectionMarkers(ctx, [nearRightEdge], VP, height, null, nearRightEdge.index, {
+      index: nearRightEdge.index,
+      handle: 'top',
+      text: 'a label long enough to overhang the right-hand edge of the canvas',
+    });
+
+    const [, chipX] = ctx.fillText.mock.calls[0]!;
+    expect(chipX).toBeLessThan(x);
+  });
+
+  it('draws no chip when nothing is being dragged', () => {
+    const { ctx } = makeCtx();
+    drawSectionMarkers(ctx, [marker], VP, height, null, marker.index);
+    expect(ctx.fillText).not.toHaveBeenCalled();
   });
 
   it('draws a focused marker with an orange diamond and highlighted line', () => {

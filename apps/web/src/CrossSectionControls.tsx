@@ -1,5 +1,7 @@
 import { Button, Tooltip } from '@openshaper/ui';
 import { ChevronLeft, ChevronRight, ClipboardPaste, Copy, Plus, Trash2 } from 'lucide-react';
+import { SectionPositionEditor } from './SectionPositionEditor';
+import type { LengthUnit } from './format';
 import { shortcutKeys } from './shortcuts';
 
 export interface CrossSectionControlsProps {
@@ -12,6 +14,10 @@ export interface CrossSectionControlsProps {
   onCopy: () => void;
   onPaste: () => void;
   canPaste: boolean;
+  /** Length position of the current station, or null before a board loads. */
+  positionCm: number | null;
+  units: LengthUnit;
+  onMoveTo: (cm: number) => void;
 }
 
 /**
@@ -32,6 +38,9 @@ export function CrossSectionControls({
   onCopy,
   onPaste,
   canPaste,
+  positionCm,
+  units,
+  onMoveTo,
 }: CrossSectionControlsProps) {
   const icon = 'h-7 w-7 p-0';
   return (
@@ -64,6 +73,12 @@ export function CrossSectionControls({
         </Button>
       </Tooltip>
       <span className="mx-0.5 h-5 w-px bg-border" />
+      {positionCm !== null && (
+        <>
+          <SectionPositionEditor valueCm={positionCm} units={units} onCommit={onMoveTo} />
+          <span className="mx-0.5 h-5 w-px bg-border" />
+        </>
+      )}
       <Tooltip label="Add a cross-section here">
         <Button
           size="sm"

@@ -290,6 +290,17 @@ const SECTION_MARKER_HANDLE_RADIUS = 5;
  * clearly distinct from the solid neutral-grey reference grid: the active section
  * is a bold solid cyan line, the rest are faint teal dashes.
  */
+/** Which of a marker's two diamond grips a pointer is working with. */
+export type SectionHandle = 'top' | 'bottom';
+
+export interface SectionMarkerLabel {
+  index: number;
+  /** The grip being dragged — the chip rides it rather than a fixed corner. */
+  handle: SectionHandle;
+  /** Already formatted by the caller — `render2d` has no unit preferences. */
+  text: string;
+}
+
 export const drawSectionMarkers = (
   ctx: CanvasRenderingContext2D,
   markers: readonly SectionMarker[],
@@ -297,6 +308,7 @@ export const drawSectionMarkers = (
   height: number,
   hoveredIndex: number | null = null,
   focusedIndex: number | null = null,
+  label: SectionMarkerLabel | null = null,
 ): void => {
   ctx.save();
   for (const m of markers) {
@@ -322,8 +334,51 @@ export const drawSectionMarkers = (
       ctx.closePath();
       ctx.fill();
     }
+
+    if (label && label.index === m.index)
+      drawMarkerLabel(ctx, x, radius, height, label.handle, label.text);
   }
   ctx.restore();
+};
+
+/**
+ * The dragged station's position, in a chip beside the grip being dragged — put it
+ * anywhere else and the eye, which is on the handle, misses it. Flips to the left
+ * of the line near the right edge so it never runs off the pane.
+ *
+ * The top grip shares its corner with the hover HUD; `SplineEditor` drops that HUD
+ * for the duration of a station drag, so the two cannot overlap.
+ */
+const drawMarkerLabel = (
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  radius: number,
+  height: number,
+  handle: SectionHandle,
+  text: string,
+): void => {
+  const padX = 5;
+  const boxH = 17;
+  ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  const boxW = ctx.measureText(text).width + padX * 2;
+  const flip = x + radius + 4 + boxW > ctx.canvas.width;
+  const boxX = flip ? x - radius - 4 - boxW : x + radius + 4;
+  const cy =
+    handle === 'top' ? SECTION_MARKER_HANDLE_OFFSET : height - SECTION_MARKER_HANDLE_OFFSET;
+
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(15,23,42,0.92)';
+  ctx.strokeStyle = '#F97316';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.rect(boxX, cy - boxH / 2, boxW, boxH);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#F8FAFC';
+  ctx.fillText(text, boxX + padX, cy);
 };
 
 /** Section marker whose top or bottom diamond contains `screen`, or null. */

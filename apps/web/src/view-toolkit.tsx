@@ -337,6 +337,7 @@ export function EditorPane({
           onFocusSection={onFocusSection}
           onMoveSection={kind !== 'crossSection' ? onMoveSection : undefined}
           onDeleteSection={kind !== 'crossSection' ? onDeleteSection : undefined}
+          formatSectionPosition={(cm) => fmtLen(cm, units)}
           onAddSectionAt={kind !== 'crossSection' ? onAddSectionAt : undefined}
           onScrub={kind !== 'crossSection' ? onScrub : undefined}
           readout={makeReadout(kind, units)}
