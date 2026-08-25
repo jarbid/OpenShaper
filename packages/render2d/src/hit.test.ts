@@ -86,6 +86,14 @@ describe('hitTest', () => {
     expect(hit!.kind).toBe('end');
   });
 
+  it('lets an already-selected zero-length tangent win an endpoint overlap', () => {
+    const s = makeSpline();
+    const k0Screen = worldToScreen(VP, vec2(0, 0));
+    const hit = hitTest(s, VP, k0Screen, 8, { index: 0, kind: 'prev' });
+
+    expect(hit).toEqual({ index: 0, kind: 'prev' });
+  });
+
   it('returns null for an empty spline', () => {
     // A single-knot spline produces no segments but has one knot
     const s = splineFromKnots([knot(vec2(0, 0), vec2(0, 0), vec2(0, 0))]);

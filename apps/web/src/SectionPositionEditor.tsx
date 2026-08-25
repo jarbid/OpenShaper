@@ -1,7 +1,7 @@
 import { Input } from '@openshaper/ui';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { cmToUnitNumber, parseLen, unitSuffix, type LengthUnit } from './format';
+import { cmToUnitNumber, lengthEditStep, parseLen, unitSuffix, type LengthUnit } from './format';
 
 export function SectionPositionEditor({
   valueCm,
@@ -19,7 +19,7 @@ export function SectionPositionEditor({
   const [text, setText] = useState(shown);
   const textRef = useRef(shown);
   const dirty = useRef(false);
-  const stepAmount = units.key === 'mm' ? 10 : units.key === 'cm' ? 1 : 0.5;
+  const stepAmount = lengthEditStep(units);
   const stepLabel = stepAmount + ' ' + unitSuffix(units);
 
   const updateText = (next: string) => {

@@ -71,6 +71,10 @@ export const unitDecimals = (u: LengthUnit): number => {
   }
 };
 
+/** A practical nudge for native steppers and explicit length-position controls. */
+export const lengthEditStep = (u: LengthUnit): number =>
+  u.key === 'mm' ? 10 : u.key === 'cm' ? 1 : 0.5;
+
 /** Short suffix shown beside editable fields. */
 export const unitSuffix = (u: LengthUnit): string => {
   switch (u.unit) {

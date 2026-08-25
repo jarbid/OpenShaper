@@ -9,9 +9,13 @@ import {
 import { getTargetSpline, type BoardState, type SplineTarget } from '@openshaper/store';
 import type { MenuItem } from '@openshaper/ui';
 import type { StoreApi } from 'zustand/vanilla';
+import { handleKindForVisualSide } from './handle-side';
 import { hitTest } from './hit';
 import type { SectionMarker } from './draw';
 import { screenToWorld, type ScreenPoint, type Viewport } from './viewport';
+
+const sameTarget = (a: SplineTarget, b: SplineTarget): boolean =>
+  a.kind === b.kind && (a.kind !== 'crossSection' || (b as { index: number }).index === a.index);
 
 /** Distance from a world point to the nearest point on a spline. */
 const splineDistance = (s: Spline, p: Vec2): number => {
@@ -50,8 +54,8 @@ export interface ContextMenuRequest {
  * the cursor (modern enhancement over the legacy's single static popup):
  *
  *  - on a cross-section marker → add a slice ±10 cm or delete that slice;
- *  - on a control-point handle → Make smooth/corner (interior only) + Delete point
- *    (disabled on endpoints, matching `canDeleteKnot`);
+ *  - on a control point → fair, smooth/corner, select either handle, or delete;
+ *  - on a tangent handle → collapse it, or extend it when already collapsed;
  *  - on a curve (but not a handle) → Add point here;
  *  - empty space → just the view group.
  *
@@ -135,28 +139,69 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
     : [];
   const tail: MenuItem[] = [...railGroup, ...viewGroup];
 
-  // 1. Did we land on a control-point handle?
+  // 1. Did we land on a control point or tangent handle?
   for (const target of targets) {
     const spline = getTargetSpline(board, target);
-    const hit = hitTest(spline, vp, screen);
+    const selected = store.getState().selection;
+    const preferred =
+      selected && sameTarget(selected.target, target)
+        ? { index: selected.index, kind: selected.kind ?? ('end' as const) }
+        : undefined;
+    const hit = hitTest(spline, vp, screen, 8, preferred);
     if (!hit) continue;
     const knot = spline.knots[hit.index]!;
+
+    if (hit.kind !== 'end') {
+      const which: 'prev' | 'next' = hit.kind;
+      const handle = which === 'prev' ? knot.tangentToPrev : knot.tangentToNext;
+      const collapsed = Math.hypot(handle.x - knot.end.x, handle.y - knot.end.y) <= 1e-9;
+      return [
+        {
+          kind: 'action',
+          label: collapsed ? 'Extend handle' : 'Set handle length to zero',
+          onSelect: () => {
+            const state = store.getState();
+            if (collapsed) state.extendTangent(target, hit.index, which);
+            else state.zeroTangent(target, hit.index, which);
+          },
+        },
+        ...tail,
+      ];
+    }
+
     const isEndpoint = hit.index === 0 || hit.index === spline.knots.length - 1;
-    const items: MenuItem[] = [];
-    if (!isEndpoint) {
-      items.push({
+    const rightHandleKind = handleKindForVisualSide(knot, target, 'right');
+    const leftHandleKind = handleKindForVisualSide(knot, target, 'left');
+    const items: MenuItem[] = [
+      {
+        kind: 'action',
+        label: 'Fair curve',
+        onSelect: () => store.getState().fairControlPoint(target, hit.index),
+      },
+      {
         kind: 'action',
         label: knot.continuous ? 'Make corner' : 'Make smooth',
         onSelect: () => store.getState().setContinuous(target, hit.index, !knot.continuous),
-      });
-    }
-    items.push({
-      kind: 'action',
-      label: 'Delete point',
-      disabled: isEndpoint,
-      shortcut: 'Del',
-      onSelect: () => store.getState().deleteControlPoint(target, hit.index),
-    });
+      },
+      {
+        kind: 'action',
+        label: 'Select right handle point',
+        onSelect: () =>
+          store.getState().select({ target, index: hit.index, kind: rightHandleKind }),
+      },
+      {
+        kind: 'action',
+        label: 'Select left handle point',
+        onSelect: () => store.getState().select({ target, index: hit.index, kind: leftHandleKind }),
+      },
+      {
+        kind: 'action',
+        label: 'Delete point',
+        disabled: isEndpoint,
+        shortcut: 'Del',
+        onSelect: () => store.getState().deleteControlPoint(target, hit.index),
+      },
+    ];
     return [...items, ...tail];
   }
 

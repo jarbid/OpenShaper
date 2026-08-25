@@ -28,6 +28,37 @@ describe('<App /> smoke', () => {
     expect(boardStore.getState().board).not.toBeNull();
   });
 
+  it('reserves the same header height in all four quad panes when a point is selected', async () => {
+    render(<App />);
+    await screen.findAllByText(/[\d.]+ liters/);
+
+    const paneHeaders = () => [
+      screen.getByRole('heading', { name: 'Outline' }).parentElement!,
+      screen.getByRole('heading', { name: /Cross-section/ }).parentElement!,
+      screen.getByRole('heading', { name: 'Rocker (deck + bottom)' }).parentElement!,
+      screen.getByRole('heading', { name: '3D' }).parentElement!,
+    ];
+    const before = paneHeaders().map((header) => header.className);
+
+    expect(before.every((className) => className.includes('min-h-14'))).toBe(true);
+
+    act(() => boardStore.getState().select({ target: { kind: 'outline' }, index: 1 }));
+
+    expect(screen.getAllByRole('spinbutton')).toHaveLength(2);
+    expect(paneHeaders().map((header) => header.className)).toEqual(before);
+  });
+
+  it('uses the File-menu palette for the Display units selector and its options', () => {
+    render(<App />);
+
+    const units = screen.getByTitle('Display units');
+    expect(units.className).toContain('bg-card');
+    expect(units.className).toContain('text-card-foreground');
+    expect(units.className).toContain('[&>option]:bg-card');
+    expect(units.className).toContain('[&>option]:text-card-foreground');
+    expect(units.className).not.toContain('bg-transparent');
+  });
+
   it('Ctrl+K opens the command palette over the menu actions', async () => {
     render(<App />);
 

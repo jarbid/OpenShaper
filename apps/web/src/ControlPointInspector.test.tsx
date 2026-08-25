@@ -10,7 +10,7 @@
  */
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { createBoardStore } from '@openshaper/store';
+import { createBoardStore, getTargetSpline } from '@openshaper/store';
 import {
   board,
   crossSection,
@@ -19,14 +19,14 @@ import {
   vec2,
   type BezierBoard,
 } from '@openshaper/kernel';
-import { ControlPointInspector } from './ControlPointInspector';
-import { DEFAULT_LENGTH_UNIT } from './format';
+import { ControlPointInspector, SelectedPointEditor } from './ControlPointInspector';
+import { DEFAULT_LENGTH_UNIT, LENGTH_UNITS } from './format';
 
 // Mock render3d to avoid WebGL in jsdom (same pattern as App.test.tsx)
 vi.mock('@openshaper/render3d', () => ({ Board3DView: () => null }));
 
 /** A minimal valid board with a 3-knot outline (interior knot at index 1). */
-function makeBoard(): BezierBoard {
+function makeBoard(reversedCrossSectionHandles = false): BezierBoard {
   const outline = splineFromKnots([
     knot(vec2(0, 0), vec2(-5, 0), vec2(5, 0), true),
     knot(vec2(50, 10), vec2(45, 5), vec2(55, 15), false),
@@ -42,7 +42,11 @@ function makeBoard(): BezierBoard {
   ]);
   const prof = splineFromKnots([
     knot(vec2(0, 2), vec2(0, 2), vec2(10, 2)),
-    knot(vec2(10, 5), vec2(10, 3), vec2(10, 5)),
+    knot(
+      vec2(10, 5),
+      reversedCrossSectionHandles ? vec2(12, 3) : vec2(10, 3),
+      reversedCrossSectionHandles ? vec2(8, 5) : vec2(10, 5),
+    ),
   ]);
   return board(outline, bottom, deck, [
     crossSection(0, prof),
@@ -205,5 +209,149 @@ describe('<ControlPointInspector />', () => {
 
     // The input should re-sync to the original value.
     expect(prevXInput.value).toBe(originalValue);
+  });
+});
+
+describe('<SelectedPointEditor />', () => {
+  it.each([
+    ['prev', 'Right handle'],
+    ['next', 'Left handle'],
+  ] as const)('labels the cross-section %s tangent by its visual side', (kind, label) => {
+    const store = createBoardStore();
+    act(() => {
+      store.getState().load(makeBoard(true));
+      store.getState().select({ target: { kind: 'crossSection', index: 1 }, index: 1, kind });
+    });
+
+    render(
+      <SelectedPointEditor
+        store={store}
+        units={DEFAULT_LENGTH_UNIT}
+        targets={[{ kind: 'crossSection', index: 1 }]}
+      />,
+    );
+
+    expect(screen.getByLabelText(`${label} position editor`)).toBeTruthy();
+    expect(store.getState().selection?.kind).toBe(kind);
+  });
+
+  it.each([
+    ['mm', '5'],
+    ['cm', '0.5'],
+    ['in', '0.25'],
+    ['ftin', '0.25'],
+  ])('uses an appropriate native spinner increment for %s', (unitKey, expectedStep) => {
+    const store = createBoardStore();
+    act(() => {
+      store.getState().load(makeBoard());
+      store.getState().select({ target: { kind: 'outline' }, index: 1 });
+    });
+    const units = LENGTH_UNITS.find((unit) => unit.key === unitKey)!;
+
+    render(<SelectedPointEditor store={store} units={units} targets={[{ kind: 'outline' }]} />);
+
+    expect(screen.getByLabelText('X position').getAttribute('step')).toBe(expectedStep);
+    expect(screen.getByLabelText('Y position').getAttribute('step')).toBe(expectedStep);
+  });
+
+  it.each([
+    ['end', 'control point'],
+    ['next', 'handle point'],
+  ] as const)('nudges the selected %s with the axis arrow keys', (kind, _description) => {
+    const store = createBoardStore();
+    act(() => {
+      store.getState().load(makeBoard());
+      store.getState().select({ target: { kind: 'outline' }, index: 1, kind });
+    });
+
+    const selectedPosition = () => {
+      const state = store.getState();
+      const selection = state.selection!;
+      const knot = getTargetSpline(state.board!, selection.target).knots[selection.index]!;
+      return selection.kind === 'next' ? knot.tangentToNext : knot.end;
+    };
+    const before = selectedPosition();
+
+    render(
+      <SelectedPointEditor
+        store={store}
+        units={DEFAULT_LENGTH_UNIT}
+        targets={[{ kind: 'outline' }]}
+      />,
+    );
+
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    fireEvent.keyDown(screen.getByLabelText('Y position'), { key: 'ArrowUp' });
+
+    expect(selectedPosition()).toEqual({ x: before.x + 0.5, y: before.y + 0.5 });
+
+    fireEvent.keyDown(window, { key: 'ArrowLeft' });
+    fireEvent.keyDown(screen.getByLabelText('X position'), { key: 'ArrowDown' });
+
+    expect(selectedPosition()).toEqual(before);
+  });
+
+  it('shows only the selected handle coordinates in its owning pane header', () => {
+    const store = createBoardStore();
+    act(() => {
+      store.getState().load(makeBoard());
+      store.getState().select({ target: { kind: 'outline' }, index: 1, kind: 'next' });
+    });
+
+    render(
+      <SelectedPointEditor
+        store={store}
+        units={DEFAULT_LENGTH_UNIT}
+        targets={[{ kind: 'outline' }]}
+      />,
+    );
+
+    expect(screen.getByLabelText(/Right handle position editor/i)).toBeTruthy();
+    expect(screen.getAllByRole('spinbutton')).toHaveLength(2);
+  });
+
+  it('commits native-number edits to the selected tangent', () => {
+    const store = createBoardStore();
+    act(() => {
+      store.getState().load(makeBoard());
+      store.getState().select({ target: { kind: 'outline' }, index: 1, kind: 'prev' });
+    });
+    const moveTangent = vi.spyOn(store.getState(), 'moveTangent');
+    render(
+      <SelectedPointEditor
+        store={store}
+        units={DEFAULT_LENGTH_UNIT}
+        targets={[{ kind: 'outline' }]}
+      />,
+    );
+
+    const x = screen.getByLabelText('X position');
+    fireEvent.change(x, { target: { value: '420' } });
+    fireEvent.pointerUp(x);
+    fireEvent.blur(x);
+
+    expect(moveTangent).toHaveBeenCalledOnce();
+    expect(moveTangent).toHaveBeenCalledWith(
+      { kind: 'outline' },
+      1,
+      'prev',
+      expect.objectContaining({ x: 42 }),
+    );
+  });
+
+  it('does not render in a pane that does not own the selection', () => {
+    const store = createBoardStore();
+    act(() => {
+      store.getState().load(makeBoard());
+      store.getState().select({ target: { kind: 'outline' }, index: 1, kind: 'end' });
+    });
+    const { container } = render(
+      <SelectedPointEditor
+        store={store}
+        units={DEFAULT_LENGTH_UNIT}
+        targets={[{ kind: 'deck' }]}
+      />,
+    );
+    expect(container.innerHTML).toBe('');
   });
 });

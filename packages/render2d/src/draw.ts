@@ -16,8 +16,10 @@ export interface DrawStyle {
   curveWidth: number;
   handleLine: string;
   point: string;
+  pointCorner: string;
   pointSelected: string;
   tangent: string;
+  tangentSelected: string;
 }
 
 export const defaultStyle: DrawStyle = {
@@ -25,8 +27,10 @@ export const defaultStyle: DrawStyle = {
   curveWidth: 2,
   handleLine: 'rgba(138,155,179,0.55)',
   point: '#C7D2E0',
-  pointSelected: '#22D3EE',
+  pointCorner: '#22C55E',
+  pointSelected: '#F97316',
   tangent: '#8A9BB3',
+  tangentSelected: '#F97316',
 };
 
 /** Reflection options: outline mirrors across y=0; cross-sections across x=0. */
@@ -132,6 +136,10 @@ export const drawControlPoints = (
   selectedIndex: number | null,
   /** Override the control-point radius (px). Defaults to 5 for circles / 4 for squares. */
   pointSize?: number,
+  /** Which part of the selected knot is active. */
+  selectedKind: Hit['kind'] = 'end',
+  /** The individual point currently under the cursor. */
+  hovered: Hit | null = null,
 ): void => {
   const r = pointSize ?? 5;
   const rSq = pointSize != null ? Math.max(1, pointSize - 1) : 4;
@@ -148,11 +156,41 @@ export const drawControlPoints = (
     ctx.lineTo(next.x, next.y);
     ctx.stroke();
 
-    dot(ctx, prev.x, prev.y, 3, style.tangent);
-    dot(ctx, next.x, next.y, 3, style.tangent);
-    const fill = i === selectedIndex ? style.pointSelected : style.point;
-    if (k.continuous) dot(ctx, end.x, end.y, r, fill);
-    else square(ctx, end.x, end.y, rSq, fill);
+    const endActive =
+      (i === selectedIndex && selectedKind === 'end') ||
+      (hovered?.index === i && hovered.kind === 'end');
+    const prevActive =
+      (i === selectedIndex && selectedKind === 'prev') ||
+      (hovered?.index === i && hovered.kind === 'prev');
+    const nextActive =
+      (i === selectedIndex && selectedKind === 'next') ||
+      (hovered?.index === i && hovered.kind === 'next');
+    const endFill =
+      i === selectedIndex && selectedKind === 'end'
+        ? style.pointSelected
+        : k.continuous
+          ? style.point
+          : style.pointCorner;
+
+    // Draw the endpoint first and handles last. A selected zero-length handle then
+    // remains visible on top of the endpoint and can be dragged out again.
+    const endScale = endActive ? 1.55 : 1;
+    if (k.continuous) dot(ctx, end.x, end.y, r * endScale, endFill);
+    else square(ctx, end.x, end.y, rSq * endScale, endFill);
+    dot(
+      ctx,
+      prev.x,
+      prev.y,
+      3 * (prevActive ? 1.65 : 1),
+      i === selectedIndex && selectedKind === 'prev' ? style.tangentSelected : style.tangent,
+    );
+    dot(
+      ctx,
+      next.x,
+      next.y,
+      3 * (nextActive ? 1.65 : 1),
+      i === selectedIndex && selectedKind === 'next' ? style.tangentSelected : style.tangent,
+    );
   });
 };
 
