@@ -32,6 +32,8 @@ import {
   alignTangentsHorizontal,
   alignTangentsVertical,
   enforceJunctions,
+  extendKnotTangent,
+  fairKnot,
   getTargetSpline,
   insertCrossSection,
   moveCrossSectionPosition,
@@ -42,6 +44,7 @@ import {
   scaleBoard,
   setSplineValueAt,
   withSpline,
+  zeroKnotTangent,
   type SplineTarget,
 } from './edits';
 
@@ -73,6 +76,45 @@ function makeBoard(): BezierBoard {
   const cs = [crossSection(0, prof), crossSection(50, prof), crossSection(100, prof)];
   return board(outline, bottom, deck, cs);
 }
+
+describe('point fairing and collapsed handles', () => {
+  const uneven = () =>
+    splineFromKnots([
+      knot(vec2(0, 0), vec2(-2, 4), vec2(20, 25), true),
+      knot(vec2(30, 12), vec2(5, -20), vec2(75, 40), false),
+      knot(vec2(90, 6), vec2(60, -25), vec2(100, 6), true),
+    ]);
+
+  it('fairs an interior point along the neighbour chord with one-third handle lengths', () => {
+    const out = fairKnot(uneven(), 1);
+    const k = out.knots[1]!;
+    const chordLength = Math.hypot(90, 6);
+    const ux = 90 / chordLength;
+    const uy = 6 / chordLength;
+    const prevLength = Math.hypot(30, 12) / 3;
+    const nextLength = Math.hypot(60, -6) / 3;
+
+    expect(k.tangentToPrev.x).toBeCloseTo(k.end.x - ux * prevLength, 9);
+    expect(k.tangentToPrev.y).toBeCloseTo(k.end.y - uy * prevLength, 9);
+    expect(k.tangentToNext.x).toBeCloseTo(k.end.x + ux * nextLength, 9);
+    expect(k.tangentToNext.y).toBeCloseTo(k.end.y + uy * nextLength, 9);
+  });
+
+  it('preserves a corner point while fairing its handles', () => {
+    expect(uneven().knots[1]!.continuous).toBe(false);
+    expect(fairKnot(uneven(), 1).knots[1]!.continuous).toBe(false);
+  });
+
+  it('collapses and re-extends an individual tangent toward its neighbour', () => {
+    const collapsed = zeroKnotTangent(uneven(), 1, 'next');
+    expect(collapsed.knots[1]!.tangentToNext).toEqual(collapsed.knots[1]!.end);
+
+    const extended = extendKnotTangent(collapsed, 1, 'next');
+    const k = extended.knots[1]!;
+    expect(k.tangentToNext.x).toBeGreaterThan(k.end.x);
+    expect(Math.hypot(k.tangentToNext.x - k.end.x, k.tangentToNext.y - k.end.y)).toBeCloseTo(5, 9);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // moveKnotEnd

@@ -185,9 +185,17 @@ describe('defaultStyle', () => {
     expect(defaultStyle.curve).toBeTruthy();
     expect(defaultStyle.handleLine).toBeTruthy();
     expect(defaultStyle.point).toBeTruthy();
+    expect(defaultStyle.pointCorner).toBeTruthy();
     expect(defaultStyle.pointSelected).toBeTruthy();
     expect(defaultStyle.tangent).toBeTruthy();
+    expect(defaultStyle.tangentSelected).toBeTruthy();
     expect(defaultStyle.curveWidth).toBeGreaterThan(0);
+  });
+
+  it('uses marker orange for selections and green for persistent corners', () => {
+    expect(defaultStyle.pointSelected).toBe('#F97316');
+    expect(defaultStyle.tangentSelected).toBe('#F97316');
+    expect(defaultStyle.pointCorner).toBe('#22C55E');
   });
 });
 
@@ -285,6 +293,30 @@ describe('drawControlPoints', () => {
     drawControlPoints(ctx, makeSpline(), VP, defaultStyle, null);
     // 3 knots × 1 line per knot (prev-end-next) → 3 stroke() calls
     expect(ctx.stroke).toHaveBeenCalledTimes(3);
+  });
+
+  it('enlarges only the hovered tangent handle', () => {
+    const { ctx } = makeCtx();
+    drawControlPoints(ctx, makeSpline(), VP, defaultStyle, null, undefined, 'end', {
+      index: 1,
+      kind: 'next',
+    });
+
+    const radii = vi.mocked(ctx.arc).mock.calls.map((call) => call[2]);
+    expect(radii[4]).toBe(3); // middle knot's prev handle
+    expect(radii[5]).toBeGreaterThan(3); // middle knot's hovered next handle
+  });
+
+  it('renders a corner endpoint as a square with its permanent corner style', () => {
+    const { ctx } = makeCtx();
+    const s = splineFromKnots([
+      knot(vec2(0, 0), vec2(-5, 0), vec2(5, 0), false),
+      knot(vec2(50, 0), vec2(45, 0), vec2(55, 0), true),
+    ]);
+    drawControlPoints(ctx, s, VP, defaultStyle, null);
+
+    expect(ctx.fillRect).toHaveBeenCalled();
+    expect(defaultStyle.pointCorner).not.toBe(defaultStyle.point);
   });
 });
 

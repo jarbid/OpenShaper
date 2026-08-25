@@ -19,7 +19,6 @@ import {
   MenuBar,
   Panel,
   PanelBody,
-  PanelHeader,
   PanelTitle,
   Toast,
   ToolbarSeparator,
@@ -101,6 +100,7 @@ import {
   EditorPane,
   faceSizeFor,
   ThreeDControls,
+  ViewPaneHeader,
   type EditorKind,
   type View,
   type View3DSettings,
@@ -265,7 +265,12 @@ function AppShell() {
   // "nothing to release" without re-binding the global key listener on every focus.
   const focusedSectionRef = useRef<number | null>(null);
   const focusSection = useCallback((index: number | null) => {
-    if (index !== null) setScrubX(null);
+    if (index !== null) {
+      setScrubX(null);
+      // Cross-section markers and spline controls share one interaction focus.
+      // Taking marker focus clears any selected endpoint/tangent in every pane.
+      boardStore.getState().select(null);
+    }
     focusedSectionRef.current = index;
     setFocusedSection(index);
   }, []);
@@ -1064,10 +1069,10 @@ function AppShell() {
       onViewChange={reportPaneView('rocker')}
     />,
     <Panel key="3d" className="flex min-h-0 flex-col">
-      <PanelHeader className="flex items-center justify-between gap-2">
+      <ViewPaneHeader className="flex items-center justify-between gap-2">
         <PanelTitle>3D</PanelTitle>
         <ThreeDControls settings={view3d} onChange={patchView3d} compact />
-      </PanelHeader>
+      </ViewPaneHeader>
       <PanelBody className="min-h-0 flex-1 p-0">
         <ThreeDPane
           store={boardStore}
@@ -1192,7 +1197,7 @@ function AppShell() {
             value={unitKey}
             onChange={(e) => setUnitKey(e.target.value)}
             title="Display units"
-            className="h-8 shrink-0 rounded-md border border-border bg-transparent px-2 text-sm"
+            className="h-8 shrink-0 rounded-md border border-border bg-card px-2 text-sm text-card-foreground [&>option]:bg-card [&>option]:text-card-foreground"
           >
             {LENGTH_UNITS.map((u) => (
               <option key={u.key} value={u.key}>
@@ -1260,7 +1265,7 @@ function AppShell() {
             )
           ) : view === '3d' ? (
             <Panel className="flex h-full flex-col">
-              <PanelHeader className="flex items-center justify-between gap-3">
+              <ViewPaneHeader className="flex items-center justify-between gap-3">
                 <div className="flex items-baseline gap-3">
                   <PanelTitle>3D</PanelTitle>
                   <span className="text-xs text-muted-foreground">
@@ -1268,7 +1273,7 @@ function AppShell() {
                   </span>
                 </div>
                 <ThreeDControls settings={view3d} onChange={patchView3d} />
-              </PanelHeader>
+              </ViewPaneHeader>
               <PanelBody className="min-h-0 flex-1 p-0">
                 <ThreeDPane
                   store={boardStore}

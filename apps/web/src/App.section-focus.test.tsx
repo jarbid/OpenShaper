@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { boardStore } from './store';
@@ -121,6 +121,56 @@ describe('cross-section station controls', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     fireEvent.click(screen.getAllByRole('button', { name: 'Scrub outline' })[0]!);
     expect(screen.getAllByTestId('editor-outline')[0]!.dataset.scrub).toBe('20');
+  });
+
+  it('clears a control-point selection when a cross-section marker takes focus', async () => {
+    render(<App />);
+    await waitFor(() => expect(boardStore.getState().board).not.toBeNull());
+    boardStore.getState().select({ target: { kind: 'outline' }, index: 1, kind: 'end' });
+    expect(boardStore.getState().selection).not.toBeNull();
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Focus slice from outline' })[0]!);
+
+    expect(boardStore.getState().selection).toBeNull();
+  });
+
+  it('clears selected control points and handles with Escape', async () => {
+    render(<App />);
+    await waitFor(() => expect(boardStore.getState().board).not.toBeNull());
+
+    for (const kind of ['end', 'prev', 'next'] as const) {
+      act(() => boardStore.getState().select({ target: { kind: 'outline' }, index: 1, kind }));
+      expect(boardStore.getState().selection?.kind).toBe(kind);
+
+      fireEvent.keyDown(window, { key: 'Escape' });
+
+      expect(boardStore.getState().selection).toBeNull();
+    }
+  });
+
+  it('replaces cross-section station controls with point fields until Escape deselects', async () => {
+    render(<App />);
+    await waitFor(() => expect(boardStore.getState().board).not.toBeNull());
+    expect(
+      screen.getAllByRole('textbox', { name: 'Selected slice position' }).length,
+    ).toBeGreaterThan(0);
+
+    act(() =>
+      boardStore
+        .getState()
+        .select({ target: { kind: 'crossSection', index: 1 }, index: 1, kind: 'prev' }),
+    );
+
+    expect(screen.getByLabelText(/handle position editor/)).toBeTruthy();
+    expect(screen.queryAllByRole('textbox', { name: 'Selected slice position' })).toHaveLength(0);
+
+    fireEvent.keyDown(screen.getByLabelText('X position'), { key: 'Escape' });
+
+    expect(boardStore.getState().selection).toBeNull();
+    expect(screen.queryByLabelText(/handle position editor/)).toBeNull();
+    expect(
+      screen.getAllByRole('textbox', { name: 'Selected slice position' }).length,
+    ).toBeGreaterThan(0);
   });
 
   it('offers marker deletion in the maximized panes, not just the quad view', async () => {

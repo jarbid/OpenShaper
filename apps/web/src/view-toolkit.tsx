@@ -19,9 +19,10 @@ import {
   type SectionMarker,
 } from '@openshaper/render2d';
 import type { SplineTarget } from '@openshaper/store';
-import { Button, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
+import { Button, cn, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { useMemo } from 'react';
 import { fmtLen, type LengthUnit } from './format';
+import { SelectedPointEditor } from './ControlPointInspector';
 import { boardStore } from './store';
 import type { EditorSettings } from './settings';
 import {
@@ -39,6 +40,11 @@ export type View = 'quad' | EditorKind | '3d';
 // Re-export 3D settings so existing importers from view-toolkit keep working
 export { faceSizeFor } from './view3d-settings';
 export type { MeshQuality, View3DSettings } from './view3d-settings';
+
+/** A stable header shared by every 2D and 3D editor pane. */
+export function ViewPaneHeader({ className, ...props }: React.ComponentProps<typeof PanelHeader>) {
+  return <PanelHeader className={cn('min-h-14', className)} {...props} />;
+}
 
 // --- small atoms -----------------------------------------------------------
 
@@ -319,10 +325,15 @@ export function EditorPane({
   const p = useMemo(() => paneProps(kind, csIndex, settings), [kind, csIndex, settings]);
   return (
     <Panel className="flex min-h-0 flex-col">
-      <PanelHeader className={headerActions ? 'gap-2' : undefined}>
-        <PanelTitle>{title}</PanelTitle>
-        {headerActions}
-      </PanelHeader>
+      <ViewPaneHeader className="flex-wrap gap-2">
+        <PanelTitle className="mr-auto">{title}</PanelTitle>
+        <SelectedPointEditor
+          store={boardStore}
+          units={units}
+          targets={p.targets}
+          fallback={headerActions && <div className="flex items-center gap-1">{headerActions}</div>}
+        />
+      </ViewPaneHeader>
       <PanelBody className="min-h-0 flex-1 p-0">
         <SplineEditor
           key={p.key}

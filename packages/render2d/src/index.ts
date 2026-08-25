@@ -17,6 +17,12 @@ export {
 export { sampleSpline, boundsOf } from './sample';
 export { hitTest, type Hit, type HandleKind } from './hit';
 export {
+  handleKindForVisualSide,
+  visualSideForHandleKind,
+  type HandleSide,
+  type TangentKind,
+} from './handle-side';
+export {
   drawSpline,
   drawGhostSpline,
   drawControlPoints,
