@@ -1,9 +1,10 @@
 # OpenShaper
 
-Free, open-source surfboard CAD that runs entirely in your browser — a from-scratch
-modern rebuild of the legacy Java/Swing [BoardCAD-LE](https://github.com/ciditup/boardcad).
-Design outlines, rocker, and cross-sections; see live volume, area and weight; preview
-the board in 3D; and export STL / DXF / PDF — all client-side, nothing to install, no account.
+Free, open-source surfboard CAD, in your browser — a from-scratch modern rebuild of the
+legacy Java/Swing [BoardCAD-LE](https://github.com/ciditup/boardcad). Draw outlines,
+rocker and cross-sections, watch volume and weight update as you go, and export files you
+can actually build from — STEP, STL, DXF and 1:1 printable PDF. Nothing to install,
+nothing to sign up for.
 
 **▶ Live: https://openshaper.com** — the app opens at [openshaper.com/app](https://openshaper.com/app).
 
@@ -16,13 +17,14 @@ license as the BoardCAD it descends from.
 - Live specs: length, width, thickness, volume, plan-shape area, center of mass, weight
 - 3D preview (Three.js) with a striped-reflection shading mode for fairness checks
 - Compare against a "ghost" board; printable spec sheet
-- Export **STL** (3D print / CAM), **DXF** (2D outline), and **PDF**, plus a native
-  `.board.json` save — every format free
+- Export **STEP** (B-spline solid, for CAD/CAM), **STL** (3D print / CAM), **DXF** (2D
+  outline), and 1:1 printable **PDF** templates, plus a native `.board.json` save — every
+  format free
 - Reads legacy `.brd` files
 
 ## Stack
 
-- pnpm workspaces + Turborepo + Vite (static SPA — no server, no database)
+- pnpm workspaces + Turborepo + Vite (prerendered static SPA)
 - React 18 + TypeScript, Tailwind CSS
 - Zustand (board document + command/undo)
 - Canvas 2D editors; Three.js / react-three-fiber 3D
@@ -35,12 +37,12 @@ license as the BoardCAD it descends from.
 apps/web        the product (React)
 apps/desktop    Tauri native shell wrapping apps/web
 packages/kernel pure geometry + board model (port of cadcore + board)
-packages/io     file readers/writers (.brd in; .board.json/DXF/STL/PDF out)
+packages/io     file readers/writers (.brd in; .board.json/STEP/DXF/STL/PDF out)
 packages/store  board document store, command/undo, derived-spec selectors
 packages/render2d  canvas viewport + 2D editor draw layer
 packages/render3d  three.js board mesh + scene
 packages/units  metric/imperial + fraction formatting
-packages/export STL/DXF/PDF/spec-sheet exporters
+packages/export STEP/STL/DXF/PDF/spec-sheet exporters
 packages/ui     design-system components
 docs/specs      extracted legacy behavior specs + golden reference data
 ```
@@ -49,13 +51,25 @@ docs/specs      extracted legacy behavior specs + golden reference data
 
 The static site is prerendered to real HTML at build time ([vite-react-ssg](https://github.com/Daydreamer-riri/vite-react-ssg)):
 
-| Route                             | Page                                        |
-| --------------------------------- | ------------------------------------------- |
-| `/`                               | Marketing landing                           |
-| `/app`                            | The design app (editor; client-only island) |
-| `/about`                          | About / the maker's story                   |
-| `/surfboard-design-guide`         | Guide: outline, rocker, rails, volume       |
-| `/surfboard-construction-methods` | Guide: PU, EPS, hollow wood & more          |
+| Route                              | Page                                         |
+| ---------------------------------- | -------------------------------------------- |
+| `/`                                | Marketing landing                            |
+| `/app`                             | The design app (editor; client-only island)  |
+| `/about`                           | About / the maker's story                    |
+| `/privacy`                         | What analytics collect, and how to change it |
+| `/surfboard-design-guide`          | Guide: outline, rocker, rails, volume        |
+| `/surfboard-construction-methods`  | Guide: PU, EPS, hollow wood & more           |
+| `/surfboard-volume-calculator`     | Guide + calculator: finding your litres      |
+| `/build-a-hollow-wooden-surfboard` | Guide: hollow wooden board build             |
+| `/docs`                            | Reference docs: overview                     |
+| `/docs/editing`                    | Reference docs: the editors                  |
+| `/docs/specs`                      | Reference docs: volume, weight, specs        |
+| `/docs/fins`                       | Reference docs: fin setups and systems       |
+| `/docs/construction`               | Reference docs: construction settings        |
+| `/docs/export`                     | Reference docs: export formats               |
+| `/docs/files`                      | Reference docs: saving, opening, `.brd`      |
+| `/docs/offline`                    | Reference docs: offline and installing       |
+| `/docs/shortcuts`                  | Reference docs: keyboard shortcuts           |
 
 Each content route ships a unique `<title>`, meta description, canonical, Open Graph and
 JSON-LD; `robots.txt` and `sitemap.xml` are generated into `dist/` on build.
@@ -73,8 +87,7 @@ pnpm build        # prerendered static build to apps/web/dist
 ## Deploy (Cloudflare)
 
 The site deploys to **Cloudflare** (Workers Builds, Git-connected) at the `openshaper.com`
-apex domain. It's an **assets-only** deploy — the prerendered static build is published with
-no server code. `wrangler.toml` declares the assets directory; `.node-version` pins Node.
+apex domain. `wrangler.toml` declares the assets directory; `.node-version` pins Node.
 
 - **Build command (dashboard):** `pnpm build`
 - **Deploy command (dashboard):** `npx wrangler deploy`
@@ -96,13 +109,14 @@ and switches to `./` only under a Tauri build.
 ## Contributing
 
 Issues and pull requests welcome — bug reports, board templates, file-format fixes,
-and shaping-domain feedback especially. By contributing you agree your work is licensed
-under the project's GPL-3.0-or-later.
+and shaping-domain feedback especially. See [`CONTRIBUTING.md`](./CONTRIBUTING.md), which
+covers the ground rules and how to submit a board template. By contributing you agree your
+work is licensed under the project's GPL-3.0-or-later.
 
 ## Support
 
-OpenShaper is free and always will be — no accounts, no paywall. If it's useful to you
-and you'd like to chip in toward its development, you can
+OpenShaper is free and open-source — every feature, every export format. If it's useful
+to you and you'd like to chip in toward its development, you can
 [buy me a coffee](https://www.buymeacoffee.com/jaredg). It's entirely optional and supports
 a solo passion project. 🙏
 

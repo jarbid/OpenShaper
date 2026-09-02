@@ -4,8 +4,7 @@ OpenShaper is a modern surfboard CAD/CAM app: a from-scratch rebuild of the lega
 Java/Swing **BoardCAD-LE** (`../boardcad-le`, kept **untouched** as the reference spec
 source). It runs in the browser (static SPA) and as a Tauri desktop app from one codebase.
 It is a **free, open-source** project licensed **GPL-3.0-or-later** — the same copyleft as
-the BoardCAD it descends from (see `LICENSE` / `NOTICE.md`). No accounts, no backend, no
-paywall: everything runs client-side.
+the BoardCAD it descends from (see `LICENSE` / `NOTICE.md`).
 
 > **Never modify `../boardcad-le`.** It is read-only reference. Mine it for behavior;
 > port the behavior here.
@@ -54,8 +53,6 @@ docs/specs      extracted legacy specs + golden reference data
    pattern: it posts monotonically-increasing-id requests to a module worker, drops
    stale responses, and falls back to synchronous compute when `Worker` is undefined
    (tests / prerender). See `docs/design/specs-worker.md` for the full write-up.
-5. **All client-side.** No server, database, or auth — the app is a static SPA that ships
-   to any free static host. Every feature is free; never add a paywall or tier gate.
 
 ## Commands
 
@@ -77,7 +74,9 @@ pnpm is provided via the user's npm global prefix (`%APPDATA%\npm`), not corepac
   command classes); wire them through the store's `commit(next, label)` to land on
   the past/future undo stack.
 - Edited files are auto-formatted with Prettier by a PostToolUse hook
-  (`.claude/hooks/format-edited.mjs`) — don't hand-format to match style.
+  (`.claude/hooks/format-edited.mjs`) — don't hand-format to match style. **Local only:**
+  `.claude/hooks/` is gitignored, so in a fresh clone or a cloud session the hook isn't
+  there — run `pnpm format` before committing instead.
 
 See `apps/web/CLAUDE.md` for the display-units convention (loads automatically when
 working under `apps/web`).
@@ -106,11 +105,11 @@ Two related rules:
   The handler, the tooltips and `/docs/shortcuts` all read that table, so a chord
   is defined once.
 - Docs pages are precached by the service worker (unlike the marketing pages), so
-  they stay readable offline. `tools/precache-guard.ts` enforces both directions.
+  they stay readable offline. `apps/web/tools/precache-guard.ts` enforces both directions.
 
 ## Skills to use
 
-Repo skills (`.claude/skills/`):
+Repo skills (`.claude/skills/`, gitignored — local only, absent in a fresh clone):
 
 - `port-kernel-fn` — port a legacy kernel function behind a golden test
 - `preview-deploy` — ship a Cloudflare preview URL

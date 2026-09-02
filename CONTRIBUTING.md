@@ -13,8 +13,6 @@ feedback are all especially welcome.
 - **Keep the kernel pure.** `packages/kernel` (and `io`, `units`) must not import React,
   the DOM, or Three.js. Geometry/board math is framework-agnostic, side-effect-free, and
   immutable. State lives in `packages/store`, not in globals.
-- **No backend, no paywall.** The app is a fully client-side static SPA. Every feature is
-  free; please don't add accounts, servers, or tier gates.
 
 ## Getting started
 
@@ -42,6 +40,21 @@ Requires Node 20+ and pnpm 9.
 See [`README.md`](./README.md) for the package map and
 [`.claude/CLAUDE.md`](./.claude/CLAUDE.md) for architecture conventions (the layering rules,
 the golden-data testing rule, and the non-negotiable principles).
+
+## Submitting a board template
+
+Templates are the boards in the app's **New Board** chooser.
+
+1. Shape the board and save it, or bring a legacy `.brd` file. Drop it in
+   `apps/web/src/` (alongside `sample-board.brd`, `funboard.brd`, `longboard.brd`).
+2. Add it to `BOARD_TEMPLATES` in [`apps/web/src/templates.ts`](./apps/web/src/templates.ts)
+   — a `?raw` import plus a `{ name, brd }` entry. The raw file is bundled, so keep it
+   lean.
+3. **Document it.** Add its id to `apps/web/src/docs/registry.ts` and write the section on
+   the page that entry names. `apps/web/src/docs/coverage.test.ts` enumerates the app's
+   own templates and **fails CI** if one ships undocumented.
+4. In the PR, say what the board is for — length, width, thickness, volume, and who it
+   suits. That's the part a shaper reads before loading it.
 
 ## Reporting bugs
 
