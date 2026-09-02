@@ -85,7 +85,7 @@ export function SupportCallout() {
           <p className="fig-label">Optional · keeps the bay lit</p>
           <h2 className="font-display mt-2 text-2xl sm:text-3xl">Like it? Buy me a coffee.</h2>
           <p className="mt-3 max-w-xl text-muted-foreground">
-            OpenShaper is free and always will be — no accounts, no paywall, every feature open.
+            OpenShaper is free and open-source — every feature, every export format, no paywall.
             It&apos;s built and maintained by one person, in between surfs. If it&apos;s saved you
             time or helped you shape something, a coffee keeps the project moving. Completely
             optional, genuinely appreciated.

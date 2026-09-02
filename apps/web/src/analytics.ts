@@ -144,8 +144,9 @@ export function initAnalytics(): void {
     // SDK rather than by us. Requires `surveys_opt_in` on the project; with it
     // off the survey script never loads for anyone.
     //
-    // Worth the reach they lose: the app has no backend and no accounts, so a
-    // survey is the only built-in way to ask a visitor anything at all.
+    // Worth the reach they lose: there are no accounts and no in-app feedback
+    // endpoint, so a survey is the only built-in way to ask a visitor anything
+    // at all.
     // Baseline identity comes from PostHog's server-side privacy-preserving
     // hash, not from anything stored in the browser. This replaces
     // `persistence: 'memory'`, which left no id at all — every page load

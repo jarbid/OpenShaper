@@ -57,7 +57,7 @@ export default function Privacy() {
       <ArticleHero
         eyebrow="Privacy"
         title="What we track, and why."
-        lede="OpenShaper has no accounts and no backend — everything you design stays in your browser. Analytics are the one exception, and here's exactly how they work."
+        lede="Anonymous by default, with fuller tracking only if you accept. Here is exactly what each mode collects, and how to change your choice at any time."
       />
 
       <Container className="py-14">
@@ -85,10 +85,9 @@ export default function Privacy() {
           </p>
           <p>
             Accepting is also the only way you&apos;ll ever be asked a question here — an occasional
-            short in-app survey, like what you&apos;re building or what&apos;s missing. OpenShaper
-            has no accounts and no server to email you from, so this is the only channel that
-            exists. Answers are yours to give: every survey can be dismissed, and dismissing one
-            doesn&apos;t bring it back.
+            short in-app survey, like what you&apos;re building or what&apos;s missing. There are
+            no accounts, so an in-app survey is the only way to ask. Answers are yours to give:
+            every survey can be dismissed, and dismissing one doesn&apos;t bring it back.
           </p>
 
           <h2>Rejecting is a real choice</h2>
