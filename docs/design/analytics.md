@@ -158,11 +158,11 @@ inside a form control) before adding new UI that might be recorded.
 In-app questions — "what are you building?", "what's missing?" — shown to
 consenting visitors only. Enabled 2026-08-15.
 
-**Why they earn their place despite that reach.** OpenShaper has no backend and
-no accounts: there is no contact form, no feedback endpoint, nothing
-server-side to receive a message and no address to reply from. A PostHog survey
-is the only channel that can ask a visitor anything without building
-infrastructure that the all-client-side principle rules out.
+**Why they earn their place despite that reach.** OpenShaper has no accounts and
+no in-app feedback endpoint: nothing receives a message from inside the editor,
+and the only listed contact is an email address a visitor has to go find. A
+PostHog survey is therefore the only channel that can ask a visitor a question
+at the moment they are actually using the thing.
 
 **We write no consent logic for them.** posthog-js gates surveys itself:
 

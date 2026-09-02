@@ -68,8 +68,7 @@ interop, built because Shape3D and AKU have no Linux build) is chasing the same
 ground. Offline leads because browser-native is our core advantage and connectivity
 is its one failure mode.
 
-Deliberately excluded: real-time multiplayer and any paid tier — both were rated
-high-impact by the review, and both are ruled out by the project's non-negotiables
-(all client-side, no server or accounts; every feature free). Parametric constraint
-trees are excluded too: shapers work spatially, and direct manipulation already
-suits the domain better.
+Deliberately excluded: real-time multiplayer — solo hobbyists shaping one board
+are not a collaboration market, and the build cost is enormous. Parametric
+constraint trees are excluded too: shapers work spatially, and direct manipulation
+already suits the domain better.
