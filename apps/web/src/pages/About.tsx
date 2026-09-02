@@ -119,12 +119,13 @@ export default function About() {
           <h2>What I believe about it</h2>
           <ul>
             <li>
-              <strong>Free, for everyone.</strong> No accounts, no tiers, no paywall — every feature
-              is free, and it always will be.
+              <strong>Free, for everyone.</strong> Every feature and every export format is free —
+              no tiers, no paywall, nothing to sign up for.
             </li>
             <li>
-              <strong>Yours, on your machine.</strong> There&apos;s no server. Your designs never
-              leave your browser.
+              <strong>Open formats, not lock-in.</strong> STEP, STL, DXF and 1:1 printable PDF out;
+              legacy <code>.brd</code> files in. Your work isn&apos;t trapped in the tool —
+              including not trapped in this one.
             </li>
             <li>
               <strong>Open by default.</strong> The full source lives on{' '}
@@ -136,8 +137,8 @@ export default function About() {
           </ul>
           <p>
             If you like making things as much as I do, I hope it helps you build something
-            you&apos;re proud to paddle out on. It&apos;s free and always will be — but if it earns
-            a spot in your shaping bay, you can{' '}
+            you&apos;re proud to paddle out on. It&apos;s free — but if it earns a spot in your
+            shaping bay, you can{' '}
             <a href={SUPPORT_URL} target="_blank" rel="noopener noreferrer">
               buy me a coffee
             </a>{' '}

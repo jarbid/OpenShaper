@@ -77,8 +77,8 @@ export default function DocsFiles() {
           images and settings.
         </p>
         <p>
-          There is no account and no server. That also means clearing your browser's site data
-          clears your working board, so export anything you want to keep.
+          Boards are saved in your browser, not to an account. That also means clearing your
+          browser's site data clears your working board, so export anything you want to keep.
         </p>
       </Section>
 

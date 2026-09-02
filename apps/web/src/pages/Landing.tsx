@@ -22,15 +22,15 @@ const FEATURES = [
   },
   {
     title: 'Export STEP, STL, DXF & PDF',
-    body: 'Send an STL to a CNC machine or 3D printer, DXF outlines to a cutter, or print 1:1 PDF templates for hand-shaping.',
+    body: 'Send a STEP solid or an STL mesh to CAM software, DXF outlines to a cutter, or print 1:1 PDF templates and shape it by hand.',
   },
   {
-    title: 'Runs on your machine',
-    body: 'No account, no upload, no server. Your designs never leave the browser — open it on a plane, in the shaping bay, anywhere.',
+    title: 'Works offline',
+    body: 'Install it once and the editor keeps working with no connection — on a plane, in the shaping bay, anywhere the wi-fi gives up.',
   },
   {
     title: 'Free & open-source',
-    body: 'Released under the GPL-3.0. Every feature is free, the source is on GitHub, and it always will be.',
+    body: 'Every feature and every export format is free. The source is on GitHub under the GPL-3.0 — read it, fork it, build on it.',
   },
 ];
 
@@ -79,17 +79,22 @@ const FAQ = [
     q: 'Can I use it to drive a CNC machine?',
     a: (
       <>
-        Export an STL for CAM software or a 3D printer, DXF outlines for a cutter, or 1:1 PDF
+        Export STEP or STL for CAM software and 3D printers, DXF outlines for a cutter, or 1:1 PDF
         templates for hand-shaping. See the{' '}
         <Link to="/surfboard-construction-methods">construction guide</Link>.
       </>
     ),
-    text: 'Yes. OpenShaper exports STL meshes for CAM software and 3D printers, DXF outlines for cutters, and 1:1 PDF templates for hand-shaping.',
+    text: 'Yes. OpenShaper exports STEP solids and STL meshes for CAM software and 3D printers, DXF outlines for cutters, and 1:1 PDF templates for hand-shaping.',
   },
   {
     q: 'Where is my design stored?',
-    a: <>On your own device. Nothing is uploaded — the whole app runs client-side.</>,
-    text: 'Your designs stay on your own device. OpenShaper runs entirely client-side and never uploads your files to a server.',
+    a: (
+      <>
+        In your browser, plus whatever you save or export. Clearing your browser&apos;s site data
+        clears saved boards too, so export a <code>.board.json</code> for anything you want to keep.
+      </>
+    ),
+    text: "Boards are saved in your browser, plus any files you save or export yourself. Clearing your browser's site data also clears saved boards, so export a .board.json file for anything you want to keep.",
   },
 ];
 
@@ -134,7 +139,7 @@ export default function Landing() {
 
         <Container className="grid gap-12 py-16 sm:py-24 lg:grid-cols-[1.08fr_0.92fr] lg:items-center">
           <div className="stagger">
-            <Eyebrow>Open-source surfboard CAD</Eyebrow>
+            <Eyebrow>Free, open-source surfboard CAD</Eyebrow>
             <h1 className="font-display mt-6 text-[3.25rem] leading-[0.92] sm:text-[4.75rem]">
               Design surfboards,
               <br />
@@ -160,9 +165,9 @@ export default function Landing() {
               .
             </h1>
             <p className="mt-7 max-w-xl text-lg leading-relaxed text-muted-foreground">
-              OpenShaper is a free, open-source design app for shaping surfboards — outline, rocker,
-              cross-sections and a live 3D model, with volume and weight as you go. No account, no
-              paywall, nothing to install.
+              Draw outlines, rocker and cross-sections, watch volume and weight update as you go,
+              and export files you can actually build from — STEP, STL, DXF and 1:1 printable PDF.
+              Free and open-source. Nothing to install, nothing to sign up for.
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-3">
               <Link to="/app" className={cn(buttonVariants({ size: 'lg' }), 'shadow-sm')}>
@@ -178,7 +183,7 @@ export default function Landing() {
               </a>
             </div>
             <p className="font-mono-tech mt-6 text-xs tracking-wider text-muted-foreground">
-              FREE FOREVER · GPL-3.0 · RUNS 100% IN YOUR BROWSER
+              FREE · OPEN-SOURCE (GPL-3.0) · STEP · STL · DXF · 1:1 PDF
             </p>
           </div>
 
