@@ -52,6 +52,13 @@ export default function DocsExport() {
           Parts can be exported together or as separate files, which is easier to handle when a
           longboard runs to a lot of pages.
         </p>
+        <p>
+          The outline can be printed as a single rail instead of both — a half template — under{' '}
+          <em>Outline coverage</em>. Because a surfboard is symmetric about the stringer, one rail is
+          all you need to cut a template you flip about the centreline, and it uses roughly half the
+          paper. Choose the left or right rail; fins are drawn only for the rail you print (a centred
+          box is always included).
+        </p>
       </Section>
 
       <Section id="rail-bands" title="Rail bands">

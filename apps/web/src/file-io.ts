@@ -392,6 +392,7 @@ export function downloadPdf1to1(
     units: pdfUnit,
     meta: pdfMeta,
     crossSectionCount: settings.crossSectionCount,
+    outlineHalf: settings.outlineHalf,
     parts: {
       outline: settings.outline,
       rocker: settings.rocker,

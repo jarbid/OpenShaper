@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { exportBoardPdf1to1 } from './board-pdf';
-import { bbox, planOutlineLoop } from './board-curves';
+import { bbox, planOutlineHalfLoop, planOutlineLoop } from './board-curves';
 import { makeTestBoard } from './fixture.test-helper';
 
 const CM_TO_PT = 72 / 2.54;
@@ -71,5 +71,36 @@ describe('exportBoardPdf1to1', () => {
     // outline spline's true control points → 2 curve ops per segment, no flattening.
     const curveOps = (text.match(/ c\n/g) ?? []).length;
     expect(curveOps).toBe(board.outline.curves.length * 2);
+  });
+
+  it('draws a half outline as a single rail (half the curve ops of the full outline)', () => {
+    const text = decode(
+      exportBoardPdf1to1(board, {
+        crossSectionCount: 0,
+        parts: { rocker: false },
+        outlineHalf: 'left',
+      }),
+    );
+    const curveOps = (text.match(/ c\n/g) ?? []).length;
+    // One rail only — the far rail's mirrored segments are omitted.
+    expect(curveOps).toBe(board.outline.curves.length);
+  });
+
+  it('sizes a half outline page to the half loop bbox — shorter than the full page', () => {
+    const opts = { crossSectionCount: 0, parts: { rocker: false } } as const;
+    const heightOf = (t: string): number =>
+      Number(t.match(/MediaBox \[0 0 [\d.]+ ([\d.]+)\]/)![1]);
+    const fullH = heightOf(decode(exportBoardPdf1to1(board, opts)));
+    const halfH = heightOf(decode(exportBoardPdf1to1(board, { ...opts, outlineHalf: 'left' })));
+    const margin = 2; // MARGIN_CM
+    const bb = bbox(planOutlineHalfLoop(board, 200, 'left'));
+    const expectedH = (bb.maxY - bb.minY + 2 * margin) * CM_TO_PT;
+    expect(halfH).toBeCloseTo(expectedH, 1);
+    expect(halfH).toBeLessThan(fullH);
+  });
+
+  it('labels a half outline page with the printed side', () => {
+    const text = decode(exportBoardPdf1to1(board, { outlineHalf: 'right', meta: { model: 'Fish' } }));
+    expect(text).toContain('Outline right half \\(1:1\\)');
   });
 });

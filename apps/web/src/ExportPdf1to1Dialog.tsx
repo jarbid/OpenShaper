@@ -82,6 +82,17 @@ export function ExportPdf1to1Dialog({
               value={draft.outline}
               onChange={(v) => set('outline', v)}
             />
+            <SelectRow
+              label="Outline coverage"
+              value={draft.outlineHalf}
+              options={[
+                { value: 'full', label: 'Full (both rails)' },
+                { value: 'left', label: 'Left half' },
+                { value: 'right', label: 'Right half' },
+              ]}
+              disabled={!draft.outline}
+              onChange={(v) => set('outlineHalf', v as Pdf1to1Settings['outlineHalf'])}
+            />
             <CheckRow
               label="Fins (on outline)"
               value={draft.fins}

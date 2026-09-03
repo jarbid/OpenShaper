@@ -20,6 +20,8 @@ import {
   crossSectionBeziers,
   crossSectionRing,
   planOutlineBeziers,
+  planOutlineHalfBeziers,
+  planOutlineHalfLoop,
   planOutlineLoop,
   sampleProfile,
   splineSegments,
@@ -67,6 +69,11 @@ export interface BoardPdf1to1Options {
   meta?: PdfMeta;
   /** Geometry parts to include. Defaults to all parts on. */
   parts?: PdfPartSelection;
+  /**
+   * Print only one rail of the plan outline (a half template — half the paper), or the
+   * full both-rails outline. `'left'` = +y rail, `'right'` = −y rail. Default `'full'`.
+   */
+  outlineHalf?: 'full' | 'left' | 'right';
   /** Slice each part across a paper size; null = one oversized page per part. */
   tiling?: PdfTiling | null;
   /** Combine all parts into one PDF, or emit one PDF per part. Default 'combined'. */
@@ -154,6 +161,24 @@ const drawFins = (ctx: DrawCtx, fins: readonly ResolvedFin[]): void => {
   }
 };
 
+/**
+ * Keep only the fins on the printed rail for a half-outline export (near-side). A fin
+ * that straddles the stringer (single box, centre of a 2+1) is within `CENTER_TOL` of
+ * y=0 and is always kept; genuine side fins are kept only when their side matches.
+ */
+const finsForHalf = (
+  fins: readonly ResolvedFin[],
+  half: 'full' | 'left' | 'right',
+): readonly ResolvedFin[] => {
+  if (half === 'full') return fins;
+  const CENTER_TOL = 1; // cm
+  return fins.filter((f) => {
+    const cy = (f.baseLine.fore.y + f.baseLine.aft.y) / 2;
+    if (Math.abs(cy) <= CENTER_TOL) return true;
+    return half === 'left' ? cy > 0 : cy < 0;
+  });
+};
+
 /** Assemble the selected full-size part drawings for `board`. */
 const buildParts = (board: BezierBoard, opts: BoardPdf1to1Options): TaggedPart[] => {
   const lengthSteps = Math.max(2, opts.lengthSteps ?? DEFAULT_LENGTH_STEPS);
@@ -176,23 +201,38 @@ const buildParts = (board: BezierBoard, opts: BoardPdf1to1Options): TaggedPart[]
 
   // --- Outline page: plan outline + stringer + rib stations + fins. ---
   if (want('outline')) {
-    const loop = planOutlineLoop(board, lengthSteps);
+    const side = opts.outlineHalf ?? 'full';
+    const loop =
+      side === 'full'
+        ? planOutlineLoop(board, lengthSteps)
+        : planOutlineHalfLoop(board, lengthSteps, side);
+    const title =
+      side === 'full'
+        ? `${name} · Outline (1:1)`
+        : `${name} · Outline ${side} half (1:1)`;
     parts.push(
       buildPart(
         'outline',
-        `${name} · Outline (1:1)`,
+        title,
         note,
         bbox(loop),
         (ctx) => {
-          ctx.bezier(planOutlineBeziers(board), { closed: true, width: 0.8 });
+          if (side === 'full') {
+            ctx.bezier(planOutlineBeziers(board), { closed: true, width: 0.8 });
+          } else {
+            ctx.bezier(planOutlineHalfBeziers(board, side), { width: 0.8 });
+          }
           ctx.seg({ x: eps, y: 0 }, { x: length - eps, y: 0 }, { width: 0.3, gray: 0.55 });
           for (let i = 0; i < csCount; i++) {
             const pos = stationPos(i);
-            const half = valueAt(board.outline, pos);
-            ctx.seg({ x: pos, y: -half }, { x: pos, y: half }, { width: 0.3, dashed: true, gray: 0.55 }); // prettier-ignore
-            ctx.label({ x: pos + 0.4, y: half + 0.6 }, `${L(pos)} · w ${L(2 * half)}`, 7);
+            const halfW = valueAt(board.outline, pos);
+            const lo = side === 'left' ? 0 : -halfW;
+            const hi = side === 'right' ? 0 : halfW;
+            ctx.seg({ x: pos, y: lo }, { x: pos, y: hi }, { width: 0.3, dashed: true, gray: 0.55 }); // prettier-ignore
+            const labelY = side === 'right' ? -halfW - 0.6 : halfW + 0.6;
+            ctx.label({ x: pos + 0.4, y: labelY }, `${L(pos)} · w ${L(2 * halfW)}`, 7);
           }
-          if (want('fins')) drawFins(ctx, resolveFins(board));
+          if (want('fins')) drawFins(ctx, finsForHalf(resolveFins(board), side));
         },
         calibration,
         inches,
