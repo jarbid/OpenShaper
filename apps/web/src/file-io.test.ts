@@ -19,6 +19,12 @@ describe('slugifyName', () => {
     expect(slugifyName('')).toBe('board');
     expect(slugifyName('☂☂')).toBe('board');
   });
+
+  it('uses the given separator for snake_case names', () => {
+    expect(slugifyName('My Fish 5\'10"', '_')).toBe('my_fish_5_10');
+    expect(slugifyName('  ~~Retro // Twin!  ', '_')).toBe('retro_twin');
+    expect(slugifyName('☂☂', '_')).toBe('board');
+  });
 });
 
 describe('decideImport', () => {

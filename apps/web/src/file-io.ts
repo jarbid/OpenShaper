@@ -37,14 +37,17 @@ import { recordRecentBoard } from './recent-boards';
 
 /**
  * Turn a board model name into a safe download-filename stem: lowercase,
- * non-alphanumerics collapsed to single hyphens, edges trimmed. Falls back to
- * 'board' when the name is missing or has nothing usable in it.
+ * non-alphanumerics collapsed to a single separator, edges trimmed. Falls back
+ * to 'board' when the name is missing or has nothing usable in it. The
+ * separator defaults to a hyphen (kebab-case), matching the export filenames;
+ * pass '_' for the snake-case native-save name.
  */
-export function slugifyName(name: string | undefined): string {
+export function slugifyName(name: string | undefined, separator = '-'): string {
+  const sep = separator.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const slug = (name ?? '')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+    .replace(/[^a-z0-9]+/g, separator)
+    .replace(new RegExp(`^${sep}+|${sep}+$`, 'g'), '');
   return slug || 'board';
 }
 
@@ -71,11 +74,16 @@ export interface BoardMeta {
   glassSchedule?: string;
 }
 
-/** Trigger a download of the board as a native .board.json document. */
+/**
+ * Trigger a download of the board as a native .board.json document. When no
+ * explicit `filename` is given, it is derived from the board's model name in
+ * snake_case (`slugifyName(model, '_')`), falling back to 'board' — so a named
+ * board saves as e.g. `my_fish.board` instead of the anonymous `board (n)`.
+ */
 export function downloadBoard(
   board: BezierBoard,
   meta?: BoardMeta,
-  filename = 'board.board',
+  filename = `${slugifyName(meta?.model, '_')}.board`,
 ): void {
   const metadata =
     meta && Object.values(meta).some(Boolean) ? (meta as Record<string, unknown>) : undefined;
@@ -392,6 +400,7 @@ export function downloadPdf1to1(
     units: pdfUnit,
     meta: pdfMeta,
     crossSectionCount: settings.crossSectionCount,
+    outlineHalf: settings.outlineHalf,
     parts: {
       outline: settings.outline,
       rocker: settings.rocker,

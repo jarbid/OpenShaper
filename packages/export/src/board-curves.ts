@@ -69,6 +69,17 @@ export const planOutlineBeziers = (b: BezierBoard): CurveSeg[] => {
   return [...top, ...bottom];
 };
 
+/**
+ * One rail of the plan outline as exact bezier segments — the printable **half**
+ * template. `'left'` is the +y rail as designed; `'right'` mirrors it across the
+ * stringer to −y. The stringer edge itself is drawn separately (as the centreline),
+ * so this returns the open rail curve, not a closed loop.
+ */
+export const planOutlineHalfBeziers = (b: BezierBoard, side: 'left' | 'right'): CurveSeg[] => {
+  const rail = splineSegments(b.outline);
+  return side === 'right' ? rail.map((s) => mapSeg(s, (p) => ({ x: p.x, y: -p.y }))) : rail;
+};
+
 /** Point on a cubic-bezier segment at parameter t∈[0,1]. */
 const cubicPt = (s: CurveSeg, t: number): Pt => {
   const u = 1 - t;
@@ -208,6 +219,25 @@ export const planOutlineLoop = (b: BezierBoard, steps: number): Pt[] => {
     top.push({ x, y: valueAt(b.outline, x) });
   }
   return [...top, ...[...top].reverse().map((p) => ({ x: p.x, y: -p.y }))];
+};
+
+/**
+ * One rail of the plan outline as a polyline, plus the stringer baseline (y=0) at each
+ * end so the bounding box reaches the centreline. This is what sizes a **half** outline
+ * page — roughly half the height of the full loop. `'right'` mirrors the +y rail to −y.
+ */
+export const planOutlineHalfLoop = (
+  b: BezierBoard,
+  steps: number,
+  side: 'left' | 'right',
+): Pt[] => {
+  const full = planOutlineLoop(b, steps);
+  const top = full.slice(0, full.length / 2); // the +y rail (both branches emit it first)
+  const rail = side === 'right' ? top.map((p) => ({ x: p.x, y: -p.y })) : top;
+  const first = rail[0];
+  const last = rail[rail.length - 1];
+  if (!first || !last) return rail;
+  return [...rail, { x: first.x, y: 0 }, { x: last.x, y: 0 }];
 };
 
 /**
