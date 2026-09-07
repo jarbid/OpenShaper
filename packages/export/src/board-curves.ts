@@ -188,17 +188,22 @@ export const sampleProfile = (s: Spline, x0: number, x1: number, steps: number):
   return pts;
 };
 
-/** Closed plan-view outline loop (both rails) of a board, sampled at `steps`. */
-export const planOutlineLoop = (b: BezierBoard, steps: number): Pt[] => {
-  // A concave tail (swallow / fish) is non-monotonic in x, so an x-sampled y(x)
-  // would collapse the notch. Trace the outline PARAMETRICALLY instead (following
-  // the fold), then mirror. Normal (single-valued) boards keep the exact x-sampled
-  // path so existing diagram / PDF output is unchanged.
+/**
+ * The +y rail of the plan outline, sampled at `steps` (nose→tail) — half of
+ * {@link planOutlineLoop}, and on its own the printable **half template**: a board is
+ * symmetric about the stringer, so one rail cut and flipped about the centreline is the
+ * whole outline, on half the paper.
+ *
+ * A concave tail (swallow / fish) is non-monotonic in x, so an x-sampled y(x) would
+ * collapse the notch — trace the outline PARAMETRICALLY in that case (following the
+ * fold). Normal (single-valued) boards keep the exact x-sampled path so existing
+ * diagram / PDF output is unchanged.
+ */
+export const planOutlineRail = (b: BezierBoard, steps: number): Pt[] => {
   if (hasTailCutout(b.outline)) {
     const segs = splineSegments(b.outline);
     const perSeg = Math.max(2, Math.ceil(steps / Math.max(1, segs.length)));
-    const top = flattenBeziers(segs, perSeg);
-    return [...top, ...[...top].reverse().map((p) => ({ x: p.x, y: -p.y }))];
+    return flattenBeziers(segs, perSeg);
   }
   const len = getLength(b);
   const e = Math.min(0.01, len / (steps * 4));
@@ -207,6 +212,12 @@ export const planOutlineLoop = (b: BezierBoard, steps: number): Pt[] => {
     const x = e + ((len - 2 * e) * i) / steps;
     top.push({ x, y: valueAt(b.outline, x) });
   }
+  return top;
+};
+
+/** Closed plan-view outline loop (both rails) of a board, sampled at `steps`. */
+export const planOutlineLoop = (b: BezierBoard, steps: number): Pt[] => {
+  const top = planOutlineRail(b, steps);
   return [...top, ...[...top].reverse().map((p) => ({ x: p.x, y: -p.y }))];
 };
 

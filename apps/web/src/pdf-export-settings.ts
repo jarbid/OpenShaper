@@ -14,6 +14,8 @@ export interface Pdf1to1Settings {
   version: number;
   // --- Geometry ---
   outline: boolean;
+  /** Print the outline as a single rail (a half template) rather than both rails. */
+  halfOutline: boolean;
   rocker: boolean;
   crossSections: boolean;
   fins: boolean;
@@ -40,6 +42,7 @@ export interface Pdf1to1Settings {
 export const DEFAULT_PDF1TO1: Pdf1to1Settings = {
   version: PDF1TO1_VERSION,
   outline: true,
+  halfOutline: true,
   rocker: true,
   crossSections: true,
   fins: true,

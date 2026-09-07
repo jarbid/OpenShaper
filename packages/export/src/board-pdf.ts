@@ -21,6 +21,7 @@ import {
   crossSectionRing,
   planOutlineBeziers,
   planOutlineLoop,
+  planOutlineRail,
   sampleProfile,
   splineSegments,
   ySpan,
@@ -67,6 +68,12 @@ export interface BoardPdf1to1Options {
   meta?: PdfMeta;
   /** Geometry parts to include. Defaults to all parts on. */
   parts?: PdfPartSelection;
+  /**
+   * Print the plan outline as a single rail — a **half template**, cut and flipped about
+   * the centreline — instead of both rails. Roughly half the paper. Default `true`;
+   * pass `false` for the full both-rails outline on one sheet.
+   */
+  halfOutline?: boolean;
   /** Slice each part across a paper size; null = one oversized page per part. */
   tiling?: PdfTiling | null;
   /** Combine all parts into one PDF, or emit one PDF per part. Default 'combined'. */
@@ -175,24 +182,42 @@ const buildParts = (board: BezierBoard, opts: BoardPdf1to1Options): TaggedPart[]
   const parts: TaggedPart[] = [];
 
   // --- Outline page: plan outline + stringer + rib stations + fins. ---
+  // A half template is just the full outline without its mirror: the +y rail, sized so
+  // the page still reaches the centreline you flip it about.
   if (want('outline')) {
-    const loop = planOutlineLoop(board, lengthSteps);
+    const halfTpl = opts.halfOutline ?? true;
+    const pts = halfTpl ? planOutlineRail(board, lengthSteps) : planOutlineLoop(board, lengthSteps);
+    const bb = bbox(pts);
     parts.push(
       buildPart(
         'outline',
-        `${name} · Outline (1:1)`,
-        note,
-        bbox(loop),
+        `${name} · Outline${halfTpl ? ' half' : ''} (1:1)`,
+        halfTpl ? `${note} · half template — flip about the centreline` : note,
+        halfTpl ? { ...bb, minY: Math.min(0, bb.minY) } : bb,
         (ctx) => {
-          ctx.bezier(planOutlineBeziers(board), { closed: true, width: 0.8 });
-          ctx.seg({ x: eps, y: 0 }, { x: length - eps, y: 0 }, { width: 0.3, gray: 0.55 });
+          ctx.bezier(halfTpl ? splineSegments(board.outline) : planOutlineBeziers(board), {
+            closed: !halfTpl,
+            width: 0.8,
+          });
+          // On a half template the centreline is the fold/cut edge, not a faint reference.
+          ctx.seg(
+            { x: eps, y: 0 },
+            { x: length - eps, y: 0 },
+            halfTpl ? { width: 0.6, gray: 0 } : { width: 0.3, gray: 0.55 },
+          );
           for (let i = 0; i < csCount; i++) {
             const pos = stationPos(i);
-            const half = valueAt(board.outline, pos);
-            ctx.seg({ x: pos, y: -half }, { x: pos, y: half }, { width: 0.3, dashed: true, gray: 0.55 }); // prettier-ignore
-            ctx.label({ x: pos + 0.4, y: half + 0.6 }, `${L(pos)} · w ${L(2 * half)}`, 7);
+            const halfW = valueAt(board.outline, pos);
+            ctx.seg({ x: pos, y: halfTpl ? 0 : -halfW }, { x: pos, y: halfW }, { width: 0.3, dashed: true, gray: 0.55 }); // prettier-ignore
+            // The width label stays the FULL width — what the shaper measures.
+            ctx.label({ x: pos + 0.4, y: halfW + 0.6 }, `${L(pos)} · w ${L(2 * halfW)}`, 7);
           }
-          if (want('fins')) drawFins(ctx, resolveFins(board));
+          if (want('fins')) {
+            // `side` is -1 port / 0 centre / +1 starboard, so the printed rail's fins and
+            // any centre box come out exactly — no positional tolerance needed.
+            const fins = resolveFins(board);
+            drawFins(ctx, halfTpl ? fins.filter((f) => f.side >= 0) : fins);
+          }
         },
         calibration,
         inches,

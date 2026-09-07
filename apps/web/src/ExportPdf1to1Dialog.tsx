@@ -83,6 +83,12 @@ export function ExportPdf1to1Dialog({
               onChange={(v) => set('outline', v)}
             />
             <CheckRow
+              label="Half template (one rail)"
+              value={draft.halfOutline}
+              onChange={(v) => set('halfOutline', v)}
+              disabled={!draft.outline}
+            />
+            <CheckRow
               label="Fins (on outline)"
               value={draft.fins}
               onChange={(v) => set('fins', v)}
