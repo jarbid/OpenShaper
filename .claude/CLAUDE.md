@@ -116,6 +116,12 @@ Repo skills (`.claude/skills/`):
 - `preview-deploy` — ship a Cloudflare preview URL
 - `verify` — the per-PR quality gate
 
+Repo commands (`.claude/commands/`) — unlike `.claude/skills/`, these are tracked in git,
+so they work in a fresh clone:
+
+- `/review-pr [n]` — read-only review of an open PR: what's new, UI/UX gaps, KISS.
+  Writes a plan; never edits code or posts to GitHub.
+
 Built-in commands that pair with these: `/run`, `/code-review`, `/simplify`.
 
 Current project status/roadmap: see `docs/ROADMAP.md`.
