@@ -18,6 +18,8 @@ export interface Pdf1to1Settings {
   halfOutline: boolean;
   rocker: boolean;
   crossSections: boolean;
+  /** Print each cross-section as a single side (a half rib template) rather than both. */
+  halfSections: boolean;
   fins: boolean;
   calibration: boolean;
   crossSectionCount: number;
@@ -45,6 +47,7 @@ export const DEFAULT_PDF1TO1: Pdf1to1Settings = {
   halfOutline: true,
   rocker: true,
   crossSections: true,
+  halfSections: true,
   fins: true,
   calibration: true,
   crossSectionCount: 7,

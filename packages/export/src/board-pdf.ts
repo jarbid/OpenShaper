@@ -18,6 +18,8 @@ import { getLength, resolveFins, valueAt, type BezierBoard, type ResolvedFin } f
 import {
   bbox,
   crossSectionBeziers,
+  crossSectionHalfBeziers,
+  crossSectionHalfRing,
   crossSectionRing,
   planOutlineBeziers,
   planOutlineLoop,
@@ -74,6 +76,11 @@ export interface BoardPdf1to1Options {
    * pass `false` for the full both-rails outline on one sheet.
    */
   halfOutline?: boolean;
+  /**
+   * Print each cross-section as a single side — a **half rib template**, cut and flipped
+   * about the stringer — instead of the full lateral profile. Default `true`.
+   */
+  halfSections?: boolean;
   /** Slice each part across a paper size; null = one oversized page per part. */
   tiling?: PdfTiling | null;
   /** Combine all parts into one PDF, or emit one PDF per part. Default 'combined'. */
@@ -253,24 +260,35 @@ const buildParts = (board: BezierBoard, opts: BoardPdf1to1Options): TaggedPart[]
   }
 
   // --- One page per cross-section, true scale. ---
+  // Same trick as the outline: a section is symmetric about the stringer, so a half rib
+  // template is the full ring without its mirror.
   if (want('crossSections')) {
+    const halfSec = opts.halfSections ?? true;
     for (let i = 0; i < csCount; i++) {
       const pos = stationPos(i);
-      const ring = crossSectionRing(board, pos, ringSteps);
+      const ring = halfSec
+        ? crossSectionHalfRing(board, pos, ringSteps)
+        : crossSectionRing(board, pos, ringSteps);
       if (!ring) continue;
+      const bb = bbox(ring);
       parts.push(
         buildPart(
           'sections',
-          `${name} · Section @ ${L(pos)} (1:1)`,
-          note,
-          bbox(ring),
+          `${name} · Section${halfSec ? ' half' : ''} @ ${L(pos)} (1:1)`,
+          halfSec ? `${note} · half template — flip about the stringer` : note,
+          // Reach the stringer so the fold line is on the sheet, as the outline does.
+          halfSec ? { ...bb, minX: Math.min(0, bb.minX) } : bb,
           (ctx) => {
-            ctx.bezier(crossSectionBeziers(board, pos) ?? [], { closed: true, width: 0.8 });
+            const segs = halfSec
+              ? crossSectionHalfBeziers(board, pos)
+              : crossSectionBeziers(board, pos);
+            ctx.bezier(segs ?? [], { closed: !halfSec, width: 0.8 });
+            // On a half rib the stringer is the fold/cut edge, not a faint reference.
             const sy = ySpan(ring);
             ctx.seg(
               { x: 0, y: sy.lo },
               { x: 0, y: sy.hi },
-              { width: 0.3, dashed: true, gray: 0.55 },
+              halfSec ? { width: 0.6, gray: 0 } : { width: 0.3, dashed: true, gray: 0.55 },
             );
           },
           calibration,

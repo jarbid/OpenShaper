@@ -57,7 +57,13 @@ export default function DocsExport() {
           the paper. A surfboard is symmetric about the stringer, so you cut the one rail, flip it
           about the centreline drawn down the sheet, and mark the other side from the same template.
           Station lines still carry the full width, and the fins on the printed rail are drawn along
-          with any centre box. Uncheck <em>Half template</em> to get both rails on one sheet.
+          with any centre box. Uncheck <em>Half outline</em> to get both rails on one sheet.
+        </p>
+        <p>
+          Cross-sections work the same way and default to half for the same reason — a section is
+          symmetric about the stringer, so each rib page prints one side with the stringer drawn as
+          the fold line. <em>Half sections</em> turns that off independently of the outline, for
+          when you would rather see the whole profile.
         </p>
       </Section>
 

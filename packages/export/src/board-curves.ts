@@ -138,13 +138,20 @@ export const chainSegs = (segs: readonly CurveSeg[], closed: boolean): CurveSeg[
   return out;
 };
 
-/** Closed cross-section ring at `pos` as exact bezier segments (−x half mirrored + +x half). */
-export const crossSectionBeziers = (board: BezierBoard, pos: number): CurveSeg[] | null => {
+/**
+ * The +x half of the cross-section at `pos` as exact bezier segments — the printable
+ * half rib template, mirrored across the stringer to make {@link crossSectionBeziers}.
+ */
+export const crossSectionHalfBeziers = (board: BezierBoard, pos: number): CurveSeg[] | null => {
   const cs = loftCrossSection(board, pos);
-  if (!cs) return null;
-  const half = splineSegments(cs.spline);
-  const mirrored = [...half].reverse().map(reverseMirrorX);
-  return [...mirrored, ...half];
+  return cs ? splineSegments(cs.spline) : null;
+};
+
+/** Both sides of the cross-section at `pos`: the +x half plus its mirror across the stringer. */
+export const crossSectionBeziers = (board: BezierBoard, pos: number): CurveSeg[] | null => {
+  const half = crossSectionHalfBeziers(board, pos);
+  if (!half) return null;
+  return [...[...half].reverse().map(reverseMirrorX), ...half];
 };
 
 /** Vertical extent of a set of points. */
@@ -222,6 +229,28 @@ export const planOutlineLoop = (b: BezierBoard, steps: number): Pt[] => {
 };
 
 /**
+ * The +x half of the cross-section at `pos`, as designed — half of
+ * {@link crossSectionRing}, and on its own the printable **half rib template**: a section
+ * is symmetric about the stringer, so one side cut and flipped is the whole rib.
+ * Coordinates are local section coords (x = lateral, y = thickness). Returns `null` if no
+ * section interpolates at `pos`.
+ */
+export const crossSectionHalfRing = (
+  board: BezierBoard,
+  pos: number,
+  ringSteps: number,
+): Pt[] | null => {
+  const cs = loftCrossSection(board, pos);
+  if (!cs) return null;
+  const half: Pt[] = [];
+  for (let r = 0; r <= ringSteps; r++) {
+    const p = pointByTT(cs.spline, r / ringSteps);
+    half.push({ x: p.x, y: p.y });
+  }
+  return half;
+};
+
+/**
  * Closed cross-section ring at `pos` (a full lateral profile: the +x rail mirrored
  * across the stringer to -x). Coordinates are local section coords (x = lateral,
  * y = thickness). Returns `null` if no section interpolates at `pos`.
@@ -231,16 +260,7 @@ export const crossSectionRing = (
   pos: number,
   ringSteps: number,
 ): Pt[] | null => {
-  const cs = loftCrossSection(board, pos);
-  if (!cs) return null;
-  const ring: Pt[] = [];
-  for (let r = ringSteps; r >= 0; r--) {
-    const p = pointByTT(cs.spline, r / ringSteps);
-    ring.push({ x: -p.x, y: p.y });
-  }
-  for (let r = 0; r <= ringSteps; r++) {
-    const p = pointByTT(cs.spline, r / ringSteps);
-    ring.push({ x: p.x, y: p.y });
-  }
-  return ring;
+  const half = crossSectionHalfRing(board, pos, ringSteps);
+  if (!half) return null;
+  return [...[...half].reverse().map((p) => ({ x: -p.x, y: p.y })), ...half];
 };
