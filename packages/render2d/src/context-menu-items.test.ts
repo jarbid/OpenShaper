@@ -69,11 +69,18 @@ const submenu = (items: MenuItem[], label: string): Extract<MenuItem, { kind: 's
 };
 
 describe('buildContextMenuItems', () => {
-  it('on an interior point: offers smooth/corner toggle + an enabled Delete, plus Fit view', () => {
+  it('on an interior point: offers all point actions plus Fit view', () => {
     const { store, build } = setup();
     const items = build(worldToScreen(VP, vec2(50, 20))); // outline knot index 1
 
-    expect(labels(items)).toEqual(['Make corner', 'Delete point', 'Fit view']);
+    expect(labels(items)).toEqual([
+      'Fair curve',
+      'Make corner',
+      'Select right handle point',
+      'Select left handle point',
+      'Delete point',
+      'Fit view',
+    ]);
     const del = find(items, 'Delete point');
     expect(del?.kind === 'action' && del.disabled).toBeFalsy();
 
@@ -91,16 +98,55 @@ describe('buildContextMenuItems', () => {
     expect(store.getState().board!.outline.knots[1]!.continuous).toBe(!before);
   });
 
-  it('on an endpoint: no smooth/corner toggle, and Delete is disabled (and a no-op)', () => {
+  it('on an endpoint: offers point actions and keeps Delete disabled (and a no-op)', () => {
     const { store, build } = setup();
     const items = build(worldToScreen(VP, vec2(0, 0))); // outline knot index 0 (endpoint)
 
-    expect(labels(items)).toEqual(['Delete point', 'Fit view']);
+    expect(labels(items)).toEqual([
+      'Fair curve',
+      'Make corner',
+      'Select right handle point',
+      'Select left handle point',
+      'Delete point',
+      'Fit view',
+    ]);
     const del = find(items, 'Delete point');
     expect(del?.kind === 'action' && del.disabled).toBe(true);
 
     (del as { onSelect: () => void }).onSelect();
     expect(store.getState().board!.outline.knots).toHaveLength(3); // unchanged
+  });
+
+  it('selects either tangent handle from a control point menu', () => {
+    const { store, build } = setup();
+    const items = build(worldToScreen(VP, vec2(50, 20)));
+
+    (find(items, 'Select right handle point') as { onSelect: () => void }).onSelect();
+    expect(store.getState().selection).toMatchObject({ index: 1, kind: 'next' });
+    (find(items, 'Select left handle point') as { onSelect: () => void }).onSelect();
+    expect(store.getState().selection).toMatchObject({ index: 1, kind: 'prev' });
+  });
+
+  it('collapses a tangent, then offers Extend handle for the selected overlap', () => {
+    const { store, build } = setup();
+    const rightHandle = vec2(55, 20);
+    let items = build(worldToScreen(VP, rightHandle));
+    expect(labels(items)).toEqual(['Set handle length to zero', 'Fit view']);
+    (find(items, 'Set handle length to zero') as { onSelect: () => void }).onSelect();
+    const collapsed = store.getState().board!.outline.knots[1]!;
+    expect(collapsed.tangentToNext).toEqual(collapsed.end);
+
+    store.getState().select({ target: { kind: 'outline' }, index: 1, kind: 'next' });
+    items = build(worldToScreen(VP, collapsed.end));
+    expect(labels(items)).toEqual(['Extend handle', 'Fit view']);
+    (find(items, 'Extend handle') as { onSelect: () => void }).onSelect();
+    const extended = store.getState().board!.outline.knots[1]!;
+    expect(
+      Math.hypot(
+        extended.tangentToNext.x - extended.end.x,
+        extended.tangentToNext.y - extended.end.y,
+      ),
+    ).toBeGreaterThan(0);
   });
 
   it('on a curve but not a handle: offers Add point here, which inserts a knot', () => {
@@ -219,7 +265,7 @@ describe('buildContextMenuItems: rail presets', () => {
     const deck = splineFromKnots([k(0, 0), k(50, 12), k(100, 0)]);
     const prof = splineFromKnots([
       knot(vec2(0, 0), vec2(-8, 0), vec2(8, 0)),
-      knot(vec2(20, 6), vec2(20, 2), vec2(20, 10)),
+      knot(vec2(20, 6), vec2(24, 2), vec2(16, 10)),
       knot(vec2(0, 12), vec2(8, 12), vec2(-8, 12)),
     ]);
     const cs = [crossSection(0, prof), crossSection(50, prof), crossSection(100, prof)];
@@ -261,6 +307,19 @@ describe('buildContextMenuItems: rail presets', () => {
     // Still a hit-test-driven menu underneath.
     expect(labels(build(onHandle))).toContain('Delete point');
     expect(labels(build(onCurve))).toContain('Add point here');
+  });
+
+  it('selects cross-section handles by their visual left/right order', () => {
+    const { store, build, onHandle } = csSetup();
+    const knot = store.getState().board!.crossSections[1]!.spline.knots[1]!;
+    expect(knot.tangentToPrev.x).toBeGreaterThan(knot.tangentToNext.x);
+    const items = build(onHandle);
+
+    (find(items, 'Select right handle point') as { onSelect: () => void }).onSelect();
+    expect(store.getState().selection).toMatchObject({ index: 1, kind: 'prev' });
+
+    (find(items, 'Select left handle point') as { onSelect: () => void }).onSelect();
+    expect(store.getState().selection).toMatchObject({ index: 1, kind: 'next' });
   });
 
   it('lists every preset, in kernel order, as an action', () => {

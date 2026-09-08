@@ -135,6 +135,94 @@ export const setKnotContinuous = (s: Spline, index: number, continuous: boolean)
   return replaceKnot(s, index, knot(k.end, k.tangentToPrev, k.tangentToNext, continuous, k.other));
 };
 
+/** Rebuild one knot's handles from its neighbouring chord, without changing corner/smooth state. */
+export const fairKnot = (s: Spline, index: number): Spline => {
+  const k = s.knots[index];
+  if (!k) return s;
+  const prev = s.knots[index - 1];
+  const next = s.knots[index + 1];
+  if (!prev && !next) return s;
+
+  // The chord through the neighbouring endpoints is a stable local tangent estimate.
+  // One-third of each adjacent chord gives ordinary cubic-Bezier handle lengths and
+  // avoids the long handles that commonly create loops or wiggles.
+  const from = prev?.end ?? k.end;
+  const to = next?.end ?? k.end;
+  let dx = to.x - from.x;
+  let dy = to.y - from.y;
+  let chordLength = Math.hypot(dx, dy);
+  if (chordLength <= 1e-9) {
+    dx = k.tangentToNext.x - k.end.x;
+    dy = k.tangentToNext.y - k.end.y;
+    chordLength = Math.hypot(dx, dy);
+  }
+  if (chordLength <= 1e-9) return s;
+  const ux = dx / chordLength;
+  const uy = dy / chordLength;
+  const prevLength = prev ? Math.hypot(k.end.x - prev.end.x, k.end.y - prev.end.y) / 3 : 0;
+  const nextLength = next ? Math.hypot(next.end.x - k.end.x, next.end.y - k.end.y) / 3 : 0;
+
+  return replaceKnot(
+    s,
+    index,
+    knot(
+      k.end,
+      vec2(k.end.x - ux * prevLength, k.end.y - uy * prevLength),
+      vec2(k.end.x + ux * nextLength, k.end.y + uy * nextLength),
+      k.continuous,
+      k.other,
+    ),
+  );
+};
+
+/** Collapse one tangent handle onto its endpoint. */
+export const zeroKnotTangent = (s: Spline, index: number, which: 'prev' | 'next'): Spline => {
+  const k = s.knots[index];
+  if (!k) return s;
+  return moveKnotTangent(s, index, which, k.end);
+};
+
+/**
+ * Give a collapsed tangent a short, useful length directed toward its adjacent knot.
+ * The 20% local-chord length is capped so it remains a small editing affordance on
+ * both full-length curves and compact cross-sections.
+ */
+export const extendKnotTangent = (s: Spline, index: number, which: 'prev' | 'next'): Spline => {
+  const k = s.knots[index];
+  if (!k) return s;
+  const current = which === 'prev' ? k.tangentToPrev : k.tangentToNext;
+  if (Math.hypot(current.x - k.end.x, current.y - k.end.y) > 1e-9) return s;
+
+  const neighbour = s.knots[index + (which === 'prev' ? -1 : 1)];
+  const opposite = which === 'prev' ? k.tangentToNext : k.tangentToPrev;
+  let dx: number;
+  let dy: number;
+  let referenceLength: number;
+  if (neighbour) {
+    dx = neighbour.end.x - k.end.x;
+    dy = neighbour.end.y - k.end.y;
+    referenceLength = Math.hypot(dx, dy);
+  } else {
+    // End knots have no neighbour on one side. Mirror the visible opposite handle;
+    // if both are collapsed, fall back to the conventional left/right X direction.
+    dx = k.end.x - opposite.x;
+    dy = k.end.y - opposite.y;
+    referenceLength = Math.hypot(dx, dy);
+    if (referenceLength <= 1e-9) {
+      dx = which === 'prev' ? -1 : 1;
+      dy = 0;
+      referenceLength = 5;
+    }
+  }
+  const directionLength = Math.hypot(dx, dy);
+  if (directionLength <= 1e-9) return s;
+  const length = Math.max(0.5, Math.min(5, referenceLength * 0.2));
+  return moveKnotTangent(s, index, which, {
+    x: k.end.x + (dx / directionLength) * length,
+    y: k.end.y + (dy / directionLength) * length,
+  });
+};
+
 /**
  * Insert a control point on the spline nearest to `p`, splitting the segment it
  * lands on (legacy BrdAddControlPointCommand). The de Casteljau split leaves the

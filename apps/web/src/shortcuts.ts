@@ -111,10 +111,10 @@ export const SHORTCUTS: readonly Shortcut[] = [
   {
     id: 'cross-section-blur',
     keys: 'Esc',
-    label: 'Release the focused station marker',
-    group: 'Cross-sections',
-    // Not `notInField`: Escape inside the position field is handled by the field
-    // itself, which blurs the marker on its way out.
+    label: 'Clear the selected point, handle, or station marker',
+    group: 'Edit',
+    // Coordinate editors clear their own selection locally. Suppress the global
+    // action in other fields so Escape can keep its field/dialog-specific meaning.
     match: { keys: ['escape'], notInField: true },
   },
   ...VIEW_KEYS.map(
