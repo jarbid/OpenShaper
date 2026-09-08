@@ -18,9 +18,10 @@ import {
   type FinSpec,
 } from '@openshaper/kernel';
 import type { BoardState } from '@openshaper/store';
-import { Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
+import { Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
+import { NumericInput } from './components/numeric-input';
 import { cmToUnitNumber, parseLen, unitDecimals, unitSuffix, type LengthUnit } from './format';
 import { Sel } from './view-toolkit';
 
@@ -52,20 +53,11 @@ function LenField({
   return (
     <label className="flex items-center gap-2">
       <span className="flex-1 text-muted-foreground">{label}</span>
-      <Input
+      <NumericInput
         value={text}
-        inputMode="decimal"
-        onChange={(e) => setText(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            commit();
-            (e.target as HTMLInputElement).blur();
-          } else if (e.key === 'Escape') {
-            setText(shown);
-            (e.target as HTMLInputElement).blur();
-          }
-        }}
+        onValueChange={setText}
+        onCommit={commit}
+        onEscape={() => setText(shown)}
         className="w-20 tabular-nums"
       />
       <span className="w-6 text-xs text-muted-foreground">{unitSuffix(units)}</span>
@@ -94,20 +86,11 @@ function DegField({
   return (
     <label className="flex items-center gap-2">
       <span className="flex-1 text-muted-foreground">{label}</span>
-      <Input
+      <NumericInput
         value={text}
-        inputMode="decimal"
-        onChange={(e) => setText(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            commit();
-            (e.target as HTMLInputElement).blur();
-          } else if (e.key === 'Escape') {
-            setText(shown);
-            (e.target as HTMLInputElement).blur();
-          }
-        }}
+        onValueChange={setText}
+        onCommit={commit}
+        onEscape={() => setText(shown)}
         className="w-20 tabular-nums"
       />
       <span className="w-6 text-xs text-muted-foreground">°</span>
