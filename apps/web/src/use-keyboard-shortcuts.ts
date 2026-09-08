@@ -73,9 +73,13 @@ export function useKeyboardShortcuts({
         case 'cross-section-next':
           pageCrossSection(1);
           return true;
-        // No marker focused: let Escape through to menus and dialogs.
-        case 'cross-section-blur':
-          return clearSectionFocus();
+        // Clear either kind of editor focus. With nothing selected, let Escape
+        // through to menus and dialogs instead of swallowing it.
+        case 'cross-section-blur': {
+          const hadSplineSelection = boardStore.getState().selection !== null;
+          if (hadSplineSelection) boardStore.getState().select(null);
+          return clearSectionFocus() || hadSplineSelection;
+        }
         default: {
           const view = VIEW_KEYS.find((v) => `view-${v.key}` === id);
           if (!view) return false;

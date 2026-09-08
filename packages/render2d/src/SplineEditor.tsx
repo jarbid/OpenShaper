@@ -404,6 +404,10 @@ export function SplineEditor({
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [vp, setVp] = useState<Viewport | null>(null);
   const [hover, setHover] = useState<Vec2 | null>(null);
+  const [hoveredControl, setHoveredControl] = useState<{
+    target: SplineTarget;
+    hit: Hit;
+  } | null>(null);
   const [hoveredSection, setHoveredSection] = useState<number | null>(null);
   // Which marker is mid-drag and which of its grips was grabbed, so the position
   // chip renders beside the handle under the cursor and clears with the drag.
@@ -565,7 +569,18 @@ export function SplineEditor({
       drawSpline(ctx, spline, vp, style, { mirrorX, mirrorY });
       if (overlays?.curvatureComb) drawCurvatureComb(ctx, spline, vp);
       const sel = selection && sameTarget(selection.target, t) ? selection.index : null;
-      drawControlPoints(ctx, spline, vp, style, sel, controlPointSize);
+      const hovered =
+        hoveredControl && sameTarget(hoveredControl.target, t) ? hoveredControl.hit : null;
+      drawControlPoints(
+        ctx,
+        spline,
+        vp,
+        style,
+        sel,
+        controlPointSize,
+        selection?.kind ?? 'end',
+        hovered,
+      );
     });
     // Sliding-location probes: a closed board outline for the pane lets the cursor /
     // scrub line be drawn solid where it's inside the board and dashed outside.
@@ -598,6 +613,7 @@ export function SplineEditor({
     vp,
     size,
     selection,
+    hoveredControl,
     selectedFin,
     key,
     mirrorX,
@@ -661,12 +677,16 @@ export function SplineEditor({
     (p: { x: number; y: number }): { target: SplineTarget; hit: Hit } | null => {
       if (!vp || !board) return null;
       for (const t of targets) {
-        const hit = hitTest(getTargetSpline(board, t), vp, p);
+        const preferred =
+          selection && sameTarget(selection.target, t)
+            ? { index: selection.index, kind: selection.kind ?? ('end' as const) }
+            : undefined;
+        const hit = hitTest(getTargetSpline(board, t), vp, p, 8, preferred);
         if (hit) return { target: t, hit };
       }
       return null;
     },
-    [vp, board, targets],
+    [vp, board, targets, selection],
   );
 
   const sectionMarkerAt = useCallback(
@@ -752,7 +772,10 @@ export function SplineEditor({
           const marker = sectionMarkerAt(p);
           if (marker) onPickSection?.(marker.index);
           const picked = marker ? null : hitAny(p);
-          if (picked) store.getState().select({ target: picked.target, index: picked.hit.index });
+          if (picked)
+            store
+              .getState()
+              .select({ target: picked.target, index: picked.hit.index, kind: picked.hit.kind });
           const items = buildContextMenuItems({
             board,
             targets,
@@ -814,7 +837,9 @@ export function SplineEditor({
       onFocusSection?.(null);
       const picked = hitAny(p);
       if (picked) {
-        store.getState().select({ target: picked.target, index: picked.hit.index });
+        store
+          .getState()
+          .select({ target: picked.target, index: picked.hit.index, kind: picked.hit.kind });
         store.getState().beginEdit();
         drag.current = { mode: 'edit', target: picked.target, hit: picked.hit };
         return;
@@ -921,13 +946,17 @@ export function SplineEditor({
         onScrub?.(w.x);
         const marker = sectionMarkerAt(p);
         setHoveredSection(marker?.index ?? null);
+        const picked = marker ? null : hitAny(p);
+        setHoveredControl(picked);
         if (!spaceHeld.current)
           setCursor(
             marker && marker.index === focusedSection
               ? 'ew-resize'
               : marker
                 ? 'pointer'
-                : 'crosshair',
+                : picked
+                  ? 'pointer'
+                  : 'crosshair',
           );
         return;
       }
@@ -992,7 +1021,17 @@ export function SplineEditor({
       if (d.hit.kind === 'end') store.getState().moveControlPoint(d.target, d.hit.index, world);
       else store.getState().moveTangent(d.target, d.hit.index, d.hit.kind, world);
     },
-    [vp, store, readout, onScrub, cancelLongPress, sectionMarkerAt, focusedSection, onMoveSection],
+    [
+      vp,
+      store,
+      readout,
+      onScrub,
+      cancelLongPress,
+      sectionMarkerAt,
+      focusedSection,
+      onMoveSection,
+      hitAny,
+    ],
   );
 
   const onPointerUp = useCallback(
@@ -1028,7 +1067,10 @@ export function SplineEditor({
         const marker = sectionMarkerAt(p);
         if (marker) onPickSection?.(marker.index);
         const picked = marker ? null : hitAny(p);
-        if (picked) store.getState().select({ target: picked.target, index: picked.hit.index });
+        if (picked)
+          store
+            .getState()
+            .select({ target: picked.target, index: picked.hit.index, kind: picked.hit.kind });
         const items = buildContextMenuItems({
           board,
           targets,
@@ -1164,6 +1206,7 @@ export function SplineEditor({
         onPointerCancel={onPointerCancel}
         onPointerLeave={() => {
           setHover(null);
+          setHoveredControl(null);
           setHoveredSection(null);
           if (!spaceHeld.current) setCursor('crosshair');
           onScrub?.(null);

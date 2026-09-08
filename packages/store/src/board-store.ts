@@ -12,6 +12,8 @@ import {
   canDeleteKnot,
   deleteKnot,
   enforceJunctions,
+  extendKnotTangent,
+  fairKnot,
   getTargetSpline,
   insertCrossSection,
   insertKnotAt,
@@ -26,6 +28,7 @@ import {
   setFinSymmetrical,
   setFinSystem,
   setKnotContinuous,
+  zeroKnotTangent,
   updateFinSpec,
   withInterpolationType,
   withSpline,
@@ -36,6 +39,8 @@ import {
 export interface Selection {
   target: SplineTarget;
   index: number;
+  /** The endpoint or one of its two tangent handles. Omitted means the endpoint. */
+  kind?: 'end' | 'prev' | 'next';
 }
 
 /** One undo/redo step: the board to restore plus the action that produced the change. */
@@ -82,6 +87,12 @@ export interface BoardState {
   deleteControlPoint: (target: SplineTarget, index: number) => void;
   /** Toggle a control point between smooth (continuous) and corner. */
   setContinuous: (target: SplineTarget, index: number, continuous: boolean) => void;
+  /** Rebuild a point's handles from the local neighbour chord. */
+  fairControlPoint: (target: SplineTarget, index: number) => void;
+  /** Collapse one tangent handle onto its control point. */
+  zeroTangent: (target: SplineTarget, index: number, which: 'prev' | 'next') => void;
+  /** Extend a collapsed tangent far enough to grab and drag. */
+  extendTangent: (target: SplineTarget, index: number, which: 'prev' | 'next') => void;
   /** Rotate both tangent handles to horizontal, preserving their lengths. */
   alignTangentsHorizontal: (target: SplineTarget, index: number) => void;
   /** Rotate both tangent handles to vertical, preserving their lengths. */
@@ -220,7 +231,7 @@ export const createBoardStore = (): StoreApi<BoardState> =>
           enforceJunctions(withSpline(board, target, result.spline), target),
           'Add control point',
         );
-        set({ selection: { target, index: result.index } });
+        set({ selection: { target, index: result.index, kind: 'end' } });
       },
 
       deleteControlPoint: (target, index) => {
@@ -238,6 +249,21 @@ export const createBoardStore = (): StoreApi<BoardState> =>
       setContinuous: (target, index, continuous) =>
         editSpline(target, continuous ? 'Smooth control point' : 'Corner control point', (s) =>
           withSpline(get().board!, target, setKnotContinuous(s, index, continuous)),
+        ),
+
+      fairControlPoint: (target, index) =>
+        editSpline(target, 'Fair curve', (s) =>
+          withSpline(get().board!, target, fairKnot(s, index)),
+        ),
+
+      zeroTangent: (target, index, which) =>
+        editSpline(target, 'Set handle length to zero', (s) =>
+          withSpline(get().board!, target, zeroKnotTangent(s, index, which)),
+        ),
+
+      extendTangent: (target, index, which) =>
+        editSpline(target, 'Extend handle', (s) =>
+          withSpline(get().board!, target, extendKnotTangent(s, index, which)),
         ),
 
       alignTangentsHorizontal: (target, index) =>
