@@ -6,6 +6,7 @@ import {
 } from '@openshaper/store';
 import { visualSideForHandleKind } from '@openshaper/render2d';
 import { Button, Input } from '@openshaper/ui';
+import { NumericInput } from './components/numeric-input';
 import {
   useCallback,
   useEffect,
@@ -250,20 +251,11 @@ function CoordInput({
   return (
     <label className="flex items-center gap-2">
       <span className="w-3 text-muted-foreground">{label}</span>
-      <Input
+      <NumericInput
         value={text}
-        inputMode="decimal"
-        onChange={(e) => setText(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            commit();
-            (e.target as HTMLInputElement).blur();
-          } else if (e.key === 'Escape') {
-            setText(shown);
-            (e.target as HTMLInputElement).blur();
-          }
-        }}
+        onValueChange={setText}
+        onCommit={commit}
+        onEscape={() => setText(shown)}
         className="tabular-nums"
       />
       <span className="text-xs text-muted-foreground">{unitSuffix(units)}</span>
