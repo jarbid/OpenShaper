@@ -10,6 +10,17 @@ paywall: everything runs client-side.
 > **Never modify `../boardcad-le`.** It is read-only reference. Mine it for behavior;
 > port the behavior here.
 
+## Instruction priority and scope
+
+- This file is the project-wide source of truth. Follow a more-specific `CLAUDE.md`
+  for files below its directory; use `AGENTS.md` for generic repository guidance.
+- Resolve conflicts by specificity, then by the instruction that best preserves
+  existing behavior and user intent. Ask only when the choice materially changes
+  the design or scope.
+- Read only the files and history needed for the task. Prefer targeted `rg`/`glob`
+  searches and narrow file ranges over repository-wide dumps. Do not inspect
+  generated output, dependencies, or unrelated plans unless the task requires it.
+
 ## Architecture
 
 Monorepo (pnpm + Turborepo). Strict layering — dependencies point **inward** toward the
@@ -60,11 +71,23 @@ docs/specs      extracted legacy specs + golden reference data
 ## Commands
 
 ```sh
-pnpm --filter @openshaper/kernel test:watch   # focus one package
+pnpm install --frozen-lockfile
+pnpm dev                                      # web app at http://localhost:5173
+pnpm dev:desktop                              # Tauri shell
+pnpm typecheck                                # all workspace TypeScript checks
+pnpm test                                     # all Vitest suites
+pnpm build                                    # production web build
+pnpm lint                                     # currently placeholder scripts in packages
+
+# Targeted checks
+pnpm --filter @openshaper/kernel test
+pnpm --filter @openshaper/web test
+pnpm --filter @openshaper/web e2e
+pnpm --filter @openshaper/web e2e:offline
 ```
 
-pnpm is provided via the user's npm global prefix (`%APPDATA%\npm`), not corepack
-(corepack needs admin on this machine).
+CI runs `pnpm typecheck`, `pnpm test`, and `pnpm build` after
+`pnpm install --frozen-lockfile`. Match that gate for changes intended for a PR.
 
 ## Conventions
 
@@ -76,8 +99,41 @@ pnpm is provided via the user's npm global prefix (`%APPDATA%\npm`), not corepac
 - New board edits are plain pure functions in `packages/store/src/edits.ts` (not
   command classes); wire them through the store's `commit(next, label)` to land on
   the past/future undo stack.
-- Edited files are auto-formatted with Prettier by a PostToolUse hook
-  (`.claude/hooks/format-edited.mjs`) — don't hand-format to match style.
+- Use Prettier conventions when editing. The repository currently has no
+  auto-formatting hook; use `pnpm exec prettier --write <files>` when formatting
+  specific files, or `pnpm format` for the whole repository.
+
+## Efficient implementation
+
+- Start by identifying the smallest affected package, entry point, and existing
+  test. Trace the call path before broadening the search.
+- Reuse existing helpers and patterns; search before adding a utility, abstraction,
+  dependency, or parallel implementation.
+- Keep edits surgical. Do not refactor adjacent code, rename unrelated symbols, or
+  rewrite whole files unless it directly reduces risk or duplication.
+- Use the smallest relevant test command first. Escalate to typecheck, build, or
+  E2E only when the changed surface warrants it or a targeted check exposes an
+  integration issue.
+- Keep tool output bounded (`--stat`, `--name-only`, focused selectors, or a
+  limited result count). Do not paste or summarize unchanged files in the final
+  response.
+- Stop investigating once the requirement is understood, implemented, and covered
+  by the relevant verification. Do not pursue speculative improvements.
+
+## Change and verification workflow
+
+- Inspect the relevant package, tests, and existing patterns before editing; keep
+  changes scoped to the requested behavior.
+- For kernel, I/O, units, or store changes, add or update colocated regression
+  tests and run the affected package tests. Preserve golden fixtures and stated
+  tolerances.
+- For web behavior changes, run the affected Vitest tests; use `e2e` or
+  `e2e:offline` when the browser, routing, service worker, or prerendered output
+  is involved.
+- Run `pnpm typecheck` for TypeScript changes and `pnpm build` for changes that
+  affect package boundaries, Vite/SSG configuration, exports, or deployment.
+- Do not claim a check passed unless it was run. Report blocked checks and their
+  cause explicitly.
 
 See `apps/web/CLAUDE.md` for the display-units convention (loads automatically when
 working under `apps/web`).
@@ -106,16 +162,7 @@ Two related rules:
   The handler, the tooltips and `/docs/shortcuts` all read that table, so a chord
   is defined once.
 - Docs pages are precached by the service worker (unlike the marketing pages), so
-  they stay readable offline. `tools/precache-guard.ts` enforces both directions.
-
-## Skills to use
-
-Repo skills (`.claude/skills/`):
-
-- `port-kernel-fn` — port a legacy kernel function behind a golden test
-- `preview-deploy` — ship a Cloudflare preview URL
-- `verify` — the per-PR quality gate
-
-Built-in commands that pair with these: `/run`, `/code-review`, `/simplify`.
+  they stay readable offline. `apps/web/tools/precache-guard.ts` enforces both
+  directions.
 
 Current project status/roadmap: see `docs/ROADMAP.md`.
