@@ -25,21 +25,29 @@ export function CheckRow({
   value,
   onChange,
   disabled,
+  hint,
 }: {
   label: string;
   value: boolean;
   onChange: (v: boolean) => void;
   disabled?: boolean;
+  /** One short line under the label, for options whose name cannot carry the meaning. */
+  hint?: string;
 }) {
   return (
-    <label className={`flex items-center justify-between gap-3 ${disabled ? 'opacity-40' : ''}`}>
-      <span className="text-sm text-muted-foreground">{label}</span>
+    <label
+      className={`flex ${hint ? 'items-start' : 'items-center'} justify-between gap-3 ${disabled ? 'opacity-40' : ''}`}
+    >
+      <span className="text-sm text-muted-foreground">
+        {label}
+        {hint ? <span className="block text-xs opacity-70">{hint}</span> : null}
+      </span>
       <input
         type="checkbox"
         checked={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="h-4 w-4 cursor-pointer accent-[var(--primary)]"
+        className={`${hint ? 'mt-0.5 ' : ''}h-4 w-4 shrink-0 cursor-pointer accent-[var(--primary)]`}
       />
     </label>
   );

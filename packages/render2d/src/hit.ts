@@ -22,6 +22,8 @@ export const hitTest = (
   vp: Viewport,
   screen: { x: number; y: number },
   tolPx = 8,
+  /** Prefer an already-selected overlapping handle (needed to re-extend zero-length handles). */
+  preferred?: Hit,
 ): Hit | null => {
   let best: Hit | null = null;
   let bestDist = tolPx;
@@ -33,8 +35,14 @@ export const hitTest = (
     ];
     for (const [kind, p] of candidates) {
       const d = distPx(vp, p, screen);
-      // bias endpoints slightly so they win ties with overlapping handles
-      const adj = kind === 'end' ? d - 0.5 : d;
+      // Endpoints normally win ties. An explicitly selected handle wins more strongly,
+      // so a zero-length handle can still be right-clicked or dragged away from its knot.
+      const adj =
+        preferred?.index === index && preferred.kind === kind
+          ? d - 1
+          : kind === 'end'
+            ? d - 0.5
+            : d;
       if (adj <= bestDist) {
         bestDist = adj;
         best = { index, kind };

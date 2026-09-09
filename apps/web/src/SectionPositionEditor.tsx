@@ -1,7 +1,7 @@
-import { Input } from '@openshaper/ui';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { cmToUnitNumber, parseLen, unitSuffix, type LengthUnit } from './format';
+import { NumericInput } from './components/numeric-input';
+import { cmToUnitNumber, lengthEditStep, parseLen, unitSuffix, type LengthUnit } from './format';
 
 export function SectionPositionEditor({
   valueCm,
@@ -19,7 +19,7 @@ export function SectionPositionEditor({
   const [text, setText] = useState(shown);
   const textRef = useRef(shown);
   const dirty = useRef(false);
-  const stepAmount = units.key === 'mm' ? 10 : units.key === 'cm' ? 1 : 0.5;
+  const stepAmount = lengthEditStep(units);
   const stepLabel = stepAmount + ' ' + unitSuffix(units);
 
   const updateText = (next: string) => {
@@ -56,24 +56,15 @@ export function SectionPositionEditor({
       title="Length position of this cross-section"
     >
       <div className="flex shrink-0 items-stretch">
-        <Input
-          aria-label="Selected slice position"
+        <NumericInput
+          ariaLabel="Selected slice position"
           value={text}
-          inputMode="decimal"
-          onChange={(event) => {
+          onValueChange={(next) => {
             dirty.current = true;
-            updateText(event.target.value);
+            updateText(next);
           }}
-          onBlur={commit}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              commit();
-              event.currentTarget.blur();
-            } else if (event.key === 'Escape' && onDismiss) {
-              event.preventDefault();
-              onDismiss();
-            }
-          }}
+          onCommit={commit}
+          onEscape={() => onDismiss?.()}
           className="h-7 w-20 rounded-r-none px-2 text-xs tabular-nums pointer-coarse:h-9"
         />
         <div className="flex h-7 w-5 flex-col overflow-hidden rounded-r-md border border-l-0 border-input bg-background pointer-coarse:h-9">

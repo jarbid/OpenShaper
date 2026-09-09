@@ -33,4 +33,4 @@ Recent history follows Conventional Commits with scopes, for example `feat(expor
 
 ## Architecture & Safety
 
-Keep the product fully client-side: do not introduce accounts, backend persistence, or paywalls. Treat `../boardcad-le` as read-only reference material and never modify it.
+Treat `../boardcad-le` as read-only reference material and never modify it.

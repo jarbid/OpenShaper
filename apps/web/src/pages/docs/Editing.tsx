@@ -76,8 +76,20 @@ export default function DocsEditing() {
           it.
         </p>
         <p>
-          The control-point inspector in the sidebar shows the selected point's exact position and
-          lets you type a value, which is the reliable way to hit a dimension precisely.
+          Hovering a point or tangent enlarges it; selecting it turns it orange. Its exact X/Y
+          position then appears in that pane's header, where you can type a value or use the number
+          field arrows for unit-aware increments (5 mm, 0.5 cm, or 0.25 in). Corner points stay
+          green and square so they remain distinct from smooth points.
+        </p>
+        <p>
+          Press <code>{shortcutKeys('cross-section-blur')}</code> to clear a selected point or
+          tangent handle.
+        </p>
+        <p>
+          Right-click a control point to fair its local curve, switch between smooth and corner,
+          select either tangent, or delete it. Right-click a tangent to collapse it to zero length;
+          a selected collapsed tangent can be right-clicked again and extended so it is easy to
+          grab.
         </p>
         <p>
           Press <code>{shortcutKeys('delete-point')}</code> to remove the selected point. The curve

@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest';
-import { decideImport, slugifyName } from './file-io';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { parseBrd } from '@openshaper/io';
+import { decideImport, downloadBoard, slugifyName } from './file-io';
+import { BOARD_TEMPLATES } from './templates';
 import type { ImportWarning } from '@openshaper/io';
 
 const info: ImportWarning = { severity: 'info', message: 'fell back' };
@@ -18,6 +20,49 @@ describe('slugifyName', () => {
     expect(slugifyName(undefined)).toBe('board');
     expect(slugifyName('')).toBe('board');
     expect(slugifyName('☂☂')).toBe('board');
+  });
+});
+
+describe('downloadBoard', () => {
+  /** The real shortboard the app opens with. */
+  const board = parseBrd(BOARD_TEMPLATES[0]!.brd).board;
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  /** Capture the filename the anchor would download, without touching the disk. */
+  const savedAs = (meta?: Parameters<typeof downloadBoard>[1]): string => {
+    vi.stubGlobal(
+      'URL',
+      Object.assign(Object.create(URL), {
+        createObjectURL: vi.fn(() => 'blob:test'),
+        revokeObjectURL: vi.fn(),
+      }),
+    );
+    let name = '';
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      name = this.download;
+    });
+    downloadBoard(board, meta);
+    return name;
+  };
+
+  // Saving always wrote 'board.board', so the browser de-duplicated repeat saves into
+  // 'board (1)', 'board (2)', … even though every other exporter already names its file
+  // after the model.
+  it('names the file after the board model, like every other export', () => {
+    expect(savedAs({ model: 'My Fish 5\'10"' })).toBe('my-fish-5-10.board');
+  });
+
+  it('falls back to board.board when the model name is missing or unusable', () => {
+    expect(savedAs()).toBe('board.board');
+    expect(savedAs({ designer: 'Ada' })).toBe('board.board');
+    expect(savedAs({ model: '  ' })).toBe('board.board');
   });
 });
 

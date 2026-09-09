@@ -6,8 +6,8 @@ const BASE_URL = `http://localhost:${PORT}`;
 /**
  * E2E config for the OpenShaper web app.
  *
- * The app is fully client-side and free: no backend, no auth, every export
- * (STL/DXF/PDF + native save) available. Specs cover the marketing/content
+ * The editor is free and needs no auth: every export (STEP/STL/DXF/PDF +
+ * native save) is available to everyone. Specs cover the marketing/content
  * routes and the editor at /app.
  */
 export default defineConfig({

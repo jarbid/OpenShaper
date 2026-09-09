@@ -83,6 +83,13 @@ export function ExportPdf1to1Dialog({
               onChange={(v) => set('outline', v)}
             />
             <CheckRow
+              label="Half outline (one rail)"
+              hint="Cut it and flip on the centreline — uses half the paper."
+              value={draft.halfOutline}
+              onChange={(v) => set('halfOutline', v)}
+              disabled={!draft.outline}
+            />
+            <CheckRow
               label="Fins (on outline)"
               value={draft.fins}
               onChange={(v) => set('fins', v)}
@@ -97,6 +104,13 @@ export function ExportPdf1to1Dialog({
               label="Cross-sections"
               value={draft.crossSections}
               onChange={(v) => set('crossSections', v)}
+            />
+            <CheckRow
+              label="Half sections (one side)"
+              hint="Cut and flip on the stringer, same as the outline."
+              value={draft.halfSections}
+              onChange={(v) => set('halfSections', v)}
+              disabled={!draft.crossSections}
             />
             <IntField
               label="Cross-section count"

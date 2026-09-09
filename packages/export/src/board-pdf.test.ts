@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { exportBoardPdf1to1 } from './board-pdf';
-import { bbox, planOutlineLoop } from './board-curves';
+import { bbox, crossSectionHalfRing, planOutlineLoop, planOutlineRail } from './board-curves';
+import { defaultFinConfig } from '@openshaper/kernel';
 import { makeTestBoard } from './fixture.test-helper';
 
 const CM_TO_PT = 72 / 2.54;
@@ -32,7 +33,7 @@ describe('exportBoardPdf1to1', () => {
   });
 
   it('sizes the outline page to the outline bbox × CM_TO_PT plus a margin', () => {
-    const text = decode(exportBoardPdf1to1(board, { crossSectionCount: 0 }));
+    const text = decode(exportBoardPdf1to1(board, { crossSectionCount: 0, halfOutline: false }));
     // First (outline) page MediaBox.
     const m = text.match(/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/);
     expect(m).not.toBeNull();
@@ -45,7 +46,9 @@ describe('exportBoardPdf1to1', () => {
   });
 
   it('titles pages with the model name and a 1:1 note', () => {
-    const text = decode(exportBoardPdf1to1(board, { meta: { model: 'Quad 6\'0"' } }));
+    const text = decode(
+      exportBoardPdf1to1(board, { meta: { model: 'Quad 6\'0"' }, halfOutline: false }),
+    );
     expect(text).toContain('Quad');
     // PDF escapes '(' and ')' inside string literals.
     expect(text).toContain('Outline \\(1:1\\)');
@@ -65,11 +68,106 @@ describe('exportBoardPdf1to1', () => {
 
   it('draws the outline as exact bezier curves (smooth, not faceted)', () => {
     const text = decode(
-      exportBoardPdf1to1(board, { crossSectionCount: 0, parts: { rocker: false } }),
+      exportBoardPdf1to1(board, {
+        crossSectionCount: 0,
+        parts: { rocker: false },
+        halfOutline: false,
+      }),
     );
     // PDF cubic-bezier operator is `x1 y1 x2 y2 x3 y3 c`. Both rails are drawn from the
     // outline spline's true control points → 2 curve ops per segment, no flattening.
     const curveOps = (text.match(/ c\n/g) ?? []).length;
     expect(curveOps).toBe(board.outline.curves.length * 2);
+  });
+  describe('half template (the default)', () => {
+    const halfOpts = { crossSectionCount: 0, parts: { rocker: false } } as const;
+    const heightOf = (t: string): number => Number(t.match(/MediaBox \[0 0 [\d.]+ ([\d.]+)\]/)![1]);
+
+    it('draws one rail — half the curve ops of the full outline', () => {
+      const half = decode(exportBoardPdf1to1(board, halfOpts));
+      const full = decode(exportBoardPdf1to1(board, { ...halfOpts, halfOutline: false }));
+      const ops = (t: string): number => (t.match(/ c\n/g) ?? []).length;
+      expect(ops(half)).toBe(board.outline.curves.length);
+      expect(ops(full)).toBe(board.outline.curves.length * 2);
+    });
+
+    it('sizes the page to the rail, still reaching the centreline', () => {
+      const margin = 2; // MARGIN_CM
+      const steps = 200; // DEFAULT_LENGTH_STEPS
+      const bb = bbox(planOutlineRail(board, steps));
+      // minY is clamped to 0 so the fold line you flip about is on the sheet.
+      const expectedH = (bb.maxY - 0 + 2 * margin) * CM_TO_PT;
+      const halfH = heightOf(
+        decode(exportBoardPdf1to1(board, { ...halfOpts, lengthSteps: steps })),
+      );
+      expect(halfH).toBeCloseTo(expectedH, 1);
+      expect(halfH).toBeLessThan(
+        heightOf(decode(exportBoardPdf1to1(board, { ...halfOpts, halfOutline: false }))),
+      );
+    });
+
+    it('titles the page as a half template and says how to use it', () => {
+      const text = decode(exportBoardPdf1to1(board, { ...halfOpts, meta: { model: 'Fish' } }));
+      expect(text).toContain('Outline half \\(1:1\\)');
+      expect(text).toContain('flip about the centreline');
+    });
+
+    it("drops the far rail's fins but keeps the centre box", () => {
+      // 2+1: a port/starboard pair (side ∓1) plus one centre fin (side 0). The half sheet
+      // prints the near-side fin and the centre box; the far rail's fin goes.
+      const finned = { ...board, fins: defaultFinConfig('2+1', 'futures') };
+      // Each fin draws one 0.6-wide base line — but so does the half template's centreline,
+      // so count fins as the difference against the same page with fins turned off.
+      const strokes = (t: string): number => (t.match(/0\.6 w\n/g) ?? []).length;
+      const finCount = (halfOutline: boolean): number => {
+        const at = (fins: boolean): number =>
+          strokes(
+            decode(exportBoardPdf1to1(finned, { ...halfOpts, halfOutline, parts: { rocker: false, fins } })), // prettier-ignore
+          );
+        return at(true) - at(false);
+      };
+      expect(finCount(false)).toBe(3);
+      expect(finCount(true)).toBe(2);
+    });
+  });
+  describe('half cross-sections (the default)', () => {
+    const secOpts = { parts: { outline: false, rocker: false }, crossSectionCount: 1 } as const;
+    const curveOps = (t: string): number => (t.match(/ c\n/g) ?? []).length;
+
+    it('draws one side — half the curve ops of the full ring', () => {
+      const half = curveOps(decode(exportBoardPdf1to1(board, secOpts)));
+      const full = curveOps(decode(exportBoardPdf1to1(board, { ...secOpts, halfSections: false })));
+      expect(half).toBeGreaterThan(0);
+      expect(full).toBe(half * 2);
+    });
+
+    it('sizes the page to the half ring, still reaching the stringer', () => {
+      const margin = 2; // MARGIN_CM
+      const widthOf = (t: string): number => Number(t.match(/MediaBox \[0 0 ([\d.]+) /)![1]);
+      const bb = bbox(crossSectionHalfRing(board, 50, 96)!);
+      const halfW = widthOf(decode(exportBoardPdf1to1(board, { ...secOpts, ringSteps: 96 })));
+      expect(halfW).toBeCloseTo((bb.maxX - 0 + 2 * margin) * CM_TO_PT, 1);
+      expect(halfW).toBeLessThan(
+        widthOf(decode(exportBoardPdf1to1(board, { ...secOpts, halfSections: false }))),
+      );
+    });
+
+    it('titles the page as a half template and says how to use it', () => {
+      const text = decode(exportBoardPdf1to1(board, { ...secOpts, meta: { model: 'Fish' } }));
+      expect(text).toContain('Section half');
+      expect(text).toContain('flip about the stringer');
+    });
+
+    it('leaves the outline half toggle independent', () => {
+      // Sections full, outline half: the outline page is still one rail.
+      const text = decode(
+        exportBoardPdf1to1(board, {
+          crossSectionCount: 0,
+          parts: { rocker: false },
+          halfSections: false,
+        }),
+      );
+      expect(curveOps(text)).toBe(board.outline.curves.length);
+    });
   });
 });

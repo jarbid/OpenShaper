@@ -100,8 +100,10 @@ CI runs `pnpm typecheck`, `pnpm test`, and `pnpm build` after
   command classes); wire them through the store's `commit(next, label)` to land on
   the past/future undo stack.
 - Use Prettier conventions when editing. The repository currently has no
-  auto-formatting hook; use `pnpm exec prettier --write <files>` when formatting
-  specific files, or `pnpm format` for the whole repository.
+  guaranteed auto-formatting hook. A local `.claude/hooks/` hook may format edited
+  files, but it is gitignored and absent in fresh clones and cloud sessions. Use
+  `pnpm exec prettier --write <files>` for specific files, or `pnpm format` for the
+  whole repository.
 
 ## Efficient implementation
 

@@ -71,21 +71,18 @@ export interface BoardMeta {
   glassSchedule?: string;
 }
 
-/** Trigger a download of the board as a native .board.json document. */
-export function downloadBoard(
-  board: BezierBoard,
-  meta?: BoardMeta,
-  filename = 'board.board',
-): void {
+/**
+ * Trigger a download of the board as a native .board.json document, named after the
+ * board's model — the same slug every other exporter uses, so repeat saves overwrite
+ * `my-fish.board` instead of piling up as `board (1)`, `board (2)`, …
+ */
+export function downloadBoard(board: BezierBoard, meta?: BoardMeta): void {
   const metadata =
     meta && Object.values(meta).some(Boolean) ? (meta as Record<string, unknown>) : undefined;
   const boardJson = writeBoardJson(board, metadata);
-  download(boardJson, filename, 'application/json');
-  // Record in the recent-boards list. Use meta.model if present, otherwise strip
-  // the native extension (.board, the legacy .board.json, or a bare .json).
-  const name =
-    meta?.model?.trim() || filename.replace(/\.board(\.json)?$/i, '').replace(/\.json$/i, '');
-  recordRecentBoard(name || filename, boardJson);
+  const stem = slugifyName(meta?.model); // 'board' when the model name is missing
+  download(boardJson, `${stem}.board`, 'application/json');
+  recordRecentBoard(meta?.model?.trim() || stem, boardJson);
 }
 
 /** Trigger a download of the board in the legacy BoardCAD-LE `.brd` text format. */
@@ -392,6 +389,8 @@ export function downloadPdf1to1(
     units: pdfUnit,
     meta: pdfMeta,
     crossSectionCount: settings.crossSectionCount,
+    halfOutline: settings.halfOutline,
+    halfSections: settings.halfSections,
     parts: {
       outline: settings.outline,
       rocker: settings.rocker,
