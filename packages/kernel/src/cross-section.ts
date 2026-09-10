@@ -173,6 +173,10 @@ const splitKnot = (a: Knot, b: Knot, t: number): Knot => {
  * knot array, or the original if no valid insertion point is found.
  */
 const insertMatchingKnot = (knots: readonly Knot[], nearPoint: Vec2): Knot[] => {
+  // Splitting needs a segment to split. A degenerate section — a single knot, or
+  // none — has none, and the search below would leave `segIndex` at its initial 0
+  // and read a `nextK` past the end of the array. Bail the documented way instead.
+  if (knots.length < 2) return [...knots];
   // Find the segment whose closest point is nearest to nearPoint (spline getSplitControlPoint).
   let nearestDist = 1e8;
   let segIndex = 0;
@@ -298,7 +302,11 @@ const matchControlPointCounts = (
     tgt = most;
     src = other;
   }
-  return { source: src, target: tgt, ok: true };
+  // The loop can also exit on `!worstMatchKnot` with the counts still unequal —
+  // `most` has no interior CP to match against. Index-paired blending would then
+  // read past the end of the shorter array, so report failure and let the caller
+  // bail exactly as it does for a failed insertion.
+  return { source: src, target: tgt, ok: src.length === tgt.length };
 };
 
 /**
