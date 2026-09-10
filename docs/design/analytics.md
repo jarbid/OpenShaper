@@ -270,7 +270,7 @@ Note `anonymize_ips: true` does not conflict with the hash: the IP is an input
 to the hash at ingest time and is dropped rather than stored. It is _not_ what
 cost us country data — `anonymize_ips` runs GeoIP before discarding the IP, by
 design. Cookieless mode is what strips it first; see
-[country](#country-and-why-posthog-cannot-supply-it-fixed-2026-09-10).
+[country](#country-unavailable-on-the-baseline-by-construction-2026-09-10).
 
 **Resolved 2026-08-11:** exception capture is confirmed working end to end.
 This previously recorded a standing worry that `$exception` had logged zero
@@ -278,11 +278,11 @@ events since launch and that a flat zero should be treated as unverified rather
 than as good news. It has since fired 6 times in 30 days, so the pipeline is
 live and the caveat no longer applies.
 
-## Country, and why PostHog cannot supply it (fixed 2026-09-10)
+## Country: unavailable on the baseline, by construction (2026-09-10)
 
-Roughly two thirds of pageviews carried no country at all, and PostHog's world
-map was blank for the baseline. This is a documented property of cookieless
-mode, not a misconfiguration:
+Roughly two thirds of pageviews carry no country, and PostHog's world map is
+blank for the baseline. This is a documented property of cookieless mode, not a
+misconfiguration:
 
 > **No GeoIP or bot detection:** When cookieless server hash mode is enabled,
 > IP-based transformations like GeoIP enrichment and bot detection don't enrich
@@ -290,35 +290,33 @@ mode, not a misconfiguration:
 > — [PostHog, cookieless tracking](https://posthog.com/tutorials/cookieless-tracking)
 
 The stripping happens _after_ the identity hash is computed and _before_
-transformations run, so GeoIP has nothing to look up. It is tracked upstream as
+transformations run, so GeoIP has nothing to look up. Tracked upstream as
 [PostHog/posthog#48660](https://github.com/PostHog/posthog/issues/48660), which
 notes the `anonymize_ips` project setting deliberately does the opposite —
 resolve geo, _then_ discard the IP. There is no client-side setting that fixes
-this; the two features are mutually exclusive as shipped.
+this; as shipped, the cookieless baseline and country data are mutually
+exclusive.
 
-Measured over 30 days before the fix:
+Measured over 30 days:
 
 | Tier                  | Events | Events with a country |
 | --------------------- | ------ | --------------------- |
 | Consented (full)      | 25,049 | 22,541 (90%)          |
 | Baseline (cookieless) | 5,597  | 326 (6%)              |
 
-**What we do instead.** Every request already passes through the Worker
-(`worker/index.ts`), which sees Cloudflare's own resolved country. `GET
-/edge/geo` returns `{"country":"DE"}` and nothing else — no IP, no city, and
-`no-store` so one visitor's country is never served to the next. `initAnalytics`
-awaits it (capped at 800 ms) and registers `geo_country` as a super property
-_before_ posthog-js captures the first pageview, so the landing page — the one
-that actually needs a country — carries it.
+**This is accepted, not worked around.** Resolving the country ourselves at the
+Cloudflare edge and sending it as an ordinary property was built and then
+reverted on 2026-09-10: all tracking goes through PostHog, and a home-grown
+side-channel collecting visitor attributes is exactly the thing that decision
+rules out — however small, and however anonymous the value happens to be.
 
-This is not a privacy regression: no IP reaches the browser, nothing extra is
-stored on the device, and a country is not a person. It applies to both tiers,
-so the property is uniform across all traffic.
+So the constraint stands, and only the consented tier has geography. The only
+two ways out both cost something already decided against:
 
-**Known limit:** PostHog's built-in Web Analytics world map reads
-`$geoip_country_code`, which only its own transformation populates. It stays
-blank for baseline traffic. Break down on `geo_country` instead, which is
-populated for both tiers and is the more reliable column of the two.
+- Drop the cookieless baseline for consent-gated capture only. Every recorded
+  visit would then carry a country, but visitors who ignore the banner would
+  produce no data at all. Considered and declined.
+- Wait for #48660 upstream.
 
 ## What the data can and cannot say
 

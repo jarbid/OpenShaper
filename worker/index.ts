@@ -29,13 +29,6 @@ const ASSET_HOST = 'us-assets.i.posthog.com';
 const PROXY_PREFIX = '/edge';
 
 /**
- * Country lookup, served from the same prefix so ad-blockers treat it like the
- * rest of the proxy. See `resolveCountry` in apps/web/src/analytics.ts for why
- * the site resolves geo here instead of letting PostHog do it.
- */
-const GEO_PATH = `${PROXY_PREFIX}/geo`;
-
-/**
  * The one origin this site is meant to be served from.
  *
  * Everything else — `http://`, `www.` — is redirected to it. Not cosmetic:
@@ -64,7 +57,6 @@ export default {
     const url = new URL(request.url);
     const canonical = canonicalRedirect(request, url);
     if (canonical) return canonical;
-    if (url.pathname === GEO_PATH) return geo(request);
     const isProxied = url.pathname === PROXY_PREFIX || url.pathname.startsWith(`${PROXY_PREFIX}/`);
     return isProxied ? proxy(request, url, ctx) : env.ASSETS.fetch(request);
   },
@@ -103,25 +95,6 @@ function parseVisitorScheme(request: Request): string | null {
   } catch {
     return null;
   }
-}
-
-/**
- * The country Cloudflare already resolved for this request, and nothing else.
- *
- * No IP is returned, none is stored, and the response is deliberately
- * uncacheable — a cached answer would hand one visitor's country to the next.
- * `XX` (unknown) and `T1` (Tor) are Cloudflare's own sentinels for "no useful
- * answer"; both are reported as absent rather than as a country.
- */
-function geo(request: Request): Response {
-  const country = (request as { cf?: { country?: string } }).cf?.country;
-  const usable = country && country !== 'XX' && country !== 'T1' ? country : null;
-  return new Response(JSON.stringify({ country: usable }), {
-    headers: {
-      'content-type': 'application/json',
-      'cache-control': 'no-store',
-    },
-  });
 }
 
 async function proxy(request: Request, url: URL, ctx: ExecutionContext): Promise<Response> {

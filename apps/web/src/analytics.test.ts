@@ -137,7 +137,7 @@ describe('initAnalytics consent gating', () => {
 
   it('opts an undecided visitor out, so the cookieless baseline still captures', async () => {
     const { posthog, initAnalytics } = await load();
-    await initAnalytics();
+    initAnalytics();
     expect(posthog.opt_out_capturing).toHaveBeenCalled();
     expect(posthog.opt_in_capturing).not.toHaveBeenCalled();
   });
@@ -145,7 +145,7 @@ describe('initAnalytics consent gating', () => {
   it('opts a rejected visitor out too — reject means baseline, not silence', async () => {
     localStorage.setItem('bs.consent', 'rejected');
     const { posthog, initAnalytics } = await load();
-    await initAnalytics();
+    initAnalytics();
     expect(posthog.opt_out_capturing).toHaveBeenCalled();
     expect(posthog.opt_in_capturing).not.toHaveBeenCalled();
   });
@@ -153,7 +153,7 @@ describe('initAnalytics consent gating', () => {
   it('opts a returning accepted visitor in, with no baseline opt-out first', async () => {
     localStorage.setItem('bs.consent', 'accepted');
     const { posthog, initAnalytics } = await load();
-    await initAnalytics();
+    initAnalytics();
     expect(posthog.opt_in_capturing).toHaveBeenCalled();
     expect(posthog.opt_out_capturing).not.toHaveBeenCalled();
     expect(posthog.startSessionRecording).toHaveBeenCalled();
@@ -163,7 +163,7 @@ describe('initAnalytics consent gating', () => {
   // session replay (Tier 2) down with it.
   it("initialises in cookieless 'on_reject' mode, never 'always'", async () => {
     const { posthog, initAnalytics } = await load();
-    await initAnalytics();
+    initAnalytics();
     const config = vi.mocked(posthog.init).mock.calls[0]?.[1] as
       | { cookieless_mode?: string; persistence?: string }
       | undefined;
@@ -181,7 +181,7 @@ describe('initAnalytics consent gating', () => {
    */
   it('does not let browser Do-Not-Track override an explicit choice', async () => {
     const { posthog, initAnalytics } = await load();
-    await initAnalytics();
+    initAnalytics();
     const config = vi.mocked(posthog.init).mock.calls[0]?.[1] as
       | { respect_dnt?: boolean }
       | undefined;
@@ -197,7 +197,7 @@ describe('initAnalytics consent gating', () => {
    */
   it('captures pageviews on SPA route changes, not just the initial load', async () => {
     const { posthog, initAnalytics } = await load();
-    await initAnalytics();
+    initAnalytics();
     const config = vi.mocked(posthog.init).mock.calls[0]?.[1] as
       | { capture_pageview?: boolean | string }
       | undefined;

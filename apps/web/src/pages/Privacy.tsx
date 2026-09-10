@@ -68,10 +68,10 @@ export default function Privacy() {
             your browser — no cookies, no localStorage, no id following you around. To count visits
             without storing anything, our analytics provider works out a temporary identifier on its
             own servers; it resets daily and can&apos;t be traced back to you. We only see:
-            anonymous pageviews, your country (see below), three feature-usage events (loading a
-            starter template, saving, and exporting a board), and lightweight UX health signals
-            (page load speed, rapid frustrated clicks, clicks on things that don&apos;t respond). It
-            never leaves this anonymous mode on its own.
+            anonymous pageviews, three feature-usage events (loading a starter template, saving, and
+            exporting a board), and lightweight UX health signals (page load speed, rapid frustrated
+            clicks, clicks on things that don&apos;t respond). It never leaves this anonymous mode
+            on its own.
           </p>
 
           <h2>Full tracking, only if you accept</h2>
@@ -95,13 +95,6 @@ export default function Privacy() {
             Reject and full tracking simply never turns on — you stay on the anonymous baseline
             above, indefinitely. It doesn&apos;t disable analytics entirely; the anonymous,
             aggregate counts keep going, the same as if you hadn&apos;t decided yet.
-          </p>
-
-          <h2>Your country</h2>
-          <p>
-            Every visit is tagged with a country — nothing narrower, and never your IP address,
-            which is neither sent to us nor stored. It is worked out at the edge of the network as
-            your request arrives and then discarded. This applies in both modes above.
           </p>
 
           <h2>Do Not Track</h2>

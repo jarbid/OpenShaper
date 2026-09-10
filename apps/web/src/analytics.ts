@@ -17,10 +17,7 @@
  * discard visitors who had gone out of their way to click Accept — a specific,
  * deliberate choice about this site losing to a browser-wide default. The
  * consent state above is the only signal that decides which tier applies.
- *
- * Country is resolved by our own Worker rather than by PostHog: cookieless mode
- * strips the client IP before GeoIP runs, so the baseline would otherwise carry
- * no location at all. See `resolveCountry`.
+
  *
  * Configured via `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` (see `.env.example`); with
  * no key set (local clones, forks, PR previews) every call below is a no-op.
@@ -140,60 +137,7 @@ export function resolveApiHost(configured: string | undefined, origin: string): 
   }
 }
 
-/**
- * Upper bound on how long analytics start-up waits for the country lookup.
- * The request is same-origin and answered at the CDN edge (tens of ms in
- * practice); this only caps the pathological case.
- */
-const GEO_TIMEOUT_MS = 800;
-
-/**
- * The visitor's country, resolved by our own Worker rather than by PostHog.
- *
- * PostHog cannot supply it on the cookieless baseline. Its own docs are explicit:
- * with cookieless server hash mode on, "the IP address is stripped before these
- * transformations run", so GeoIP never sees one and location data is not added —
- * the world map goes blank for that traffic. Since every request already passes
- * through the Worker in front of this site, the country Cloudflare resolved is
- * free to hand back, and it arrives as an ordinary event property that no
- * transformation can strip.
- *
- * Nothing about this is less anonymous than the baseline already is: no IP
- * reaches the browser, none is stored, and a country is not a person.
- */
-async function resolveCountry(apiHost: string, origin: string): Promise<string | null> {
-  // Only our own proxy serves this. Pointed straight at PostHog — local dev,
-  // forks, any deploy without the Worker — there is nothing to ask, and asking
-  // anyway would just add a cross-origin request that always fails.
-  if (!apiHost.startsWith(`${origin}/`)) return null;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), GEO_TIMEOUT_MS);
-  try {
-    const res = await fetch(`${apiHost}/geo`, {
-      signal: controller.signal,
-      // The endpoint is same-origin and carries no credentials of its own.
-      credentials: 'omit',
-    });
-    if (!res.ok) return null;
-    const body: unknown = await res.json();
-    const country = (body as { country?: unknown } | null)?.country;
-    return typeof country === 'string' && country.length > 0 ? country : null;
-  } catch {
-    // Aborted, offline, blocked, or not deployed (local dev, forks). Analytics
-    // start-up must not depend on it.
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
- * Awaits the country lookup before starting posthog-js, so the property is
- * registered ahead of the first pageview rather than landing one event late.
- * Callers fire and forget; nothing downstream depends on the returned promise
- * except the tests.
- */
-export async function initAnalytics(): Promise<void> {
+export function initAnalytics(): void {
   if (typeof window === 'undefined') return;
   if (import.meta.env.VITEST) return; // never fire real events from the Vitest suite
   // Suppress automated browsers: Playwright e2e runs `pnpm dev`, so the VITEST
@@ -205,9 +149,7 @@ export async function initAnalytics(): Promise<void> {
   // worker/index.ts) so ad-blockers don't drop events before they leave the
   // browser. The fallback is the direct host, which is what local dev and any
   // fork without the Worker get.
-  const origin = window.location.origin;
-  const apiHost = resolveApiHost(import.meta.env.VITE_POSTHOG_HOST, origin);
-  const country = await resolveCountry(apiHost, origin);
+  const apiHost = resolveApiHost(import.meta.env.VITE_POSTHOG_HOST, window.location.origin);
   posthog.init(key, {
     api_host: apiHost,
     // Where PostHog itself lives, as opposed to where events are sent. Without
@@ -303,11 +245,6 @@ export async function initAnalytics(): Promise<void> {
   if (resolveInternalTraffic()) posthog.register({ internal_traffic: true });
   // Segments every event by installed-app vs browser tab.
   posthog.register({ display_mode: resolveDisplayMode() });
-  // Registered before the first pageview is captured, so the landing page —
-  // the one that actually needs a country — carries it too. Absent rather than
-  // empty when the lookup fails, so "no answer" is distinguishable from a
-  // country in any breakdown.
-  if (country) posthog.register({ geo_country: country });
   // The moment of conversion. Fires while online, so unlike anything captured
   // offline it actually sends. `display_mode` still reads 'browser' on this
   // event — the current window keeps running as a tab; subsequent launches
