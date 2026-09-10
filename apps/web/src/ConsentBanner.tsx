@@ -6,11 +6,17 @@
  *
  * Slides into view rather than appearing instantly, so it's more likely to
  * actually be noticed. On the first page load of a browsing session it waits
- * before sliding in; on any later page (still undecided) it's shown right
- * away — tracked via a sessionStorage flag as a backstop for hard reloads,
- * on top of this component naturally staying mounted across in-app
+ * `FIRST_DELAY_MS` before sliding in; on any later page (still undecided) it's
+ * shown right away — tracked via a sessionStorage flag as a backstop for hard
+ * reloads, on top of this component naturally staying mounted across in-app
  * navigation (it lives in RootLayout, which React Router keeps mounted while
  * only the routed page content underneath it changes).
+ *
+ * The delay is long on purpose: the anonymous baseline (analytics.ts) already
+ * measures everyone, so nothing is lost by waiting, and only a visitor who has
+ * stayed a while is asked at all. The cost is reach — a visitor who leaves
+ * before the timer fires is never asked, and so never reaches the consented
+ * tier. Turn it down if the accepted share matters more than the interruption.
  *
  * `bottom-28` (matching `Toast`'s clearance) keeps this above the /app
  * editor's mobile bottom sheet, which is always present below `lg` at a
@@ -25,7 +31,7 @@ import { getConsent, setConsent, subscribeConsent } from './consent';
 import { track, upgradeToFullTracking } from './analytics';
 
 const SEEN_KEY = 'bs.consentBannerSeen';
-const FIRST_DELAY_MS = 15000;
+const FIRST_DELAY_MS = 180000; // 3 minutes
 
 export function ConsentBanner() {
   const consent = useSyncExternalStore(subscribeConsent, getConsent, () => null);
