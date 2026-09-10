@@ -28,6 +28,25 @@ const ASSET_HOST = 'us-assets.i.posthog.com';
  */
 const PROXY_PREFIX = '/edge';
 
+/**
+ * Country lookup, served from the same prefix so ad-blockers treat it like the
+ * rest of the proxy. See `resolveCountry` in apps/web/src/analytics.ts for why
+ * the site resolves geo here instead of letting PostHog do it.
+ */
+const GEO_PATH = `${PROXY_PREFIX}/geo`;
+
+/**
+ * The one origin this site is meant to be served from.
+ *
+ * Everything else — `http://`, `www.` — is redirected to it. Not cosmetic:
+ * `localStorage` is partitioned by origin, so a visitor who lands on
+ * `http://openshaper.com` gets a *different* storage bucket and is asked for
+ * analytics consent again despite having answered on `https://`. The same split
+ * makes the absolute `VITE_POSTHOG_HOST` cross-origin, so posthog-js's requests
+ * fail CORS and the visit goes unrecorded.
+ */
+const CANONICAL_HOST = 'openshaper.com';
+
 interface Env {
   /** Static-assets binding — the prerendered site in apps/web/dist. */
   ASSETS: { fetch: (request: Request) => Promise<Response> };
@@ -43,11 +62,67 @@ declare const caches: { default: Cache };
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
-    const isProxied =
-      url.pathname === PROXY_PREFIX || url.pathname.startsWith(`${PROXY_PREFIX}/`);
+    const canonical = canonicalRedirect(request, url);
+    if (canonical) return canonical;
+    if (url.pathname === GEO_PATH) return geo(request);
+    const isProxied = url.pathname === PROXY_PREFIX || url.pathname.startsWith(`${PROXY_PREFIX}/`);
     return isProxied ? proxy(request, url, ctx) : env.ASSETS.fetch(request);
   },
 };
+
+/**
+ * 301 to the canonical origin, or null if the request is already on it.
+ *
+ * Scoped to the production hostname on purpose: `*.workers.dev` previews and
+ * anything else keep serving themselves rather than bouncing traffic at a
+ * domain they are not part of.
+ */
+function canonicalRedirect(request: Request, url: URL): Response | null {
+  const host = url.hostname;
+  if (host !== CANONICAL_HOST && host !== `www.${CANONICAL_HOST}`) return null;
+  // Cloudflare terminates TLS ahead of the Worker, so the scheme the visitor
+  // actually used is the one in CF-Visitor; url.protocol can already read
+  // https: on a request that arrived over http.
+  const visitorScheme = parseVisitorScheme(request) ?? url.protocol.replace(':', '');
+  if (visitorScheme === 'https' && host === CANONICAL_HOST) return null;
+
+  const target = new URL(url);
+  target.protocol = 'https:';
+  target.hostname = CANONICAL_HOST;
+  target.port = '';
+  return Response.redirect(target.toString(), 301);
+}
+
+/** `CF-Visitor: {"scheme":"http"}` — the visitor's original scheme. */
+function parseVisitorScheme(request: Request): string | null {
+  const header = request.headers.get('CF-Visitor');
+  if (!header) return null;
+  try {
+    const scheme: unknown = (JSON.parse(header) as { scheme?: unknown }).scheme;
+    return typeof scheme === 'string' ? scheme : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The country Cloudflare already resolved for this request, and nothing else.
+ *
+ * No IP is returned, none is stored, and the response is deliberately
+ * uncacheable — a cached answer would hand one visitor's country to the next.
+ * `XX` (unknown) and `T1` (Tor) are Cloudflare's own sentinels for "no useful
+ * answer"; both are reported as absent rather than as a country.
+ */
+function geo(request: Request): Response {
+  const country = (request as { cf?: { country?: string } }).cf?.country;
+  const usable = country && country !== 'XX' && country !== 'T1' ? country : null;
+  return new Response(JSON.stringify({ country: usable }), {
+    headers: {
+      'content-type': 'application/json',
+      'cache-control': 'no-store',
+    },
+  });
+}
 
 async function proxy(request: Request, url: URL, ctx: ExecutionContext): Promise<Response> {
   // Strip the prefix: /edge/e/?ip=1 upstream is /e/?ip=1.

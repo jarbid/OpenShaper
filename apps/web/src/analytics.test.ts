@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { resolveDisplayMode, resolveInternalTraffic } from './analytics';
+import { resolveApiHost, resolveDisplayMode, resolveInternalTraffic } from './analytics';
 
 vi.mock('posthog-js', () => ({
   default: {
@@ -137,7 +137,7 @@ describe('initAnalytics consent gating', () => {
 
   it('opts an undecided visitor out, so the cookieless baseline still captures', async () => {
     const { posthog, initAnalytics } = await load();
-    initAnalytics();
+    await initAnalytics();
     expect(posthog.opt_out_capturing).toHaveBeenCalled();
     expect(posthog.opt_in_capturing).not.toHaveBeenCalled();
   });
@@ -145,7 +145,7 @@ describe('initAnalytics consent gating', () => {
   it('opts a rejected visitor out too — reject means baseline, not silence', async () => {
     localStorage.setItem('bs.consent', 'rejected');
     const { posthog, initAnalytics } = await load();
-    initAnalytics();
+    await initAnalytics();
     expect(posthog.opt_out_capturing).toHaveBeenCalled();
     expect(posthog.opt_in_capturing).not.toHaveBeenCalled();
   });
@@ -153,7 +153,7 @@ describe('initAnalytics consent gating', () => {
   it('opts a returning accepted visitor in, with no baseline opt-out first', async () => {
     localStorage.setItem('bs.consent', 'accepted');
     const { posthog, initAnalytics } = await load();
-    initAnalytics();
+    await initAnalytics();
     expect(posthog.opt_in_capturing).toHaveBeenCalled();
     expect(posthog.opt_out_capturing).not.toHaveBeenCalled();
     expect(posthog.startSessionRecording).toHaveBeenCalled();
@@ -163,7 +163,7 @@ describe('initAnalytics consent gating', () => {
   // session replay (Tier 2) down with it.
   it("initialises in cookieless 'on_reject' mode, never 'always'", async () => {
     const { posthog, initAnalytics } = await load();
-    initAnalytics();
+    await initAnalytics();
     const config = vi.mocked(posthog.init).mock.calls[0]?.[1] as
       | { cookieless_mode?: string; persistence?: string }
       | undefined;
@@ -171,6 +171,21 @@ describe('initAnalytics consent gating', () => {
     // The bug this replaced: memory persistence left no id, so every page load
     // counted as a fresh person *and* a fresh session.
     expect(config?.persistence).toBeUndefined();
+  });
+
+  /**
+   * DNT is not binding in the EU, some browsers send it by default, and
+   * posthog-js's `respect_dnt` outranks an explicit opt-in — so a visitor who
+   * deliberately clicked Accept was still dropped. Pinned because reinstating
+   * it looks like a harmless privacy win and silently costs consenting traffic.
+   */
+  it('does not let browser Do-Not-Track override an explicit choice', async () => {
+    const { posthog, initAnalytics } = await load();
+    await initAnalytics();
+    const config = vi.mocked(posthog.init).mock.calls[0]?.[1] as
+      | { respect_dnt?: boolean }
+      | undefined;
+    expect(config?.respect_dnt).toBeUndefined();
   });
 
   /**
@@ -182,10 +197,43 @@ describe('initAnalytics consent gating', () => {
    */
   it('captures pageviews on SPA route changes, not just the initial load', async () => {
     const { posthog, initAnalytics } = await load();
-    initAnalytics();
+    await initAnalytics();
     const config = vi.mocked(posthog.init).mock.calls[0]?.[1] as
       | { capture_pageview?: boolean | string }
       | undefined;
     expect(config?.capture_pageview).toBe('history_change');
+  });
+});
+
+/**
+ * `VITE_POSTHOG_HOST` is pinned to one absolute URL in a hosting dashboard, so
+ * it goes cross-origin the moment a page is served from anywhere else — and a
+ * cross-origin ingestion request is rejected outright, losing the visit with no
+ * sign in the data. That is what the `Access-Control-Allow-Origin` exceptions in
+ * error tracking were: real visitors on `http://openshaper.com`.
+ */
+describe('resolveApiHost', () => {
+  it('re-points the proxy at the origin the page is actually on', () => {
+    expect(resolveApiHost('https://openshaper.com/edge', 'http://openshaper.com')).toBe(
+      'http://openshaper.com/edge',
+    );
+    expect(resolveApiHost('https://openshaper.com/edge', 'https://www.openshaper.com')).toBe(
+      'https://www.openshaper.com/edge',
+    );
+  });
+
+  it('accepts a bare path, which cannot go cross-origin in the first place', () => {
+    expect(resolveApiHost('/edge', 'https://openshaper.com')).toBe('https://openshaper.com/edge');
+  });
+
+  it("leaves PostHog's own hosts alone — those are meant to be cross-origin", () => {
+    expect(resolveApiHost('https://us.i.posthog.com', 'https://openshaper.com')).toBe(
+      'https://us.i.posthog.com',
+    );
+  });
+
+  it('falls back to the direct host when unset or unusable', () => {
+    expect(resolveApiHost(undefined, 'https://openshaper.com')).toBe('https://us.i.posthog.com');
+    expect(resolveApiHost('not a url', 'https://openshaper.com')).toBe('https://us.i.posthog.com');
   });
 });

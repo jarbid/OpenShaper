@@ -32,8 +32,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-const call = (url: string, init?: RequestInit) =>
-  worker.fetch(new Request(url, init), env, ctx);
+const call = (url: string, init?: RequestInit) => worker.fetch(new Request(url, init), env, ctx);
 
 describe('static site passthrough', () => {
   it.each(['https://openshaper.com/', 'https://openshaper.com/app', 'https://openshaper.com/docs'])(
@@ -99,6 +98,91 @@ describe('PostHog proxying', () => {
     });
     const res = await call('https://openshaper.com/edge/static/recorder.js');
     expect(await res.text()).toBe('cached');
+    expect(upstream).toBeNull();
+  });
+});
+
+/**
+ * `http://openshaper.com` served a 200 for months. localStorage is partitioned
+ * by origin, so a visitor who landed there got a different bucket from the one
+ * holding their analytics consent and was asked to accept or reject all over
+ * again — on a device where they had already answered. The same split made the
+ * absolute `VITE_POSTHOG_HOST` cross-origin, so posthog-js's requests failed
+ * CORS and those visits went unrecorded. Both symptoms, one missing redirect.
+ */
+describe('canonical origin', () => {
+  const scheme = (s: string) => ({ headers: { 'CF-Visitor': JSON.stringify({ scheme: s }) } });
+
+  it('sends http to https, keeping the path and query', async () => {
+    const res = await call('http://openshaper.com/docs?a=1', scheme('http'));
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('https://openshaper.com/docs?a=1');
+    expect(assetsFetch).not.toHaveBeenCalled();
+  });
+
+  it('sends www to the apex', async () => {
+    const res = await call('https://www.openshaper.com/app', scheme('https'));
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('https://openshaper.com/app');
+  });
+
+  // Cloudflare terminates TLS ahead of the Worker, so request.url can already
+  // read https: on a request the visitor made over http. CF-Visitor is the
+  // header that still knows.
+  it('trusts CF-Visitor over the rewritten request scheme', async () => {
+    const res = await call('https://openshaper.com/', scheme('http'));
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('https://openshaper.com/');
+  });
+
+  it('leaves the canonical origin alone', async () => {
+    await call('https://openshaper.com/app', scheme('https'));
+    expect(assetsFetch).toHaveBeenCalledOnce();
+  });
+
+  // Bouncing a preview deploy at the production domain would make it untestable.
+  it('does not redirect preview deploys', async () => {
+    await call('https://openshaper.workers.dev/app');
+    expect(assetsFetch).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * Cookieless mode strips the client IP before PostHog's GeoIP transformation
+ * runs, so the baseline carries no country at all. Cloudflare already resolved
+ * one by the time the Worker sees the request.
+ */
+describe('country lookup', () => {
+  const geoCall = (cf?: Record<string, string>) => {
+    const request = new Request('https://openshaper.com/edge/geo');
+    if (cf) Object.defineProperty(request, 'cf', { value: cf });
+    return worker.fetch(request, env, ctx);
+  };
+
+  it('returns the country Cloudflare resolved, and nothing else', async () => {
+    const res = await geoCall({ country: 'DE', city: 'Berlin' });
+    expect(await res.json()).toEqual({ country: 'DE' });
+  });
+
+  // A cached answer would hand one visitor's country to the next.
+  it('is never cached', async () => {
+    const res = await geoCall({ country: 'DE' });
+    expect(res.headers.get('cache-control')).toBe('no-store');
+  });
+
+  it.each(['XX', 'T1'])('reports Cloudflare sentinel %s as no answer', async (country) => {
+    const res = await geoCall({ country });
+    expect(await res.json()).toEqual({ country: null });
+  });
+
+  it('answers even with no geo available at all', async () => {
+    const res = await geoCall();
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ country: null });
+  });
+
+  it('never reaches PostHog', async () => {
+    await geoCall({ country: 'DE' });
     expect(upstream).toBeNull();
   });
 });

@@ -126,10 +126,20 @@ Two things to know if this is ever revisited:
   `capture()`-level gate stops events from sending, not the listeners
   themselves), turning tracking off reloads the page so the next
   `initAnalytics()` run reads the new consent and never attaches them.
-- `respect_dnt: true` is set unconditionally — a browser's Do Not Track
-  signal forces PostHog's own consent state to denied, overriding _even_ the
-  anonymous baseline. This is a stronger, standing signal than our own
-  accepted/rejected state.
+- **Do Not Track is not honoured as an override (changed 2026-09-10).**
+  `respect_dnt: true` used to force PostHog's consent state to denied ahead of
+  everything else, including an explicit Accept. It was removed: DNT is not
+  legally binding in the EU, several browsers send it by default, and outranking
+  a deliberate click on Accept with a browser-wide default discarded exactly the
+  visitors who had opted in. The accepted/rejected state is now the only signal
+  that picks a tier. Pinned by `analytics.test.ts` so it doesn't creep back in as
+  a plausible-looking privacy win.
+- **The choice is stored twice — cookie and localStorage — and read from
+  either** (`consent.ts`). They fail differently: localStorage is partitioned by
+  origin, and Safari's tracking prevention evicts script-written storage after
+  roughly a week away. A cookie holding nothing but the visitor's own answer is
+  the textbook "strictly necessary" case under ePrivacy and needs no consent of
+  its own. Set on Reject as well as Accept — the point is not asking again.
 - **`initAnalytics()` calls `posthog.opt_out_capturing()` for anyone who
   hasn't accepted, and this is load-bearing.** Under
   `cookieless_mode: 'on_reject'`, posthog-js treats an _undecided_ visitor as
@@ -257,13 +267,58 @@ both modes compute the same hash. Stateless gets there without PostHog holding
 per-visitor state.
 
 Note `anonymize_ips: true` does not conflict with the hash: the IP is an input
-to the hash at ingest time and is dropped rather than stored.
+to the hash at ingest time and is dropped rather than stored. It is _not_ what
+cost us country data — `anonymize_ips` runs GeoIP before discarding the IP, by
+design. Cookieless mode is what strips it first; see
+[country](#country-and-why-posthog-cannot-supply-it-fixed-2026-09-10).
 
 **Resolved 2026-08-11:** exception capture is confirmed working end to end.
 This previously recorded a standing worry that `$exception` had logged zero
 events since launch and that a flat zero should be treated as unverified rather
 than as good news. It has since fired 6 times in 30 days, so the pipeline is
 live and the caveat no longer applies.
+
+## Country, and why PostHog cannot supply it (fixed 2026-09-10)
+
+Roughly two thirds of pageviews carried no country at all, and PostHog's world
+map was blank for the baseline. This is a documented property of cookieless
+mode, not a misconfiguration:
+
+> **No GeoIP or bot detection:** When cookieless server hash mode is enabled,
+> IP-based transformations like GeoIP enrichment and bot detection don't enrich
+> your events. The IP address is stripped before these transformations run.
+> — [PostHog, cookieless tracking](https://posthog.com/tutorials/cookieless-tracking)
+
+The stripping happens _after_ the identity hash is computed and _before_
+transformations run, so GeoIP has nothing to look up. It is tracked upstream as
+[PostHog/posthog#48660](https://github.com/PostHog/posthog/issues/48660), which
+notes the `anonymize_ips` project setting deliberately does the opposite —
+resolve geo, _then_ discard the IP. There is no client-side setting that fixes
+this; the two features are mutually exclusive as shipped.
+
+Measured over 30 days before the fix:
+
+| Tier                  | Events | Events with a country |
+| --------------------- | ------ | --------------------- |
+| Consented (full)      | 25,049 | 22,541 (90%)          |
+| Baseline (cookieless) | 5,597  | 326 (6%)              |
+
+**What we do instead.** Every request already passes through the Worker
+(`worker/index.ts`), which sees Cloudflare's own resolved country. `GET
+/edge/geo` returns `{"country":"DE"}` and nothing else — no IP, no city, and
+`no-store` so one visitor's country is never served to the next. `initAnalytics`
+awaits it (capped at 800 ms) and registers `geo_country` as a super property
+_before_ posthog-js captures the first pageview, so the landing page — the one
+that actually needs a country — carries it.
+
+This is not a privacy regression: no IP reaches the browser, nothing extra is
+stored on the device, and a country is not a person. It applies to both tiers,
+so the property is uniform across all traffic.
+
+**Known limit:** PostHog's built-in Web Analytics world map reads
+`$geoip_country_code`, which only its own transformation populates. It stays
+blank for baseline traffic. Break down on `geo_country` instead, which is
+populated for both tiers and is the more reliable column of the two.
 
 ## What the data can and cannot say
 
@@ -437,25 +492,25 @@ Three rules govern every event:
 3. **All calls live in `apps/web`**, behind `track()`. Nothing analytics-related
    enters `kernel` / `store` / `io` — that would violate the pure-kernel rule.
 
-| Event                   | Properties                                                                                          | Why                                                                        |
-| ----------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `template_loaded`       | `template`                                                                                          | Which starter board people begin from                                      |
-| `save_board`            | `format` (`board` \| `brd`)                                                                         | Native vs legacy round-tripping                                            |
-| `export_board`          | `format` (`stl` \| `step` \| `dxf` \| `dxf-spline` \| `pdf-1to1-custom` \| `rail-bands`)             | The "got real value" action                                                |
-| `recent_board_opened`   | `position`                                                                                          | The only return-visitor proof on the baseline                              |
-| `board_imported`        | `source`, `warning_count`, `dropped_count`                                                          | The BoardCAD on-ramp, previously unmeasured                                |
-| `import_failed`         | `source`, `reason`                                                                                  | Worst outcome in the app; used to fail silently                            |
-| `units_changed`         | `units`                                                                                             | Imperial vs metric vs fractions — who the audience actually is             |
-| `overlay_toggled`       | `overlay`, `enabled`                                                                                | Whether the comb / CoM / distribution overlays earn their upkeep           |
-| `hws_template_opened`   | —                                                                                                   | Templating is the roadmap phase in progress                                |
-| `hws_template_exported` | `format`, `nested`, `parts`                                                                         | …and this is it actually being used; the gap between the two is the signal |
-| `rail_bands_opened`     | —                                                                                                   | The dialog asks for a marking mode before it gives anything — see below     |
+| Event                   | Properties                                                                                                               | Why                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------- |
+| `template_loaded`       | `template`                                                                                                               | Which starter board people begin from                                      |
+| `save_board`            | `format` (`board` \| `brd`)                                                                                              | Native vs legacy round-tripping                                            |
+| `export_board`          | `format` (`stl` \| `step` \| `dxf` \| `dxf-spline` \| `pdf-1to1-custom` \| `rail-bands`)                                 | The "got real value" action                                                |
+| `recent_board_opened`   | `position`                                                                                                               | The only return-visitor proof on the baseline                              |
+| `board_imported`        | `source`, `warning_count`, `dropped_count`                                                                               | The BoardCAD on-ramp, previously unmeasured                                |
+| `import_failed`         | `source`, `reason`                                                                                                       | Worst outcome in the app; used to fail silently                            |
+| `units_changed`         | `units`                                                                                                                  | Imperial vs metric vs fractions — who the audience actually is             |
+| `overlay_toggled`       | `overlay`, `enabled`                                                                                                     | Whether the comb / CoM / distribution overlays earn their upkeep           |
+| `hws_template_opened`   | —                                                                                                                        | Templating is the roadmap phase in progress                                |
+| `hws_template_exported` | `format`, `nested`, `parts`                                                                                              | …and this is it actually being used; the gap between the two is the signal |
+| `rail_bands_opened`     | —                                                                                                                        | The dialog asks for a marking mode before it gives anything — see below    |
 | `rail_bands_exported`   | `angle_mode`, `manual_by`, `bands`, `stations`, `paper`, `detail_pages`, `varied_along_board`, `cuts_inside`, `warnings` | …and this is a shaper who got through it                                   |
-| `spec_sheet_opened`     | —                                                                                                   | Cheapest thing in the Export menu; the floor the others are read against    |
-| `trace_image_loaded`    | `target`                                                                                            | Distinctive feature, zero prior visibility                                 |
-| `consent_banner`        | `action` (`shown` \| `accepted` \| `rejected`)                                                      | Distinguishes bad copy from a banner nobody sees                           |
-| `pwa_installed`         | —                                                                                                   | The install conversion; fires online, so unlike offline usage it sends     |
-| `session_summary`       | `edits`, `views_used`, `view_count`, `exported`, `saved`, `imported`, `template_used`, `duration_s` | Session depth without a per-action stream                                  |
+| `spec_sheet_opened`     | —                                                                                                                        | Cheapest thing in the Export menu; the floor the others are read against   |
+| `trace_image_loaded`    | `target`                                                                                                                 | Distinctive feature, zero prior visibility                                 |
+| `consent_banner`        | `action` (`shown` \| `accepted` \| `rejected`)                                                                           | Distinguishes bad copy from a banner nobody sees                           |
+| `pwa_installed`         | —                                                                                                                        | The install conversion; fires online, so unlike offline usage it sends     |
+| `session_summary`       | `edits`, `views_used`, `view_count`, `exported`, `saved`, `imported`, `template_used`, `duration_s`                      | Session depth without a per-action stream                                  |
 
 ### Rail bands, and the two questions it was built to answer
 
@@ -467,7 +522,7 @@ the open questions the feature shipped with.
   four to three and `manual` was added in its place, on the argument that a shaper
   who wants a particular rail will mark it themselves rather than accept a fit.
   That argument is a guess until this splits.
-- **`cuts_inside`**. Manual marks are deliberately *not* corrected when they cut
+- **`cuts_inside`**. Manual marks are deliberately _not_ corrected when they cut
   into the finished section — the depth is measured and flagged instead, on the
   reasoning that silently moving a shaper's line is worse than telling them about
   it. If this is always zero the checker is dead weight; if it is common, the
@@ -475,7 +530,7 @@ the open questions the feature shipped with.
 
 The rest are ordinary: `bands` and `stations` size the sheet, `paper` and
 `detail_pages` say how it is printed, and `varied_along_board` records only
-*whether* the tail/nose disclosure was used, never what was put in it.
+_whether_ the tail/nose disclosure was used, never what was put in it.
 
 It fires from the dialog rather than from `App.tsx` because the plan — and so the
 warning counts — is already computed there; `ConstructionPanel` reports the HWS
@@ -634,8 +689,16 @@ See `apps/web/.env.example`. `VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST` are read v
 (gitignored); the production build sets it as a Cloudflare Workers dashboard
 build variable.
 
-**`VITE_POSTHOG_HOST` must be set to `https://openshaper.com/edge` in the
-Cloudflare build variables** for the reverse proxy above to be used.
+**`VITE_POSTHOG_HOST` must be set to `/edge` in the Cloudflare build
+variables** for the reverse proxy above to be used.
+
+A bare path, not the absolute `https://openshaper.com/edge` it held until
+2026-09-10. An absolute URL stops being same-origin the moment a page is served
+from anywhere else — `http://`, a `www.` host, a preview deploy — and posthog-js
+then makes a cross-origin request the browser rejects, losing the visit and
+surfacing only as an `Access-Control-Allow-Origin` entry in error tracking.
+`resolveApiHost` repairs an absolute value at runtime so an un-updated dashboard
+still works, but a path cannot break this way at all.
 
 It **is** defaulted in code — `analytics.ts` reads
 `import.meta.env.VITE_POSTHOG_HOST ?? 'https://us.i.posthog.com'` — so that

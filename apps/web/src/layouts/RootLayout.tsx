@@ -12,7 +12,7 @@ import { ConsentBanner } from '../ConsentBanner';
  */
 export function RootLayout() {
   useEffect(() => {
-    initAnalytics();
+    void initAnalytics();
   }, []);
 
   return (

@@ -67,17 +67,17 @@ export default function Privacy() {
             Every visitor starts here, and it never changes unless you say so. Nothing is stored in
             your browser — no cookies, no localStorage, no id following you around. To count visits
             without storing anything, our analytics provider works out a temporary identifier on its
-            own servers; it resets daily and can&apos;t be traced back to you. We only see: anonymous
-            pageviews, three feature-usage events (loading a starter template, saving, and exporting
-            a board), and lightweight UX health signals (page load speed, rapid frustrated clicks,
-            clicks on things that don&apos;t respond). It never leaves this anonymous mode on its
-            own.
+            own servers; it resets daily and can&apos;t be traced back to you. We only see:
+            anonymous pageviews, your country (see below), three feature-usage events (loading a
+            starter template, saving, and exporting a board), and lightweight UX health signals
+            (page load speed, rapid frustrated clicks, clicks on things that don&apos;t respond). It
+            never leaves this anonymous mode on its own.
           </p>
 
           <h2>Full tracking, only if you accept</h2>
           <p>
-            If you accept via the banner (or the button below), your browser gets a persistent id
-            (a cookie, so we can recognize you across visits), full click/interaction tracking, and
+            If you accept via the banner (or the button below), your browser gets a persistent id (a
+            cookie, so we can recognize you across visits), full click/interaction tracking, and
             session replay so we can see how people actually use the editor. This is genuinely more
             data — worth being upfront about. Session replay masks form input values by default; a
             few known plain-text fields (like an imported file&apos;s name) are masked explicitly
@@ -85,22 +85,38 @@ export default function Privacy() {
           </p>
           <p>
             Accepting is also the only way you&apos;ll ever be asked a question here — an occasional
-            short in-app survey, like what you&apos;re building or what&apos;s missing. There are
-            no accounts, so an in-app survey is the only way to ask. Answers are yours to give:
-            every survey can be dismissed, and dismissing one doesn&apos;t bring it back.
+            short in-app survey, like what you&apos;re building or what&apos;s missing. There are no
+            accounts, so an in-app survey is the only way to ask. Answers are yours to give: every
+            survey can be dismissed, and dismissing one doesn&apos;t bring it back.
           </p>
 
           <h2>Rejecting is a real choice</h2>
           <p>
             Reject and full tracking simply never turns on — you stay on the anonymous baseline
-            above, indefinitely. It doesn&apos;t disable analytics entirely; the anonymous, aggregate
-            counts keep going, the same as if you hadn&apos;t decided yet.
+            above, indefinitely. It doesn&apos;t disable analytics entirely; the anonymous,
+            aggregate counts keep going, the same as if you hadn&apos;t decided yet.
+          </p>
+
+          <h2>Your country</h2>
+          <p>
+            Every visit is tagged with a country — nothing narrower, and never your IP address,
+            which is neither sent to us nor stored. It is worked out at the edge of the network as
+            your request arrives and then discarded. This applies in both modes above.
           </p>
 
           <h2>Do Not Track</h2>
           <p>
-            If your browser sends a Do Not Track signal, we honor it outright — it overrides
-            everything above, including the anonymous baseline.
+            We no longer treat a browser Do Not Track signal as an override. It is sent by default
+            in some browsers, which meant it silently cancelled the choice of people who had
+            deliberately clicked Accept. Your answer to the banner — and the button below — is what
+            decides, and you can change it whenever you like.
+          </p>
+
+          <h2>Remembering your choice</h2>
+          <p>
+            Your answer is stored in your browser in a small cookie (and in localStorage) so you are
+            not asked again on every visit. That is all it holds: accepted or rejected. It is set
+            whichever way you answer, including Reject.
           </p>
         </div>
 

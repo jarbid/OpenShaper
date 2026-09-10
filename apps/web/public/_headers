@@ -5,6 +5,12 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   X-Frame-Options: SAMEORIGIN
+  # Keeps a returning visitor off http:// entirely, so they never land in the
+  # separate origin whose localStorage has no record of their consent choice
+  # (worker/index.ts redirects the first visit; this stops the second).
+  # No includeSubDomains: www. is not currently a working host, and forcing
+  # https on it would only harden a broken one.
+  Strict-Transport-Security: max-age=31536000
 
 # Fingerprinted build assets never change — cache them hard.
 /assets/*
