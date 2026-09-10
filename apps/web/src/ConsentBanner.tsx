@@ -4,19 +4,17 @@
  * anything — the anonymous analytics baseline (see analytics.ts) keeps
  * running whether or not the visitor ever interacts with this.
  *
- * Slides into view rather than appearing instantly, so it's more likely to
- * actually be noticed. On the first page load of a browsing session it waits
- * `FIRST_DELAY_MS` before sliding in; on any later page (still undecided) it's
- * shown right away — tracked via a sessionStorage flag as a backstop for hard
- * reloads, on top of this component naturally staying mounted across in-app
- * navigation (it lives in RootLayout, which React Router keeps mounted while
- * only the routed page content underneath it changes).
+ * Slides into view rather than appearing instantly, so the movement is what
+ * catches the eye — `FIRST_DELAY_MS` after the first page load of a browsing
+ * session. On any later page (still undecided) it is already up: a
+ * sessionStorage flag covers hard reloads, on top of this component naturally
+ * staying mounted across in-app navigation (it lives in RootLayout, which React
+ * Router keeps mounted while only the routed page content underneath it
+ * changes).
  *
- * The delay is long on purpose: the anonymous baseline (analytics.ts) already
- * measures everyone, so nothing is lost by waiting, and only a visitor who has
- * stayed a while is asked at all. The cost is reach — a visitor who leaves
- * before the timer fires is never asked, and so never reaches the consented
- * tier. Turn it down if the accepted share matters more than the interruption.
+ * Once up it stays up — there is no auto-dismiss and no "maybe later". Only
+ * Accept or Reject removes it, and ignoring it leaves it in place from page to
+ * page until one of the two is clicked. Pinned by `ConsentBanner.test.tsx`.
  *
  * `bottom-28` (matching `Toast`'s clearance) keeps this above the /app
  * editor's mobile bottom sheet, which is always present below `lg` at a
@@ -31,7 +29,7 @@ import { getConsent, setConsent, subscribeConsent } from './consent';
 import { track, upgradeToFullTracking } from './analytics';
 
 const SEEN_KEY = 'bs.consentBannerSeen';
-const FIRST_DELAY_MS = 180000; // 3 minutes
+const FIRST_DELAY_MS = 2000;
 
 export function ConsentBanner() {
   const consent = useSyncExternalStore(subscribeConsent, getConsent, () => null);
