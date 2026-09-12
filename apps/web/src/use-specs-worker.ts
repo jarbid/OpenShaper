@@ -1,6 +1,7 @@
 import { getCrossSectionAreaAt, getLength, type BezierBoard } from '@openshaper/kernel';
 import { selectSpecs, type BoardSpecs } from '@openshaper/store';
 import { useEffect, useRef, useState } from 'react';
+import { captureError } from './analytics';
 import type { DistributionSample, SpecsRequest, SpecsResponse } from './workers/specs-protocol';
 
 // jsdom tests and the vite-react-ssg prerender pass have no Worker; compute
@@ -56,7 +57,12 @@ export function useSpecsWorker(
       if (e.data.ok) {
         setResult({ specs: e.data.specs, distribution: e.data.distribution });
       } else {
+        // Volume, dimensions and the distribution overlay silently stop
+        // updating from here on — the numbers on screen just go stale. The
+        // worker's error crosses a postMessage boundary as a string, so
+        // there is no Error object and no stack to send.
         console.error('specs worker failed', e.data.error);
+        captureError('specs_worker', new Error(`specs worker failed: ${e.data.error}`));
       }
     };
     workerRef.current = worker;

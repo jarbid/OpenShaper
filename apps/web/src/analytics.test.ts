@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { resolveApiHost, resolveDisplayMode, resolveInternalTraffic } from './analytics';
+import posthog from 'posthog-js';
+import {
+  captureError,
+  resolveApiHost,
+  resolveDisplayMode,
+  resolveInternalTraffic,
+} from './analytics';
 
 vi.mock('posthog-js', () => ({
   default: {
@@ -11,6 +17,7 @@ vi.mock('posthog-js', () => ({
     opt_in_capturing: vi.fn(),
     opt_out_capturing: vi.fn(),
     startSessionRecording: vi.fn(),
+    captureException: vi.fn(),
   },
 }));
 
@@ -235,5 +242,28 @@ describe('resolveApiHost', () => {
   it('falls back to the direct host when unset or unusable', () => {
     expect(resolveApiHost(undefined, 'https://openshaper.com')).toBe('https://us.i.posthog.com');
     expect(resolveApiHost('not a url', 'https://openshaper.com')).toBe('https://us.i.posthog.com');
+  });
+});
+
+/**
+ * `captureError` is called from the app's failure paths — the session-restore
+ * catch, the specs worker's error branch, the route error screen. Those run in
+ * every build, including the ones with no PostHog key at all (local clones,
+ * forks, PR previews), where `initAnalytics` returns before enabling anything.
+ *
+ * So the property that matters is not what it sends but that it stays inert and
+ * silent when analytics never started: a reporting call that throws inside a
+ * `catch` block would turn a handled failure into the crash it was reporting.
+ */
+describe('captureError', () => {
+  it('is a silent no-op when analytics never initialised', () => {
+    expect(() => captureError('session_restore', new Error('boom'))).not.toThrow();
+    expect(posthog.captureException).not.toHaveBeenCalled();
+  });
+
+  it('stays inert for a non-Error throw too', () => {
+    expect(() => captureError('route_error', 'a bare string')).not.toThrow();
+    expect(() => captureError('route_error', undefined)).not.toThrow();
+    expect(posthog.captureException).not.toHaveBeenCalled();
   });
 });

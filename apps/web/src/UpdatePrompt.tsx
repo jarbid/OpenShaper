@@ -24,6 +24,7 @@
 import { useEffect, useState } from 'react';
 import { Button, Toast } from '@openshaper/ui';
 import { useRegisterSW } from 'virtual:pwa-register/react';
+import { captureError } from './analytics';
 import { canUseServiceWorker, createIdleGate } from './pwa';
 import { boardStore } from './store';
 
@@ -39,6 +40,10 @@ export function UpdatePrompt() {
       // A failed registration must never break the editor — it just means no
       // offline support this session.
       console.error('Service worker registration failed', error);
+      // Reported because the consequence is invisible: the offline mode and
+      // the update prompt both quietly stop existing, and nothing on screen
+      // says so.
+      captureError('sw_register', error);
     },
   });
 

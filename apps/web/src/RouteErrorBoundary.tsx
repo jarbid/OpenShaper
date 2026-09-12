@@ -14,13 +14,30 @@
  *
  * Deliberately dependency-free: no lazy imports, no store, no icons package, so
  * this component cannot itself fail for the same reason it is being shown.
+ * `./analytics` is the one import, and is not an exception to that rule: it is
+ * already in the root chunk (RootLayout calls `initAnalytics`), so it is loaded
+ * by the time any route can fail.
  */
+import { useEffect } from 'react';
 import { useRouteError } from 'react-router-dom';
+import { captureError } from './analytics';
 
 export function RouteErrorBoundary() {
   const error = useRouteError();
-  const detail =
-    error instanceof Error ? error.message : typeof error === 'string' ? error : null;
+  const detail = error instanceof Error ? error.message : typeof error === 'string' ? error : null;
+
+  // The blind spot this closes: React error boundaries consume the error, so
+  // nothing here ever reaches `window.onerror` and posthog-js's unhandled-error
+  // capture never sees it. A chunk that won't load after a deploy — exactly
+  // what this screen exists for — was completely invisible.
+  //
+  // In an effect rather than in render: a re-render must not re-report the same
+  // failure. Offline is a legitimate cause of this screen, so the event may
+  // simply never send; that is the honest outcome, not something to work
+  // around.
+  useEffect(() => {
+    if (error !== undefined && error !== null) captureError('route_error', error);
+  }, [error]);
 
   return (
     <div

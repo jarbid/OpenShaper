@@ -70,8 +70,10 @@ export default function Privacy() {
             own servers; it resets daily and can&apos;t be traced back to you. We only see:
             anonymous pageviews, three feature-usage events (loading a starter template, saving, and
             exporting a board), and lightweight UX health signals (page load speed, rapid frustrated
-            clicks, clicks on things that don&apos;t respond). It never leaves this anonymous mode
-            on its own.
+            clicks, clicks on things that don&apos;t respond). We also get a report when something
+            breaks — a crash, or a part of the app that failed to load — so it can be fixed; that
+            report is the error message and the line of our own code it came from, never anything
+            from a board you opened. It never leaves this anonymous mode on its own.
           </p>
 
           <h2>Full tracking, only if you accept</h2>

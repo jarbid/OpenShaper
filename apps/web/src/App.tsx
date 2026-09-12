@@ -49,7 +49,7 @@ import {
   type BoardMeta,
   type ExportFormat,
 } from './file-io';
-import { track } from './analytics';
+import { captureError, track } from './analytics';
 import {
   installSessionSummary,
   markExport,
@@ -172,6 +172,9 @@ function AppShell() {
           return;
         } catch (e) {
           console.error('Failed to restore session', e);
+          // The visitor's own work failing to come back. The JSON is ours, so
+          // a parse failure here is our bug, not a bad file.
+          captureError('session_restore', e);
         }
       }
       try {
@@ -180,6 +183,8 @@ function AppShell() {
         boardStore.getState().load(board);
       } catch (e) {
         console.error('Failed to load sample board', e);
+        // A bundled asset we ship failing to parse — the editor opens empty.
+        captureError('sample_board', e);
       }
     })();
     return () => {
@@ -659,6 +664,9 @@ function AppShell() {
       markTemplate();
     } catch (err) {
       console.error('Failed to load template', err);
+      // Also a bundled .brd of ours, and the only failure here with no visible
+      // message at all: the click simply does nothing.
+      captureError('template_load', err);
     }
   };
 
@@ -681,6 +689,8 @@ function AppShell() {
       track('recent_board_opened', { position });
     } catch (err) {
       console.error('Failed to load recent board', err);
+      // Written by us into localStorage and unreadable on the way back out.
+      captureError('recent_board', err);
       showError(`Could not reload "${entry.name}": ${(err as Error).message}`);
     }
   };

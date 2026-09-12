@@ -296,3 +296,33 @@ export function track(event: string, props?: Record<string, unknown>): void {
   if (!enabled) return;
   posthog.capture(event, props);
 }
+
+/**
+ * Report an error the app caught and handled — a degraded state, not a crash.
+ *
+ * `capture_exceptions` above only sees what reaches `window.onerror` or an
+ * unhandled rejection. That covers hard crashes and nothing else, which is not
+ * this app's characteristic failure: a board that doesn't come back, a specs
+ * worker that dies, a chunk that won't load. Each of those is caught, shown to
+ * the visitor as a message, and — until now — written to a console nobody
+ * reads. `capture_console_errors` stays off deliberately (arbitrary
+ * `console.error` content is unreasonable to fingerprint); this is the explicit
+ * version, where the call site decides what is worth reporting.
+ *
+ * `context` is a fixed, low-cardinality string identifying the call site, not
+ * the failure — PostHog groups issues by the error itself, so this is the
+ * property you filter by to tell "the session wouldn't restore" apart from
+ * "the specs worker died" when both throw the same `SyntaxError`.
+ *
+ * Deliberately *not* used for a failed user file open (`onOpenBoard`,
+ * `onOpenGhost`). A corrupt .brd someone drags in is expected input, not a bug,
+ * and would bury real defects under other people's broken files; that path is
+ * counted by the `import_failed` event instead.
+ *
+ * Sends `$exception` with `$exception_handled: true`, so these never mix with
+ * the genuine uncaught crashes in error tracking.
+ */
+export function captureError(context: string, error: unknown): void {
+  if (!enabled) return;
+  posthog.captureException(error, { error_context: context });
+}

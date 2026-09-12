@@ -32,6 +32,9 @@
   having from every visitor, not just consenting ones, given this is a
   canvas/WebGL-heavy app (2D editors + Three.js) where a real crash is easy
   to miss otherwise.
+- **Handled errors** (`captureError` in `analytics.ts`): the same `$exception`
+  event, sent deliberately from the failure paths that autocapture cannot see —
+  see [handled errors](#handled-errors-are-reported-too-2026-09-12).
 
 This tier is the same anonymous/cookieless posture Plausible and Umami use by
 default, and it's what every visitor gets until they make a choice — accepting
@@ -716,3 +719,52 @@ consequences, all learned the hard way (see
 
 Verify after deploy with the checklist in the proxy section — never by reading
 the dashboard, which cannot distinguish any of the three failures above.
+
+## Handled errors are reported too (2026-09-12)
+
+Exception autocapture only sees what reaches `window.onerror` or an unhandled
+rejection. That is the right net for a hard crash and useless for this app's
+characteristic failure, which is a _caught_ one: the board doesn't come back,
+the specs worker dies, a chunk won't load. Each of those was caught, shown to
+the visitor as a message, and written to a console nobody reads — 9 `console.error`
+call sites, zero signal.
+
+The evidence: in the 30 days to 2026-09-12 every `$exception` in the project had
+`$exception_handled = false`, four distinct issues in total. Three were real
+(`tangentToPrev`, the JSON-LD `@context` crash, the `Access-Control-Allow-Origin`
+failures — all since fixed) and one was an in-app browser tearing down its JS
+bridge. Nothing in that window came from a degraded state, because nothing
+could.
+
+`capture_console_errors` stays **off**. Turning it on would sweep up arbitrary
+logged content with no fingerprint worth grouping on. `captureError(context, error)`
+is the explicit alternative: the call site decides what is worth reporting, and
+tags it with a fixed low-cardinality `error_context` so two unrelated failures
+that both throw `SyntaxError` stay distinguishable. These arrive with
+`$exception_handled: true`, so they never dilute the genuine crashes.
+
+| `error_context`   | Where                    | What it means went wrong                               |
+| ----------------- | ------------------------ | ------------------------------------------------------ |
+| `session_restore` | `App.tsx`                | The visitor's own work did not come back               |
+| `sample_board`    | `App.tsx`                | The bundled sample failed to parse; editor opens empty |
+| `template_load`   | `App.tsx`                | A starter template failed — the click does nothing     |
+| `recent_board`    | `App.tsx`                | A board we wrote to localStorage is unreadable         |
+| `specs_worker`    | `use-specs-worker.ts`    | Volume/dimensions silently stop updating               |
+| `sw_register`     | `UpdatePrompt.tsx`       | No offline mode and no update prompt this session      |
+| `route_error`     | `RouteErrorBoundary.tsx` | A route loader or a lazy chunk failed                  |
+
+`route_error` is the one that could not have been reported any other way: a
+React error boundary consumes the error, so it never reaches `window.onerror`.
+A chunk that stops loading after a deploy showed a tidy recovery screen to every
+affected visitor and produced no signal whatsoever. Offline is a legitimate
+cause of that screen, so the report may simply never send — that is accepted,
+not worked around.
+
+**Deliberately excluded: failures opening a file the visitor supplied**
+(`onOpenBoard`, `onOpenGhost`). A corrupt `.brd` someone drags in is expected
+input, not a defect, and error tracking would fill with other people's broken
+files while real bugs sank out of view. That path keeps its `import_failed`
+count, which carries the reason without pretending it is a crash. It is also
+the only one of these paths whose error message could contain user content —
+excluding it is what lets `/privacy` say the reports never include anything
+from a board you opened.
