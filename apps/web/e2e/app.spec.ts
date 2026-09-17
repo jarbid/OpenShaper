@@ -41,9 +41,19 @@ test.describe('OpenShaper editor', () => {
     const errors = trackErrors(page);
     await page.goto('/app');
 
-    // The sample board loads on mount; the Specs panel should show real values.
-    await expect(page.getByText('Length')).toBeVisible();
-    await expect(page.getByText('Volume')).toBeVisible();
+    // The sample board loads on mount and the Specs panel should show real values.
+    //
+    // Assert the computed numbers rather than the labels. "Length" and "Thickness"
+    // each appear twice — the Specs readout and the Resize panel both use them — and
+    // the Resize panel only renders once the specs worker returns, so a label lookup
+    // passes or fails depending on how warm the dev server is. That is a flaky test,
+    // which is worse than a failing one.
+    const headline = page.getByRole('button', { name: 'Copy dimensions' });
+    await expect(headline).toBeVisible();
+    await expect(headline, 'the headline should carry real dimensions').toHaveText(/\d/);
+    // Volume is the signature computed spec, and the only one of these labels that is
+    // unambiguous (`exact` keeps it off the "Volume distribution" overlay toggle).
+    await expect(page.getByText('Volume', { exact: true })).toBeVisible();
     // Loading… should have been replaced by actual rows.
     await expect(page.getByText('Loading…')).toHaveCount(0);
 
@@ -54,8 +64,11 @@ test.describe('OpenShaper editor', () => {
     const errors = trackErrors(page);
     await page.goto('/app');
 
+    // Scoped to the view tab strip: the trace-image panel in the sidebar has its own
+    // "Outline" and "Rocker" buttons, so an unscoped lookup matches two elements.
+    const views = page.getByRole('group', { name: 'Views' });
     for (const name of ['Quad', 'Outline', 'Rocker', 'Cross-section', '3D']) {
-      await page.getByRole('button', { name, exact: true }).click();
+      await views.getByRole('button', { name, exact: true }).click();
     }
     // Keyboard shortcuts 1–5 map to the same views.
     for (const key of ['1', '2', '3', '4', '5']) {
@@ -75,18 +88,34 @@ test.describe('OpenShaper editor', () => {
     expect(errors).toEqual([]);
   });
 
-  test('toggles units between inches and centimetres', async ({ page }) => {
+  test('switches the display unit, and every length follows it', async ({ page }) => {
+    // Units were a pair of buttons once; they are a single picker now, and on a phone
+    // it lives in the bottom sheet rather than the toolbar. What matters is not where
+    // the control is but the rule it enforces (see apps/web/CLAUDE.md): no length is
+    // ever shown in a fixed unit, so changing the picker must change the readout.
     await page.goto('/app');
-    const toggle = page.getByRole('button', { name: 'in', exact: true });
-    await expect(toggle).toBeVisible();
-    await toggle.click();
-    await expect(page.getByRole('button', { name: 'cm', exact: true })).toBeVisible();
+    const units = page.getByLabel('Display units');
+    await expect(units).toBeVisible();
+
+    // The dimensions headline is the densest formatted length in the app and it has
+    // an accessible name, so it is a stable thing to read the unit off.
+    const headline = page.getByRole('button', { name: 'Copy dimensions' });
+
+    await units.selectOption('cm');
+    await expect(headline).toContainText('cm');
+
+    await units.selectOption('in');
+    await expect(headline).not.toContainText('cm');
+    await expect(headline, 'inches should render as a quote mark').toContainText('"');
   });
 
   test('drag on the outline canvas does not crash the app', async ({ page }) => {
     const errors = trackErrors(page);
     await page.goto('/app');
-    await page.getByRole('button', { name: 'Outline', exact: true }).click();
+    await page
+      .getByRole('group', { name: 'Views' })
+      .getByRole('button', { name: 'Outline', exact: true })
+      .click();
 
     const canvas = page.locator('canvas').first();
     await expect(canvas).toBeVisible();
