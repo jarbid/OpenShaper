@@ -22,7 +22,7 @@
  */
 import { valueAt } from './bezier-spline';
 import { DEG_TO_RAD } from './constants';
-import { getLength, getRockerAtPos, getWidthAtPos, type BezierBoard } from './board';
+import { getLength, getRockerAtPos, getTailEnd, type BezierBoard } from './board';
 import { FIN_TEMPLATES, FIN_TEMPLATE_CHORD } from './fin-templates.generated';
 import type { BoardMesh } from './tessellate';
 import { vec2, type Vec2 } from './vec2';
@@ -355,16 +355,14 @@ const foilThickness = (base: number): number => Math.max(0.5, base * 0.085);
 /**
  * Resolve a {@link FinConfig} into absolute per-fin geometry against the board's
  * current shape. Lateral position is an inset from the rail edge (follows the
- * outline); the base sits on the bottom rocker (follows the profile). The tail end is
- * detected from the geometry (the wider end is the tail), so placement is correct
- * regardless of which x-end a loaded board calls the nose.
+ * outline); the base sits on the bottom rocker (follows the profile). The tail end
+ * comes from {@link getTailEnd}, so placement is correct regardless of which x-end a
+ * loaded board calls the nose.
  */
 export function resolveFins(b: BezierBoard, cfg: FinConfig = b.fins): ResolvedFin[] {
   if (!cfg || cfg.setup === 'none' || cfg.fins.length === 0) return [];
   const length = getLength(b);
-  const tailAtZero = getWidthAtPos(b, 5) >= getWidthAtPos(b, length - 5);
-  const tailX = tailAtZero ? 0 : length;
-  const noseDir = tailAtZero ? 1 : -1; // sign toward the nose along x
+  const { tailX, noseDir } = getTailEnd(b);
   const box = SYSTEM_BOX[cfg.system];
   return cfg.fins.map((spec) => resolveOne(b, spec, box, length, tailX, noseDir));
 }

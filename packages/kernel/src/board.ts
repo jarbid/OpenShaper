@@ -149,6 +149,30 @@ export const getDeckAtPos = (b: BezierBoard, pos: number): number => valueAt(b.d
 export const getThicknessAtPos = (b: BezierBoard, pos: number): number =>
   getDeckAtPos(b, pos) - getRockerAtPos(b, pos);
 
+/** Which end of the length axis is the tail, and the sign pointing from it to the nose. */
+export interface TailEnd {
+  /** Station of the tail tip: 0 or the board length. */
+  readonly tailX: number;
+  /** +1 when the nose lies toward increasing x, −1 when it lies toward decreasing x. */
+  readonly noseDir: number;
+}
+
+/**
+ * Locate the tail from the rocker: the end with *less* lift is the tail.
+ *
+ * Boards are authored tail-at-x=0 (see `lockTips` in the store), but a loaded file can
+ * arrive either way round, so the end is re-derived from geometry. Rocker is the right
+ * cue because every surfboard lifts its nose harder than its tail — on the bundled
+ * templates the two tips differ by 6–8 cm. Width is not: a longboard or mini-mal can be
+ * wider at the nose, and on the bundled longboard the ends sit 0.4 mm apart, which used
+ * to put the fins under the nose. Comparing two heights on one curve makes the test
+ * independent of the rocker datum; an exactly symmetric rocker falls back to tail-at-zero.
+ */
+export const getTailEnd = (b: BezierBoard): TailEnd => {
+  const tailAtZero = getRockerAtPos(b, 0) <= getRockerAtPos(b, getLength(b));
+  return { tailX: tailAtZero ? 0 : getLength(b), noseDir: tailAtZero ? 1 : -1 };
+};
+
 export const getMaxWidth = (b: BezierBoard): number => splineMaxY(b.outline) * 2;
 export const getMaxWidthPos = (b: BezierBoard): number => xForMaxY(b.outline);
 export const getCenterWidth = (b: BezierBoard): number => getWidthAtPos(b, getLength(b) / 2);
