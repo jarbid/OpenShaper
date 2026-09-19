@@ -160,6 +160,29 @@ describe('resolveFins', () => {
       4,
     );
   });
+
+  it('picks the tail by rocker, not width, when the nose is the wider end (longboard / mini-mal)', () => {
+    const b = makeBoard();
+    // A round longboard nose that is wider near its tip than the squash tail is near
+    // its own — the shape that made the old "wider end is the tail" test pick the nose.
+    const wideNose = board(
+      splineFromKnots([
+        knot(vec2(0, 9), vec2(-5, 9), vec2(20, 11), true),
+        knot(vec2(100, 16), vec2(70, 16), vec2(130, 16), true),
+        knot(vec2(200, 10), vec2(180, 12), vec2(210, 10), true),
+      ]),
+      b.bottom,
+      b.deck,
+      b.crossSections,
+    );
+    expect(getWidthAtPos(wideNose, 5)).toBeLessThan(getWidthAtPos(wideNose, 195));
+    // The nose still carries the rocker (9 cm of lift vs 4 cm of tail kick).
+    expect(getRockerAtPos(wideNose, 0)).toBeLessThan(getRockerAtPos(wideNose, 200));
+
+    const cfg = defaultFinConfig('single', 'futures');
+    const [fin] = resolveFins(wideNose, cfg);
+    expect(fin!.center.x).toBeCloseTo(cfg.fins[0]!.trailingFromTail + cfg.fins[0]!.base / 2, 4);
+  });
 });
 
 describe('SYSTEM_BOX (golden hardware dimensions, cm)', () => {
