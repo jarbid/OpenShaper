@@ -1182,7 +1182,10 @@ function AppShell() {
         // Imperial vs metric vs fractional inches is the clearest read on who
         // the audience actually is — a US shaper working in fractions wants
         // different defaults from a European one in millimetres.
-        track('units_changed', { units: u.key });
+        // `from` makes the switch direction readable (metric → imperial is a
+        // different story from the reverse); re-picking the current unit is
+        // not a change, so it sends nothing.
+        if (u.key !== unitKey) track('units_changed', { units: u.key, from: unitKey });
       },
     })),
   ];
