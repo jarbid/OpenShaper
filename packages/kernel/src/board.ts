@@ -49,6 +49,10 @@ export type InterpolationType = 'controlPoint' | 'sLinear';
  *     including the dummy zero-sections at tail (pos 0) and nose (pos length).
  *
  * Internal units are centimeters (so volume is cm³, area cm²).
+ *
+ * Orientation is fixed: the tail is always at x=0 and the nose at x=length. It is a
+ * rule, not a property of the shape — nothing detects or corrects it, and no code
+ * should infer the ends from width, rocker or anything else.
  */
 export interface BezierBoard {
   readonly outline: Spline;

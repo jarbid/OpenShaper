@@ -13,7 +13,6 @@ import {
 } from '@openshaper/kernel';
 import { decryptBrd, isEncryptedBrd } from './legacy-crypto';
 import type { ImportWarning } from './import-warning';
-import { ensureTailAtZero } from './orientation';
 
 /**
  * Best-effort migration of the legacy free-text `mFinType` to a parametric config.
@@ -362,7 +361,7 @@ export const parseBrd = (text: string): ParsedBrd => {
     finConfigFromMeta(metadata.finType),
   );
 
-  return { board: ensureTailAtZero(built, warnings), metadata, warnings };
+  return { board: built, metadata, warnings };
 };
 
 /**

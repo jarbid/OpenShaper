@@ -745,11 +745,9 @@ export const drawFinsProfile = (
     const selected = i === selectedIndex;
     const color = selected ? FIN_COLOR_SELECTED : FIN_COLOR;
     // Trailing-edge root (template local x=0) sits at the aft base point; local x runs
-    // toward the nose, local y is depth downward (lower height).
-    const noseDir = Math.sign(f.baseLine.fore.x - f.baseLine.aft.x) || 1;
+    // toward the nose (+x — the tail is always at x=0), local y is depth downward.
     const rootX = f.baseLine.aft.x;
-    const toScreen = (p: Vec2) =>
-      worldToScreen(vp, { x: rootX + noseDir * p.x, y: f.surfaceZ - p.y });
+    const toScreen = (p: Vec2) => worldToScreen(vp, { x: rootX + p.x, y: f.surfaceZ - p.y });
     ctx.beginPath();
     const p0 = toScreen(f.template[0]!);
     ctx.moveTo(p0.x, p0.y);

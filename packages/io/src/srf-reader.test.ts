@@ -180,50 +180,13 @@ function buildMinimalSrfBuffer(): ArrayBuffer {
   // +113 skip
   o += 113;
 
-  // --- outline (2 knots, in SRF coords: x=meters from tail, reversed on read) ---
-  // SRF stores tail→nose (x=0 is tail end, x=boardLength is nose).
-  // Reader reverses: knot at x=0 (tail) → kernel x = boardLength - 0*100 = 183 cm
-  //                  knot at x=1.83 (nose) → kernel x = 183 - 183 = 0 cm
-  // But wait: legacy tail convention is x=0. The reader computes:
-  //   kernel_x = boardLength - srf_x * CENTIMETER_PR_METER
-  // So srf_x=0 (tail end of board in SRF coords) → kernel_x=183 (nose end).
-  // Actually re-reading: the Java iterates i=nrOfPoints-1 down to 0 (reversed),
-  // so knot[0] in SRF is the last one appended → it ends up at index 0 in kernel.
-  // SRF knot[0] x=0 → kernel x = 183 - 0*100 = 183 (actually SRF is in meters so *100).
-  // SRF knot[1] x=1.83 → kernel x = 183 - 183 = 0.
-  // The kernel convention is tail at x=0, nose at x=length. The reversed loop means:
-  //   last SRF knot (x=0 in meters) → first kernel knot (kernel_x = 183 - 0 = 183 = nose)
-  // That doesn't match. Let me re-read carefully:
-  //
-  // SrfReader.java lines 429-436:
-  //   for(i=nrOfPointsOutline-1; i >=0; i--)
-  //     controlPoint.setEndPoint(boardLength - outline[i*3].x * CENTIMETER_PR_METER,
-  //                              outline[i*3].y * CENTIMETER_PR_METER)
-  //   brd.getOutline().append(controlPoint)
-  //
-  // So knot appended first = outline[n-1], which is the last SRF point.
-  // If SRF stores nose at x_srf=0 and tail at x_srf=boardLength_m,
-  //   then nose knot (x_srf=0) → kernel_x = boardLength_cm - 0 = 183 → that's the nose position
-  // Actually in a real surfboard the boardLength position IS the nose with tail at 0.
-  // Looking at BrdReader: tail cross-section is at position 0, nose at position length.
-  // But the outline goes from tail (x=0) to nose (x=length).
-  //
-  // So SRF nose is at x_srf≈0 and SRF tail is at x_srf=boardLength (in meters).
-  // Reversed loop appends nose-end knots first, which get smaller indices.
-  // First appended = knot at x_srf=boardLength-1 → kernel_x near 0 → that's the tail.
-  //
-  // For our 2-knot fixture:
-  //   SRF knot 0: x_srf=0.0 (nose-end), y_srf=0.0 (on centerline / tip)
-  //   SRF knot 1: x_srf=1.83 (tail-end), y_srf=0.0 (on centerline / tip tail)
-  //
-  // After reversed loop:
-  //   i=1 first: kernel_x = 183 - 1.83*100 = 183 - 183 = 0   ← tail at 0 ✓
-  //   i=0 next:  kernel_x = 183 - 0.0*100  = 183             ← nose at 183 ✓
-  //
-  // For a real outline with width we'd have y_srf > 0.
-  // Let's use: knot 0 at x=0 (nose tip, y=0) and knot 1 at x=1.83 (tail, y=0)
-  // with a "wide point" somewhere in the middle. But to keep it minimal we
-  // just use 2 knots (nose tip and tail tip) with y=0.
+  // --- outline (2 knots, in SRF coords) ---
+  // SRF stores the nose at x_srf=0 and the tail at x_srf=boardLength (metres). The
+  // reader walks the knots in reverse and maps kernel_x = boardLength − x_srf·100
+  // (SrfReader.java:429-436), so the tail lands at kernel x=0 and the nose at 183:
+  //   knot 1 (x_srf=1.83, tail) → kernel x = 183 − 183 = 0
+  //   knot 0 (x_srf=0.00, nose) → kernel x = 183 − 0   = 183
+  // Two knots on the centreline (y=0) keep the fixture minimal.
 
   o = wi16(buf, o, 2); // nrOfPointsOutline = 2
 
