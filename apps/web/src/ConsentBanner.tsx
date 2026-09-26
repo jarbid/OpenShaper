@@ -70,11 +70,15 @@ export function ConsentBanner() {
   if (consent !== null) return null;
 
   return (
+    // z-[45]: above the editor and the phone sheet (z-40), but below the menus and
+    // dialogs (z-50). At z-50 it won on DOM order and covered a dialog's footer on a
+    // 1280×720 screen — Export in the PDF 1:1 dialog could not be clicked until the
+    // banner was answered. What the user opened outranks what is waiting on them.
     <div
       role="region"
       aria-label="Analytics consent"
       className={cn(
-        'fixed inset-x-0 bottom-[var(--os-sheet-inset)] z-50 border-t border-border bg-card px-4 py-3 text-card-foreground shadow-lg transition-transform duration-500 ease-out',
+        'fixed inset-x-0 bottom-[var(--os-sheet-inset)] z-[45] border-t border-border bg-card px-4 py-3 text-card-foreground shadow-lg transition-transform duration-500 ease-out',
         visible ? 'translate-y-0 pointer-events-auto' : 'translate-y-full pointer-events-none',
       )}
     >
