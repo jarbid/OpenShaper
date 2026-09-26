@@ -22,7 +22,7 @@
  */
 import { valueAt } from './bezier-spline';
 import { DEG_TO_RAD } from './constants';
-import { getLength, getRockerAtPos, getWidthAtPos, type BezierBoard } from './board';
+import { getLength, getRockerAtPos, type BezierBoard } from './board';
 import { FIN_TEMPLATES, FIN_TEMPLATE_CHORD } from './fin-templates.generated';
 import type { BoardMesh } from './tessellate';
 import { vec2, type Vec2 } from './vec2';
@@ -355,18 +355,18 @@ const foilThickness = (base: number): number => Math.max(0.5, base * 0.085);
 /**
  * Resolve a {@link FinConfig} into absolute per-fin geometry against the board's
  * current shape. Lateral position is an inset from the rail edge (follows the
- * outline); the base sits on the bottom rocker (follows the profile). The tail end is
- * detected from the geometry (the wider end is the tail), so placement is correct
- * regardless of which x-end a loaded board calls the nose.
+ * outline); the base sits on the bottom rocker (follows the profile).
+ *
+ * The tail is at x=0 and the nose toward +x, always: every importer normalises to
+ * that (the SRF reader reverses its nose-first curves on load) and every edit keeps
+ * the tips pinned there. So placement measures from x=0 rather than guessing the end
+ * from the shape — the old guess read a longboard's round nose as its tail.
  */
 export function resolveFins(b: BezierBoard, cfg: FinConfig = b.fins): ResolvedFin[] {
   if (!cfg || cfg.setup === 'none' || cfg.fins.length === 0) return [];
   const length = getLength(b);
-  const tailAtZero = getWidthAtPos(b, 5) >= getWidthAtPos(b, length - 5);
-  const tailX = tailAtZero ? 0 : length;
-  const noseDir = tailAtZero ? 1 : -1; // sign toward the nose along x
   const box = SYSTEM_BOX[cfg.system];
-  return cfg.fins.map((spec) => resolveOne(b, spec, box, length, tailX, noseDir));
+  return cfg.fins.map((spec) => resolveOne(b, spec, box, length));
 }
 
 const clampPos = (x: number, length: number): number => Math.max(0.1, Math.min(length - 0.1, x));
@@ -376,11 +376,9 @@ const resolveOne = (
   spec: FinSpec,
   box: BoxGeometry,
   length: number,
-  tailX: number,
-  noseDir: number,
 ): ResolvedFin => {
   // Base center along the stringer: trailing edge + half the base toward the nose.
-  const cx = clampPos(tailX + noseDir * (spec.trailingFromTail + spec.base / 2), length);
+  const cx = clampPos(spec.trailingFromTail + spec.base / 2, length);
 
   // Lateral position: inset from the rail edge (half-width) for side fins; 0 for center.
   const railHalf = valueAt(b.outline, cx); // outline value = half-width at cx
@@ -389,13 +387,13 @@ const resolveOne = (
   const surfaceZ = getRockerAtPos(b, cx);
 
   // Plan base line oriented fore-aft, then rotated by toe about the base center.
-  // Nominal fore direction along x is `noseDir`. Toe-in turns the fore end toward the
+  // Nominal fore direction is +x, toward the nose. Toe-in turns the fore end toward the
   // stringer (y → 0): pick the rotation sign so the fore end's lateral magnitude shrinks.
   const toeRad = spec.toe * DEG_TO_RAD;
-  const sgn = spec.side === 0 ? 0 : -spec.side * noseDir; // rotation sign for toe-in
+  const sgn = spec.side === 0 ? 0 : -spec.side; // rotation sign for toe-in
   const a = sgn * toeRad;
-  const dx = noseDir * Math.cos(a);
-  const dy = noseDir * Math.sin(a);
+  const dx = Math.cos(a);
+  const dy = Math.sin(a);
   const half = spec.base / 2;
   const fore = vec2(cx + dx * half, cy + dy * half);
   const aft = vec2(cx - dx * half, cy - dy * half);

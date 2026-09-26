@@ -14,6 +14,7 @@
 import {
   board,
   crossSection,
+  defaultFinConfig,
   getDeckAtPos,
   getLength,
   getMaxWidth,
@@ -22,6 +23,7 @@ import {
   hasTailCutout,
   knot,
   maxX,
+  resolveFins,
   splineFromKnots,
   valueAt,
   vec2,
@@ -42,7 +44,9 @@ import {
   propagateCrossSectionToCurves,
   removeCrossSection,
   scaleBoard,
+  setFinFromPlanPoint,
   setSplineValueAt,
+  withFins,
   withSpline,
   zeroKnotTangent,
   type SplineTarget,
@@ -1022,5 +1026,30 @@ describe('alignTangentsVertical', () => {
   it('returns a new spline instance (immutability)', () => {
     const s = makeDiagSpline();
     expect(alignTangentsVertical(s, 1)).not.toBe(s);
+  });
+});
+
+describe('setFinFromPlanPoint', () => {
+  it('measures a dragged fin from the tail at x=0, even when the nose is the wider end', () => {
+    // A longboard-style round nose, wider at its tip than the tail is at its own: the
+    // shape that used to make the drag read its distance from the nose end instead.
+    const wideNose = withSpline(
+      makeBoard(),
+      { kind: 'outline' },
+      splineFromKnots([
+        knot(vec2(0, 9), vec2(-5, 9), vec2(10, 10), true),
+        knot(vec2(50, 16), vec2(35, 16), vec2(65, 16), true),
+        knot(vec2(100, 10), vec2(90, 11), vec2(105, 10), true),
+      ]),
+    );
+    expect(getWidthAtPos(wideNose, 5)).toBeLessThan(getWidthAtPos(wideNose, 95));
+    const b = withFins(wideNose, defaultFinConfig('single', 'futures'));
+
+    const moved = setFinFromPlanPoint(b, 0, vec2(30, 0));
+
+    const spec = moved.fins.fins[0]!;
+    expect(spec.trailingFromTail).toBeCloseTo(30 - spec.base / 2, 9);
+    // The round trip a user sees: the fin resolves where it was dropped.
+    expect(resolveFins(moved)[0]!.center.x).toBeCloseTo(30, 9);
   });
 });
