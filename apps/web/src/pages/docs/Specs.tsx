@@ -42,9 +42,9 @@ export default function DocsSpecs() {
       <Section id="volume" title="Volume">
         <p>
           Volume is integrated from the actual surface rather than estimated from a formula, and it
-          accounts for a concave tail if the outline has one. It is always shown in litres, which is
-          how boards are specified everywhere regardless of whether you work in inches or
-          millimetres.
+          accounts for a concave tail if the outline has one. It is always shown in litres, to one
+          decimal place (27.4L) — which is how boards are specified everywhere, regardless of
+          whether you work in inches or millimetres.
         </p>
         <p>
           The integration refines adaptively until the result stops changing, instead of using a

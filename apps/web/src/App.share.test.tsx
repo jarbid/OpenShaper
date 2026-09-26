@@ -14,7 +14,7 @@ import { boardStore } from './store';
 
 vi.mock('@openshaper/render3d', () => ({ Board3DView: () => null }));
 
-const editorReady = () => screen.findAllByText(/[\d.]+ liters/);
+const editorReady = () => screen.findAllByText(/\d+\.\dL/);
 
 describe('share entry points', () => {
   beforeEach(() => {

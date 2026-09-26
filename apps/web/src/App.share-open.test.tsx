@@ -53,7 +53,7 @@ function arriveViaBadLink(fragment: string): void {
   extractSharedFragment();
 }
 
-const editorReady = () => screen.findAllByText(/[\d.]+ liters/);
+const editorReady = () => screen.findAllByText(/\d+\.\dL/);
 const currentLength = () => getLength(boardStore.getState().board!);
 
 beforeEach(async () => {
