@@ -104,6 +104,11 @@ export default function DocsFiles() {
           example reconciling a deck curve stored as thickness rather than an absolute height, which
           would otherwise produce a visible bulge in the rocker.
         </p>
+        <p>
+          Boards are always laid out tail first. A file stored the other way round is turned
+          end-for-end as it opens — told apart by its rocker, since a nose lifts well above a tail —
+          and you get a notice saying so. The shape itself is not changed.
+        </p>
       </Section>
 
       <Section id="warnings" title="Import warnings">

@@ -482,6 +482,11 @@ function AppShell() {
     window.clearTimeout(sessionSaveTimer.current);
     sessionSaveTimer.current = window.setTimeout(persistSession, 800);
   }, [board, meta, ghost, persistSession]);
+  // A pending save must not outlive the editor. `boardStore` is a module
+  // singleton, so a timer left running after unmount would write whatever board
+  // the *next* mount holds into the session — the tests unmount between cases,
+  // and that stray write made a later "empty browser" case find existing work.
+  useEffect(() => () => window.clearTimeout(sessionSaveTimer.current), []);
   // Flush a pending debounce when the tab is being closed/backgrounded, so
   // "edit, then immediately close" still lands in the session.
   useEffect(() => {
