@@ -2,7 +2,7 @@
 /**
  * Fin model tests. This is a NEW, parametric model (not a port of the legacy 9-double
  * array — see docs/specs/divergences.md), so placement is pinned ANALYTICALLY here:
- * inset-from-rail coupling, surface coupling, toe geometry, tail-end detection. The
+ * inset-from-rail coupling, surface coupling, toe geometry, tail at x=0. The
  * system box dimensions are pinned as a small golden so a hardware refit is deliberate.
  */
 import { describe, expect, it } from 'vitest';
@@ -133,38 +133,11 @@ describe('resolveFins', () => {
     expect(Math.abs(fin!.baseLine.fore.y)).toBeLessThan(Math.abs(fin!.baseLine.aft.y));
   });
 
-  it('detects the tail end regardless of x-orientation (mirrored board)', () => {
-    const b = makeBoard();
-    // Mirror x so the tail is now at the high-x end.
-    const len = 200;
-    const mirror = (s: BezierBoard['outline']) =>
-      splineFromKnots(
-        [...s.knots]
-          .map((k) =>
-            knot(
-              vec2(len - k.end.x, k.end.y),
-              vec2(len - k.tangentToNext.x, k.tangentToNext.y),
-              vec2(len - k.tangentToPrev.x, k.tangentToPrev.y),
-              k.continuous,
-              k.other,
-            ),
-          )
-          .reverse(),
-      );
-    const mb = board(mirror(b.outline), mirror(b.bottom), mirror(b.deck), b.crossSections);
-    const cfg = defaultFinConfig('single', 'futures');
-    const [fin] = resolveFins(mb, cfg);
-    // Trailing edge should sit `trailingFromTail` from the (now high-x) tail.
-    expect(len - fin!.center.x).toBeCloseTo(
-      cfg.fins[0]!.trailingFromTail + cfg.fins[0]!.base / 2,
-      4,
-    );
-  });
-
-  it('picks the tail by rocker, not width, when the nose is the wider end (longboard / mini-mal)', () => {
+  it('measures from the tail at x=0 even when the nose is the wider end (longboard / mini-mal)', () => {
     const b = makeBoard();
     // A round longboard nose that is wider near its tip than the squash tail is near
-    // its own — the shape that made the old "wider end is the tail" test pick the nose.
+    // its own. The fins used to guess the tail as "the wider end", which read this
+    // shape backwards and put the whole cluster under the nose.
     const wideNose = board(
       splineFromKnots([
         knot(vec2(0, 9), vec2(-5, 9), vec2(20, 11), true),
@@ -176,8 +149,6 @@ describe('resolveFins', () => {
       b.crossSections,
     );
     expect(getWidthAtPos(wideNose, 5)).toBeLessThan(getWidthAtPos(wideNose, 195));
-    // The nose still carries the rocker (9 cm of lift vs 4 cm of tail kick).
-    expect(getRockerAtPos(wideNose, 0)).toBeLessThan(getRockerAtPos(wideNose, 200));
 
     const cfg = defaultFinConfig('single', 'futures');
     const [fin] = resolveFins(wideNose, cfg);

@@ -8,7 +8,6 @@ import {
   defaultFinConfig,
   editableCrossSection,
   getLength,
-  getTailEnd,
   hasTailCutout,
   knot,
   mirrorFinIndex,
@@ -502,9 +501,9 @@ export const setFinFromPlanPoint = (b: BezierBoard, index: number, point: Vec2):
   const spec = b.fins.fins[index];
   if (!spec) return b;
   const length = getLength(b);
-  const { tailX } = getTailEnd(b);
   const cx = clamp(point.x, 0.1, length - 0.1);
-  const trailingFromTail = Math.max(0, Math.abs(cx - tailX) - spec.base / 2);
+  // The tail is always at x=0 (see `resolveFins`), so x is the distance from it.
+  const trailingFromTail = Math.max(0, cx - spec.base / 2);
   const patch: Partial<FinSpec> =
     spec.side === 0
       ? { trailingFromTail }
