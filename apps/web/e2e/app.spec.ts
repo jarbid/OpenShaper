@@ -42,7 +42,8 @@ test.describe('OpenShaper editor', () => {
     await page.goto('/app');
 
     // The sample board loads on mount; the Specs panel should show real values.
-    await expect(page.getByText('Length')).toBeVisible();
+    // `exact`: the panel also has a "Length o/curve" row.
+    await expect(page.getByText('Length', { exact: true })).toBeVisible();
     await expect(page.getByText('Volume')).toBeVisible();
     // Loading… should have been replaced by actual rows.
     await expect(page.getByText('Loading…')).toHaveCount(0);
@@ -75,12 +76,20 @@ test.describe('OpenShaper editor', () => {
     expect(errors).toEqual([]);
   });
 
-  test('toggles units between inches and centimetres', async ({ page }) => {
+  test('switches display units from the toolbar', async ({ page }) => {
     await page.goto('/app');
-    const toggle = page.getByRole('button', { name: 'in', exact: true });
-    await expect(toggle).toBeVisible();
-    await toggle.click();
-    await expect(page.getByRole('button', { name: 'cm', exact: true })).toBeVisible();
+    const units = page.getByRole('combobox', { name: 'Display units' });
+    // The Specs headline ("1879.6 mm × 469.9 mm × 59.6 mm") follows the selected unit.
+    const headline = page.getByText(/ × .+ × /).first();
+    await expect(headline).toContainText('mm');
+
+    await units.selectOption('cm');
+    await expect(headline).toContainText('cm');
+    await expect(headline).not.toContainText('mm');
+
+    await units.selectOption('in');
+    await expect(headline).not.toContainText('cm');
+    await expect(headline).not.toContainText('mm');
   });
 
   test('drag on the outline canvas does not crash the app', async ({ page }) => {
