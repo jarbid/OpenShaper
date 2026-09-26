@@ -37,7 +37,7 @@ describe('<App /> session restore', () => {
     await saveSession({ boardJson: writeBoardJson(saved, { model: 'Autosaved' }) });
 
     render(<App />);
-    await screen.findAllByText(/[\d.]+ liters/);
+    await screen.findAllByText(/\d+\.\dL/);
 
     const restored = boardStore.getState().board;
     expect(restored).not.toBeNull();
@@ -48,7 +48,7 @@ describe('<App /> session restore', () => {
     await saveSession({ boardJson: 'not json at all {{{' });
 
     render(<App />);
-    await screen.findAllByText(/[\d.]+ liters/);
+    await screen.findAllByText(/\d+\.\dL/);
 
     const board = boardStore.getState().board;
     expect(board).not.toBeNull();
@@ -57,7 +57,7 @@ describe('<App /> session restore', () => {
 
   it('falls back to the sample board when no session exists', async () => {
     render(<App />);
-    await screen.findAllByText(/[\d.]+ liters/);
+    await screen.findAllByText(/\d+\.\dL/);
 
     const board = boardStore.getState().board;
     expect(board).not.toBeNull();

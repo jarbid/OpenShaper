@@ -23,7 +23,7 @@ describe('<App /> smoke', () => {
     expect(screen.getAllByText('Outline').length).toBeGreaterThan(0); // tab + pane title
 
     // The spec sidebar rendered values for the settled board (volume is always litres).
-    expect((await screen.findAllByText(/[\d.]+ liters/)).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText(/\d+\.\dL/)).length).toBeGreaterThan(0);
 
     // The sample board was parsed into the store on mount (session hydration is
     // async — no stored session in this environment, so the sample is the fallback).
@@ -32,7 +32,7 @@ describe('<App /> smoke', () => {
 
   it('reserves the same header height in all four quad panes when a point is selected', async () => {
     render(<App />);
-    await screen.findAllByText(/[\d.]+ liters/);
+    await screen.findAllByText(/\d+\.\dL/);
 
     const paneHeaders = () => [
       screen.getByRole('heading', { name: 'Outline' }).parentElement!,
@@ -59,7 +59,7 @@ describe('<App /> smoke', () => {
     'toggles the %s pane between quad and maximized on title double-click',
     async (title, otherTitle) => {
       render(<App />);
-      await screen.findAllByText(/[\d.]+ liters/);
+      await screen.findAllByText(/\d+\.\dL/);
 
       const heading = screen.getByRole('heading', { name: title });
       fireEvent.doubleClick(heading);
@@ -76,7 +76,7 @@ describe('<App /> smoke', () => {
 
   it('advertises the double-click toggle on the titles that carry it', async () => {
     render(<App />);
-    await screen.findAllByText(/[\d.]+ liters/);
+    await screen.findAllByText(/\d+\.\dL/);
 
     // The hint is the whole affordance — a double-click has no visible control of
     // its own — and `select-none` keeps the switch from leaving the title
@@ -93,7 +93,7 @@ describe('<App /> smoke', () => {
 
   it('does not maximize a quad pane when a title-bar control is double-clicked', async () => {
     render(<App />);
-    await screen.findAllByText(/[\d.]+ liters/);
+    await screen.findAllByText(/\d+\.\dL/);
 
     fireEvent.doubleClick(screen.getByRole('button', { name: 'Stringer' }));
 
@@ -128,7 +128,7 @@ describe('<App /> smoke', () => {
 
   it('history panel lists labelled steps and jumps back on click', async () => {
     render(<App />);
-    await screen.findAllByText(/[\d.]+ liters/); // sample board loaded + specs settled
+    await screen.findAllByText(/\d+\.\dL/); // sample board loaded + specs settled
     const before = boardStore.getState().board!;
 
     act(() => boardStore.getState().scaleBoard(1.1, 1, 1));

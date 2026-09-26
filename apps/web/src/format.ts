@@ -3,7 +3,6 @@ import {
   convertInputStringToInternalLengthUnit,
   convertLengthToUnit,
   convertLengthToUnitNumber,
-  convertVolumeToUnit,
   Unit,
 } from '@openshaper/units';
 
@@ -40,8 +39,11 @@ export const lengthUnitByKey = (key: string | null): LengthUnit =>
 export const fmtLen = (cm: number, u: LengthUnit): string =>
   convertLengthToUnit(cm, u.large, u.unit);
 
-/** Volume is always shown in liters (matches the legacy convention). */
-export const fmtVol = (cm3: number): string => convertVolumeToUnit(cm3);
+/**
+ * Volume, always in litres, to one decimal: "27.4L" — the way boards are specced.
+ * Deliberately not the legacy `convertVolumeToUnit` ("27.370 liters").
+ */
+export const fmtVol = (cm3: number): string => `${(cm3 / 1000).toFixed(1)}L`;
 
 /**
  * The shaper's shorthand for a board: `length × width × thickness` in the active

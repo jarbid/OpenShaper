@@ -31,7 +31,7 @@ beforeEach(() => {
 });
 
 /** The sample board plus settled specs — every test needs the readout populated. */
-const ready = () => screen.findAllByText(/[\d.]+ liters/);
+const ready = () => screen.findAllByText(/\d+\.\dL/);
 
 describe('the tab strip', () => {
   it('names all four tool groups at once, whatever is open', async () => {
@@ -307,7 +307,7 @@ describe('the desktop fold', () => {
     // Resizing happens in Shape and the result is a Specs number. Without the strip
     // carrying it, you would edit in one tab and change tabs to see what you did.
     fireEvent.click(tab('Shape'));
-    expect(within(panels()).getByText(/liters/)).toBeTruthy();
+    expect(within(panels()).getByText(/\d+\.\dL/)).toBeTruthy();
   });
 
   it('leaves the strip and the dims, and takes the panel away', async () => {
@@ -318,7 +318,7 @@ describe('the desktop fold', () => {
 
     expect(screen.queryByRole('region', { name: 'Specs' })).toBeNull();
     // Issue #37 wanted the space back, not the readout.
-    expect(within(panels()).getByText(/liters/)).toBeTruthy();
+    expect(within(panels()).getByText(/\d+\.\dL/)).toBeTruthy();
     for (const t of SIDEBAR_TABS) expect(tab(t.title)).toBeTruthy();
   });
 
