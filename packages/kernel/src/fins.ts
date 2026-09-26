@@ -357,10 +357,9 @@ const foilThickness = (base: number): number => Math.max(0.5, base * 0.085);
  * current shape. Lateral position is an inset from the rail edge (follows the
  * outline); the base sits on the bottom rocker (follows the profile).
  *
- * The tail is at x=0 and the nose toward +x, always: every importer normalises to
- * that (the SRF reader reverses its nose-first curves on load) and every edit keeps
- * the tips pinned there. So placement measures from x=0 rather than guessing the end
- * from the shape — the old guess read a longboard's round nose as its tail.
+ * The tail is always at x=0 and the nose toward +x (see {@link BezierBoard}), so
+ * placement measures from x=0. It never guesses the end from the shape — the old
+ * guess read a longboard's round nose as its tail.
  */
 export function resolveFins(b: BezierBoard, cfg: FinConfig = b.fins): ResolvedFin[] {
   if (!cfg || cfg.setup === 'none' || cfg.fins.length === 0) return [];

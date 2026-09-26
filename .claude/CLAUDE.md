@@ -96,6 +96,10 @@ CI runs `pnpm typecheck`, `pnpm test`, and `pnpm build` after
   replaces the legacy `java.awt.geom.Point2D`.
 - Tests colocated as `*.test.ts`, run by Vitest.
 - Commit only when asked; never touch `../boardcad-le`.
+- **The tail is always at x=0**, nose toward +x. This is a rule, not something to
+  detect: never infer which end is the tail from a board's shape. A format that
+  stores boards the other way round (SurfCAD `.srf`) is converted by its reader as
+  a fixed property of that format.
 - New board edits are plain pure functions in `packages/store/src/edits.ts` (not
   command classes); wire them through the store's `commit(next, label)` to land on
   the past/future undo stack.
