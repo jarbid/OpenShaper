@@ -1,6 +1,6 @@
 import type { BezierBoard } from '@openshaper/kernel';
 import type { BoardState } from '@openshaper/store';
-import { GizmoHelper, TrackballControls } from '@react-three/drei';
+import { GizmoHelper, OrbitControls } from '@react-three/drei';
 import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber';
 import {
   useEffect,
@@ -11,11 +11,12 @@ import {
   type ComponentRef,
 } from 'react';
 import {
+  BufferGeometry,
   DoubleSide,
   OrthographicCamera,
+  Quaternion,
   ShaderMaterial,
   Vector3,
-  type BufferGeometry,
 } from 'three';
 import type { StoreApi } from 'zustand/vanilla';
 import { boardSpan, meshToGeometry, tessellateAsync } from './geometry';
@@ -23,6 +24,7 @@ import { BoardViewcube } from './BoardViewcube';
 import { orthographicZoomFor, upForViewDirection } from './view-framing';
 import { Fins3D } from './Fins3D';
 import { Guides3D } from './Guides3D';
+import { objectCenteredRotation } from './object-centered-navigation';
 
 /** How the board surface is drawn. */
 export type Board3DMode = 'shaded' | 'wireframe' | 'shaded-wire' | 'normals';
@@ -114,7 +116,7 @@ function OrthographicFit({ span }: { span: number }) {
   return null;
 }
 
-function TrackballNavigation({
+function ObjectCenteredNavigation({
   initialCamera,
   onCameraChange,
   flipViewSequence,
@@ -123,8 +125,8 @@ function TrackballNavigation({
   onCameraChange?: (pose: CameraPose) => void;
   flipViewSequence: number;
 }) {
-  const controlsRef = useRef<ComponentRef<typeof TrackballControls>>(null);
-  const { camera } = useThree();
+  const controlsRef = useRef<ComponentRef<typeof OrbitControls>>(null);
+  const { camera, gl } = useThree();
 
   const reportPose = () => {
     const controls = controlsRef.current;
@@ -139,28 +141,84 @@ function TrackballNavigation({
     if (flipViewSequence === 0) return;
     const controls = controlsRef.current;
     if (!controls) return;
-    const offset = camera.position.sub(controls.target);
-    offset.y *= -1;
-    offset.z *= -1;
-    camera.position.add(controls.target);
-    camera.up.y *= -1;
-    camera.up.z *= -1;
+    const flip = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), Math.PI);
+    camera.position.applyQuaternion(flip);
+    controls.target.applyQuaternion(flip);
+    camera.up.applyQuaternion(flip);
     camera.lookAt(controls.target);
     controls.update();
     reportPose();
   }, [camera, flipViewSequence]);
 
+  useEffect(() => {
+    const controls = controlsRef.current;
+    const element = gl.domElement;
+    if (!controls) return;
+    let pointerId: number | null = null;
+    let previousX = 0;
+    let previousY = 0;
+    const eye = new Vector3();
+
+    const pointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      // Leave the bottom-right view cube and its flip button to their own handlers.
+      if (event.offsetX > element.clientWidth - 140 && event.offsetY > element.clientHeight - 180)
+        return;
+      pointerId = event.pointerId;
+      previousX = event.clientX;
+      previousY = event.clientY;
+      element.setPointerCapture(pointerId);
+    };
+    const pointerMove = (event: PointerEvent) => {
+      if (pointerId !== event.pointerId || !(event.buttons & 1)) return;
+      const dx = event.clientX - previousX;
+      const dy = event.clientY - previousY;
+      previousX = event.clientX;
+      previousY = event.clientY;
+
+      eye.copy(camera.position).sub(controls.target);
+      if (eye.lengthSq() === 0) return;
+      const horizontal = dx / Math.max(1, element.clientWidth);
+      const vertical = -dy / Math.max(1, element.clientHeight);
+      const rotation = objectCenteredRotation(eye, camera.up, horizontal, vertical);
+
+      // Rotate both the camera and its zoom/pan focus around the fixed board
+      // origin. Their relative framing is preserved, but the orbit pivot never
+      // drifts away from the object.
+      camera.position.applyQuaternion(rotation);
+      controls.target.applyQuaternion(rotation);
+      camera.up.applyQuaternion(rotation);
+      camera.lookAt(controls.target);
+      controls.update();
+      reportPose();
+    };
+    const pointerUp = (event: PointerEvent) => {
+      if (pointerId !== event.pointerId) return;
+      if (element.hasPointerCapture(pointerId)) element.releasePointerCapture(pointerId);
+      pointerId = null;
+    };
+
+    element.addEventListener('pointerdown', pointerDown);
+    element.addEventListener('pointermove', pointerMove);
+    element.addEventListener('pointerup', pointerUp);
+    element.addEventListener('pointercancel', pointerUp);
+    return () => {
+      element.removeEventListener('pointerdown', pointerDown);
+      element.removeEventListener('pointermove', pointerMove);
+      element.removeEventListener('pointerup', pointerUp);
+      element.removeEventListener('pointercancel', pointerUp);
+    };
+  }, [camera, gl]);
+
   return (
-    <TrackballControls
+    <OrbitControls
       ref={controlsRef}
       makeDefault
-      rotateSpeed={4}
-      staticMoving
-      cursorZoom
-      // three-stdlib's orthographic zoom-out guard compares zoom against
-      // maxDistance squared. Its Infinity default therefore blocks all zoom-out.
-      // Orthographic controls do not otherwise use camera distance limits.
-      maxDistance={0}
+      rotateSpeed={1}
+      enableRotate={false}
+      enableDamping={false}
+      screenSpacePanning
+      zoomToCursor
       target={initialCamera?.target}
       onChange={reportPose}
     />
@@ -173,8 +231,8 @@ function BoardGizmo({ lineColor }: { lineColor: string }) {
 
   const snapToView = (event: ThreeEvent<PointerEvent>) => {
     event.stopPropagation();
-    const trackball = controls as ComponentRef<typeof TrackballControls> | null;
-    const target = trackball?.target ?? fallbackTarget;
+    const orbit = controls as ComponentRef<typeof OrbitControls> | null;
+    const target = orbit?.target ?? fallbackTarget;
     const radius = camera.position.distanceTo(target);
     if (radius <= 0) return null;
 
@@ -189,7 +247,7 @@ function BoardGizmo({ lineColor }: { lineColor: string }) {
     camera.position.copy(target).addScaledVector(direction, radius);
     camera.up.set(...upForViewDirection(direction));
     camera.lookAt(target);
-    trackball?.update();
+    orbit?.update();
     return null;
   };
 
@@ -494,7 +552,7 @@ export function Board3DView({
             activeSectionX={activeSectionX}
           />
         )}
-        <TrackballNavigation
+        <ObjectCenteredNavigation
           initialCamera={initialCamera}
           onCameraChange={onCameraChange}
           flipViewSequence={flipViewSequence}
