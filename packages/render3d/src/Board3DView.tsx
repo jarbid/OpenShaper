@@ -24,7 +24,11 @@ import { BoardViewcube } from './BoardViewcube';
 import { orthographicZoomFor, upForViewDirection } from './view-framing';
 import { Fins3D } from './Fins3D';
 import { Guides3D } from './Guides3D';
-import { objectCenteredRotation } from './object-centered-navigation';
+import {
+  objectCenteredRotation,
+  rotateViewAboutOrigin,
+  startsOrbit,
+} from './object-centered-navigation';
 
 /** How the board surface is drawn. */
 export type Board3DMode = 'shaded' | 'wireframe' | 'shaded-wire' | 'normals';
@@ -86,6 +90,15 @@ const BOARD_COLOR = '#E8EEF5';
 /** Gizmo placement, shared by the view cube and the flip button stacked above it. */
 const GIZMO_MARGIN = 56;
 const FLIP_BUTTON_SIZE = 60;
+/**
+ * How far from the right and bottom edges a press counts as on the view cube. The
+ * 60 px cube is centred `GIZMO_MARGIN` in from each edge, and its silhouette at any
+ * angle stays within 30·√3 ≈ 52 px of that centre.
+ */
+const VIEWCUBE_HIT_EXTENT = 2 * GIZMO_MARGIN;
+
+/** The flip button's turn: 180° about the board's length axis. */
+const FLIP_ABOUT_LENGTH = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), Math.PI);
 
 /**
  * Frame the board to the view, for as long as the framing is still ours.
@@ -136,18 +149,17 @@ function ObjectCenteredNavigation({
       target: controls.target.toArray() as [number, number, number],
     });
   };
+  // The pointer listeners are registered once, so they read the latest callback here.
+  const reportPoseRef = useRef(reportPose);
+  reportPoseRef.current = reportPose;
 
   useEffect(() => {
     if (flipViewSequence === 0) return;
     const controls = controlsRef.current;
     if (!controls) return;
-    const flip = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), Math.PI);
-    camera.position.applyQuaternion(flip);
-    controls.target.applyQuaternion(flip);
-    camera.up.applyQuaternion(flip);
-    camera.lookAt(controls.target);
+    rotateViewAboutOrigin(camera, controls.target, FLIP_ABOUT_LENGTH);
     controls.update();
-    reportPose();
+    reportPoseRef.current();
   }, [camera, flipViewSequence]);
 
   useEffect(() => {
@@ -160,9 +172,15 @@ function ObjectCenteredNavigation({
     const eye = new Vector3();
 
     const pointerDown = (event: PointerEvent) => {
-      if (event.button !== 0) return;
-      // Leave the bottom-right view cube and its flip button to their own handlers.
-      if (event.offsetX > element.clientWidth - 140 && event.offsetY > element.clientHeight - 180)
+      // A second finger hands the gesture to OrbitControls' pinch-zoom/pan.
+      if (!event.isPrimary) pointerId = null;
+      if (!startsOrbit(event)) return;
+      // The view cube snaps on its own pointerdown; a drag must not also orbit.
+      // (The flip button is an HTML sibling, so its presses never reach the canvas.)
+      if (
+        event.offsetX > element.clientWidth - VIEWCUBE_HIT_EXTENT &&
+        event.offsetY > element.clientHeight - VIEWCUBE_HIT_EXTENT
+      )
         return;
       pointerId = event.pointerId;
       previousX = event.clientX;
@@ -177,20 +195,15 @@ function ObjectCenteredNavigation({
       previousY = event.clientY;
 
       eye.copy(camera.position).sub(controls.target);
-      if (eye.lengthSq() === 0) return;
       const horizontal = dx / Math.max(1, element.clientWidth);
       const vertical = -dy / Math.max(1, element.clientHeight);
-      const rotation = objectCenteredRotation(eye, camera.up, horizontal, vertical);
-
-      // Rotate both the camera and its zoom/pan focus around the fixed board
-      // origin. Their relative framing is preserved, but the orbit pivot never
-      // drifts away from the object.
-      camera.position.applyQuaternion(rotation);
-      controls.target.applyQuaternion(rotation);
-      camera.up.applyQuaternion(rotation);
-      camera.lookAt(controls.target);
+      rotateViewAboutOrigin(
+        camera,
+        controls.target,
+        objectCenteredRotation(eye, camera.up, horizontal, vertical),
+      );
       controls.update();
-      reportPose();
+      reportPoseRef.current();
     };
     const pointerUp = (event: PointerEvent) => {
       if (pointerId !== event.pointerId) return;
@@ -214,7 +227,6 @@ function ObjectCenteredNavigation({
     <OrbitControls
       ref={controlsRef}
       makeDefault
-      rotateSpeed={1}
       enableRotate={false}
       enableDamping={false}
       screenSpacePanning
