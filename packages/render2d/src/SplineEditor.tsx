@@ -611,9 +611,21 @@ export function SplineEditor({
     const canvas = canvasRef.current;
     if (!canvas || !vp || !board || size.w === 0) return;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = size.w * dpr;
-    canvas.height = size.h * dpr;
     const ctx = canvas.getContext('2d');
+    // Assigning width/height reallocates the backing store (MBs at high DPR) as well
+    // as clearing it and resetting the context state. Only a size change needs the
+    // reallocation; otherwise reset() does exactly the rest. Where reset() is missing,
+    // reassigning is what this always did.
+    if (
+      !ctx?.reset ||
+      canvas.width !== Math.trunc(size.w * dpr) ||
+      canvas.height !== Math.trunc(size.h * dpr)
+    ) {
+      canvas.width = size.w * dpr;
+      canvas.height = size.h * dpr;
+    } else {
+      ctx.reset();
+    }
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     clear(ctx, size.w, size.h);
