@@ -14,20 +14,39 @@ import { createMeshQueue, type MeshQueue } from './mesh-queue';
 // heaviest 3D cost, and far heavier at fine target-face sizes. We offload it to a
 // Web Worker (below) and memoize results by board identity + target size. The
 // kernel is immutable and swaps the board reference on every edit, so a new
-// reference invalidates the cache; a WeakMap lets superseded boards be GC'd.
-const meshCache = new WeakMap<BezierBoard, Map<number, BoardMesh>>();
+// reference is a new cache key.
+//
+// The cache is a small LRU, not a WeakMap: the undo history keeps up to 200 old
+// boards alive, and a WeakMap would keep each one's mesh (1–3.4 MB) alive with it.
+// A handful of entries covers what is actually reused — the current board, shared
+// by hull, fins and guides, and the last few undo steps.
+export const MESH_CACHE_SIZE = 8;
 
-const getCached = (board: BezierBoard, faceSize: number): BoardMesh | undefined =>
-  meshCache.get(board)?.get(faceSize);
+interface CacheEntry {
+  board: BezierBoard;
+  faceSize: number;
+  mesh: BoardMesh;
+}
+// Most recently used last.
+const meshCache: CacheEntry[] = [];
+
+const getCached = (board: BezierBoard, faceSize: number): BoardMesh | undefined => {
+  const i = meshCache.findIndex((e) => e.board === board && e.faceSize === faceSize);
+  if (i === -1) return undefined;
+  const [hit] = meshCache.splice(i, 1);
+  meshCache.push(hit!);
+  return hit!.mesh;
+};
 
 const putCached = (board: BezierBoard, faceSize: number, mesh: BoardMesh): void => {
-  let byFace = meshCache.get(board);
-  if (!byFace) {
-    byFace = new Map();
-    meshCache.set(board, byFace);
-  }
-  byFace.set(faceSize, mesh);
+  const i = meshCache.findIndex((e) => e.board === board && e.faceSize === faceSize);
+  if (i !== -1) meshCache.splice(i, 1);
+  meshCache.push({ board, faceSize, mesh });
+  if (meshCache.length > MESH_CACHE_SIZE) meshCache.shift();
 };
+
+/** Test hook: how many meshes the cache holds. */
+export const meshCacheSize = (): number => meshCache.length;
 
 // --- worker plumbing (lazy, client-only) ---------------------------------
 let queue: MeshQueue | null = null;
