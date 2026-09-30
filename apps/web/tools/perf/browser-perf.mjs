@@ -4,6 +4,7 @@
  *
  * Profiles: `desktop` (1440×900, unthrottled) and `mobile` (390×844 touch,
  * 4× CPU slowdown, Slow-4G network). For each it records:
+ *  - idle: main-thread busy share over 3 s with the 3D view shown and untouched;
  *  - initial load of /app: FCP, DOMContentLoaded, load, editor-ready (canvas sized)
  *    and the JS bytes fetched;
  *  - a control-point drag in the outline view: input → next-frame latency per
@@ -326,6 +327,14 @@ async function runProfile(browser, name, profile) {
   const reject = page.getByRole('button', { name: 'Reject' });
   if (await reject.isVisible().catch(() => false)) await reject.click();
 
+  // --- idle: main-thread busy share over 3 s with the 3D view shown, untouched ---
+  await page.keyboard.press('5');
+  await page.waitForTimeout(2000);
+  const idleBefore = await metrics(cdp);
+  await page.waitForTimeout(3000);
+  const idleAfter = await metrics(cdp);
+  const idle3dBusyPct = r1(((idleAfter.TaskDuration - idleBefore.TaskDuration) / 3) * 100);
+
   // --- drag latency in the outline view -----------------------------------------
   await page.keyboard.press('2');
   await nextFrames(page);
@@ -377,6 +386,7 @@ async function runProfile(browser, name, profile) {
       editorReadyMs: ready,
       jsKB: r1(load.jsKB),
     },
+    idle3dBusyPct,
     drag,
     drag3d,
     memory: {
