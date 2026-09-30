@@ -8,6 +8,7 @@ import {
   type BoardMesh,
 } from '@openshaper/kernel';
 import { BufferAttribute, BufferGeometry } from 'three';
+import { createMeshQueue, type MeshQueue } from './mesh-queue';
 
 // Tessellation walks many stations, each interpolating a cross-section — the
 // heaviest 3D cost, and far heavier at fine target-face sizes. We offload it to a
@@ -29,29 +30,36 @@ const putCached = (board: BezierBoard, faceSize: number, mesh: BoardMesh): void 
 };
 
 // --- worker plumbing (lazy, client-only) ---------------------------------
-let worker: Worker | null = null;
-let nextId = 1;
-const pending = new Map<number, (mesh: BoardMesh) => void>();
+let queue: MeshQueue | null = null;
 
-const ensureWorker = (): Worker => {
-  if (worker) return worker;
-  worker = new Worker(new URL('./tessellate.worker.ts', import.meta.url), { type: 'module' });
-  worker.onmessage = (e: MessageEvent<{ id: number; mesh: BoardMesh }>) => {
-    const resolve = pending.get(e.data.id);
-    if (resolve) {
-      pending.delete(e.data.id);
-      resolve(e.data.mesh);
-    }
-  };
-  return worker;
+const ensureQueue = (): MeshQueue => {
+  if (queue) return queue;
+  const worker = new Worker(new URL('./tessellate.worker.ts', import.meta.url), {
+    type: 'module',
+  });
+  const q = createMeshQueue(
+    (id, board, targetFaceSize) => worker.postMessage({ id, board, targetFaceSize }),
+    putCached,
+  );
+  worker.onmessage = (e: MessageEvent<{ id: number; mesh: BoardMesh }>) =>
+    q.receive(e.data.id, e.data.mesh);
+  queue = q;
+  return q;
 };
 
 /**
  * Tessellate the board at `targetFaceSize` (cm), off the main thread when a Worker
  * is available (browser), falling back to synchronous tessellation otherwise (SSR /
  * tests). Results are cached by `(board, targetFaceSize)`.
+ *
+ * Pass the `signal` of the effect that asked: once every asker of a job that has
+ * not started yet has aborted, the job is dropped (see mesh-queue.ts).
  */
-export function tessellateAsync(board: BezierBoard, targetFaceSize: number): Promise<BoardMesh> {
+export function tessellateAsync(
+  board: BezierBoard,
+  targetFaceSize: number,
+  signal?: AbortSignal,
+): Promise<BoardMesh> {
   const cached = getCached(board, targetFaceSize);
   if (cached) return Promise.resolve(cached);
 
@@ -61,14 +69,7 @@ export function tessellateAsync(board: BezierBoard, targetFaceSize: number): Pro
     return Promise.resolve(mesh);
   }
 
-  const id = nextId++;
-  return new Promise<BoardMesh>((resolve) => {
-    pending.set(id, (mesh) => {
-      putCached(board, targetFaceSize, mesh);
-      resolve(mesh);
-    });
-    ensureWorker().postMessage({ id, board, targetFaceSize });
-  });
+  return ensureQueue().request(board, targetFaceSize, signal);
 }
 
 /**

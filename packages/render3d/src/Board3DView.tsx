@@ -431,14 +431,15 @@ function BoardMesh({
   targetFaceSize: number;
 }) {
   // Tessellation runs in a worker; while a new mesh computes we keep showing the
-  // previous geometry so dragging control points stays smooth. A monotonically
-  // increasing request token guards against out-of-order worker responses
-  // (rapid edits enqueue many requests — only the latest may win).
+  // previous geometry so dragging control points stays smooth. A superseded board's
+  // result is ignored (`cancelled`), and aborting tells the queue nobody here wants
+  // it any more, so a job that has not started yet is dropped (mesh-queue.ts).
   const [geometry, setGeometry] = useState<BufferGeometry | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    tessellateAsync(board, targetFaceSize)
+    const abort = new AbortController();
+    tessellateAsync(board, targetFaceSize, abort.signal)
       .then((mesh) => {
         if (!cancelled) setGeometry(meshToGeometry(mesh));
       })
@@ -447,6 +448,7 @@ function BoardMesh({
       });
     return () => {
       cancelled = true;
+      abort.abort();
     };
   }, [board, targetFaceSize]);
 

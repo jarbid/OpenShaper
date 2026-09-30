@@ -155,3 +155,20 @@ analytics payloads, file bytes or geometry — are **not** here; they are in
 - **Dependency majors** (vitest 5, vite 8, React 19 + fiber 9 + drei 10, three 0.186, …)
   → proposal. Minor/patch bumps are possible but not needed for this pass.
 - **E2E + lint in CI, ESLint with hooks and layering rules** → proposal (process change).
+
+## Phase 2 — log
+
+Each row is one commit. "Gates" = typecheck, test, lint, build all pass, characterization
+snapshots unchanged. Perf is measured with `browser-perf.mjs` against a build of the
+previous state (`base`) and the change (`new`), same machine, back to back.
+
+The harness gained a second drag with the 3D view mounted (quad on desktop), counting
+tessellation jobs per move and worker settle time, and a memory phase of 40 separate
+drags (40 undo steps) reading ArrayBuffer backing stores as well as the JS heap. Base
+numbers for those, desktop: 3D drag 416 ms main-thread per move (software WebGL in this
+sandbox dominates), 1 tessellation job per move, ArrayBuffers **5.3 → 61.6 MB** after the
+40 edits. On the phone tier the split view has no 3D pane, so that phase measures 2D only.
+
+| #   | Change                                                      | Tests | Measured                                                                                                                                                                                                                                                                                                                                                               |
+| --- | ----------------------------------------------------------- | ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | 3D worker queue: one job in flight, shared + droppable jobs | 1,689 | No change measurable here: with software WebGL each 3D frame takes ~170 ms, so input never outpaces the worker (1 job/move before and after). The dropping/sharing is proven by `mesh-queue.test.ts` (5 superseded boards → 2 jobs; identical asks → 1 job). On real GPUs a 60 Hz drag posts ~1.6× the jobs the worker can finish; those backlog jobs are now dropped. |

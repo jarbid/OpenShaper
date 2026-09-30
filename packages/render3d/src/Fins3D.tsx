@@ -40,7 +40,8 @@ export function Fins3D({
 
   useEffect(() => {
     let cancelled = false;
-    tessellateAsync(board, targetFaceSize)
+    const abort = new AbortController();
+    tessellateAsync(board, targetFaceSize, abort.signal)
       .then((mesh) => {
         if (cancelled) return;
         const c = boardCenter(mesh);
@@ -51,6 +52,7 @@ export function Fins3D({
       });
     return () => {
       cancelled = true;
+      abort.abort();
     };
   }, [board, targetFaceSize]);
 
