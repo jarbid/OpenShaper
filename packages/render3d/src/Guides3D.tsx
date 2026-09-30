@@ -3,7 +3,7 @@ import type { BezierBoard } from '@openshaper/kernel';
 import { Line } from '@react-three/drei';
 import { useEffect, useMemo, useState } from 'react';
 import { boardCenter, tessellateAsync } from './geometry';
-import { guideLines } from './guide-lines';
+import { activeGuideKey, guideLines } from './guide-lines';
 
 /** Amber centreline, red stations, brand cyan for the station being edited. */
 const STRINGER_COLOR = '#F59E0B';
@@ -63,10 +63,12 @@ export function Guides3D({
   }, [board, targetFaceSize]);
 
   // The kernel swaps `board` on every edit, so adding or deleting a
-  // cross-section invalidates this automatically.
-  const lines = useMemo(
-    () => guideLines(board, targetFaceSize, activeSectionX),
-    [board, targetFaceSize, activeSectionX],
+  // cross-section invalidates this automatically. The active station only picks
+  // which ring is highlighted, so it is not a dependency of the lines themselves.
+  const lines = useMemo(() => guideLines(board, targetFaceSize, null), [board, targetFaceSize]);
+  const activeKey = useMemo(
+    () => activeGuideKey(lines.sections, activeSectionX),
+    [lines, activeSectionX],
   );
 
   if (!offset || (!showStringer && !showSections)) return null;
@@ -78,7 +80,7 @@ export function Guides3D({
       )}
       {showSections &&
         lines.sections.map((s) => {
-          const active = s.key === lines.activeKey;
+          const active = s.key === activeKey;
           return (
             <Line
               key={s.key}

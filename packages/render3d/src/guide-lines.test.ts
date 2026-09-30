@@ -9,7 +9,7 @@ import {
   type CrossSection,
 } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
-import { guideLines } from './guide-lines';
+import { activeGuideKey, guideLines } from './guide-lines';
 
 const FACE = 1.5; // draft density — fewer stations, faster tests
 
@@ -87,6 +87,16 @@ describe('guideLines', () => {
     const g = guideLines(makeBoard([25, 50, 75]), FACE, 50);
     expect(g.activeKey).not.toBeNull();
     expect(g.sections.filter((s) => s.key === g.activeKey)).toHaveLength(1);
+  });
+
+  it('activeGuideKey picks the same ring from lines computed without an active station', () => {
+    const board = makeBoard([25, 50, 75]);
+    const plain = guideLines(board, FACE, null);
+    for (const x of [25, 50, 75, 40, null]) {
+      expect(activeGuideKey(plain.sections, x)).toBe(guideLines(board, FACE, x).activeKey);
+    }
+    // The geometry itself does not depend on the active station.
+    expect(guideLines(board, FACE, 50).sections).toEqual(plain.sections);
   });
 
   it('has no active ring when activeX matches no station', () => {
