@@ -29,6 +29,7 @@ await ctx.addInitScript(() => {
     return null;
   };
   let id = 0;
+  const prevTree = {};
   window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
     supportsFiber: true,
     renderers: new Map(),
@@ -37,17 +38,25 @@ await ctx.addInitScript(() => {
       return id;
     },
     onCommitFiberRoot(rid, root) {
+      // Count a fiber only if it was not in the previous commit's tree: a skipped
+      // subtree keeps its old fibers (and their stale PerformedWork flag).
+      const prev = prevTree[rid] ?? new Set();
+      const now = new Set();
       const st = [root.current];
       while (st.length) {
         const f = st.pop();
         if (!f) continue;
         if ([0, 1, 11, 14, 15].includes(f.tag) && f.flags & 1) {
-          const n = `${rid}:${name(f)}`;
-          counts[n] = (counts[n] ?? 0) + 1;
+          now.add(f);
+          if (!prev.has(f)) {
+            const n = `${rid}:${name(f)}`;
+            counts[n] = (counts[n] ?? 0) + 1;
+          }
         }
         if (f.child) st.push(f.child);
         if (f.sibling) st.push(f.sibling);
       }
+      prevTree[rid] = now;
     },
     onCommitFiberUnmount() {},
     onPostCommitFiberRoot() {},

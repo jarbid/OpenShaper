@@ -55,16 +55,27 @@ const reactProbe = () => {
   window.__perf = { stats, reset: () => ((stats.commits = {}), (stats.rendered = {})) };
   const PERFORMED_WORK = 1;
   const COMPONENT_TAGS = new Set([0, 1, 11, 14, 15]); // function, class, forwardRef, memo, simpleMemo
+  // A skipped (bailed-out) subtree stays in the tree as the same fiber objects, still
+  // carrying PerformedWork from whenever they last rendered. So a fiber counts only if
+  // it was not already in the previous commit's tree: a re-rendered fiber is always a
+  // fresh work-in-progress object, never the one committed last time.
+  const prevTree = {};
   const walk = (fiber, id) => {
     let n = 0;
+    const prev = prevTree[id] ?? new Set();
+    const now = new Set();
     const stack = [fiber];
     while (stack.length) {
       const f = stack.pop();
       if (!f) continue;
-      if (COMPONENT_TAGS.has(f.tag) && f.flags & PERFORMED_WORK) n++;
+      if (COMPONENT_TAGS.has(f.tag) && f.flags & PERFORMED_WORK) {
+        now.add(f);
+        if (!prev.has(f)) n++;
+      }
       if (f.child) stack.push(f.child);
       if (f.sibling) stack.push(f.sibling);
     }
+    prevTree[id] = now;
     stats.rendered[id] = (stats.rendered[id] ?? 0) + n;
   };
   let nextId = 1;
