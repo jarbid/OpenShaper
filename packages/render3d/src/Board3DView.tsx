@@ -3,6 +3,7 @@ import type { BoardState } from '@openshaper/store';
 import { GizmoHelper, OrbitControls } from '@react-three/drei';
 import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber';
 import {
+  memo,
   useEffect,
   useMemo,
   useRef,
@@ -237,7 +238,12 @@ function ObjectCenteredNavigation({
   );
 }
 
-function BoardGizmo({ lineColor }: { lineColor: string }) {
+/**
+ * Memoized: it depends only on `lineColor` and on camera/controls, which reach it
+ * through R3F context (and so still re-render it). Without this, every board edit
+ * re-rendered the view cube's 20 hit areas through a fresh `snapToView`.
+ */
+const BoardGizmo = memo(function BoardGizmo({ lineColor }: { lineColor: string }) {
   const { camera, controls } = useThree();
   const fallbackTarget = useMemo(() => new Vector3(), []);
 
@@ -274,7 +280,7 @@ function BoardGizmo({ lineColor }: { lineColor: string }) {
       />
     </GizmoHelper>
   );
-}
+});
 
 /** Background color per lighting preset (dark room makes side-lit rails pop). */
 const BACKGROUND: Record<LightingPreset, string> = {
