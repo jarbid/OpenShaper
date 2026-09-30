@@ -117,7 +117,7 @@ const FLIP_ABOUT_LENGTH = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0)
  * carries position and target but no zoom, so there is nothing of theirs to keep.
  */
 function OrthographicFit({ span }: { span: number }) {
-  const { camera, size } = useThree();
+  const { camera, size, invalidate } = useThree();
   const applied = useRef<number | null>(null);
   useEffect(() => {
     if (!(camera instanceof OrthographicCamera) || size.width <= 0) return;
@@ -126,7 +126,8 @@ function OrthographicFit({ span }: { span: number }) {
     applied.current = zoom;
     camera.zoom = zoom;
     camera.updateProjectionMatrix();
-  }, [camera, size.width, span]);
+    invalidate();
+  }, [camera, size.width, span, invalidate]);
   return null;
 }
 
@@ -140,7 +141,7 @@ function ObjectCenteredNavigation({
   flipViewSequence: number;
 }) {
   const controlsRef = useRef<ComponentRef<typeof OrbitControls>>(null);
-  const { camera, gl } = useThree();
+  const { camera, gl, invalidate } = useThree();
 
   const reportPose = () => {
     const controls = controlsRef.current;
@@ -160,8 +161,9 @@ function ObjectCenteredNavigation({
     if (!controls) return;
     rotateViewAboutOrigin(camera, controls.target, FLIP_ABOUT_LENGTH);
     controls.update();
+    invalidate();
     reportPoseRef.current();
-  }, [camera, flipViewSequence]);
+  }, [camera, flipViewSequence, invalidate]);
 
   useEffect(() => {
     const controls = controlsRef.current;
@@ -204,6 +206,7 @@ function ObjectCenteredNavigation({
         objectCenteredRotation(eye, camera.up, horizontal, vertical),
       );
       controls.update();
+      invalidate();
       reportPoseRef.current();
     };
     const pointerUp = (event: PointerEvent) => {
@@ -222,7 +225,7 @@ function ObjectCenteredNavigation({
       element.removeEventListener('pointerup', pointerUp);
       element.removeEventListener('pointercancel', pointerUp);
     };
-  }, [camera, gl]);
+  }, [camera, gl, invalidate]);
 
   return (
     <OrbitControls
@@ -244,7 +247,7 @@ function ObjectCenteredNavigation({
  * re-rendered the view cube's 20 hit areas through a fresh `snapToView`.
  */
 const BoardGizmo = memo(function BoardGizmo({ lineColor }: { lineColor: string }) {
-  const { camera, controls } = useThree();
+  const { camera, controls, invalidate } = useThree();
   const fallbackTarget = useMemo(() => new Vector3(), []);
 
   const snapToView = (event: ThreeEvent<PointerEvent>) => {
@@ -266,6 +269,7 @@ const BoardGizmo = memo(function BoardGizmo({ lineColor }: { lineColor: string }
     camera.up.set(...upForViewDirection(direction));
     camera.lookAt(target);
     orbit?.update();
+    invalidate();
     return null;
   };
 
@@ -538,6 +542,12 @@ export function Board3DView({
   return (
     <div className={className} style={{ width: '100%', height: '100%', position: 'relative' }}>
       <Canvas
+        // Render only when something changed, not 60 times a second while idle.
+        // R3F invalidates on every prop/state change in the scene and drei's
+        // OrbitControls on every camera change; the imperative camera moves here
+        // (flip, object-centred orbit, view-cube snap, orthographic fit) call
+        // invalidate() themselves.
+        frameloop="demand"
         dpr={[1, 2]}
         orthographic
         camera={{
