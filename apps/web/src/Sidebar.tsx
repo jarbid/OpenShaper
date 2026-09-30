@@ -43,6 +43,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import {
+  memo,
   useEffect,
   useState,
   useSyncExternalStore,
@@ -192,7 +193,12 @@ export interface SidebarProps {
   onUnitChange?: (key: string) => void;
 }
 
-export function Sidebar({
+/**
+ * Memoized: every prop is stable while a point is dragged (specs come from the settled
+ * board), so a drag re-renders only the parts that subscribe to the store themselves —
+ * the control-point inspector, history — not the whole panel.
+ */
+export const Sidebar = memo(function Sidebar({
   specs,
   units,
   resize,
@@ -355,7 +361,7 @@ export function Sidebar({
       <SupportFooter compact={collapsible && sidebar.collapsed} sticky={!collapsible} />
     </aside>
   );
-}
+});
 
 /**
  * The permanent tab strip: four tools groups that no open panel can displace.

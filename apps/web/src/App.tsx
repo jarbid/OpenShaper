@@ -28,6 +28,7 @@ import { Menu as MenuIcon, Share2, SlidersHorizontal } from 'lucide-react';
 import {
   Fragment,
   lazy,
+  memo,
   Suspense,
   useCallback,
   useEffect,
@@ -128,8 +129,14 @@ const Board3DView = lazy(() =>
   import('@openshaper/render3d').then((m) => ({ default: m.Board3DView })),
 );
 
-/** Board3DView behind a Suspense boundary, so the lazy 3D chunk can stream in. */
-function ThreeDPane(props: Board3DViewProps) {
+/**
+ * Board3DView behind a Suspense boundary, so the lazy 3D chunk can stream in.
+ *
+ * Memoized: the 3D view subscribes to the board store itself and every prop here is a
+ * primitive, a ref-backed value or a stable callback, so an AppShell render (a 2D drag
+ * move, a hover scrub) need not re-reconcile the three.js scene.
+ */
+const ThreeDPane = memo(function ThreeDPane(props: Board3DViewProps) {
   return (
     <Suspense
       fallback={
@@ -141,7 +148,7 @@ function ThreeDPane(props: Board3DViewProps) {
       <Board3DView {...props} />
     </Suspense>
   );
-}
+});
 
 function AppShell() {
   const board = useSyncExternalStore(boardStore.subscribe, () => boardStore.getState().board);
@@ -614,7 +621,7 @@ function AppShell() {
   };
 
   // Resize: blank fields keep that dimension; others scale to the typed target.
-  const applyResize = () => {
+  const applyResize = useCallback(() => {
     if (!specs) return;
     const factor = (text: string, cur: number) => {
       const t = text.trim();
@@ -630,7 +637,7 @@ function AppShell() {
         factor(resize.t, specs.thickness),
       );
     setResize({ l: '', w: '', t: '' });
-  };
+  }, [specs, resize, units]);
 
   // Fins are part of the board model now; resolve their geometry against the current
   // shape for the 2D overlays (plan footprint + box; profile blade silhouette).
@@ -940,10 +947,11 @@ function AppShell() {
   const traceInput = useRef<HTMLInputElement>(null);
   // Which view a just-opened file picker targets (File menu / Sidebar share the input).
   const pendingTraceView = useRef<TraceView>('outline');
-  const openTracePicker = (view: TraceView) => {
+  // Refs only, so it is stable — the memoized Sidebar receives it.
+  const openTracePicker = useCallback((view: TraceView) => {
     pendingTraceView.current = view;
     traceInput.current?.click();
-  };
+  }, []);
   const onOpenTrace = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
