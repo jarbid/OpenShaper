@@ -19,11 +19,12 @@ import {
 } from '@openshaper/kernel';
 import type { BoardState } from '@openshaper/store';
 import { Checkbox, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useSyncExternalStore } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
 import { NumericInput } from './components/numeric-input';
 import { cmToUnitNumber, parseLen, unitDecimals, unitSuffix, type LengthUnit } from './format';
 import { Sel } from './view-toolkit';
+import { useSyncedText } from './use-numeric-field';
 
 const FOILS: { value: FinFoil; label: string }[] = [
   { value: '80/20', label: '80 / 20' },
@@ -47,8 +48,7 @@ function LenField({
   onCommit: (cm: number) => void;
 }) {
   const shown = cmToUnitNumber(valueCm, units).toFixed(unitDecimals(units));
-  const [text, setText] = useState(shown);
-  useEffect(() => setText(shown), [shown]);
+  const [text, setText] = useSyncedText(shown);
   const commit = () => onCommit(parseLen(text, units));
   return (
     <label className="flex items-center gap-2">
@@ -76,8 +76,7 @@ function DegField({
   onCommit: (deg: number) => void;
 }) {
   const shown = value.toFixed(1);
-  const [text, setText] = useState(shown);
-  useEffect(() => setText(shown), [shown]);
+  const [text, setText] = useSyncedText(shown);
   const commit = () => {
     const n = Number.parseFloat(text);
     if (Number.isFinite(n)) onCommit(n);

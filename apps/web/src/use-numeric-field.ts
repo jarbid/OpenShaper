@@ -83,3 +83,25 @@ export function useNumericField({
     onBlur: () => setFocused(false),
   };
 }
+
+/**
+ * Editable text that resets to `shown` whenever the value behind it changes — the
+ * commit-on-blur fields (control point, fins) use this. The reset happens during
+ * render rather than in an effect, so a value that changes on every drag move costs
+ * one commit per move, not two.
+ *
+ * `syncKey` is what counts as "the value changed"; it defaults to `shown`. Pass the raw
+ * value too when a change below display precision should still reset the text.
+ */
+export function useSyncedText(
+  shown: string,
+  syncKey: unknown = shown,
+): [string, React.Dispatch<React.SetStateAction<string>>] {
+  const [text, setText] = useState(shown);
+  const [synced, setSynced] = useState(syncKey);
+  if (!Object.is(synced, syncKey)) {
+    setSynced(syncKey);
+    setText(shown);
+  }
+  return [text, setText];
+}
