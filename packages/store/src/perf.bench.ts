@@ -48,6 +48,10 @@ describe('specs (volume/area/…)', () => {
   // this measures the real compute, as after an edit.
   bench('shortboard selectSpecs (uncached)', () => void selectSpecs({ ...shortboard }));
   bench('longboard selectSpecs (uncached)', () => void selectSpecs({ ...longboard }));
+  bench(
+    'shortboard selectSpecs, S-blend (uncached)',
+    () => void selectSpecs({ ...shortboard, interpolationType: 'sLinear' }),
+  );
 });
 
 describe('store drag step', () => {

@@ -326,18 +326,22 @@ const csThicknessAtZero = (spline: Spline): number =>
   valueAtReverse(spline, T_ZERO) - valueAt(spline, T_ZERO);
 
 /**
- * 3D-ish point on the sLinear surface at longitudinal x and arc-length parameter
- * s∈[0,1], between normal angles [minAngle,maxAngle] (degrees). Returns the
- * cross-section-plane point as (y = lateral, z = height incl. rocker). Ported from
- * BezierBoardSLinearInterpolationSurfaceModel.getPointAt.
+ * The sLinear surface at one longitudinal x: the two bracketing stations scaled to
+ * the board's width and thickness there, their blend weight, and the rocker. Ported
+ * from BezierBoardSLinearInterpolationSurfaceModel.getPointAt, split so that the
+ * per-x work (two spline rescales, station lookups) is done once per x rather than
+ * once per sample — the area integral samples every x ~22 times. Every expression
+ * is the legacy one, in the same order, so the results are unchanged bit for bit.
  */
-const sLinearPoint = (
-  b: BezierBoard,
-  xIn: number,
-  s: number,
-  minAngle: number,
-  maxAngle: number,
-): { y: number; z: number } => {
+interface SLinearStation {
+  c1Spline: Spline;
+  c2Spline: Spline;
+  /** Blend weight between the two stations. */
+  d: number;
+  rocker: number;
+}
+
+const sLinearStation = (b: BezierBoard, xIn: number): SLinearStation => {
   const len = getLength(b);
   let x = xIn;
   if (x < 0.1) x = 0.1;
@@ -358,43 +362,65 @@ const sLinearPoint = (
   const c1Spline = scaleSpline(c1.spline, targetThickness / c1Thickness, targetWidth / c1Width);
   const c2Spline = scaleSpline(c2.spline, targetThickness / c2Thickness, targetWidth / c2Width);
 
+  const pos1 = getPreviousCrossSectionPos(b, x);
+  const pos2 = getNextCrossSectionPos(b, x);
+  const d = (x - pos1) / (pos2 - pos1);
+  return { c1Spline, c2Spline, d, rocker: getRockerAtPos(b, x) };
+};
+
+/** The arc-length span of each station between normal angles [minAngle, maxAngle] (degrees). */
+const sLinearSpan = (
+  st: SLinearStation,
+  minAngle: number,
+  maxAngle: number,
+): { s1min: number; s1max: number; s2min: number; s2max: number } => {
   let s1min = T_ONE;
   let s2min = T_ONE;
   let s1max = T_ZERO;
   let s2max = T_ZERO;
   if (minAngle > 0.0) {
-    s1min = sByNormalReverse(c1Spline, minAngle * DEG_TO_RAD, true);
-    s2min = sByNormalReverse(c2Spline, minAngle * DEG_TO_RAD, true);
+    s1min = sByNormalReverse(st.c1Spline, minAngle * DEG_TO_RAD, true);
+    s2min = sByNormalReverse(st.c2Spline, minAngle * DEG_TO_RAD, true);
   }
   if (maxAngle < 270.0) {
-    s1max = sByNormalReverse(c1Spline, maxAngle * DEG_TO_RAD, true);
-    s2max = sByNormalReverse(c2Spline, maxAngle * DEG_TO_RAD, true);
+    s1max = sByNormalReverse(st.c1Spline, maxAngle * DEG_TO_RAD, true);
+    s2max = sByNormalReverse(st.c2Spline, maxAngle * DEG_TO_RAD, true);
   }
+  return { s1min, s1max, s2min, s2max };
+};
 
-  const current1S = (s1max - s1min) * s + s1min;
-  const current2S = (s2max - s2min) * s + s2min;
+/**
+ * Point on the sLinear surface at arc-length parameter s∈[0,1] within `span`, as
+ * (y = lateral, z = height incl. rocker).
+ */
+const sLinearPoint = (
+  st: SLinearStation,
+  span: ReturnType<typeof sLinearSpan>,
+  s: number,
+): { y: number; z: number } => {
+  const current1S = (span.s1max - span.s1min) * s + span.s1min;
+  const current2S = (span.s2max - span.s2min) * s + span.s2min;
 
-  const pos1 = getPreviousCrossSectionPos(b, x);
-  const pos2 = getNextCrossSectionPos(b, x);
+  const v1: Vec2 = pointByS(st.c1Spline, current1S);
+  const v2: Vec2 = pointByS(st.c2Spline, current2S);
 
-  const v1: Vec2 = pointByS(c1Spline, current1S);
-  const v2: Vec2 = pointByS(c2Spline, current2S);
-
-  const d = (x - pos1) / (pos2 - pos1);
+  const d = st.d;
   const retX = (1 - d) * v1.x + d * v2.x; // lateral (point.y in legacy)
   const retY = (1 - d) * v1.y + d * v2.y; // height before rocker
-  const rocker = getRockerAtPos(b, x);
-  return { y: retX, z: retY + rocker };
+  return { y: retX, z: retY + st.rocker };
 };
 
 /** Cross-sectional area at x using the sLinear model (legacy getCrosssectionAreaAt). */
 const getSLinearCrossSectionAreaAt = (b: BezierBoard, x: number): number => {
+  const st = sLinearStation(b, x);
+  const deckSpan = sLinearSpan(st, -90.0, 90.0);
+  const bottomSpan = sLinearSpan(st, 90.0, 360.0);
   const deckSample = (s: number) => {
-    const p = sLinearPoint(b, x, s, -90.0, 90.0);
+    const p = sLinearPoint(st, deckSpan, s);
     return vec2(p.y, p.z);
   };
   const bottomSample = (s: number) => {
-    const p = sLinearPoint(b, x, s, 90.0, 360.0);
+    const p = sLinearPoint(st, bottomSpan, s);
     return vec2(p.y, p.z);
   };
   const deckIntegral = trapezoidIntegralXY(deckSample, 0.0, 1.0, SLINEAR_AREA_SPLITS);
