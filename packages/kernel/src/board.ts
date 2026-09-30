@@ -80,7 +80,9 @@ export interface BezierBoard {
 // intentional divergences from legacy are recorded in docs/specs/divergences.md.
 const VOLUME_X_SPLITS = 10;
 const AREA_SPLITS = 10;
-const MASS_X_SPLITS = 10;
+// The CoM section sample count equals VOLUME_X_SPLITS (as in the legacy app);
+// getVolumeAndCenterOfMass relies on that to reuse the volume as the CoM weight.
+const MASS_X_SPLITS = VOLUME_X_SPLITS;
 // Legacy longitudinal split counts (VOLUME_Y_SPLITS=30, MASS_Y_SPLITS=10) are no
 // longer defaults — the length axis is adaptive. Callers reproduce them by passing
 // `lengthSplits` explicitly (see board.integration.test.ts).
@@ -168,25 +170,22 @@ const everyMillimeter = (b: BezierBoard, pick: (pos: number, cur: number) => voi
   }
 };
 
-export const getMaxThickness = (b: BezierBoard): number => {
+/** Max thickness and where it occurs, sampled every millimetre (one scan for both). */
+export const getMaxThicknessAndPos = (b: BezierBoard): { max: number; pos: number } => {
   let max = -1e5;
-  everyMillimeter(b, (_pos, cur) => {
-    if (cur > max) max = cur;
-  });
-  return max;
-};
-
-export const getMaxThicknessPos = (b: BezierBoard): number => {
-  let max = -1e5;
-  let maxPos = -1e5;
-  everyMillimeter(b, (pos, cur) => {
+  let pos = -1e5;
+  everyMillimeter(b, (p, cur) => {
     if (cur > max) {
       max = cur;
-      maxPos = pos;
+      pos = p;
     }
   });
-  return maxPos;
+  return { max, pos };
 };
+
+export const getMaxThickness = (b: BezierBoard): number => getMaxThicknessAndPos(b).max;
+
+export const getMaxThicknessPos = (b: BezierBoard): number => getMaxThicknessAndPos(b).pos;
 
 // --- cross-section selection / interpolation ---
 
@@ -496,7 +495,17 @@ export const getArea = (b: BezierBoard, splits?: number): number => {
  * pass `opts.lengthSplits` to fall back to the fixed-split integrator. The adaptive
  * NaN→0 guarding matches the legacy loop's per-sample guarding.
  */
-export const getCenterOfMass = (b: BezierBoard, opts: IntegrationOptions = {}): number => {
+export const getCenterOfMass = (
+  b: BezierBoard,
+  opts: IntegrationOptions & {
+    /**
+     * The weight integral, if already known. With default options it is exactly
+     * {@link getVolume} (same integrand, splits and tolerance) — see
+     * {@link getVolumeAndCenterOfMass}. Ignored on the fixed-split path.
+     */
+    weight?: number;
+  } = {},
+): number => {
   if (b.crossSections.length < 3) return 0;
   const { sectionSplits = MASS_X_SPLITS, lengthSplits } = opts;
   const a = 0.01;
@@ -505,7 +514,7 @@ export const getCenterOfMass = (b: BezierBoard, opts: IntegrationOptions = {}): 
 
   if (lengthSplits === undefined) {
     const moment = adaptiveSimpson((x) => x * areaAt(x), a, bEnd, ADAPTIVE_REL_TOL);
-    const weight = adaptiveSimpson(areaAt, a, bEnd, ADAPTIVE_REL_TOL);
+    const weight = opts.weight ?? adaptiveSimpson(areaAt, a, bEnd, ADAPTIVE_REL_TOL);
     return moment / weight;
   }
 
@@ -528,4 +537,17 @@ export const getCenterOfMass = (b: BezierBoard, opts: IntegrationOptions = {}): 
     x0 = x2;
   }
   return momentSum / weightSum;
+};
+
+/**
+ * Volume and centre of mass together, integrating the section area once for both:
+ * the CoM's weight integral is the volume integral (same splits, same tolerance), so
+ * this returns exactly what the two getters return separately, for half the work.
+ */
+export const getVolumeAndCenterOfMass = (
+  b: BezierBoard,
+): { volume: number; centerOfMass: number } => {
+  const volume = getVolume(b);
+  if (b.crossSections.length < 3) return { volume, centerOfMass: 0 };
+  return { volume, centerOfMass: getCenterOfMass(b, { weight: volume }) };
 };

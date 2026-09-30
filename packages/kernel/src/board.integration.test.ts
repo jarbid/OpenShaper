@@ -21,7 +21,11 @@ import {
   getCenterOfMass,
   getCrossSectionAreaAt,
   getLength,
+  getMaxThickness,
+  getMaxThicknessAndPos,
+  getMaxThicknessPos,
   getVolume,
+  getVolumeAndCenterOfMass,
   getWidthAtPos,
 } from './board';
 import { T_ZERO } from './constants';
@@ -97,3 +101,27 @@ for (const name of ['shortboard', 'funboard', 'longboard']) {
     });
   });
 }
+
+describe('combined getters return exactly what the separate ones do', () => {
+  for (const name of ['shortboard', 'funboard', 'longboard']) {
+    it(`${name}: volume + CoM share one integral, bit for bit`, () => {
+      const b = loadBoard(name);
+      const both = getVolumeAndCenterOfMass(b);
+      expect(both.volume).toBe(getVolume(b));
+      expect(both.centerOfMass).toBe(getCenterOfMass(b));
+      const s = { ...b, interpolationType: 'sLinear' as const };
+      expect(getVolumeAndCenterOfMass(s)).toEqual({
+        volume: getVolume(s),
+        centerOfMass: getCenterOfMass(s),
+      });
+    });
+
+    it(`${name}: max thickness and its position from one scan`, () => {
+      const b = loadBoard(name);
+      expect(getMaxThicknessAndPos(b)).toEqual({
+        max: getMaxThickness(b),
+        pos: getMaxThicknessPos(b),
+      });
+    });
+  }
+});
