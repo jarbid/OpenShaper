@@ -8,7 +8,7 @@ import {
   type BoardMesh,
 } from '@openshaper/kernel';
 import { BufferAttribute, BufferGeometry } from 'three';
-import { createMeshQueue, type MeshQueue } from './mesh-queue';
+import { createMeshQueue, type MeshQueue, type WorkerReply } from './mesh-queue';
 
 // Tessellation walks many stations, each interpolating a cross-section — the
 // heaviest 3D cost, and far heavier at fine target-face sizes. We offload it to a
@@ -60,8 +60,19 @@ const ensureQueue = (): MeshQueue => {
     (id, board, targetFaceSize) => worker.postMessage({ id, board, targetFaceSize }),
     putCached,
   );
-  worker.onmessage = (e: MessageEvent<{ id: number; mesh: BoardMesh }>) =>
-    q.receive(e.data.id, e.data.mesh);
+  worker.onmessage = (e: MessageEvent<WorkerReply>) => {
+    const r = e.data;
+    if ('error' in r) q.fail(r.id, new Error(r.error));
+    else q.receive(r.id, r.mesh);
+  };
+  // The worker script failed to load or crashed: settle everything. The next
+  // request starts a fresh worker.
+  worker.onerror = (e) => {
+    e.preventDefault();
+    worker.terminate();
+    if (queue === q) queue = null;
+    q.failAll(new Error(e.message || 'Tessellation worker failed'));
+  };
   queue = q;
   return q;
 };

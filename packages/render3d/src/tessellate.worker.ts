@@ -7,6 +7,10 @@
  * manual serialization. The resulting typed arrays are transferred back (zero-copy).
  */
 import { tessellateBoard, type BezierBoard } from '@openshaper/kernel';
+import type { WorkerReply } from './mesh-queue';
+
+const post = (msg: WorkerReply, transfer: Transferable[] = []): void =>
+  (self as unknown as Worker).postMessage(msg, transfer);
 
 interface Req {
   id: number;
@@ -16,10 +20,14 @@ interface Req {
 
 self.onmessage = (e: MessageEvent<Req>) => {
   const { id, board, targetFaceSize } = e.data;
-  const mesh = tessellateBoard(board, { targetFaceSize });
-  (self as unknown as Worker).postMessage({ id, mesh }, [
-    mesh.positions.buffer,
-    mesh.normals.buffer,
-    mesh.indices.buffer,
-  ]);
+  let mesh;
+  try {
+    mesh = tessellateBoard(board, { targetFaceSize });
+  } catch (err) {
+    // Report it, so the caller's promise settles and the queue moves on to the
+    // next board instead of waiting for a reply that will never come.
+    post({ id, error: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+  post({ id, mesh }, [mesh.positions.buffer, mesh.normals.buffer, mesh.indices.buffer]);
 };

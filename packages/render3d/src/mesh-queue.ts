@@ -19,10 +19,17 @@ import type { BezierBoard, BoardMesh } from '@openshaper/kernel';
  * it have all gone, so nobody observes it. A job already in flight is never
  * dropped — its result still lands in the cache.
  */
+/** What the tessellation worker posts back for job `id`. */
+export type WorkerReply = { id: number; mesh: BoardMesh } | { id: number; error: string };
+
 export interface MeshQueue {
   request(board: BezierBoard, targetFaceSize: number, signal?: AbortSignal): Promise<BoardMesh>;
   /** Hand back the worker's result for job `id`. */
   receive(id: number, mesh: BoardMesh): void;
+  /** The worker failed job `id`: reject it and move on to the next one. */
+  fail(id: number, error: unknown): void;
+  /** The worker itself is gone (failed to load, crashed): reject every job. */
+  failAll(error: unknown): void;
 }
 
 interface Job {
@@ -113,6 +120,25 @@ export function createMeshQueue(
       onResult(job.board, job.faceSize, mesh);
       job.resolve(mesh);
       pump();
+    },
+
+    fail(id, error) {
+      const job = inFlight;
+      if (!job || job.id !== id) return;
+      inFlight = null;
+      forget(job);
+      job.reject(error);
+      pump();
+    },
+
+    failAll(error) {
+      const jobs = inFlight ? [inFlight, ...waiting] : [...waiting];
+      inFlight = null;
+      waiting.length = 0;
+      for (const job of jobs) {
+        forget(job);
+        job.reject(error);
+      }
     },
   };
 }

@@ -105,4 +105,30 @@ describe('mesh queue', () => {
     await expect(q.request(a!, 1, c.signal)).rejects.toMatchObject({ name: 'AbortError' });
     expect(posts).toHaveLength(0);
   });
+
+  it('a failed job rejects and the queue moves on to the next board', async () => {
+    const { q, posts, finish } = setup();
+    const [a, b] = boards(2);
+    const pa = q.request(a!, 1);
+    const pb = q.request(b!, 1);
+    q.fail(posts[0]!.id, new Error('kernel threw'));
+    await expect(pa).rejects.toThrow('kernel threw');
+    expect(posts.map((p) => p.board)).toEqual([a, b]);
+    finish(1);
+    await expect(pb).resolves.toBeDefined();
+    // A failed board is not remembered as in progress: asking again starts a job.
+    q.request(a!, 1).catch(() => {});
+    expect(posts).toHaveLength(3);
+  });
+
+  it('a dead worker rejects every job', async () => {
+    const { q, posts } = setup();
+    const [a, b] = boards(2);
+    const pa = q.request(a!, 1);
+    const pb = q.request(b!, 1);
+    q.failAll(new Error('worker gone'));
+    await expect(pa).rejects.toThrow('worker gone');
+    await expect(pb).rejects.toThrow('worker gone');
+    expect(posts).toHaveLength(1);
+  });
 });

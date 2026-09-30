@@ -162,3 +162,21 @@ enforce the kernel layering) plus `pnpm lint` and `prettier --check` in CI.
 **P37 · Dependency majors:** vitest 2→5 (removes the duplicate vite 5), vite 6→8, React
 19 + fiber 9 + drei 10 (fixes deprecated three-mesh-bvh), three 0.171→0.186,
 react-router 7, tailwind-merge 3, lucide 1.x. Each is its own upgrade PR · risk med–high.
+
+## Moved here from the Phase 2 fix list
+
+**P38 · Lazy-load posthog-js** (~300 KB raw / ~95 KB gz of the entry chunk on every
+route; `analytics.ts:25`). Event names and properties would be unchanged, but what gets
+captured would not: pageviews of routes visited before the chunk loads, uncaught errors
+in that window (the handlers install at init) and `track()` calls queued meanwhile would
+be lost or re-timestamped unless replayed with their original timestamps. Needs a
+decision on whether that is acceptable, and a check against the dashboards. Effort M ·
+risk med · visible: faster first load on every page; analytics data shape at the margins.
+
+**P39 · Lazy-load the exporters** (PDF/DXF/STL/STEP, ~60–80 KB of `file-io`). Clipper
+and the construction templates have to stay eager because the Build tab previews them
+live. The downloads would then start after an `await`, which some browsers treat as
+outside the click's user activation. Needs a cross-browser check (Safari, Firefox) of the
+multi-file PDF path first. Effort S · risk med · visible: slightly faster `/app` load.
+
+**P40 · Specs worker failure** — see P9; now the only worker without an error path.
