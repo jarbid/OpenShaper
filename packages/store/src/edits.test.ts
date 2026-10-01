@@ -22,7 +22,6 @@ import {
   getWidthAtPos,
   hasTailCutout,
   knot,
-  maxX,
   resolveFins,
   splineFromKnots,
   valueAt,

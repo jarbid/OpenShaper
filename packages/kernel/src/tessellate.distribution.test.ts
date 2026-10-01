@@ -29,7 +29,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { arcLengthTable, pointAtArcFraction, splineFromKnots, type Spline } from './bezier-spline';
-import { knot, type Knot } from './knot';
+import { knot } from './knot';
 import { vec2 } from './vec2';
 
 const W = 22;
