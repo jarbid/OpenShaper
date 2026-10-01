@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import type { BezierBoard } from '@openshaper/kernel';
 import { Line } from '@react-three/drei';
-import { useEffect, useMemo, useState } from 'react';
-import { boardCenter, tessellateAsync } from './geometry';
+import { useMemo } from 'react';
+import { useBoardOffset } from './use-board-offset';
 import { activeGuideKey, guideLines } from './guide-lines';
 
 /** Amber centreline, red stations, brand cyan for the station being edited. */
@@ -42,25 +42,7 @@ export function Guides3D({
   showSections: boolean;
   activeSectionX: number | null;
 }) {
-  const [offset, setOffset] = useState<[number, number, number] | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    const abort = new AbortController();
-    tessellateAsync(board, targetFaceSize, abort.signal)
-      .then((mesh) => {
-        if (cancelled) return;
-        const c = boardCenter(mesh);
-        setOffset([-c[0], -c[1], -c[2]]);
-      })
-      .catch(() => {
-        /* keep the previous offset on failure */
-      });
-    return () => {
-      cancelled = true;
-      abort.abort();
-    };
-  }, [board, targetFaceSize]);
+  const offset = useBoardOffset(board, targetFaceSize);
 
   // The kernel swaps `board` on every edit, so adding or deleting a
   // cross-section invalidates this automatically. The active station only picks
