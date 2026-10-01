@@ -5,6 +5,17 @@ formats, geometry output, analytics or dependencies. None of them is implemented
 Each item lists what it is and why, rough effort, risk, and what users would notice.
 References are against `99c3030`.
 
+## Suggested order
+
+1. **Crashes and data loss first** — P1 (undo crash), P2 (stuck drag), P5 (blocked
+   storage), P7 (malicious share link), P23 (.brd metadata dropped on import). All
+   are small and safe, and each needs only a regression test.
+2. **Everyday editing papercuts** — P3, P4, P10, P13, P15, P16.
+3. **CI safety net** — P35, P36, so the above stays fixed.
+4. **Load-time wins that need a product decision** — P38 (analytics), then P39/P41
+   after one cross-browser download check.
+5. **Format changes** — P24–P29: each needs a `divergences.md` entry and fixture work.
+
 ## Editor bugs (state and undo)
 
 **P1 · Stale selection after undo crashes the editor.** Add two stations near the nose,
@@ -53,7 +64,7 @@ Effort S · risk low · visible: yes.
 Fix: clear it in every path. Effort S · risk low · visible: the URL gets cleaned.
 
 **P9 · Worker failure leaves specs on "Loading…" forever** (no `onerror` in
-`use-specs-worker.ts`). Fix: fall back to synchronous compute. Effort S · visible: yes.
+`use-specs-worker.ts`; since Phase 2 it is the only worker without an error path). Fix: fall back to synchronous compute. Effort S · visible: yes.
 
 ## Fields and shortcuts
 
@@ -156,12 +167,37 @@ users.
 
 ## Process and dependencies
 
-**P35 · Run e2e and offline Playwright suites in CI.** Both configs are already CI-aware.
-**P36 · Real ESLint** (typescript-eslint, `react-hooks`, `import/no-restricted-paths` to
-enforce the kernel layering) plus `pnpm lint` and `prettier --check` in CI.
-**P37 · Dependency majors:** vitest 2→5 (removes the duplicate vite 5), vite 6→8, React
-19 + fiber 9 + drei 10 (fixes deprecated three-mesh-bvh), three 0.171→0.186,
-react-router 7, tailwind-merge 3, lucide 1.x. Each is its own upgrade PR · risk med–high.
+**P35 · Run the e2e and offline Playwright suites in CI.** Neither runs today, and
+the offline suite is the only check of the precache/offline guarantees. Both configs
+already handle `CI` (retries, `forbidOnly`). Effort S (one job with `playwright
+install --with-deps chromium`) · risk low (CI minutes, some flake) · visible: no.
+
+**P36 · Real ESLint plus `prettier --check` in CI.** `pnpm lint` is an `echo` in every
+package. The most valuable rules here: `react-hooks` (exhaustive deps — several effects
+in App rely on reasoning instead), and `import/no-restricted-paths` to enforce the
+"kernel/io/units never import React, DOM or three" layering, which today rests on
+discipline alone. Several test files on `main` are not Prettier-clean. Effort M ·
+risk low · visible: no.
+
+**P37 · Dependency majors**, each its own upgrade PR:
+
+- vitest 2→5, which removes the duplicate vite 5
+- vite 6→8
+- React 19 + fiber 9 + drei 10, which also fixes the deprecated three-mesh-bvh
+- three 0.171→0.186
+- react-router 7, tailwind-merge 3, lucide 1.x
+
+Effort M–L each · risk med–high · visible: possibly (rendering, routing).
+
+**P42 · `getPreviousCrossSectionIndex` can index past the end** (`board.ts:211`): when
+`pos` is beyond the last station it returns `crossSections.length`. Every current caller
+clamps `pos` first, so nothing hits it today. A one-line guard (`length - 2`, as the
+`next` variant does) would remove the trap, but it changes a legacy-ported function, so it
+needs a golden check. Effort XS · risk low · visible: no.
+
+**P43 · Investigate the phone profile's idle main-thread load** (~14 % busy with the 3D
+view untouched, before and after the render-on-demand change). It isn't the render loop.
+Worth a profile on a real device before guessing. Effort S · visible: battery.
 
 ## Moved here from the Phase 2 fix list
 
@@ -179,11 +215,21 @@ live. The downloads would then start after an `await`, which some browsers treat
 outside the click's user activation. Needs a cross-browser check (Safari, Firefox) of the
 multi-file PDF path first. Effort S · risk med · visible: slightly faster `/app` load.
 
-**P40 · Specs worker failure** — see P9; now the only worker without an error path.
-
 **P41 · STL/STEP export in a worker.** `exportStl` takes 1.9–2.7 s and builds a 45 MB
 string; `exportStep` takes 1.2 s; both run synchronously on click and freeze the page
 (the project's own rule 4). A worker gives byte-identical output, but the download then
 starts after an `await`, with the same open user-activation question as P39. Do P39's
 cross-browser check first, then this. Effort M · risk med · visible: no freeze during
 export.
+
+**P44 · Line-coverage reporting.** No coverage tool is installed, so coverage can only be
+described, not measured. Adding `@vitest/coverage-v8` (devDependency) with a
+`pnpm coverage` script would give per-package numbers, and an optional CI artifact.
+Effort S · risk low · visible: no.
+
+**P45 · Offline share-link e2e fails, on the baseline too.** `e2e-offline/offline.spec.ts`
+"a shared link opens with no network at all" times out waiting for the "Open shared
+board?" prompt. It fails identically on the pre-pass build. In this sandbox Chromium
+is older than Playwright 1.60 pins, so it may be environmental. CI doesn't run this suite
+(P35), so nobody would notice either way. Effort S to diagnose · visible: possibly
+(offline share links).

@@ -36,7 +36,7 @@ boardStore (apps/web/src/store.ts = createBoardStore())      ← undo/redo, sele
         ▼
 React (useSyncExternalStore on the board)
  ├─ SplineEditor ×N (render2d)  draws splines + interpolated sections on <canvas>
- ├─ Board3DView (render3d)      tessellateAsync(board, faceSize)
+ ├─ Board3DView (render3d)      tessellateAsync(board, faceSize, signal) → mesh-queue
  │        → Web Worker: kernel tessellateBoard → loft rings → BoardMesh (typed arrays,
  │          transferred) → meshToGeometry → three.js BufferGeometry → R3F mesh
  ├─ useSpecsWorker              settled board → specs worker → volume, area, CoM…
@@ -46,8 +46,11 @@ React (useSyncExternalStore on the board)
 session-store (IndexedDB autosave of writeBoardJson) · file-io (save .brd/.board.json)
 ```
 
-- The kernel is immutable, so a new board reference is the change signal. Caches
-  (`selectSpecs`, mesh cache in `render3d/geometry.ts`) are `WeakMap`s keyed by board.
+- The kernel is immutable, so a new board reference is the change signal. Specs
+  (`selectSpecs`) and per-spline widths are cached in `WeakMap`s keyed by object; the
+  mesh cache is an 8-entry LRU because the undo history would otherwise keep every
+  mesh alive. The mesh queue keeps one worker job in flight and drops superseded ones;
+  the 3D canvas renders on demand (`frameloop="demand"`).
 - During a drag (`beginEdit` … `endEdit`), each pointer move commits a new board but
   history coalesces into one undo step; `useSettledBoard` holds the heavy derived
   readouts at the pre-drag board until release.
