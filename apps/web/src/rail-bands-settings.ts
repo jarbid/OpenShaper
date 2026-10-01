@@ -8,6 +8,7 @@
  * counts and angles are dimensionless and stay unitless.
  */
 import { RAIL_ANGLE_MODES, type RailAngleMode } from '@openshaper/kernel';
+import { readStored, writeStored } from './persisted';
 
 const STORAGE_KEY = 'bs.railBands';
 
@@ -124,15 +125,11 @@ export function migrateRailBands(blob: RailBandsSettings): RailBandsSettings {
 }
 
 export function loadRailBands(): RailBandsSettings {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_RAIL_BANDS;
-    return migrateRailBands(JSON.parse(raw) as RailBandsSettings);
-  } catch {
-    return DEFAULT_RAIL_BANDS;
-  }
+  return readStored(STORAGE_KEY, DEFAULT_RAIL_BANDS, (p) =>
+    migrateRailBands(p as RailBandsSettings),
+  );
 }
 
 export function saveRailBands(s: RailBandsSettings): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+  writeStored(STORAGE_KEY, s);
 }
