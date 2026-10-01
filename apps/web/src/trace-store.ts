@@ -9,6 +9,7 @@
  * load/migrate shape of settings.ts.
  */
 import type { SimilarityParams } from '@openshaper/render2d';
+import { objectStore, openSingleStoreDb, promisify } from './idb';
 
 export type TraceView = 'outline' | 'rocker';
 
@@ -34,32 +35,16 @@ export interface StoredTrace {
   updatedAt: number;
 }
 
-const promisify = <T>(req: IDBRequest<T>): Promise<T> =>
-  new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-
 /**
  * Open (and if needed create/upgrade) the trace database. `factory` is injectable
  * so tests can pass a fake-indexeddb instance; production uses the global.
  */
 export function openTraceDb(factory: IDBFactory = indexedDB): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = factory.open(DB_NAME, TRACE_STORE_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'view' });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
+  return openSingleStoreDb(factory, DB_NAME, TRACE_STORE_VERSION, STORE_NAME, 'view');
 }
 
 const tx = (db: IDBDatabase, mode: IDBTransactionMode): IDBObjectStore =>
-  db.transaction(STORE_NAME, mode).objectStore(STORE_NAME);
+  objectStore(db, STORE_NAME, mode);
 
 /** Insert or replace the trace record for a view. */
 export async function putTrace(rec: StoredTrace, factory?: IDBFactory): Promise<void> {
