@@ -1040,7 +1040,7 @@ function AppShell() {
   // STEP cannot describe a concave (swallow / fish) tail yet, so the item is
   // disabled with the reason rather than silently emitting a solid with the notch
   // filled in.
-  const stepSupport = board ? stepExportSupport(board as BezierBoard) : null;
+  const stepSupport = board ? stepExportSupport(board) : null;
 
   const exportMenu: MenuItem[] = [
     ...(
@@ -1055,7 +1055,7 @@ function AppShell() {
       disabled: !board,
       onSelect: () => {
         if (!board) return;
-        exportBoard(board as Parameters<typeof exportBoard>[0], f, meta, units, ghost ?? undefined);
+        exportBoard(board, f, meta, units, ghost ?? undefined);
         track('export_board', { format: f });
         markExport();
       },
@@ -1670,7 +1670,7 @@ function AppShell() {
 
       {shareOpen && board && (
         <ShareDialog
-          board={board as BezierBoard}
+          board={board}
           meta={meta}
           setMeta={setMeta}
           onCopied={() => {
@@ -1702,13 +1702,13 @@ function AppShell() {
 
       {railBandsDialogOpen && board && (
         <ExportRailBandsDialog
-          board={board as BezierBoard}
+          board={board}
           units={units}
           settings={railBandsSettings}
           onExport={(s) => {
             saveRailBands(s);
             setRailBandsSettings(s);
-            downloadRailBands(board as BezierBoard, s, meta, units);
+            downloadRailBands(board, s, meta, units);
             track('export_board', { format: 'rail-bands' });
             markExport();
           }}
