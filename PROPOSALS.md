@@ -180,3 +180,10 @@ outside the click's user activation. Needs a cross-browser check (Safari, Firefo
 multi-file PDF path first. Effort S · risk med · visible: slightly faster `/app` load.
 
 **P40 · Specs worker failure** — see P9; now the only worker without an error path.
+
+**P41 · STL/STEP export in a worker.** `exportStl` takes 1.9–2.7 s and builds a 45 MB
+string; `exportStep` takes 1.2 s; both run synchronously on click and freeze the page
+(the project's own rule 4). A worker gives byte-identical output, but the download then
+starts after an `await`, with the same open user-activation question as P39. Do P39's
+cross-browser check first, then this. Effort M · risk med · visible: no freeze during
+export.
