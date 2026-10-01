@@ -70,8 +70,6 @@ export interface Board3DViewProps {
   showSections?: boolean;
   /** Board-length position of the active cross-section, drawn in cyan. */
   activeSectionX?: number | null;
-  /** @deprecated use `mode="wireframe"`. Kept for back-compat. */
-  wireframe?: boolean;
   /**
    * Restored orbit pose applied at mount instead of the default framing, so a
    * reloaded session reopens with the camera where it was. Pass a stable
@@ -527,7 +525,6 @@ export function Board3DView({
   showStringer = false,
   showSections = false,
   activeSectionX = null,
-  wireframe = false,
   initialCamera,
   onCameraChange,
   className,
@@ -535,7 +532,7 @@ export function Board3DView({
   const board = useSyncExternalStore(store.subscribe, () => store.getState().board);
   const span = board ? boardSpan(board) : 200;
   const d = span * 1.1;
-  const resolved: Board3DMode = mode ?? (wireframe ? 'wireframe' : 'shaded');
+  const resolved: Board3DMode = mode ?? 'shaded';
   const [flipViewSequence, setFlipViewSequence] = useState(0);
   const [flipHovered, setFlipHovered] = useState(false);
 
