@@ -88,7 +88,8 @@ describe('parseS3dx protection handling', () => {
   it('ignores a zero Protection flag', () => {
     const base = fixtureText('synthetic-stringer-fold-b.s3dx');
     const xml = base.replace('<Board>', '<Board>\n<Protection>0</Protection>');
-    expect(() => parseS3dx(xml)).not.toThrow();
+    // Not just "doesn't throw": the flag must have no effect on what is read.
+    expect(parseS3dx(xml)).toEqual(parseS3dx(base));
   });
 });
 

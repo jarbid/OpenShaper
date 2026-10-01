@@ -149,10 +149,14 @@ describe('boardSpan', () => {
 // ---------------------------------------------------------------------------
 describe('boardGeometry (Three.js wrapper)', () => {
   it('returns a BufferGeometry with position, normal and index attributes', () => {
-    const g = boardGeometry(makeBoard());
-    expect(g.attributes['position']).toBeTruthy();
-    expect(g.attributes['normal']).toBeTruthy();
-    expect(g.index).toBeTruthy();
+    const b = makeBoard();
+    const g = boardGeometry(b);
+    const mesh = tessellateBoard(b);
+    // Same vertices, normals and triangles as the kernel mesh it wraps.
+    expect(g.attributes['position']!.count).toBe(mesh.positions.length / 3);
+    expect(g.attributes['normal']!.count).toBe(mesh.normals.length / 3);
+    expect(g.index!.count).toBe(mesh.indices.length);
+    expect(g.index!.count).toBeGreaterThan(0);
   });
 
   it('position attribute item size is 3', () => {
