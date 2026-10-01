@@ -11,7 +11,7 @@ import {
   type FinSetup,
   type Knot,
 } from '@openshaper/kernel';
-import { decryptBrd, isEncryptedBrd } from './legacy-crypto';
+import { decryptBrd, isEncryptedBrd, latin1Decode } from './legacy-crypto';
 import type { ImportWarning } from './import-warning';
 
 /**
@@ -380,7 +380,5 @@ export const parseBrdFile = (bytes: Uint8Array): ParsedBrd => {
     return parseBrd(decryptBrd(bytes));
   }
   // Plain-text .brd — decode latin1 (the legacy format is single-byte ASCII).
-  let text = '';
-  for (let i = 0; i < bytes.length; i++) text += String.fromCharCode(bytes[i]!);
-  return parseBrd(text);
+  return parseBrd(latin1Decode(bytes));
 };
