@@ -9,12 +9,12 @@
  */
 import { BRAND_LINE } from './brand';
 import { buildPdf, esc, n, type PageDoc } from './pdf-core';
-import { orient } from './paper';
+import { orient, POINTS_PER_CM } from './paper';
 import { tileDrawing, type PartDrawing, type PdfTiling } from './pdf-tile';
 import { partBbox } from './construction/geom';
 import type { Label, Loop, Part, TemplateSheet } from './construction/types';
 
-const CM_TO_PT = 72 / 2.54;
+const CM_TO_PT = POINTS_PER_CM;
 const MARGIN_CM = 1;
 
 /** Build the content stream + page size for one part, at 1:1. */
