@@ -242,7 +242,6 @@ const TRACE_HANDLE_OFFSET = 28;
 /** Rotate-handle hit radius, in screen px. */
 const TRACE_HANDLE_R = 9;
 
-/** Max pointer travel (px) for a right-button press+release to count as a tap, not a pan. */
 /**
  * Hit radius for a control-point handle, in CSS px. A fingertip is both blunter
  * and less precisely reported than a mouse cursor, so touch gets a target it can

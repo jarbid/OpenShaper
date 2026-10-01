@@ -70,7 +70,6 @@ export const drawSpline = (
   }
 };
 
-/** Stroke a ghost/reference spline (dashed, muted, no handles) under the live curves. */
 /**
  * Total samples a ghost outline is drawn with, spread over however many segments it has.
  *
@@ -82,6 +81,7 @@ export const drawSpline = (
  */
 const GHOST_SAMPLES = 240;
 
+/** Stroke a ghost/reference spline (dashed, muted, no handles) under the live curves. */
 export const drawGhostSpline = (
   ctx: CanvasRenderingContext2D,
   spline: Spline,

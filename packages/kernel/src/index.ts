@@ -6,10 +6,9 @@
  *   - cadcore: BezierCurve, BezierSpline, BezierKnot, BezierFit, MathUtils, VecMath
  *   - board:   BezierBoard, BezierBoardCrossSection, surface-interpolation models
  *
- * Everything here is framework-agnostic and side-effect free.
- *
- * Ported so far: vec2, constants, knot, bezier-curve.
- * Still to port: bezier-spline, bezier-board, cross-section, surface models, volume.
+ * Everything here is framework-agnostic and side-effect free. The legacy
+ * port is complete for the curve, board, interpolation and volume code; what
+ * still differs from BoardCAD-LE on purpose is listed in docs/specs/divergences.md.
  */
 export * from './vec2';
 export * from './constants';

@@ -15,7 +15,7 @@ import { CUTOUT_EPS, cachedOutlineSegments, hasTailCutout, yInOut } from './outl
 /**
  * A triangle mesh of the board surface, ready for upload to a GPU buffer.
  *
- * Coordinate convention (cm): X = nose..tail length axis, Y = width (across,
+ * Coordinate convention (cm): X = length axis (tail at 0, nose at +X), Y = width (across,
  * rail-to-rail), Z = height (up). `positions` and `normals` are flat xyz triples;
  * `indices` are triangle vertex indices (3 per triangle).
  */
