@@ -20,6 +20,7 @@ export {
   moveKnotTangent,
   moveCrossSectionPosition,
   removeCrossSection,
+  sameTarget,
   scaleBoard,
   setKnotContinuous,
   zeroKnotTangent,

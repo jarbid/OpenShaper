@@ -5,7 +5,7 @@ import {
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
-import { type BoardState, type SplineTarget, getTargetSpline } from '@openshaper/store';
+import { type BoardState, type SplineTarget, getTargetSpline, sameTarget } from '@openshaper/store';
 import { ContextMenu, type MenuItem } from '@openshaper/ui';
 import {
   useCallback,
@@ -279,9 +279,6 @@ const PALETTE = ['#22D3EE', '#38BDF8', '#2DD4BF', '#A78BFA'];
 
 const useBoard = (store: StoreApi<BoardState>): BezierBoard | null =>
   useSyncExternalStore(store.subscribe, () => store.getState().board);
-
-const sameTarget = (a: SplineTarget, b: SplineTarget): boolean =>
-  a.kind === b.kind && (a.kind !== 'crossSection' || (b as { index: number }).index === a.index);
 
 /** Distance from a world point to the nearest point on a spline. */
 const splineDistance = (s: Spline, p: Vec2): number => {

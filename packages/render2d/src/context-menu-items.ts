@@ -6,16 +6,13 @@ import {
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
-import { getTargetSpline, type BoardState, type SplineTarget } from '@openshaper/store';
+import { getTargetSpline, sameTarget, type BoardState, type SplineTarget } from '@openshaper/store';
 import type { MenuItem } from '@openshaper/ui';
 import type { StoreApi } from 'zustand/vanilla';
 import { handleKindForVisualSide, handleSideName } from './handle-side';
 import { hitTest } from './hit';
 import type { SectionMarker } from './draw';
 import { screenToWorld, type ScreenPoint, type Viewport } from './viewport';
-
-const sameTarget = (a: SplineTarget, b: SplineTarget): boolean =>
-  a.kind === b.kind && (a.kind !== 'crossSection' || (b as { index: number }).index === a.index);
 
 /** Distance from a world point to the nearest point on a spline. */
 const splineDistance = (s: Spline, p: Vec2): number => {

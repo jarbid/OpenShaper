@@ -1,6 +1,7 @@
 import {
   canDeleteKnot,
   getTargetSpline,
+  sameTarget,
   type BoardState,
   type SplineTarget,
 } from '@openshaper/store';
@@ -56,9 +57,6 @@ const targetLabel = (t: SplineTarget): string => {
  */
 const coordinateLabels = (target: SplineTarget): readonly [string, string] =>
   target.kind === 'crossSection' ? ['Y', 'Z'] : ['X', target.kind === 'outline' ? 'Y' : 'Z'];
-
-const sameTarget = (a: SplineTarget, b: SplineTarget): boolean =>
-  a.kind === b.kind && (a.kind !== 'crossSection' || (b as { index: number }).index === a.index);
 
 /** One compact native-number field; browser steppers commit immediately on pointer/arrow release. */
 function HeaderCoordInput({
