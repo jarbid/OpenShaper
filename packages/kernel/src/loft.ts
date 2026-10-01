@@ -61,7 +61,12 @@
  * deliberately not `pointByS` / `pointByCurveLengthAt`, whose threshold-triggered
  * recursion steps discontinuously and lands in the mesh as jitter.
  */
-import { arcLengthTable, pointAtArcFraction, splineFromKnots, type ArcTable } from './bezier-spline';
+import {
+  arcLengthTable,
+  pointAtArcFraction,
+  splineFromKnots,
+  type ArcTable,
+} from './bezier-spline';
 import {
   getLength,
   getNearestCrossSectionIndex,
@@ -98,7 +103,8 @@ export interface LoftedSection {
   readonly rocker: number;
 }
 
-const isFinite3 = (x: number, y: number, z: number): boolean =>
+/** All three coordinates are finite (no NaN/±Infinity from a degenerate sample). */
+export const isFinite3 = (x: number, y: number, z: number): boolean =>
   Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z);
 
 /**
