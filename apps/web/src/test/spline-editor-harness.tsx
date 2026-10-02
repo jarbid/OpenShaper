@@ -155,7 +155,15 @@ export const mountEditor = (overrides: Partial<EditorProps> = {}) => {
     return { clientX: inPane.x, clientY: inPane.y + pane.top };
   };
   const knotAt = (index = 1) => store.getState().board!.outline.knots[index]!;
-  return { store, canvas, screenOf, knotAt, midKnot: () => knotAt().end, scale: () => view!.scale };
+  return {
+    store,
+    canvas,
+    screenOf,
+    knotAt,
+    midKnot: () => knotAt().end,
+    scale: () => view!.scale,
+    unmount: rendered.unmount,
+  };
 };
 
 export const MOUSE = { pointerId: 1, button: 0, pointerType: 'mouse' } as const;

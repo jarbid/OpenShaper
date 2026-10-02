@@ -7,9 +7,9 @@ References are against `99c3030`.
 
 ## Suggested order
 
-1. **Crashes and data loss first** — P1 (undo crash), P2 (stuck drag), P5 (blocked
-   storage), P7 (malicious share link), P23 (.brd metadata dropped on import). All
-   are small and safe, and each needs only a regression test.
+1. ~~**Crashes and data loss first** — P1 (undo crash), P2 (stuck drag), P5 (blocked
+   storage), P7 (malicious share link), P23 (.brd metadata dropped on import).~~ Done,
+   each with a regression test that fails without the fix.
 2. **Everyday editing papercuts** — P3, P4, P10, P13, P15, P16.
 3. **CI safety net** — P35, P36, so the above stays fixed.
 4. **Load-time wins that need a product decision** — P38 (analytics), then P39/P41
@@ -18,7 +18,7 @@ References are against `99c3030`.
 
 ## Editor bugs (state and undo)
 
-**P1 · Stale selection after undo crashes the editor.** Add two stations near the nose,
+**P1 · ✅ Done (c09fe8a) — Stale selection after undo crashes the editor.** Add two stations near the nose,
 select a point on the higher one, then undo twice. `ControlPointInspector.tsx:317` calls
 `getTargetSpline` with an index that no longer exists, `edits.ts:55` throws, and the route
 error boundary replaces the editor. Undoing an added outline point also leaves the
@@ -26,7 +26,7 @@ selection on a different knot, and a fin selection can outlive its fin.
 Fix: validate or clear the selection and `selectedFin` in undo, redo and jumpTo.
 Effort S · risk low · visible: crash gone, selection clears after such an undo.
 
-**P2 · A drag interrupted by a view switch leaves the store "editing".** Pressing 2–6
+**P2 · ✅ Done (07072de) — A drag interrupted by a view switch leaves the store "editing".** Pressing 2–6
 mid-drag (or a station remount) unmounts `SplineEditor` without `endEdit`. Later edits
 then merge into one undo step and the specs freeze until undo or load.
 Fix: end the active edit on unmount. Effort S · risk low · visible: yes (the fix).
@@ -42,7 +42,7 @@ while editing. Effort S · risk low · visible: yes.
 
 ## Robustness against storage and untrusted input
 
-**P5 · Blocked or full storage crashes or blocks work.** The `bs.lengthUnit` read and
+**P5 · ✅ Done (d80862f) — Blocked or full storage crashes or blocks work.** The `bs.lengthUnit` read and
 write in render is unguarded (`App.tsx:441,445`), so the editor crashes when storage is
 blocked. The settings `save*` calls throw on quota and abort the export or settings save
 (`App.tsx:521,1725,1741,1756`). Fix: guard every storage call, as the other modules
@@ -53,7 +53,7 @@ throw a raw `TypeError` or load corrupt knots (`board-json.ts:241-260`). Fix: a 
 validator that raises `BoardJsonError`. Effort M · risk low · visible: clean error
 message. Format unchanged.
 
-**P7 · Unvalidated metadata from files and share links.** `metadata as BoardMeta`
+**P7 · ✅ Done (de54f0f) — Unvalidated metadata from files and share links.** `metadata as BoardMeta`
 (`App.tsx:194,864,893`, `file-io.ts:141`). `"model": 5` in a share link throws after load
 but before the fragment is cleared, so the link re-fires on every reload. An unknown
 `foamType` shows NaN weight. Fix: one `toBoardMeta(unknown)` at the boundary.
@@ -118,7 +118,7 @@ waits for the worker. Effort M · visible: the transient misalignment goes away.
 
 ## Files and formats (need `docs/specs/divergences.md` entries)
 
-**P23 · `.brd` import drops all metadata** (model, designer, surfer, comments, fin type
+**P23 · ✅ Done (fccc491) — `.brd` import drops all metadata** (model, designer, surfer, comments, fin type
 are parsed and then thrown away at `file-io.ts:111`). Effort XS · visible: yes. Format
 unchanged.
 

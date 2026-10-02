@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { parseBrd } from '@openshaper/io';
-import { decideImport, downloadBoard, slugifyName } from './file-io';
+import { parseBrd, writeBoardJson, writeBrd } from '@openshaper/io';
+import { decideImport, downloadBoard, openBoardFile, slugifyName, toBoardMeta } from './file-io';
 import { BOARD_TEMPLATES } from './templates';
 import type { ImportWarning } from '@openshaper/io';
 
@@ -83,5 +83,54 @@ describe('decideImport', () => {
     expect(d.action).toBe('confirm');
     expect(d.dropped).toEqual([dropped]);
     expect(d.info).toEqual([info]);
+  });
+});
+
+describe('toBoardMeta (P7)', () => {
+  it('keeps the known string fields', () => {
+    const meta = { model: 'Fish', designer: 'Ana', foamType: 'EPS', glassSchedule: '6+4' };
+    expect(toBoardMeta(meta)).toEqual(meta);
+  });
+
+  it('drops non-string values and unknown keys instead of passing them through', () => {
+    expect(
+      toBoardMeta({ model: 5, designer: {}, comments: ['x'], surfer: 'Bo', evil: 'x' }),
+    ).toEqual({
+      surfer: 'Bo',
+    });
+  });
+
+  it('turns anything that is not an object into empty metadata', () => {
+    for (const raw of [undefined, null, 'model', 42, true]) expect(toBoardMeta(raw)).toEqual({});
+  });
+
+  it('is what opening a .board.json hands back, so bad metadata never reaches the editor', async () => {
+    const board = parseBrd(BOARD_TEMPLATES[0]!.brd).board;
+    const text = writeBoardJson(board, { model: 5, designer: 'Ana' });
+    const file = new File([text], 'odd.board.json', { type: 'application/json' });
+    const opened = await openBoardFile(file);
+    expect(opened.meta).toEqual({ designer: 'Ana' });
+  });
+});
+
+describe('.brd import keeps the board info (P23)', () => {
+  it('round-trips model, designer, surfer, comments and fin type through export and import', async () => {
+    const board = parseBrd(BOARD_TEMPLATES[0]!.brd).board;
+    const info = {
+      model: 'Go Fish',
+      designer: 'Ada L',
+      surfer: 'Bo',
+      comments: 'Single-line note',
+      finType: 'Thruster',
+    };
+    const file = new File([writeBrd(board, info)], 'fish.brd');
+    const opened = await openBoardFile(file);
+    expect(opened.meta).toEqual(info);
+  });
+
+  it('gives empty board info for a .brd that has none', async () => {
+    const board = parseBrd(BOARD_TEMPLATES[0]!.brd).board;
+    const opened = await openBoardFile(new File([writeBrd(board)], 'plain.brd'));
+    expect(opened.meta).toEqual({});
   });
 });

@@ -137,6 +137,35 @@ export interface BoardState {
 
 const MAX_HISTORY = 200;
 
+/**
+ * What survives of the selection when history replaces `from` with `to`.
+ *
+ * A selection is an index into a spline, so it is kept only if that spline still
+ * exists and has the same number of knots — then the index still names the same
+ * point (undoing a drag keeps the dragged point selected). Otherwise it is cleared:
+ * an index into a removed station would crash the inspector, and one into a spline
+ * that gained or lost knots would silently point at a different knot.
+ */
+const selectionAfterHistory = (
+  from: BezierBoard,
+  to: BezierBoard,
+  selection: Selection | null,
+  selectedFin: number | null,
+): { selection: Selection | null; selectedFin: number | null } => {
+  const knotCount = (b: BezierBoard, t: SplineTarget): number | null =>
+    t.kind === 'crossSection'
+      ? (b.crossSections[t.index]?.spline.knots.length ?? null)
+      : getTargetSpline(b, t).knots.length;
+  const keep =
+    selection !== null &&
+    knotCount(to, selection.target) !== null &&
+    knotCount(to, selection.target) === knotCount(from, selection.target);
+  return {
+    selection: keep ? selection : null,
+    selectedFin: selectedFin !== null && selectedFin < to.fins.fins.length ? selectedFin : null,
+  };
+};
+
 export const createBoardStore = (): StoreApi<BoardState> =>
   createStore<BoardState>((set, get) => {
     /** Apply an edited board, recording a labelled history step unless mid-drag. */
@@ -384,10 +413,11 @@ export const createBoardStore = (): StoreApi<BoardState> =>
       },
 
       undo: () => {
-        const { past, future, board } = get();
+        const { past, future, board, selection, selectedFin } = get();
         if (past.length === 0 || !board) return;
         const prev = past[past.length - 1]!;
         set({
+          ...selectionAfterHistory(board, prev.board, selection, selectedFin),
           board: prev.board,
           past: past.slice(0, -1),
           // The redo entry re-applies the action we just undid, so it keeps its label.
@@ -396,10 +426,11 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         });
       },
       redo: () => {
-        const { past, future, board } = get();
+        const { past, future, board, selection, selectedFin } = get();
         if (future.length === 0 || !board) return;
         const next = future[0]!;
         set({
+          ...selectionAfterHistory(board, next.board, selection, selectedFin),
           board: next.board,
           past: [...past, { board, label: next.label }],
           future: future.slice(1),
@@ -410,7 +441,7 @@ export const createBoardStore = (): StoreApi<BoardState> =>
       canRedo: () => get().future.length > 0,
 
       jumpTo: (index) => {
-        const { past, future, board } = get();
+        const { past, future, board, selection, selectedFin } = get();
         if (!board || index < 0 || index >= past.length) return;
         // Equivalent to (past.length - index) undos in one step: walk back from the
         // current board, pushing each undone step onto the redo stack.
@@ -421,6 +452,7 @@ export const createBoardStore = (): StoreApi<BoardState> =>
           cur = past[i]!.board;
         }
         set({
+          ...selectionAfterHistory(board, cur, selection, selectedFin),
           board: cur,
           past: past.slice(0, index),
           future: [...undone.reverse(), ...future],

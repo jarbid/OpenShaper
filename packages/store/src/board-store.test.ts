@@ -738,3 +738,64 @@ describe('board store: applyRailPreset', () => {
     expect(store.getState().past).toHaveLength(history);
   });
 });
+
+describe('selection across undo/redo (P1)', () => {
+  const setup = () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+    return store;
+  };
+
+  it('clears a selection on a station that undo removes, instead of crashing', () => {
+    const store = setup();
+    const s = store.getState;
+    const a = s().addCrossSection(70);
+    const b = s().addCrossSection(85);
+    expect(a).toBeGreaterThan(0);
+    expect(b).toBeGreaterThan(a);
+    s().select({ target: { kind: 'crossSection', index: b }, index: 1 });
+    s().undo();
+    s().undo();
+    expect(s().selection).toBeNull();
+    // What used to throw in the inspector: resolving the selection against the board.
+    expect(s().board!.crossSections.length).toBe(3);
+  });
+
+  it('keeps the selection when undo leaves the spline with the same knots (undoing a drag)', () => {
+    const store = setup();
+    const s = store.getState;
+    const sel = { target: { kind: 'outline' as const }, index: 1 };
+    s().select(sel);
+    s().moveControlPoint({ kind: 'outline' }, 1, vec2(50, 22));
+    s().undo();
+    expect(s().selection).toEqual(sel);
+    s().redo();
+    expect(s().selection).toEqual(sel);
+  });
+
+  it('clears the selection when undo changes the knot count (it would name another knot)', () => {
+    const store = setup();
+    const s = store.getState;
+    s().addControlPoint({ kind: 'outline' }, vec2(75, 12));
+    expect(s().selection?.target.kind).toBe('outline');
+    s().undo();
+    expect(s().selection).toBeNull();
+  });
+
+  it('clears a fin selection that undo leaves pointing past the last fin, and on jumpTo', () => {
+    const store = setup();
+    const s = store.getState;
+    s().setFinSetup('single');
+    s().setFinSetup('quad');
+    s().selectFin(3);
+    s().undo();
+    expect(s().board!.fins.fins.length).toBe(1);
+    expect(s().selectedFin).toBeNull();
+
+    s().redo();
+    s().selectFin(0);
+    s().jumpTo(0);
+    expect(s().board!.fins.fins.length).toBe(0);
+    expect(s().selectedFin).toBeNull();
+  });
+});

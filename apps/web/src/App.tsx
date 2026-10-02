@@ -49,6 +49,7 @@ import {
   sourceExtension,
   type BoardMeta,
   type ExportFormat,
+  toBoardMeta,
 } from './file-io';
 import { captureError, track } from './analytics';
 import {
@@ -120,7 +121,8 @@ import {
   type View3DSettings,
 } from './view-toolkit';
 import { DEFAULT_VIEW_3D } from './view3d-settings';
-import { estimateWeight, type FoamType, type GlassSchedule } from './weights';
+import { estimateWeight, FOAM_TYPES, GLASS_SCHEDULES } from './weights';
+import { readRaw, writeRaw } from './persisted';
 
 // three.js / fiber / drei are the bulk of the bundle and are only needed once a 3D
 // pane is shown, so load Board3DView as its own chunk. The 2D editor becomes
@@ -198,7 +200,7 @@ function AppShell() {
           }
           hydrated.current = true;
           boardStore.getState().load(sBoard);
-          setMeta((metadata as BoardMeta) ?? {});
+          setMeta(toBoardMeta(metadata));
           if (sGhost) setGhost(sGhost);
           return true;
         } catch (e) {
@@ -446,11 +448,11 @@ function AppShell() {
     [focusedSection],
   );
   const [unitKey, setUnitKey] = useState<string>(
-    () => localStorage.getItem('bs.lengthUnit') ?? DEFAULT_LENGTH_UNIT.key,
+    () => readRaw('bs.lengthUnit') ?? DEFAULT_LENGTH_UNIT.key,
   );
   const units = lengthUnitByKey(unitKey);
   useEffect(() => {
-    localStorage.setItem('bs.lengthUnit', unitKey);
+    writeRaw('bs.lengthUnit', unitKey);
   }, [unitKey]);
   const [view3d, setView3d] = useState<View3DSettings>(
     bootViewState.current.view3d ?? DEFAULT_VIEW_3D,
@@ -652,8 +654,9 @@ function AppShell() {
     onCalibrationClick: trace.activeView === view ? trace.onCalibrationClick : undefined,
   });
 
-  const foamType = (meta.foamType as FoamType) ?? 'PU';
-  const glassSchedule = (meta.glassSchedule as GlassSchedule) ?? '4+4';
+  // Checked, not cast: an unknown value from a file would make the weight NaN.
+  const foamType = FOAM_TYPES.find((f) => f === meta.foamType) ?? 'PU';
+  const glassSchedule = GLASS_SCHEDULES.find((g) => g === meta.glassSchedule) ?? '4+4';
   // Weight estimate: specs.area (planshape area cm²) comes from the worker result —
   // same value as getArea(settledBoard) but without a redundant main-thread kernel call.
   const weight = useMemo(
@@ -868,7 +871,7 @@ function AppShell() {
     try {
       const { board: rBoard, metadata } = readBoardJson(entry.boardJson);
       boardStore.getState().load(rBoard);
-      setMeta((metadata as BoardMeta) ?? {});
+      setMeta(toBoardMeta(metadata));
       setGhost(null);
       // Refresh the recent list so this entry bubbles to top (re-record updates savedAt).
       recordRecentBoard(entry.name, entry.boardJson);
@@ -897,7 +900,7 @@ function AppShell() {
    * alone — those are preferences, not state belonging to this board.
    */
   const adoptSharedBoard = (sBoard: BezierBoard, metadata?: Record<string, unknown>) => {
-    const sMeta = (metadata as BoardMeta) ?? {};
+    const sMeta = toBoardMeta(metadata);
     // load() resets past/future, so undo cannot reach back past a board that
     // was never edited here.
     boardStore.getState().load(sBoard);
@@ -1657,7 +1660,7 @@ function AppShell() {
 
       {pendingShare && (
         <SharedBoardPrompt
-          model={(pendingShare.metadata as BoardMeta | undefined)?.model}
+          model={toBoardMeta(pendingShare.metadata).model}
           onKeepCurrent={() => {
             // The shared board never entered the store, so declining is a
             // no-op beyond forgetting it.

@@ -227,6 +227,10 @@ type DragState =
     }
   | null;
 
+/** Whether a drag holds the store's grouped edit open (a section drag only once it moved). */
+const holdsEdit = (d: DragState): boolean =>
+  d?.mode === 'edit' || d?.mode === 'fin' || (d?.mode === 'section' && d.started);
+
 /**
  * A calibration flow in progress. `align` collects two image points then two
  * matching drawing points; `length` collects two image points then the owner
@@ -458,6 +462,17 @@ export function SplineEditor({
   // Live trace transform while dragging/rotating the image; committed on pointer-up.
   const [liveTrace, setLiveTrace] = useState<SimilarityParams | null>(null);
   const drag = useRef<DragState>(null);
+  // A drag holds the store's grouped edit open (beginEdit … endEdit). If this editor
+  // unmounts mid-drag — a view switch, a station change remounting the section pane —
+  // no pointerup will ever reach it, so close the edit here. Otherwise the store stays
+  // `editing`: later edits merge into the dead drag's undo step and the settled specs
+  // stop updating.
+  useEffect(
+    () => () => {
+      if (holdsEdit(drag.current)) store.getState().endEdit();
+    },
+    [store],
+  );
   const spaceHeld = useRef(false);
   // Active touch points (by pointerId) for multi-touch gestures, plus the last
   // pinch centroid/spread and a long-press timer (touch's stand-in for right-click).
@@ -867,13 +882,7 @@ export function SplineEditor({
         if (pointers.current.size === 2) {
           // Second finger: abandon any in-progress one-finger edit and start a pinch.
           cancelLongPress();
-          if (
-            drag.current?.mode === 'edit' ||
-            drag.current?.mode === 'fin' ||
-            (drag.current?.mode === 'section' && drag.current.started)
-          ) {
-            store.getState().endEdit();
-          }
+          if (holdsEdit(drag.current)) store.getState().endEdit();
           setDraggingSection(null);
           drag.current = null;
           const pts = [...pointers.current.values()];
@@ -896,13 +905,7 @@ export function SplineEditor({
         longPressTimer.current = window.setTimeout(() => {
           longPressTimer.current = null;
           if (pointers.current.size !== 1 || !vp || !board) return;
-          if (
-            drag.current?.mode === 'edit' ||
-            drag.current?.mode === 'fin' ||
-            (drag.current?.mode === 'section' && drag.current.started)
-          ) {
-            store.getState().endEdit();
-          }
+          if (holdsEdit(drag.current)) store.getState().endEdit();
           setDraggingSection(null);
           drag.current = null;
           const marker = sectionMarkerAt(p);
@@ -1242,8 +1245,7 @@ export function SplineEditor({
         canvasRef.current?.releasePointerCapture(e.pointerId);
         return;
       }
-      if (d?.mode === 'edit' || d?.mode === 'fin' || (d?.mode === 'section' && d.started))
-        store.getState().endEdit();
+      if (holdsEdit(d)) store.getState().endEdit();
       if (d?.mode === 'section') setDraggingSection(null);
       // A right-button tap (no pan) opens the context menu at the cursor.
       if (d?.mode === 'rightpan' && !d.moved && vp && board) {
@@ -1300,12 +1302,7 @@ export function SplineEditor({
       cancelLongPress();
       pointers.current.delete(e.pointerId);
       if (pointers.current.size < 2) pinch.current = null;
-      if (
-        drag.current?.mode === 'edit' ||
-        drag.current?.mode === 'fin' ||
-        (drag.current?.mode === 'section' && drag.current.started)
-      )
-        store.getState().endEdit();
+      if (holdsEdit(drag.current)) store.getState().endEdit();
       if (drag.current?.mode === 'section') setDraggingSection(null);
       if (drag.current?.mode === 'traceMove' || drag.current?.mode === 'traceRotate') {
         setLiveTrace(null); // drop the uncommitted preview

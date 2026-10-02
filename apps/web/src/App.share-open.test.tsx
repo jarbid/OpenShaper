@@ -23,7 +23,7 @@ import { vec2 } from '@openshaper/kernel';
 import { App } from './App';
 import sampleBrd from './sample-board.brd?raw';
 import { clearSession, loadSession, saveSession } from './session-store';
-import { clearSharedPayload, extractSharedFragment } from './share-bootstrap';
+import { clearSharedPayload, extractSharedFragment, peekSharedPayload } from './share-bootstrap';
 import { getRecentBoards } from './recent-boards';
 import { loadTraceVisibility } from './trace-visibility';
 import { boardStore } from './store';
@@ -75,6 +75,22 @@ describe('precedence: no existing workspace', () => {
     await waitFor(() => expect(currentLength()).toBeCloseTo(sharedLength, 3));
     expect(screen.queryByText('Open shared board?')).toBeNull();
     expect(await screen.findByText(/Shared board opened as an editable copy/)).toBeTruthy();
+  });
+
+  it('opens a link whose metadata has the wrong types, and clears it (P7)', async () => {
+    // Crafted: valid board, metadata a well-formed link would never carry. Used to
+    // throw at `model.trim()` after loading but before the link was cleared, so it
+    // re-fired on every reload.
+    await arriveViaShareLink({ model: 5, designer: { x: 1 }, foamType: 'balsa' });
+
+    render(<App />);
+    await editorReady();
+
+    await waitFor(() => expect(currentLength()).toBeCloseTo(sharedLength, 3));
+    expect(await screen.findByText(/Shared board opened as an editable copy/)).toBeTruthy();
+    expect(peekSharedPayload()).toBeNull();
+    // The weight estimate falls back to the default foam rather than going NaN.
+    expect(screen.queryByText(/NaN/)).toBeNull();
   });
 
   it('falls back to the bundled sample when the link is invalid', async () => {
