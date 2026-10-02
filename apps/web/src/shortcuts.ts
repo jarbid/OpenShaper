@@ -31,6 +31,12 @@ export interface ShortcutMatch {
    * must not page the cross-section while someone is typing a bracket.
    */
   notInField?: boolean;
+  /**
+   * Suppressed while the focus is somewhere text is typed, so the browser's own
+   * text undo works there. Narrower than `notInField`: a focused checkbox or
+   * slider still lets ⌘Z undo the board edit it just made.
+   */
+  notInTextEntry?: boolean;
 }
 
 export interface Shortcut {
@@ -67,21 +73,21 @@ export const SHORTCUTS: readonly Shortcut[] = [
     keys: '⌘Z',
     label: 'Undo',
     group: 'Edit',
-    match: { keys: ['z'], mod: true },
+    match: { keys: ['z'], mod: true, notInTextEntry: true },
   },
   {
     id: 'redo',
     keys: '⇧⌘Z',
     label: 'Redo',
     group: 'Edit',
-    match: { keys: ['z'], mod: true, shift: true },
+    match: { keys: ['z'], mod: true, shift: true, notInTextEntry: true },
   },
   {
     id: 'redo-alt',
     keys: '⌘Y',
     label: 'Redo (alternative)',
     group: 'Edit',
-    match: { keys: ['y'], mod: true },
+    match: { keys: ['y'], mod: true, notInTextEntry: true },
   },
   {
     id: 'delete-point',
@@ -146,9 +152,21 @@ export function shortcutKeys(id: string): string {
 }
 
 /** Whether a keyboard event matches this shortcut's chord. */
-export function matches(shortcut: Shortcut, e: KeyboardEvent, inField: boolean): boolean {
-  const { keys, mod = false, shift = false, notInField = false } = shortcut.match;
+export function matches(
+  shortcut: Shortcut,
+  e: KeyboardEvent,
+  inField: boolean,
+  inTextEntry = inField,
+): boolean {
+  const {
+    keys,
+    mod = false,
+    shift = false,
+    notInField = false,
+    notInTextEntry = false,
+  } = shortcut.match;
   if (notInField && inField) return false;
+  if (notInTextEntry && inTextEntry) return false;
   const hasMod = e.ctrlKey || e.metaKey;
   if (hasMod !== mod) return false;
   // Only assert Shift when the binding cares: `⌘Z` and `⇧⌘Z` are distinct, but
@@ -156,4 +174,14 @@ export function matches(shortcut: Shortcut, e: KeyboardEvent, inField: boolean):
   if (shift && !e.shiftKey) return false;
   if (!shift && mod && e.shiftKey) return false;
   return keys.includes(e.key.toLowerCase());
+}
+
+/** Input types that take typed text (and so have the browser's own text undo). */
+const TEXT_INPUT_TYPES = new Set(['text', 'search', 'url', 'tel', 'email', 'password', 'number']);
+
+/** Whether the element is somewhere text is typed: a text-like input, textarea or editable. */
+export function isTextEntry(el: HTMLElement | null): boolean {
+  if (!el) return false;
+  if (el.isContentEditable || el.tagName === 'TEXTAREA') return true;
+  return el.tagName === 'INPUT' && TEXT_INPUT_TYPES.has((el as HTMLInputElement).type);
 }

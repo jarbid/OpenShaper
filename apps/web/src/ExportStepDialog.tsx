@@ -22,7 +22,6 @@ import {
   type StepUnitChoice,
 } from './step-export-settings';
 
-
 /** What each accuracy setting means, in terms a shaper can weigh. */
 const ACCURACY_NOTES: Record<StepAccuracy, string> = {
   draft: 'Smallest and quickest. Still finer than a blank cutter’s finishing pass.',
@@ -61,7 +60,11 @@ export function ExportStepDialog({ units, settings, onExport, onClose }: ExportS
   const toleranceCm = STEP_TOLERANCE_CM[draft.accuracy];
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={onClose}>
+    <div
+      data-modal="export-step"
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
+      onClick={onClose}
+    >
       <Panel
         className="flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto"
         onClick={(e) => e.stopPropagation()}

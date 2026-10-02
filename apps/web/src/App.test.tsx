@@ -126,6 +126,22 @@ describe('<App /> smoke', () => {
     expect(screen.queryByPlaceholderText(/command/i)).toBeNull();
   });
 
+  it('inside the open palette, Ctrl+K closes it and Ctrl+Z leaves the board alone', async () => {
+    render(<App />);
+    await screen.findAllByText(/\d+\.\dL/);
+    // Not a resize: the history-panel test below looks for exactly one of those.
+    act(() => boardStore.getState().setFinSetup('twin'));
+    const steps = boardStore.getState().past.length;
+
+    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    const input = await screen.findByPlaceholderText(/command/i);
+    fireEvent.keyDown(input, { key: 'z', ctrlKey: true });
+    expect(boardStore.getState().past).toHaveLength(steps);
+
+    fireEvent.keyDown(input, { key: 'k', ctrlKey: true });
+    expect(screen.queryByPlaceholderText(/command/i)).toBeNull();
+  });
+
   it('history panel lists labelled steps and jumps back on click', async () => {
     render(<App />);
     await screen.findAllByText(/\d+\.\dL/); // sample board loaded + specs settled
