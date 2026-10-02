@@ -1,4 +1,5 @@
 import { Input } from '@openshaper/ui';
+import { useRef } from 'react';
 
 export function NumericInput({
   value,
@@ -35,6 +36,16 @@ export function NumericInput({
    */
   signed?: boolean;
 }) {
+  // Only text the user actually changed is committed. Without this, leaving an
+  // untouched field committed the *rounded* display value (an undo step and a moved
+  // point for a focus and a blur), Enter committed twice (keydown, then the blur it
+  // triggers), and Escape's blur committed the stale typed text it meant to discard.
+  const dirty = useRef(false);
+  const commit = () => {
+    if (!dirty.current) return;
+    dirty.current = false;
+    onCommit();
+  };
   return (
     <Input
       aria-label={ariaLabel}
@@ -46,16 +57,20 @@ export function NumericInput({
       placeholder={placeholder}
       autoFocus={autoFocus}
       disabled={disabled}
-      onChange={(event) => onValueChange(event.target.value)}
-      onBlur={onCommit}
+      onChange={(event) => {
+        dirty.current = true;
+        onValueChange(event.target.value);
+      }}
+      onBlur={commit}
       onKeyDown={(event) => {
         if (event.key === 'Enter') {
-          onCommit();
-          (event.target as HTMLInputElement).blur();
+          commit();
+          event.currentTarget.blur();
         } else if (event.key === 'Escape') {
           event.preventDefault();
+          dirty.current = false;
           onEscape?.();
-          (event.target as HTMLInputElement).blur();
+          event.currentTarget.blur();
         }
       }}
       className={className}
