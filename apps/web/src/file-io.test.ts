@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { parseBrd, writeBoardJson } from '@openshaper/io';
+import { parseBrd, writeBoardJson, writeBrd } from '@openshaper/io';
 import { decideImport, downloadBoard, openBoardFile, slugifyName, toBoardMeta } from './file-io';
 import { BOARD_TEMPLATES } from './templates';
 import type { ImportWarning } from '@openshaper/io';
@@ -110,5 +110,27 @@ describe('toBoardMeta (P7)', () => {
     const file = new File([text], 'odd.board.json', { type: 'application/json' });
     const opened = await openBoardFile(file);
     expect(opened.meta).toEqual({ designer: 'Ana' });
+  });
+});
+
+describe('.brd import keeps the board info (P23)', () => {
+  it('round-trips model, designer, surfer, comments and fin type through export and import', async () => {
+    const board = parseBrd(BOARD_TEMPLATES[0]!.brd).board;
+    const info = {
+      model: 'Go Fish',
+      designer: 'Ada L',
+      surfer: 'Bo',
+      comments: 'Single-line note',
+      finType: 'Thruster',
+    };
+    const file = new File([writeBrd(board, info)], 'fish.brd');
+    const opened = await openBoardFile(file);
+    expect(opened.meta).toEqual(info);
+  });
+
+  it('gives empty board info for a .brd that has none', async () => {
+    const board = parseBrd(BOARD_TEMPLATES[0]!.brd).board;
+    const opened = await openBoardFile(new File([writeBrd(board)], 'plain.brd'));
+    expect(opened.meta).toEqual({});
   });
 });

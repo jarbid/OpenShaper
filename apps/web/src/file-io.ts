@@ -136,8 +136,10 @@ const BOARD_FILE_READERS: Record<string, BoardFileReader> = {
   // .brd may be plain text or encrypted (%BRD-1.0x) — read bytes and let
   // parseBrdFile sniff the magic and decrypt as needed.
   '.brd': async (file) => {
-    const { board, warnings } = parseBrdFile(new Uint8Array(await file.arrayBuffer()));
-    return { board, meta: {}, warnings };
+    const { board, metadata, warnings } = parseBrdFile(new Uint8Array(await file.arrayBuffer()));
+    // Model, designer, surfer, comments and fin type come back as the strings the
+    // writer stored; the numeric fields (length, thickness…) are derived, not metadata.
+    return { board, meta: toBoardMeta(metadata), warnings };
   },
   '.s3d': async (file) => {
     const { board: b, metadata, warnings } = parseS3d(await file.text());
