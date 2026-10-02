@@ -273,6 +273,10 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         if (!board) return;
         const spline = getTargetSpline(board, target);
         if (!canDeleteKnot(spline, index)) return;
+        // Delete pressed mid-drag: close the drag's step first, so the deletion is its
+        // own undo step rather than relabelling the drag's (the editor then drops the
+        // drag, whose knot index no longer means the same point).
+        if (get().editing) set({ editing: false });
         commit(
           enforceJunctions(withSpline(board, target, deleteKnot(spline, index)), target),
           'Delete control point',

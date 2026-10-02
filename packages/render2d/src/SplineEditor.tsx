@@ -1185,6 +1185,12 @@ export function SplineEditor({
       }
       const world = screenToWorld(vp, p);
       if (d.mode === 'section') {
+        if (d.started && !store.getState().editing) {
+          // Closed under the drag (see the point-drag case below).
+          setDraggingSection(null);
+          drag.current = null;
+          return;
+        }
         if (!d.started) {
           store.getState().beginEdit('Move cross-section');
           d.started = true;
@@ -1214,6 +1220,13 @@ export function SplineEditor({
       // GRAB_OFFSET: what the pointer moves, the handle moves — it is never assigned
       // the pointer's own position, which would snap it under the cursor.
       const held = { x: world.x + d.grab.x, y: world.y + d.grab.y };
+      if (d.started && !store.getState().editing) {
+        // The edit was closed under the drag — undo, redo or delete pressed while the
+        // point was still held. Drop the drag: carrying on would commit every further
+        // move as its own undo step, against a board that may no longer have the knot.
+        drag.current = null;
+        return;
+      }
       if (!d.started) {
         // A move event at the press point (some browsers send one) is not a drag.
         if (p.x === d.downAt.x && p.y === d.downAt.y) return;
