@@ -71,6 +71,35 @@ export interface BoardMeta {
   glassSchedule?: string;
 }
 
+const META_FIELDS = [
+  'designer',
+  'model',
+  'surfer',
+  'comments',
+  'finType',
+  'foamType',
+  'glassSchedule',
+] as const satisfies readonly (keyof BoardMeta)[];
+
+/**
+ * Board metadata from outside the app — a share link, a .board.json, the session
+ * store, the recent list — reduced to the known fields that are strings.
+ *
+ * It arrives as unchecked JSON. A share link carrying `"model": 5` used to load and
+ * then crash saving at `meta.model.trim()`, and because that happened before the link
+ * was cleared, it re-fired on every reload.
+ */
+export function toBoardMeta(raw: unknown): BoardMeta {
+  if (!raw || typeof raw !== 'object') return {};
+  const src = raw as Record<string, unknown>;
+  const meta: BoardMeta = {};
+  for (const k of META_FIELDS) {
+    const v = src[k];
+    if (typeof v === 'string') meta[k] = v;
+  }
+  return meta;
+}
+
 /**
  * Trigger a download of the board as a native .board.json document, named after the
  * board's model — the same slug every other exporter uses, so repeat saves overwrite
@@ -138,7 +167,7 @@ const BOARD_FILE_READERS: Record<string, BoardFileReader> = {
 
 const readBoardJsonFile: BoardFileReader = async (file) => {
   const { board, metadata } = readBoardJson(await file.text());
-  return { board, meta: (metadata as BoardMeta) ?? {}, warnings: [] };
+  return { board, meta: toBoardMeta(metadata), warnings: [] };
 };
 
 /** Read a user-picked file: a format importer by extension, else native .board.json. */
