@@ -62,7 +62,11 @@ export function ExportPdf1to1Dialog({
   const noSlice = !draft.slice;
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={onClose}>
+    <div
+      data-modal="export-pdf-1to1"
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
+      onClick={onClose}
+    >
       <Panel
         className="flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto"
         onClick={(e) => e.stopPropagation()}

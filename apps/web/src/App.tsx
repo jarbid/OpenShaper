@@ -403,6 +403,14 @@ function AppShell() {
   const [sheetSnap, setSheetSnap] = useState<SheetSnap>(() =>
     isShortViewport() ? 'closed' : 'peek',
   );
+  // The same holds when the phone is turned after load: a sheet left at peek goes
+  // out of the way. A sheet opened further was asked for, so it stays. Synced
+  // during render (not in an effect) so the rotated layout never paints with it.
+  const [sheetWasShort, setSheetWasShort] = useState(isShort);
+  if (isShort !== sheetWasShort) {
+    setSheetWasShort(isShort);
+    if (isShort && sheetSnap === 'peek') setSheetSnap('closed');
+  }
   // The sheet is fixed over the viewport bottom whenever it is mounted, so the
   // view area must reserve its peek height — and reclaim it when it is closed.
   const sheetOpen = !isDesktop && sheetSnap !== 'closed';

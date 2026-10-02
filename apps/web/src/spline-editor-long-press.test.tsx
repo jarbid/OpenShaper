@@ -49,12 +49,15 @@ describe('SplineEditor: holding a finger on a control point', () => {
     const start = screenOf(midKnot());
 
     fireEvent.pointerDown(canvas, { ...TOUCH, ...start });
-    expect(store.getState().editing, 'pressing a point should begin an edit').toBe(true);
+    // Pressing selects; the undo step opens with the first real move (P3), so a
+    // tap that only selects never touches history.
+    expect(store.getState().editing, 'a press alone opens no undo step').toBe(false);
 
     // Two pixels: a real adjustment on a phone, and under the budget that used to
     // be the only thing standing between this drag and the context menu.
     const nudged = { clientX: start.clientX + 2, clientY: start.clientY };
     fireEvent.pointerMove(canvas, { ...TOUCH, ...nudged });
+    expect(store.getState().editing, 'the first move begins the edit').toBe(true);
     const moved = midKnot();
 
     holdOut();

@@ -125,7 +125,11 @@ export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProp
   };
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={onClose}>
+    <div
+      data-modal="settings"
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
+      onClick={onClose}
+    >
       <Panel
         className="flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto"
         onClick={(e) => e.stopPropagation()}

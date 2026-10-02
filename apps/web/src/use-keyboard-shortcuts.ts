@@ -1,6 +1,6 @@
 import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { downloadBoard, type BoardMeta } from './file-io';
-import { matches, SHORTCUTS, VIEW_KEYS } from './shortcuts';
+import { isTextEntry, matches, SHORTCUTS, VIEW_KEYS } from './shortcuts';
 import { boardStore } from './store';
 import type { View } from './view-toolkit';
 
@@ -97,8 +97,18 @@ export function useKeyboardShortcuts({
 
       // First match wins. `⇧⌘Z` is listed before `⌘Z`-without-shift can claim it,
       // and `matches` rejects a bare `⌘Z` when Shift is held, so the two can't collide.
-      const hit = SHORTCUTS.find((s) => matches(s, e, inField));
+      const hit = SHORTCUTS.find((s) => matches(s, e, inField, isTextEntry(t)));
       if (!hit) return;
+      // Behind an open dialog the board is not what the user is working on: only
+      // Save, and the palette's own toggle (Ctrl/Cmd+K closes it), stay live.
+      const modal = document.querySelector<HTMLElement>('[data-modal]');
+      if (
+        modal &&
+        hit.id !== 'save' &&
+        !(hit.id === 'command-palette' && modal.dataset.modal === 'command-palette')
+      ) {
+        return;
+      }
       if (run(hit.id)) e.preventDefault();
     };
 

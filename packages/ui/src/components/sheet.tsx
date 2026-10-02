@@ -120,6 +120,16 @@ export function BottomSheet({
     [dragPx, snap, onSnapChange, points],
   );
 
+  // The system took the pointer (an OS gesture, an incoming call): drop the drag
+  // and settle back on the snap it started from, rather than staying stuck at the
+  // dragged height with transitions off. After a normal release `drag` is already
+  // cleared, so the lostpointercapture that follows it is a no-op.
+  const onPointerCancel = useCallback(() => {
+    if (!drag.current) return;
+    drag.current = null;
+    setDragPx(null);
+  }, []);
+
   // Closed: unmount rather than render a zero-height dialog, which would leave a
   // named region full of focusable controls in the accessibility tree.
   if (snap === 'closed') return null;
@@ -148,6 +158,8 @@ export function BottomSheet({
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
+          onPointerCancel={onPointerCancel}
+          onLostPointerCapture={onPointerCancel}
         >
           <div className="mx-auto mt-2 h-1.5 w-10 rounded-full bg-muted-foreground/40" />
           {peek && <div className="px-4 pb-2 pt-2">{peek}</div>}

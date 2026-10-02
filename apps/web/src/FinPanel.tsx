@@ -22,7 +22,7 @@ import { Checkbox, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper
 import { useSyncExternalStore } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
 import { NumericInput } from './components/numeric-input';
-import { cmToUnitNumber, parseLen, unitDecimals, unitSuffix, type LengthUnit } from './format';
+import { cmToUnitNumber, parseTypedLen, unitDecimals, unitSuffix, type LengthUnit } from './format';
 import { Sel } from './view-toolkit';
 import { useSyncedText } from './use-numeric-field';
 
@@ -49,7 +49,11 @@ function LenField({
 }) {
   const shown = cmToUnitNumber(valueCm, units).toFixed(unitDecimals(units));
   const [text, setText] = useSyncedText(shown);
-  const commit = () => onCommit(parseLen(text, units));
+  const commit = () => {
+    const cm = parseTypedLen(text, units);
+    if (cm === null) setText(shown);
+    else onCommit(cm);
+  };
   return (
     <label className="flex items-center gap-2">
       <span className="flex-1 text-muted-foreground">{label}</span>

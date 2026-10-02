@@ -15,6 +15,7 @@ import {
   cmToUnitNumber,
   lengthEditStep,
   parseLen,
+  parseTypedLen,
   unitDecimals,
   unitSuffix,
   type LengthUnit,
@@ -78,11 +79,17 @@ function HeaderCoordInput({
   // Re-sync when the value changes, even below display precision (drag, undo, reselect).
   const [text, setText] = useSyncedText(shown, `${shown}|${valueCm}`);
   const lastCommitted = useRef(valueCm);
+  // Set by typing or the native steppers; leaving an untouched field must not
+  // commit the rounded display value over the exact one.
+  const dirty = useRef(false);
   useEffect(() => {
     lastCommitted.current = valueCm;
+    dirty.current = false;
   }, [shown, valueCm]);
   const commit = (next = text) => {
+    if (!dirty.current) return;
     if (next.trim() === '' || !Number.isFinite(Number(next))) return;
+    dirty.current = false;
     const parsed = parse(next, units);
     if (Math.abs(parsed - lastCommitted.current) <= 1e-9) return;
     lastCommitted.current = parsed;
@@ -96,7 +103,10 @@ function HeaderCoordInput({
         type="number"
         step={pointEditStep(units)}
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          dirty.current = true;
+          setText(e.target.value);
+        }}
         onBlur={() => commit()}
         onPointerUp={(e) => commit(e.currentTarget.value)}
         onKeyUp={(e) => {
@@ -111,6 +121,7 @@ function HeaderCoordInput({
             e.currentTarget.blur();
           } else if (e.key === 'Escape') {
             e.preventDefault();
+            dirty.current = false;
             onDismiss();
           }
         }}
@@ -263,7 +274,11 @@ function CoordInput({
   // Re-sync when the underlying value changes (drag, undo, reselect).
   const [text, setText] = useSyncedText(shown);
 
-  const commit = () => onCommit(parse(text, units));
+  const commit = () => {
+    const cm = parseTypedLen(text, units);
+    if (cm === null) setText(shown);
+    else onCommit(cm);
+  };
   return (
     <label className="flex items-center gap-2">
       <span className="w-3 text-muted-foreground">{label}</span>

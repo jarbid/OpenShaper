@@ -31,11 +31,11 @@ mid-drag (or a station remount) unmounts `SplineEditor` without `endEdit`. Later
 then merge into one undo step and the specs freeze until undo or load.
 Fix: end the active edit on unmount. Effort S · risk low · visible: yes (the fix).
 
-**P3 · Clicking a point without moving it adds an empty "Edit" undo step and wipes
+**P3 · ✅ Done (66cd737) — Clicking a point without moving it adds an empty "Edit" undo step and wipes
 redo.** `beginEdit` runs on pointer-down (`SplineEditor.tsx:975`). Start it on the first
 move, the way section drags already do. Effort S · risk low · visible: yes.
 
-**P4 · Undo or Delete during a drag.** Undo clears `editing`, so each later move becomes
+**P4 · ✅ Done (0b3f540) — Undo or Delete during a drag.** Undo clears `editing`, so each later move becomes
 its own history step and can push real history out of the 200-step cap. Delete during a
 drag leaves the drag writing to a stale index. Fix: ignore these (or end the drag first)
 while editing. Effort S · risk low · visible: yes.
@@ -68,7 +68,7 @@ Fix: clear it in every path. Effort S · risk low · visible: the URL gets clean
 
 ## Fields and shortcuts
 
-**P10 · Numeric length fields.** Focusing and leaving a field commits the _rounded_
+**P10 · ✅ Done (99c06b7) — Numeric length fields.** Focusing and leaving a field commits the _rounded_
 display value (50.01234 → 50.01 plus an undo step). Esc doesn't revert (typing 300 then
 Esc gives 30). "abc" parses to 0. Enter commits twice. Affects `ControlPointInspector`
 (`CoordInput`, `HeaderCoordInput`) and `FinPanel`. Fix: one dirty-plus-revert field hook
@@ -81,7 +81,7 @@ analytics.
 **P12 · Sidebar overlay toggles never send `overlay_toggled`** (`Sidebar.tsx:998-1025`).
 One overlay table and one toggle handler would fix it. Effort S · visible: analytics only.
 
-**P13 · Ctrl+Z inside a text field undoes the board** and blocks the browser's own text
+**P13 · ✅ Done (5a59284) — Ctrl+Z inside a text field undoes the board** and blocks the browser's own text
 undo. Global shortcuts also stay live behind open modals. Effort S · visible: yes.
 
 **P14 · Units convention violations.** `ExportStepDialog.tsx:110` hardcodes mm;
@@ -90,11 +90,11 @@ undo. Global shortcuts also stay live behind open modals. Effort S · visible: y
 
 ## Mobile
 
-**P15 · The bottom sheet sticks mid-drag on `pointercancel`** (a system gesture or an
+**P15 · ✅ Done (fcd5f61) — The bottom sheet sticks mid-drag on `pointercancel`** (a system gesture or an
 incoming call). It stays at a non-snap height with transitions off (`sheet.tsx:142`).
 Effort S · visible: yes.
 
-**P16 · Rotating to landscape keeps the sheet at peek** (112 px of a 390 px screen); only
+**P16 · ✅ Done (fcd5f61) — Rotating to landscape keeps the sheet at peek** (112 px of a 390 px screen); only
 initial load closes it (`App.tsx:394`). Effort S · visible: yes.
 
 **P17 · "Turn your phone sideways" shows in narrow desktop windows.** Require a coarse

@@ -95,6 +95,13 @@ export const parseLen = (text: string, u: LengthUnit): number =>
   convertInputStringToInternalLengthUnit(text, u.unit);
 
 /**
+ * `parseLen` for an edit field: `null` when the text holds no number at all, so the
+ * field can revert instead of committing the 0 the unit parser falls back to.
+ */
+export const parseTypedLen = (text: string, u: LengthUnit): number | null =>
+  /\d/.test(text) ? parseLen(text, u) : null;
+
+/**
  * Map the editor's display unit to a construction-template export unit. The
  * compound ft·in option collapses to decimal inches — a vector file has no
  * compound length unit.

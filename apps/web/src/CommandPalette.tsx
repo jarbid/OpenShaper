@@ -79,6 +79,7 @@ export function CommandPalette({
 
   return (
     <div
+      data-modal="command-palette"
       className="fixed inset-0 z-50 flex justify-center bg-black/60 px-4 pt-20 sm:pt-24"
       onClick={onClose}
     >

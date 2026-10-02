@@ -32,7 +32,10 @@ export function SharedBoardPrompt({ model, onKeepCurrent, onOpenShared }: Shared
   }, [onKeepCurrent]);
 
   return (
-    <div className="ph-no-capture fixed inset-0 z-50 grid place-items-center bg-black/60 p-4">
+    <div
+      data-modal="shared-board"
+      className="ph-no-capture fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
+    >
       <Panel className="flex w-full max-w-md flex-col">
         <PanelHeader>
           <PanelTitle>Open shared board?</PanelTitle>
