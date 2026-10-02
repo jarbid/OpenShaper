@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { setTier } from './test/viewport';
@@ -61,4 +61,57 @@ describe('the bottom sheet on a short viewport', () => {
     // Still open — at peek the button's job is to reveal the panels, not hide them.
     expect(sheet()).not.toBeNull();
   });
+});
+
+describe('turning the phone after load (P16)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('puts a peeking sheet away when the phone turns landscape', () => {
+    setTier('phone');
+    render(<App />);
+    expect(sheet()).not.toBeNull(); // peek
+
+    act(() => setTier('phoneLandscape'));
+    expect(sheet(), 'peek is a quarter of a landscape screen').toBeNull();
+  });
+
+  it('leaves a sheet the user opened further where it is', () => {
+    setTier('phone');
+    render(<App />);
+    fireEvent.click(panelsButton()); // peek -> half
+
+    act(() => setTier('phoneLandscape'));
+    expect(sheet()).not.toBeNull();
+  });
+});
+
+describe('a cancelled sheet drag (P15)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it.each(['pointerCancel', 'lostPointerCapture'] as const)(
+    'settles back on its snap after %s',
+    (event) => {
+      setTier('phone');
+      render(<App />);
+      const panel = sheet()!;
+      const handle = panel.firstElementChild!;
+      const atPeek = panel.style.height;
+
+      fireEvent.pointerDown(handle, { pointerId: 1, clientY: 700 });
+      fireEvent.pointerMove(handle, { pointerId: 1, clientY: 550 });
+      expect(panel.style.height).not.toBe(atPeek);
+
+      fireEvent[event](handle, { pointerId: 1 });
+      expect(panel.style.height, 'back at the snap height').toBe(atPeek);
+      expect(panel.className, 'transitions back on').toContain('transition-[height]');
+
+      // A later move with no button down must not resize it again.
+      fireEvent.pointerMove(handle, { pointerId: 1, clientY: 400 });
+      expect(panel.style.height).toBe(atPeek);
+    },
+  );
 });
