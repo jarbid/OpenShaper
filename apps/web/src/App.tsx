@@ -121,6 +121,7 @@ import {
 } from './view-toolkit';
 import { DEFAULT_VIEW_3D } from './view3d-settings';
 import { estimateWeight, type FoamType, type GlassSchedule } from './weights';
+import { readRaw, writeRaw } from './persisted';
 
 // three.js / fiber / drei are the bulk of the bundle and are only needed once a 3D
 // pane is shown, so load Board3DView as its own chunk. The 2D editor becomes
@@ -446,11 +447,11 @@ function AppShell() {
     [focusedSection],
   );
   const [unitKey, setUnitKey] = useState<string>(
-    () => localStorage.getItem('bs.lengthUnit') ?? DEFAULT_LENGTH_UNIT.key,
+    () => readRaw('bs.lengthUnit') ?? DEFAULT_LENGTH_UNIT.key,
   );
   const units = lengthUnitByKey(unitKey);
   useEffect(() => {
-    localStorage.setItem('bs.lengthUnit', unitKey);
+    writeRaw('bs.lengthUnit', unitKey);
   }, [unitKey]);
   const [view3d, setView3d] = useState<View3DSettings>(
     bootViewState.current.view3d ?? DEFAULT_VIEW_3D,
