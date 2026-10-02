@@ -55,6 +55,7 @@ import {
   viewportFromCenter,
   worldToScreen,
   zoomAt,
+  type ScreenPoint,
   type ViewCenter,
   type Viewport,
 } from './viewport';
@@ -199,10 +200,20 @@ type DragState =
   // `grab` is the vector from the pointer to the thing it grabbed, held for the
   // life of the drag so the thing tracks the pointer's *movement* instead of
   // teleporting to sit under it. See GRAB_OFFSET below.
-  | { mode: 'edit'; target: SplineTarget; hit: Hit; grab: Vec2 }
+  //
+  // Point and fin drags open their undo step on the first real move (`started`), so a
+  // click that only selects leaves history — and the redo stack — alone.
+  | {
+      mode: 'edit';
+      target: SplineTarget;
+      hit: Hit;
+      grab: Vec2;
+      downAt: ScreenPoint;
+      started: boolean;
+    }
   | { mode: 'section'; index: number; started: boolean; handle: SectionHandle; grab: number }
   // Dragging a fin to re-place it (plan pane).
-  | { mode: 'fin'; index: number; grab: Vec2 }
+  | { mode: 'fin'; index: number; grab: Vec2; downAt: ScreenPoint; started: boolean }
   // Middle-button / Space+left pan.
   | { mode: 'pan'; lastX: number; lastY: number }
   // Right button: a tap opens the context menu, a drag pans (tracked via `moved`).
@@ -229,7 +240,7 @@ type DragState =
 
 /** Whether a drag holds the store's grouped edit open (a section drag only once it moved). */
 const holdsEdit = (d: DragState): boolean =>
-  d?.mode === 'edit' || d?.mode === 'fin' || (d?.mode === 'section' && d.started);
+  (d?.mode === 'edit' || d?.mode === 'fin' || d?.mode === 'section') && d.started;
 
 /**
  * A calibration flow in progress. `align` collects two image points then two
@@ -984,7 +995,6 @@ export function SplineEditor({
         store
           .getState()
           .select({ target: picked.target, index: picked.hit.index, kind: picked.hit.kind });
-        store.getState().beginEdit();
         // GRAB_OFFSET: remember where the handle sits relative to the pointer, and
         // move it by the pointer's delta for the rest of the drag. Assigning the
         // pointer's own position instead snapped the handle under the cursor on the
@@ -1000,6 +1010,8 @@ export function SplineEditor({
           target: picked.target,
           hit: picked.hit,
           grab: { x: handle.x - at.x, y: handle.y - at.y },
+          downAt: p,
+          started: false,
         };
         return;
       }
@@ -1032,7 +1044,6 @@ export function SplineEditor({
         const finIndex = hitFin(overlays.fins, vp, p, touch ? TOUCH_HIT_TOL_PX : HIT_TOL_PX);
         if (finIndex !== null) {
           store.getState().selectFin(finIndex);
-          store.getState().beginEdit('Move fin');
           // `moveFin` reads the point as the fin's base centre, so that midpoint is
           // what the grab offset is measured from (see GRAB_OFFSET).
           const { fore, aft } = overlays.fins[finIndex]!.baseLine;
@@ -1041,6 +1052,8 @@ export function SplineEditor({
             mode: 'fin',
             index: finIndex,
             grab: { x: (fore.x + aft.x) / 2 - at.x, y: (fore.y + aft.y) / 2 - at.y },
+            downAt: p,
+            started: false,
           };
           return;
         }
@@ -1201,6 +1214,12 @@ export function SplineEditor({
       // GRAB_OFFSET: what the pointer moves, the handle moves — it is never assigned
       // the pointer's own position, which would snap it under the cursor.
       const held = { x: world.x + d.grab.x, y: world.y + d.grab.y };
+      if (!d.started) {
+        // A move event at the press point (some browsers send one) is not a drag.
+        if (p.x === d.downAt.x && p.y === d.downAt.y) return;
+        store.getState().beginEdit(d.mode === 'fin' ? 'Move fin' : undefined);
+        d.started = true;
+      }
       if (d.mode === 'fin') {
         store.getState().moveFin(d.index, held);
         return;
