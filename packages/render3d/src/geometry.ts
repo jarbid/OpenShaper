@@ -8,50 +8,88 @@ import {
   type BoardMesh,
 } from '@openshaper/kernel';
 import { BufferAttribute, BufferGeometry } from 'three';
+import { createMeshQueue, type MeshQueue, type WorkerReply } from './mesh-queue';
 
 // Tessellation walks many stations, each interpolating a cross-section — the
 // heaviest 3D cost, and far heavier at fine target-face sizes. We offload it to a
 // Web Worker (below) and memoize results by board identity + target size. The
 // kernel is immutable and swaps the board reference on every edit, so a new
-// reference invalidates the cache; a WeakMap lets superseded boards be GC'd.
-const meshCache = new WeakMap<BezierBoard, Map<number, BoardMesh>>();
+// reference is a new cache key.
+//
+// The cache is a small LRU, not a WeakMap: the undo history keeps up to 200 old
+// boards alive, and a WeakMap would keep each one's mesh (1–3.4 MB) alive with it.
+// A handful of entries covers what is actually reused — the current board, shared
+// by hull, fins and guides, and the last few undo steps.
+export const MESH_CACHE_SIZE = 8;
 
-const getCached = (board: BezierBoard, faceSize: number): BoardMesh | undefined =>
-  meshCache.get(board)?.get(faceSize);
+interface CacheEntry {
+  board: BezierBoard;
+  faceSize: number;
+  mesh: BoardMesh;
+}
+// Most recently used last.
+const meshCache: CacheEntry[] = [];
 
-const putCached = (board: BezierBoard, faceSize: number, mesh: BoardMesh): void => {
-  let byFace = meshCache.get(board);
-  if (!byFace) {
-    byFace = new Map();
-    meshCache.set(board, byFace);
-  }
-  byFace.set(faceSize, mesh);
+const getCached = (board: BezierBoard, faceSize: number): BoardMesh | undefined => {
+  const i = meshCache.findIndex((e) => e.board === board && e.faceSize === faceSize);
+  if (i === -1) return undefined;
+  const [hit] = meshCache.splice(i, 1);
+  meshCache.push(hit!);
+  return hit!.mesh;
 };
 
-// --- worker plumbing (lazy, client-only) ---------------------------------
-let worker: Worker | null = null;
-let nextId = 1;
-const pending = new Map<number, (mesh: BoardMesh) => void>();
+const putCached = (board: BezierBoard, faceSize: number, mesh: BoardMesh): void => {
+  const i = meshCache.findIndex((e) => e.board === board && e.faceSize === faceSize);
+  if (i !== -1) meshCache.splice(i, 1);
+  meshCache.push({ board, faceSize, mesh });
+  if (meshCache.length > MESH_CACHE_SIZE) meshCache.shift();
+};
 
-const ensureWorker = (): Worker => {
-  if (worker) return worker;
-  worker = new Worker(new URL('./tessellate.worker.ts', import.meta.url), { type: 'module' });
-  worker.onmessage = (e: MessageEvent<{ id: number; mesh: BoardMesh }>) => {
-    const resolve = pending.get(e.data.id);
-    if (resolve) {
-      pending.delete(e.data.id);
-      resolve(e.data.mesh);
-    }
+/** Test hook: how many meshes the cache holds. */
+export const meshCacheSize = (): number => meshCache.length;
+
+// --- worker plumbing (lazy, client-only) ---------------------------------
+let queue: MeshQueue | null = null;
+
+const ensureQueue = (): MeshQueue => {
+  if (queue) return queue;
+  const worker = new Worker(new URL('./tessellate.worker.ts', import.meta.url), {
+    type: 'module',
+  });
+  const q = createMeshQueue(
+    (id, board, targetFaceSize) => worker.postMessage({ id, board, targetFaceSize }),
+    putCached,
+  );
+  worker.onmessage = (e: MessageEvent<WorkerReply>) => {
+    const r = e.data;
+    if ('error' in r) q.fail(r.id, new Error(r.error));
+    else q.receive(r.id, r.mesh);
   };
-  return worker;
+  // The worker script failed to load or crashed: settle everything. The next
+  // request starts a fresh worker.
+  worker.onerror = (e) => {
+    e.preventDefault();
+    worker.terminate();
+    if (queue === q) queue = null;
+    q.failAll(new Error(e.message || 'Tessellation worker failed'));
+  };
+  queue = q;
+  return q;
 };
 
 /**
  * Tessellate the board at `targetFaceSize` (cm), off the main thread when a Worker
  * is available (browser), falling back to synchronous tessellation otherwise (SSR /
  * tests). Results are cached by `(board, targetFaceSize)`.
+ *
+ * Pass the `signal` of the effect that asked: once every asker of a job that has
+ * not started yet has aborted, the job is dropped (see mesh-queue.ts).
  */
-export function tessellateAsync(board: BezierBoard, targetFaceSize: number): Promise<BoardMesh> {
+export function tessellateAsync(
+  board: BezierBoard,
+  targetFaceSize: number,
+  signal?: AbortSignal,
+): Promise<BoardMesh> {
   const cached = getCached(board, targetFaceSize);
   if (cached) return Promise.resolve(cached);
 
@@ -61,14 +99,7 @@ export function tessellateAsync(board: BezierBoard, targetFaceSize: number): Pro
     return Promise.resolve(mesh);
   }
 
-  const id = nextId++;
-  return new Promise<BoardMesh>((resolve) => {
-    pending.set(id, (mesh) => {
-      putCached(board, targetFaceSize, mesh);
-      resolve(mesh);
-    });
-    ensureWorker().postMessage({ id, board, targetFaceSize });
-  });
+  return ensureQueue().request(board, targetFaceSize, signal);
 }
 
 /**

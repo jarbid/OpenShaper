@@ -5,6 +5,7 @@
  * settings.ts / pdf-export-settings.ts.
  */
 import { DEFAULT_HWS_PARAMS, type HwsParams } from '@openshaper/export';
+import { readStored, writeStored } from './persisted';
 
 const STORAGE_KEY = 'bs.hwsParams';
 
@@ -73,15 +74,9 @@ export function migrateHwsSettings(blob: unknown): HwsSettings {
 }
 
 export function loadHwsSettings(): HwsSettings {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_HWS_SETTINGS;
-    return migrateHwsSettings(JSON.parse(raw));
-  } catch {
-    return DEFAULT_HWS_SETTINGS;
-  }
+  return readStored(STORAGE_KEY, DEFAULT_HWS_SETTINGS, (p) => migrateHwsSettings(p));
 }
 
 export function saveHwsSettings(s: HwsSettings): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+  writeStored(STORAGE_KEY, s);
 }

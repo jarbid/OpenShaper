@@ -56,15 +56,33 @@ export function guideLines(
     loop && loop.length > 1 ? { key: 'stringer', points: closed(toPoints(loop)) } : null;
 
   const sections: GuideLine[] = [];
-  let activeKey: string | null = null;
   for (const cs of realSections) {
     const ring = crossSectionRing(board, cs.position, ringSteps);
     // One degenerate station must not blank the whole overlay.
     if (!ring || ring.length < 3) continue;
-    const key = `s${cs.position}`;
-    sections.push({ key, points: closed(toPoints(ring)) });
-    if (activeX !== null && Math.abs(cs.position - activeX) < 1e-6) activeKey = key;
+    sections.push({ key: ringKey(cs.position), points: closed(toPoints(ring)) });
   }
 
-  return { stringer, sections, activeKey };
+  return { stringer, sections, activeKey: activeGuideKey(sections, activeX) };
+}
+
+const ringKey = (position: number): string => `s${position}`;
+
+/**
+ * Key of the ring drawn at station `activeX`, or null when no drawn ring is there.
+ *
+ * Split out of {@link guideLines} so a caller can memoise the (expensive) lines on
+ * the board alone and pick the highlighted ring separately: changing the active
+ * station then recolours one ring instead of re-lofting all of them.
+ */
+export function activeGuideKey(
+  sections: readonly GuideLine[],
+  activeX: number | null,
+): string | null {
+  if (activeX === null) return null;
+  let key: string | null = null;
+  for (const s of sections) {
+    if (Math.abs(Number(s.key.slice(1)) - activeX) < 1e-6) key = s.key;
+  }
+  return key;
 }

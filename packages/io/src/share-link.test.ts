@@ -298,7 +298,7 @@ describe('unsupported runtimes', () => {
   it.each(['CompressionStream', 'DecompressionStream'] as const)(
     'reports no support when %s is missing',
     async (missing) => {
-      // @ts-expect-error — deliberately removing a platform global.
+      // Deliberately removing a platform global.
       delete globalThis[missing];
       expect(shareCodecSupported()).toBe(false);
       expect(

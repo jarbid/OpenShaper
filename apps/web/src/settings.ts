@@ -3,6 +3,7 @@
  * color, control-point size, and curve stroke thickness. Persisted as a single
  * versioned JSON blob in localStorage under 'bs.settings'.
  */
+import { readStored, writeStored } from './persisted';
 
 const STORAGE_KEY = 'bs.settings';
 
@@ -76,19 +77,12 @@ export function migrateSettings(blob: EditorSettings): EditorSettings {
  * absent, the JSON is malformed, or any required field is missing.
  */
 export function loadSettings(): EditorSettings {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_SETTINGS;
-    const parsed = JSON.parse(raw) as Partial<EditorSettings>;
-    return migrateSettings(parsed as EditorSettings);
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
+  return readStored(STORAGE_KEY, DEFAULT_SETTINGS, (p) => migrateSettings(p as EditorSettings));
 }
 
 /**
  * Persist the given EditorSettings blob to localStorage.
  */
 export function saveSettings(s: EditorSettings): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+  writeStored(STORAGE_KEY, s);
 }

@@ -42,6 +42,11 @@ export type SplineTarget =
   | { kind: 'bottom' }
   | { kind: 'crossSection'; index: number };
 
+/** Whether two targets name the same spline (same kind, and same station for sections). */
+export const sameTarget = (a: SplineTarget, b: SplineTarget): boolean =>
+  a.kind === b.kind &&
+  (a.kind !== 'crossSection' || (b.kind === 'crossSection' && b.index === a.index));
+
 export const getTargetSpline = (b: BezierBoard, t: SplineTarget): Spline => {
   switch (t.kind) {
     case 'outline':

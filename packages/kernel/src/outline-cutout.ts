@@ -110,11 +110,9 @@ export const outlineSegments = (outline: Spline, n: number = OUTLINE_SAMPLES): O
  */
 const yFromPts = (targetX: number, pts: readonly Vec2[], defaultY: number): number => {
   if (pts.length < 2) return defaultY;
-  const xs: number[] = [];
   let minX = Infinity;
   let maxX = -Infinity;
   for (const p of pts) {
-    xs.push(p.x);
     if (p.x < minX) minX = p.x;
     if (p.x > maxX) maxX = p.x;
   }

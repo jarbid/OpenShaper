@@ -18,6 +18,7 @@ import {
   type BezierBoard,
 } from '@openshaper/kernel';
 import { bbox, crossSectionRing, planOutlineLoop, sampleProfile, type Pt } from './board-curves';
+import { escapeXml } from './xml';
 
 export interface BoardDiagramOptions {
   /** Drawing width in SVG user units (the sheet scales it to fit). Default 860. */
@@ -27,8 +28,6 @@ export interface BoardDiagramOptions {
 }
 
 const f = (v: number): string => (Math.round(v * 100) / 100).toString();
-const esc = (s: string): string =>
-  s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] ?? c);
 
 export const boardDiagramSvg = (board: BezierBoard, opts: BoardDiagramOptions = {}): string => {
   const W = opts.width ?? 860;
@@ -58,12 +57,12 @@ export const boardDiagramSvg = (board: BezierBoard, opts: BoardDiagramOptions = 
   };
   const dim = (x: number, y: number, str: string, anchor = 'middle'): void => {
     out.push(
-      `<text x="${f(x)}" y="${f(y)}" text-anchor="${anchor}" class="dim">${esc(str)}</text>`,
+      `<text x="${f(x)}" y="${f(y)}" text-anchor="${anchor}" class="dim">${escapeXml(str)}</text>`,
     );
   };
   const tag = (x: number, y: number, str: string, anchor = 'middle'): void => {
     out.push(
-      `<text x="${f(x)}" y="${f(y)}" text-anchor="${anchor}" class="tag">${esc(str)}</text>`,
+      `<text x="${f(x)}" y="${f(y)}" text-anchor="${anchor}" class="tag">${escapeXml(str)}</text>`,
     );
   };
 

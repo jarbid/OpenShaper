@@ -1,20 +1,15 @@
 import {
   canDeleteKnot,
   getTargetSpline,
+  sameTarget,
   type BoardState,
   type SplineTarget,
 } from '@openshaper/store';
 import { handleSideName, visualSideForHandleKind } from '@openshaper/render2d';
 import { Button, Input } from '@openshaper/ui';
 import { NumericInput } from './components/numeric-input';
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from 'react';
+import { useSyncedText } from './use-numeric-field';
+import { useCallback, useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
 import {
   cmToUnitNumber,
@@ -63,9 +58,6 @@ const targetLabel = (t: SplineTarget): string => {
 const coordinateLabels = (target: SplineTarget): readonly [string, string] =>
   target.kind === 'crossSection' ? ['Y', 'Z'] : ['X', target.kind === 'outline' ? 'Y' : 'Z'];
 
-const sameTarget = (a: SplineTarget, b: SplineTarget): boolean =>
-  a.kind === b.kind && (a.kind !== 'crossSection' || (b as { index: number }).index === a.index);
-
 /** One compact native-number field; browser steppers commit immediately on pointer/arrow release. */
 function HeaderCoordInput({
   label,
@@ -83,10 +75,10 @@ function HeaderCoordInput({
   onNudge: (key: ArrowKey) => void;
 }) {
   const shown = display(valueCm, units);
-  const [text, setText] = useState(shown);
+  // Re-sync when the value changes, even below display precision (drag, undo, reselect).
+  const [text, setText] = useSyncedText(shown, `${shown}|${valueCm}`);
   const lastCommitted = useRef(valueCm);
   useEffect(() => {
-    setText(shown);
     lastCommitted.current = valueCm;
   }, [shown, valueCm]);
   const commit = (next = text) => {
@@ -268,9 +260,8 @@ function CoordInput({
   onCommit: (cm: number) => void;
 }) {
   const shown = display(valueCm, units);
-  const [text, setText] = useState(shown);
   // Re-sync when the underlying value changes (drag, undo, reselect).
-  useEffect(() => setText(shown), [shown]);
+  const [text, setText] = useSyncedText(shown);
 
   const commit = () => onCommit(parse(text, units));
   return (

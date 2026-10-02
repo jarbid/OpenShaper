@@ -167,40 +167,6 @@ const deckBezier = makeBezier3d(
   [0, 1, 0],
 );
 
-// Cross-section knots in YZ (half-section)
-const makeSectionBezier = (
-  ends: Array<[number, number, number]>,
-  prevs: Array<[number, number, number]>,
-  nexts: Array<[number, number, number]>,
-  types: number[],
-  posX: number,
-): string => {
-  // Position point at index 1 x-coordinate (what the Java reads as crossSection position)
-  // The Java reads: Point3d[1].x from Control_points/Polygone3d
-  // For YZ sections, the position is stored in the Point3d.x field of control point index 1
-  const symDummy: [number, number, number] = [0, 0, 0];
-  const posPoint: [number, number, number] = [posX, ends[0]![1], ends[0]![2]];
-  const allEnds: Array<[number, number, number]> = [symDummy, posPoint, ...ends.slice(1)];
-  const allPrevs: Array<[number, number, number]> = [
-    symDummy,
-    [posX, prevs[0]![1], prevs[0]![2]],
-    ...prevs.slice(1),
-  ];
-  const allNexts: Array<[number, number, number]> = [
-    symDummy,
-    [posX, nexts[0]![1], nexts[0]![2]],
-    ...nexts.slice(1),
-  ];
-
-  return `
-    <Bezier3d>
-      <Control_points>${makePolygone3d(allEnds)}</Control_points>
-      <Tangents_1>${makePolygone3d(allPrevs)}</Tangents_1>
-      <Tangents_2>${makePolygone3d(allNexts)}</Tangents_2>
-${types.map((t, i) => `      <Tangent_type_point_${i}>${t}</Tangent_type_point_${i}>`).join('\n')}
-    </Bezier3d>`;
-};
-
 // Re-read the Java for how cross-section position is determined:
 // `String value = ((Element) controlPointsList.item(1)).getElementsByTagName("x").item(0).getTextContent();`
 // i.e. Point3d at index 1 (0-indexed) in Control_points/Polygone3d → the x-coordinate.

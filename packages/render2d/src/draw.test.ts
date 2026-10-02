@@ -142,7 +142,7 @@ describe('cross-section markers', () => {
         handle,
         text: '25.0 cm',
       });
-      return ctx.fillText.mock.calls[0]![2] as number;
+      return vi.mocked(ctx.fillText).mock.calls[0]![2] as number;
     };
 
     // Each chip sits on its grip's row, not in a fixed corner.
@@ -160,7 +160,7 @@ describe('cross-section markers', () => {
       text: 'a label long enough to overhang the right-hand edge of the canvas',
     });
 
-    const [, chipX] = ctx.fillText.mock.calls[0]!;
+    const [, chipX] = vi.mocked(ctx.fillText).mock.calls[0]!;
     expect(chipX).toBeLessThan(x);
   });
 

@@ -150,10 +150,15 @@ export const createBoardStore = (): StoreApi<BoardState> =>
       const settled = adjustThickness ? adjustCrossSectionsToThicknessAndWidth(next) : next;
       if (editing) {
         // Snapshot already taken at beginEdit — give it this action's name.
+        // Keep the same `past` array when the label is unchanged (every move of a
+        // drag after the first), so history subscribers don't re-render per move.
         const last = past[past.length - 1];
         set({
           board: settled,
-          past: last ? [...past.slice(0, -1), { board: last.board, label }] : past,
+          past:
+            last && last.label !== label
+              ? [...past.slice(0, -1), { board: last.board, label }]
+              : past,
         });
       } else {
         set({

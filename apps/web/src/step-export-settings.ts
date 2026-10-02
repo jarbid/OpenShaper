@@ -4,6 +4,7 @@
  * under 'bs.step'. Modeled on pdf-export-settings.ts.
  */
 import type { SheetUnit } from '@openshaper/export';
+import { readStored, writeStored } from './persisted';
 
 const STORAGE_KEY = 'bs.step';
 
@@ -52,15 +53,9 @@ export function migrateStep(blob: StepSettings): StepSettings {
 }
 
 export function loadStep(): StepSettings {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_STEP;
-    return migrateStep(JSON.parse(raw) as StepSettings);
-  } catch {
-    return DEFAULT_STEP;
-  }
+  return readStored(STORAGE_KEY, DEFAULT_STEP, (p) => migrateStep(p as StepSettings));
 }
 
 export function saveStep(s: StepSettings): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+  writeStored(STORAGE_KEY, s);
 }

@@ -931,7 +931,10 @@ describe('buildHwsTemplates — warnings', () => {
 });
 
 describe('buildHwsTemplates — fin-box marks', () => {
-  const finned = (system: Parameters<typeof defaultFinConfig>[1], setup = 'thruster' as const) => {
+  const finned = (
+    system: Parameters<typeof defaultFinConfig>[1],
+    setup: Parameters<typeof defaultFinConfig>[0] = 'thruster',
+  ) => {
     const b = makeTestBoard();
     return makeBoard(b.outline, b.bottom, b.deck, b.crossSections, b.interpolationType, defaultFinConfig(setup, system)); // prettier-ignore
   };

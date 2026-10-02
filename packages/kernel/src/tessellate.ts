@@ -1,13 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import {
-  getLength,
-  getMaxThickness,
-  getMaxWidth,
-  getWidthAtPos,
-  type BezierBoard,
-} from './board';
+import { getLength, getMaxThickness, getMaxWidth, getWidthAtPos, type BezierBoard } from './board';
 import {
   MIN_DIM,
+  isFinite3,
   loftPoint,
   loftRing,
   loftSection,
@@ -20,7 +15,7 @@ import { CUTOUT_EPS, cachedOutlineSegments, hasTailCutout, yInOut } from './outl
 /**
  * A triangle mesh of the board surface, ready for upload to a GPU buffer.
  *
- * Coordinate convention (cm): X = nose..tail length axis, Y = width (across,
+ * Coordinate convention (cm): X = length axis (tail at 0, nose at +X), Y = width (across,
  * rail-to-rail), Z = height (up). `positions` and `normals` are flat xyz triples;
  * `indices` are triangle vertex indices (3 per triangle).
  */
@@ -74,9 +69,6 @@ export const tessellationSteps = (
     ringSteps: clamp(Math.ceil(perimeter / face), MIN_RING_STEPS, MAX_RING_STEPS),
   };
 };
-
-const isFinite3 = (x: number, y: number, z: number): boolean =>
-  Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z);
 
 const addVert = (positions: number[], v: Vert3): number => {
   const index = positions.length / 3;

@@ -24,7 +24,19 @@ export const crossSection = (position: number, spline: Spline): CrossSection => 
 });
 
 /** Full width = 2 × max x of the profile (legacy getWidth). */
-export const csWidth = (cs: CrossSection): number => maxX(cs.spline) * 2;
+// Splines are immutable, so a station's width can be cached by spline identity. The
+// specs integrals and the loft ask for the same stations' widths thousands of times
+// per board, and `maxX` is a numerical search.
+const widthCache = new WeakMap<Spline, number>();
+
+export const csWidth = (cs: CrossSection): number => {
+  let w = widthCache.get(cs.spline);
+  if (w === undefined) {
+    w = maxX(cs.spline) * 2;
+    widthCache.set(cs.spline, w);
+  }
+  return w;
+};
 
 /** Deck-center minus bottom-center height (legacy getCenterThickness). */
 export const csCenterThickness = (cs: CrossSection): number => {

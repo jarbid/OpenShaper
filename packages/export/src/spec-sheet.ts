@@ -13,6 +13,7 @@
  * two read as one family. `@media print` flips to a clean white draughting sheet with
  * black line-work, so it prints like the PDF and saves ink.
  */
+import { escapeXml } from './xml';
 export interface SpecSection {
   /** Group heading (e.g. "Nose", "Center", "Tail", "Overall"). */
   title: string;
@@ -42,9 +43,6 @@ export interface SpecSheetDoc {
    */
   finPlacement?: readonly (readonly [string, string])[];
 }
-
-const esc = (s: unknown): string =>
-  String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] ?? c);
 
 const STYLE = `
 :root{
@@ -144,26 +142,26 @@ export function specSheetHtml(doc: SpecSheetDoc): string {
   const meta = [
     '<span class="brand">OpenShaper</span>',
     '<span class="m">Spec Sheet</span>',
-    doc.date ? `<span class="m">${esc(doc.date)}</span>` : '',
+    doc.date ? `<span class="m">${escapeXml(doc.date)}</span>` : '',
   ]
     .filter(Boolean)
     .join('<br>');
-  const headline = doc.headline ? `<div class="headline">${esc(doc.headline)}</div>` : '';
+  const headline = doc.headline ? `<div class="headline">${escapeXml(doc.headline)}</div>` : '';
   const drawing = doc.diagramSvg
     ? `<div class="drawing"><div class="bar"><span class="a">Plan · Rocker · Sections</span><span>Scale: NTS</span></div><div class="draw-body">${doc.diagramSvg}</div></div>`
     : '';
   const chips = doc.info
-    .map(([k, v]) => `<span class="chip"><b>${esc(k)}</b>${esc(v)}</span>`)
+    .map(([k, v]) => `<span class="chip"><b>${escapeXml(k)}</b>${escapeXml(v)}</span>`)
     .join('');
   const cards = doc.sections
     .map((sec) => {
       const rows = sec.rows
         .map(
           ([k, v]) =>
-            `<div class="row"><span class="l">${esc(k)}</span><span class="v">${esc(v)}</span></div>`,
+            `<div class="row"><span class="l">${escapeXml(k)}</span><span class="v">${escapeXml(v)}</span></div>`,
         )
         .join('');
-      return `<section class="card"><h2>${esc(sec.title)}</h2>${rows}</section>`;
+      return `<section class="card"><h2>${escapeXml(sec.title)}</h2>${rows}</section>`;
     })
     .join('');
   const fins =
@@ -171,17 +169,17 @@ export function specSheetHtml(doc: SpecSheetDoc): string {
       ? `<div class="fins"><div class="bar"><span class="a">Fin placement</span></div><div class="fins-body">${doc.finPlacement
           .map(
             ([k, v]) =>
-              `<div class="row"><span class="l">${esc(k)}</span><span class="v">${esc(v)}</span></div>`,
+              `<div class="row"><span class="l">${escapeXml(k)}</span><span class="v">${escapeXml(v)}</span></div>`,
           )
           .join('')}</div></div>`
       : '';
 
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(heading)} — Spec Sheet</title>
+<title>${escapeXml(heading)} — Spec Sheet</title>
 <style>${STYLE}</style></head>
 <body><div class="wrap"><div class="sheet">
-<header><div><h1>${esc(heading)}</h1><div class="sub">${esc(sub)}</div>${headline}</div>
+<header><div><h1>${escapeXml(heading)}</h1><div class="sub">${escapeXml(sub)}</div>${headline}</div>
 <div class="meta">${meta}</div></header>
 ${drawing}${chips ? `<div class="info">${chips}</div>` : ''}
 <div class="grid">${cards}</div>

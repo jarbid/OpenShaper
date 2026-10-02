@@ -133,6 +133,59 @@ table before nudging it.
 See `apps/web/CLAUDE.md` for the display-units convention (loads automatically when
 working under `apps/web`).
 
+## Behaviour locks and performance tools
+
+See `ARCHITECTURE.md` for the module map and `QUALITY_REPORT.md` for measured numbers.
+
+- **Characterization snapshots** pin what the app does today:
+  `packages/kernel/src/characterization.test.ts` (loft/mesh/specs),
+  `packages/io/src/roundtrip.characterization.test.ts` (every sample file),
+  `packages/store/src/board-store.characterization.test.ts` (editing actions). A
+  refactor must leave them unchanged. A snapshot diff means a behaviour change: never
+  `vitest -u` it in a refactor; treat it as a feature/fix with its own justification.
+- **Bit-identical claims need a diff, not a tolerance.** For a kernel speed-up, dump
+  full-precision outputs before and after and compare them exactly.
+- **Rendering changes:** `apps/web/tools/perf/canvas-hashes.mjs` (2D) and
+  `webgl-shots.mjs` (3D) hash the canvases after a fixed script on a production build.
+  Run against the old and new builds; identical hashes = identical pixels.
+- **Performance:** `pnpm --filter @openshaper/store bench` (compute),
+  `apps/web/tools/perf/browser-perf.mjs` (load, drag cost, renders, memory; desktop +
+  throttled phone) and `who-renders.mjs` (per-component renders, dev server). Measure
+  before and after; record the numbers in the commit or report.
+- **If unsure whether a change is user-visible** (including analytics data, file bytes,
+  download timing), don't make it: write it up in `PROPOSALS.md`.
+
+## React and rendering conventions
+
+- `AppShell` (`App.tsx`) subscribes to the live board, so it re-renders on every drag
+  move. Heavy children it renders must be `memo`'d and receive stable props
+  (`useCallback`, refs, primitives). Components that need the board subscribe to the
+  store themselves. `Sidebar` and `ThreeDPane` follow this.
+- Don't copy props into state with an effect (`useEffect(() => setX(prop))`): it costs a
+  second commit per change. Re-sync during render instead (`useSyncedText` in
+  `use-numeric-field.ts`).
+- The 3D `<Canvas>` uses `frameloop="demand"`. Anything that mutates the camera or scene
+  outside React props must call `invalidate()`.
+- Ask for meshes through `tessellateAsync(board, faceSize, signal)`, passing the
+  effect's `AbortSignal`, so superseded jobs are dropped (`mesh-queue.ts`). Use
+  `useBoardOffset` to place board-coordinate overlays on the centred hull.
+- Caches keyed by immutable kernel objects are `WeakMap`s. If something long-lived keeps
+  the keys alive (the 200-step undo history keeps boards), bound the cache (see the mesh
+  LRU in `render3d/geometry.ts`).
+- Shared helpers to reuse rather than re-copy:
+  - `sameTarget` (`@openshaper/store`)
+  - `escapeXml` (`export/src/xml.ts`)
+  - `readStored`/`writeStored` (`apps/web/src/persisted.ts`)
+  - `idb.ts`
+  - `latin1Decode` (`io/src/legacy-crypto.ts`)
+
+## Build notes
+
+- Package `build` scripts are `tsc --noEmit`: packages are consumed from `src` through
+  their `exports`, so nothing reads a `dist/`. Test files are type-checked with the rest.
+- The web `build` keeps its own `tsc -b`, because the Cloudflare deploy runs
+  `pnpm build` without `pnpm typecheck`.
+
 ## Model delegation
 
 | Use **Opus** for                                                                            | Use **Sonnet** for                            | Use **Haiku** for                                     |

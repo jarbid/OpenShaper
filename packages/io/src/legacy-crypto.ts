@@ -352,7 +352,8 @@ const latin1ToBytes = (s: string): Uint8Array => {
   return out;
 };
 
-const latin1Decode = (bytes: Uint8Array): string => {
+/** Bytes → string, one char per byte (latin1; the legacy formats are single-byte). */
+export const latin1Decode = (bytes: Uint8Array): string => {
   let s = '';
   for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]!);
   return s;

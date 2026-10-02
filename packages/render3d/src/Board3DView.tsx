@@ -3,6 +3,7 @@ import type { BoardState } from '@openshaper/store';
 import { GizmoHelper, OrbitControls } from '@react-three/drei';
 import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber';
 import {
+  memo,
   useEffect,
   useMemo,
   useRef,
@@ -69,8 +70,6 @@ export interface Board3DViewProps {
   showSections?: boolean;
   /** Board-length position of the active cross-section, drawn in cyan. */
   activeSectionX?: number | null;
-  /** @deprecated use `mode="wireframe"`. Kept for back-compat. */
-  wireframe?: boolean;
   /**
    * Restored orbit pose applied at mount instead of the default framing, so a
    * reloaded session reopens with the camera where it was. Pass a stable
@@ -116,7 +115,7 @@ const FLIP_ABOUT_LENGTH = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0)
  * carries position and target but no zoom, so there is nothing of theirs to keep.
  */
 function OrthographicFit({ span }: { span: number }) {
-  const { camera, size } = useThree();
+  const { camera, size, invalidate } = useThree();
   const applied = useRef<number | null>(null);
   useEffect(() => {
     if (!(camera instanceof OrthographicCamera) || size.width <= 0) return;
@@ -125,7 +124,8 @@ function OrthographicFit({ span }: { span: number }) {
     applied.current = zoom;
     camera.zoom = zoom;
     camera.updateProjectionMatrix();
-  }, [camera, size.width, span]);
+    invalidate();
+  }, [camera, size.width, span, invalidate]);
   return null;
 }
 
@@ -139,7 +139,7 @@ function ObjectCenteredNavigation({
   flipViewSequence: number;
 }) {
   const controlsRef = useRef<ComponentRef<typeof OrbitControls>>(null);
-  const { camera, gl } = useThree();
+  const { camera, gl, invalidate } = useThree();
 
   const reportPose = () => {
     const controls = controlsRef.current;
@@ -159,8 +159,9 @@ function ObjectCenteredNavigation({
     if (!controls) return;
     rotateViewAboutOrigin(camera, controls.target, FLIP_ABOUT_LENGTH);
     controls.update();
+    invalidate();
     reportPoseRef.current();
-  }, [camera, flipViewSequence]);
+  }, [camera, flipViewSequence, invalidate]);
 
   useEffect(() => {
     const controls = controlsRef.current;
@@ -203,6 +204,7 @@ function ObjectCenteredNavigation({
         objectCenteredRotation(eye, camera.up, horizontal, vertical),
       );
       controls.update();
+      invalidate();
       reportPoseRef.current();
     };
     const pointerUp = (event: PointerEvent) => {
@@ -221,7 +223,7 @@ function ObjectCenteredNavigation({
       element.removeEventListener('pointerup', pointerUp);
       element.removeEventListener('pointercancel', pointerUp);
     };
-  }, [camera, gl]);
+  }, [camera, gl, invalidate]);
 
   return (
     <OrbitControls
@@ -237,8 +239,13 @@ function ObjectCenteredNavigation({
   );
 }
 
-function BoardGizmo({ lineColor }: { lineColor: string }) {
-  const { camera, controls } = useThree();
+/**
+ * Memoized: it depends only on `lineColor` and on camera/controls, which reach it
+ * through R3F context (and so still re-render it). Without this, every board edit
+ * re-rendered the view cube's 20 hit areas through a fresh `snapToView`.
+ */
+const BoardGizmo = memo(function BoardGizmo({ lineColor }: { lineColor: string }) {
+  const { camera, controls, invalidate } = useThree();
   const fallbackTarget = useMemo(() => new Vector3(), []);
 
   const snapToView = (event: ThreeEvent<PointerEvent>) => {
@@ -260,6 +267,7 @@ function BoardGizmo({ lineColor }: { lineColor: string }) {
     camera.up.set(...upForViewDirection(direction));
     camera.lookAt(target);
     orbit?.update();
+    invalidate();
     return null;
   };
 
@@ -274,7 +282,7 @@ function BoardGizmo({ lineColor }: { lineColor: string }) {
       />
     </GizmoHelper>
   );
-}
+});
 
 /** Background color per lighting preset (dark room makes side-lit rails pop). */
 const BACKGROUND: Record<LightingPreset, string> = {
@@ -431,14 +439,15 @@ function BoardMesh({
   targetFaceSize: number;
 }) {
   // Tessellation runs in a worker; while a new mesh computes we keep showing the
-  // previous geometry so dragging control points stays smooth. A monotonically
-  // increasing request token guards against out-of-order worker responses
-  // (rapid edits enqueue many requests — only the latest may win).
+  // previous geometry so dragging control points stays smooth. A superseded board's
+  // result is ignored (`cancelled`), and aborting tells the queue nobody here wants
+  // it any more, so a job that has not started yet is dropped (mesh-queue.ts).
   const [geometry, setGeometry] = useState<BufferGeometry | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    tessellateAsync(board, targetFaceSize)
+    const abort = new AbortController();
+    tessellateAsync(board, targetFaceSize, abort.signal)
       .then((mesh) => {
         if (!cancelled) setGeometry(meshToGeometry(mesh));
       })
@@ -447,6 +456,7 @@ function BoardMesh({
       });
     return () => {
       cancelled = true;
+      abort.abort();
     };
   }, [board, targetFaceSize]);
 
@@ -515,7 +525,6 @@ export function Board3DView({
   showStringer = false,
   showSections = false,
   activeSectionX = null,
-  wireframe = false,
   initialCamera,
   onCameraChange,
   className,
@@ -523,13 +532,19 @@ export function Board3DView({
   const board = useSyncExternalStore(store.subscribe, () => store.getState().board);
   const span = board ? boardSpan(board) : 200;
   const d = span * 1.1;
-  const resolved: Board3DMode = mode ?? (wireframe ? 'wireframe' : 'shaded');
+  const resolved: Board3DMode = mode ?? 'shaded';
   const [flipViewSequence, setFlipViewSequence] = useState(0);
   const [flipHovered, setFlipHovered] = useState(false);
 
   return (
     <div className={className} style={{ width: '100%', height: '100%', position: 'relative' }}>
       <Canvas
+        // Render only when something changed, not 60 times a second while idle.
+        // R3F invalidates on every prop/state change in the scene and drei's
+        // OrbitControls on every camera change; the imperative camera moves here
+        // (flip, object-centred orbit, view-cube snap, orthographic fit) call
+        // invalidate() themselves.
+        frameloop="demand"
         dpr={[1, 2]}
         orthographic
         camera={{

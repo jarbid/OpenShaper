@@ -4,6 +4,7 @@
  * versioned JSON blob in localStorage under 'bs.pdf1to1'. Modeled on settings.ts.
  */
 import type { Orientation } from '@openshaper/export';
+import { readStored, writeStored } from './persisted';
 
 const STORAGE_KEY = 'bs.pdf1to1';
 
@@ -67,15 +68,9 @@ export function migratePdf1to1(blob: Pdf1to1Settings): Pdf1to1Settings {
 }
 
 export function loadPdf1to1(): Pdf1to1Settings {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEFAULT_PDF1TO1;
-    return migratePdf1to1(JSON.parse(raw) as Pdf1to1Settings);
-  } catch {
-    return DEFAULT_PDF1TO1;
-  }
+  return readStored(STORAGE_KEY, DEFAULT_PDF1TO1, (p) => migratePdf1to1(p as Pdf1to1Settings));
 }
 
 export function savePdf1to1(s: Pdf1to1Settings): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+  writeStored(STORAGE_KEY, s);
 }

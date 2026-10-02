@@ -96,6 +96,16 @@ class S3dParseError extends Error {
 const stripComments = (xml: string): string => xml.replace(/<!--[\s\S]*?-->/g, '');
 
 /**
+ * `<tag …>inner</tag>` with the inner content captured, non-greedy. Tag names are
+ * escaped defensively (Shape3d tags are plain alphanumerics + underscore). A fresh
+ * RegExp per call: the `g` variant is stateful (`lastIndex`), so it is not cached.
+ */
+const tagRe = (tag: string, flags: string): RegExp => {
+  const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`<${escaped}[^>]*>([\\s\\S]*?)<\\/${escaped}>`, flags);
+};
+
+/**
  * Returns the trimmed inner text content of the FIRST occurrence of `<tag>`
  * in `xml`. Returns null if the tag is absent.
  *
@@ -103,14 +113,8 @@ const stripComments = (xml: string): string => xml.replace(/<!--[\s\S]*?-->/g, '
  * opening tag, so it handles sibling elements but not deeply nested same-name
  * elements. For the Shape3d format's simple structure this is sufficient.
  */
-const getChildText = (xml: string, tag: string): string | null => {
-  // Escape any regex-special chars in tag names (Shape3d tags are plain
-  // alphanumeric + underscore so this is defensive only).
-  const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const re = new RegExp(`<${escaped}[^>]*>([\\s\\S]*?)<\\/${escaped}>`, 'i');
-  const m = xml.match(re);
-  return m ? m[1]!.trim() : null;
-};
+const getChildText = (xml: string, tag: string): string | null =>
+  getChildElement(xml, tag)?.trim() ?? null;
 
 /**
  * Returns the raw inner content (between open and close tags) of the FIRST
@@ -118,10 +122,7 @@ const getChildText = (xml: string, tag: string): string | null => {
  * content is itself XML that we want to parse further.
  */
 const getChildElement = (xml: string, tag: string): string | null => {
-  const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // Use a non-greedy match that allows nested elements.
-  const re = new RegExp(`<${escaped}[^>]*>([\\s\\S]*?)<\\/${escaped}>`, 'i');
-  const m = xml.match(re);
+  const m = xml.match(tagRe(tag, 'i'));
   return m ? m[1]! : null;
 };
 
@@ -130,8 +131,7 @@ const getChildElement = (xml: string, tag: string): string | null => {
  * document order. Non-greedy — suitable for flat lists like Point3d children.
  */
 const getAllChildElements = (xml: string, tag: string): string[] => {
-  const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const re = new RegExp(`<${escaped}[^>]*>([\\s\\S]*?)<\\/${escaped}>`, 'gi');
+  const re = tagRe(tag, 'gi');
   const results: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(xml)) !== null) {

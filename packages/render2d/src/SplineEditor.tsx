@@ -5,7 +5,7 @@ import {
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
-import { type BoardState, type SplineTarget, getTargetSpline } from '@openshaper/store';
+import { type BoardState, type SplineTarget, getTargetSpline, sameTarget } from '@openshaper/store';
 import { ContextMenu, type MenuItem } from '@openshaper/ui';
 import {
   useCallback,
@@ -242,7 +242,6 @@ const TRACE_HANDLE_OFFSET = 28;
 /** Rotate-handle hit radius, in screen px. */
 const TRACE_HANDLE_R = 9;
 
-/** Max pointer travel (px) for a right-button press+release to count as a tap, not a pan. */
 /**
  * Hit radius for a control-point handle, in CSS px. A fingertip is both blunter
  * and less precisely reported than a mouse cursor, so touch gets a target it can
@@ -279,9 +278,6 @@ const PALETTE = ['#22D3EE', '#38BDF8', '#2DD4BF', '#A78BFA'];
 
 const useBoard = (store: StoreApi<BoardState>): BezierBoard | null =>
   useSyncExternalStore(store.subscribe, () => store.getState().board);
-
-const sameTarget = (a: SplineTarget, b: SplineTarget): boolean =>
-  a.kind === b.kind && (a.kind !== 'crossSection' || (b as { index: number }).index === a.index);
 
 /** Distance from a world point to the nearest point on a spline. */
 const splineDistance = (s: Spline, p: Vec2): number => {
@@ -611,9 +607,21 @@ export function SplineEditor({
     const canvas = canvasRef.current;
     if (!canvas || !vp || !board || size.w === 0) return;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = size.w * dpr;
-    canvas.height = size.h * dpr;
     const ctx = canvas.getContext('2d');
+    // Assigning width/height reallocates the backing store (MBs at high DPR) as well
+    // as clearing it and resetting the context state. Only a size change needs the
+    // reallocation; otherwise reset() does exactly the rest. Where reset() is missing,
+    // reassigning is what this always did.
+    if (
+      !ctx?.reset ||
+      canvas.width !== Math.trunc(size.w * dpr) ||
+      canvas.height !== Math.trunc(size.h * dpr)
+    ) {
+      canvas.width = size.w * dpr;
+      canvas.height = size.h * dpr;
+    } else {
+      ctx.reset();
+    }
     if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     clear(ctx, size.w, size.h);

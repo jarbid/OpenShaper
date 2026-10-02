@@ -107,10 +107,6 @@ const runBool = (clipType: number, subject: readonly Pt[], clip: readonly Pt[]):
   return sol;
 };
 
-/** Polygon difference (subject − clip). Returns all surviving loops. */
-export const differenceAll = (subject: readonly Pt[], clip: readonly Pt[]): Pt[][] =>
-  fromPaths(runBool(ClipperLib.ClipType.ctDifference, subject, clip));
-
 /** Polygon difference of one subject minus MANY clip loops at once. */
 export const differenceMulti = (
   subject: readonly Pt[],
@@ -142,10 +138,6 @@ export const offsetOpenBand = (pts: readonly Pt[], halfWidth: number): Pt[][] =>
   co.Execute(sol, halfWidth * SCALE);
   return fromPaths(sol);
 };
-
-/** Polygon intersection of two simple loops; returns all result loops. */
-export const intersectAll = (a: readonly Pt[], b: readonly Pt[]): Pt[][] =>
-  fromPaths(runBool(ClipperLib.ClipType.ctIntersection, a, b));
 
 /** Closed circle approximation, sampled to ≤ `tol` chord deviation. */
 export const sampleCircle = (cx: number, cy: number, r: number, tol: number): Pt[] => {

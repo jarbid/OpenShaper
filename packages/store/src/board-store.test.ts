@@ -36,6 +36,19 @@ const makeBoard = (): BezierBoard => {
 };
 
 describe('board store: editing + undo/redo', () => {
+  it('keeps the same history array across the moves of one drag', () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+    store.getState().beginEdit();
+    store.getState().moveControlPoint({ kind: 'outline' }, 1, vec2(50, 21));
+    const past = store.getState().past;
+    expect(past.map((h) => h.label)).toEqual(['Move control point']);
+    store.getState().moveControlPoint({ kind: 'outline' }, 1, vec2(50, 22));
+    store.getState().moveControlPoint({ kind: 'outline' }, 1, vec2(50, 23));
+    expect(store.getState().past).toBe(past);
+    store.getState().endEdit();
+  });
+
   it('moves a control point and records undo history', () => {
     const store = createBoardStore();
     const original = makeBoard();

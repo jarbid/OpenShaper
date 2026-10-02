@@ -10,6 +10,7 @@
  * Every function swallows storage failures (private browsing, denied quota,
  * missing IndexedDB): persistence degrades to "no session", never to a crash.
  */
+import { objectStore, openSingleStoreDb, promisify } from './idb';
 
 /** Bump when the StoredSession shape changes in a breaking way. */
 export const SESSION_VERSION = 1;
@@ -33,28 +34,11 @@ interface StoredSession extends SessionSnapshot {
   savedAt: number;
 }
 
-const promisify = <T>(req: IDBRequest<T>): Promise<T> =>
-  new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-
-function openDb(factory: IDBFactory): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = factory.open(DB_NAME, SESSION_VERSION);
-    req.onupgradeneeded = () => {
-      const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'key' });
-      }
-    };
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error);
-  });
-}
+const openDb = (factory: IDBFactory): Promise<IDBDatabase> =>
+  openSingleStoreDb(factory, DB_NAME, SESSION_VERSION, STORE_NAME, 'key');
 
 const store = (db: IDBDatabase, mode: IDBTransactionMode): IDBObjectStore =>
-  db.transaction(STORE_NAME, mode).objectStore(STORE_NAME);
+  objectStore(db, STORE_NAME, mode);
 
 /** The global factory, or undefined where IndexedDB doesn't exist (tests, old jsdom). */
 const globalFactory = (): IDBFactory | undefined =>

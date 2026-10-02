@@ -14,12 +14,14 @@
     "zustand": "^5.0.2"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "echo \"(eslint todo)\""
+    "lint": "echo \"(eslint todo)\"",
+    "bench": "vitest bench --run"
   },
   "devDependencies": {
+    "@openshaper/io": "workspace:^",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   }

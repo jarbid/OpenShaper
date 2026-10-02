@@ -1,0 +1,663 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`characterization: store actions on the reference shortboard > add then delete a deck control point 1`] = `
+{
+  "boardHash": "a0f005c498bca419",
+  "editing": false,
+  "fins": {
+    "fins": [],
+    "setup": "none",
+    "symmetrical": true,
+    "system": "fcs-ii",
+  },
+  "future": [],
+  "interpolationType": "controlPoint",
+  "knots": {
+    "bottom": 3,
+    "deck": 5,
+    "outline": 5,
+    "sections": [
+      1,
+      5,
+      5,
+      5,
+      5,
+      5,
+      1,
+    ],
+  },
+  "past": [
+    "Add control point",
+    "Delete control point",
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "specs": {
+    "length": 187.96,
+    "maxRocker": 6.4403186,
+    "maxWidth": 46.990002,
+    "thickness": 5.9641868,
+    "volume": 27769.42,
+  },
+  "stations": [
+    0,
+    0.9525,
+    30.48,
+    92.71,
+    157.48,
+    185.35,
+    187.96,
+  ],
+}
+`;
+
+exports[`characterization: store actions on the reference shortboard > add, move and delete a cross-section 1`] = `
+{
+  "boardHash": "98ba992ab55a5bff",
+  "editing": false,
+  "fins": {
+    "fins": [],
+    "setup": "none",
+    "symmetrical": true,
+    "system": "fcs-ii",
+  },
+  "future": [],
+  "interpolationType": "controlPoint",
+  "knots": {
+    "bottom": 3,
+    "deck": 5,
+    "outline": 5,
+    "sections": [
+      1,
+      5,
+      5,
+      5,
+      5,
+      5,
+      1,
+    ],
+  },
+  "past": [
+    "Add cross-section",
+    "Move cross-section",
+    "Delete cross-section",
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "specs": {
+    "length": 187.96,
+    "maxRocker": 6.4403186,
+    "maxWidth": 46.990002,
+    "thickness": 5.9641868,
+    "volume": 27369.656,
+  },
+  "stations": [
+    0,
+    0.9525,
+    30.48,
+    92.71,
+    157.48,
+    185.35,
+    187.96,
+  ],
+}
+`;
+
+exports[`characterization: store actions on the reference shortboard > drag a rocker tangent as one grouped edit 1`] = `
+{
+  "boardHash": "fbcefc35d23823b7",
+  "editing": false,
+  "fins": {
+    "fins": [],
+    "setup": "none",
+    "symmetrical": true,
+    "system": "fcs-ii",
+  },
+  "future": [],
+  "interpolationType": "controlPoint",
+  "knots": {
+    "bottom": 3,
+    "deck": 5,
+    "outline": 5,
+    "sections": [
+      1,
+      5,
+      5,
+      5,
+      5,
+      5,
+      1,
+    ],
+  },
+  "past": [
+    "Move tangent",
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "specs": {
+    "length": 187.96,
+    "maxRocker": 6.4403186,
+    "maxWidth": 46.990002,
+    "thickness": 5.963362,
+    "volume": 27779.628,
+  },
+  "stations": [
+    0,
+    0.9525,
+    30.48,
+    92.71,
+    157.48,
+    185.35,
+    187.96,
+  ],
+}
+`;
+
+exports[`characterization: store actions on the reference shortboard > edit with thickness adjustment off 1`] = `
+{
+  "boardHash": "191e6114d165e999",
+  "editing": false,
+  "fins": {
+    "fins": [],
+    "setup": "none",
+    "symmetrical": true,
+    "system": "fcs-ii",
+  },
+  "future": [],
+  "interpolationType": "controlPoint",
+  "knots": {
+    "bottom": 3,
+    "deck": 5,
+    "outline": 5,
+    "sections": [
+      1,
+      5,
+      5,
+      5,
+      5,
+      5,
+      1,
+    ],
+  },
+  "past": [
+    "Move control point",
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "specs": {
+    "length": 187.96,
+    "maxRocker": 6.4403186,
+    "maxWidth": 46.990002,
+    "thickness": 5.9641868,
+    "volume": 28566.943,
+  },
+  "stations": [
+    0,
+    0.9525,
+    30.48,
+    92.71,
+    157.48,
+    185.35,
+    187.96,
+  ],
+}
+`;
+
+exports[`characterization: store actions on the reference shortboard > fin edits 1`] = `
+{
+  "boardHash": "160b3d0179f74b21",
+  "editing": false,
+  "fins": {
+    "fins": [
+      {
+        "base": 11.187,
+        "cant": 4,
+        "depth": 11,
+        "foil": "80/20",
+        "insetFromRail": 2.9,
+        "profile": "thruster",
+        "side": -1,
+        "sweep": 0,
+        "toe": 4,
+        "trailingFromTail": 29.21,
+      },
+      {
+        "base": 11.187,
+        "cant": 6,
+        "depth": 11,
+        "foil": "80/20",
+        "insetFromRail": 0,
+        "profile": "thruster",
+        "side": 1,
+        "sweep": 0,
+        "toe": 4,
+        "trailingFromTail": 14.4065,
+      },
+      {
+        "base": 10.17,
+        "cant": 4.5,
+        "depth": 10,
+        "foil": "80/20",
+        "insetFromRail": 4.4,
+        "profile": "thruster",
+        "side": -1,
+        "sweep": 0,
+        "toe": 2,
+        "trailingFromTail": 15.748,
+      },
+      {
+        "base": 10.17,
+        "cant": 4.5,
+        "depth": 10,
+        "foil": "80/20",
+        "insetFromRail": 4.4,
+        "profile": "thruster",
+        "side": 1,
+        "sweep": 0,
+        "toe": 2,
+        "trailingFromTail": 15.748,
+      },
+    ],
+    "setup": "quad",
+    "symmetrical": false,
+    "system": "futures",
+  },
+  "future": [],
+  "interpolationType": "controlPoint",
+  "knots": {
+    "bottom": 3,
+    "deck": 5,
+    "outline": 5,
+    "sections": [
+      1,
+      5,
+      5,
+      5,
+      5,
+      5,
+      1,
+    ],
+  },
+  "past": [
+    "Change fin setup",
+    "Change fin system",
+    "Toggle fin symmetry",
+    "Edit fin",
+    "Move fin",
+  ],
+  "selectedFin": 1,
+  "selection": null,
+  "specs": {
+    "length": 187.96,
+    "maxRocker": 6.4403186,
+    "maxWidth": 46.990002,
+    "thickness": 5.9641868,
+    "volume": 27369.656,
+  },
+  "stations": [
+    0,
+    0.9525,
+    30.48,
+    92.71,
+    157.48,
+    185.35,
+    187.96,
+  ],
+}
+`;
+
+exports[`characterization: store actions on the reference shortboard > knot tools on a cross-section 1`] = `
+{
+  "boardHash": "5504c0c9a9119e74",
+  "editing": false,
+  "fins": {
+    "fins": [],
+    "setup": "none",
+    "symmetrical": true,
+    "system": "fcs-ii",
+  },
+  "future": [],
+  "interpolationType": "controlPoint",
+  "knots": {
+    "bottom": 3,
+    "deck": 5,
+    "outline": 5,
+    "sections": [
+      1,
+      5,
+      5,
+      5,
+      5,
+      5,
+      1,
+    ],
+  },
+  "past": [
+    "Corner control point",
+    "Fair curve",
+    "Set handle length to zero",
+    "Extend handle",
+    "Align tangents",
+    "Align tangents",
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "specs": {
+    "length": 187.96,
+    "maxRocker": 6.4403186,
+    "maxWidth": 46.990002,
+    "thickness": 5.9641868,
+    "volume": 31582.57,
+  },
+  "stations": [
+    0,
+    0.9525,
+    30.48,
+    92.71,
+    157.48,
+    185.35,
+    187.96,
+  ],
+}
+`;
+
+exports[`characterization: store actions on the reference shortboard > load only 1`] = `
+{
+  "boardHash": "98ba992ab55a5bff",
+  "editing": false,
+  "fins": {
+    "fins": [],
+    "setup": "none",
+    "symmetrical": true,
+    "system": "fcs-ii",
+  },
+  "future": [],
+  "interpolationType": "controlPoint",
+  "knots": {
+    "bottom": 3,
+    "deck": 5,
+    "outline": 5,
+    "sections": [
+      1,
+      5,
+      5,
+      5,
+      5,
+      5,
+      1,
+    ],
+  },
+  "past": [],
+  "selectedFin": null,
+  "selection": null,
+  "specs": {
+    "length": 187.96,
+    "maxRocker": 6.4403186,
+    "maxWidth": 46.990002,
+    "thickness": 5.9641868,
+    "volume": 27369.656,
+  },
+  "stations": [
+    0,
+    0.9525,
+    30.48,
+    92.71,
+    157.48,
+    185.35,
+    187.96,
+  ],
+}
+`;
+
+exports[`characterization: store actions on the reference shortboard > move an outline control point 1`] = `
+{
+  "boardHash": "4c716a7369a00bfe",
+  "editing": false,
+  "fins": {
+    "fins": [],
+    "setup": "none",
+    "symmetrical": true,
+    "system": "fcs-ii",
+  },
+  "future": [],
+  "interpolationType": "controlPoint",
+  "knots": {
+    "bottom": 3,
+    "deck": 5,
+    "outline": 5,
+    "sections": [
+      1,
+      5,
+      5,
+      5,
+      5,
+      5,
+      1,
+    ],
+  },
+  "past": [
+    "Move control point",
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "specs": {
+    "length": 187.96,
+    "maxRocker": 6.4403186,
+    "maxWidth": 47.990002,
+    "thickness": 5.9641868,
+    "volume": 27861.063,
+  },
+  "stations": [
+    0,
+    0.9525,
+    30.48,
+    92.71,
+    157.48,
+    185.35,
+    187.96,
+  ],
+}
+`;
+
+exports[`characterization: store actions on the reference shortboard > paste a section shape and apply a rail preset 1`] = `
+{
+  "boardHash": "1155dd9502ce56b4",
+  "editing": false,
+  "fins": {
+    "fins": [],
+    "setup": "none",
+    "symmetrical": true,
+    "system": "fcs-ii",
+  },
+  "future": [],
+  "interpolationType": "controlPoint",
+  "knots": {
+    "bottom": 3,
+    "deck": 5,
+    "outline": 5,
+    "sections": [
+      1,
+      5,
+      5,
+      5,
+      5,
+      5,
+      1,
+    ],
+  },
+  "past": [
+    "Paste cross-section",
+    "Rail preset: 60/40 tucked",
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "specs": {
+    "length": 187.96,
+    "maxRocker": 6.4403186,
+    "maxWidth": 46.990002,
+    "thickness": 5.9641868,
+    "volume": 27362.478,
+  },
+  "stations": [
+    0,
+    0.9525,
+    30.48,
+    92.71,
+    157.48,
+    185.35,
+    187.96,
+  ],
+}
+`;
+
+exports[`characterization: store actions on the reference shortboard > scale the board 1`] = `
+{
+  "boardHash": "197eb2a78412e9a1",
+  "editing": false,
+  "fins": {
+    "fins": [],
+    "setup": "none",
+    "symmetrical": true,
+    "system": "fcs-ii",
+  },
+  "future": [],
+  "interpolationType": "controlPoint",
+  "knots": {
+    "bottom": 3,
+    "deck": 5,
+    "outline": 5,
+    "sections": [
+      1,
+      5,
+      5,
+      5,
+      5,
+      5,
+      1,
+    ],
+  },
+  "past": [
+    "Resize board",
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "specs": {
+    "length": 197.358,
+    "maxRocker": 7.0843505,
+    "maxWidth": 45.580302,
+    "thickness": 6.5606054,
+    "volume": 30663.55,
+  },
+  "stations": [
+    0,
+    1.000125,
+    32.004,
+    97.3455,
+    165.354,
+    194.6175,
+    197.358,
+  ],
+}
+`;
+
+exports[`characterization: store actions on the reference shortboard > switch to sLinear interpolation 1`] = `
+{
+  "boardHash": "aa5e9afb75a05f98",
+  "editing": false,
+  "fins": {
+    "fins": [],
+    "setup": "none",
+    "symmetrical": true,
+    "system": "fcs-ii",
+  },
+  "future": [],
+  "interpolationType": "sLinear",
+  "knots": {
+    "bottom": 3,
+    "deck": 5,
+    "outline": 5,
+    "sections": [
+      1,
+      5,
+      5,
+      5,
+      5,
+      5,
+      1,
+    ],
+  },
+  "past": [
+    "Change interpolation",
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "specs": {
+    "length": 187.96,
+    "maxRocker": 6.4403186,
+    "maxWidth": 46.990002,
+    "thickness": 5.9641868,
+    "volume": 27101.927,
+  },
+  "stations": [
+    0,
+    0.9525,
+    30.48,
+    92.71,
+    157.48,
+    185.35,
+    187.96,
+  ],
+}
+`;
+
+exports[`characterization: store actions on the reference shortboard > undo, redo and jump through history 1`] = `
+{
+  "boardHash": "98ba992ab55a5bff",
+  "editing": false,
+  "fins": {
+    "fins": [],
+    "setup": "none",
+    "symmetrical": true,
+    "system": "fcs-ii",
+  },
+  "future": [
+    "Resize board",
+    "Change fin setup",
+    "Change interpolation",
+  ],
+  "interpolationType": "controlPoint",
+  "knots": {
+    "bottom": 3,
+    "deck": 5,
+    "outline": 5,
+    "sections": [
+      1,
+      5,
+      5,
+      5,
+      5,
+      5,
+      1,
+    ],
+  },
+  "past": [],
+  "selectedFin": null,
+  "selection": null,
+  "specs": {
+    "length": 187.96,
+    "maxRocker": 6.4403186,
+    "maxWidth": 46.990002,
+    "thickness": 5.9641868,
+    "volume": 27369.656,
+  },
+  "stations": [
+    0,
+    0.9525,
+    30.48,
+    92.71,
+    157.48,
+    185.35,
+    187.96,
+  ],
+}
+`;

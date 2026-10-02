@@ -19,7 +19,14 @@ import {
   type BoardMesh,
 } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
-import { boardCenter, boardGeometry, boardSpan } from './geometry';
+import {
+  boardCenter,
+  boardGeometry,
+  boardSpan,
+  MESH_CACHE_SIZE,
+  meshCacheSize,
+  tessellateAsync,
+} from './geometry';
 
 // ---------------------------------------------------------------------------
 // Shared test board — same shape used in board-store.test.ts so the tessellator
@@ -142,10 +149,14 @@ describe('boardSpan', () => {
 // ---------------------------------------------------------------------------
 describe('boardGeometry (Three.js wrapper)', () => {
   it('returns a BufferGeometry with position, normal and index attributes', () => {
-    const g = boardGeometry(makeBoard());
-    expect(g.attributes['position']).toBeTruthy();
-    expect(g.attributes['normal']).toBeTruthy();
-    expect(g.index).toBeTruthy();
+    const b = makeBoard();
+    const g = boardGeometry(b);
+    const mesh = tessellateBoard(b);
+    // Same vertices, normals and triangles as the kernel mesh it wraps.
+    expect(g.attributes['position']!.count).toBe(mesh.positions.length / 3);
+    expect(g.attributes['normal']!.count).toBe(mesh.normals.length / 3);
+    expect(g.index!.count).toBe(mesh.indices.length);
+    expect(g.index!.count).toBeGreaterThan(0);
   });
 
   it('position attribute item size is 3', () => {
@@ -217,5 +228,28 @@ describe('boardCenter', () => {
     const g = boardGeometry(makeBoard());
     g.computeBoundingBox();
     expect(Math.abs((g.boundingBox!.min.x + g.boundingBox!.max.x) / 2)).toBeLessThan(1e-3);
+  });
+});
+
+describe('tessellateAsync cache (no Worker: synchronous path)', () => {
+  it('returns the cached mesh for the same board and face size', async () => {
+    const b = makeBoard();
+    const m1 = await tessellateAsync(b, 5);
+    expect(await tessellateAsync(b, 5)).toBe(m1);
+    expect(await tessellateAsync(b, 4)).not.toBe(m1);
+  });
+
+  it('holds at most MESH_CACHE_SIZE meshes, evicting the least recently used', async () => {
+    const base = makeBoard();
+    const boards = Array.from({ length: MESH_CACHE_SIZE + 1 }, () => ({ ...base }));
+    const first = await tessellateAsync(boards[0]!, 5);
+    const second = await tessellateAsync(boards[1]!, 5);
+    for (const b of boards.slice(2, MESH_CACHE_SIZE)) await tessellateAsync(b, 5);
+    // Touch boards[0] so boards[1] is now the oldest, then overflow by one.
+    expect(await tessellateAsync(boards[0]!, 5)).toBe(first);
+    await tessellateAsync(boards[MESH_CACHE_SIZE]!, 5);
+    expect(meshCacheSize()).toBe(MESH_CACHE_SIZE);
+    expect(await tessellateAsync(boards[0]!, 5)).toBe(first);
+    expect(await tessellateAsync(boards[1]!, 5)).not.toBe(second);
   });
 });

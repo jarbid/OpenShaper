@@ -16,7 +16,7 @@
  * rides the *bottom rocker surface*, so it follows the profile. Editing the board
  * moves the fins, exactly as a shaper marks a blank relative to the rail and tail.
  *
- * Coordinate convention matches {@link BoardMesh} (cm): X = nose..tail length axis,
+ * Coordinate convention matches {@link BoardMesh} (cm): X = length axis (tail at 0),
  * Y = width (rail-to-rail, stringer at 0), Z = height (up). Fins hang in −Z below the
  * bottom surface.
  */

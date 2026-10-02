@@ -13,7 +13,9 @@ import {
 } from './trace-transform';
 import { worldToScreen, type Viewport } from './viewport';
 
-const near = (a: Vec2, b: Vec2, eps = 1e-9) => {
+// Always 9 decimal places. (An `eps` argument used to be accepted and ignored;
+// honouring it would have loosened the checks that passed 1e-6.)
+const near = (a: Vec2, b: Vec2) => {
   expect(a.x).toBeCloseTo(b.x, 9);
   expect(a.y).toBeCloseTo(b.y, 9);
 };
@@ -25,8 +27,8 @@ describe('solveSimilarity', () => {
     const q1 = vec2(-15, 6);
     const q2 = vec2(48, 9);
     const t = solveSimilarity(p1, p2, q1, q2, false);
-    near(imgToWorld(t, p1), q1, 1e-6);
-    near(imgToWorld(t, p2), q2, 1e-6);
+    near(imgToWorld(t, p1), q1);
+    near(imgToWorld(t, p2), q2);
   });
 
   it('maps both image points onto their world points (mirrored)', () => {
@@ -36,8 +38,8 @@ describe('solveSimilarity', () => {
     const q2 = vec2(48, 9);
     const t = solveSimilarity(p1, p2, q1, q2, true);
     expect(t.flipX).toBe(true);
-    near(imgToWorld(t, p1), q1, 1e-6);
-    near(imgToWorld(t, p2), q2, 1e-6);
+    near(imgToWorld(t, p1), q1);
+    near(imgToWorld(t, p2), q2);
   });
 
   it('recovers a pure 90° rotation with unit scale', () => {
@@ -45,7 +47,7 @@ describe('solveSimilarity', () => {
     const t = solveSimilarity(vec2(0, 0), vec2(1, 0), vec2(0, 0), vec2(0, 1), false);
     expect(t.scale).toBeCloseTo(1, 9);
     expect(t.rotation).toBeCloseTo(Math.PI / 2, 9);
-    near(imgToWorld(t, vec2(1, 0)), vec2(0, 1), 1e-9);
+    near(imgToWorld(t, vec2(1, 0)), vec2(0, 1));
   });
 
   it('recovers a pure scale', () => {
@@ -60,14 +62,14 @@ describe('imgToWorld / worldToImg', () => {
   it('are inverses', () => {
     const t = solveSimilarity(vec2(120, 340), vec2(880, 410), vec2(-15, 6), vec2(48, 9), false);
     for (const p of [vec2(0, 0), vec2(500, 200), vec2(1000, 750)]) {
-      near(worldToImg(t, imgToWorld(t, p)), p, 1e-6);
+      near(worldToImg(t, imgToWorld(t, p)), p);
     }
   });
 
   it('are inverses when flipped', () => {
     const t = solveSimilarity(vec2(120, 340), vec2(880, 410), vec2(-15, 6), vec2(48, 9), true);
     for (const p of [vec2(0, 0), vec2(500, 200), vec2(1000, 750)]) {
-      near(worldToImg(t, imgToWorld(t, p)), p, 1e-6);
+      near(worldToImg(t, imgToWorld(t, p)), p);
     }
   });
 });
@@ -87,9 +89,9 @@ describe('toggleFlip', () => {
     const before = imageCenterWorld(t, w, h);
     const flipped = toggleFlip(t, w, h);
     expect(flipped.flipX).toBe(true);
-    near(imageCenterWorld(flipped, w, h), before, 1e-6);
+    near(imageCenterWorld(flipped, w, h), before);
     // flipping twice returns to the original transform
-    near(imageCenterWorld(toggleFlip(flipped, w, h), w, h), before, 1e-6);
+    near(imageCenterWorld(toggleFlip(flipped, w, h), w, h), before);
   });
 });
 
@@ -101,7 +103,7 @@ describe('setRotationAboutCenter', () => {
     const before = imageCenterWorld(t, w, h);
     const rotated = setRotationAboutCenter(t, w, h, t.rotation + 0.7);
     expect(rotated.rotation).toBeCloseTo(t.rotation + 0.7, 9);
-    near(imageCenterWorld(rotated, w, h), before, 1e-6);
+    near(imageCenterWorld(rotated, w, h), before);
   });
 });
 
@@ -120,7 +122,7 @@ describe('traceCanvasMatrix', () => {
       [w, h],
     ] as const) {
       const expected = worldToScreen(vp, imgToWorld(t, vec2(u, v)));
-      near(apply(u, v), expected, 1e-6);
+      near(apply(u, v), expected);
     }
   });
 

@@ -1,18 +1,16 @@
 import {
   getArea,
-  getCenterOfMass,
   getCenterWidth,
   getLength,
   getLengthOverCurve,
   getMaxRocker,
-  getMaxThickness,
-  getMaxThicknessPos,
+  getMaxThicknessAndPos,
   getMaxWidth,
   getMaxWidthPos,
   getRockerAtPos,
   getThickness,
   getThicknessAtPos,
-  getVolume,
+  getVolumeAndCenterOfMass,
   getWidthAtPos,
   type BezierBoard,
 } from '@openshaper/kernel';
@@ -93,7 +91,9 @@ export const selectSpecs = (b: BezierBoard): BoardSpecs => {
   const noseTwoFoot = length - 2 * FOOT;
   const tailTwoFoot = 2 * FOOT;
 
-  const volume = getVolume(b);
+  // One section-area integral serves both (exactly what the separate getters return).
+  const { volume, centerOfMass } = getVolumeAndCenterOfMass(b);
+  const maxT = getMaxThicknessAndPos(b);
   const specs: BoardSpecs = {
     length,
     lengthOverCurve: getLengthOverCurve(b),
@@ -105,8 +105,8 @@ export const selectSpecs = (b: BezierBoard): BoardSpecs => {
     tailWidth: getWidthAtPos(b, tailFoot),
 
     thickness: getThickness(b),
-    maxThickness: getMaxThickness(b),
-    maxThicknessPos: getMaxThicknessPos(b),
+    maxThickness: maxT.max,
+    maxThicknessPos: maxT.pos,
     noseThickness: getThicknessAtPos(b, noseFoot),
     tailThickness: getThicknessAtPos(b, tailFoot),
 
@@ -121,7 +121,7 @@ export const selectSpecs = (b: BezierBoard): BoardSpecs => {
     volume,
     volumeLiters: volume / 1000,
     area: getArea(b),
-    centerOfMass: getCenterOfMass(b),
+    centerOfMass,
   };
   cache.set(b, specs);
   return specs;

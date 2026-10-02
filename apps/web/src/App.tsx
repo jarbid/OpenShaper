@@ -28,6 +28,7 @@ import { Menu as MenuIcon, Share2, SlidersHorizontal } from 'lucide-react';
 import {
   Fragment,
   lazy,
+  memo,
   Suspense,
   useCallback,
   useEffect,
@@ -128,8 +129,14 @@ const Board3DView = lazy(() =>
   import('@openshaper/render3d').then((m) => ({ default: m.Board3DView })),
 );
 
-/** Board3DView behind a Suspense boundary, so the lazy 3D chunk can stream in. */
-function ThreeDPane(props: Board3DViewProps) {
+/**
+ * Board3DView behind a Suspense boundary, so the lazy 3D chunk can stream in.
+ *
+ * Memoized: the 3D view subscribes to the board store itself and every prop here is a
+ * primitive, a ref-backed value or a stable callback, so an AppShell render (a 2D drag
+ * move, a hover scrub) need not re-reconcile the three.js scene.
+ */
+const ThreeDPane = memo(function ThreeDPane(props: Board3DViewProps) {
   return (
     <Suspense
       fallback={
@@ -141,7 +148,7 @@ function ThreeDPane(props: Board3DViewProps) {
       <Board3DView {...props} />
     </Suspense>
   );
-}
+});
 
 function AppShell() {
   const board = useSyncExternalStore(boardStore.subscribe, () => boardStore.getState().board);
@@ -614,7 +621,7 @@ function AppShell() {
   };
 
   // Resize: blank fields keep that dimension; others scale to the typed target.
-  const applyResize = () => {
+  const applyResize = useCallback(() => {
     if (!specs) return;
     const factor = (text: string, cur: number) => {
       const t = text.trim();
@@ -630,7 +637,7 @@ function AppShell() {
         factor(resize.t, specs.thickness),
       );
     setResize({ l: '', w: '', t: '' });
-  };
+  }, [specs, resize, units]);
 
   // Fins are part of the board model now; resolve their geometry against the current
   // shape for the 2D overlays (plan footprint + box; profile blade silhouette).
@@ -940,10 +947,11 @@ function AppShell() {
   const traceInput = useRef<HTMLInputElement>(null);
   // Which view a just-opened file picker targets (File menu / Sidebar share the input).
   const pendingTraceView = useRef<TraceView>('outline');
-  const openTracePicker = (view: TraceView) => {
+  // Refs only, so it is stable — the memoized Sidebar receives it.
+  const openTracePicker = useCallback((view: TraceView) => {
     pendingTraceView.current = view;
     traceInput.current?.click();
-  };
+  }, []);
   const onOpenTrace = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -1032,7 +1040,7 @@ function AppShell() {
   // STEP cannot describe a concave (swallow / fish) tail yet, so the item is
   // disabled with the reason rather than silently emitting a solid with the notch
   // filled in.
-  const stepSupport = board ? stepExportSupport(board as BezierBoard) : null;
+  const stepSupport = board ? stepExportSupport(board) : null;
 
   const exportMenu: MenuItem[] = [
     ...(
@@ -1047,7 +1055,7 @@ function AppShell() {
       disabled: !board,
       onSelect: () => {
         if (!board) return;
-        exportBoard(board as Parameters<typeof exportBoard>[0], f, meta, units, ghost ?? undefined);
+        exportBoard(board, f, meta, units, ghost ?? undefined);
         track('export_board', { format: f });
         markExport();
       },
@@ -1248,6 +1256,54 @@ function AppShell() {
       : []),
   ];
 
+  // One 3D pane element and one set of 2D pane props, shared by the quad/split layout
+  // and the single-view layout so the two cannot drift apart.
+  const threeDPane = (
+    <ThreeDPane
+      store={boardStore}
+      mode={view3d.mode}
+      lighting={view3d.lighting}
+      material={view3d.material}
+      color={view3d.color}
+      finColor={settings.finColor}
+      viewCubeLineColor={settings.outlineColor}
+      analysis={view3d.analysis}
+      targetFaceSize={faceSizeFor(view3d.meshQuality)}
+      showStringer={view3d.showStringer}
+      showSections={view3d.showSections}
+      activeSectionX={activeSectionX}
+      key={cameraEpoch}
+      initialCamera={liveViewState.current.camera3d}
+      onCameraChange={onCameraChange}
+    />
+  );
+
+  const editorPaneProps = (kind: EditorKind) => ({
+    title: kind === 'outline' ? 'Outline' : kind === 'rocker' ? 'Rocker (deck + bottom)' : csTitle,
+    kind,
+    csIndex: clampedCs,
+    units,
+    // The cross-section pane has no length axis, so `EditorPane` drops the station
+    // markers, the scrub and the trace props for it — passing them uniformly here
+    // keeps that one decision in one place.
+    sectionMarkers,
+    onPickSection: setCsIndex,
+    focusedSection,
+    onFocusSection: focusSection,
+    onMoveSection: moveSection,
+    onDeleteSection: deleteSectionAt,
+    onAddSectionAt: addSectionAt,
+    onScrub: scrubSection,
+    overlays: overlaysFor(kind),
+    ghostSplines: ghostSplinesFor(kind),
+    ...(kind === 'crossSection' ? {} : traceProps(kind)),
+    headerActions: kind === 'crossSection' ? csControls : undefined,
+    settings,
+    viewCommand: viewCmd,
+    initialView: pendingViews2d.current[kind],
+    onViewChange: reportPaneView(kind),
+  });
+
   /**
    * One pane of a multi-pane layout. Quad and Split show the same panes with the
    * same wiring — the layout decides only how many there are and, through
@@ -1263,56 +1319,14 @@ function AppShell() {
             )}
             <ThreeDControls settings={view3d} onChange={patchView3d} compact />
           </ViewPaneHeader>
-          <PanelBody className="min-h-0 flex-1 p-0">
-            <ThreeDPane
-              store={boardStore}
-              mode={view3d.mode}
-              lighting={view3d.lighting}
-              material={view3d.material}
-              color={view3d.color}
-              finColor={settings.finColor}
-              viewCubeLineColor={settings.outlineColor}
-              analysis={view3d.analysis}
-              targetFaceSize={faceSizeFor(view3d.meshQuality)}
-              showStringer={view3d.showStringer}
-              showSections={view3d.showSections}
-              activeSectionX={activeSectionX}
-              key={cameraEpoch}
-              initialCamera={liveViewState.current.camera3d}
-              onCameraChange={onCameraChange}
-            />
-          </PanelBody>
+          <PanelBody className="min-h-0 flex-1 p-0">{threeDPane}</PanelBody>
         </Panel>
       );
     return (
       <EditorPane
         key={kind}
-        title={
-          kind === 'outline' ? 'Outline' : kind === 'rocker' ? 'Rocker (deck + bottom)' : csTitle
-        }
+        {...editorPaneProps(kind)}
         titleControl={titleControl}
-        kind={kind}
-        csIndex={clampedCs}
-        units={units}
-        // The cross-section pane has no length axis, so `EditorPane` drops the
-        // station markers, the scrub and the trace props for it — passing them
-        // uniformly here keeps that one decision in one place.
-        sectionMarkers={sectionMarkers}
-        onPickSection={setCsIndex}
-        focusedSection={focusedSection}
-        onFocusSection={focusSection}
-        onMoveSection={moveSection}
-        onDeleteSection={deleteSectionAt}
-        onAddSectionAt={addSectionAt}
-        onScrub={scrubSection}
-        overlays={overlaysFor(kind)}
-        ghostSplines={ghostSplinesFor(kind)}
-        {...(kind === 'crossSection' ? {} : traceProps(kind))}
-        headerActions={kind === 'crossSection' ? csControls : undefined}
-        settings={settings}
-        viewCommand={viewCmd}
-        initialView={pendingViews2d.current[kind]}
-        onViewChange={reportPaneView(kind)}
         // In Split the heading is the pane picker, so there is no title left to
         // double-click — and no single sensible target for it either.
         onTitleDoubleClick={titleControl ? undefined : () => selectView(kind)}
@@ -1574,56 +1588,10 @@ function AppShell() {
                 </div>
                 <ThreeDControls settings={view3d} onChange={patchView3d} />
               </ViewPaneHeader>
-              <PanelBody className="min-h-0 flex-1 p-0">
-                <ThreeDPane
-                  store={boardStore}
-                  mode={view3d.mode}
-                  lighting={view3d.lighting}
-                  material={view3d.material}
-                  color={view3d.color}
-                  finColor={settings.finColor}
-                  viewCubeLineColor={settings.outlineColor}
-                  analysis={view3d.analysis}
-                  targetFaceSize={faceSizeFor(view3d.meshQuality)}
-                  showStringer={view3d.showStringer}
-                  showSections={view3d.showSections}
-                  activeSectionX={activeSectionX}
-                  key={cameraEpoch}
-                  initialCamera={liveViewState.current.camera3d}
-                  onCameraChange={onCameraChange}
-                />
-              </PanelBody>
+              <PanelBody className="min-h-0 flex-1 p-0">{threeDPane}</PanelBody>
             </Panel>
           ) : (
-            <EditorPane
-              title={
-                view === 'outline'
-                  ? 'Outline'
-                  : view === 'rocker'
-                    ? 'Rocker (deck + bottom)'
-                    : csTitle
-              }
-              kind={view}
-              csIndex={clampedCs}
-              units={units}
-              sectionMarkers={sectionMarkers}
-              onPickSection={setCsIndex}
-              focusedSection={focusedSection}
-              onFocusSection={focusSection}
-              onMoveSection={moveSection}
-              onDeleteSection={deleteSectionAt}
-              onAddSectionAt={addSectionAt}
-              onScrub={scrubSection}
-              overlays={overlaysFor(view)}
-              ghostSplines={ghostSplinesFor(view)}
-              {...(view === 'crossSection' ? {} : traceProps(view))}
-              viewCommand={viewCmd}
-              headerActions={view === 'crossSection' ? csControls : undefined}
-              settings={settings}
-              initialView={pendingViews2d.current[view]}
-              onViewChange={reportPaneView(view)}
-              onTitleDoubleClick={() => selectView('quad')}
-            />
+            <EditorPane {...editorPaneProps(view)} onTitleDoubleClick={() => selectView('quad')} />
           )}
         </div>
 
@@ -1702,7 +1670,7 @@ function AppShell() {
 
       {shareOpen && board && (
         <ShareDialog
-          board={board as BezierBoard}
+          board={board}
           meta={meta}
           setMeta={setMeta}
           onCopied={() => {
@@ -1734,13 +1702,13 @@ function AppShell() {
 
       {railBandsDialogOpen && board && (
         <ExportRailBandsDialog
-          board={board as BezierBoard}
+          board={board}
           units={units}
           settings={railBandsSettings}
           onExport={(s) => {
             saveRailBands(s);
             setRailBandsSettings(s);
-            downloadRailBands(board as BezierBoard, s, meta, units);
+            downloadRailBands(board, s, meta, units);
             track('export_board', { format: 'rail-bands' });
             markExport();
           }}

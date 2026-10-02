@@ -4,9 +4,9 @@ import {
   type BezierBoard,
   type BoardMesh,
 } from '@openshaper/kernel';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { BufferAttribute, BufferGeometry, DoubleSide } from 'three';
-import { boardCenter, tessellateAsync } from './geometry';
+import { useBoardOffset } from './use-board-offset';
 
 /** On-brand cyan-blue resin (the OpenShaper accent) so the blades read against the hull. */
 const FIN_COLOR = '#22D3EE';
@@ -36,23 +36,7 @@ export function Fins3D({
   targetFaceSize: number;
   color?: string;
 }) {
-  const [offset, setOffset] = useState<[number, number, number] | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    tessellateAsync(board, targetFaceSize)
-      .then((mesh) => {
-        if (cancelled) return;
-        const c = boardCenter(mesh);
-        setOffset([-c[0], -c[1], -c[2]]);
-      })
-      .catch(() => {
-        /* keep the previous offset on failure */
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [board, targetFaceSize]);
+  const offset = useBoardOffset(board, targetFaceSize);
 
   const geometries = useMemo(
     () => resolveFins(board).map((fin) => rawGeometry(buildFinBladeMesh(fin))),
