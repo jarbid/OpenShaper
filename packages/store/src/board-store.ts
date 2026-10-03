@@ -23,6 +23,7 @@ import {
   propagateCrossSectionToCurves,
   removeCrossSection,
   scaleBoard,
+  sameTarget,
   setFinFromPlanPoint,
   setFinSetup,
   setFinSymmetrical,
@@ -42,6 +43,14 @@ export interface Selection {
   /** The endpoint or one of its two tangent handles. Omitted means the endpoint. */
   kind?: 'end' | 'prev' | 'next';
 }
+
+export interface AngleLock {
+  target: SplineTarget;
+  index: number;
+}
+
+const hasAngleLock = (locks: readonly AngleLock[], target: SplineTarget, index: number): boolean =>
+  locks.some((lock) => lock.index === index && sameTarget(lock.target, target));
 
 /** One undo/redo step: the board to restore plus the action that produced the change. */
 export interface HistoryEntry {
@@ -63,6 +72,8 @@ export interface BoardState {
    */
   adjustThickness: boolean;
   selection: Selection | null;
+  /** Control points whose tangent directions are fixed while handle lengths remain editable. */
+  angleLocks: readonly AngleLock[];
   /** Index of the selected fin (for the fin inspector / highlight), or null. */
   selectedFin: number | null;
 
@@ -70,6 +81,7 @@ export interface BoardState {
   /** Toggle whether cross-sections are slaved to the rocker/deck/outline (JC-4-y). */
   setAdjustThickness: (v: boolean) => void;
   select: (selection: Selection | null) => void;
+  setAngleLocked: (target: SplineTarget, index: number, locked: boolean) => void;
   /** Select a fin by index (clears any control-point selection). */
   selectFin: (index: number | null) => void;
 
@@ -222,6 +234,7 @@ export const createBoardStore = (): StoreApi<BoardState> =>
       editing: false,
       adjustThickness: true,
       selection: null,
+      angleLocks: [],
       selectedFin: null,
 
       load: (board) => {
@@ -232,11 +245,24 @@ export const createBoardStore = (): StoreApi<BoardState> =>
           future: [],
           editing: false,
           selection: null,
+          angleLocks: [],
           selectedFin: null,
         });
       },
       setAdjustThickness: (v) => set({ adjustThickness: v }),
       select: (selection) => set({ selection, selectedFin: null }),
+      setAngleLocked: (target, index, locked) => {
+        const angleLocks = get().angleLocks;
+        const alreadyLocked = hasAngleLock(angleLocks, target, index);
+        if (locked === alreadyLocked) return;
+        set({
+          angleLocks: locked
+            ? [...angleLocks, { target, index }]
+            : angleLocks.filter(
+                (entry) => !(entry.index === index && sameTarget(entry.target, target)),
+              ),
+        });
+      },
       selectFin: (index) => set({ selectedFin: index, selection: null }),
 
       beginEdit: (label = 'Edit') => {
@@ -253,7 +279,11 @@ export const createBoardStore = (): StoreApi<BoardState> =>
 
       moveTangent: (target, index, which, pos) =>
         editSpline(target, 'Move tangent', (s) =>
-          withSpline(get().board!, target, moveKnotTangent(s, index, which, pos)),
+          withSpline(
+            get().board!,
+            target,
+            moveKnotTangent(s, index, which, pos, hasAngleLock(get().angleLocks, target, index)),
+          ),
         ),
 
       addControlPoint: (target, p) => {
@@ -265,7 +295,14 @@ export const createBoardStore = (): StoreApi<BoardState> =>
           enforceJunctions(withSpline(board, target, result.spline), target),
           'Add control point',
         );
-        set({ selection: { target, index: result.index, kind: 'end' } });
+        set({
+          selection: { target, index: result.index, kind: 'end' },
+          angleLocks: get().angleLocks.map((lock) =>
+            sameTarget(lock.target, target) && lock.index >= result.index
+              ? { ...lock, index: lock.index + 1 }
+              : lock,
+          ),
+        });
       },
 
       deleteControlPoint: (target, index) => {
@@ -281,7 +318,16 @@ export const createBoardStore = (): StoreApi<BoardState> =>
           enforceJunctions(withSpline(board, target, deleteKnot(spline, index)), target),
           'Delete control point',
         );
-        set({ selection: null });
+        set({
+          selection: null,
+          angleLocks: get()
+            .angleLocks.filter((lock) => !(sameTarget(lock.target, target) && lock.index === index))
+            .map((lock) =>
+              sameTarget(lock.target, target) && lock.index > index
+                ? { ...lock, index: lock.index - 1 }
+                : lock,
+            ),
+        });
       },
 
       setContinuous: (target, index, continuous) =>
