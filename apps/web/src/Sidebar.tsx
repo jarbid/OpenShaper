@@ -76,7 +76,14 @@ import {
   type TabId,
 } from './sidebar-sections';
 import { boardStore } from './store';
-import { OverlayToggle, Sel, SpecRow, UnitSelect } from './view-toolkit';
+import {
+  MeasurementAxisSelect,
+  OverlayToggle,
+  Sel,
+  SpecRow,
+  UnitSelect,
+  type MeasurementAxis,
+} from './view-toolkit';
 import {
   fmtWeight,
   FOAM_TYPES,
@@ -191,6 +198,8 @@ export interface SidebarProps {
    * picker (the phone tier), so exactly one of the two is ever mounted.
    */
   onUnitChange?: (key: string) => void;
+  measurementAxis?: MeasurementAxis;
+  onMeasurementAxisChange?: (axis: MeasurementAxis) => void;
 }
 
 /**
@@ -219,6 +228,8 @@ export const Sidebar = memo(function Sidebar({
   onSidebarChange,
   collapsible = false,
   onUnitChange,
+  measurementAxis = 'x-axis',
+  onMeasurementAxisChange,
 }: SidebarProps) {
   const past = useSyncExternalStore(boardStore.subscribe, () => boardStore.getState().past);
   const fins = useSyncExternalStore(
@@ -316,8 +327,16 @@ export const Sidebar = memo(function Sidebar({
             {onUnitChange && (
               <Panel>
                 <PanelBody className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
-                  <span className="text-muted-foreground">Display units</span>
-                  <UnitSelect value={units.key} onChange={onUnitChange} />
+                  <span className="text-muted-foreground">Measurements</span>
+                  <div className="flex items-center gap-1">
+                    <UnitSelect value={units.key} onChange={onUnitChange} />
+                    {onMeasurementAxisChange && (
+                      <MeasurementAxisSelect
+                        value={measurementAxis}
+                        onChange={onMeasurementAxisChange}
+                      />
+                    )}
+                  </div>
                 </PanelBody>
               </Panel>
             )}

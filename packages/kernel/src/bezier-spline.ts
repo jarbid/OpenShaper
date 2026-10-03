@@ -386,6 +386,28 @@ export const splineLengthToX = (s: Spline, x: number): number => {
   return len + curveLength(s.coeffs[i]!, T_ZERO, tForX(s.coeffs[i]!, x));
 };
 
+/**
+ * Board-axis station at a cumulative distance along a longitudinal spline.
+ * This is the inverse of {@link splineLengthToX} for the x-monotone outline,
+ * deck, and bottom curves used by a board.
+ */
+export const splineXAtLength = (s: Spline, length: number): number => {
+  const x0 = s.knots[0]!.end.x;
+  const x1 = s.knots[s.knots.length - 1]!.end.x;
+  const total = splineLength(s);
+  if (length <= 0) return x0;
+  if (length >= total) return x1;
+
+  let lo = x0;
+  let hi = x1;
+  for (let i = 0; i < 48; i++) {
+    const mid = (lo + hi) / 2;
+    if (splineLengthToX(s, mid) < length) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+};
+
 export const maxX = (s: Spline): number => {
   let m = -1e5;
   for (const k of s.coeffs) m = Math.max(m, curveMaxX(k));
