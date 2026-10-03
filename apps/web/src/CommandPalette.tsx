@@ -1,5 +1,6 @@
 import { Input, Panel, type MenuItem } from '@openshaper/ui';
 import { useMemo, useState } from 'react';
+import { Modal } from './components/modal';
 
 /** One executable entry in the command palette, derived from a menu item. */
 export interface Command {
@@ -78,10 +79,11 @@ export function CommandPalette({
   };
 
   return (
-    <div
-      data-modal="command-palette"
-      className="fixed inset-0 z-50 flex justify-center bg-black/60 px-4 pt-20 sm:pt-24"
-      onClick={onClose}
+    <Modal
+      name="command-palette"
+      label="Command palette"
+      onClose={onClose}
+      className="flex justify-center px-4 pt-20 sm:pt-24"
     >
       <Panel
         className="flex h-fit max-h-[60vh] w-full max-w-lg flex-col"
@@ -121,6 +123,6 @@ export function CommandPalette({
           )}
         </div>
       </Panel>
-    </div>
+    </Modal>
   );
 }

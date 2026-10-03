@@ -12,7 +12,7 @@
  * the rest of the share feature.
  */
 import { Button, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
-import { useEffect } from 'react';
+import { Modal } from './components/modal';
 
 export interface SharedBoardPromptProps {
   /** The shared board's model name, when it has one. */
@@ -22,19 +22,13 @@ export interface SharedBoardPromptProps {
 }
 
 export function SharedBoardPrompt({ model, onKeepCurrent, onOpenShared }: SharedBoardPromptProps) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      // Escape is the conservative choice here, which is keeping your own work.
-      if (e.key === 'Escape') onKeepCurrent();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onKeepCurrent]);
-
   return (
-    <div
-      data-modal="shared-board"
-      className="ph-no-capture fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
+    <Modal
+      name="shared-board"
+      label="Open shared board?"
+      onClose={onKeepCurrent}
+      closeOnBackdrop={false}
+      className="ph-no-capture grid place-items-center p-4"
     >
       <Panel className="flex w-full max-w-md flex-col">
         <PanelHeader>
@@ -65,6 +59,6 @@ export function SharedBoardPrompt({ model, onKeepCurrent, onOpenShared }: Shared
           </Button>
         </div>
       </Panel>
-    </div>
+    </Modal>
   );
 }

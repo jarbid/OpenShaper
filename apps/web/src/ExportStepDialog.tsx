@@ -11,7 +11,7 @@
  * Modeled on ExportPdf1to1Dialog (backdrop + Panel, Escape-to-close, reset).
  */
 import { Button, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { fmtSmallLen, unitSuffix, type LengthUnit } from './format';
 import { SelectRow } from './export-form-atoms';
 import {
@@ -21,6 +21,7 @@ import {
   type StepSettings,
   type StepUnitChoice,
 } from './step-export-settings';
+import { Modal } from './components/modal';
 
 /** What each accuracy setting means, in terms a shaper can weigh. */
 const ACCURACY_NOTES: Record<StepAccuracy, string> = {
@@ -44,14 +45,6 @@ export function ExportStepDialog({ units, settings, onExport, onClose }: ExportS
   const set = <K extends keyof StepSettings>(key: K, value: StepSettings[K]): void =>
     setDraft((prev) => ({ ...prev, [key]: value }));
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   const exportNow = () => {
     onExport(draft);
     onClose();
@@ -60,10 +53,11 @@ export function ExportStepDialog({ units, settings, onExport, onClose }: ExportS
   const toleranceCm = STEP_TOLERANCE_CM[draft.accuracy];
 
   return (
-    <div
-      data-modal="export-step"
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
-      onClick={onClose}
+    <Modal
+      name="export-step"
+      label="Export STEP"
+      onClose={onClose}
+      className="grid place-items-center p-4"
     >
       <Panel
         className="flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto"
@@ -128,6 +122,6 @@ export function ExportStepDialog({ units, settings, onExport, onClose }: ExportS
           </div>
         </div>
       </Panel>
-    </div>
+    </Modal>
   );
 }

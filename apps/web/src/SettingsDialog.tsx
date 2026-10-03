@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { DEFAULT_SETTINGS, type EditorSettings } from './settings';
 import { useNumericField } from './use-numeric-field';
+import { Modal } from './components/modal';
 
 // ---- tiny form atoms -------------------------------------------------------
 
@@ -125,10 +126,11 @@ export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProp
   };
 
   return (
-    <div
-      data-modal="settings"
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
-      onClick={onClose}
+    <Modal
+      name="settings"
+      label="Settings"
+      onClose={onClose}
+      className="grid place-items-center p-4"
     >
       <Panel
         className="flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto"
@@ -250,6 +252,6 @@ export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProp
           </div>
         </div>
       </Panel>
-    </div>
+    </Modal>
   );
 }

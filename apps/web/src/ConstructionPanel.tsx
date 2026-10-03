@@ -45,6 +45,7 @@ import {
   unitDecimals,
   unitSuffix,
 } from './format';
+import { Modal } from './components/modal';
 
 /** The board dimensions used to compose the export note (internal cm). */
 export interface PanelSpecs {
@@ -223,10 +224,11 @@ export function ConstructionPanel({
   };
 
   return (
-    <div
-      data-modal="construction"
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
-      onClick={onClose}
+    <Modal
+      name="construction"
+      label="Hollow wood frame construction templates"
+      onClose={onClose}
+      className="grid place-items-center p-4"
     >
       <Panel
         className="flex max-h-[90vh] w-full max-w-5xl flex-col"
@@ -763,7 +765,7 @@ export function ConstructionPanel({
           </div>
         </PanelBody>
       </Panel>
-    </div>
+    </Modal>
   );
 }
 

@@ -160,7 +160,7 @@ crosses the notch. Mesh unaffected. Effort S.
 
 ## Accessibility and dialogs
 
-**P34 · Dialogs have no `role="dialog"`, `aria-modal` or focus trap**, and Settings,
+**P34 · ✅ Done (c7796bf) — Dialogs have no `role="dialog"`, `aria-modal` or focus trap**, and Settings,
 Import warnings and Construction have no Escape handling. A shared `<Modal>` would fix all
 of them, together with Phase 2 item 15. Effort M · visible: keyboard and screen-reader
 users.
