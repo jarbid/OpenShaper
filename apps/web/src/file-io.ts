@@ -315,7 +315,7 @@ export function exportBoard(
   const slug = slugifyName(meta?.model);
   switch (format) {
     case 'stl':
-      return download(exportStl(board), `${slug}.stl`, 'model/stl');
+      return download(exportStl(board) as unknown as BlobPart, `${slug}.stl`, 'model/stl');
     case 'dxf':
       return download(
         exportDxf(board, { ghostBoard: ghost, curveMode: 'polyline' }),

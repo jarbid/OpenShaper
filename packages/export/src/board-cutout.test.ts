@@ -2,7 +2,7 @@
 import { board, crossSection, knot, splineFromKnots, vec2 } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
 import { planOutlineLoop } from './board-curves';
-import { exportStl } from './stl';
+import { exportStlAscii } from './stl';
 
 const third = (ax: number, ay: number, bx: number, by: number): [number, number] => [
   ax + (bx - ax) / 3,
@@ -66,8 +66,8 @@ describe('export: concave tail', () => {
     expect(folds).toBe(true);
   });
 
-  it('exportStl emits the notch gap in the tail (two pods)', () => {
-    const stl = exportStl(swallowBoard, { lengthSteps: 80, ringSteps: 40 });
+  it('the STL surface emits the notch gap in the tail (two pods)', () => {
+    const stl = exportStlAscii(swallowBoard, { lengthSteps: 80, ringSteps: 40 });
     expect(stl).toContain('solid');
     expect(stl).toContain('facet');
 
