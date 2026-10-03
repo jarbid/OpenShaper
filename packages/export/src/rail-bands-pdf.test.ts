@@ -136,10 +136,13 @@ describe('exportRailBandsPdf', () => {
   it('breaks a dimension whose mark lands off the crop, keeping the true number', () => {
     // A narrow crop puts the innermost deck mark outside the page. The number must
     // survive; only the line through it is interrupted.
-    const st = railFacetsAt(makeTestBoard(), railFacetStations(makeTestBoard(), {
-      targetSpacingCm: STATIONS.stationSpacingCm,
-      endMarginCm: STATIONS.endMarginCm,
-    })[0]!)!;
+    const st = railFacetsAt(
+      makeTestBoard(),
+      railFacetStations(makeTestBoard(), {
+        targetSpacingCm: STATIONS.stationSpacingCm,
+        endMarginCm: STATIONS.endMarginCm,
+      })[0]!,
+    )!;
     const inner = st.deckFacets[st.deckFacets.length - 1]!;
     const mark = inner.marks.find((m) => m.ref.kind === 'deckPlane')!;
     const text = pdfText({ detailCropCm: 4 });

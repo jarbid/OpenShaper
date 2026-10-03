@@ -20,12 +20,7 @@ import { vec2, type Vec2 } from './vec2';
 import { normalByTT, pointByTT } from './bezier-spline';
 import { parseBrdGeometry } from './test-support/brd-geometry';
 import { circleRailSection, ellipseRailSection, oracle } from './test-support/rail-sections';
-import {
-  bisectionLadder,
-  clearOf,
-  measureLeftover,
-  type RailAngleMode,
-} from './rail-facet-fit';
+import { bisectionLadder, clearOf, measureLeftover, type RailAngleMode } from './rail-facet-fit';
 import {
   MAX_BANDS,
   railBandTradeoff,
@@ -138,7 +133,6 @@ const worstAtRail = (st: RailStationFacets, fromDeg = 45): number => {
   return worst;
 };
 
-
 /**
  * The marks that reproduce a given set of tangent angles — how a shaper would transcribe
  * a fitted sheet back onto a blank.
@@ -148,9 +142,7 @@ const marksFromAngles = (cs: CrossSection, angles: readonly number[]): RailManua
   const railUp = st.deckFacets[0]!.marks.find((m) => m.ref.kind === 'railPlane')!.distance;
   return {
     railPercent: (railUp / st.blank.thickness) * 100,
-    deckIn: st.deckFacets.map(
-      (f) => f.marks.find((m) => m.ref.kind === 'deckPlane')!.distance,
-    ),
+    deckIn: st.deckFacets.map((f) => f.marks.find((m) => m.ref.kind === 'deckPlane')!.distance),
   };
 };
 
@@ -173,9 +165,7 @@ describe('holding the rail corner is manual mode now', () => {
 
   it('and it is still the unconstrained minimum on area, which is what it is for', () => {
     const least = fit(3, 'least-foam', cs);
-    expect(least.leftover.deck.areaCm2).toBeLessThanOrEqual(
-      manual45.leftover.deck.areaCm2 + 1e-9,
-    );
+    expect(least.leftover.deck.areaCm2).toBeLessThanOrEqual(manual45.leftover.deck.areaCm2 + 1e-9);
   });
 });
 
@@ -291,7 +281,6 @@ describe('measuring the leftover', () => {
     expect(m.worstDepth).toBeCloseTo(0, 9);
   });
 });
-
 
 describe('manual marks, the way a shaper pencils them', () => {
   const cs = circleRailSection(W, R);

@@ -22,8 +22,7 @@ import { selectSpecs } from './selectors';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const shortboard = (): BezierBoard =>
-  parseBrd(readFileSync(resolve(here, '../../../docs/specs/golden/shortboard.brd'), 'utf8'))
-    .board;
+  parseBrd(readFileSync(resolve(here, '../../../docs/specs/golden/shortboard.brd'), 'utf8')).board;
 
 const round = (v: unknown): unknown => {
   if (typeof v === 'number') return Number.isFinite(v) ? Number(v.toPrecision(8)) : String(v);

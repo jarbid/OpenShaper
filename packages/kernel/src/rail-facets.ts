@@ -637,7 +637,6 @@ const fitCircle = (pts: readonly Vec2[]): { c: Vec2; r: number; rms: number } | 
   return { c, r, rms: Math.sqrt(acc / n) };
 };
 
-
 /** How deep the section pokes through a facet's plane (cm); 0 when it clears. */
 const intrusionOf = (line: Line, pts: readonly Vec2[]): number => {
   const out = vec2(line.d.y, -line.d.x);
@@ -877,7 +876,11 @@ export const railFacetsForSection = (
   if (opts.angleMode === 'manual' && !manual) {
     warnings.push(warn('bad-angle-input', 'manual mode needs the marks to build from', x));
   }
-  const { angles: deckAngles, error, fallback } = manual
+  const {
+    angles: deckAngles,
+    error,
+    fallback,
+  } = manual
     ? { angles: [] as number[], error: undefined, fallback: undefined }
     : resolveDeckAngles(opts, s, ttApex);
   if (error) warnings.push(warn('bad-angle-input', error, x));

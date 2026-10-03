@@ -53,7 +53,7 @@
  * removed because it duplicated `least-foam` everywhere except that first band. A shaper
  * who wants the corner held now sets it explicitly in `manual` mode, which is a better
  * answer than a mode that only differed in one number.
-  */
+ */
 import { vec2, type Vec2 } from './vec2';
 import { DEG_TO_RAD, T_ONE } from './constants';
 import { normalByTT, pointByTT, type Spline } from './bezier-spline';
