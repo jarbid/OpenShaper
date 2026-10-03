@@ -113,8 +113,55 @@ const tagRe = (tag: string, flags: string): RegExp => {
  * opening tag, so it handles sibling elements but not deeply nested same-name
  * elements. For the Shape3d format's simple structure this is sufficient.
  */
-const getChildText = (xml: string, tag: string): string | null =>
-  getChildElement(xml, tag)?.trim() ?? null;
+const getChildText = (xml: string, tag: string): string | null => {
+  const inner = getChildElement(xml, tag);
+  return inner === null ? null : xmlText(inner).trim();
+};
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+
+/**
+ * Element text as the XML means it: CDATA sections unwrapped verbatim, and the
+ * five named entities plus numeric references decoded everywhere else. Without
+ * this a designer called "Smith & Sons" came through as "Smith &amp; Sons".
+ */
+export const xmlText = (raw: string): string =>
+  raw
+    .split(/(<!\[CDATA\[[\s\S]*?\]\]>)/)
+    .map((part) =>
+      part.startsWith('<![CDATA[')
+        ? part.slice(9, -3)
+        : part.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (m, ref: string) => {
+            if (ref[0] === '#') {
+              const code =
+                ref[1] === 'x' || ref[1] === 'X'
+                  ? parseInt(ref.slice(2), 16)
+                  : Number(ref.slice(1));
+              return Number.isFinite(code) && code <= 0x10ffff ? String.fromCodePoint(code) : m;
+            }
+            return ENTITIES[ref.toLowerCase()] ?? m;
+          }),
+    )
+    .join('');
+
+/**
+ * Bytes of an XML document as text, in the encoding its declaration names
+ * (`<?xml version="1.0" encoding="ISO-8859-1"?>`), UTF-8 when there is none or the
+ * label is unknown. Shape3d files from Windows tools are often latin1.
+ */
+export const decodeXmlBytes = (bytes: Uint8Array): string => {
+  let head = '';
+  for (let i = 0; i < Math.min(bytes.length, 200); i++) head += String.fromCharCode(bytes[i]!);
+  const label = /^\s*<\?xml[^>]*\bencoding\s*=\s*["']([^"']+)["']/i.exec(head)?.[1];
+  if (label) {
+    try {
+      return new TextDecoder(label).decode(bytes);
+    } catch {
+      // Unknown label: fall through to UTF-8.
+    }
+  }
+  return new TextDecoder('utf-8').decode(bytes);
+};
 
 /**
  * Returns the raw inner content (between open and close tags) of the FIRST

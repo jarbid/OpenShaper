@@ -23,6 +23,7 @@ import { DEFAULT_RAIL_BANDS, type RailBandsSettings } from './rail-bands-setting
 import { manualSpecOf } from './ExportRailBandsDialog';
 import { STEP_TOLERANCE_CM, type StepSettings } from './step-export-settings';
 import {
+  decodeXmlBytes,
   latin1Encode,
   parseBrdFile,
   parseS3d,
@@ -166,7 +167,11 @@ const BOARD_FILE_READERS: Record<string, BoardFileReader> = {
     return { board, meta: toBoardMeta(metadata), warnings };
   },
   '.s3d': async (file) => {
-    const { board: b, metadata, warnings } = parseS3d(await file.text());
+    const {
+      board: b,
+      metadata,
+      warnings,
+    } = parseS3d(decodeXmlBytes(new Uint8Array(await file.arrayBuffer())));
     return {
       board: b,
       meta: { model: metadata?.model, designer: metadata?.designer, comments: metadata?.comments },
@@ -174,7 +179,11 @@ const BOARD_FILE_READERS: Record<string, BoardFileReader> = {
     };
   },
   '.s3dx': async (file) => {
-    const { board: b, metadata, warnings } = parseS3dx(await file.text());
+    const {
+      board: b,
+      metadata,
+      warnings,
+    } = parseS3dx(decodeXmlBytes(new Uint8Array(await file.arrayBuffer())));
     return {
       board: b,
       meta: { model: metadata?.model, designer: metadata?.designer, comments: metadata?.comments },
@@ -186,7 +195,7 @@ const BOARD_FILE_READERS: Record<string, BoardFileReader> = {
     return {
       board: result.board,
       meta: { model: result.model, comments: result.comments },
-      warnings: [],
+      warnings: result.warnings,
     };
   },
 };

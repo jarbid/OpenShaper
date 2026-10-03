@@ -113,3 +113,18 @@ describe('fin type migration (P26)', () => {
     expect(withFinType(text)).toBe('none');
   });
 });
+
+describe('reader gaps (P27)', () => {
+  it('keeps a non-numeric array field as its text instead of NaNs', () => {
+    const { metadata } = parseBrd(readBrd('shortboard').replace(/^p50 : .*$/m, 'p50 : [1.0,abc]'));
+    expect(metadata.fins).toBe('[1.0,abc]');
+  });
+
+  it('keeps an empty cross-section as one point, with a warning', () => {
+    const text = readBrd('shortboard').replace(/\(p36 30\.48\n(\(cp[^\n]*\n)+\)/, '(p36 30.48\n)');
+    const { board, warnings } = parseBrd(text);
+    const cs = board.crossSections.find((c) => Math.abs(c.position - 30.48) < 1e-9)!;
+    expect(cs.spline.knots).toHaveLength(1);
+    expect(warnings.some((w) => /30\.48 had no points/.test(w.message))).toBe(true);
+  });
+});

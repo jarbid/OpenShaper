@@ -18,7 +18,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { getLength, getMaxWidth, getThickness } from '@openshaper/kernel';
-import { parseS3d } from './s3d-reader';
+import { decodeXmlBytes, parseS3d } from './s3d-reader';
 
 // ---------------------------------------------------------------------------
 // Minimal well-formed .s3d fixture
@@ -401,5 +401,32 @@ describe('parseS3d — deck fallback when Deck element absent', () => {
     const result = parseS3d(noDeck);
     expect(result.board.deck.knots.length).toBeGreaterThanOrEqual(2);
     expect(result.warnings.some((w) => /deck/i.test(w.message))).toBe(true);
+  });
+});
+
+describe('parseS3d text decoding (P27)', () => {
+  it('decodes entities and CDATA in metadata', () => {
+    const xml = MINIMAL_S3D.replace(
+      '<Author>Test Author</Author>',
+      '<Author>Smith &amp; Sons &#233;&#x2014;</Author>',
+    ).replace(
+      '<Comment>Self-authored fixture</Comment>',
+      '<Comment><![CDATA[a < b & c]]></Comment>',
+    );
+    const { metadata } = parseS3d(xml);
+    expect(metadata?.designer).toBe('Smith & Sons é—');
+    expect(metadata?.comments).toBe('a < b & c');
+  });
+
+  it('honours the declared encoding of the bytes', () => {
+    const xml = MINIMAL_S3D.replace('encoding="UTF-8"', 'encoding="ISO-8859-1"').replace(
+      '<Name>Test Board</Name>',
+      '<Name>Café</Name>',
+    );
+    const bytes = Uint8Array.from([...xml].map((c) => c.charCodeAt(0))); // latin1 bytes
+    expect(parseS3d(decodeXmlBytes(bytes)).metadata?.model).toBe('Café');
+    // Without a declaration, UTF-8.
+    const utf8 = new TextEncoder().encode(MINIMAL_S3D.replace('Test Board', 'Café'));
+    expect(parseS3d(decodeXmlBytes(utf8)).metadata?.model).toBe('Café');
   });
 });

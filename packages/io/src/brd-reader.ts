@@ -2,9 +2,11 @@ import {
   board,
   crossSection,
   defaultFinConfig,
+  knot,
   knotFromArray,
   noFins,
   splineFromKnots,
+  vec2,
   type BezierBoard,
   type CrossSection,
   type FinConfig,
@@ -179,12 +181,15 @@ const parseMetadataValue = (id: number, raw: string): BrdMetadataValue => {
   if (STRING_FIELDS.has(id)) return raw;
   if (BOOL_FIELDS.has(id)) return raw.trim().toLowerCase() === 'true';
   if (raw.startsWith('[') && raw.endsWith(']')) {
-    return raw
+    const values = raw
       .slice(1, -1)
       .split(',')
       .map((s) => s.trim())
       .filter((s) => s.length > 0)
       .map(Number);
+    // An array that is not all numbers stays the text it was, like a scalar does,
+    // rather than becoming NaNs.
+    return values.every(Number.isFinite) ? values : raw;
   }
   const n = Number(raw);
   return Number.isFinite(n) ? n : raw;
@@ -255,7 +260,17 @@ const parseCrossSections = (
       throw new BrdParseError(`(p36 ...) position not a number at line ${cur.i + 1}: ${line}`);
     }
     cur.i++; // consume "(p36 <pos>"
-    const knots = readControlPoints(cur, warnings);
+    let knots = readControlPoints(cur, warnings);
+    if (knots.length === 0) {
+      // An empty section would break every reader of the board downstream. Keep the
+      // station (dropping it would shift which ones are the end markers) as one
+      // point at the origin, like the end markers, and say so.
+      knots = [knot(vec2(0, 0), vec2(0, 0), vec2(0, 0), false, false)];
+      warnings.push({
+        severity: 'info',
+        message: `cross-section at position ${pos} had no points; kept as an empty station`,
+      });
+    }
     sections.push({ position: pos, knots });
     // Consume this section's closing ")".
     if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === ')') {
