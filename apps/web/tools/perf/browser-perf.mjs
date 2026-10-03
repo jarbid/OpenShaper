@@ -4,7 +4,7 @@
  *
  * Profiles: `desktop` (1440×900, unthrottled) and `mobile` (390×844 touch,
  * 4× CPU slowdown, Slow-4G network). For each it records:
- *  - idle: main-thread busy share over 3 s with the 3D view shown and untouched;
+ *  - idle: main-thread busy share over 3 s with the 3D view shown, loaded and untouched;
  *  - initial load of /app: FCP, DOMContentLoaded, load, editor-ready (canvas sized)
  *    and the JS bytes fetched;
  *  - a control-point drag in the outline view: input → next-frame latency per
@@ -328,8 +328,13 @@ async function runProfile(browser, name, profile) {
   if (await reject.isVisible().catch(() => false)) await reject.click();
 
   // --- idle: main-thread busy share over 3 s with the 3D view shown, untouched ---
+  // Wait for the network to go quiet first: the 3D view is a lazy chunk (~860 KB),
+  // and on the throttled phone profile it was still downloading after a fixed 2 s,
+  // so its parse, compile and first render landed in the "idle" window (~15 %
+  // busy; the settled figure is ~0.1 %). See PROPOSALS.md P43.
   await page.keyboard.press('5');
-  await page.waitForTimeout(2000);
+  await page.waitForLoadState('networkidle');
+  await page.waitForTimeout(1000);
   const idleBefore = await metrics(cdp);
   await page.waitForTimeout(3000);
   const idleAfter = await metrics(cdp);
