@@ -260,12 +260,15 @@ const TRACE_HANDLE_R = 9;
 /**
  * Hit radius for a control-point handle, in CSS px. A fingertip is both blunter
  * and less precisely reported than a mouse cursor, so touch gets a target it can
- * actually land on. This is safe to widen only because a drag preserves the grab
- * offset (see GRAB_OFFSET): grabbing a handle from 14px away moves it by what the
- * finger moves, it does not yank it 14px sideways first.
+ * actually land on: 22px is the 44px ergonomic floor as a radius. This is safe to
+ * widen only because a drag preserves the grab offset (see GRAB_OFFSET): grabbing
+ * a handle from 22px away moves it by what the finger moves, it does not yank it
+ * sideways first. Overlapping targets still go to the nearest.
  */
 const HIT_TOL_PX = 8;
-const TOUCH_HIT_TOL_PX = 14;
+const TOUCH_HIT_TOL_PX = 22;
+/** The same floor for a station marker's diamonds; the mouse keeps `hitSectionMarker`'s 10px. */
+const TOUCH_MARKER_TOL_PX = 22;
 
 /**
  * Travel (px) past which a press is a drag rather than a tap.
@@ -855,8 +858,10 @@ export function SplineEditor({
   );
 
   const sectionMarkerAt = useCallback(
-    (p: { x: number; y: number }) =>
-      vp && sectionMarkers ? hitSectionMarker(sectionMarkers, vp, p, size.h) : null,
+    (p: { x: number; y: number }, touch = false) =>
+      vp && sectionMarkers
+        ? hitSectionMarker(sectionMarkers, vp, p, size.h, touch ? TOUCH_MARKER_TOL_PX : undefined)
+        : null,
     [vp, sectionMarkers, size.h],
   );
 
@@ -925,7 +930,7 @@ export function SplineEditor({
           if (holdsEdit(drag.current)) store.getState().endEdit();
           setDraggingSection(null);
           drag.current = null;
-          const marker = sectionMarkerAt(p);
+          const marker = sectionMarkerAt(p, touch);
           if (marker) onPickSection?.(marker.index);
           // The touch radius, not the mouse one: this path is only ever reached by a
           // finger, and picking a point up to drag it used to have a target nearly
@@ -978,7 +983,7 @@ export function SplineEditor({
         return;
       }
       // Left button is select/edit only — never pans.
-      const marker = sectionMarkerAt(p);
+      const marker = sectionMarkerAt(p, touch);
       if (marker && onPickSection) {
         if (focusedSection === marker.index && onMoveSection) {
           drag.current = {
