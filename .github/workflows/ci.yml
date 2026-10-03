@@ -29,3 +29,33 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+
+  # Browser tests (P35). Separate from `verify` so a slow or flaky browser run
+  # never hides a type or unit failure. `e2e` drives the dev server; `e2e:offline`
+  # builds `dist` and is the only check of the service worker / offline promises.
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # The browser build must match the installed @playwright/test version.
+      - run: pnpm --filter @openshaper/web exec playwright install --with-deps chromium
+
+      - run: pnpm --filter @openshaper/web e2e
+      - run: pnpm --filter @openshaper/web e2e:offline
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: apps/web/test-results/
+          retention-days: 7
