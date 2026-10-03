@@ -7,6 +7,7 @@ import {
 } from '@openshaper/store';
 import { handleSideName, visualSideForHandleKind } from '@openshaper/render2d';
 import { Button, Input } from '@openshaper/ui';
+import { Lock, LockOpen } from 'lucide-react';
 import { NumericInput } from './components/numeric-input';
 import { useSyncedText } from './use-numeric-field';
 import { useCallback, useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
@@ -146,6 +147,7 @@ export function SelectedPointEditor({
 }) {
   const board = useSyncExternalStore(store.subscribe, () => store.getState().board);
   const selection = useSyncExternalStore(store.subscribe, () => store.getState().selection);
+  const angleLocks = useSyncExternalStore(store.subscribe, () => store.getState().angleLocks);
 
   const nudge = useCallback(
     (key: ArrowKey): boolean => {
@@ -218,6 +220,9 @@ export function SelectedPointEditor({
     else store.getState().moveTangent(selection.target, selection.index, kind, { x, y });
   };
   const [splineXLabel, splineYLabel] = coordinateLabels(selection.target);
+  const angleLocked = angleLocks.some(
+    (lock) => lock.index === selection.index && sameTarget(lock.target, selection.target),
+  );
 
   return (
     // min-w-0 + horizontal scroll (never wrap): this sits in a fixed-height pane
@@ -227,6 +232,19 @@ export function SelectedPointEditor({
       aria-label={`${label} position editor`}
     >
       <span className="shrink-0 text-xs font-medium text-foreground">{label}</span>
+      <Button
+        size="sm"
+        variant={angleLocked ? 'secondary' : 'ghost'}
+        className="h-7 w-7 shrink-0 p-0 pointer-coarse:h-9 pointer-coarse:w-9"
+        aria-label={angleLocked ? 'Unlock handle angles' : 'Lock handle angles'}
+        title={angleLocked ? 'Unlock handle angles' : 'Lock handle angles'}
+        aria-pressed={angleLocked}
+        onClick={() =>
+          store.getState().setAngleLocked(selection.target, selection.index, !angleLocked)
+        }
+      >
+        {angleLocked ? <Lock /> : <LockOpen />}
+      </Button>
       <HeaderCoordInput
         label={splineXLabel}
         valueCm={point.x}

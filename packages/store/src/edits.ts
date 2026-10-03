@@ -112,8 +112,22 @@ export const moveKnotTangent = (
   index: number,
   which: 'prev' | 'next',
   pos: Vec2,
+  angleLocked = false,
 ): Spline => {
   const k = s.knots[index]!;
+  if (angleLocked) {
+    const current = which === 'prev' ? k.tangentToPrev : k.tangentToNext;
+    const dx = current.x - k.end.x;
+    const dy = current.y - k.end.y;
+    const currentLength = Math.hypot(dx, dy);
+    if (currentLength > 1e-9) {
+      const requestedLength = Math.hypot(pos.x - k.end.x, pos.y - k.end.y);
+      pos = vec2(
+        k.end.x + (dx / currentLength) * requestedLength,
+        k.end.y + (dy / currentLength) * requestedLength,
+      );
+    }
+  }
   let prev = which === 'prev' ? pos : k.tangentToPrev;
   let next = which === 'next' ? pos : k.tangentToNext;
 
