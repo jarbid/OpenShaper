@@ -248,7 +248,10 @@ const getNextCrossSectionPos = (b: BezierBoard, pos: number): number => {
  */
 export const getInterpolatedCrossSection = (b: BezierBoard, x: number): CrossSection | null => {
   const cs = b.crossSections;
-  if (cs.length === 0 || x < 0 || x > getLength(b)) return null;
+  // The first and last stations are end markers; with two or fewer there is no
+  // real station to blend (only imported files get here), and the indexing below
+  // would read past the array.
+  if (cs.length < 3 || x < 0 || x > getLength(b)) return null;
 
   let index = getNearestCrossSectionIndex(b, x);
   if (cs[index]!.position > x) index -= 1;
