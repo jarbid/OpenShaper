@@ -67,6 +67,8 @@ describe('writeBrd — output format', () => {
     const meta = parseBrd(text).metadata;
     expect(meta.model).toBe('Test Model');
     expect(meta.designer).toBe('Jane');
-    expect(meta.comments).toBe('line one\\nline two');
+    // A real newline again, as legacy BrdReader unescapes it (P25); it used to
+    // come back as the two characters `\n`.
+    expect(meta.comments).toBe('line one\nline two');
   });
 });

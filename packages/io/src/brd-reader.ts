@@ -173,6 +173,9 @@ const parseControlPoint = (line: string, lineNo: number): Knot => {
 };
 
 const parseMetadataValue = (id: number, raw: string): BrdMetadataValue => {
+  // Comments are the one field legacy BrdWriter/BrdReader escape and unescape:
+  // a newline is written as the two characters `\n` and turned back on read.
+  if (id === 49) return raw.replace(/\\n/g, '\n');
   if (STRING_FIELDS.has(id)) return raw;
   if (BOOL_FIELDS.has(id)) return raw.trim().toLowerCase() === 'true';
   if (raw.startsWith('[') && raw.endsWith(']')) {
