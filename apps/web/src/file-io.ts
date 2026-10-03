@@ -23,6 +23,8 @@ import { DEFAULT_RAIL_BANDS, type RailBandsSettings } from './rail-bands-setting
 import { manualSpecOf } from './ExportRailBandsDialog';
 import { STEP_TOLERANCE_CM, type StepSettings } from './step-export-settings';
 import {
+  decodeXmlBytes,
+  latin1Encode,
   parseBrdFile,
   parseS3d,
   parseS3dx,
@@ -140,7 +142,13 @@ export function downloadBrd(board: BezierBoard, meta?: BoardMeta): void {
     comments: meta?.comments,
     finType: meta?.finType,
   });
-  download(text, `${slugifyName(meta?.model)}.brd`, 'application/octet-stream');
+  // Latin1 bytes, not UTF-8: that is what legacy BoardCAD and parseBrd read, so a
+  // "Café" model comes back as itself instead of "CafÃ©".
+  download(
+    latin1Encode(text) as unknown as BlobPart,
+    `${slugifyName(meta?.model)}.brd`,
+    'application/octet-stream',
+  );
 }
 
 type BoardFileReader = (
@@ -159,7 +167,11 @@ const BOARD_FILE_READERS: Record<string, BoardFileReader> = {
     return { board, meta: toBoardMeta(metadata), warnings };
   },
   '.s3d': async (file) => {
-    const { board: b, metadata, warnings } = parseS3d(await file.text());
+    const {
+      board: b,
+      metadata,
+      warnings,
+    } = parseS3d(decodeXmlBytes(new Uint8Array(await file.arrayBuffer())));
     return {
       board: b,
       meta: { model: metadata?.model, designer: metadata?.designer, comments: metadata?.comments },
@@ -167,7 +179,11 @@ const BOARD_FILE_READERS: Record<string, BoardFileReader> = {
     };
   },
   '.s3dx': async (file) => {
-    const { board: b, metadata, warnings } = parseS3dx(await file.text());
+    const {
+      board: b,
+      metadata,
+      warnings,
+    } = parseS3dx(decodeXmlBytes(new Uint8Array(await file.arrayBuffer())));
     return {
       board: b,
       meta: { model: metadata?.model, designer: metadata?.designer, comments: metadata?.comments },
@@ -179,7 +195,7 @@ const BOARD_FILE_READERS: Record<string, BoardFileReader> = {
     return {
       board: result.board,
       meta: { model: result.model, comments: result.comments },
-      warnings: [],
+      warnings: result.warnings,
     };
   },
 };
@@ -299,7 +315,7 @@ export function exportBoard(
   const slug = slugifyName(meta?.model);
   switch (format) {
     case 'stl':
-      return download(exportStl(board), `${slug}.stl`, 'model/stl');
+      return download(exportStl(board) as unknown as BlobPart, `${slug}.stl`, 'model/stl');
     case 'dxf':
       return download(
         exportDxf(board, { ghostBoard: ghost, curveMode: 'polyline' }),

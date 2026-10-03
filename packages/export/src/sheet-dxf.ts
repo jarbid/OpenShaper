@@ -11,6 +11,7 @@
  * don't guess and land the parts at the wrong scale.
  */
 import { BRAND_LINE } from './brand';
+import { dxfText } from './dxf-text';
 import { columnLayout } from './construction/geom';
 import type { Loop, Part, Pt, TemplateSheet } from './construction/types';
 import { SHEET_UNIT, type SheetUnit } from './construction/units';
@@ -60,7 +61,7 @@ const text = (out: string[], p: Pt, h: number, str: string, num: (cm: number) =>
     '40',
     num(h),
     '1',
-    str,
+    dxfText(str),
   );
 };
 
@@ -96,9 +97,9 @@ export const sheetToDxf = (sheet: TemplateSheet, opts: DxfSheetOptions = {}): st
   // Comment-only branding: never geometry a CNC could try to cut.
   const out: string[] = [
     '999',
-    `openshaper.com template: ${sheet.meta?.title ?? ''}`,
+    dxfText(`openshaper.com template: ${sheet.meta?.title ?? ''}`),
     '999',
-    BRAND_LINE,
+    dxfText(BRAND_LINE),
   ];
   headerSection(out, dxfCode);
   tablesSection(out);

@@ -3,7 +3,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { getLength, getMaxWidth, getThickness, getVolume } from '@openshaper/kernel';
-import { parseBrd } from './brd-reader';
+import { parseBrd, parseBrdFile } from './brd-reader';
+import { latin1Encode } from './legacy-crypto';
 import { writeBrd } from './brd-writer';
 
 const goldenDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../docs/specs/golden');
@@ -67,6 +68,25 @@ describe('writeBrd — output format', () => {
     const meta = parseBrd(text).metadata;
     expect(meta.model).toBe('Test Model');
     expect(meta.designer).toBe('Jane');
-    expect(meta.comments).toBe('line one\\nline two');
+    // A real newline again, as legacy BrdReader unescapes it (P25); it used to
+    // come back as the two characters `\n`.
+    expect(meta.comments).toBe('line one\nline two');
+  });
+});
+
+describe('non-ASCII metadata round-trips through the bytes (P24)', () => {
+  it('writes latin1, which the reader decodes, and transliterates the rest', () => {
+    const text = writeBrd(loadBrd('shortboard'), {
+      model: 'Café Fish',
+      designer: 'Søren — “Ő”',
+    });
+    const meta = parseBrdFile(latin1Encode(text)).metadata;
+    expect(meta.model).toBe('Café Fish');
+    expect(meta.designer).toBe('Søren - "O"');
+  });
+
+  it('is one byte per latin1 character, and ? for what has no stand-in', () => {
+    expect([...latin1Encode('é')]).toEqual([0xe9]);
+    expect([...latin1Encode('漢')]).toEqual([0x3f]);
   });
 });

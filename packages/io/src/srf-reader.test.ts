@@ -351,3 +351,22 @@ describe('parseSrf', () => {
     expect(() => parseSrf(buf.buffer.slice(0, o + 3))).toThrow(SrfReadError);
   });
 });
+
+describe('parseSrf hardening (P27)', () => {
+  it('rejects a knot whose coordinate is not a number', () => {
+    const buf = new Uint8Array(buildMinimalSrfBuffer());
+    // Header "1.0 " + "TestModel*" + "Test comment@" (27) + 11 skip + 18 floats (72)
+    // + 113 skip + the outline count (2): the first outline knot's end x.
+    new DataView(buf.buffer).setFloat32(225, NaN, true);
+    expect(() => parseSrf(buf.buffer)).toThrow(/knot end x is not a number/);
+  });
+
+  it('fails on an over-long header string instead of reading on out of step', () => {
+    const buf = new Uint8Array(70_000).fill(0x61); // 'a', never the space sentinel
+    expect(() => parseSrf(buf.buffer)).toThrow(/longer than 65536 bytes/);
+  });
+
+  it('has a warnings channel (empty for a clean file)', () => {
+    expect(parseSrf(buildMinimalSrfBuffer()).warnings).toEqual([]);
+  });
+});

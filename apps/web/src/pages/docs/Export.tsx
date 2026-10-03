@@ -269,7 +269,7 @@ export default function DocsExport() {
  */
 const FORMAT_NOTES: Record<ExportFormat, string> = {
   stl: 'The tessellated 3D surface. For 3D printing, rendering, or importing into other 3D software.',
-  step: 'The hull as true B-spline surfaces, as one solid body. This is the one to use for CAD and CAM: it can be offset, shelled and machined, and the file is around fifty times smaller than the equivalent STL. Fin boxes are not included.',
+  step: 'The hull as true B-spline surfaces, as one solid body. This is the one to use for CAD and CAM: it can be offset, shelled and machined, and the file is around ten times smaller than the equivalent STL. Fin boxes are not included.',
   dxf: 'Outline, rocker and cross-section curves as polylines — approximated as short straight segments, which almost every CAD and CAM package reads.',
   'dxf-spline':
     'The same curves as true splines. Smaller files and exact geometry, if your software supports them.',

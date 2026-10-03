@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import {
   maxY as splineMaxY,
+  maxYAll,
   pointByS,
   pointByTT,
   sByNormalReverse,
@@ -155,7 +156,7 @@ export const getDeckAtPos = (b: BezierBoard, pos: number): number => valueAt(b.d
 export const getThicknessAtPos = (b: BezierBoard, pos: number): number =>
   getDeckAtPos(b, pos) - getRockerAtPos(b, pos);
 
-export const getMaxWidth = (b: BezierBoard): number => splineMaxY(b.outline) * 2;
+export const getMaxWidth = (b: BezierBoard): number => maxYAll(b.outline) * 2;
 export const getMaxWidthPos = (b: BezierBoard): number => xForMaxY(b.outline);
 export const getCenterWidth = (b: BezierBoard): number => getWidthAtPos(b, getLength(b) / 2);
 export const getThickness = (b: BezierBoard): number => getThicknessAtPos(b, getLength(b) / 2);
@@ -204,16 +205,19 @@ export const getNearestCrossSectionIndex = (b: BezierBoard, pos: number): number
 };
 
 /** Previous real cross-section index for x (legacy getPreviousCrossSectionIndex). */
-const getPreviousCrossSectionIndex = (b: BezierBoard, pos: number): number => {
+export const getPreviousCrossSectionIndex = (b: BezierBoard, pos: number): number => {
   let index = getNearestCrossSectionIndex(b, pos);
   if (b.crossSections[index]!.position >= pos) index -= 1;
   if (index === 0) index = 1;
+  // Unreachable, kept as ported: `index` starts at a real station (≤ length - 2)
+  // and only ever decreases, so it never exceeds length - 2. Pinned by
+  // board.station-index.test.ts (P42).
   if (index > b.crossSections.length - 2) index = b.crossSections.length;
   return index;
 };
 
 /** Next real cross-section index for x (legacy getNextCrossSectionIndex). */
-const getNextCrossSectionIndex = (b: BezierBoard, pos: number): number => {
+export const getNextCrossSectionIndex = (b: BezierBoard, pos: number): number => {
   let index = getNearestCrossSectionIndex(b, pos);
   if (b.crossSections[index]!.position < pos) index += 1;
   if (index === 0) index = 1;

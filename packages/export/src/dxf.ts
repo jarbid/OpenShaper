@@ -12,6 +12,7 @@ import {
   type Pt,
 } from './board-curves';
 import { BRAND_LINE } from './brand';
+import { dxfText } from './dxf-text';
 
 /**
  * How curves are written: `'polyline'` flattens the exact beziers to a dense polyline
@@ -88,7 +89,7 @@ const line = (out: string[], a: Pt, b: Pt, layer: Layer, lineType?: string): voi
 /** Emit a TEXT label of height `h` anchored at (x, y) on `layer`. */
 const text = (out: string[], x: number, y: number, h: number, str: string, layer: Layer): void => {
   out.push('0', 'TEXT', '8', layer);
-  out.push('10', num(x), '20', num(y), '30', '0.0', '40', num(h), '1', str);
+  out.push('10', num(x), '20', num(y), '30', '0.0', '40', num(h), '1', dxfText(str));
 };
 
 /** Emit a CIRCLE entity centered at (x, y) with radius `r` on `layer`. */
@@ -239,7 +240,7 @@ export const exportDxf = (board: BezierBoard, opts: DxfOptions = {}): string => 
   };
 
   const out: string[] = [];
-  out.push('999', 'DXF export from openshaper.com', '999', BRAND_LINE);
+  out.push('999', 'DXF export from openshaper.com', '999', dxfText(BRAND_LINE));
   if (mode === 'spline') headerSection(out);
   tablesSection(out);
   out.push('0', 'SECTION', '2', 'ENTITIES');

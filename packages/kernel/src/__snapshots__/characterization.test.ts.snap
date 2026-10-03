@@ -461,65 +461,65 @@ exports[`characterization: lofting + tessellation > default step counts (no targ
 
 exports[`characterization: lofting + tessellation > extreme rocker: mesh at 0.5 cm faces 1`] = `
 {
-  "indexChecksum": 48046140,
+  "indexChecksum": 13894611017,
   "max": [
     100,
-    19.939657,
+    20,
     65,
   ],
   "min": [
     0,
-    -19.939657,
+    -20,
     0,
   ],
   "normalSum": [
-    -5.9604645e-8,
-    0.0000083390623,
+    0,
+    0.0013360865,
     -7.4505806e-9,
   ],
   "positionSum": [
-    100100,
+    1700100,
     0,
-    65065,
+    1105065,
   ],
   "steps": {
     "lengthSteps": 200,
-    "ringSteps": 12,
+    "ringSteps": 172,
   },
-  "triangles": 4000,
-  "vertices": 2002,
+  "triangles": 68000,
+  "vertices": 34002,
 }
 `;
 
 exports[`characterization: lofting + tessellation > extreme rocker: mesh at 1.5 cm faces 1`] = `
 {
-  "indexChecksum": 5402350,
+  "indexChecksum": 169733368,
   "max": [
     100,
-    19.939657,
+    20,
     65,
   ],
   "min": [
     0,
-    -19.939657,
+    -20,
     0,
   ],
   "normalSum": [
-    0,
-    0.00068565458,
-    -2.2351742e-8,
+    2.9802322e-8,
+    0.0099524856,
+    -9.3132257e-10,
   ],
   "positionSum": [
-    33600,
+    187700,
     0,
-    21840,
+    122005,
   ],
   "steps": {
     "lengthSteps": 67,
-    "ringSteps": 12,
+    "ringSteps": 58,
   },
-  "triangles": 1340,
-  "vertices": 672,
+  "triangles": 7504,
+  "vertices": 3754,
 }
 `;
 
@@ -529,7 +529,7 @@ exports[`characterization: lofting + tessellation > extreme rocker: specs, secti
   "centerOfMass": 50,
   "length": 100,
   "maxThickness": 5,
-  "maxWidth": -Infinity,
+  "maxWidth": 40,
   "stations": [
     {
       "f": 0.02,
@@ -1917,15 +1917,15 @@ exports[`characterization: lofting + tessellation > longboard: specs, sections a
 
 exports[`characterization: lofting + tessellation > minimal control points (box): mesh at 0.5 cm faces 1`] = `
 {
-  "indexChecksum": 48046140,
+  "indexChecksum": 13894611017,
   "max": [
     100,
-    19.939657,
+    20,
     5,
   ],
   "min": [
     0,
-    -19.939657,
+    -20,
     0,
   ],
   "normalSum": [
@@ -1934,30 +1934,30 @@ exports[`characterization: lofting + tessellation > minimal control points (box)
     0,
   ],
   "positionSum": [
-    100100,
+    1700100,
     0,
-    5005,
+    85005,
   ],
   "steps": {
     "lengthSteps": 200,
-    "ringSteps": 12,
+    "ringSteps": 172,
   },
-  "triangles": 4000,
-  "vertices": 2002,
+  "triangles": 68000,
+  "vertices": 34002,
 }
 `;
 
 exports[`characterization: lofting + tessellation > minimal control points (box): mesh at 1.5 cm faces 1`] = `
 {
-  "indexChecksum": 5402350,
+  "indexChecksum": 169733368,
   "max": [
     100,
-    19.939657,
+    20,
     5,
   ],
   "min": [
     0,
-    -19.939657,
+    -20,
     0,
   ],
   "normalSum": [
@@ -1966,16 +1966,16 @@ exports[`characterization: lofting + tessellation > minimal control points (box)
     0,
   ],
   "positionSum": [
-    33600,
+    187700,
     0,
-    1680,
+    9385,
   ],
   "steps": {
     "lengthSteps": 67,
-    "ringSteps": 12,
+    "ringSteps": 58,
   },
-  "triangles": 1340,
-  "vertices": 672,
+  "triangles": 7504,
+  "vertices": 3754,
 }
 `;
 
@@ -1985,7 +1985,7 @@ exports[`characterization: lofting + tessellation > minimal control points (box)
   "centerOfMass": 50,
   "length": 100,
   "maxThickness": 5,
-  "maxWidth": -Infinity,
+  "maxWidth": 40,
   "stations": [
     {
       "f": 0.02,

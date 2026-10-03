@@ -10,7 +10,7 @@ import {
   type Knot,
 } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
-import { exportStl } from './stl';
+import { exportStl, exportStlAscii } from './stl';
 import { makeTestBoard } from './fixture.test-helper';
 
 describe('exportStl', () => {
@@ -21,13 +21,13 @@ describe('exportStl', () => {
   };
 
   it('produces a valid ASCII STL solid', () => {
-    const stl = exportStl(board, { lengthSteps: 40, ringSteps: 16 });
+    const stl = exportStlAscii(board, { lengthSteps: 40, ringSteps: 16 });
     expect(stl.startsWith('solid ')).toBe(true);
     expect(stl.trimEnd().endsWith('endsolid openshaper')).toBe(true);
   });
 
   it('emits a positive facet count', () => {
-    const stl = exportStl(board, { lengthSteps: 40, ringSteps: 16 });
+    const stl = exportStlAscii(board, { lengthSteps: 40, ringSteps: 16 });
     const facets = stl.match(/facet normal/g)?.length ?? 0;
     expect(facets).toBeGreaterThan(0);
     // facet / outer loop / vertex×3 should be balanced.
@@ -35,35 +35,35 @@ describe('exportStl', () => {
   });
 
   it('contains no NaN or Infinity in vertices/normals', () => {
-    const stl = exportStl(board, { lengthSteps: 40, ringSteps: 16 });
+    const stl = exportStlAscii(board, { lengthSteps: 40, ringSteps: 16 });
     expect(stl).not.toMatch(/NaN/);
     expect(stl).not.toMatch(/Infinity/);
   });
 
   it('respects the name option', () => {
-    const stl = exportStl(board, { name: 'mytest', lengthSteps: 8, ringSteps: 8 });
+    const stl = exportStlAscii(board, { name: 'mytest', lengthSteps: 8, ringSteps: 8 });
     expect(stl.startsWith('solid mytest')).toBe(true);
     expect(stl.trimEnd().endsWith('endsolid mytest')).toBe(true);
   });
 
   it('defaults to a fine, dense mesh and a finer target gives more facets', () => {
-    const fine = exportStl(board, { targetFaceSize: 0.5 });
-    const coarse = exportStl(board, { targetFaceSize: 4 });
+    const fine = exportStlAscii(board, { targetFaceSize: 0.5 });
+    const coarse = exportStlAscii(board, { targetFaceSize: 4 });
     const count = (s: string) => s.match(/facet normal/g)?.length ?? 0;
     expect(count(fine)).toBeGreaterThan(count(coarse));
     // The default (no options) is fine, so plenty of facets for a 100cm test board.
-    expect(count(exportStl(board))).toBeGreaterThan(500);
+    expect(count(exportStlAscii(board))).toBeGreaterThan(500);
   });
 
   it('appends fin blade solids (more facets than the bare hull), and can opt out', () => {
     const opts = { lengthSteps: 40, ringSteps: 16 } as const;
     const count = (s: string) => s.match(/facet normal/g)?.length ?? 0;
-    const hull = count(exportStl(board, opts));
-    const withFins = count(exportStl(finned(), opts));
-    const without = count(exportStl(finned(), { ...opts, includeFins: false }));
+    const hull = count(exportStlAscii(board, opts));
+    const withFins = count(exportStlAscii(finned(), opts));
+    const without = count(exportStlAscii(finned(), { ...opts, includeFins: false }));
     expect(withFins).toBeGreaterThan(hull);
     expect(without).toBe(hull);
-    expect(exportStl(finned(), opts)).not.toMatch(/NaN/);
+    expect(exportStlAscii(finned(), opts)).not.toMatch(/NaN/);
   });
 });
 
@@ -181,7 +181,7 @@ describe('exportStl: continuity across a mismatched knot-count station', () => {
   };
 
   const stlOf = (b: ReturnType<typeof prism>) =>
-    exportStl(b, { lengthSteps: 200, ringSteps: 24, includeFins: false });
+    exportStlAscii(b, { lengthSteps: 200, ringSteps: 24, includeFins: false });
 
   it('samples every station on the same profile (no crease in the exported hull)', () => {
     // The prism's true shape never varies along x, so every longitudinal edge
@@ -206,5 +206,33 @@ describe('exportStl: continuity across a mismatched knot-count station', () => {
     const uniform = bandJump(stlOf(uniformPrism()));
     expect(uniform).toBeLessThan(1e-6);
     expect(bandJump(stlOf(prism()))).toBeLessThan(uniform + 1e-4);
+  });
+});
+
+describe('exportStl: binary (P29)', () => {
+  const board = makeTestBoard();
+  const opts = { lengthSteps: 40, ringSteps: 16 } as const;
+
+  it('is a well-formed binary STL with the same facets as the ASCII form', () => {
+    const bin = exportStl(board, opts);
+    const view = new DataView(bin.buffer, bin.byteOffset, bin.byteLength);
+    const header = String.fromCharCode(...bin.subarray(0, 80)).replace(/\0+$/, '');
+    expect(header.startsWith('solid')).toBe(false); // or readers may take it for ASCII
+    const count = view.getUint32(80, true);
+    expect(bin.byteLength).toBe(84 + 50 * count);
+
+    const ascii = exportStlAscii(board, opts);
+    expect(count).toBe(ascii.match(/facet normal/g)!.length);
+    // First vertex, to float32 precision.
+    const [, x, y, z] = /vertex (\S+) (\S+) (\S+)/.exec(ascii)!.map(Number);
+    expect(view.getFloat32(84 + 12, true)).toBeCloseTo(x!, 4);
+    expect(view.getFloat32(84 + 16, true)).toBeCloseTo(y!, 4);
+    expect(view.getFloat32(84 + 20, true)).toBeCloseTo(z!, 4);
+  });
+
+  it('is several times smaller than the ASCII form', () => {
+    const bin = exportStl(board, opts).byteLength;
+    const ascii = new TextEncoder().encode(exportStlAscii(board, opts)).byteLength;
+    expect(ascii / bin).toBeGreaterThan(3); // ~4× on these meshes
   });
 });

@@ -2,9 +2,11 @@ import {
   board,
   crossSection,
   defaultFinConfig,
+  knot,
   knotFromArray,
   noFins,
   splineFromKnots,
+  vec2,
   type BezierBoard,
   type CrossSection,
   type FinConfig,
@@ -27,9 +29,11 @@ const finConfigFromMeta = (finType: unknown): FinConfig => {
     ? 'quad'
     : s.includes('2+1') || s.includes('2 + 1')
       ? '2+1'
-      : /\b5|five\b/.test(s)
+      : // A standalone 5, not the 5 in "4.5" or "15"; then the word "five".
+        /(?<![\d.])5(?![\d.])|\bfive\b/.test(s)
         ? '5-fin'
-        : s.includes('thruster') || s.includes('tri')
+        : // "tri" as a word or "trifin" / "tri-fin", not "triple stringer".
+          s.includes('thruster') || /\btri(?:-?fins?)?\b/.test(s)
           ? 'thruster'
           : s.includes('twin')
             ? 'twin'
@@ -171,15 +175,21 @@ const parseControlPoint = (line: string, lineNo: number): Knot => {
 };
 
 const parseMetadataValue = (id: number, raw: string): BrdMetadataValue => {
+  // Comments are the one field legacy BrdWriter/BrdReader escape and unescape:
+  // a newline is written as the two characters `\n` and turned back on read.
+  if (id === 49) return raw.replace(/\\n/g, '\n');
   if (STRING_FIELDS.has(id)) return raw;
   if (BOOL_FIELDS.has(id)) return raw.trim().toLowerCase() === 'true';
   if (raw.startsWith('[') && raw.endsWith(']')) {
-    return raw
+    const values = raw
       .slice(1, -1)
       .split(',')
       .map((s) => s.trim())
       .filter((s) => s.length > 0)
       .map(Number);
+    // An array that is not all numbers stays the text it was, like a scalar does,
+    // rather than becoming NaNs.
+    return values.every(Number.isFinite) ? values : raw;
   }
   const n = Number(raw);
   return Number.isFinite(n) ? n : raw;
@@ -250,7 +260,17 @@ const parseCrossSections = (
       throw new BrdParseError(`(p36 ...) position not a number at line ${cur.i + 1}: ${line}`);
     }
     cur.i++; // consume "(p36 <pos>"
-    const knots = readControlPoints(cur, warnings);
+    let knots = readControlPoints(cur, warnings);
+    if (knots.length === 0) {
+      // An empty section would break every reader of the board downstream. Keep the
+      // station (dropping it would shift which ones are the end markers) as one
+      // point at the origin, like the end markers, and say so.
+      knots = [knot(vec2(0, 0), vec2(0, 0), vec2(0, 0), false, false)];
+      warnings.push({
+        severity: 'info',
+        message: `cross-section at position ${pos} had no points; kept as an empty station`,
+      });
+    }
     sections.push({ position: pos, knots });
     // Consume this section's closing ")".
     if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === ')') {
