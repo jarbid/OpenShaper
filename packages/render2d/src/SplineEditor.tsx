@@ -1099,6 +1099,41 @@ export function SplineEditor({
     ],
   );
 
+  // No drag: report the hovered world point for the readout HUD + cross-pane scrub,
+  // and the hovered marker / control for highlight and cursor.
+  const applyHover = (p: { x: number; y: number }) => {
+    if (!vp) return;
+    const w = screenToWorld(vp, p);
+    if (readout) setHover(w);
+    onScrub?.(w.x);
+    const marker = sectionMarkerAt(p);
+    setHoveredSection(marker?.index ?? null);
+    const picked = marker ? null : hitAny(p);
+    setHoveredControl(picked);
+    if (!spaceHeld.current)
+      setCursor(
+        marker && marker.index === focusedSection
+          ? 'ew-resize'
+          : marker
+            ? 'pointer'
+            : picked
+              ? 'pointer'
+              : 'crosshair',
+      );
+  };
+  // The frame callback runs after the render that scheduled it may be stale, so it
+  // calls the latest applyHover through a ref.
+  const applyHoverRef = useRef(applyHover);
+  applyHoverRef.current = applyHover;
+  const touchHoverAt = useRef<{ x: number; y: number } | null>(null);
+  const touchHoverFrame = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (touchHoverFrame.current !== null) cancelAnimationFrame(touchHoverFrame.current);
+    },
+    [],
+  );
+
   const onPointerMove = useCallback(
     (e: React.PointerEvent) => {
       const d = drag.current;
@@ -1150,24 +1185,21 @@ export function SplineEditor({
       }
 
       if (!d) {
-        // No drag: report the hovered world point for the readout HUD + cross-pane scrub.
-        const w = screenToWorld(vp, p);
-        if (readout) setHover(w);
-        onScrub?.(w.x);
-        const marker = sectionMarkerAt(p);
-        setHoveredSection(marker?.index ?? null);
-        const picked = marker ? null : hitAny(p);
-        setHoveredControl(picked);
-        if (!spaceHeld.current)
-          setCursor(
-            marker && marker.index === focusedSection
-              ? 'ew-resize'
-              : marker
-                ? 'pointer'
-                : picked
-                  ? 'pointer'
-                  : 'crosshair',
-          );
+        if (e.pointerType === 'touch') {
+          // A finger moving over empty canvas fires far more often than a frame,
+          // and every hover update re-renders the app (the scrub line crosses
+          // panes). Keep the latest point and apply it once per frame.
+          touchHoverAt.current = p;
+          if (touchHoverFrame.current === null) {
+            touchHoverFrame.current = requestAnimationFrame(() => {
+              touchHoverFrame.current = null;
+              const q = touchHoverAt.current;
+              if (q) applyHoverRef.current(q);
+            });
+          }
+          return;
+        }
+        applyHoverRef.current(p);
         return;
       }
       if (d.mode === 'pan') {
@@ -1253,18 +1285,7 @@ export function SplineEditor({
       if (d.hit.kind === 'end') store.getState().moveControlPoint(d.target, d.hit.index, held);
       else store.getState().moveTangent(d.target, d.hit.index, d.hit.kind, held);
     },
-    [
-      localPoint,
-      vp,
-      store,
-      readout,
-      onScrub,
-      cancelLongPress,
-      sectionMarkerAt,
-      focusedSection,
-      onMoveSection,
-      hitAny,
-    ],
+    [localPoint, vp, store, cancelLongPress, onMoveSection],
   );
 
   const onPointerUp = useCallback(
