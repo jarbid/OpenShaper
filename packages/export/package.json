@@ -15,6 +15,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit",
+    "coverage": "vitest run --passWithNoTests --coverage --coverage.include=src --coverage.reporter=text-summary --coverage.reporter=json-summary",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
