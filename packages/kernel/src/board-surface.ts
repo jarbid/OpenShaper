@@ -310,6 +310,11 @@ export const sampleHalfRing = (board: BezierBoard, x: number, cols: number): Ver
     const onSeam = j === 0 || j === cols - 1;
     out.push({ x, y: onSeam ? 0 : p.x, z });
   }
+  const sampledWidth = out.reduce((widest, p) => Math.max(widest, p.y), 0);
+  if (sampledWidth > 0) {
+    const correction = section.halfWidth / sampledWidth;
+    for (const p of out) p.y *= correction;
+  }
   return out;
 };
 

@@ -25,7 +25,7 @@ import { describe, expect, it } from 'vitest';
 import { arcLengthTable, pointAtArcFraction } from './bezier-spline';
 import { getInterpolatedCrossSection, getLength, type BezierBoard } from './board';
 import { crossSection, scaleCrossSection } from './cross-section';
-import { CURVATURE_BIAS, ringFractions } from './loft';
+import { CURVATURE_BIAS, loftPoint, loftSection, ringFractions } from './loft';
 import { applyRailProfile, RAIL_PRESETS } from './rail-profile';
 import { parseBrdGeometry } from './test-support/brd-geometry';
 import type { Vec2 } from './vec2';
@@ -63,14 +63,14 @@ const distToSegment = (p: Vec2, a: Vec2, b: Vec2): number => {
  * actually sees as faceting, and what a CAD tessellator's sag tolerance bounds.
  */
 const chordError = (board: BezierBoard, index: number, points: number): number => {
-  const table = arcLengthTable(scaleCrossSection(board.crossSections[index]!, 6, 45).spline);
+  const section = loftSection(board, board.crossSections[index]!.position)!;
   const fs = ringFractions(board, points);
   let worst = 0;
   for (let i = 0; i < fs.length - 1; i++) {
-    const a = pointAtArcFraction(table, fs[i]!);
-    const b = pointAtArcFraction(table, fs[i + 1]!);
+    const a = loftPoint(section, fs[i]!);
+    const b = loftPoint(section, fs[i + 1]!);
     for (let s = 1; s < 40; s++) {
-      const p = pointAtArcFraction(table, fs[i]! + (fs[i + 1]! - fs[i]!) * (s / 40));
+      const p = loftPoint(section, fs[i]! + (fs[i + 1]! - fs[i]!) * (s / 40));
       worst = Math.max(worst, distToSegment(p, a, b));
     }
   }
@@ -95,12 +95,12 @@ describe('ring points follow curvature', () => {
     // be reduced to a handful of very long facets: at β=0.5 the longest gap is
     // 3.37 cm, at β=2 it is 6.36 cm.
     const { board, hard } = railBoard();
-    const table = arcLengthTable(scaleCrossSection(board.crossSections[hard]!, 6, 45).spline);
+    const section = loftSection(board, board.crossSections[hard]!.position)!;
     const fs = ringFractions(board, HALF);
     let longest = 0;
     for (let i = 0; i < fs.length - 1; i++) {
-      const a = pointAtArcFraction(table, fs[i]!);
-      const b = pointAtArcFraction(table, fs[i + 1]!);
+      const a = loftPoint(section, fs[i]!);
+      const b = loftPoint(section, fs[i + 1]!);
       longest = Math.max(longest, Math.hypot(b.x - a.x, b.y - a.y));
     }
     expect(longest).toBeLessThan(4.5);

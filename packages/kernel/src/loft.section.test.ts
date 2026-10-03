@@ -60,6 +60,8 @@ const mixedRails = (b: BezierBoard): BezierBoard => {
   return { ...b, crossSections: list };
 };
 
+const exactScaleCache = new WeakMap<BezierBoard, Map<number, number>>();
+
 /**
  * The blend the loft approximates, computed exactly: no arc-length table, no rebuild.
  *
@@ -82,13 +84,31 @@ const exactBlendPoint = (b: BezierBoard, x: number, f: number): Vec2 => {
 
   const thickness = Math.max(MIN_DIM, getThicknessAtPos(b, x));
   const width = Math.max(MIN_DIM, getWidthAtPos(b, x));
-  const a = pointByS(scaleCrossSection(cs[index]!, thickness, width).spline, f);
-  const c = pointByS(scaleCrossSection(cs[nextIndex]!, thickness, width).spline, f);
-  return vec2(a.x + (c.x - a.x) * d, a.y + (c.y - a.y) * d);
+  const prev = scaleCrossSection(cs[index]!, thickness, width).spline;
+  const next = scaleCrossSection(cs[nextIndex]!, thickness, width).spline;
+  const blend = (fraction: number): Vec2 => {
+    const a = pointByS(prev, fraction);
+    const c = pointByS(next, fraction);
+    return vec2(a.x + (c.x - a.x) * d, a.y + (c.y - a.y) * d);
+  };
+  let perBoard = exactScaleCache.get(b);
+  if (!perBoard) {
+    perBoard = new Map();
+    exactScaleCache.set(b, perBoard);
+  }
+  let scale = perBoard.get(x);
+  if (scale === undefined) {
+    let widest = 0;
+    for (let i = 0; i <= 2048; i++) widest = Math.max(widest, blend(i / 2048).x);
+    scale = widest > 0 ? width / 2 / widest : 1;
+    perBoard.set(x, scale);
+  }
+  const p = blend(f);
+  return vec2(p.x * scale, p.y);
 };
 
 /** Densely sampled points of a rebuilt section, for nearest-point comparison. */
-const denseCurve = (b: BezierBoard, x: number, n = 3000): Vec2[] => {
+const denseCurve = (b: BezierBoard, x: number, n = 5000): Vec2[] => {
   const cs = loftCrossSection(b, x);
   expect(cs).not.toBeNull();
   const table = arcLengthTable(cs!.spline);
@@ -215,7 +235,9 @@ describe('loftCrossSection', () => {
     const board = mixedRails(golden('longboard.brd'));
     for (const x of railFacetStations(board)) {
       const surface = loftSection(board, x)!;
-      const half = Math.max(...Array.from({ length: 401 }, (_, i) => loftPoint(surface, i / 400).x));
+      const half = Math.max(
+        ...Array.from({ length: 401 }, (_, i) => loftPoint(surface, i / 400).x),
+      );
       for (const frac of [0.15, 0.35, 0.55, 0.75, 0.88, 0.95]) {
         const y = half * frac;
         // Where the lofted profile crosses this lateral, interpolated between samples:

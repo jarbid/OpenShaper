@@ -70,6 +70,22 @@ either side of it, and agrees with what `deckZAt` / `bottomZAt` report),
 moves no printed number by more than 0.02 mm) and `board-curves.loft.test.ts` (the
 DXF and PDF sections are the lofted curve, segment for segment).
 
+**2026-10-03 — the loft now reaches the authored outline.** Equal-arc point
+correspondence can pair the widest point of one station with an inboard point on
+its neighbour when their rail apexes occur at different profile fractions. The
+blend then falls inside the independently authored outline even though both source
+sections have the correct width. `loftSection` now measures the maximum of that
+piecewise-linear blend and applies the minimal lateral normalization needed to
+recover the outline half-width. Sampled viewport, STEP and STL rings receive a
+final sampling correction so their finite point sets reach it exactly as well.
+This preserves the established bottom-to-deck correspondence, section fairness,
+and shape-preserving re-knot invariance; it changes only the lateral scale that
+was previously short. The analytic shifted-apex fixture in
+`loft.outline.test.ts` is the replacement oracle, while `loft.pinch.test.ts`,
+`rail-facets.loft.test.ts`, and `section-fit.test.ts` pin the invariants. Kernel
+characterization snapshots are regenerated in the same change; no tolerance or
+input golden board is altered.
+
 **The two still on control points, and why.**
 
 - **`insertCrossSection`** was fixed separately, and not by swapping the model.

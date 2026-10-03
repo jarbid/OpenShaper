@@ -62,7 +62,10 @@ const sampleRing = (board: BezierBoard, pos: number, ringSteps: number): P3[] | 
     const p = loftPoint(section, fs[r]!);
     ring.push({ x: pos, y: p.x, z: p.y + section.rocker });
   }
-  return ring;
+  const sampledWidth = ring.reduce((widest, p) => Math.max(widest, p.y), 0);
+  if (!(sampledWidth > 0)) return ring;
+  const correction = section.halfWidth / sampledWidth;
+  return ring.map((p) => ({ ...p, y: p.y * correction }));
 };
 
 const triNormal = (a: P3, b: P3, c: P3): P3 => {

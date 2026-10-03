@@ -89,8 +89,9 @@ export interface Vert3 {
 /**
  * The two bracketing station profiles at some x, ready to sample.
  *
- * Both are already scaled to the board's thickness and width at that x, so a
- * blend of the two needs no further correction.
+ * Both are already scaled to the board's thickness and width at that x. Because
+ * their widest points can occur at different arc fractions, the blended profile
+ * carries the small lateral correction needed to recover the outline width.
  */
 export interface LoftedSection {
   /** Arc-length table of the preceding station's scaled profile. */
@@ -101,7 +102,31 @@ export interface LoftedSection {
   readonly d: number;
   /** Height of the bottom centreline at this station. */
   readonly rocker: number;
+  /** Outline half-width that this section must reach. */
+  readonly halfWidth: number;
+  /** Minimal lateral correction for the blended profile to reach `halfWidth`. */
+  readonly lateralScale: number;
 }
+
+const blendedPoint = (prev: ArcTable, next: ArcTable, d: number, f: number): Vec2 => {
+  const a = pointAtArcFraction(prev, f);
+  const b = pointAtArcFraction(next, f);
+  return vec2(a.x + (b.x - a.x) * d, a.y + (b.y - a.y) * d);
+};
+
+/** Exact maximum of the piecewise-linear table blend occurs at a breakpoint of either table. */
+const blendedMaxX = (prev: ArcTable, next: ArcTable, d: number): number => {
+  let widest = 0;
+  const scan = (table: ArcTable) => {
+    if (!(table.total > 0)) return;
+    for (const length of table.cum) {
+      widest = Math.max(widest, blendedPoint(prev, next, d, length / table.total).x);
+    }
+  };
+  scan(prev);
+  if (next !== prev) scan(next);
+  return widest;
+};
 
 /** All three coordinates are finite (no NaN/±Infinity from a degenerate sample). */
 export const isFinite3 = (x: number, y: number, z: number): boolean =>
@@ -169,7 +194,10 @@ export const loftSection = (b: BezierBoard, x: number): LoftedSection | null => 
       ? prevTable
       : arcLengthTable(scaleCrossSection(cs[nextIndex]!, thickness, width).spline);
 
-  return { prev: prevTable, next: nextTable, d, rocker };
+  const halfWidth = width / 2;
+  const blendedWidth = blendedMaxX(prevTable, nextTable, d);
+  const lateralScale = blendedWidth > 0 ? halfWidth / blendedWidth : 1;
+  return { prev: prevTable, next: nextTable, d, rocker, halfWidth, lateralScale };
 };
 
 /**
@@ -179,9 +207,8 @@ export const loftSection = (b: BezierBoard, x: number): LoftedSection | null => 
  * `f = 0` is the bottom centreline, `f = 1` the deck centreline.
  */
 export const loftPoint = (s: LoftedSection, f: number): Vec2 => {
-  const a = pointAtArcFraction(s.prev, f);
-  const b = pointAtArcFraction(s.next, f);
-  return vec2(a.x + (b.x - a.x) * s.d, a.y + (b.y - a.y) * s.d);
+  const p = blendedPoint(s.prev, s.next, s.d, f);
+  return vec2(p.x * s.lateralScale, p.y);
 };
 
 /** Points per rail for a ring of `ringSteps`; both rails share the two centreline points. */
@@ -380,6 +407,11 @@ export const loftRing = (b: BezierBoard, x: number, ringSteps: number): Vert3[] 
   for (let i = half - 2; i >= 1; i--) if (!push(fs[i]!, true)) return null;
 
   if (ring.length < 3) return null;
+  const sampledWidth = ring.reduce((widest, p) => Math.max(widest, Math.abs(p.y)), 0);
+  if (sampledWidth > 0) {
+    const correction = section.halfWidth / sampledWidth;
+    for (const p of ring) p.y *= correction;
+  }
   return ring;
 };
 
