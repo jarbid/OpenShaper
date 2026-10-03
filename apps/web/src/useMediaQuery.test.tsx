@@ -38,6 +38,14 @@ describe('layout tiers', () => {
     expect(trackTier(useIsPhone).seen.at(-1)).toBe(true);
   });
 
+  it('hands over to Tailwind sm exactly at 640px, with no overlap (P18)', () => {
+    // `sm:` styles start at min-width 640px, so 640 itself must not be a phone.
+    setViewport(640, 900);
+    expect(trackTier(useIsPhone).seen.at(-1)).toBe(false);
+    setViewport(639, 900);
+    expect(trackTier(useIsPhone).seen.at(-1)).toBe(true);
+  });
+
   it('does not treat a tablet as a phone', () => {
     setTier('tablet');
     expect(trackTier(useIsPhone).seen.at(-1)).toBe(false);
