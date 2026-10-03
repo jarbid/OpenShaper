@@ -16,13 +16,14 @@ function line(y: number) {
 }
 
 const onCommandPalette = vi.fn();
+const onSave = vi.fn();
 
 function mount() {
   renderHook(() =>
     useKeyboardShortcuts({
       setView: () => {},
       setCsIndex: () => {},
-      metaRef: { current: {} },
+      onSave,
       onCommandPalette,
       clearSectionFocus: () => false,
     }),
@@ -50,6 +51,7 @@ const ctrl = (target: Element | Window, key: string) =>
 
 beforeEach(() => {
   onCommandPalette.mockClear();
+  onSave.mockClear();
   withOneEdit();
   mount();
 });
@@ -127,5 +129,19 @@ describe('dialog marker (P13)', () => {
           .map(() => path),
       );
     expect(unmarked).toEqual([]);
+  });
+});
+
+describe('save (P11)', () => {
+  it('⌘S goes through the app save path', () => {
+    const notPrevented = ctrl(window, 's');
+    expect(onSave).toHaveBeenCalledOnce();
+    expect(notPrevented).toBe(false); // the browser's own Save Page stays closed
+  });
+
+  it('⌘S still saves behind an open dialog', () => {
+    add('div', { 'data-modal': 'settings' });
+    ctrl(window, 's');
+    expect(onSave).toHaveBeenCalledOnce();
   });
 });

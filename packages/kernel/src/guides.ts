@@ -40,6 +40,36 @@ export const crossSectionRing = (
   return ring && ring.length >= 3 ? ring : null;
 };
 
+/**
+ * The outline of the foam at station `x`, as closed loops: one ring normally, and
+ * two lobes inside a concave tail's notch (swallow / fish), where there is no foam
+ * on the stringer to go round.
+ *
+ * In the notch each lobe is the mesh's own half-shell: the half-ring from bottom
+ * centre to deck centre, pushed out to `[yIn, yOut]` exactly as the cutout
+ * tessellator maps it, and closed across the notch wall at `y = yIn`.
+ *
+ * Returns null if the section is missing or degenerate.
+ */
+export const crossSectionLoops = (
+  board: BezierBoard,
+  x: number,
+  steps: number,
+): GuidePoint[][] | null => {
+  const ring = crossSectionRing(board, x, steps);
+  if (!ring) return null;
+  if (!hasTailCutout(board.outline)) return [ring];
+  const { yIn, yOut } = yInOut(cachedOutlineSegments(board.outline), x);
+  if (yIn <= CUTOUT_EPS) return [ring];
+
+  const half = ringHalf(steps);
+  if (ring.length < half || yOut <= yIn + CUTOUT_EPS) return null;
+  const scale = (yOut - yIn) / yOut;
+  const right = ring.slice(0, half).map((p) => ({ x: p.x, y: yIn + p.y * scale, z: p.z }));
+  const left = right.map((p) => ({ ...p, y: -p.y }));
+  return [right, left];
+};
+
 /** Stations along the length, inset a hair from the tips where the section goes null. */
 const stations = (length: number, steps: number): number[] => {
   const n = Math.max(2, Math.floor(steps));

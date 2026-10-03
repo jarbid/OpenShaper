@@ -60,7 +60,9 @@ miss anyway. The App-side `useSpecsWorker` state is the cross-render cache.
 1. In `AppShell`, replace `const specs = settledBoard ? selectSpecs(settledBoard) : null`
    with `const specs = useSpecsWorker(settledBoard)`.
 2. Keep a sync fallback (`typeof Worker === 'undefined'`) for jsdom tests and
-   the vite-react-ssg prerender pass.
+   the vite-react-ssg prerender pass. The same sync path takes over for the rest of
+   the session if the worker itself dies (`onerror`: it failed to load, or threw
+   outside its message handler), so the readouts never sit on "Loading…".
 3. Async consequence: `specs` is `null` for one tick after load and _stale_
    (previous board) for a few ms after a commit. Consumers already handle
    `specs === null`; staleness is invisible at these latencies but the resize

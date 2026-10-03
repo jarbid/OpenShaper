@@ -46,6 +46,10 @@ export function useSpecsWorker(
   const workerRef = useRef<Worker | null>(null);
   const idRef = useRef(0);
   const [result, setResult] = useState<SpecsWorkerResult | null>(null);
+  // Set when the worker itself dies (failed to load, or threw outside the
+  // handler). From then on specs are computed synchronously, like the no-Worker
+  // path, instead of the readouts sitting on "Loading…" for the session.
+  const [workerFailed, setWorkerFailed] = useState(false);
 
   useEffect(() => {
     if (!HAS_WORKER) return;
@@ -65,6 +69,14 @@ export function useSpecsWorker(
         captureError('specs_worker', new Error(`specs worker failed: ${e.data.error}`));
       }
     };
+    worker.onerror = (e: ErrorEvent) => {
+      e.preventDefault();
+      console.error('specs worker crashed; computing on the main thread', e.message);
+      captureError('specs_worker', new Error(`specs worker crashed: ${e.message || 'load error'}`));
+      worker.terminate();
+      workerRef.current = null;
+      setWorkerFailed(true);
+    };
     workerRef.current = worker;
     return () => {
       workerRef.current = null;
@@ -78,7 +90,7 @@ export function useSpecsWorker(
       setResult(null);
       return;
     }
-    if (!HAS_WORKER) {
+    if (!HAS_WORKER || workerFailed) {
       // Synchronous fallback: same logic as the worker so tests exercise the same path.
       const specs = selectSpecs(board);
       let distribution: DistributionSample[] | undefined;
@@ -100,7 +112,7 @@ export function useSpecsWorker(
       distributionIntervals,
     };
     workerRef.current?.postMessage(request);
-  }, [board, wantDistribution, distributionIntervals]);
+  }, [board, wantDistribution, distributionIntervals, workerFailed]);
 
   return result;
 }

@@ -12,7 +12,7 @@
  */
 import { Button, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { useEffect, useState } from 'react';
-import { unitSuffix, type LengthUnit } from './format';
+import { fmtSmallLen, unitSuffix, type LengthUnit } from './format';
 import { SelectRow } from './export-form-atoms';
 import {
   DEFAULT_STEP,
@@ -110,7 +110,7 @@ export function ExportStepDialog({ units, settings, onExport, onClose }: ExportS
           />
           <p className="-mt-3 text-xs text-muted-foreground">
             {ACCURACY_NOTES[draft.accuracy]} Surfaces are fitted to within about{' '}
-            {(toleranceCm * 10).toFixed(2)} mm of the design.
+            {fmtSmallLen(toleranceCm, units)} of the design.
           </p>
         </PanelBody>
 
