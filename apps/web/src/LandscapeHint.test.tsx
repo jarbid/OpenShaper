@@ -1,13 +1,15 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LandscapeHint } from './LandscapeHint';
-import { setTier, setViewport } from './test/viewport';
+import { setPointer, setTier, setViewport } from './test/viewport';
 
 const hint = () => screen.queryByRole('status');
 
 describe('the landscape hint', () => {
   beforeEach(() => {
     localStorage.clear();
+    // A phone: the hint is only for a device that can be turned (P17).
+    setPointer('coarse');
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -17,6 +19,13 @@ describe('the landscape hint', () => {
     setTier('phone');
     render(<LandscapeHint />);
     expect(hint()?.textContent).toContain('sideways');
+  });
+
+  it('stays out of the way in a narrow desktop window, which cannot be turned (P17)', () => {
+    setTier('phone');
+    setPointer('fine');
+    render(<LandscapeHint />);
+    expect(hint()).toBeNull();
   });
 
   it('stays out of the way on a landscape phone', () => {

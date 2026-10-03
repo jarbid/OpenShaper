@@ -45,6 +45,7 @@ export {
   drawVProbe,
   MEASURE_COLORS,
   hitSectionMarker,
+  SECTION_MARKER_HANDLE_OFFSET,
   clear,
   defaultStyle,
   type DrawStyle,

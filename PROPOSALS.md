@@ -97,23 +97,23 @@ Effort S · visible: yes.
 **P16 · ✅ Done (fcd5f61) — Rotating to landscape keeps the sheet at peek** (112 px of a 390 px screen); only
 initial load closes it (`App.tsx:394`). Effort S · visible: yes.
 
-**P17 · "Turn your phone sideways" shows in narrow desktop windows.** Require a coarse
+**P17 · ✅ Done (0ae4084) — "Turn your phone sideways" shows in narrow desktop windows.** Require a coarse
 pointer (`LandscapeHint.tsx:49`). Effort XS · visible: yes.
 
-**P18 · Breakpoint overlap at exactly 640 px** (phone `max-width: 640px` vs Tailwind `sm`
+**P18 · ✅ Done (8bb6460) — Breakpoint overlap at exactly 640 px** (phone `max-width: 640px` vs Tailwind `sm`
 `min-width: 640px`). Effort XS · visible: marginal.
 
-**P19 · Canvas touch targets are below the 44 px floor.** Control points are about 28 px
+**P19 · ✅ Done (28f17cd) — Canvas touch targets are below the 44 px floor.** Control points are about 28 px
 and section markers ignore touch tolerance (10 px). Effort S · visible: yes.
 
-**P20 · Touch hover path.** One finger moving over empty canvas runs hover and scrub,
+**P20 · ✅ Done (7dbb350) — Touch hover path.** One finger moving over empty canvas runs hover and scrub,
 re-rendering the app on every move. Skip it for touch, or batch it per frame.
 Effort S · visible: the scrub line no longer follows a finger.
 
-**P21 · Pane orientation (`turned`) can flip mid-gesture** on a nearly square phone pane.
+**P21 · ✅ Done (057d363) — Pane orientation (`turned`) can flip mid-gesture** on a nearly square phone pane.
 Latch it at pointer-down. Effort S · visible: bug case only.
 
-**P22 · Fins run ahead of the hull during a 3D drag.** Fins update synchronously, the hull
+**P22 · ✅ Done (a0ec6a6) — Fins run ahead of the hull during a 3D drag.** Fins update synchronously, the hull
 waits for the worker. Effort M · visible: the transient misalignment goes away.
 
 ## Files and formats (need `docs/specs/divergences.md` entries)
@@ -195,7 +195,7 @@ clamps `pos` first, so nothing hits it today. A one-line guard (`length - 2`, as
 `next` variant does) would remove the trap, but it changes a legacy-ported function, so it
 needs a golden check. Effort XS · risk low · visible: no.
 
-**P43 · Investigate the phone profile's idle main-thread load** (~14 % busy with the 3D
+**P43 · ✅ Done (119f016) — Investigate the phone profile's idle main-thread load** (~14 % busy with the 3D
 view untouched, before and after the render-on-demand change). It isn't the render loop.
 Worth a profile on a real device before guessing. Effort S · visible: battery.
 

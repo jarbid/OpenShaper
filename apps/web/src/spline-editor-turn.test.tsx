@@ -135,3 +135,21 @@ describe('editing on a turned pane', () => {
     expect(canvas.style.transform).toContain('rotate(-90deg)');
   });
 });
+
+describe('orientation during a gesture (P21)', () => {
+  it('holds still until the finger lifts, then settles', () => {
+    portrait();
+    const { canvas, screenOf, midKnot } = mountEditor({ allowTurn: true });
+    expect(canvas.style.transform).toContain('rotate(-90deg)');
+
+    const on = screenOf(midKnot());
+    fireEvent.pointerDown(canvas, { ...TOUCH, ...on });
+    // Mid-drag the pane goes wide (a keyboard, a rotation, a nearly square pane
+    // crossing the line): the board must not turn under the finger.
+    resizeTo(600, 400);
+    expect(canvas.style.transform, 'still turned while held').toContain('rotate(-90deg)');
+
+    fireEvent.pointerUp(canvas, { ...TOUCH, ...on });
+    expect(canvas.style.transform, 'upright once released').not.toContain('rotate');
+  });
+});
