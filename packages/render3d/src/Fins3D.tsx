@@ -36,17 +36,21 @@ export function Fins3D({
   targetFaceSize: number;
   color?: string;
 }) {
-  const offset = useBoardOffset(board, targetFaceSize);
+  // Built from the board the hull was meshed from, not the live one: the hull waits
+  // for the worker, and fins built synchronously used to run ahead of it mid-drag.
+  const placed = useBoardOffset(board, targetFaceSize);
+  const placedBoard = placed?.board ?? null;
 
   const geometries = useMemo(
-    () => resolveFins(board).map((fin) => rawGeometry(buildFinBladeMesh(fin))),
-    [board],
+    () =>
+      placedBoard ? resolveFins(placedBoard).map((fin) => rawGeometry(buildFinBladeMesh(fin))) : [],
+    [placedBoard],
   );
   useEffect(() => () => geometries.forEach((g) => g.dispose()), [geometries]);
 
-  if (!offset || geometries.length === 0) return null;
+  if (!placed || geometries.length === 0) return null;
   return (
-    <group position={offset}>
+    <group position={placed.offset}>
       {geometries.map((g, i) => (
         <mesh key={i} geometry={g} castShadow>
           <meshStandardMaterial color={color} roughness={0.35} metalness={0.0} side={DoubleSide} />
