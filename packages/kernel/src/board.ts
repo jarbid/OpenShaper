@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import {
   maxY as splineMaxY,
+  maxYAll,
   pointByS,
   pointByTT,
   sByNormalReverse,
@@ -155,7 +156,7 @@ export const getDeckAtPos = (b: BezierBoard, pos: number): number => valueAt(b.d
 export const getThicknessAtPos = (b: BezierBoard, pos: number): number =>
   getDeckAtPos(b, pos) - getRockerAtPos(b, pos);
 
-export const getMaxWidth = (b: BezierBoard): number => splineMaxY(b.outline) * 2;
+export const getMaxWidth = (b: BezierBoard): number => maxYAll(b.outline) * 2;
 export const getMaxWidthPos = (b: BezierBoard): number => xForMaxY(b.outline);
 export const getCenterWidth = (b: BezierBoard): number => getWidthAtPos(b, getLength(b) / 2);
 export const getThickness = (b: BezierBoard): number => getThicknessAtPos(b, getLength(b) / 2);
