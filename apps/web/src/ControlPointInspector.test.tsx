@@ -236,6 +236,34 @@ describe('<ControlPointInspector />', () => {
 });
 
 describe('<SelectedPointEditor />', () => {
+  it('toggles the selected point handle-angle lock before the axis fields', () => {
+    const store = createBoardStore();
+    act(() => {
+      store.getState().load(makeBoard());
+      store.getState().select({ target: { kind: 'outline' }, index: 1, kind: 'end' });
+    });
+
+    render(<SelectedPointEditor store={store} units={DEFAULT_LENGTH_UNIT} targets={[{ kind: 'outline' }]} />); // prettier-ignore
+
+    const unlocked = screen.getByRole('button', { name: 'Lock handle angles' });
+    const xField = screen.getByLabelText('X position');
+    expect(
+      unlocked.compareDocumentPosition(xField) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    fireEvent.click(unlocked);
+    expect(
+      screen.getByRole('button', { name: 'Unlock handle angles' }).getAttribute('aria-pressed'),
+    ).toBe('true');
+    expect(store.getState().angleLocks).toEqual([{ target: { kind: 'outline' }, index: 1 }]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock handle angles' }));
+    expect(
+      screen.getByRole('button', { name: 'Lock handle angles' }).getAttribute('aria-pressed'),
+    ).toBe('false');
+    expect(store.getState().angleLocks).toEqual([]);
+  });
+
   it.each([
     ['prev', 'Right handle'],
     ['next', 'Left handle'],

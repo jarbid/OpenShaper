@@ -199,6 +199,34 @@ describe('moveKnotTangent (continuous=false)', () => {
   });
 });
 
+describe('moveKnotTangent angle lock', () => {
+  it('changes handle length without changing its direction', () => {
+    const s = splineFromKnots([
+      knot(vec2(0, 0), vec2(-1, -1), vec2(2, 2), false),
+      knot(vec2(10, 0), vec2(9, 0), vec2(11, 0), false),
+    ]);
+
+    const moved = moveKnotTangent(s, 0, 'next', vec2(0, 5), true);
+    const handle = moved.knots[0]!.tangentToNext;
+
+    expect(Math.atan2(handle.y, handle.x)).toBeCloseTo(Math.PI / 4, 9);
+    expect(Math.hypot(handle.x, handle.y)).toBeCloseTo(5, 9);
+    expect(moved.knots[0]!.tangentToPrev).toEqual(s.knots[0]!.tangentToPrev);
+  });
+
+  it('keeps smooth opposite handles collinear while locked', () => {
+    const s = splineFromKnots([
+      knot(vec2(0, 0), vec2(-1, 0), vec2(2, 0), true),
+      knot(vec2(10, 0), vec2(9, 0), vec2(11, 0), true),
+    ]);
+
+    const moved = moveKnotTangent(s, 0, 'next', vec2(0, 5), true);
+    const k = moved.knots[0]!;
+    expect(k.tangentToNext).toEqual(vec2(5, 0));
+    expect(k.tangentToPrev).toEqual(vec2(-1, 0));
+  });
+});
+
 // ---------------------------------------------------------------------------
 // moveKnotTangent — continuous = true (collinearity; board-store covers one case
 // already, here we verify the "prev" direction path and length preservation)
