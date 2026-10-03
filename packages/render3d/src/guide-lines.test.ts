@@ -49,7 +49,7 @@ describe('guideLines', () => {
   });
 
   it('closes every ring so the polyline meets itself', () => {
-    const pts = guideLines(makeBoard([50]), FACE, null).sections[0]!.points;
+    const pts = guideLines(makeBoard([50]), FACE, null).sections[0]!.paths[0]!;
     expect(pts.length).toBeGreaterThan(3);
     expect(pts[pts.length - 1]).toEqual(pts[0]);
   });
@@ -57,11 +57,11 @@ describe('guideLines', () => {
   it('produces a stringer loop that stays on the centreline', () => {
     const g = guideLines(makeBoard([50]), FACE, null);
     expect(g.stringer).not.toBeNull();
-    expect(g.stringer!.points.length).toBeGreaterThan(3);
+    expect(g.stringer!.paths[0]!.length).toBeGreaterThan(3);
     // 1e-6 cm, not 0: the arc-length sampler (`pointByCurveLengthAt`) that walks the
     // profile spline converges numerically rather than landing bit-exact on the knot,
     // the same residual `guides.test.ts` in the kernel documents and tolerates.
-    for (const [, y] of g.stringer!.points) expect(Math.abs(y)).toBeLessThan(1e-6);
+    for (const [, y] of g.stringer!.paths[0]!) expect(Math.abs(y)).toBeLessThan(1e-6);
   });
 
   it('gains a ring when a station is added', () => {

@@ -57,21 +57,22 @@ export function Guides3D({
 
   return (
     <group position={offset}>
-      {showStringer && lines.stringer && (
-        <Line points={lines.stringer.points} color={STRINGER_COLOR} lineWidth={2} {...OFFSET} />
-      )}
+      {showStringer &&
+        lines.stringer?.paths.map((points, i) => (
+          <Line key={i} points={points} color={STRINGER_COLOR} lineWidth={2} {...OFFSET} />
+        ))}
       {showSections &&
         lines.sections.map((s) => {
           const active = s.key === activeKey;
-          return (
+          return s.paths.map((points, i) => (
             <Line
-              key={s.key}
-              points={s.points}
+              key={`${s.key}:${i}`}
+              points={points}
               color={active ? ACTIVE_COLOR : SECTION_COLOR}
               lineWidth={active ? 2.5 : 1.5}
               {...OFFSET}
             />
-          );
+          ));
         })}
     </group>
   );
