@@ -48,14 +48,31 @@ export function slugifyName(name: string | undefined): string {
   return slug || 'board';
 }
 
+/**
+ * How long an object URL outlives its click. Safari and Firefox start the
+ * download asynchronously, so revoking straight after `click()` can cancel it;
+ * a minute is far longer than any browser takes to pick the blob up.
+ */
+const REVOKE_AFTER_MS = 60_000;
+
+/**
+ * Gap between the files of a multi-file export. Safari keeps only one download
+ * per task, and other browsers are more likely to ask once ("allow multiple
+ * downloads?") than to drop files when they do not land in the same tick.
+ */
+export const MULTI_DOWNLOAD_GAP_MS = 400;
+
 function download(data: BlobPart, filename: string, type: string): void {
   const blob = new Blob([data], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
+  // Attached for the click: older Firefox ignores clicks on a detached anchor.
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), REVOKE_AFTER_MS);
 }
 
 /** Editable board info (designer/model/etc.), stored in the .board.json metadata. */
@@ -434,7 +451,10 @@ export function downloadPdf1to1(
   });
   // The export package names files 'board-1to1[-part].pdf'; swap in the model slug.
   const slug = slugifyName(meta?.model);
-  for (const f of files) {
-    download(f.bytes as unknown as BlobPart, f.name.replace(/^board/, slug), 'application/pdf');
-  }
+  files.forEach((f, i) => {
+    const save = () =>
+      download(f.bytes as unknown as BlobPart, f.name.replace(/^board/, slug), 'application/pdf');
+    if (i === 0) save();
+    else setTimeout(save, i * MULTI_DOWNLOAD_GAP_MS);
+  });
 }
