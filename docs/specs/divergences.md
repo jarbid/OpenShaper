@@ -140,6 +140,13 @@ reproduces the board geometry exactly (pinned in `brd-writer.test.ts`). No numer
 value is superseded, so there is no table row above — re-importing a written `.brd` into
 BoardCAD-LE simply yields a board with default CAM settings.
 
+Encoding: `.brd` is written as **latin1** bytes (`latin1Encode`), the 8-bit text
+legacy `BrdReader` and our `parseBrd` read, rather than UTF-8. Characters latin1
+cannot hold are transliterated (a stand-in such as `—` → `-`, else accents stripped,
+else `?`). Legacy wrote the JVM's platform charset, which on the Windows machines
+BoardCAD mostly ran on is cp1252: latin1 except for 0x80–0x9F, a range we never emit.
+Comment newlines are escaped as `\n` and unescaped on read (p49 only), as legacy does.
+
 ## Known candidates (not yet diverged)
 
 - **Junction constraints — unimplemented legacy locks/masks** (see

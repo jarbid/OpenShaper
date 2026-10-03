@@ -23,6 +23,7 @@ import { DEFAULT_RAIL_BANDS, type RailBandsSettings } from './rail-bands-setting
 import { manualSpecOf } from './ExportRailBandsDialog';
 import { STEP_TOLERANCE_CM, type StepSettings } from './step-export-settings';
 import {
+  latin1Encode,
   parseBrdFile,
   parseS3d,
   parseS3dx,
@@ -140,7 +141,13 @@ export function downloadBrd(board: BezierBoard, meta?: BoardMeta): void {
     comments: meta?.comments,
     finType: meta?.finType,
   });
-  download(text, `${slugifyName(meta?.model)}.brd`, 'application/octet-stream');
+  // Latin1 bytes, not UTF-8: that is what legacy BoardCAD and parseBrd read, so a
+  // "Café" model comes back as itself instead of "CafÃ©".
+  download(
+    latin1Encode(text) as unknown as BlobPart,
+    `${slugifyName(meta?.model)}.brd`,
+    'application/octet-stream',
+  );
 }
 
 type BoardFileReader = (

@@ -359,6 +359,48 @@ export const latin1Decode = (bytes: Uint8Array): string => {
   return s;
 };
 
+/** Common characters outside latin1 with an obvious ASCII stand-in. */
+const LATIN1_FALLBACK: Record<string, string> = {
+  '‘': "'",
+  '’': "'",
+  '‚': "'",
+  '“': '"',
+  '”': '"',
+  '„': '"',
+  '–': '-',
+  '—': '-',
+  '−': '-',
+  '…': '...',
+  '•': '*',
+  '′': "'",
+  '″': '"',
+  '€': 'EUR',
+  '™': '(TM)',
+};
+
+/**
+ * The inverse of {@link latin1Decode}, for text a latin1 reader will see: legacy
+ * BoardCAD reads `.brd` in the platform's 8-bit charset, and so does `parseBrd`.
+ * Characters latin1 cannot hold are transliterated: a known stand-in, else the
+ * character with its accents stripped (`ő` → `o`), else `?`.
+ */
+export const latin1Encode = (text: string): Uint8Array => {
+  const out: number[] = [];
+  for (const ch of text) {
+    const c = ch.codePointAt(0)!;
+    if (c <= 0xff) {
+      out.push(c);
+      continue;
+    }
+    const stand = LATIN1_FALLBACK[ch] ?? ch.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+    for (const s of stand) {
+      const sc = s.codePointAt(0)!;
+      out.push(sc <= 0xff ? sc : 0x3f /* ? */);
+    }
+  }
+  return Uint8Array.from(out);
+};
+
 /**
  * True if `bytes` begins with an encrypted-`.brd` magic header (`%BRD-1.01`/`1.02`).
  */

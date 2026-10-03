@@ -13,7 +13,7 @@ export { writeBrd } from './brd-writer';
 export type { BrdWriteMetadata } from './brd-writer';
 export { parseS3d, parseS3dx } from './s3d-reader';
 export type { ParsedS3d, ParsedS3dx } from './s3d-reader';
-export { decryptBrd, isEncryptedBrd } from './legacy-crypto';
+export { decryptBrd, isEncryptedBrd, latin1Encode } from './legacy-crypto';
 export { parseSrf, SrfReadError } from './srf-reader';
 export type { ParsedSrf } from './srf-reader';
 export {
