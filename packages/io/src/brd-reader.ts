@@ -27,9 +27,11 @@ const finConfigFromMeta = (finType: unknown): FinConfig => {
     ? 'quad'
     : s.includes('2+1') || s.includes('2 + 1')
       ? '2+1'
-      : /\b5|five\b/.test(s)
+      : // A standalone 5, not the 5 in "4.5" or "15"; then the word "five".
+        /(?<![\d.])5(?![\d.])|\bfive\b/.test(s)
         ? '5-fin'
-        : s.includes('thruster') || s.includes('tri')
+        : // "tri" as a word or "trifin" / "tri-fin", not "triple stringer".
+          s.includes('thruster') || /\btri(?:-?fins?)?\b/.test(s)
           ? 'thruster'
           : s.includes('twin')
             ? 'twin'

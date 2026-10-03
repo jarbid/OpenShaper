@@ -90,3 +90,26 @@ describe('parseBrd — error handling', () => {
     expect(() => parseBrd(bad)).toThrow();
   });
 });
+
+describe('fin type migration (P26)', () => {
+  const withFinType = (text: string) =>
+    parseBrd(`p51 : ${text}\n${readBrd('shortboard')}`).board.fins.setup;
+
+  it.each([
+    ['5 fin', '5-fin'],
+    ['Five fin', '5-fin'],
+    ['Thruster 4.5', 'thruster'],
+    ['tri fin', 'thruster'],
+    ['Trifin', 'thruster'],
+    ['tri-fins', 'thruster'],
+    ['2+1', '2+1'],
+    ['Quad', 'quad'],
+    ['Twin keel', 'twin'],
+  ])('%s → %s', (text, setup) => {
+    expect(withFinType(text)).toBe(setup);
+  });
+
+  it.each(['Triple stringer', 'Size 15'])('%s is not a fin setup', (text) => {
+    expect(withFinType(text)).toBe('none');
+  });
+});
