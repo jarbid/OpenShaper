@@ -7,7 +7,14 @@
  * to drift, and it is exactly the rule that must not.
  */
 import { Checkbox, Input, Select } from '@openshaper/ui';
-import { cmToUnitNumber, parseLen, unitDecimals, unitSuffix, type LengthUnit } from './format';
+import {
+  cmToUnitNumber,
+  fineLengthStep,
+  parseLen,
+  unitDecimals,
+  unitSuffix,
+  type LengthUnit,
+} from './format';
 import { useNumericField } from './use-numeric-field';
 
 export function Group({ title, children }: { title: string; children: React.ReactNode }) {
@@ -81,7 +88,7 @@ export function LenField({
         <Input
           type="number"
           disabled={disabled}
-          step={units.key === 'in' ? 0.0625 : units.key === 'mm' ? 0.5 : 0.1}
+          step={fineLengthStep(units)}
           {...field}
           className="w-20 text-right"
         />

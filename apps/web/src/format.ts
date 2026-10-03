@@ -77,6 +77,21 @@ export const unitDecimals = (u: LengthUnit): number => {
 export const lengthEditStep = (u: LengthUnit): number =>
   u.key === 'mm' ? 10 : u.key === 'cm' ? 1 : 0.5;
 
+/**
+ * The fine step for a length field's native stepper: half a millimetre, a
+ * millimetre in cm, and a sixteenth of an inch for both inch units (ft·in fields
+ * edit inches too).
+ */
+export const fineLengthStep = (u: LengthUnit): number =>
+  u.unit === Unit.MILLIMETERS ? 0.5 : u.unit === Unit.INCHES ? 0.0625 : 0.1;
+
+/**
+ * A small length (a tolerance, a gap) in the chosen unit to two significant
+ * figures: "0.1 mm", "0.01 cm", "0.0039 in". `fmtLen` would round these to 0.
+ */
+export const fmtSmallLen = (cm: number, u: LengthUnit): string =>
+  `${Number(cmToUnitNumber(cm, u).toPrecision(2))} ${unitSuffix(u)}`;
+
 /** Short suffix shown beside editable fields. */
 export const unitSuffix = (u: LengthUnit): string => {
   switch (u.unit) {

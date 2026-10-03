@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fmtVol } from './format';
+import { fineLengthStep, fmtSmallLen, fmtVol, LENGTH_UNITS } from './format';
 
 describe('fmtVol', () => {
   it('shows litres to one decimal place, suffixed L', () => {
@@ -12,5 +12,22 @@ describe('fmtVol', () => {
   it('rounds rather than truncates', () => {
     expect(fmtVol(27_349)).toBe('27.3L');
     expect(fmtVol(27_351)).toBe('27.4L');
+  });
+});
+
+describe('unit-aware small lengths and steps (P14)', () => {
+  const byKey = (k: string) => LENGTH_UNITS.find((u) => u.key === k)!;
+
+  it('steps ft·in fields by a sixteenth of an inch, like inch fields', () => {
+    expect(fineLengthStep(byKey('in'))).toBe(1 / 16);
+    expect(fineLengthStep(byKey('ftin'))).toBe(1 / 16);
+    expect(fineLengthStep(byKey('mm'))).toBe(0.5);
+    expect(fineLengthStep(byKey('cm'))).toBe(0.1);
+  });
+
+  it('formats a tolerance in the chosen unit instead of always mm', () => {
+    expect(fmtSmallLen(0.01, byKey('mm'))).toBe('0.1 mm');
+    expect(fmtSmallLen(0.01, byKey('cm'))).toBe('0.01 cm');
+    expect(fmtSmallLen(0.01, byKey('in'))).toBe('0.0039 in');
   });
 });
