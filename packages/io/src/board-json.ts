@@ -106,16 +106,64 @@ export const writeBoardJson = (b: BezierBoard, metadata?: Record<string, unknown
 
 export class BoardJsonError extends Error {}
 
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+const isPoint = (v: unknown): boolean =>
+  Array.isArray(v) && v.length === 2 && v.every((n) => typeof n === 'number' && Number.isFinite(n));
+
+/** Optional flags: absent is tolerated (older or hand-written files), wrong types are not. */
+const isFlag = (v: unknown): boolean => v === undefined || typeof v === 'boolean';
+
+/**
+ * Check the shape of a curve before any of it reaches the kernel, so a damaged or
+ * hand-edited file fails with a message instead of a TypeError or a board with
+ * NaN knots.
+ */
+const assertKnots = (v: unknown, where: string): void => {
+  if (!Array.isArray(v)) throw new BoardJsonError(`Malformed document: ${where} is missing`);
+  v.forEach((k: unknown, i) => {
+    const at = `${where} point ${i + 1}`;
+    if (!isObject(k)) throw new BoardJsonError(`Malformed document: ${at} is not a point`);
+    for (const key of ['e', 'p', 'n'] as const) {
+      if (!isPoint(k[key])) {
+        throw new BoardJsonError(`Malformed document: ${at} has an invalid coordinate`);
+      }
+    }
+    if (!isFlag(k.c) || !isFlag(k.o)) {
+      throw new BoardJsonError(`Malformed document: ${at} has an invalid flag`);
+    }
+  });
+};
+
+const assertStructure = (doc: Record<string, unknown>): void => {
+  for (const curve of ['outline', 'bottom', 'deck'] as const) assertKnots(doc[curve], curve);
+  if (!Array.isArray(doc.crossSections)) {
+    throw new BoardJsonError('Malformed document: crossSections is missing');
+  }
+  doc.crossSections.forEach((cs: unknown, i) => {
+    const where = `cross-section ${i + 1}`;
+    if (!isObject(cs) || typeof cs.position !== 'number' || !Number.isFinite(cs.position)) {
+      throw new BoardJsonError(`Malformed document: ${where} has no valid position`);
+    }
+    assertKnots(cs.knots, where);
+  });
+};
+
 /** Parse a `.board.json` string back into a board (+ any metadata). */
 export const readBoardJson = (
   text: string,
 ): { board: BezierBoard; metadata?: Record<string, unknown> } => {
-  let doc: BoardJson;
+  let parsed: unknown;
   try {
-    doc = JSON.parse(text) as BoardJson;
+    parsed = JSON.parse(text);
   } catch (e) {
     throw new BoardJsonError(`Not valid JSON: ${(e as Error).message}`);
   }
+  if (!isObject(parsed)) {
+    throw new BoardJsonError('Not an OpenShaper document (missing format marker)');
+  }
+  const doc = parsed as unknown as BoardJson;
   if (doc.format !== 'openshaper' && doc.format !== 'board-studio') {
     throw new BoardJsonError('Not an OpenShaper document (missing format marker)');
   }
@@ -124,6 +172,7 @@ export const readBoardJson = (
       `Document version ${doc.version} is newer than supported (${BOARD_JSON_VERSION})`,
     );
   }
+  assertStructure(parsed);
   const b = board(
     splineFromJson(doc.outline),
     splineFromJson(doc.bottom),
