@@ -568,7 +568,8 @@ export const drawCurvatureComb = (
   ctx.beginPath();
   tips.forEach((tp, i) => {
     const s = worldToScreen(vp, tp);
-    i === 0 ? ctx.moveTo(s.x, s.y) : ctx.lineTo(s.x, s.y);
+    if (i === 0) ctx.moveTo(s.x, s.y);
+    else ctx.lineTo(s.x, s.y);
   });
   ctx.stroke();
   ctx.globalAlpha = 1;
@@ -620,7 +621,8 @@ export const drawDistribution = (
   data.forEach((d, i) => {
     const x = sx(d.x);
     const y = base - (d.value / maxV) * stripH;
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
   });
   ctx.strokeStyle = color;
   ctx.lineWidth = 1.5;

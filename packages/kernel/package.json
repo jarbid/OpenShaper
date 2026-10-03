@@ -13,8 +13,7 @@
     "build": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "echo \"(eslint todo)\""
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "typescript": "^5.7.2",
