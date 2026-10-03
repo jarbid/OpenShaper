@@ -15,6 +15,7 @@ import {
 } from '@openshaper/kernel';
 import { makeTestBoard } from '../fixture.test-helper';
 import { BRAND_LINE } from '../brand';
+import { dxfText } from '../dxf-text';
 import { buildHwsTemplates } from './hws';
 import { DEFAULT_HWS_PARAMS, type Part, type Pt } from './types';
 import { bboxOfPts } from './geom';
@@ -706,10 +707,11 @@ describe('sheet writers', () => {
 
   it('brands every writer with the openshaper.com credit (never as DXF geometry)', () => {
     const dxf = sheetToDxf(sheet);
-    expect(dxf).toContain(BRAND_LINE);
+    const dxfBrand = dxfText(BRAND_LINE); // R12 text: the · is escaped (P28)
+    expect(dxf).toContain(dxfBrand);
     // Comment-only in DXF: the brand precedes the ENTITIES section, so no machine
     // could mistake it for something to cut.
-    expect(dxf.indexOf(BRAND_LINE)).toBeLessThan(dxf.indexOf('ENTITIES'));
+    expect(dxf.indexOf(dxfBrand)).toBeLessThan(dxf.indexOf('ENTITIES'));
 
     expect(sheetToSvg(sheet)).toContain(BRAND_LINE);
 
