@@ -569,7 +569,12 @@ export function SplineEditor({
    * `size` is what the rest of the component sees, so swapping it here is what puts
    * everything downstream into the turned space.
    */
-  const turned = allowTurn && pane.w > 0 && !!bounds && turnFitsLarger(bounds, pane.w, pane.h);
+  const liveTurned = allowTurn && pane.w > 0 && !!bounds && turnFitsLarger(bounds, pane.w, pane.h);
+  // Latched for the length of a gesture. On a nearly square pane, dragging the
+  // outline (which changes `bounds`) or a resize mid-drag can flip the orientation,
+  // and the board would rotate under the finger. It settles on release.
+  const [gestureTurned, setGestureTurned] = useState<boolean | null>(null);
+  const turned = gestureTurned ?? liveTurned;
   // Memoised: a fresh object per render would re-run every effect keyed on `size`
   // (the canvas redraw among them) on every render of a turned pane.
   const size = useMemo(() => (turned ? { w: pane.h, h: pane.w } : pane), [turned, pane]);
@@ -875,6 +880,7 @@ export function SplineEditor({
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
+      setGestureTurned((cur) => cur ?? liveTurned);
       if (!vp || !board) return;
       setMenu(null);
       const p = localPoint(e);
@@ -1073,6 +1079,7 @@ export function SplineEditor({
       store.getState().select(null);
     },
     [
+      liveTurned,
       localPoint,
       size.h,
       vp,
@@ -1290,6 +1297,12 @@ export function SplineEditor({
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
+      // The last pointer up ends the gesture, so the orientation may settle again.
+      if (
+        e.pointerType !== 'touch' ||
+        [...pointers.current.keys()].every((id) => id === e.pointerId)
+      )
+        setGestureTurned(null);
       // Touch: drop the lifted finger; if a pinch was active, end the gesture cleanly
       // (the one-finger edit was already abandoned when the second finger landed).
       if (e.pointerType === 'touch') {
@@ -1367,6 +1380,12 @@ export function SplineEditor({
   // cleanly without firing a context menu, so state never gets stuck mid-pan.
   const onPointerCancel = useCallback(
     (e: React.PointerEvent) => {
+      // The last pointer up ends the gesture, so the orientation may settle again.
+      if (
+        e.pointerType !== 'touch' ||
+        [...pointers.current.keys()].every((id) => id === e.pointerId)
+      )
+        setGestureTurned(null);
       cancelLongPress();
       pointers.current.delete(e.pointerId);
       if (pointers.current.size < 2) pinch.current = null;
