@@ -215,7 +215,9 @@ describe('loftCrossSection', () => {
     const board = mixedRails(golden('longboard.brd'));
     for (const x of railFacetStations(board)) {
       const surface = loftSection(board, x)!;
-      const half = Math.max(...Array.from({ length: 401 }, (_, i) => loftPoint(surface, i / 400).x));
+      const half = Math.max(
+        ...Array.from({ length: 401 }, (_, i) => loftPoint(surface, i / 400).x),
+      );
       for (const frac of [0.15, 0.35, 0.55, 0.75, 0.88, 0.95]) {
         const y = half * frac;
         // Where the lofted profile crosses this lateral, interpolated between samples:

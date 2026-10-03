@@ -236,7 +236,6 @@ const leftoverOutline = (st: RailStationFacets): Pt[] => {
   return [...cut, ...back];
 };
 
-
 /**
  * The foam a hand-marked band would take out of the finished rail: the lens between the
  * facet's plane and the part of the section standing outside it.
@@ -745,13 +744,9 @@ const drawStation = (
           { color },
         );
       } else {
-        ctx.dim(
-          { x: railX, y: deckY },
-          { x: deckMark.at.x, y: deckY },
-          off,
-          L(deckMark.distance),
-          { color },
-        );
+        ctx.dim({ x: railX, y: deckY }, { x: deckMark.at.x, y: deckY }, off, L(deckMark.distance), {
+          color,
+        });
       }
     }
     const chained = f.marks.find((m) => m.ref.kind === 'facet');

@@ -236,7 +236,8 @@ export function MarketingLayout() {
               >
                 GPL-3.0-or-later
               </a>
-              . A modern rebuild of BoardCAD. <Link to="/privacy" className="hover:text-foreground">
+              . A modern rebuild of BoardCAD.{' '}
+              <Link to="/privacy" className="hover:text-foreground">
                 Privacy &amp; analytics
               </Link>
             </p>

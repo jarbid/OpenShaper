@@ -95,7 +95,10 @@ function normalize(pts) {
 
 const round = (n) => Math.round(n * 1e4) / 1e4;
 
-const entries = Object.entries(SOURCES).map(([name, file]) => [name, normalize(flattenOutline(file))]);
+const entries = Object.entries(SOURCES).map(([name, file]) => [
+  name,
+  normalize(flattenOutline(file)),
+]);
 
 const body = entries
   .map(([name, { points }]) => {

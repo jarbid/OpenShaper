@@ -8,11 +8,11 @@
     "dev": "vite-react-ssg dev",
     "build": "tsc -b && vite-react-ssg build",
     "preview": "vite preview",
+    "coverage": "vitest run --coverage --coverage.include=src --coverage.reporter=text-summary --coverage.reporter=json-summary",
     "test": "vitest run",
     "e2e": "playwright test",
     "typecheck": "tsc --noEmit",
     "og": "node tools/generate-og.mjs",
-    "lint": "echo \"(eslint todo)\"",
     "icons": "node tools/generate-icons.mjs",
     "e2e:offline": "playwright test -c playwright.offline.config.ts"
   },

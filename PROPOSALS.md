@@ -10,8 +10,8 @@ References are against `99c3030`.
 1. ~~**Crashes and data loss first** — P1 (undo crash), P2 (stuck drag), P5 (blocked
    storage), P7 (malicious share link), P23 (.brd metadata dropped on import).~~ Done,
    each with a regression test that fails without the fix.
-2. **Everyday editing papercuts** — P3, P4, P10, P13, P15, P16.
-3. **CI safety net** — P35, P36, so the above stays fixed.
+2. ~~**Everyday editing papercuts** — P3, P4, P10, P13, P15, P16.~~ Done.
+3. ~~**CI safety net** — P35, P36, so the above stays fixed.~~ Done, with P44 and P45.
 4. **Load-time wins that need a product decision** — P38 (analytics), then P39/P41
    after one cross-browser download check.
 5. **Format changes** — P24–P29: each needs a `divergences.md` entry and fixture work.
@@ -167,12 +167,12 @@ users.
 
 ## Process and dependencies
 
-**P35 · Run the e2e and offline Playwright suites in CI.** Neither runs today, and
+**P35 · ✅ Done (ecc7621) — Run the e2e and offline Playwright suites in CI.** Neither runs today, and
 the offline suite is the only check of the precache/offline guarantees. Both configs
 already handle `CI` (retries, `forbidOnly`). Effort S (one job with `playwright
 install --with-deps chromium`) · risk low (CI minutes, some flake) · visible: no.
 
-**P36 · Real ESLint plus `prettier --check` in CI.** `pnpm lint` is an `echo` in every
+**P36 · ✅ Done (86dc5fd) — Real ESLint plus `prettier --check` in CI.** `pnpm lint` is an `echo` in every
 package. The most valuable rules here: `react-hooks` (exhaustive deps — several effects
 in App rely on reasoning instead), and `import/no-restricted-paths` to enforce the
 "kernel/io/units never import React, DOM or three" layering, which today rests on
@@ -222,12 +222,12 @@ starts after an `await`, with the same open user-activation question as P39. Do 
 cross-browser check first, then this. Effort M · risk med · visible: no freeze during
 export.
 
-**P44 · Line-coverage reporting.** No coverage tool is installed, so coverage can only be
+**P44 · ✅ Done (7cd2ee2) — Line-coverage reporting.** No coverage tool is installed, so coverage can only be
 described, not measured. Adding `@vitest/coverage-v8` (devDependency) with a
 `pnpm coverage` script would give per-package numbers, and an optional CI artifact.
 Effort S · risk low · visible: no.
 
-**P45 · Offline share-link e2e fails, on the baseline too.** `e2e-offline/offline.spec.ts`
+**P45 · ✅ Done (8442799) — Offline share-link e2e fails, on the baseline too.** `e2e-offline/offline.spec.ts`
 "a shared link opens with no network at all" times out waiting for the "Open shared
 board?" prompt. It fails identically on the pre-pass build. In this sandbox Chromium
 is older than Playwright 1.60 pins, so it may be environmental. CI doesn't run this suite

@@ -259,11 +259,7 @@ export function convertInputStringToInternalDensityUnit(
         volume = 1000.0; // one cubic meter
       } else if (string.endsWith('g') || string.endsWith('gram')) {
         volume = 1.0; // gram per litre
-      } else if (
-        string.endsWith('lb') ||
-        string.endsWith('lbs') ||
-        string.endsWith('pounds')
-      ) {
+      } else if (string.endsWith('lb') || string.endsWith('lbs') || string.endsWith('pounds')) {
         volume = 28.3168466; // pound per cubic foot
       } else if (string.endsWith('oz') || string.endsWith('ounces')) {
         volume = 0.016387064; // ounce per cubic inch

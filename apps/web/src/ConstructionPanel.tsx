@@ -695,7 +695,6 @@ export function ConstructionPanel({
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
                   transformOrigin: '0 0',
                 }}
-                // eslint-disable-next-line react/no-danger
                 dangerouslySetInnerHTML={{ __html: svg }}
               />
             </div>

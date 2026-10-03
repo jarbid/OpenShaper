@@ -36,12 +36,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { arcLengthTable, pointAtArcFraction } from './bezier-spline';
-import {
-  getInterpolatedCrossSection,
-  getLength,
-  getRockerAtPos,
-  type BezierBoard,
-} from './board';
+import { getInterpolatedCrossSection, getLength, getRockerAtPos, type BezierBoard } from './board';
 import { crossSection } from './cross-section';
 import { loftRing, ringFractions, ringHalf } from './loft';
 import { applyRailProfile, RAIL_PRESETS } from './rail-profile';

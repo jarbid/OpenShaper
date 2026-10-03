@@ -262,7 +262,7 @@ const matchControlPointCounts = (
 
   // most = the one with more CPs; other = the one we insert into.
   const sourceHasMore = src.length > tgt.length;
-  let most = sourceHasMore ? src : tgt;
+  const most = sourceHasMore ? src : tgt;
   let other = sourceHasMore ? tgt : src;
 
   const mostMaxX = maxX(splineFromKnots(most));

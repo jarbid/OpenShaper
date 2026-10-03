@@ -28,8 +28,8 @@ intended — the fallback is a courtesy for editor users who navigate out.
 `src/sw.ts` is a hand-written `injectManifest` worker rather than a generated one,
 because the required behaviour cannot be expressed by `generateSW`'s
 `navigateFallback`: that uses `createHandlerBoundToURL`, which is **cache-only**, so
-pointing it at the offline page would serve that page to marketing routes *even
-when online*.
+pointing it at the offline page would serve that page to marketing routes _even
+when online_.
 
 Three routes, in order:
 
@@ -40,7 +40,7 @@ Three routes, in order:
    does not match `/apple`.
 3. **Every other navigation** → `NetworkOnly`. Online this is indistinguishable
    from having no service worker: real HTML, and real 404s for unknown paths (the
-   site has no SPA catch-all by design). Only a network *failure* reaches
+   site has no SPA catch-all by design). Only a network _failure_ reaches
    `setCatchHandler`, which serves the precached `offline.html`.
 
 Because nothing marketing-related is ever cached, stale marketing HTML is
@@ -110,7 +110,7 @@ than as good news.
 Caching an app's own code without asking is ordinary PWA behaviour (Excalidraw, tldraw,
 Squoosh, most Vite/Next PWA setups do it), close to an extension of HTTP caching, and
 none of them announce it. The opt-in "work offline" switches in Google Docs, Drive and
-Gmail are a different case: those cache a user's *documents*, where privacy and storage
+Gmail are a different case: those cache a user's _documents_, where privacy and storage
 make the choice genuinely the user's. OpenShaper's boards were already local in
 IndexedDB long before this feature, and the worker caches app code only — so it sits on
 the automatic side of that line.

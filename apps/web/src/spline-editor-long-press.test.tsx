@@ -40,8 +40,7 @@ afterEach(() => {
  * every "no menu appeared" assertion passes for the wrong reason. */
 const holdOut = () => act(() => vi.advanceTimersByTime(600));
 
-const menu = (container: HTMLElement) =>
-  container.ownerDocument.body.querySelector('[role=menu]');
+const menu = (container: HTMLElement) => container.ownerDocument.body.querySelector('[role=menu]');
 
 describe('SplineEditor: holding a finger on a control point', () => {
   it('keeps dragging after a nudge too small to clear the old 4px budget', () => {

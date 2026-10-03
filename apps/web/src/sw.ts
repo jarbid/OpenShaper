@@ -44,9 +44,7 @@ precacheAndRoute((self as unknown as ServiceWorkerGlobalScope).__WB_MANIFEST);
 // query-string variants.
 registerRoute(
   ({ request, url }) =>
-    request.mode === 'navigate' &&
-    url.origin === sw.location.origin &&
-    APP_PATH.test(url.pathname),
+    request.mode === 'navigate' && url.origin === sw.location.origin && APP_PATH.test(url.pathname),
   createHandlerBoundToURL(APP_SHELL_URL),
 );
 

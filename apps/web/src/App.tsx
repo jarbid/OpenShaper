@@ -257,7 +257,6 @@ function AppShell() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Overlay toggles are declared early so the dist flag can be forwarded to the
@@ -562,7 +561,6 @@ function AppShell() {
   const [fitEpoch, setFitEpoch] = useState(0);
   useEffect(() => {
     if (fitEpoch > 0) sendViewCmd('fit');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitEpoch]);
 
   // Recent boards: re-read from localStorage whenever the menu is constructed so
