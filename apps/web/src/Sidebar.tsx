@@ -76,14 +76,8 @@ import {
   type TabId,
 } from './sidebar-sections';
 import { boardStore } from './store';
-import {
-  MeasurementAxisSelect,
-  OverlayToggle,
-  Sel,
-  SpecRow,
-  UnitSelect,
-  type MeasurementAxis,
-} from './view-toolkit';
+import { MeasurementAxisSelect, OverlayToggle, Sel, SpecRow, UnitSelect } from './view-toolkit';
+import type { Longitudinal, MeasurementAxis } from './longitudinal';
 import {
   fmtWeight,
   FOAM_TYPES,
@@ -199,7 +193,8 @@ export interface SidebarProps {
    * picker (the phone tier), so exactly one of the two is ever mounted.
    */
   onUnitChange?: (key: string) => void;
-  measurementAxis?: MeasurementAxis;
+  /** Converts board-length positions (wide point, centre of mass) for display. */
+  longitudinal: Longitudinal;
   onMeasurementAxisChange?: (axis: MeasurementAxis) => void;
 }
 
@@ -229,7 +224,7 @@ export const Sidebar = memo(function Sidebar({
   onSidebarChange,
   collapsible = false,
   onUnitChange,
-  measurementAxis = 'x-axis',
+  longitudinal,
   onMeasurementAxisChange,
 }: SidebarProps) {
   const past = useSyncExternalStore(boardStore.subscribe, () => boardStore.getState().past);
@@ -249,6 +244,7 @@ export const Sidebar = memo(function Sidebar({
       <SpecsSection
         specs={specs}
         units={units}
+        longitudinal={longitudinal}
         sidebar={sidebar}
         onSidebarChange={onSidebarChange}
       />
@@ -331,7 +327,7 @@ export const Sidebar = memo(function Sidebar({
                     <UnitSelect value={units.key} onChange={onUnitChange} />
                     {onMeasurementAxisChange && (
                       <MeasurementAxisSelect
-                        value={measurementAxis}
+                        value={longitudinal.axis}
                         onChange={onMeasurementAxisChange}
                       />
                     )}
@@ -353,6 +349,7 @@ export const Sidebar = memo(function Sidebar({
                   hasTrace={hasTrace}
                   specs={specs}
                   units={units}
+                  longitudinal={longitudinal}
                   /* The pinned panel is a reference held on screen, so it yields height
                    to the one being worked in rather than splitting evenly. */
                   className={cn(
@@ -520,6 +517,7 @@ function TabPanel({
   hasTrace,
   specs,
   units,
+  longitudinal,
   className,
   collapsible,
   showFold,
@@ -533,6 +531,7 @@ function TabPanel({
   hasTrace: boolean;
   specs: BoardSpecs | null;
   units: LengthUnit;
+  longitudinal: Longitudinal;
   className?: string;
   collapsible: boolean;
   showFold: boolean;
@@ -613,6 +612,7 @@ function TabPanel({
                   <SpecsSection
                     specs={specs}
                     units={units}
+                    longitudinal={longitudinal}
                     sidebar={sidebar}
                     onSidebarChange={onSidebarChange}
                   />
@@ -746,11 +746,13 @@ function SpecBand({
 function SpecsSection({
   specs,
   units,
+  longitudinal,
   sidebar,
   onSidebarChange,
 }: {
   specs: BoardSpecs | null;
   units: LengthUnit;
+  longitudinal: Longitudinal;
   sidebar: SidebarState;
   onSidebarChange: (next: SidebarState) => void;
 }) {
@@ -767,6 +769,8 @@ function SpecsSection({
   }, [copied]);
 
   if (!specs) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  // A board-length position, in the selected measurement and marked when converted.
+  const position = (x: number) => fmtLen(longitudinal.toDisplay(x), units) + longitudinal.mark;
 
   return (
     <div className="space-y-2 text-sm">
@@ -821,7 +825,7 @@ function SpecsSection({
         onSidebarChange={onSidebarChange}
       >
         <SpecRow label="Width" value={fmtLen(specs.maxWidth, units)} />
-        <SpecRow label="Wide point" value={fmtLen(specs.maxWidthPos, units)} />
+        <SpecRow label="Wide point" value={position(specs.maxWidthPos)} />
         <SpecRow label="Center width" value={fmtLen(specs.centerWidth, units)} />
         <SpecRow label="Thickness" value={fmtLen(specs.thickness, units)} />
         <SpecRow label="Max thickness" value={fmtLen(specs.maxThickness, units)} />
@@ -854,7 +858,7 @@ function SpecsSection({
         <SpecRow label="Length o/curve" value={fmtLen(specs.lengthOverCurve, units)} />
         <SpecRow label="Max rocker" value={fmtLen(specs.maxRocker, units)} />
         <SpecRow label="Volume" value={fmtVol(specs.volume)} />
-        <SpecRow label="Center of mass" value={fmtLen(specs.centerOfMass, units)} />
+        <SpecRow label="Center of mass" value={position(specs.centerOfMass)} />
       </SpecBand>
 
       <div className="flex items-center justify-between gap-2 pt-1">

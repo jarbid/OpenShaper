@@ -26,6 +26,8 @@ export interface CrossSectionControlsProps {
   canPaste: boolean;
   /** Length position of the current station, or null before a board loads. */
   positionCm: number | null;
+  /** Marks a converted position (e.g. " o/c" when measured over the curve). */
+  positionMark?: string;
   units: LengthUnit;
   onMoveTo: (cm: number) => void;
 }
@@ -63,6 +65,7 @@ export function CrossSectionControls({
   onPaste,
   canPaste,
   positionCm,
+  positionMark,
   units,
   onMoveTo,
 }: CrossSectionControlsProps) {
@@ -122,7 +125,12 @@ export function CrossSectionControls({
       <span className="mx-0.5 h-5 w-px bg-border" />
       {positionCm !== null && (
         <>
-          <SectionPositionEditor valueCm={positionCm} units={units} onCommit={onMoveTo} />
+          <SectionPositionEditor
+            valueCm={positionCm}
+            units={units}
+            mark={positionMark}
+            onCommit={onMoveTo}
+          />
           <span className="mx-0.5 h-5 w-px bg-border" />
         </>
       )}

@@ -46,6 +46,12 @@ describe('splineLengthToX', () => {
     expect(splineLengthToX(sloped.bottom, 40)).toBeCloseTo(40 * Math.hypot(1, k), 3);
   });
 
+  it('inverts the exact over-curve distance of a straight sloped rocker', () => {
+    const k = 0.2;
+    const sloped = boxBoard({ length: 100, rockerSlope: k });
+    expect(splineXAtLength(sloped.bottom, 40 * Math.hypot(1, k))).toBeCloseTo(40, 6);
+  });
+
   it('round-trips cumulative o/curve measurements back to board x', () => {
     const b = curvyBoard();
     for (const x of [0, 12.5, 40, 73.2, 100]) {

@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { getMaxWidthPos, splineLengthToX, splineXAtLength } from '@openshaper/kernel';
 import { App } from './App';
+import { fmtLen, lengthUnitByKey } from './format';
 import { boardStore } from './store';
 import { STORAGE_KEY } from './recent-boards';
 import { openSection } from './test/sidebar';
@@ -28,6 +30,38 @@ describe('<App /> smoke', () => {
     // The sample board was parsed into the store on mount (session hydration is
     // async — no stored session in this environment, so the sample is the fallback).
     expect(boardStore.getState().board).not.toBeNull();
+  });
+
+  it('places a cross-section over the curve and marks over-curve readouts', async () => {
+    localStorage.setItem('bs.lengthUnit', 'cm');
+    render(<App />);
+    await screen.findAllByText(/\d+\.\dL/);
+    fireEvent.change(screen.getByLabelText('Longitudinal measurement axis'), {
+      target: { value: 'o-curve' },
+    });
+
+    // Step to the station between 30.48 and 157.48 cm, so a move to 100 cm is not
+    // clamped against a neighbour.
+    fireEvent.click(screen.getByRole('button', { name: 'Next cross-section' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Next cross-section' }));
+    const field = screen.getByLabelText('Selected slice position');
+    fireEvent.change(field, { target: { value: '100' } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+
+    // 100 cm along the bottom rocker lands at a different x, and that x is what is stored.
+    const board = boardStore.getState().board!;
+    const x = splineXAtLength(board.bottom, 100);
+    expect(Math.abs(x - 100)).toBeGreaterThan(0.1);
+    expect(board.crossSections.map((s) => s.position)).toContainEqual(expect.closeTo(x, 6));
+    // The field reads back what was typed, and says it is over the curve.
+    expect(field).toHaveProperty('value', '100.00');
+    expect(screen.getByTestId('section-position-editor').textContent).toContain('cm o/c');
+    // Plain positions in the specs follow the same measurement.
+    fireEvent.click(screen.getByRole('button', { name: /^Center/ }));
+    const widePoint = screen.getByText('Wide point').parentElement!;
+    expect(widePoint.textContent).toContain(
+      fmtLen(splineLengthToX(board.bottom, getMaxWidthPos(board)), lengthUnitByKey('cm')) + ' o/c',
+    );
   });
 
   it('reserves the same header height in all four quad panes when a point is selected', async () => {

@@ -4,8 +4,6 @@ import {
   loftCrossSection,
   getLength,
   resolveFins,
-  splineLengthToX,
-  splineXAtLength,
   type BezierBoard,
   type Spline,
 } from '@openshaper/kernel';
@@ -119,11 +117,11 @@ import {
   ViewPaneHeader,
   ViewToggleTitle,
   type EditorKind,
-  type MeasurementAxis,
   type SplitPaneKind,
   type View,
   type View3DSettings,
 } from './view-toolkit';
+import { longitudinalFor, type MeasurementAxis } from './longitudinal';
 import { DEFAULT_VIEW_3D } from './view3d-settings';
 import { estimateWeight, FOAM_TYPES, GLASS_SCHEDULES } from './weights';
 import { readRaw, writeRaw } from './persisted';
@@ -475,6 +473,14 @@ function AppShell() {
   useEffect(() => {
     writeRaw('bs.measurementAxis', measurementAxis);
   }, [measurementAxis]);
+  // Keyed on the bottom rocker only while o/curve is on, so the default x-axis (and any
+  // edit that leaves the rocker alone) keeps the same object and the memoized sidebar
+  // does not re-render on every drag frame.
+  const overCurveBottom = measurementAxis === 'o-curve' ? (board?.bottom ?? null) : null;
+  const longitudinal = useMemo(
+    () => longitudinalFor(overCurveBottom, measurementAxis),
+    [overCurveBottom, measurementAxis],
+  );
   const [view3d, setView3d] = useState<View3DSettings>(
     bootViewState.current.view3d ?? DEFAULT_VIEW_3D,
   );
@@ -1011,20 +1017,12 @@ function AppShell() {
       canPaste={!!csClipboard}
       positionCm={
         board?.crossSections[clampedCs]
-          ? measurementAxis === 'o-curve'
-            ? splineLengthToX(board.bottom, board.crossSections[clampedCs]!.position)
-            : board.crossSections[clampedCs]!.position
+          ? longitudinal.toDisplay(board.crossSections[clampedCs]!.position)
           : null
       }
+      positionMark={longitudinal.mark}
       units={units}
-      onMoveTo={(position) =>
-        moveSection(
-          clampedCs,
-          measurementAxis === 'o-curve' && board
-            ? splineXAtLength(board.bottom, position)
-            : position,
-        )
-      }
+      onMoveTo={(position) => moveSection(clampedCs, longitudinal.toModel(position))}
     />
   );
 
@@ -1324,7 +1322,7 @@ function AppShell() {
     kind,
     csIndex: clampedCs,
     units,
-    measurementAxis,
+    longitudinal,
     // The cross-section pane has no length axis, so `EditorPane` drops the station
     // markers, the scrub and the trace props for it — passing them uniformly here
     // keeps that one decision in one place.
@@ -1409,7 +1407,7 @@ function AppShell() {
       sidebar={sidebar}
       onSidebarChange={setSidebar}
       onUnitChange={isPhone ? setUnitKey : undefined}
-      measurementAxis={measurementAxis}
+      longitudinal={longitudinal}
       onMeasurementAxisChange={isPhone ? setMeasurementAxis : undefined}
     />
   );
