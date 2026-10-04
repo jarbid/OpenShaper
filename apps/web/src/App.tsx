@@ -314,7 +314,7 @@ function AppShell() {
   const [sidebar, setSidebar] = useState<SidebarState>(
     () => bootViewState.current.sidebar ?? DEFAULT_SIDEBAR_STATE,
   );
-  const viewSaveTimer = useRef<number>();
+  const viewSaveTimer = useRef<number | undefined>(undefined);
   const scheduleViewSave = useCallback(() => {
     window.clearTimeout(viewSaveTimer.current);
     viewSaveTimer.current = window.setTimeout(() => saveViewState(liveViewState.current), 500);
@@ -495,7 +495,7 @@ function AppShell() {
       ...(g ? { ghostJson: writeBoardJson(g) } : {}),
     });
   }, []);
-  const sessionSaveTimer = useRef<number>();
+  const sessionSaveTimer = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (!board || !hydrated.current) return;
     window.clearTimeout(sessionSaveTimer.current);
@@ -745,7 +745,7 @@ function AppShell() {
     info: ImportWarning[];
     commit: () => void;
   } | null>(null);
-  const toastTimer = useRef<number>();
+  const toastTimer = useRef<number | undefined>(undefined);
   /**
    * Transient notice, auto-dismissed. Mostly failures (file-open, pop-up
    * blocked), but Share reuses it to confirm a copy — same 6s toast either way.
