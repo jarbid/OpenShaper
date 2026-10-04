@@ -260,12 +260,15 @@ const TRACE_HANDLE_R = 9;
 /**
  * Hit radius for a control-point handle, in CSS px. A fingertip is both blunter
  * and less precisely reported than a mouse cursor, so touch gets a target it can
- * actually land on. This is safe to widen only because a drag preserves the grab
- * offset (see GRAB_OFFSET): grabbing a handle from 14px away moves it by what the
- * finger moves, it does not yank it 14px sideways first.
+ * actually land on: 22px is the 44px ergonomic floor as a radius. This is safe to
+ * widen only because a drag preserves the grab offset (see GRAB_OFFSET): grabbing
+ * a handle from 22px away moves it by what the finger moves, it does not yank it
+ * sideways first. Overlapping targets still go to the nearest.
  */
 const HIT_TOL_PX = 8;
-const TOUCH_HIT_TOL_PX = 14;
+const TOUCH_HIT_TOL_PX = 22;
+/** The same floor for a station marker's diamonds; the mouse keeps `hitSectionMarker`'s 10px. */
+const TOUCH_MARKER_TOL_PX = 22;
 
 /**
  * Travel (px) past which a press is a drag rather than a tap.
@@ -566,7 +569,12 @@ export function SplineEditor({
    * `size` is what the rest of the component sees, so swapping it here is what puts
    * everything downstream into the turned space.
    */
-  const turned = allowTurn && pane.w > 0 && !!bounds && turnFitsLarger(bounds, pane.w, pane.h);
+  const liveTurned = allowTurn && pane.w > 0 && !!bounds && turnFitsLarger(bounds, pane.w, pane.h);
+  // Latched for the length of a gesture. On a nearly square pane, dragging the
+  // outline (which changes `bounds`) or a resize mid-drag can flip the orientation,
+  // and the board would rotate under the finger. It settles on release.
+  const [gestureTurned, setGestureTurned] = useState<boolean | null>(null);
+  const turned = gestureTurned ?? liveTurned;
   // Memoised: a fresh object per render would re-run every effect keyed on `size`
   // (the canvas redraw among them) on every render of a turned pane.
   const size = useMemo(() => (turned ? { w: pane.h, h: pane.w } : pane), [turned, pane]);
@@ -855,8 +863,10 @@ export function SplineEditor({
   );
 
   const sectionMarkerAt = useCallback(
-    (p: { x: number; y: number }) =>
-      vp && sectionMarkers ? hitSectionMarker(sectionMarkers, vp, p, size.h) : null,
+    (p: { x: number; y: number }, touch = false) =>
+      vp && sectionMarkers
+        ? hitSectionMarker(sectionMarkers, vp, p, size.h, touch ? TOUCH_MARKER_TOL_PX : undefined)
+        : null,
     [vp, sectionMarkers, size.h],
   );
 
@@ -870,6 +880,7 @@ export function SplineEditor({
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
+      setGestureTurned((cur) => cur ?? liveTurned);
       if (!vp || !board) return;
       setMenu(null);
       const p = localPoint(e);
@@ -925,7 +936,7 @@ export function SplineEditor({
           if (holdsEdit(drag.current)) store.getState().endEdit();
           setDraggingSection(null);
           drag.current = null;
-          const marker = sectionMarkerAt(p);
+          const marker = sectionMarkerAt(p, touch);
           if (marker) onPickSection?.(marker.index);
           // The touch radius, not the mouse one: this path is only ever reached by a
           // finger, and picking a point up to drag it used to have a target nearly
@@ -978,7 +989,7 @@ export function SplineEditor({
         return;
       }
       // Left button is select/edit only — never pans.
-      const marker = sectionMarkerAt(p);
+      const marker = sectionMarkerAt(p, touch);
       if (marker && onPickSection) {
         if (focusedSection === marker.index && onMoveSection) {
           drag.current = {
@@ -1068,6 +1079,7 @@ export function SplineEditor({
       store.getState().select(null);
     },
     [
+      liveTurned,
       localPoint,
       size.h,
       vp,
@@ -1092,6 +1104,41 @@ export function SplineEditor({
       background,
       sectionMarkerAt,
     ],
+  );
+
+  // No drag: report the hovered world point for the readout HUD + cross-pane scrub,
+  // and the hovered marker / control for highlight and cursor.
+  const applyHover = (p: { x: number; y: number }) => {
+    if (!vp) return;
+    const w = screenToWorld(vp, p);
+    if (readout) setHover(w);
+    onScrub?.(w.x);
+    const marker = sectionMarkerAt(p);
+    setHoveredSection(marker?.index ?? null);
+    const picked = marker ? null : hitAny(p);
+    setHoveredControl(picked);
+    if (!spaceHeld.current)
+      setCursor(
+        marker && marker.index === focusedSection
+          ? 'ew-resize'
+          : marker
+            ? 'pointer'
+            : picked
+              ? 'pointer'
+              : 'crosshair',
+      );
+  };
+  // The frame callback runs after the render that scheduled it may be stale, so it
+  // calls the latest applyHover through a ref.
+  const applyHoverRef = useRef(applyHover);
+  applyHoverRef.current = applyHover;
+  const touchHoverAt = useRef<{ x: number; y: number } | null>(null);
+  const touchHoverFrame = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (touchHoverFrame.current !== null) cancelAnimationFrame(touchHoverFrame.current);
+    },
+    [],
   );
 
   const onPointerMove = useCallback(
@@ -1145,24 +1192,21 @@ export function SplineEditor({
       }
 
       if (!d) {
-        // No drag: report the hovered world point for the readout HUD + cross-pane scrub.
-        const w = screenToWorld(vp, p);
-        if (readout) setHover(w);
-        onScrub?.(w.x);
-        const marker = sectionMarkerAt(p);
-        setHoveredSection(marker?.index ?? null);
-        const picked = marker ? null : hitAny(p);
-        setHoveredControl(picked);
-        if (!spaceHeld.current)
-          setCursor(
-            marker && marker.index === focusedSection
-              ? 'ew-resize'
-              : marker
-                ? 'pointer'
-                : picked
-                  ? 'pointer'
-                  : 'crosshair',
-          );
+        if (e.pointerType === 'touch') {
+          // A finger moving over empty canvas fires far more often than a frame,
+          // and every hover update re-renders the app (the scrub line crosses
+          // panes). Keep the latest point and apply it once per frame.
+          touchHoverAt.current = p;
+          if (touchHoverFrame.current === null) {
+            touchHoverFrame.current = requestAnimationFrame(() => {
+              touchHoverFrame.current = null;
+              const q = touchHoverAt.current;
+              if (q) applyHoverRef.current(q);
+            });
+          }
+          return;
+        }
+        applyHoverRef.current(p);
         return;
       }
       if (d.mode === 'pan') {
@@ -1248,22 +1292,17 @@ export function SplineEditor({
       if (d.hit.kind === 'end') store.getState().moveControlPoint(d.target, d.hit.index, held);
       else store.getState().moveTangent(d.target, d.hit.index, d.hit.kind, held);
     },
-    [
-      localPoint,
-      vp,
-      store,
-      readout,
-      onScrub,
-      cancelLongPress,
-      sectionMarkerAt,
-      focusedSection,
-      onMoveSection,
-      hitAny,
-    ],
+    [localPoint, vp, store, cancelLongPress, onMoveSection],
   );
 
   const onPointerUp = useCallback(
     (e: React.PointerEvent) => {
+      // The last pointer up ends the gesture, so the orientation may settle again.
+      if (
+        e.pointerType !== 'touch' ||
+        [...pointers.current.keys()].every((id) => id === e.pointerId)
+      )
+        setGestureTurned(null);
       // Touch: drop the lifted finger; if a pinch was active, end the gesture cleanly
       // (the one-finger edit was already abandoned when the second finger landed).
       if (e.pointerType === 'touch') {
@@ -1341,6 +1380,12 @@ export function SplineEditor({
   // cleanly without firing a context menu, so state never gets stuck mid-pan.
   const onPointerCancel = useCallback(
     (e: React.PointerEvent) => {
+      // The last pointer up ends the gesture, so the orientation may settle again.
+      if (
+        e.pointerType !== 'touch' ||
+        [...pointers.current.keys()].every((id) => id === e.pointerId)
+      )
+        setGestureTurned(null);
       cancelLongPress();
       pointers.current.delete(e.pointerId);
       if (pointers.current.size < 2) pinch.current = null;

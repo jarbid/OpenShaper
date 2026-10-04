@@ -91,8 +91,9 @@ describe('SplineEditor: grabbing a control point', () => {
   it('gives a fingertip a bigger target than a mouse cursor', () => {
     const { store, canvas, screenOf, midKnot } = mountEditor();
     const on = screenOf(midKnot());
-    // 11px out: past the mouse radius (8), inside the touch one (14).
-    const far = { clientX: on.clientX + 11, clientY: on.clientY };
+    // 20px below (away from the tangent handles, which run along x): past the mouse radius (8), inside the touch one (22: the 44px
+    // floor as a radius, P19 — it was 14, which missed this).
+    const far = { clientX: on.clientX, clientY: on.clientY + 20 };
 
     fireEvent.pointerDown(canvas, { ...MOUSE, ...far });
     expect(store.getState().selection).toBeNull();
@@ -104,5 +105,12 @@ describe('SplineEditor: grabbing a control point', () => {
       index: 1,
       kind: 'end',
     });
+  });
+
+  it('does not reach past the touch radius', () => {
+    const { store, canvas, screenOf, midKnot } = mountEditor();
+    const on = screenOf(midKnot());
+    fireEvent.pointerDown(canvas, { ...TOUCH, clientX: on.clientX, clientY: on.clientY + 30 });
+    expect(store.getState().selection).toBeNull();
   });
 });

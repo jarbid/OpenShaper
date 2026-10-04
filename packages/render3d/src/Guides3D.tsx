@@ -42,21 +42,27 @@ export function Guides3D({
   showSections: boolean;
   activeSectionX: number | null;
 }) {
-  const offset = useBoardOffset(board, targetFaceSize);
+  // Lines come from the board the hull on screen was meshed from, so they move with
+  // it rather than ahead of it (and are not re-lofted on every drag move).
+  const placed = useBoardOffset(board, targetFaceSize);
+  const placedBoard = placed?.board ?? null;
 
   // The kernel swaps `board` on every edit, so adding or deleting a
   // cross-section invalidates this automatically. The active station only picks
   // which ring is highlighted, so it is not a dependency of the lines themselves.
-  const lines = useMemo(() => guideLines(board, targetFaceSize, null), [board, targetFaceSize]);
+  const lines = useMemo(
+    () => (placedBoard ? guideLines(placedBoard, targetFaceSize, null) : null),
+    [placedBoard, targetFaceSize],
+  );
   const activeKey = useMemo(
-    () => activeGuideKey(lines.sections, activeSectionX),
+    () => (lines ? activeGuideKey(lines.sections, activeSectionX) : null),
     [lines, activeSectionX],
   );
 
-  if (!offset || (!showStringer && !showSections)) return null;
+  if (!placed || !lines || (!showStringer && !showSections)) return null;
 
   return (
-    <group position={offset}>
+    <group position={placed.offset}>
       {showStringer &&
         lines.stringer?.paths.map((points, i) => (
           <Line key={i} points={points} color={STRINGER_COLOR} lineWidth={2} {...OFFSET} />

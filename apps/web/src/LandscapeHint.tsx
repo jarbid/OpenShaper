@@ -31,7 +31,7 @@
 import { Button } from '@openshaper/ui';
 import { useEffect, useRef, useState } from 'react';
 import { track } from './analytics';
-import { useIsPhone, useMediaQuery } from './useMediaQuery';
+import { useIsCoarsePointer, useIsPhone, useMediaQuery } from './useMediaQuery';
 
 const DISMISSED_KEY = 'bs.landscapeHintSeen';
 
@@ -48,11 +48,14 @@ function wasDismissed(): boolean {
 export function LandscapeHint() {
   const isPhone = useIsPhone();
   const isPortrait = useMediaQuery('(orientation: portrait)');
+  // A narrow desktop window is phone-sized and portrait too, but it cannot be
+  // turned: the hint is only for a device held in the hand.
+  const isTouch = useIsCoarsePointer();
   const [dismissed, setDismissed] = useState(wasDismissed);
 
   // Only a portrait phone has something to gain. Turning the device satisfies the
   // hint on its own, so the condition doubles as the dismissal.
-  const show = isPhone && isPortrait && !dismissed;
+  const show = isPhone && isPortrait && isTouch && !dismissed;
 
   // StrictMode double-invokes effects; without this the impression is sent twice.
   const reportedShown = useRef(false);

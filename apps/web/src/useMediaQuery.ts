@@ -52,7 +52,9 @@ export function useIsDesktop(): boolean {
  * enough to pass a width test but far too short for a column of stacked panes.
  */
 export function useIsPhone(): boolean {
-  return useMediaQuery(`(max-width: 640px), ${SHORT_VIEWPORT}`);
+  // 639.98, not 640: Tailwind's `sm` is `min-width: 640px`, so at exactly 640px a
+  // `max-width: 640px` phone query and `sm:` styles would both apply.
+  return useMediaQuery(`(max-width: 639.98px), ${SHORT_VIEWPORT}`);
 }
 
 /**
