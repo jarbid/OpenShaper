@@ -23,16 +23,16 @@
     "@react-three/drei": "^9.114.0",
     "@react-three/fiber": "^8.17.0",
     "react": "^18.3.1",
-    "three": "^0.171.0",
+    "three": "^0.186.1",
     "zustand": "^5.0.2"
   },
   "devDependencies": {
     "@react-three/drei": "^9.114.0",
     "@react-three/fiber": "^8.17.0",
     "@types/react": "^18.3.17",
-    "@types/three": "^0.171.0",
+    "@types/three": "^0.186.0",
     "react": "^18.3.1",
-    "three": "^0.171.0",
+    "three": "^0.186.1",
     "typescript": "~6.0.3",
     "vitest": "^5.0.3",
     "zustand": "^5.0.2"
