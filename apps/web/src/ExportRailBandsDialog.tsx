@@ -16,11 +16,12 @@ import {
 } from '@openshaper/kernel';
 import { PAPER_SIZES } from '@openshaper/export';
 import { Button, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { track } from './analytics';
 import { fmtLen, type LengthUnit } from './format';
 import { CheckRow, Group, IntField, LenField, SelectRow } from './export-form-atoms';
 import { DEFAULT_RAIL_BANDS, type RailBandsSettings } from './rail-bands-settings';
+import { Modal } from './components/modal';
 
 const PLACEMENT_OPTIONS = [
   { value: 'least-foam', label: 'Least foam (fitted)' },
@@ -148,14 +149,6 @@ export function ExportRailBandsDialog({
     }));
   };
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   // Cheap enough to run on every keystroke: a handful of stations, each a few hundred
   // spline evaluations. If that ever stops being true it belongs in the specs worker.
   const plan = useMemo(
@@ -232,10 +225,11 @@ export function ExportRailBandsDialog({
   };
 
   return (
-    <div
-      data-modal="export-rail-bands"
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
-      onClick={onClose}
+    <Modal
+      name="export-rail-bands"
+      label="Export rail bands"
+      onClose={onClose}
+      className="grid place-items-center p-4"
     >
       <Panel
         className="flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto"
@@ -530,6 +524,6 @@ export function ExportRailBandsDialog({
           </div>
         </div>
       </Panel>
-    </div>
+    </Modal>
   );
 }

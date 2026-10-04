@@ -6,6 +6,7 @@
  */
 import { Button, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import type { ImportWarning } from '@openshaper/io';
+import { Modal } from './components/modal';
 
 export interface ImportWarningsDialogProps {
   fileName: string;
@@ -25,10 +26,11 @@ export function ImportWarningsDialog({
   onCancel,
 }: ImportWarningsDialogProps) {
   return (
-    <div
-      data-modal="import-warnings"
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
-      onClick={onCancel}
+    <Modal
+      name="import-warnings"
+      label="Import warnings"
+      onClose={onCancel}
+      className="grid place-items-center p-4"
     >
       <Panel
         className="flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto"
@@ -69,6 +71,6 @@ export function ImportWarningsDialog({
           </div>
         </PanelBody>
       </Panel>
-    </div>
+    </Modal>
   );
 }

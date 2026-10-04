@@ -27,6 +27,7 @@ import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@opens
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { BoardMeta } from './file-io';
 import { buildShareUrl, copyToClipboard, shareSize, shareSizeLabel } from './share-url';
+import { Modal } from './components/modal';
 
 /** What the link contains, and what it deliberately does not. */
 const INCLUDED = [
@@ -71,14 +72,6 @@ export function ShareDialog({
   /** Set only after a failed clipboard write — the manual-copy fallback. */
   const [manualUrl, setManualUrl] = useState<string | null>(null);
   const manualRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
 
   // Same rule as downloadBoard: an all-blank Board Info writes no metadata block.
   const metadata = useMemo(
@@ -151,10 +144,11 @@ export function ShareDialog({
   };
 
   return (
-    <div
-      data-modal="share"
-      className="ph-no-capture fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
-      onClick={onClose}
+    <Modal
+      name="share"
+      label="Share board"
+      onClose={onClose}
+      className="ph-no-capture grid place-items-center p-4"
     >
       <Panel
         className="flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto"
@@ -287,6 +281,6 @@ export function ShareDialog({
           )}
         </div>
       </Panel>
-    </div>
+    </Modal>
   );
 }

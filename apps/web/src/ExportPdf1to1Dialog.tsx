@@ -7,10 +7,11 @@
  */
 import { PAPER_SIZES, type Orientation } from '@openshaper/export';
 import { Button, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { type LengthUnit } from './format';
 import { CheckRow, Group, IntField, LenField, SelectRow } from './export-form-atoms';
 import { DEFAULT_PDF1TO1, type Pdf1to1Settings } from './pdf-export-settings';
+import { Modal } from './components/modal';
 
 // ---- main component --------------------------------------------------------
 
@@ -34,15 +35,6 @@ export function ExportPdf1to1Dialog({
   const set = <K extends keyof Pdf1to1Settings>(key: K, value: Pdf1to1Settings[K]): void =>
     setDraft((prev) => ({ ...prev, [key]: value }));
 
-  // Escape-to-close (the existing modals don't wire this; we improve on them).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   const resetToDefaults = () => setDraft({ ...DEFAULT_PDF1TO1 });
   const exportNow = () => {
     onExport(draft);
@@ -62,10 +54,11 @@ export function ExportPdf1to1Dialog({
   const noSlice = !draft.slice;
 
   return (
-    <div
-      data-modal="export-pdf-1to1"
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
-      onClick={onClose}
+    <Modal
+      name="export-pdf-1to1"
+      label="Export 1:1 PDF"
+      onClose={onClose}
+      className="grid place-items-center p-4"
     >
       <Panel
         className="flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto"
@@ -223,6 +216,6 @@ export function ExportPdf1to1Dialog({
           </div>
         </div>
       </Panel>
-    </div>
+    </Modal>
   );
 }
