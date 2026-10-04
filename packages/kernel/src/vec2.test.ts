@@ -1,6 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { add, angle, cross, distance, dot, lerp, length, normalize, scale, sub, vec2 } from './vec2';
+import {
+  add,
+  angle,
+  cross,
+  distance,
+  dot,
+  lerp,
+  length,
+  normalize,
+  scale,
+  sub,
+  vec2,
+} from './vec2';
 
 describe('vec2', () => {
   it('adds and subtracts', () => {

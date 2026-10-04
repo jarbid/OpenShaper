@@ -85,7 +85,9 @@ The sidebar's tabs and sections are data (`sidebar-sections.ts`, `SIZING` in
 
 - `pnpm typecheck` · `pnpm test` (Vitest in every package; jsdom in `apps/web`) ·
   `pnpm build` (`tsc -b && vite-react-ssg build` → `apps/web/dist`, prerendered HTML per
-  route, PWA precache guard in `tools/precache-guard.ts`). `pnpm lint` is a placeholder.
+  route, PWA precache guard in `tools/precache-guard.ts`). `pnpm lint` runs ESLint
+  (`eslint.config.mjs`, which also enforces the package layering) and `prettier --check`.
+  `pnpm coverage` prints per-package line coverage.
 - E2E: `pnpm --filter @openshaper/web e2e` (dev server) and `e2e:offline` (built `dist`
   via `tools/serve-dist.mjs`).
 - Characterization snapshots (behaviour lock for refactors):
@@ -94,6 +96,7 @@ The sidebar's tabs and sections are data (`sidebar-sections.ts`, `SIZING` in
   `packages/store/src/board-store.characterization.test.ts`.
 - Performance: `pnpm --filter @openshaper/store bench` (compute) and
   `node apps/web/tools/perf/browser-perf.mjs` (browser, after `pnpm build`).
-- CI (`.github/workflows/ci.yml`): install → typecheck → test → build.
+- CI (`.github/workflows/ci.yml`): install → lint → typecheck → test → build, and an `e2e`
+  job running both Playwright suites.
 - Deploy: Cloudflare Workers static assets (`wrangler.toml`, `worker/index.ts`).
   Desktop: `pnpm build:desktop` (Tauri).

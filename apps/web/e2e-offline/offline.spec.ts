@@ -1,4 +1,5 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test';
+import { openSection } from '../e2e/helpers';
 
 /**
  * Offline behaviour of the /app editor.
@@ -86,6 +87,33 @@ test.describe('offline editor', () => {
     const link = await page.evaluate(() => navigator.clipboard.readText());
     expect(link).toContain('/app#board=v1.');
 
+    // The confirm path needs work to lose. Autosave is debounced (800 ms after
+    // load), and with everything precached the steps above can finish first,
+    // in which case the new tab finds no session and, correctly, opens the link
+    // without asking. Wait for the snapshot so the test is not a race.
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            new Promise<boolean>((resolve) => {
+              const req = indexedDB.open('bs.session');
+              req.onerror = () => resolve(false);
+              req.onsuccess = () => {
+                const db = req.result;
+                const done = (found: boolean) => {
+                  db.close();
+                  resolve(found);
+                };
+                if (!db.objectStoreNames.contains('session')) return done(false);
+                const get = db.transaction('session').objectStore('session').get('current');
+                get.onsuccess = () => done(!!get.result);
+                get.onerror = () => done(false);
+              };
+            }),
+        ),
+      )
+      .toBe(true);
+
     await context.setOffline(true);
 
     const fresh = await context.newPage();
@@ -95,13 +123,15 @@ test.describe('offline editor', () => {
     });
 
     // This tab shares the context's IndexedDB, so the warm page's autosaved
-    // session is already there — which makes this the confirm path, exercised
+    // session (waited for above) is there — which makes this the confirm path, exercised
     // with no network. Asserted rather than skipped past: if the prompt ever
     // stops appearing, that is a precedence regression worth failing on.
     await expect(fresh.getByText('Open shared board?')).toBeVisible();
     await fresh.getByRole('button', { name: 'Open shared board' }).click();
 
     await expect(fresh.getByText(/Shared board opened as an editable copy/)).toBeVisible();
+    // Board info is a collapsed sidebar section: open it the way a user does.
+    await openSection(fresh, 'Board info');
     await expect(fresh.getByLabel(/^model$/i)).toHaveValue('Offline Fish');
     await expect(fresh.getByText(/Unexpected Application Error/i)).toHaveCount(0);
     expect(errors).toEqual([]);

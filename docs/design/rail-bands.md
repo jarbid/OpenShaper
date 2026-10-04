@@ -62,7 +62,7 @@ spent halving the gap that was already smallest.
 The leftover region decomposes into independent **caps**, one per pair of consecutive
 facets, and a cap depends on nothing but the two tangents bounding it. Placement is
 therefore a shortest path over an angle grid, solved exactly rather than hill-climbed —
-and the same run returns the best placement for *every* band count, which is what lets
+and the same run returns the best placement for _every_ band count, which is what lets
 the dialog show where the returns die before the shaper commits to a count.
 
 The grid is half a degree, so every angle printed is one a bevel gauge can be set to.
@@ -120,7 +120,7 @@ So the **rail mark really is near-constant** — thickness is the right variable
 No scaling rule recovers that from one number.
 
 That is a fact about the method, not a defect in this implementation, and it is why the
-per-station `cuts-inside` check earns its place: a chart applied down a whole board *will*
+per-station `cuts-inside` check earns its place: a chart applied down a whole board _will_
 sit proud in places and cut in in others, which is exactly what a shaper corrects by eye.
 The sheet says where, and by how much, before any foam is touched.
 
@@ -132,7 +132,7 @@ percentage at each tip**, and a **mark scale at each tip** for the deck and tuck
 The button fills the centre marks and the per-tip rail percentages from the fit on the
 board in hand. It deliberately does **not** fit a mark scale. That was tried: deriving one
 from each tip's own first deck mark cut the shortboard's overcut stations from 9 to 2 and
-made the funboard's *worse*, 10 to 14, because the deck marks and the tuck want different
+made the funboard's _worse_, 10 to 14, because the deck marks and the tuck want different
 scales and one number cannot serve both. Per-tip rail percentage, by contrast, improves
 all three boards and regresses none (9→2, 10→8, 17→15), so that is seeded and the scale is
 left as a dial the shaper can reach for.
@@ -145,7 +145,7 @@ the curve above the apex, 40% below", "in a 60/40 rail the wide point is 60% dow
 50/50 rail slightly turned down, the meeting point 10 degrees past center". A down rail is
 80/20: apex 20% up.
 
-The rail *mark* is a different quantity: a marking distance up the squared blank's rail
+The rail _mark_ is a different quantity: a marking distance up the squared blank's rail
 face, which the finished apex ends up **below**. Greenlight glosses its own mark
 percentage as the rail's name, which is where the confusion came from; every other source
 consulted counts from the deck.
@@ -203,7 +203,7 @@ and preserves the invariant the whole module exists for.
 
 More seriously, a deck stops being convex a long way out — the shortboard's tail stations
 reverse at 18°. The first implementation refused every angle past the reversal, which
-walled the bands out of the crown entirely and left *more* foam than the ladder. The fix
+walled the bands out of the crown entirely and left _more_ foam than the ladder. The fix
 is to place bands on the **convex hull** of the deck branch: a hull edge bridges a hollow,
 and a plane set to an angle in that range genuinely does ride across it on the two high
 points either side. Same geometry, correct answer, no special case.
@@ -316,7 +316,7 @@ It is a malformed curve, not a malformed sampling of a good one, so no amount of
 resolution helps. The 3D view and the STL were moved off it in August 2026.
 
 Rail bands are the caller least able to tolerate that, because this module does not
-merely *draw* the section — it picks each facet by finding where the section's own slope
+merely _draw_ the section — it picks each facet by finding where the section's own slope
 reaches an angle. Curvature the board does not have therefore does not blur a printed
 number, it fabricates one. Measured on a longboard carrying a different rail preset at
 each station, the blended sections stood **4.96 mm** off the surface the 3D view and the

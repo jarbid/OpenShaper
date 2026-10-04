@@ -6,6 +6,7 @@
   "description": "Cloudflare Worker fronting the static site — PostHog reverse proxy",
   "license": "GPL-3.0-or-later",
   "scripts": {
+    "coverage": "vitest run --coverage --coverage.include=index.ts --coverage.reporter=text-summary --coverage.reporter=json-summary",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },

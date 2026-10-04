@@ -20,7 +20,10 @@ export const PanelHeader = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElem
   ({ className, ...props }, ref) => (
     <div
       ref={ref}
-      className={cn('flex items-center justify-between border-b border-border px-4 py-2', className)}
+      className={cn(
+        'flex items-center justify-between border-b border-border px-4 py-2',
+        className,
+      )}
       {...props}
     />
   ),
@@ -35,8 +38,6 @@ export const PanelTitle = forwardRef<HTMLHeadingElement, HTMLAttributes<HTMLHead
 PanelTitle.displayName = 'PanelTitle';
 
 export const PanelBody = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
-  ({ className, ...props }, ref) => (
-    <div ref={ref} className={cn('p-4', className)} {...props} />
-  ),
+  ({ className, ...props }, ref) => <div ref={ref} className={cn('p-4', className)} {...props} />,
 );
 PanelBody.displayName = 'PanelBody';

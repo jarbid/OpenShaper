@@ -77,7 +77,8 @@ pnpm dev:desktop                              # Tauri shell
 pnpm typecheck                                # all workspace TypeScript checks
 pnpm test                                     # all Vitest suites
 pnpm build                                    # production web build
-pnpm lint                                     # currently placeholder scripts in packages
+pnpm lint                                     # ESLint (incl. layering rules) + prettier --check
+pnpm coverage                                 # per-package line coverage (Vitest v8)
 
 # Targeted checks
 pnpm --filter @openshaper/kernel test
@@ -86,8 +87,9 @@ pnpm --filter @openshaper/web e2e
 pnpm --filter @openshaper/web e2e:offline
 ```
 
-CI runs `pnpm typecheck`, `pnpm test`, and `pnpm build` after
-`pnpm install --frozen-lockfile`. Match that gate for changes intended for a PR.
+CI runs `pnpm lint`, `pnpm typecheck`, `pnpm test`, and `pnpm build` after
+`pnpm install --frozen-lockfile`, plus both Playwright suites (`e2e`, `e2e:offline`)
+in a separate job. Match that gate for changes intended for a PR.
 
 ## Conventions
 

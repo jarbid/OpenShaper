@@ -92,9 +92,9 @@ export default function DocsExport() {
           <Term name="Least foam">
             The default. Every band is solved from your own cross-section at that station, so the
             angles change down the length of the board. On the boards this was measured against it
-            takes out about 95% of the foam standing proud, against 84% for the ladder. It opens
-            the first band wider than tradition does, which leaves the rail corner about twice as
-            proud &mdash; use manual mode if you want that corner held.
+            takes out about 95% of the foam standing proud, against 84% for the ladder. It opens the
+            first band wider than tradition does, which leaves the rail corner about twice as proud
+            &mdash; use manual mode if you want that corner held.
           </Term>
           <Term name="Halving ladder">
             45&deg;, then halving. The angles printed on every reference card, if you would rather
@@ -107,9 +107,9 @@ export default function DocsExport() {
           </Term>
         </Terms>
         <p>
-          Manual marks are the ones the trade already uses: a <strong>rail mark</strong> up from
-          the bottom corner, and a <strong>deck mark</strong> in from the top corner for each band.
-          The first band joins those two; every band after it starts at the{' '}
+          Manual marks are the ones the trade already uses: a <strong>rail mark</strong> up from the
+          bottom corner, and a <strong>deck mark</strong> in from the top corner for each band. The
+          first band joins those two; every band after it starts at the{' '}
           <strong>midpoint of the band before</strong>, which is why one new number per band is
           enough. The tuck takes two marks of its own, up from and in from the bottom corner.
         </p>
@@ -129,11 +129,10 @@ export default function DocsExport() {
           board rather than a chart written for someone else&rsquo;s.
         </p>
         <p>
-          That percentage is the <em>mark</em>, not the rail. Naming a rail
-          &ldquo;60/40&rdquo; describes where the finished apex sits along the rail curve counted
-          from the deck — 60% of the curve above it, 40% below — and the apex ends up below the
-          mark you cut to. The station pages dimension the apex so you can see where it actually
-          landed.
+          That percentage is the <em>mark</em>, not the rail. Naming a rail &ldquo;60/40&rdquo;
+          describes where the finished apex sits along the rail curve counted from the deck — 60% of
+          the curve above it, 40% below — and the apex ends up below the mark you cut to. The
+          station pages dimension the apex so you can see where it actually landed.
         </p>
         <p>
           The dialog reports what each band count would remove before you export, so you can see
@@ -174,14 +173,14 @@ export default function DocsExport() {
           the last facet and the finished rail, which is what you blend away. The footer says how
           much of the proud foam these passes take out and how deep the worst remaining spot is. A
           red area is the opposite and only appears on hand-marked bands: foam those marks would
-          take <em>out</em> of the finished rail. The numbers are left exactly as you entered them
-          — a mark you did not choose has no business on the sheet — and the overcut is measured
+          take <em>out</em> of the finished rail. The numbers are left exactly as you entered them —
+          a mark you did not choose has no business on the sheet — and the overcut is measured
           instead.
         </p>
         <p>
-          Each station page also dimensions the <strong>rail apex</strong> — the widest point of
-          the rail — as a height up from the bottom corner. The vertical face left between the rail
-          mark and the tuck is what tells you how much rail there is.
+          Each station page also dimensions the <strong>rail apex</strong> — the widest point of the
+          rail — as a height up from the bottom corner. The vertical face left between the rail mark
+          and the tuck is what tells you how much rail there is.
         </p>
         <p>
           Because the angles are fitted to each station, they change gradually down the board; the

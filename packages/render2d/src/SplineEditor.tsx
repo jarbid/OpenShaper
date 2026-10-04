@@ -567,7 +567,9 @@ export function SplineEditor({
    * everything downstream into the turned space.
    */
   const turned = allowTurn && pane.w > 0 && !!bounds && turnFitsLarger(bounds, pane.w, pane.h);
-  const size = turned ? { w: pane.h, h: pane.w } : pane;
+  // Memoised: a fresh object per render would re-run every effect keyed on `size`
+  // (the canvas redraw among them) on every render of a turned pane.
+  const size = useMemo(() => (turned ? { w: pane.h, h: pane.w } : pane), [turned, pane]);
 
   // Re-fit when the target set changes, or we first get a board + a size.
   // A restored framing (initialView) replaces only the first fit of the mount;
@@ -752,6 +754,7 @@ export function SplineEditor({
       }
     }
   }, [
+    turned,
     board,
     vp,
     size,
@@ -788,22 +791,25 @@ export function SplineEditor({
   // down without necessarily resizing it), and a rect that moved mid-drag would
   // silently re-map the pointer and teleport whatever it was holding.
   const gestureRect = useRef<{ left: number; top: number } | null>(null);
-  const localPoint = (e: React.MouseEvent): { x: number; y: number } => {
-    const pinned = (drag.current || pinch.current) && gestureRect.current;
-    const r = pinned ?? canvasRef.current!.getBoundingClientRect();
-    const dx = e.clientX - r.left;
-    const dy = e.clientY - r.top;
-    // TURNED: the element is rotated -90° about its own top-left and slid down by
-    // its width, so canvas-local (lx, ly) sits at pane (ly, size.w - lx). This is
-    // that, inverted. `getBoundingClientRect` on a rotated element returns the
-    // axis-aligned box, which for an exact quarter turn is the pane box — so
-    // `dx`/`dy` are already pane-relative and only the axes have to be undone.
-    //
-    // The single place a mistake here shows up is "the point does not follow my
-    // finger", which is the bug this whole branch started with, so it is pinned by
-    // a round-trip test rather than trusted.
-    return turned ? paneToTurnedCanvas({ x: dx, y: dy }, size.w) : { x: dx, y: dy };
-  };
+  const localPoint = useCallback(
+    (e: React.MouseEvent): { x: number; y: number } => {
+      const pinned = (drag.current || pinch.current) && gestureRect.current;
+      const r = pinned ?? canvasRef.current!.getBoundingClientRect();
+      const dx = e.clientX - r.left;
+      const dy = e.clientY - r.top;
+      // TURNED: the element is rotated -90° about its own top-left and slid down by
+      // its width, so canvas-local (lx, ly) sits at pane (ly, size.w - lx). This is
+      // that, inverted. `getBoundingClientRect` on a rotated element returns the
+      // axis-aligned box, which for an exact quarter turn is the pane box — so
+      // `dx`/`dy` are already pane-relative and only the axes have to be undone.
+      //
+      // The single place a mistake here shows up is "the point does not follow my
+      // finger", which is the bug this whole branch started with, so it is pinned by
+      // a round-trip test rather than trusted.
+      return turned ? paneToTurnedCanvas({ x: dx, y: dy }, size.w) : { x: dx, y: dy };
+    },
+    [turned, size.w],
+  );
 
   // Re-home the view to fit the curves (shared by double-click and the context menu).
   const fitView = useCallback(() => {
@@ -1062,6 +1068,8 @@ export function SplineEditor({
       store.getState().select(null);
     },
     [
+      localPoint,
+      size.h,
       vp,
       board,
       store,
@@ -1241,6 +1249,7 @@ export function SplineEditor({
       else store.getState().moveTangent(d.target, d.hit.index, d.hit.kind, held);
     },
     [
+      localPoint,
       vp,
       store,
       readout,
@@ -1309,6 +1318,7 @@ export function SplineEditor({
       setCursor(spaceHeld.current ? 'grab' : 'crosshair');
     },
     [
+      localPoint,
       store,
       vp,
       board,
@@ -1352,7 +1362,7 @@ export function SplineEditor({
       const p = localPoint(e);
       setVp(zoomAt(vp, p, e.deltaY < 0 ? 1.1 : 1 / 1.1));
     },
-    [vp],
+    [vp, localPoint],
   );
 
   // Suppress the browser's native context menu on the canvas (ours opens from the
@@ -1395,7 +1405,7 @@ export function SplineEditor({
       // Empty space (no nearby curve): re-home the view to fit the curves.
       fitView();
     },
-    [vp, board, store, targets, mirrorX, mirrorY, fitView],
+    [vp, board, store, targets, mirrorX, mirrorY, fitView, localPoint],
   );
 
   return (

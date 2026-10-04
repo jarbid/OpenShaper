@@ -54,9 +54,9 @@ describe('<ExportRailBandsDialog />', () => {
     renderDialog('mm');
     fireEvent.change(screen.getByLabelText('Placement'), { target: { value: 'manual' } });
     // a percentage, so dimensionless and unit-free whatever the selector says
-    expect((screen.getByLabelText('Rail mark (% up the rail face)') as HTMLInputElement).value).toBe(
-      '60',
-    );
+    expect(
+      (screen.getByLabelText('Rail mark (% up the rail face)') as HTMLInputElement).value,
+    ).toBe('60');
     // deck marks are lengths, so they follow the selector: 2.5 cm shows as 25 mm
     // the label carries the unit suffix, hence the loose match
     expect((screen.getByLabelText(/Deck mark 1/) as HTMLInputElement).value).toBe('25');

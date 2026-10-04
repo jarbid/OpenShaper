@@ -36,11 +36,7 @@ export const knot = (
  * Build a knot from the legacy flat coordinate order used in `.brd` `cp` records:
  * [endX, endY, prevX, prevY, nextX, nextY].
  */
-export const knotFromArray = (
-  v: readonly number[],
-  continuous = true,
-  other = false,
-): Knot => {
+export const knotFromArray = (v: readonly number[], continuous = true, other = false): Knot => {
   const [ex, ey, px, py, nx, ny] = v as [number, number, number, number, number, number];
   return knot(vec2(ex, ey), vec2(px, py), vec2(nx, ny), continuous, other);
 };

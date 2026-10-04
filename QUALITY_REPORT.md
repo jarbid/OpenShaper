@@ -277,3 +277,23 @@ build this Playwright version pins), through a temporary config that is not comm
   all" fails, and fails the same way on the Phase 0 baseline build (verified with
   `CI=1`, so the baseline built and served its own dist). It is pre-existing, and either
   environmental or a real offline share-link problem (see P45).
+
+## Line coverage (P44)
+
+First measured numbers, from `pnpm coverage` (Vitest v8, `src/` of each package) on
+the commit that added it. Coverage counts only a package's _own_ tests, which
+understates the UI packages: `SplineEditor` (render2d) and the `ui` components are
+mostly exercised by `apps/web`'s tests, which these per-package figures do not credit.
+
+| Package  | Lines                                                    |
+| -------- | -------------------------------------------------------- |
+| store    | 97.4% (788/809)                                          |
+| worker   | 96.4% (54/56)                                            |
+| kernel   | 95.9% (5191/5413)                                        |
+| export   | 94.4% (3862/4091)                                        |
+| units    | 89.6% (455/508)                                          |
+| io       | 83.4% (1306/1566)                                        |
+| web      | 74.9% (5793/7737)                                        |
+| render2d | 45.3% (929/2052)                                         |
+| render3d | 25.7% (232/902)                                          |
+| ui       | 0% (0/732), no tests of its own; covered from `apps/web` |

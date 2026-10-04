@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type PointerEvent, type ReactNode } from 'react';
+import { useCallback, useMemo, useRef, useState, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '../lib/cn';
 
@@ -68,7 +68,10 @@ export function BottomSheet({
   // Read inside the move handler, which is memoised with no deps.
   const floor = useRef(0);
   floor.current = canClose ? 0 : PEEK_PX;
-  const points = canClose ? ([...SNAP_ORDER, 'closed'] as SheetSnap[]) : SNAP_ORDER;
+  const points = useMemo(
+    () => (canClose ? ([...SNAP_ORDER, 'closed'] as SheetSnap[]) : SNAP_ORDER),
+    [canClose],
+  );
 
   const height = dragPx ?? snapHeight(snap);
 

@@ -736,7 +736,7 @@ export const alignTangentsHorizontal = (s: Spline, index: number): Spline => {
   const prevSign = k.tangentToPrev.x - end.x > 0 ? 1 : -1;
   const nextSign = k.tangentToNext.x - end.x >= 0 ? 1 : -1;
 
-  let prev = vec2(end.x + prevLen * prevSign, end.y);
+  const prev = vec2(end.x + prevLen * prevSign, end.y);
   let next = vec2(end.x + nextLen * nextSign, end.y);
 
   if (k.continuous) {
