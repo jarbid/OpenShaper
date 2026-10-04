@@ -9,7 +9,7 @@
  */
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { ThreeDControls } from './view-toolkit';
+import { MeasurementAxisSelect, ThreeDControls } from './view-toolkit';
 import { DEFAULT_VIEW_3D } from './view3d-settings';
 
 describe('ThreeDControls guide toggles', () => {
@@ -56,5 +56,19 @@ describe('ThreeDControls guide toggles', () => {
     );
     const on = screen.getByRole('button', { name: 'Stringer' }).className;
     expect(on).not.toBe(off);
+  });
+});
+
+describe('MeasurementAxisSelect', () => {
+  it('offers x-axis and o/curve measurements', () => {
+    const onChange = vi.fn();
+    render(<MeasurementAxisSelect value="x-axis" onChange={onChange} />);
+
+    const select = screen.getByLabelText('Longitudinal measurement axis');
+    expect(screen.getByRole('option', { name: 'x-axis' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'o/curve' })).toBeTruthy();
+
+    fireEvent.change(select, { target: { value: 'o-curve' } });
+    expect(onChange).toHaveBeenCalledWith('o-curve');
   });
 });

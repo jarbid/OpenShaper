@@ -9,6 +9,7 @@ import {
   getThickness,
   getThicknessAtPos,
   getWidthAtPos,
+  splineLengthToX,
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
@@ -235,6 +236,29 @@ export function UnitSelect({
   );
 }
 
+export type MeasurementAxis = 'x-axis' | 'o-curve';
+
+export function MeasurementAxisSelect({
+  value,
+  onChange,
+}: {
+  value: MeasurementAxis;
+  onChange: (axis: MeasurementAxis) => void;
+}) {
+  return (
+    <Select
+      value={value}
+      onChange={(e) => onChange(e.target.value as MeasurementAxis)}
+      title="Longitudinal measurement axis"
+      aria-label="Longitudinal measurement axis"
+      className="shrink-0 bg-card text-card-foreground [&>option]:bg-card [&>option]:text-card-foreground"
+    >
+      <option value="x-axis">x-axis</option>
+      <option value="o-curve">o/curve</option>
+    </Select>
+  );
+}
+
 /** A compact typed `<select>`. */
 export function Sel<T extends string>({
   value,
@@ -382,18 +406,24 @@ export function ThreeDControls({
  * distance from the rail; rocker → rocker/thickness/%; cross-section → from-CL
  * & height.
  */
-export function makeReadout(kind: EditorKind, units: LengthUnit) {
+export function makeReadout(
+  kind: EditorKind,
+  units: LengthUnit,
+  measurementAxis: MeasurementAxis = 'x-axis',
+) {
   return (world: Vec2): { label: string; value: string; color?: string }[] => {
     const b = boardStore.getState().board;
     if (!b) return [];
     const L = (cm: number) => fmtLen(cm, units);
+    const longitudinal = (x: number) =>
+      measurementAxis === 'o-curve' ? splineLengthToX(b.bottom, x) : x;
     // The scrub probe is the cyan vertical line at the cursor's board-x; its readouts
     // (position + the span it measures) are coloured to match it.
     const cyan = MEASURE_COLORS.fromCl;
     if (kind === 'outline') {
       const halfW = getWidthAtPos(b, world.x) / 2;
       return [
-        { label: 'Pos', value: L(world.x), color: cyan },
+        { label: 'Pos', value: L(longitudinal(world.x)), color: cyan },
         { label: 'Width', value: L(getWidthAtPos(b, world.x)), color: cyan },
         { label: 'From rail', value: L(Math.max(0, halfW - Math.abs(world.y))) },
       ];
@@ -402,7 +432,7 @@ export function makeReadout(kind: EditorKind, units: LengthUnit) {
       const thk = getThicknessAtPos(b, world.x);
       const center = getThickness(b) || 1;
       return [
-        { label: 'Pos', value: L(world.x), color: cyan },
+        { label: 'Pos', value: L(longitudinal(world.x)), color: cyan },
         { label: 'Rocker', value: L(getRockerAtPos(b, world.x)) },
         { label: 'Deck', value: L(getDeckAtPos(b, world.x)) },
         { label: 'Thick', value: `${L(thk)} (${((thk / center) * 100).toFixed(0)}%)`, color: cyan },
@@ -451,6 +481,7 @@ export function EditorPane({
   kind,
   csIndex,
   units,
+  measurementAxis = 'x-axis',
   sectionMarkers,
   onPickSection,
   focusedSection,
@@ -479,6 +510,7 @@ export function EditorPane({
   kind: EditorKind;
   csIndex: number;
   units: LengthUnit;
+  measurementAxis?: MeasurementAxis;
   sectionMarkers?: SectionMarker[];
   onPickSection?: (index: number) => void;
   focusedSection?: number | null;
@@ -554,11 +586,16 @@ export function EditorPane({
           onFocusSection={onFocusSection}
           onMoveSection={kind !== 'crossSection' ? onMoveSection : undefined}
           onDeleteSection={kind !== 'crossSection' ? onDeleteSection : undefined}
-          formatSectionPosition={(cm) => fmtLen(cm, units)}
+          formatSectionPosition={(cm) => {
+            const b = boardStore.getState().board;
+            const position =
+              measurementAxis === 'o-curve' && b ? splineLengthToX(b.bottom, cm) : cm;
+            return fmtLen(position, units);
+          }}
           onAddSectionAt={kind !== 'crossSection' ? onAddSectionAt : undefined}
           onScrub={kind !== 'crossSection' ? onScrub : undefined}
           allowTurn={allowTurn}
-          readout={makeReadout(kind, units)}
+          readout={makeReadout(kind, units, measurementAxis)}
           measureCursor={kind === 'crossSection'}
           overlays={overlays}
           ghostSplines={ghostSplines}

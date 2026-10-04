@@ -4,6 +4,8 @@ import {
   loftCrossSection,
   getLength,
   resolveFins,
+  splineLengthToX,
+  splineXAtLength,
   type BezierBoard,
   type Spline,
 } from '@openshaper/kernel';
@@ -110,12 +112,14 @@ import {
   faceSizeFor,
   FALLBACK_VIEW,
   isViewAvailable,
+  MeasurementAxisSelect,
   SplitPaneSelect,
   ThreeDControls,
   UnitSelect,
   ViewPaneHeader,
   ViewToggleTitle,
   type EditorKind,
+  type MeasurementAxis,
   type SplitPaneKind,
   type View,
   type View3DSettings,
@@ -464,6 +468,13 @@ function AppShell() {
   useEffect(() => {
     writeRaw('bs.lengthUnit', unitKey);
   }, [unitKey]);
+  const [measurementAxis, setMeasurementAxis] = useState<MeasurementAxis>(() => {
+    const stored = readRaw('bs.measurementAxis');
+    return stored === 'o-curve' ? 'o-curve' : 'x-axis';
+  });
+  useEffect(() => {
+    writeRaw('bs.measurementAxis', measurementAxis);
+  }, [measurementAxis]);
   const [view3d, setView3d] = useState<View3DSettings>(
     bootViewState.current.view3d ?? DEFAULT_VIEW_3D,
   );
@@ -998,9 +1009,22 @@ function AppShell() {
       onCopy={copySection}
       onPaste={pasteSection}
       canPaste={!!csClipboard}
-      positionCm={board?.crossSections[clampedCs]?.position ?? null}
+      positionCm={
+        board?.crossSections[clampedCs]
+          ? measurementAxis === 'o-curve'
+            ? splineLengthToX(board.bottom, board.crossSections[clampedCs]!.position)
+            : board.crossSections[clampedCs]!.position
+          : null
+      }
       units={units}
-      onMoveTo={(position) => moveSection(clampedCs, position)}
+      onMoveTo={(position) =>
+        moveSection(
+          clampedCs,
+          measurementAxis === 'o-curve' && board
+            ? splineXAtLength(board.bottom, position)
+            : position,
+        )
+      }
     />
   );
 
@@ -1300,6 +1324,7 @@ function AppShell() {
     kind,
     csIndex: clampedCs,
     units,
+    measurementAxis,
     // The cross-section pane has no length axis, so `EditorPane` drops the station
     // markers, the scrub and the trace props for it — passing them uniformly here
     // keeps that one decision in one place.
@@ -1384,6 +1409,8 @@ function AppShell() {
       sidebar={sidebar}
       onSidebarChange={setSidebar}
       onUnitChange={isPhone ? setUnitKey : undefined}
+      measurementAxis={measurementAxis}
+      onMeasurementAxisChange={isPhone ? setMeasurementAxis : undefined}
     />
   );
 
@@ -1503,7 +1530,12 @@ function AppShell() {
           {/* On a phone this row has no room for it — it moves into the sheet,
               where the current unit stays visible next to the dimensions it
               formats. See `UnitSelect`. */}
-          {!isPhone && <UnitSelect value={unitKey} onChange={setUnitKey} />}
+          {!isPhone && (
+            <div className="flex shrink-0 items-center gap-1">
+              <UnitSelect value={unitKey} onChange={setUnitKey} />
+              <MeasurementAxisSelect value={measurementAxis} onChange={setMeasurementAxis} />
+            </div>
+          )}
           {/* Below lg the sidebar lives in a bottom sheet; this opens it. Gated on the
               tier rather than `lg:hidden` so it is not merely invisible on desktop: it
               names the same action as the rail's own control, and two mounted buttons
