@@ -84,37 +84,31 @@ const triNormal = (a: P3, b: P3, c: P3): P3 => {
   return { x: nx, y: ny, z: nz };
 };
 
-const writeFacet = (out: string[], a: P3, b: P3, c: P3): void => {
+/** One facet as 12 numbers: the unit normal, then the three vertices. */
+const writeFacet = (out: number[], a: P3, b: P3, c: P3): void => {
   const n = triNormal(a, b, c);
-  out.push(`facet normal ${f(n.x)} ${f(n.y)} ${f(n.z)}`);
-  out.push('outer loop');
-  out.push(`vertex ${f(a.x)} ${f(a.y)} ${f(a.z)}`);
-  out.push(`vertex ${f(b.x)} ${f(b.y)} ${f(b.z)}`);
-  out.push(`vertex ${f(c.x)} ${f(c.y)} ${f(c.z)}`);
-  out.push('endloop');
-  out.push('endfacet');
+  out.push(n.x, n.y, n.z, a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z);
 };
 
 /**
- * Export a board's surface as an ASCII STL string.
+ * The board's surface (and fins) as STL facets, 12 numbers each (normal, then
+ * three vertices); shared by the binary and the ASCII writers.
  *
  * Cross-section rings are sampled along the length and stitched into a closed
  * watertight-ish hull: each pair of adjacent rings forms a quad band (two
  * triangles) on the `+y` side and a mirrored band on the `-y` side; the nose and
  * tail rings are fanned to a centre point to cap the ends.
  */
-export const exportStl = (board: BezierBoard, opts: StlOptions = {}): string => {
+const stlFacets = (board: BezierBoard, opts: StlOptions): number[] => {
   // Derive density from a fine target face size unless explicit counts are given.
   // The kernel ring count covers the full closed loop; STL samples one rail (per
   // side) and mirrors it, so use half the loop count.
   const derived = tessellationSteps(board, opts.targetFaceSize ?? DEFAULT_FACE_SIZE);
   const lengthSteps = Math.max(2, opts.lengthSteps ?? derived.lengthSteps);
   const ringSteps = Math.max(3, opts.ringSteps ?? Math.ceil(derived.ringSteps / 2));
-  const name = opts.name ?? 'openshaper';
   const length = getLength(board);
 
-  const out: string[] = [];
-  out.push(`solid ${name}`);
+  const out: number[] = [];
 
   // A concave tail (swallow / fish) cannot be expressed by the single-rail mirror
   // loft below — its notch would collapse. Use the kernel's watertight cutout mesh
@@ -124,8 +118,7 @@ export const exportStl = (board: BezierBoard, opts: StlOptions = {}): string => 
     if (opts.includeFins !== false) {
       for (const fin of resolveFins(board)) writeMesh(out, buildFinBladeMesh(fin));
     }
-    out.push(`endsolid ${name}`);
-    return out.join('\n') + '\n';
+    return out;
   }
 
   // Build rings at interior stations (avoid the exact 0/length dummy sections,
@@ -190,12 +183,60 @@ export const exportStl = (board: BezierBoard, opts: StlOptions = {}): string => 
     for (const fin of resolveFins(board)) writeMesh(out, buildFinBladeMesh(fin));
   }
 
+  return out;
+};
+
+/**
+ * Export a board's surface as a binary STL: an 80-byte header, a facet count, then
+ * 50 bytes per facet (float32 normal and vertices, little-endian). About a fifth
+ * the size of the ASCII form and far faster to write; every slicer and CAD tool
+ * reads it. The header deliberately does not start with "solid", which some
+ * readers take as the mark of an ASCII file.
+ */
+export const exportStl = (board: BezierBoard, opts: StlOptions = {}): Uint8Array => {
+  const facets = stlFacets(board, opts);
+  const count = facets.length / 12;
+  const bytes = new Uint8Array(84 + count * 50);
+  const header = `OpenShaper STL ${opts.name ?? 'openshaper'}`.slice(0, 80);
+  for (let i = 0; i < header.length; i++) bytes[i] = header.charCodeAt(i) & 0x7f;
+  const view = new DataView(bytes.buffer);
+  view.setUint32(80, count, true);
+  let o = 84;
+  for (let i = 0; i < facets.length; i += 12) {
+    for (let k = 0; k < 12; k++) {
+      const v = facets[i + k]!;
+      view.setFloat32(o, Number.isFinite(v) ? v : 0, true);
+      o += 4;
+    }
+    o += 2; // attribute byte count: 0
+  }
+  return bytes;
+};
+
+/**
+ * The same surface as an ASCII STL string, in the legacy writer's number format.
+ * Kept for tools and tests that want readable text; the app exports binary.
+ */
+export const exportStlAscii = (board: BezierBoard, opts: StlOptions = {}): string => {
+  const name = opts.name ?? 'openshaper';
+  const facets = stlFacets(board, opts);
+  const out: string[] = [`solid ${name}`];
+  for (let i = 0; i < facets.length; i += 12) {
+    const v = (k: number) => f(facets[i + k]!);
+    out.push(`facet normal ${v(0)} ${v(1)} ${v(2)}`);
+    out.push('outer loop');
+    out.push(`vertex ${v(3)} ${v(4)} ${v(5)}`);
+    out.push(`vertex ${v(6)} ${v(7)} ${v(8)}`);
+    out.push(`vertex ${v(9)} ${v(10)} ${v(11)}`);
+    out.push('endloop');
+    out.push('endfacet');
+  }
   out.push(`endsolid ${name}`);
   return out.join('\n') + '\n';
 };
 
 /** Write every triangle of a kernel mesh as STL facets. */
-const writeMesh = (out: string[], mesh: BoardMesh): void => {
+const writeMesh = (out: number[], mesh: BoardMesh): void => {
   const { positions, indices } = mesh;
   const at = (i: number): P3 => ({
     x: positions[i * 3]!,

@@ -14,7 +14,7 @@ References are against `99c3030`.
 3. ~~**CI safety net** — P35, P36, so the above stays fixed.~~ Done, with P44 and P45.
 4. **Load-time wins that need a product decision** — P38 (analytics), then P39/P41
    after one cross-browser download check.
-5. **Format changes** — P24–P29: each needs a `divergences.md` entry and fixture work.
+5. ~~**Format changes** — P24–P29: each needs a `divergences.md` entry and fixture work.~~ Done, with P31 and P42.
 
 ## Editor bugs (state and undo)
 
@@ -122,24 +122,24 @@ waits for the worker. Effort M · visible: the transient misalignment goes away.
 are parsed and then thrown away at `file-io.ts:111`). Effort XS · visible: yes. Format
 unchanged.
 
-**P24 · Non-ASCII `.brd` metadata is garbled.** Written as UTF-8, read as latin1
+**P24 · ✅ Done (4e3f459) — Non-ASCII `.brd` metadata is garbled.** Written as UTF-8, read as latin1
 (`Café` → `CafÃ©`). Fix: write latin1 and transliterate the rest. Changes exported bytes.
 Effort S · risk med.
 
-**P25 · Newlines in `.brd` comments don't round-trip.** Written as `\n`, never unescaped
+**P25 · ✅ Done (4840ddb) — Newlines in `.brd` comments don't round-trip.** Written as `\n`, never unescaped
 on read. Needs the legacy spec checked first. Effort S · risk med.
 
-**P26 · Fin-type regex precedence bug.** `/\b5|five\b/` turns "Thruster 4.5" into
+**P26 · ✅ Done (030037c) — Fin-type regex precedence bug.** `/\b5|five\b/` turns "Thruster 4.5" into
 `5-fin`; "tri" matches "Triple stringer". Effort XS · visible on import.
 
-**P27 · Reader gaps.** `.srf`: NaN knots not rejected, silent 64 KB truncation, and no
+**P27 · ✅ Done (64891a5) — Reader gaps.** `.srf`: NaN knots not rejected, silent 64 KB truncation, and no
 warnings channel for dropped curves. `.brd`: `p50` values become NaN; empty sections are
 accepted silently. `.s3d`: XML entities and CDATA not decoded, declared encoding ignored.
 Effort M · visible: metadata and warnings.
 
-**P28 · Sheet DXF writes `·` as UTF-8** into R12 (ANSI) text. Changes output. Effort XS.
+**P28 · ✅ Done (24b31ae) — Sheet DXF writes `·` as UTF-8** into R12 (ANSI) text. Changes output. Effort XS.
 
-**P29 · Binary STL** (about 5× smaller, faster). Changes the output format. Effort S.
+**P29 · ✅ Done (dc35a91) — Binary STL** (about 5× smaller, faster). Changes the output format. Effort S.
 
 **P30 · ✅ Done (e269602) — Object-URL revoke timing.** `download()` revokes the URL synchronously after
 `click()`, which is fragile in Safari and Firefox. The multi-PDF loop can be blocked as
@@ -147,7 +147,7 @@ multiple downloads. Effort S · visible: downloads more reliable.
 
 ## Geometry (need golden or divergence handling)
 
-**P31 · `getMaxWidth` is `-Infinity` for a single-segment outline.** The widest point is
+**P31 · ✅ Done (af1f087) — `getMaxWidth` is `-Infinity` for a single-segment outline.** The widest point is
 also missed in the last segment, because `maxY` skips it (a legacy quirk). This makes
 the mesh coarse (`ringSteps` clamps to 12). Golden boards are unchanged; the box and
 extreme-rocker characterization snapshots would change. Effort S · risk med.
@@ -189,7 +189,7 @@ risk low · visible: no.
 
 Effort M–L each · risk med–high · visible: possibly (rendering, routing).
 
-**P42 · `getPreviousCrossSectionIndex` can index past the end** (`board.ts:211`): when
+**P42 · ✅ Closed, not a bug (1c66c49): the branch is unreachable, now pinned by a test — `getPreviousCrossSectionIndex` can index past the end** (`board.ts:211`): when
 `pos` is beyond the last station it returns `crossSections.length`. Every current caller
 clamps `pos` first, so nothing hits it today. A one-line guard (`length - 2`, as the
 `next` variant does) would remove the trap, but it changes a legacy-ported function, so it

@@ -32,6 +32,7 @@
  *   - Board assembly: lines 386–813
  */
 
+import type { ImportWarning } from './import-warning';
 import {
   board,
   crossSection,
@@ -140,10 +141,13 @@ function readUntil(cur: Cursor, sentinel: number, maxBytes = 65536): string {
       );
     }
     const b = cur.readByte('string char');
-    if (b === sentinel) break;
+    if (b === sentinel) return String.fromCharCode(...bytes);
     bytes.push(b);
   }
-  return String.fromCharCode(...bytes);
+  // Stopping here and carrying on would read the rest of the file out of step.
+  throw new SrfReadError(
+    `.srf header string is longer than ${maxBytes} bytes; sentinel 0x${sentinel.toString(16).padStart(2, '0')} not found`,
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -163,6 +167,13 @@ function readUntil(cur: Cursor, sentinel: number, maxBytes = 65536): string {
  * The z-coordinate is not used by 2-D profiles; it is read and discarded.
  * All coordinates are in metres; callers convert to cm.
  */
+/** A coordinate the geometry uses: a NaN or infinity here would load a broken board. */
+function readCoord(cur: Cursor, context: string): number {
+  const v = cur.readFloat(context);
+  if (!Number.isFinite(v)) throw new SrfReadError(`.srf ${context} is not a number`);
+  return v;
+}
+
 function readKnotSrf(cur: Cursor): {
   ex: number;
   ey: number;
@@ -172,19 +183,19 @@ function readKnotSrf(cur: Cursor): {
   ny: number;
 } {
   // j=0: end point
-  const ex = cur.readFloat('knot end x');
-  const ey = cur.readFloat('knot end y');
+  const ex = readCoord(cur, 'knot end x');
+  const ey = readCoord(cur, 'knot end y');
   cur.readFloat('knot end z'); // z unused
   cur.skip(12, 'knot end skip');
 
   // j=1: tangentToPrev
-  const px = cur.readFloat('knot prev x');
-  const py = cur.readFloat('knot prev y');
+  const px = readCoord(cur, 'knot prev x');
+  const py = readCoord(cur, 'knot prev y');
   cur.readFloat('knot prev z');
 
   // j=2: tangentToNext
-  const nx = cur.readFloat('knot next x');
-  const ny = cur.readFloat('knot next y');
+  const nx = readCoord(cur, 'knot next x');
+  const ny = readCoord(cur, 'knot next y');
   cur.readFloat('knot next z');
 
   cur.skip(28, 'knot tail skip');
@@ -257,9 +268,9 @@ interface CaveGroup {
 }
 
 function readCavePoint(cur: Cursor, context: string): CavePoint {
-  const x = cur.readFloat(`${context} x`);
-  const y = cur.readFloat(`${context} y`);
-  const z = cur.readFloat(`${context} z`);
+  const x = readCoord(cur, `${context} x`);
+  const y = readCoord(cur, `${context} y`);
+  const z = readCoord(cur, `${context} z`);
   return { x, y, z };
 }
 
@@ -295,6 +306,8 @@ export interface ParsedSrf {
   readonly board: BezierBoard;
   readonly model: string;
   readonly comments: string;
+  /** Non-fatal repairs, shown to the user like the other readers' warnings. */
+  readonly warnings: ImportWarning[];
 }
 
 // ---------------------------------------------------------------------------
@@ -531,6 +544,7 @@ export function parseSrf(buffer: ArrayBuffer): ParsedSrf {
 
   // Add bottom-only cross-sections (SrfReader.java:692–813) for caves that
   // didn't already appear in the deck pass.
+  let merged = 0;
   for (let i = 0; i < nBottomCaves; i++) {
     const bg = bottomCaveGroups[i]!;
     let crsPos = boardLengthCm - bg.ep1.z * CM_PER_M;
@@ -539,7 +553,10 @@ export function parseSrf(buffer: ArrayBuffer): ParsedSrf {
 
     // Skip if an existing cross-section is already within 2 cm
     const alreadyExists = crossSections.some((cs) => Math.abs(cs.position - crsPos) < 2.0);
-    if (alreadyExists) continue;
+    if (alreadyExists) {
+      merged++;
+      continue;
+    }
 
     const csKnots: Knot[] = [
       knot(
@@ -566,5 +583,13 @@ export function parseSrf(buffer: ArrayBuffer): ParsedSrf {
 
   const built = board(outlineSpline, rockerSpline, deckSpline, crossSections, 'controlPoint');
 
-  return { board: built, model, comments };
+  const warnings: ImportWarning[] = [];
+  if (merged > 0) {
+    warnings.push({
+      severity: 'info',
+      message: `${merged} bottom-only cross-section${merged === 1 ? ' was' : 's were'} within 2 cm of another and merged into it, as BoardCAD does.`,
+    });
+  }
+
+  return { board: built, model, comments, warnings };
 }

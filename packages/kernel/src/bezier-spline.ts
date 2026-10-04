@@ -407,6 +407,19 @@ export const maxY = (s: Spline): number => {
   return m;
 };
 
+/**
+ * Max y over EVERY segment, the last one included. {@link maxY} keeps the legacy
+ * loop that skips the last segment (for the cross-section matching it is pinned
+ * to); a board's widest point must not, or a single-segment outline has no width
+ * at all (-Infinity) and a widest point in the last segment is missed.
+ * See docs/specs/divergences.md (getMaxWidth).
+ */
+export const maxYAll = (s: Spline): number => {
+  let m = -Number.MAX_VALUE;
+  for (const k of s.coeffs) m = Math.max(m, minMaxNumerical(k, 'y', 'max'));
+  return m;
+};
+
 export const minY = (s: Spline): number => {
   let m = 1e5;
   for (const k of s.coeffs) m = Math.min(m, minMaxNumerical(k, 'y', 'min'));

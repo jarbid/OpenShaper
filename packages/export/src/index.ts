@@ -8,7 +8,7 @@
  * here is the true 1:1, print-at-100% trace template.
  */
 export { BRAND_LINE } from './brand';
-export { exportStl, type StlOptions } from './stl';
+export { exportStl, exportStlAscii, type StlOptions } from './stl';
 export { exportDxf, type DxfOptions, type DxfCurveMode } from './dxf';
 export { exportStep, stepExportSupport, type StepOptions, type StepSupport } from './step';
 export {

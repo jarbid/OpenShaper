@@ -90,3 +90,41 @@ describe('parseBrd — error handling', () => {
     expect(() => parseBrd(bad)).toThrow();
   });
 });
+
+describe('fin type migration (P26)', () => {
+  const withFinType = (text: string) =>
+    parseBrd(`p51 : ${text}\n${readBrd('shortboard')}`).board.fins.setup;
+
+  it.each([
+    ['5 fin', '5-fin'],
+    ['Five fin', '5-fin'],
+    ['Thruster 4.5', 'thruster'],
+    ['tri fin', 'thruster'],
+    ['Trifin', 'thruster'],
+    ['tri-fins', 'thruster'],
+    ['2+1', '2+1'],
+    ['Quad', 'quad'],
+    ['Twin keel', 'twin'],
+  ])('%s → %s', (text, setup) => {
+    expect(withFinType(text)).toBe(setup);
+  });
+
+  it.each(['Triple stringer', 'Size 15'])('%s is not a fin setup', (text) => {
+    expect(withFinType(text)).toBe('none');
+  });
+});
+
+describe('reader gaps (P27)', () => {
+  it('keeps a non-numeric array field as its text instead of NaNs', () => {
+    const { metadata } = parseBrd(readBrd('shortboard').replace(/^p50 : .*$/m, 'p50 : [1.0,abc]'));
+    expect(metadata.fins).toBe('[1.0,abc]');
+  });
+
+  it('keeps an empty cross-section as one point, with a warning', () => {
+    const text = readBrd('shortboard').replace(/\(p36 30\.48\n(\(cp[^\n]*\n)+\)/, '(p36 30.48\n)');
+    const { board, warnings } = parseBrd(text);
+    const cs = board.crossSections.find((c) => Math.abs(c.position - 30.48) < 1e-9)!;
+    expect(cs.spline.knots).toHaveLength(1);
+    expect(warnings.some((w) => /30\.48 had no points/.test(w.message))).toBe(true);
+  });
+});
