@@ -1,17 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import {
-  crossSectionRing,
+  crossSectionLoops,
   stringerLoop,
   tessellationSteps,
   type BezierBoard,
   type GuidePoint,
 } from '@openshaper/kernel';
 
-/** A polyline to draw over the hull, in board cm. */
+type Point = [number, number, number];
+
+/** A guide to draw over the hull, in board cm: one or more polylines. */
 export interface GuideLine {
   /** Stable React key. Rings key by station position so an insert does not remount the rest. */
   key: string;
-  points: [number, number, number][];
+  /** One polyline, or two for a station inside a tail notch (one per lobe). */
+  paths: Point[][];
 }
 
 export interface GuideLines {
@@ -21,12 +24,10 @@ export interface GuideLines {
   activeKey: string | null;
 }
 
-const toPoints = (ring: readonly GuidePoint[]): [number, number, number][] =>
-  ring.map((v) => [v.x, v.y, v.z]);
+const toPoints = (ring: readonly GuidePoint[]): Point[] => ring.map((v) => [v.x, v.y, v.z]);
 
 /** Rings are loops but a polyline is not, so repeat the first point to close it. */
-const closed = (pts: [number, number, number][]): [number, number, number][] =>
-  pts.length > 1 ? [...pts, pts[0]!] : pts;
+const closed = (pts: Point[]): Point[] => (pts.length > 1 ? [...pts, pts[0]!] : pts);
 
 /**
  * Guide polylines for the 3D overlay.
@@ -53,14 +54,14 @@ export function guideLines(
 
   const loop = stringerLoop(board, lengthSteps, ringSteps);
   const stringer =
-    loop && loop.length > 1 ? { key: 'stringer', points: closed(toPoints(loop)) } : null;
+    loop && loop.length > 1 ? { key: 'stringer', paths: [closed(toPoints(loop))] } : null;
 
   const sections: GuideLine[] = [];
   for (const cs of realSections) {
-    const ring = crossSectionRing(board, cs.position, ringSteps);
+    const loops = crossSectionLoops(board, cs.position, ringSteps);
     // One degenerate station must not blank the whole overlay.
-    if (!ring || ring.length < 3) continue;
-    sections.push({ key: ringKey(cs.position), points: closed(toPoints(ring)) });
+    if (!loops || loops.some((l) => l.length < 3)) continue;
+    sections.push({ key: ringKey(cs.position), paths: loops.map((l) => closed(toPoints(l))) });
   }
 
   return { stringer, sections, activeKey: activeGuideKey(sections, activeX) };

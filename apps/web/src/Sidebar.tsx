@@ -168,7 +168,8 @@ export interface SidebarProps {
   onLoadTrace: (view: TraceView) => void;
 
   overlayToggles: OverlayToggles;
-  setOverlayToggles: Dispatch<SetStateAction<OverlayToggles>>;
+  /** Turn one overlay on or off (reported as `overlay_toggled`). */
+  setOverlay: (key: keyof OverlayToggles, enabled: boolean) => void;
 
   ghost: boolean;
   ghostSpecs: BoardSpecs | null;
@@ -212,7 +213,7 @@ export const Sidebar = memo(function Sidebar({
   trace,
   onLoadTrace,
   overlayToggles,
-  setOverlayToggles,
+  setOverlay,
   ghost,
   ghostSpecs,
   sidebar,
@@ -251,9 +252,7 @@ export const Sidebar = memo(function Sidebar({
       />
     ),
     controlPoint: <ControlPointInspector store={boardStore} units={units} />,
-    analysis: (
-      <AnalysisSection overlayToggles={overlayToggles} setOverlayToggles={setOverlayToggles} />
-    ),
+    analysis: <AnalysisSection overlayToggles={overlayToggles} setOverlay={setOverlay} />,
     boardInfo: <BoardInfoSection meta={meta} setMeta={setMeta} />,
     fins: <FinPanel store={boardStore} units={units} />,
     weight: (
@@ -1001,35 +1000,30 @@ function WeightSection({
   );
 }
 
+const OVERLAYS: readonly { key: keyof OverlayToggles; label: string }[] = [
+  { key: 'grid', label: 'Grid & guides' },
+  { key: 'comb', label: 'Curvature comb' },
+  { key: 'com', label: 'Center of mass' },
+  { key: 'dist', label: 'Volume distribution' },
+];
+
 function AnalysisSection({
   overlayToggles,
-  setOverlayToggles,
+  setOverlay,
 }: {
   overlayToggles: OverlayToggles;
-  setOverlayToggles: Dispatch<SetStateAction<OverlayToggles>>;
+  setOverlay: (key: keyof OverlayToggles, enabled: boolean) => void;
 }) {
   return (
     <div className="space-y-1 text-sm">
-      <OverlayToggle
-        label="Grid & guides"
-        checked={overlayToggles.grid}
-        onChange={(v) => setOverlayToggles((s) => ({ ...s, grid: v }))}
-      />
-      <OverlayToggle
-        label="Curvature comb"
-        checked={overlayToggles.comb}
-        onChange={(v) => setOverlayToggles((s) => ({ ...s, comb: v }))}
-      />
-      <OverlayToggle
-        label="Center of mass"
-        checked={overlayToggles.com}
-        onChange={(v) => setOverlayToggles((s) => ({ ...s, com: v }))}
-      />
-      <OverlayToggle
-        label="Volume distribution"
-        checked={overlayToggles.dist}
-        onChange={(v) => setOverlayToggles((s) => ({ ...s, dist: v }))}
-      />
+      {OVERLAYS.map(({ key, label }) => (
+        <OverlayToggle
+          key={key}
+          label={label}
+          checked={overlayToggles[key]}
+          onChange={(v) => setOverlay(key, v)}
+        />
+      ))}
       <p className="pt-1 text-xs text-muted-foreground">
         Grid &amp; guides show in every pane (baseline + centerline emphasized); comb on the edited
         curves; CoM &amp; volume distribution on the outline and rocker.

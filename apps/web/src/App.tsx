@@ -271,12 +271,15 @@ function AppShell() {
   // otherwise — the curvature comb and volume distribution in particular are
   // expensive to maintain, so knowing whether anyone turns them on is the
   // difference between investing in them and retiring them.
-  const toggleOverlay = (key: keyof OverlayToggles) => {
+  // One path for the View menu and the sidebar checkboxes. Stable, so the memo'd
+  // Sidebar can take it as a prop.
+  const setOverlay = useCallback((key: keyof OverlayToggles, enabled: boolean) => {
     // Reported outside the updater: StrictMode double-invokes updaters in dev,
     // which would double-count the event.
-    track('overlay_toggled', { overlay: key, enabled: !overlayToggles[key] });
-    setOverlayToggles((s) => ({ ...s, [key]: !s[key] }));
-  };
+    track('overlay_toggled', { overlay: key, enabled });
+    setOverlayToggles((s) => ({ ...s, [key]: enabled }));
+  }, []);
+  const toggleOverlay = (key: keyof OverlayToggles) => setOverlay(key, !overlayToggles[key]);
 
   // Specs (and the distribution overlay) read the settled board so they don't
   // re-integrate on every drag move — see useSettledBoard. The integrals run in
@@ -473,7 +476,7 @@ function AppShell() {
   const [ghost, setGhost] = useState<BezierBoard | null>(null);
   const trace = useTrace();
   const [meta, setMeta] = useState<BoardMeta>({});
-  const metaRef = useRef(meta); // for the Ctrl+S handler (stable keydown effect)
+  const metaRef = useRef(meta); // for the session autosave (stable callbacks)
   metaRef.current = meta;
   const ghostRef = useRef(ghost); // for the pagehide session flush (stable listener)
   ghostRef.current = ghost;
@@ -567,10 +570,14 @@ function AppShell() {
   // it stays in sync with saves/opens from this session.
   const [recentBoards, setRecentBoards] = useState(() => getRecentBoards());
 
+  // Ctrl/Cmd+S takes File > Save's path (`saveBoardFile`, defined below), so it
+  // is recorded and refreshes Open recent. A ref keeps the shortcut stable.
+  const saveBoardFileRef = useRef<() => void>(() => {});
+  const saveFromShortcut = useCallback(() => saveBoardFileRef.current(), []);
   useKeyboardShortcuts({
     setView: selectView,
     setCsIndex,
-    metaRef,
+    onSave: saveFromShortcut,
     onCommandPalette: togglePalette,
     clearSectionFocus,
   });
@@ -761,6 +768,7 @@ function AppShell() {
     // downloadBoard records internally; refresh the menu's snapshot.
     setRecentBoards(getRecentBoards());
   };
+  saveBoardFileRef.current = saveBoardFile;
 
   /** Open a print-friendly spec sheet (board info + dimensions) in a new tab. */
   const openSpecSheet = () => {
@@ -1370,7 +1378,7 @@ function AppShell() {
       trace={trace}
       onLoadTrace={openTracePicker}
       overlayToggles={overlayToggles}
-      setOverlayToggles={setOverlayToggles}
+      setOverlay={setOverlay}
       ghost={!!ghost}
       ghostSpecs={ghostSpecs}
       sidebar={sidebar}

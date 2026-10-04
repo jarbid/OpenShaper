@@ -1,5 +1,4 @@
-import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
-import { downloadBoard, type BoardMeta } from './file-io';
+import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { isTextEntry, matches, SHORTCUTS, VIEW_KEYS } from './shortcuts';
 import { boardStore } from './store';
 import type { View } from './view-toolkit';
@@ -11,20 +10,21 @@ import type { View } from './view-toolkit';
  * this handler can't drift apart; this module only maps a shortcut id to what it
  * does. Adding a shortcut means adding a row there and a case here.
  *
- * `metaRef` keeps the save handler reading the latest board metadata without
- * re-binding the listener.
+ * Save goes through `onSave`, the same path as File > Save, so it records the
+ * save and refreshes Open recent like the menu does.
  */
 export function useKeyboardShortcuts({
   setView,
   setCsIndex,
-  metaRef,
+  onSave,
   onCommandPalette,
   clearSectionFocus,
 }: {
   /** Switching is gated by layout tier, so this is the app's `selectView`, not a raw setter. */
   setView: (view: View) => void;
   setCsIndex: Dispatch<SetStateAction<number>>;
-  metaRef: MutableRefObject<BoardMeta>;
+  /** Ctrl/Cmd+S. Pass a stable callback — the listener re-binds when it changes. */
+  onSave: () => void;
   /** Ctrl/Cmd+K. Pass a stable callback — the listener re-binds when it changes. */
   onCommandPalette: () => void;
   /**
@@ -53,11 +53,9 @@ export function useKeyboardShortcuts({
         case 'redo-alt':
           boardStore.getState().redo();
           return true;
-        case 'save': {
-          const b = boardStore.getState().board;
-          if (b) downloadBoard(b, metaRef.current);
+        case 'save':
+          onSave();
           return true;
-        }
         case 'command-palette':
           onCommandPalette();
           return true;
@@ -114,5 +112,5 @@ export function useKeyboardShortcuts({
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [setView, setCsIndex, metaRef, onCommandPalette, clearSectionFocus]);
+  }, [setView, setCsIndex, onSave, onCommandPalette, clearSectionFocus]);
 }

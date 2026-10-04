@@ -1,7 +1,14 @@
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { NumericInput } from './components/numeric-input';
-import { cmToUnitNumber, lengthEditStep, parseLen, unitSuffix, type LengthUnit } from './format';
+import {
+  cmToUnitNumber,
+  lengthEditStep,
+  parseLen,
+  unitDecimals,
+  unitSuffix,
+  type LengthUnit,
+} from './format';
 
 export function SectionPositionEditor({
   valueCm,
@@ -15,7 +22,10 @@ export function SectionPositionEditor({
   /** Optional Escape handler. Omitted where the editor is always on screen. */
   onDismiss?: () => void;
 }) {
-  const shown = cmToUnitNumber(valueCm, units).toFixed(2);
+  // The unit's own precision (3 places in inches), but never under 2: a station
+  // sits at any position, and 1 place in mm would hide where it really is.
+  const decimals = Math.max(2, unitDecimals(units));
+  const shown = cmToUnitNumber(valueCm, units).toFixed(decimals);
   const [text, setText] = useState(shown);
   const textRef = useRef(shown);
   const dirty = useRef(false);
@@ -43,7 +53,7 @@ export function SectionPositionEditor({
   const step = (direction: -1 | 1) => {
     const typedCm = parseLen(textRef.current, units);
     const baseCm = Number.isFinite(typedCm) ? typedCm : valueCm;
-    const next = (cmToUnitNumber(baseCm, units) + direction * stepAmount).toFixed(2);
+    const next = (cmToUnitNumber(baseCm, units) + direction * stepAmount).toFixed(decimals);
     updateText(next);
     dirty.current = false;
     onCommit(parseLen(next, units));

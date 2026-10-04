@@ -103,3 +103,43 @@ describe('board-json fins', () => {
     expect(restored.fins).toEqual(defaultFinConfig('quad', 'fcs-ii'));
   });
 });
+
+describe('board-json structural validation (P6)', () => {
+  const valid = () => JSON.parse(writeBoardJson(loadBrd('shortboard'))) as Record<string, unknown>;
+  const read = (doc: unknown) => () => readBoardJson(JSON.stringify(doc));
+
+  it('rejects a document that is not an object', () => {
+    expect(() => readBoardJson('null')).toThrow(BoardJsonError);
+    expect(() => readBoardJson('[1,2]')).toThrow(BoardJsonError);
+    expect(() => readBoardJson('"text"')).toThrow(BoardJsonError);
+  });
+
+  it('rejects missing curves', () => {
+    const doc = valid();
+    delete doc.deck;
+    expect(read(doc)).toThrow(/deck is missing/);
+    const noSections = valid();
+    delete noSections.crossSections;
+    expect(read(noSections)).toThrow(/crossSections is missing/);
+  });
+
+  it('rejects knots with bad coordinates instead of loading NaN geometry', () => {
+    const doc = valid();
+    (doc.outline as { e: unknown }[])[1]!.e = [null, 'a'];
+    expect(read(doc)).toThrow(/outline point 2 has an invalid coordinate/);
+  });
+
+  it('rejects a cross-section without a numeric position', () => {
+    const doc = valid();
+    (doc.crossSections as { position: unknown }[])[2]!.position = 'mid';
+    expect(read(doc)).toThrow(/cross-section 3 has no valid position/);
+  });
+
+  it('still reads a knot with its optional flags omitted', () => {
+    const doc = valid();
+    const k = (doc.outline as Record<string, unknown>[])[1]!;
+    delete k.c;
+    delete k.o;
+    expect(read(doc)).not.toThrow();
+  });
+});

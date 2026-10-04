@@ -43,11 +43,13 @@ export function extractSharedFragment(): void {
     const board = segments.find((s) => s.startsWith(PARAM));
     if (board === undefined) return;
 
-    pending = decodeURIComponent(board.slice(PARAM.length));
-
+    // Clean the address bar first: a payload that fails to decode below must
+    // not be left where analytics would read it.
     const rest = segments.filter((s) => s !== board).join('&');
     const { pathname, search } = window.location;
     window.history.replaceState(null, '', `${pathname}${search}${rest ? `#${rest}` : ''}`);
+
+    pending = decodeURIComponent(board.slice(PARAM.length));
   } catch {
     // A malformed escape sequence or a history API the browser will not let us
     // call must never stop the editor booting. Worst case the link is ignored.

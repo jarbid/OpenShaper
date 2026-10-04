@@ -102,4 +102,10 @@ describe('consumption', () => {
     expect(() => extractSharedFragment()).not.toThrow();
     expect(peekSharedPayload()).toBeNull();
   });
+
+  it('still cleans the address bar when the payload fails to decode (P8)', () => {
+    at('/app?x=1#board=v1.%E0%A4%A&keep=1');
+    extractSharedFragment();
+    expect(here()).toBe('/app?x=1#keep=1');
+  });
 });

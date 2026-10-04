@@ -48,7 +48,7 @@ blocked. The settings `save*` calls throw on quota and abort the export or setti
 (`App.tsx:521,1725,1741,1756`). Fix: guard every storage call, as the other modules
 already do. Effort S · risk low · visible: yes (no crash, export still downloads).
 
-**P6 · `.board.json` has no validation.** `'null'`, missing curves or `e: [null, "a"]`
+**P6 · ✅ Done (51ecec6) — `.board.json` has no validation.** `'null'`, missing curves or `e: [null, "a"]`
 throw a raw `TypeError` or load corrupt knots (`board-json.ts:241-260`). Fix: a structural
 validator that raises `BoardJsonError`. Effort M · risk low · visible: clean error
 message. Format unchanged.
@@ -59,11 +59,11 @@ but before the fragment is cleared, so the link re-fires on every reload. An unk
 `foamType` shows NaN weight. Fix: one `toBoardMeta(unknown)` at the boundary.
 Effort S · risk low · visible: yes.
 
-**P8 · A malformed share link stays in the address bar** when `decodeURIComponent` throws
+**P8 · ✅ Done (868a921) — A malformed share link stays in the address bar** when `decodeURIComponent` throws
 (`share-bootstrap.ts:147`), where analytics can read it, against the privacy promise.
 Fix: clear it in every path. Effort S · risk low · visible: the URL gets cleaned.
 
-**P9 · Worker failure leaves specs on "Loading…" forever** (no `onerror` in
+**P9 · ✅ Done (60608f4) — Worker failure leaves specs on "Loading…" forever** (no `onerror` in
 `use-specs-worker.ts`; since Phase 2 it is the only worker without an error path). Fix: fall back to synchronous compute. Effort S · visible: yes.
 
 ## Fields and shortcuts
@@ -74,17 +74,17 @@ Esc gives 30). "abc" parses to 0. Enter commits twice. Affects `ControlPointInsp
 (`CoordInput`, `HeaderCoordInput`) and `FinPanel`. Fix: one dirty-plus-revert field hook
 and a parse that rejects non-numbers. Effort M · risk low · visible: yes.
 
-**P11 · Ctrl+S skips the app's save path** (`use-keyboard-shortcuts.ts`). It records no
+**P11 · ✅ Done (7c0d9a6) — Ctrl+S skips the app's save path** (`use-keyboard-shortcuts.ts`). It records no
 `save_board` event and doesn't refresh Open recent. Effort S · visible: recent list,
 analytics.
 
-**P12 · Sidebar overlay toggles never send `overlay_toggled`** (`Sidebar.tsx:998-1025`).
+**P12 · ✅ Done (287de58) — Sidebar overlay toggles never send `overlay_toggled`** (`Sidebar.tsx:998-1025`).
 One overlay table and one toggle handler would fix it. Effort S · visible: analytics only.
 
 **P13 · ✅ Done (5a59284) — Ctrl+Z inside a text field undoes the board** and blocks the browser's own text
 undo. Global shortcuts also stay live behind open modals. Effort S · visible: yes.
 
-**P14 · Units convention violations.** `ExportStepDialog.tsx:110` hardcodes mm;
+**P14 · ✅ Done (147460d) — Units convention violations.** `ExportStepDialog.tsx:110` hardcodes mm;
 `SectionPositionEditor` uses fixed decimals; the ft·in field steps by 0.1 instead of 1/16
 (three step policies exist). Effort S · visible: yes.
 
@@ -141,7 +141,7 @@ Effort M · visible: metadata and warnings.
 
 **P29 · Binary STL** (about 5× smaller, faster). Changes the output format. Effort S.
 
-**P30 · Object-URL revoke timing.** `download()` revokes the URL synchronously after
+**P30 · ✅ Done (e269602) — Object-URL revoke timing.** `download()` revokes the URL synchronously after
 `click()`, which is fragile in Safari and Firefox. The multi-PDF loop can be blocked as
 multiple downloads. Effort S · visible: downloads more reliable.
 
@@ -152,10 +152,10 @@ also missed in the last segment, because `maxY` skips it (a legacy quirk). This 
 the mesh coarse (`ringSteps` clamps to 12). Golden boards are unchanged; the box and
 extreme-rocker characterization snapshots would change. Effort S · risk med.
 
-**P32 · Specs crash on a board with no real stations** (imported files only):
+**P32 · ✅ Done (b2e17d9) — Specs crash on a board with no real stations** (imported files only):
 `cs[-1]` at `board.ts:255`. Return null/0 instead. Effort XS · visible on such files.
 
-**P33 · 3D guide rings ignore the swallow-tail notch** (`guides.ts:32`). The overlay
+**P33 · ✅ Done (aa4e327) — 3D guide rings ignore the swallow-tail notch** (`guides.ts:32`). The overlay
 crosses the notch. Mesh unaffected. Effort S.
 
 ## Accessibility and dialogs
