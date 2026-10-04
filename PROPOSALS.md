@@ -1,8 +1,9 @@
 # Proposals — for approval
 
 These came out of the quality pass but change what users see or do, or touch file
-formats, geometry output, analytics or dependencies. None of them is implemented.
-Each item lists what it is and why, rough effort, risk, and what users would notice.
+formats, geometry output, analytics or dependencies. Items marked ✅ have been
+implemented and merged; the rest still await approval. Each item lists what it is
+and why, rough effort, risk, and what users would notice.
 References are against `99c3030`.
 
 ## Suggested order
@@ -13,7 +14,8 @@ References are against `99c3030`.
 2. ~~**Everyday editing papercuts** — P3, P4, P10, P13, P15, P16.~~ Done.
 3. ~~**CI safety net** — P35, P36, so the above stays fixed.~~ Done, with P44 and P45.
 4. **Load-time wins that need a product decision** — P38 (analytics), then P39/P41
-   after one cross-browser download check.
+   after one cross-browser download check. The only open group; P37's two remaining
+   upgrades are blocked upstream.
 5. ~~**Format changes** — P24–P29: each needs a `divergences.md` entry and fixture work.~~ Done, with P31 and P42.
 
 ## Editor bugs (state and undo)
@@ -179,17 +181,20 @@ in App rely on reasoning instead), and `import/no-restricted-paths` to enforce t
 discipline alone. Several test files on `main` are not Prettier-clean. Effort M ·
 risk low · visible: no.
 
-**P37 · 🟡 Mostly done — Dependency majors**, each its own upgrade PR:
+**P37 · ✅ Done, except two upgrades blocked upstream — Dependency majors**, each its own upgrade PR (all merged):
 
-- ✅ vitest 2→5, which removes the duplicate vite 5, with vite 6→8 (#67)
+- ✅ vitest 2→5, which removes the duplicate vite 5, with vite 6→8 (#67). Raised the
+  toolchain to Node 22 LTS (`.node-version`, CI, `engines`).
 - ✅ React 19 + fiber 9 + drei 10 (#68; costs ~24 KB gz on the landing page)
 - ✅ three 0.171→0.186 (#69; sub-perceptual 3D shading differences, measured there)
 - ✅ tailwind-merge 3, lucide 1.x (#66)
-- ✅ TypeScript 6.0 (#70). **Blocked:** TypeScript 7 waits on typescript-eslint, whose
-  peer range stops at `<6.1`.
-- **Blocked:** react-router 7 waits on vite-react-ssg, which peers on react-router 6.
+- ✅ TypeScript 6.0 (#70).
+- **Blocked upstream:** TypeScript 7 waits on typescript-eslint, whose peer range stops
+  at `<6.1`. A one-line bump once it allows 7.
+- **Blocked upstream:** react-router 7 waits on vite-react-ssg, which peers on
+  react-router 6.
 
-Effort M–L each · risk med–high · visible: possibly (rendering, routing).
+Remaining effort S each once unblocked · visible: no.
 
 **P42 · ✅ Closed, not a bug (1c66c49): the branch is unreachable, now pinned by a test — `getPreviousCrossSectionIndex` can index past the end** (`board.ts:211`): when
 `pos` is beyond the last station it returns `crossSections.length`. Every current caller
@@ -217,12 +222,14 @@ live. The downloads would then start after an `await`, which some browsers treat
 outside the click's user activation. Needs a cross-browser check (Safari, Firefox) of the
 multi-file PDF path first. Effort S · risk med · visible: slightly faster `/app` load.
 
-**P41 · STL/STEP export in a worker.** `exportStl` takes 1.9–2.7 s and builds a 45 MB
-string; `exportStep` takes 1.2 s; both run synchronously on click and freeze the page
-(the project's own rule 4). A worker gives byte-identical output, but the download then
+**P41 · STEP export in a worker.** `exportStep` runs synchronously on click and freezes
+the page (the project's own rule 4): 0.3–0.5 s at the default 'standard' accuracy and
+0.9–2.3 s at 'fine' on the golden boards (Node 22, cold, re-measured after P29). STL no
+longer needs this: since P29 it is binary and takes 0.1–0.17 s (it was 1.9–2.7 s and a
+45 MB string as ASCII). A worker gives byte-identical output, but the download then
 starts after an `await`, with the same open user-activation question as P39. Do P39's
 cross-browser check first, then this. Effort M · risk med · visible: no freeze during
-export.
+STEP export.
 
 **P44 · ✅ Done (7cd2ee2) — Line-coverage reporting.** No coverage tool is installed, so coverage can only be
 described, not measured. Adding `@vitest/coverage-v8` (devDependency) with a
