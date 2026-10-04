@@ -6,7 +6,7 @@ OpenShaper is a pnpm/Turborepo monorepo. `apps/web` contains the React/Vite prod
 
 ## Build, Test, and Development Commands
 
-Use Node 20+ and pnpm 9.
+Use Node 22+ and pnpm 9.
 
 - `pnpm install` installs all workspace dependencies.
 - `pnpm dev` serves the web app at `http://localhost:5173`.

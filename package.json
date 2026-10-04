@@ -6,7 +6,7 @@
   "license": "GPL-3.0-or-later",
   "packageManager": "pnpm@9.15.9",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12"
   },
   "scripts": {
     "dev": "turbo run dev --filter=@openshaper/web",

@@ -24,7 +24,7 @@ pnpm typecheck
 pnpm build        # static build to apps/web/dist
 ```
 
-Requires Node 20+ and pnpm 9.
+Requires Node 22+ and pnpm 9.
 
 ## Before you open a PR
 
