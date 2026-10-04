@@ -18,11 +18,11 @@
     "coverage": "vitest run --passWithNoTests --coverage --coverage.include=src --coverage.reporter=text-summary --coverage.reporter=json-summary",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "bench": "vitest bench --run"
+    "bench": "vitest bench src --run"
   },
   "devDependencies": {
     "@openshaper/io": "workspace:^",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^5.0.3"
   }
 }

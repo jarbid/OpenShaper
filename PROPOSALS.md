@@ -179,13 +179,15 @@ in App rely on reasoning instead), and `import/no-restricted-paths` to enforce t
 discipline alone. Several test files on `main` are not Prettier-clean. Effort M ·
 risk low · visible: no.
 
-**P37 · Dependency majors**, each its own upgrade PR:
+**P37 · 🟡 Mostly done — Dependency majors**, each its own upgrade PR:
 
-- vitest 2→5, which removes the duplicate vite 5
-- vite 6→8
-- React 19 + fiber 9 + drei 10, which also fixes the deprecated three-mesh-bvh
-- three 0.171→0.186
-- react-router 7, tailwind-merge 3, lucide 1.x
+- ✅ vitest 2→5, which removes the duplicate vite 5, with vite 6→8 (#67)
+- ✅ React 19 + fiber 9 + drei 10 (#68; costs ~24 KB gz on the landing page)
+- ✅ three 0.171→0.186 (#69; sub-perceptual 3D shading differences, measured there)
+- ✅ tailwind-merge 3, lucide 1.x (#66)
+- ✅ TypeScript 6.0 (#70). **Blocked:** TypeScript 7 waits on typescript-eslint, whose
+  peer range stops at `<6.1`.
+- **Blocked:** react-router 7 waits on vite-react-ssg, which peers on react-router 6.
 
 Effort M–L each · risk med–high · visible: possibly (rendering, routing).
 
