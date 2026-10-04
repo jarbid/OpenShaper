@@ -9,7 +9,13 @@
  */
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { ThreeDControls } from './view-toolkit';
+import { parseBrd } from '@openshaper/io';
+import { splineLengthToX } from '@openshaper/kernel';
+import { fmtLen, lengthUnitByKey } from './format';
+import { longitudinalFor } from './longitudinal';
+import sampleBrd from './sample-board.brd?raw';
+import { boardStore } from './store';
+import { makeReadout, MeasurementAxisSelect, ThreeDControls } from './view-toolkit';
 import { DEFAULT_VIEW_3D } from './view3d-settings';
 
 describe('ThreeDControls guide toggles', () => {
@@ -56,5 +62,50 @@ describe('ThreeDControls guide toggles', () => {
     );
     const on = screen.getByRole('button', { name: 'Stringer' }).className;
     expect(on).not.toBe(off);
+  });
+});
+
+describe('MeasurementAxisSelect', () => {
+  it('offers x-axis and o/curve measurements', () => {
+    const onChange = vi.fn();
+    render(<MeasurementAxisSelect value="x-axis" onChange={onChange} />);
+
+    const select = screen.getByLabelText('Longitudinal measurement axis');
+    expect(screen.getByRole('option', { name: 'x-axis' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'o/curve' })).toBeTruthy();
+
+    fireEvent.change(select, { target: { value: 'o-curve' } });
+    expect(onChange).toHaveBeenCalledWith('o-curve');
+  });
+});
+
+describe('makeReadout over the curve', () => {
+  const { board } = parseBrd(sampleBrd);
+  const cm = lengthUnitByKey('cm');
+
+  it('reports Pos along the bottom rocker, marked o/c', () => {
+    boardStore.setState({ board });
+    const [pos] = makeReadout(
+      'rocker',
+      cm,
+      longitudinalFor(board.bottom, 'o-curve'),
+    )({ x: 150, y: 0 });
+
+    expect(pos!.label).toBe('Pos o/c');
+    expect(pos!.value).toBe(fmtLen(splineLengthToX(board.bottom, 150), cm));
+    // A board with rocker reads longer over the curve than straight.
+    expect(splineLengthToX(board.bottom, 150)).toBeGreaterThan(150);
+  });
+
+  it('leaves Pos straight and unmarked on the x axis', () => {
+    boardStore.setState({ board });
+    const [pos] = makeReadout(
+      'outline',
+      cm,
+      longitudinalFor(board.bottom, 'x-axis'),
+    )({ x: 150, y: 0 });
+
+    expect(pos!.label).toBe('Pos');
+    expect(pos!.value).toBe(fmtLen(150, cm));
   });
 });

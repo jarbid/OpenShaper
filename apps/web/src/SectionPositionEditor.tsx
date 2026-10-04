@@ -13,11 +13,14 @@ import {
 export function SectionPositionEditor({
   valueCm,
   units,
+  mark = '',
   onCommit,
   onDismiss,
 }: {
   valueCm: number;
   units: LengthUnit;
+  /** Appended to the unit, e.g. " o/c" when the position is measured over the curve. */
+  mark?: string;
   onCommit: (cm: number) => void;
   /** Optional Escape handler. Omitted where the editor is always on screen. */
   onDismiss?: () => void;
@@ -108,7 +111,10 @@ export function SectionPositionEditor({
           </button>
         </div>
       </div>
-      <span>{unitSuffix(units)}</span>
+      <span>
+        {unitSuffix(units)}
+        {mark}
+      </span>
     </div>
   );
 }

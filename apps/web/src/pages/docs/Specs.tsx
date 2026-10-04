@@ -59,6 +59,14 @@ export default function DocsSpecs() {
           millimetres, centimetres, inches, or feet and inches with fractions. Nothing is shown in a
           fixed unit, and exports follow the same selection.
         </p>
+        <p>
+          Beside it, <strong>x-axis / o/curve</strong> chooses how positions along the board are
+          measured: straight from the tail, or over the bottom curve, the way a tape laid along the
+          stringer reads. On <strong>o/curve</strong> the cursor position, cross-section positions
+          (typed and dragged), the wide point and the centre of mass are measured over the curve and
+          marked <code>o/c</code>. The 12&quot; and 24&quot; stations, control points and fins stay
+          straight-line, and the board itself never moves.
+        </p>
         <p>Volume is the deliberate exception: always litres.</p>
       </Section>
 

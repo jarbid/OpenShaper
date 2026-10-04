@@ -110,6 +110,7 @@ import {
   faceSizeFor,
   FALLBACK_VIEW,
   isViewAvailable,
+  MeasurementAxisSelect,
   SplitPaneSelect,
   ThreeDControls,
   UnitSelect,
@@ -120,6 +121,7 @@ import {
   type View,
   type View3DSettings,
 } from './view-toolkit';
+import { longitudinalFor, type MeasurementAxis } from './longitudinal';
 import { DEFAULT_VIEW_3D } from './view3d-settings';
 import { estimateWeight, FOAM_TYPES, GLASS_SCHEDULES } from './weights';
 import { readRaw, writeRaw } from './persisted';
@@ -464,6 +466,21 @@ function AppShell() {
   useEffect(() => {
     writeRaw('bs.lengthUnit', unitKey);
   }, [unitKey]);
+  const [measurementAxis, setMeasurementAxis] = useState<MeasurementAxis>(() => {
+    const stored = readRaw('bs.measurementAxis');
+    return stored === 'o-curve' ? 'o-curve' : 'x-axis';
+  });
+  useEffect(() => {
+    writeRaw('bs.measurementAxis', measurementAxis);
+  }, [measurementAxis]);
+  // Keyed on the bottom rocker only while o/curve is on, so the default x-axis (and any
+  // edit that leaves the rocker alone) keeps the same object and the memoized sidebar
+  // does not re-render on every drag frame.
+  const overCurveBottom = measurementAxis === 'o-curve' ? (board?.bottom ?? null) : null;
+  const longitudinal = useMemo(
+    () => longitudinalFor(overCurveBottom, measurementAxis),
+    [overCurveBottom, measurementAxis],
+  );
   const [view3d, setView3d] = useState<View3DSettings>(
     bootViewState.current.view3d ?? DEFAULT_VIEW_3D,
   );
@@ -998,9 +1015,14 @@ function AppShell() {
       onCopy={copySection}
       onPaste={pasteSection}
       canPaste={!!csClipboard}
-      positionCm={board?.crossSections[clampedCs]?.position ?? null}
+      positionCm={
+        board?.crossSections[clampedCs]
+          ? longitudinal.toDisplay(board.crossSections[clampedCs]!.position)
+          : null
+      }
+      positionMark={longitudinal.mark}
       units={units}
-      onMoveTo={(position) => moveSection(clampedCs, position)}
+      onMoveTo={(position) => moveSection(clampedCs, longitudinal.toModel(position))}
     />
   );
 
@@ -1300,6 +1322,7 @@ function AppShell() {
     kind,
     csIndex: clampedCs,
     units,
+    longitudinal,
     // The cross-section pane has no length axis, so `EditorPane` drops the station
     // markers, the scrub and the trace props for it — passing them uniformly here
     // keeps that one decision in one place.
@@ -1384,6 +1407,8 @@ function AppShell() {
       sidebar={sidebar}
       onSidebarChange={setSidebar}
       onUnitChange={isPhone ? setUnitKey : undefined}
+      longitudinal={longitudinal}
+      onMeasurementAxisChange={isPhone ? setMeasurementAxis : undefined}
     />
   );
 
@@ -1503,7 +1528,12 @@ function AppShell() {
           {/* On a phone this row has no room for it — it moves into the sheet,
               where the current unit stays visible next to the dimensions it
               formats. See `UnitSelect`. */}
-          {!isPhone && <UnitSelect value={unitKey} onChange={setUnitKey} />}
+          {!isPhone && (
+            <div className="flex shrink-0 items-center gap-1">
+              <UnitSelect value={unitKey} onChange={setUnitKey} />
+              <MeasurementAxisSelect value={measurementAxis} onChange={setMeasurementAxis} />
+            </div>
+          )}
           {/* Below lg the sidebar lives in a bottom sheet; this opens it. Gated on the
               tier rather than `lg:hidden` so it is not merely invisible on desktop: it
               names the same action as the rail's own control, and two mounted buttons
