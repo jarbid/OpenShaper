@@ -28,7 +28,7 @@
     "@openshaper/units": "workspace:*",
     "@react-three/drei": "^9.114.0",
     "@react-three/fiber": "^8.17.0",
-    "lucide-react": "^0.469.0",
+    "lucide-react": "^1.51.0",
     "posthog-js": "^1.433.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
