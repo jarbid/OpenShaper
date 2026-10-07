@@ -15,6 +15,7 @@ import {
   valueAt,
   vec2,
   type BezierBoard,
+  type Vec2,
 } from '@openshaper/kernel';
 import { createBoardStore } from './board-store';
 import { canDeleteKnot, moveKnotTangent } from './edits';
@@ -797,5 +798,100 @@ describe('selection across undo/redo (P1)', () => {
     s().jumpTo(0);
     expect(s().board!.fins.fins.length).toBe(0);
     expect(s().selectedFin).toBeNull();
+  });
+});
+
+describe('board store: handle-angle locks', () => {
+  const OUTLINE = { kind: 'outline' } as const;
+  const withBoard = () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+    return store;
+  };
+  const outlineKnot = (store: ReturnType<typeof createBoardStore>, i: number) =>
+    store.getState().board!.outline.knots[i]!;
+  const angleOf = (k: { end: Vec2; tangentToNext: Vec2 }) =>
+    Math.atan2(k.tangentToNext.y - k.end.y, k.tangentToNext.x - k.end.x);
+
+  it('locks in one undoable step, and a repeat click adds no empty step', () => {
+    const store = withBoard();
+    store.getState().setLocked(OUTLINE, 1, true);
+    expect(outlineKnot(store, 1).lock).toEqual({ prev: vec2(-1, 0), next: vec2(1, 0) });
+    expect(store.getState().past.map((h) => h.label)).toEqual(['Lock handle angles']);
+
+    store.getState().setLocked(OUTLINE, 1, true);
+    expect(store.getState().past).toHaveLength(1);
+
+    store.getState().undo();
+    expect(outlineKnot(store, 1)).not.toHaveProperty('lock');
+    store.getState().redo();
+    expect(outlineKnot(store, 1).lock).toBeDefined();
+
+    store.getState().setLocked(OUTLINE, 1, false);
+    expect(outlineKnot(store, 1)).not.toHaveProperty('lock');
+    expect(store.getState().past.at(-1)!.label).toBe('Unlock handle angles');
+  });
+
+  it('undoing an insert before a locked point leaves the lock on that point', () => {
+    const store = withBoard();
+    store.getState().setLocked(OUTLINE, 1, true);
+    const outline = store.getState().board!.outline;
+    store.getState().addControlPoint(OUTLINE, vec2(25, valueAt(outline, 25)));
+    expect(outlineKnot(store, 2).lock).toBeDefined(); // the locked point moved up one
+    expect(outlineKnot(store, 1)).not.toHaveProperty('lock'); // the new point is free
+
+    store.getState().undo();
+    const knots = store.getState().board!.outline.knots;
+    expect(knots).toHaveLength(3);
+    expect(knots[1]!.lock).toBeDefined();
+    expect(knots[2]!).not.toHaveProperty('lock');
+  });
+
+  it('deleting a locked point and undoing brings its lock back', () => {
+    const store = withBoard();
+    store.getState().setLocked(OUTLINE, 1, true);
+    store.getState().deleteControlPoint(OUTLINE, 1);
+    expect(store.getState().board!.outline.knots).toHaveLength(2);
+    store.getState().undo();
+    expect(outlineKnot(store, 1).lock).toBeDefined();
+  });
+
+  it('a dragged locked handle keeps its angle', () => {
+    const store = withBoard();
+    store.getState().moveTangent(OUTLINE, 1, 'next', vec2(55, 23));
+    store.getState().setLocked(OUTLINE, 1, true);
+    store.getState().moveTangent(OUTLINE, 1, 'next', vec2(60, 40));
+    expect(angleOf(outlineKnot(store, 1))).toBeCloseTo(Math.atan2(3, 5), 12);
+  });
+
+  it('a non-uniform resize turns each lock with its handle, and a later drag keeps the new angle', () => {
+    const store = withBoard();
+    store.getState().moveTangent(OUTLINE, 1, 'next', vec2(55, 23));
+    store.getState().setLocked(OUTLINE, 1, true);
+    store.getState().scaleBoard(1, 1.5, 1);
+
+    const k = outlineKnot(store, 1);
+    for (const [h, d] of [
+      [k.tangentToPrev, k.lock!.prev!],
+      [k.tangentToNext, k.lock!.next!],
+    ] as const) {
+      const hx = h.x - k.end.x;
+      const hy = h.y - k.end.y;
+      expect(hx * d.y - hy * d.x).toBeCloseTo(0, 9);
+      expect(hx * d.x + hy * d.y).toBeGreaterThan(0);
+    }
+
+    store.getState().moveTangent(OUTLINE, 1, 'next', vec2(70, 60));
+    expect(angleOf(outlineKnot(store, 1))).toBeCloseTo(Math.atan2(3 * 1.5, 5), 9);
+  });
+
+  it('sets a locked handle length in one undo step, along its lock', () => {
+    const store = withBoard();
+    store.getState().setLocked(OUTLINE, 1, true);
+    store.getState().setTangentLength(OUTLINE, 1, 'next', 12);
+    const k = outlineKnot(store, 1);
+    expect(k.tangentToNext.x).toBeCloseTo(62, 12);
+    expect(k.tangentToNext.y).toBeCloseTo(20, 12);
+    expect(store.getState().past.at(-1)!.label).toBe('Set handle length');
   });
 });

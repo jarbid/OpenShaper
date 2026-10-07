@@ -10,6 +10,7 @@ import {
   getLength,
   hasTailCutout,
   knot,
+  knotLock,
   mirrorFinIndex,
   maxX,
   scaleSpline,
@@ -18,6 +19,7 @@ import {
   valueAt,
   vec2,
   widthBoundsAt,
+  withHandles,
   type BezierBoard,
   type CrossSection,
   type FinConfig,
@@ -26,6 +28,7 @@ import {
   type FinSystem,
   type InterpolationType,
   type Knot,
+  type KnotLock,
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
@@ -78,8 +81,83 @@ export const withSpline = (b: BezierBoard, t: SplineTarget, spline: Spline): Bez
   }
 };
 
+// --- handle-angle locks ---
+
+/**
+ * `handle` slid onto the ray from `end` along the unit vector `dir`: the length it
+ * reaches along that direction, never less than zero. A handle dragged back past its
+ * point collapses onto it instead of flipping round. One already on the ray (to
+ * rounding) is returned untouched, so re-applying a lock never nudges a point.
+ */
+const projectOntoLock = (end: Vec2, handle: Vec2, dir: Vec2): Vec2 => {
+  const dx = handle.x - end.x;
+  const dy = handle.y - end.y;
+  const along = dx * dir.x + dy * dir.y;
+  if (along >= 0 && Math.abs(dx * dir.y - dy * dir.x) <= 1e-9) return handle;
+  const len = Math.max(0, along);
+  return vec2(end.x + dir.x * len, end.y + dir.y * len);
+};
+
+/**
+ * Pull a knot's locked handles back onto their lock directions. A free knot, or one
+ * whose handles already obey their lock, is returned as is.
+ */
+export const constrainToLock = (k: Knot): Knot => {
+  const { lock } = k;
+  if (!lock) return k;
+  const prev = lock.prev ? projectOntoLock(k.end, k.tangentToPrev, lock.prev) : k.tangentToPrev;
+  const next = lock.next ? projectOntoLock(k.end, k.tangentToNext, lock.next) : k.tangentToNext;
+  return prev === k.tangentToPrev && next === k.tangentToNext ? k : withHandles(k, prev, next);
+};
+
+/** The unit vector from `from` toward `to`, or undefined when they coincide. */
+const direction = (from: Vec2, to: Vec2): Vec2 | undefined => {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const len = Math.hypot(dx, dy);
+  return len > 1e-9 ? vec2(dx / len, dy / len) : undefined;
+};
+
+const reversed = (d: Vec2): Vec2 => vec2(-d.x, -d.y);
+
+/**
+ * The directions locking `k` keeps: where its handles point now. A smooth point's
+ * handles share one axis, so a collapsed side takes the opposite of the other; a
+ * corner's collapsed side has no direction and stays free.
+ */
+const lockFromHandles = (k: Knot): KnotLock | undefined => {
+  let prev = direction(k.end, k.tangentToPrev);
+  let next = direction(k.end, k.tangentToNext);
+  if (k.continuous) {
+    prev ??= next && reversed(next);
+    next ??= prev && reversed(prev);
+  }
+  return knotLock(prev, next);
+};
+
+/** Whether a knot has a handle direction to lock — not when both handles are collapsed. */
+export const canLockKnot = (k: Knot): boolean => lockFromHandles(k) !== undefined;
+
 const replaceKnot = (s: Spline, index: number, k: Knot): Spline =>
-  splineFromKnots(s.knots.map((kk, i) => (i === index ? k : kk)));
+  splineFromKnots(s.knots.map((kk, i) => (i === index ? constrainToLock(k) : kk)));
+
+/**
+ * Lock or unlock a knot's handle directions. Locking keeps the directions the handles
+ * have now and never moves them, so the curve is unchanged either way. Re-locking a
+ * locked knot is a no-op: it must not forget the direction of a collapsed handle.
+ */
+export const setKnotLock = (s: Spline, index: number, locked: boolean): Spline => {
+  const k = s.knots[index];
+  if (!k) return s;
+  if (!locked) {
+    if (!k.lock) return s;
+    const { lock: _lock, ...free } = k;
+    return replaceKnot(s, index, free);
+  }
+  if (k.lock) return s;
+  const lock = lockFromHandles(k);
+  return lock ? replaceKnot(s, index, { ...k, lock }) : s;
+};
 
 /**
  * Move a knot's endpoint to `end`, translating its two tangent handles by the
@@ -98,6 +176,7 @@ export const moveKnotEnd = (s: Spline, index: number, end: Vec2): Spline => {
       vec2(k.tangentToNext.x + dx, k.tangentToNext.y + dy),
       k.continuous,
       k.other,
+      k.lock,
     ),
   );
 };
@@ -106,33 +185,25 @@ export const moveKnotEnd = (s: Spline, index: number, end: Vec2): Spline => {
  * Move one tangent handle to `pos`. If the knot is continuous, the opposite
  * handle is kept collinear through the endpoint, preserving its own length
  * (smooth-curve editing).
+ *
+ * A locked handle slides along its lock, so `pos` only sets its length. A locked
+ * opposite handle is left alone: its direction is fixed, so there is nothing to mirror.
  */
 export const moveKnotTangent = (
   s: Spline,
   index: number,
   which: 'prev' | 'next',
   pos: Vec2,
-  angleLocked = false,
 ): Spline => {
   const k = s.knots[index]!;
-  if (angleLocked) {
-    const current = which === 'prev' ? k.tangentToPrev : k.tangentToNext;
-    const dx = current.x - k.end.x;
-    const dy = current.y - k.end.y;
-    const currentLength = Math.hypot(dx, dy);
-    if (currentLength > 1e-9) {
-      const requestedLength = Math.hypot(pos.x - k.end.x, pos.y - k.end.y);
-      pos = vec2(
-        k.end.x + (dx / currentLength) * requestedLength,
-        k.end.y + (dy / currentLength) * requestedLength,
-      );
-    }
-  }
-  let prev = which === 'prev' ? pos : k.tangentToPrev;
-  let next = which === 'next' ? pos : k.tangentToNext;
+  const ownLock = which === 'prev' ? k.lock?.prev : k.lock?.next;
+  const oppositeLock = which === 'prev' ? k.lock?.next : k.lock?.prev;
+  const moved = ownLock ? projectOntoLock(k.end, pos, ownLock) : pos;
+  let prev = which === 'prev' ? moved : k.tangentToPrev;
+  let next = which === 'next' ? moved : k.tangentToNext;
 
-  if (k.continuous) {
-    const movedToEnd = vec2(k.end.x - pos.x, k.end.y - pos.y); // from moved handle to end
+  if (k.continuous && !oppositeLock) {
+    const movedToEnd = vec2(k.end.x - moved.x, k.end.y - moved.y); // from moved handle to end
     const len = Math.hypot(movedToEnd.x, movedToEnd.y);
     const opp = which === 'prev' ? k.tangentToNext : k.tangentToPrev;
     const oppLen = Math.hypot(opp.x - k.end.x, opp.y - k.end.y);
@@ -144,16 +215,53 @@ export const moveKnotTangent = (
       else prev = mirrored;
     }
   }
-  return replaceKnot(s, index, knot(k.end, prev, next, k.continuous, k.other));
+  return replaceKnot(s, index, withHandles(k, prev, next));
 };
 
-/** Toggle a knot between continuous (smooth) and corner. Legacy BezierKnot.setContinous. */
+/**
+ * Set a handle's length, keeping its direction — its lock's, or where it points now.
+ * A collapsed free handle has no direction, so it is left as is.
+ */
+export const setKnotTangentLength = (
+  s: Spline,
+  index: number,
+  which: 'prev' | 'next',
+  length: number,
+): Spline => {
+  const k = s.knots[index];
+  if (!k || !Number.isFinite(length)) return s;
+  const handle = which === 'prev' ? k.tangentToPrev : k.tangentToNext;
+  const dir = (which === 'prev' ? k.lock?.prev : k.lock?.next) ?? direction(k.end, handle);
+  if (!dir) return s;
+  const len = Math.max(0, length);
+  return moveKnotTangent(s, index, which, vec2(k.end.x + dir.x * len, k.end.y + dir.y * len));
+};
+
+/**
+ * Toggle a knot between continuous (smooth) and corner. Legacy BezierKnot.setContinous.
+ * A locked point made smooth locks both sides along one axis, since its handles now
+ * move together.
+ */
 export const setKnotContinuous = (s: Spline, index: number, continuous: boolean): Spline => {
   const k = s.knots[index]!;
-  return replaceKnot(s, index, knot(k.end, k.tangentToPrev, k.tangentToNext, continuous, k.other));
+  const lock =
+    continuous && k.lock
+      ? knotLock(
+          k.lock.prev ?? (k.lock.next && reversed(k.lock.next)),
+          k.lock.next ?? (k.lock.prev && reversed(k.lock.prev)),
+        )
+      : k.lock;
+  return replaceKnot(
+    s,
+    index,
+    knot(k.end, k.tangentToPrev, k.tangentToNext, continuous, k.other, lock),
+  );
 };
 
-/** Rebuild one knot's handles from its neighbouring chord, without changing corner/smooth state. */
+/**
+ * Rebuild one knot's handles from its neighbouring chord, without changing corner/smooth
+ * state. A locked handle keeps its direction and only takes the faired length.
+ */
 export const fairKnot = (s: Spline, index: number): Spline => {
   const k = s.knots[index];
   if (!k) return s;
@@ -179,16 +287,20 @@ export const fairKnot = (s: Spline, index: number): Spline => {
   const uy = dy / chordLength;
   const prevLength = prev ? Math.hypot(k.end.x - prev.end.x, k.end.y - prev.end.y) / 3 : 0;
   const nextLength = next ? Math.hypot(next.end.x - k.end.x, next.end.y - k.end.y) / 3 : 0;
+  const lockPrev = k.lock?.prev;
+  const lockNext = k.lock?.next;
 
   return replaceKnot(
     s,
     index,
-    knot(
-      k.end,
-      vec2(k.end.x - ux * prevLength, k.end.y - uy * prevLength),
-      vec2(k.end.x + ux * nextLength, k.end.y + uy * nextLength),
-      k.continuous,
-      k.other,
+    withHandles(
+      k,
+      lockPrev
+        ? vec2(k.end.x + lockPrev.x * prevLength, k.end.y + lockPrev.y * prevLength)
+        : vec2(k.end.x - ux * prevLength, k.end.y - uy * prevLength),
+      lockNext
+        ? vec2(k.end.x + lockNext.x * nextLength, k.end.y + lockNext.y * nextLength)
+        : vec2(k.end.x + ux * nextLength, k.end.y + uy * nextLength),
     ),
   );
 };
@@ -201,15 +313,16 @@ export const zeroKnotTangent = (s: Spline, index: number, which: 'prev' | 'next'
 };
 
 /**
- * Give a collapsed tangent a short, useful length directed toward its adjacent knot.
- * The 20% local-chord length is capped so it remains a small editing affordance on
- * both full-length curves and compact cross-sections.
+ * Give a collapsed tangent a short, useful length directed toward its adjacent knot —
+ * or along its lock, when locked. The 20% local-chord length is capped so it remains
+ * a small editing affordance on both full-length curves and compact cross-sections.
  */
 export const extendKnotTangent = (s: Spline, index: number, which: 'prev' | 'next'): Spline => {
   const k = s.knots[index];
   if (!k) return s;
   const current = which === 'prev' ? k.tangentToPrev : k.tangentToNext;
   if (Math.hypot(current.x - k.end.x, current.y - k.end.y) > 1e-9) return s;
+  const locked = which === 'prev' ? k.lock?.prev : k.lock?.next;
 
   const neighbour = s.knots[index + (which === 'prev' ? -1 : 1)];
   const opposite = which === 'prev' ? k.tangentToNext : k.tangentToPrev;
@@ -233,11 +346,13 @@ export const extendKnotTangent = (s: Spline, index: number, which: 'prev' | 'nex
     }
   }
   const directionLength = Math.hypot(dx, dy);
-  if (directionLength <= 1e-9) return s;
+  if (!locked && directionLength <= 1e-9) return s;
   const length = Math.max(0.5, Math.min(5, referenceLength * 0.2));
+  const ux = locked ? locked.x : dx / directionLength;
+  const uy = locked ? locked.y : dy / directionLength;
   return moveKnotTangent(s, index, which, {
-    x: k.end.x + (dx / directionLength) * length,
-    y: k.end.y + (dy / directionLength) * length,
+    x: k.end.x + ux * length,
+    y: k.end.y + uy * length,
   });
 };
 
@@ -255,24 +370,14 @@ export const insertKnotAt = (s: Spline, p: Vec2): { spline: Spline; index: numbe
   const end = s.knots[hit.index + 1]!;
   const insertIndex = hit.index + 1;
 
-  // start keeps its end + prev handle; only its toNext handle is pulled in.
-  const newStart = knot(
-    start.end,
-    start.tangentToPrev,
-    split.startTangentToNext,
-    start.continuous,
-    start.other,
-  );
-  // the new knot sits on the curve; its tangents are collinear, so it is smooth.
+  // start keeps its end + prev handle; only its toNext handle is pulled in. The split
+  // only shortens it, so any lock on the start knot still holds.
+  const newStart = withHandles(start, start.tangentToPrev, split.startTangentToNext);
+  // the new knot sits on the curve; its tangents are collinear, so it is smooth. It
+  // starts free: the user locks the points they choose.
   const mid = knot(split.mid.end, split.mid.tangentToPrev, split.mid.tangentToNext, true, false);
   // end keeps its end + next handle; only its toPrev handle is pulled in.
-  const newEnd = knot(
-    end.end,
-    split.endTangentToPrev,
-    end.tangentToNext,
-    end.continuous,
-    end.other,
-  );
+  const newEnd = withHandles(end, split.endTangentToPrev, end.tangentToNext);
 
   const knots = [
     ...s.knots.slice(0, hit.index),
@@ -599,13 +704,7 @@ const clampMonotonicX = (s: Spline, exemptUpTo = -1): Spline => {
       out = replaceKnot(
         out,
         i,
-        knot(
-          k.end,
-          vec2(prevX, k.tangentToPrev.y),
-          vec2(nextX, k.tangentToNext.y),
-          k.continuous,
-          k.other,
-        ),
+        withHandles(k, vec2(prevX, k.tangentToPrev.y), vec2(nextX, k.tangentToNext.y)),
       );
     }
   }
@@ -632,7 +731,7 @@ const clampHandleFloor = (
   const nh = axis === 'x' ? vec2(floor, h.y) : vec2(h.x, floor);
   const prev = which === 'prev' ? nh : k.tangentToPrev;
   const next = which === 'next' ? nh : k.tangentToNext;
-  return replaceKnot(s, index, knot(k.end, prev, next, k.continuous, k.other));
+  return replaceKnot(s, index, withHandles(k, prev, next));
 };
 
 /**
@@ -739,6 +838,8 @@ export const enforceJunctions = (b: BezierBoard, changed?: SplineTarget): Bezier
  * - The next handle x-offset direction is kept; y is set to `end.y`.
  * - If the knot is continuous, both handles are mirrored through the endpoint so
  *   they remain collinear on the horizontal axis.
+ * - If the knot is locked, the lock turns with the handles: aligning a locked point
+ *   is how a handle is locked horizontal.
  */
 export const alignTangentsHorizontal = (s: Spline, index: number): Spline => {
   const k = s.knots[index]!;
@@ -748,18 +849,16 @@ export const alignTangentsHorizontal = (s: Spline, index: number): Spline => {
   // Preserve the horizontal direction (sign) of each handle relative to the endpoint.
   // Legacy uses strict > 0 for prevSign, >= 0 for nextSign (matches BrdEditCommand).
   const prevSign = k.tangentToPrev.x - end.x > 0 ? 1 : -1;
-  const nextSign = k.tangentToNext.x - end.x >= 0 ? 1 : -1;
+  let nextSign = k.tangentToNext.x - end.x >= 0 ? 1 : -1;
+  // Both handles must be collinear on the horizontal axis through the endpoint.
+  // The prev handle drives the mirror: next is opposite direction, preserving next length.
+  if (k.continuous) nextSign = -prevSign;
 
   const prev = vec2(end.x + prevLen * prevSign, end.y);
-  let next = vec2(end.x + nextLen * nextSign, end.y);
+  const next = vec2(end.x + nextLen * nextSign, end.y);
+  const lock = k.lock && { prev: vec2(prevSign, 0), next: vec2(nextSign, 0) };
 
-  if (k.continuous) {
-    // Both handles must be collinear on the horizontal axis through the endpoint.
-    // The prev handle drives the mirror: next is opposite direction, preserving next length.
-    next = vec2(end.x - nextLen * prevSign, end.y);
-  }
-
-  return replaceKnot(s, index, knot(end, prev, next, k.continuous, k.other));
+  return replaceKnot(s, index, knot(end, prev, next, k.continuous, k.other, lock));
 };
 
 /**
@@ -771,6 +870,8 @@ export const alignTangentsHorizontal = (s: Spline, index: number): Spline => {
  * - The next handle y-offset direction is kept; x is set to `end.x`.
  * - If the knot is continuous, both handles are mirrored through the endpoint so
  *   they remain collinear on the vertical axis.
+ * - If the knot is locked, the lock turns with the handles: aligning a locked point
+ *   is how a handle is locked vertical.
  */
 export const alignTangentsVertical = (s: Spline, index: number): Spline => {
   const k = s.knots[index]!;
@@ -779,26 +880,21 @@ export const alignTangentsVertical = (s: Spline, index: number): Spline => {
   const nextLen = Math.hypot(k.tangentToNext.x - end.x, k.tangentToNext.y - end.y);
   // Preserve the vertical direction (sign) of each handle relative to the endpoint.
   // Legacy uses strict > 0 for prevSign, >= 0 for nextSign (matches BrdEditCommand).
-  const prevSign = k.tangentToPrev.y - end.y > 0 ? 1 : -1;
+  let prevSign = k.tangentToPrev.y - end.y > 0 ? 1 : -1;
   const nextSign = k.tangentToNext.y - end.y >= 0 ? 1 : -1;
 
   // Legacy applies two independent if-blocks for which==0 (both run).
   // Block 1 aligns prev (and mirrors next via prevSign if continuous).
   // Block 2 aligns next (and mirrors prev via nextSign if continuous), overwriting block 1.
-  // With continuous=true the second block always wins, so nextSign drives the mirror.
-  let prev: Vec2;
-  let next: Vec2;
+  // With continuous=true the second block always wins: next keeps its sign, and prev is
+  // mirrored from nextSign.
+  if (k.continuous) prevSign = -nextSign;
 
-  if (k.continuous) {
-    // Second block wins: next keeps its sign, prev is mirrored from nextSign.
-    next = vec2(end.x, end.y + nextLen * nextSign);
-    prev = vec2(end.x, end.y - prevLen * nextSign);
-  } else {
-    prev = vec2(end.x, end.y + prevLen * prevSign);
-    next = vec2(end.x, end.y + nextLen * nextSign);
-  }
+  const prev = vec2(end.x, end.y + prevLen * prevSign);
+  const next = vec2(end.x, end.y + nextLen * nextSign);
+  const lock = k.lock && { prev: vec2(0, prevSign), next: vec2(0, nextSign) };
 
-  return replaceKnot(s, index, knot(end, prev, next, k.continuous, k.other));
+  return replaceKnot(s, index, knot(end, prev, next, k.continuous, k.other, lock));
 };
 
 /** Only interior knots can be deleted, and never below a single segment (2 knots). */
@@ -835,8 +931,9 @@ export const deleteKnot = (s: Spline, index: number): Spline => {
     nTanPrev = scaleHandle(next.end, nTanPrev, factor);
   }
 
-  const newPrev = knot(prev.end, prev.tangentToPrev, pTanNext, prev.continuous, prev.other);
-  const newNext = knot(next.end, nTanPrev, next.tangentToNext, next.continuous, next.other);
+  // Scaling a handle about its point keeps its direction, so the neighbours' locks hold.
+  const newPrev = withHandles(prev, prev.tangentToPrev, pTanNext);
+  const newNext = withHandles(next, nTanPrev, next.tangentToNext);
   const knots = [...s.knots.slice(0, index - 1), newPrev, newNext, ...s.knots.slice(index + 2)];
   return splineFromKnots(knots);
 };

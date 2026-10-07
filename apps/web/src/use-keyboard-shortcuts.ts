@@ -1,4 +1,5 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
+import { getTargetSpline } from '@openshaper/store';
 import { isTextEntry, matches, SHORTCUTS, VIEW_KEYS } from './shortcuts';
 import { boardStore } from './store';
 import type { View } from './view-toolkit';
@@ -64,6 +65,15 @@ export function useKeyboardShortcuts({
           // Nothing selected: let the key through rather than swallowing it.
           if (!sel) return false;
           boardStore.getState().deleteControlPoint(sel.target, sel.index);
+          return true;
+        }
+        case 'toggle-lock': {
+          const { board, selection, setLocked } = boardStore.getState();
+          const knot =
+            board && selection && getTargetSpline(board, selection.target).knots[selection.index];
+          // Nothing selected: let the key through rather than swallowing it.
+          if (!selection || !knot) return false;
+          setLocked(selection.target, selection.index, !knot.lock);
           return true;
         }
         case 'cross-section-prev':

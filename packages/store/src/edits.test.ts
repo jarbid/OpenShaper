@@ -27,16 +27,21 @@ import {
   valueAt,
   vec2,
   type BezierBoard,
+  type Knot,
 } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
 import {
   alignTangentsHorizontal,
   alignTangentsVertical,
+  canLockKnot,
+  constrainToLock,
+  deleteKnot,
   enforceJunctions,
   extendKnotTangent,
   fairKnot,
   getTargetSpline,
   insertCrossSection,
+  insertKnotAt,
   moveCrossSectionPosition,
   moveKnotEnd,
   moveKnotTangent,
@@ -44,6 +49,9 @@ import {
   removeCrossSection,
   scaleBoard,
   setFinFromPlanPoint,
+  setKnotContinuous,
+  setKnotLock,
+  setKnotTangentLength,
   setSplineValueAt,
   withFins,
   withSpline,
@@ -199,31 +207,224 @@ describe('moveKnotTangent (continuous=false)', () => {
   });
 });
 
-describe('moveKnotTangent angle lock', () => {
-  it('changes handle length without changing its direction', () => {
-    const s = splineFromKnots([
-      knot(vec2(0, 0), vec2(-1, -1), vec2(2, 2), false),
-      knot(vec2(10, 0), vec2(9, 0), vec2(11, 0), false),
+// ---------------------------------------------------------------------------
+// Handle-angle locks
+// ---------------------------------------------------------------------------
+
+describe('handle-angle locks', () => {
+  const R = Math.SQRT1_2;
+  /** A handle's angle (rad) and length, measured from its point. */
+  const angleOf = (k: Knot, which: 'prev' | 'next') => {
+    const h = which === 'prev' ? k.tangentToPrev : k.tangentToNext;
+    return Math.atan2(h.y - k.end.y, h.x - k.end.x);
+  };
+  const lengthOf = (k: Knot, which: 'prev' | 'next') => {
+    const h = which === 'prev' ? k.tangentToPrev : k.tangentToNext;
+    return Math.hypot(h.x - k.end.x, h.y - k.end.y);
+  };
+  // The middle point's handles leave at 135° and 45° — off-axis, so a direction that
+  // drifted could not pass by coincidence. Smooth, it takes 225° and 45° instead.
+  const diagonal = (continuous = false) =>
+    splineFromKnots([
+      knot(vec2(0, 0), vec2(-5, 0), vec2(5, 5), true),
+      knot(vec2(50, 10), continuous ? vec2(46, 6) : vec2(46, 14), vec2(54, 14), continuous),
+      knot(vec2(100, 0), vec2(95, 0), vec2(105, 0), true),
     ]);
+  const locked = (continuous = false) => setKnotLock(diagonal(continuous), 1, true);
 
-    const moved = moveKnotTangent(s, 0, 'next', vec2(0, 5), true);
-    const handle = moved.knots[0]!.tangentToNext;
-
-    expect(Math.atan2(handle.y, handle.x)).toBeCloseTo(Math.PI / 4, 9);
-    expect(Math.hypot(handle.x, handle.y)).toBeCloseTo(5, 9);
-    expect(moved.knots[0]!.tangentToPrev).toEqual(s.knots[0]!.tangentToPrev);
+  it('locks the directions the handles have now, without moving them', () => {
+    const s = diagonal();
+    const before = s.knots[1]!;
+    const k = setKnotLock(s, 1, true).knots[1]!;
+    expect(k.lock?.prev?.x).toBeCloseTo(-R, 12);
+    expect(k.lock?.prev?.y).toBeCloseTo(R, 12);
+    expect(k.lock?.next?.x).toBeCloseTo(R, 12);
+    expect(k.lock?.next?.y).toBeCloseTo(R, 12);
+    expect(k.tangentToPrev).toBe(before.tangentToPrev);
+    expect(k.tangentToNext).toBe(before.tangentToNext);
   });
 
-  it('keeps smooth opposite handles collinear while locked', () => {
-    const s = splineFromKnots([
-      knot(vec2(0, 0), vec2(-1, 0), vec2(2, 0), true),
-      knot(vec2(10, 0), vec2(9, 0), vec2(11, 0), true),
-    ]);
+  it('unlocking drops the lock entirely and leaves the handles alone', () => {
+    const k = setKnotLock(locked(), 1, false).knots[1]!;
+    expect(k).not.toHaveProperty('lock');
+    expect(k.tangentToNext).toEqual(vec2(54, 14));
+  });
 
-    const moved = moveKnotTangent(s, 0, 'next', vec2(0, 5), true);
-    const k = moved.knots[0]!;
-    expect(k.tangentToNext).toEqual(vec2(5, 0));
-    expect(k.tangentToPrev).toEqual(vec2(-1, 0));
+  it('a dragged locked handle keeps its angle; its length is the reach along it', () => {
+    // Straight up from (54,14) to (54,24): (4,14)·(√½,√½) = 18√½ along the 45° line.
+    const k = moveKnotTangent(locked(), 1, 'next', vec2(54, 24)).knots[1]!;
+    expect(angleOf(k, 'next')).toBeCloseTo(Math.PI / 4, 12);
+    expect(lengthOf(k, 'next')).toBeCloseTo(18 * R, 12);
+    expect(k.tangentToPrev).toEqual(vec2(46, 14)); // a corner's other handle stays put
+  });
+
+  it('collapses a locked handle dragged back past its point instead of flipping it', () => {
+    const k = moveKnotTangent(locked(), 1, 'next', vec2(40, 0)).knots[1]!;
+    expect(k.tangentToNext).toEqual(k.end);
+  });
+
+  it('brings a collapsed locked handle back out along its lock', () => {
+    const collapsed = zeroKnotTangent(locked(), 1, 'next');
+    expect(collapsed.knots[1]!.tangentToNext).toEqual(collapsed.knots[1]!.end);
+    expect(collapsed.knots[1]!.lock).toEqual(locked().knots[1]!.lock);
+
+    // Straight up again: a free handle would point up, a locked one returns at 45°.
+    const k = moveKnotTangent(collapsed, 1, 'next', vec2(50, 30)).knots[1]!;
+    expect(angleOf(k, 'next')).toBeCloseTo(Math.PI / 4, 12);
+    expect(lengthOf(k, 'next')).toBeCloseTo(20 * R, 12);
+  });
+
+  it('on a locked smooth point, moving one handle leaves the other exactly where it was', () => {
+    const k = moveKnotTangent(locked(true), 1, 'next', vec2(70, 20)).knots[1]!;
+    expect(angleOf(k, 'next')).toBeCloseTo(Math.PI / 4, 12);
+    expect(k.tangentToPrev).toEqual(vec2(46, 6));
+  });
+
+  it('a locked corner made smooth does not swing its other handle on the next drag', () => {
+    const smooth = setKnotContinuous(locked(), 1, true);
+    const k = moveKnotTangent(smooth, 1, 'next', vec2(70, 20)).knots[1]!;
+    expect(k.tangentToPrev).toEqual(vec2(46, 14)); // still at 135°, not mirrored to 225°
+  });
+
+  it('making a half-locked corner smooth locks its free side opposite the other', () => {
+    const halfLocked = setKnotLock(zeroKnotTangent(diagonal(), 1, 'prev'), 1, true);
+    expect(halfLocked.knots[1]!.lock).not.toHaveProperty('prev');
+    const k = setKnotContinuous(halfLocked, 1, true).knots[1]!;
+    expect(k.lock?.prev?.x).toBeCloseTo(-R, 12);
+    expect(k.lock?.prev?.y).toBeCloseTo(-R, 12);
+  });
+
+  it('a smooth point locks a collapsed side opposite its other handle; a corner leaves it free', () => {
+    const smooth = setKnotLock(zeroKnotTangent(diagonal(true), 1, 'prev'), 1, true).knots[1]!;
+    expect(smooth.lock?.prev?.x).toBeCloseTo(-R, 12);
+    expect(smooth.lock?.prev?.y).toBeCloseTo(-R, 12);
+    const corner = setKnotLock(zeroKnotTangent(diagonal(), 1, 'prev'), 1, true).knots[1]!;
+    expect(corner.lock).not.toHaveProperty('prev');
+    expect(corner.lock?.next).toBeDefined();
+  });
+
+  it('has nothing to lock when both handles are collapsed', () => {
+    const bare = zeroKnotTangent(zeroKnotTangent(diagonal(), 1, 'prev'), 1, 'next');
+    expect(canLockKnot(bare.knots[1]!)).toBe(false);
+    expect(setKnotLock(bare, 1, true)).toBe(bare);
+    expect(canLockKnot(diagonal().knots[1]!)).toBe(true);
+  });
+
+  it('re-locking keeps the stored direction of a collapsed handle', () => {
+    const collapsed = zeroKnotTangent(locked(), 1, 'next');
+    expect(setKnotLock(collapsed, 1, true)).toBe(collapsed);
+  });
+
+  it('fair keeps locked directions and only takes the faired lengths', () => {
+    const k = fairKnot(locked(), 1).knots[1]!;
+    const third = Math.hypot(50, 10) / 3; // both neighbours are √(50² + 10²) away
+    expect(angleOf(k, 'next')).toBeCloseTo(Math.PI / 4, 12);
+    expect(angleOf(k, 'prev')).toBeCloseTo((3 * Math.PI) / 4, 12);
+    expect(lengthOf(k, 'next')).toBeCloseTo(third, 12);
+    expect(lengthOf(k, 'prev')).toBeCloseTo(third, 12);
+  });
+
+  it('extends a collapsed locked handle along its lock, not toward the neighbour', () => {
+    const k = extendKnotTangent(zeroKnotTangent(locked(), 1, 'next'), 1, 'next').knots[1]!;
+    expect(angleOf(k, 'next')).toBeCloseTo(Math.PI / 4, 12);
+    expect(lengthOf(k, 'next')).toBeCloseTo(5, 12);
+  });
+
+  it('aligning a locked point turns its lock with it: a horizontal lock', () => {
+    const aligned = alignTangentsHorizontal(locked(), 1);
+    expect(aligned.knots[1]!.lock).toEqual({ prev: vec2(-1, 0), next: vec2(1, 0) });
+    const k = moveKnotTangent(aligned, 1, 'next', vec2(60, 30)).knots[1]!;
+    expect(k.tangentToNext).toEqual(vec2(60, 10));
+  });
+
+  it('aligning a locked point vertical locks it vertical', () => {
+    expect(alignTangentsVertical(locked(), 1).knots[1]!.lock).toEqual({
+      prev: vec2(0, 1),
+      next: vec2(0, 1),
+    });
+    expect(alignTangentsVertical(locked(true), 1).knots[1]!.lock).toEqual({
+      prev: vec2(0, -1),
+      next: vec2(0, 1),
+    });
+  });
+
+  it('aligning a free point leaves it free', () => {
+    expect(alignTangentsHorizontal(diagonal(), 1).knots[1]!).not.toHaveProperty('lock');
+  });
+
+  it('moving a locked point carries its handles and lock with it, exactly', () => {
+    const k = moveKnotEnd(locked(), 1, vec2(52, 13)).knots[1]!;
+    expect(k.tangentToNext).toEqual(vec2(56, 17));
+    expect(k.tangentToPrev).toEqual(vec2(48, 17));
+    expect(k.lock).toEqual(locked().knots[1]!.lock);
+  });
+
+  it('sets a locked handle length along its lock, and a free one along where it points', () => {
+    const k = setKnotTangentLength(locked(), 1, 'next', 10).knots[1]!;
+    expect(k.tangentToNext.x).toBeCloseTo(50 + 10 * R, 12);
+    expect(k.tangentToNext.y).toBeCloseTo(10 + 10 * R, 12);
+
+    const free = setKnotTangentLength(diagonal(), 1, 'prev', 2 * Math.SQRT2).knots[1]!;
+    expect(free.tangentToPrev.x).toBeCloseTo(48, 12);
+    expect(free.tangentToPrev.y).toBeCloseTo(12, 12);
+
+    const negative = setKnotTangentLength(locked(), 1, 'next', -3).knots[1]!;
+    expect(negative.tangentToNext).toEqual(negative.end);
+
+    const bare = zeroKnotTangent(diagonal(), 1, 'next');
+    expect(setKnotTangentLength(bare, 1, 'next', 4)).toBe(bare);
+  });
+
+  it('a point inserted next to a locked one starts free; the locked neighbour keeps its lock', () => {
+    const s = locked();
+    const ins = insertKnotAt(s, vec2(75, 8))!;
+    const lockedKnot = ins.spline.knots.find((k) => k.end.x === 50 && k.end.y === 10)!;
+    expect(lockedKnot.lock).toEqual(s.knots[1]!.lock);
+    expect(ins.spline.knots[ins.index]!).not.toHaveProperty('lock');
+    expect(angleOf(lockedKnot, 'next')).toBeCloseTo(Math.PI / 4, 12);
+  });
+
+  it("deleting a point keeps its neighbours' locks, their handles still on them", () => {
+    const s = setKnotLock(setKnotLock(diagonal(), 0, true), 2, true);
+    const out = deleteKnot(s, 1);
+    expect(out.knots[0]!.lock).toEqual(s.knots[0]!.lock);
+    expect(out.knots[1]!.lock).toEqual(s.knots[2]!.lock);
+    expect(constrainToLock(out.knots[0]!)).toBe(out.knots[0]);
+    expect(constrainToLock(out.knots[1]!)).toBe(out.knots[1]);
+  });
+
+  it('constrainToLock slides each locked handle onto its lock, keeping its reach along it', () => {
+    const k = knot(vec2(0, 0), vec2(-3, 1), vec2(4, 3), false, false, {
+      prev: vec2(-1, 0),
+      next: vec2(1, 0),
+    });
+    const c = constrainToLock(k);
+    expect(c.tangentToPrev).toEqual(vec2(-3, 0));
+    expect(c.tangentToNext).toEqual(vec2(4, 0));
+    expect(c.lock).toBe(k.lock);
+  });
+
+  it('every edit re-imposes a lock its handle had drifted from', () => {
+    // A hand-edited file can carry a lock its handle does not follow: the next edit
+    // that rewrites the point — here, merely making it smooth — pulls the handle on.
+    const s = splineFromKnots([
+      knot(vec2(0, 0), vec2(-5, 0), vec2(5, 5), true),
+      knot(vec2(50, 10), vec2(46, 14), vec2(54, 14), false, false, { next: vec2(1, 0) }),
+      knot(vec2(100, 0), vec2(95, 0), vec2(105, 0), true),
+    ]);
+    expect(setKnotContinuous(s, 1, false).knots[1]!.tangentToNext).toEqual(vec2(54, 10));
+  });
+
+  it('constrainToLock returns a free knot untouched', () => {
+    const k = diagonal().knots[1]!;
+    expect(constrainToLock(k)).toBe(k);
+  });
+
+  it('the junction pass keeps a locked board locked (and changes nothing else)', () => {
+    const b = makeBoard();
+    const lockedBoard = withSpline(b, { kind: 'outline' }, setKnotLock(b.outline, 0, true));
+    const pinned = enforceJunctions(lockedBoard);
+    expect(pinned.outline.knots[0]!.lock).toEqual(lockedBoard.outline.knots[0]!.lock);
   });
 });
 

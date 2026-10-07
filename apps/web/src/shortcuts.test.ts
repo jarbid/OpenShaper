@@ -74,6 +74,7 @@ describe('matches', () => {
       key(']'),
       key('1'),
       key('Delete'),
+      key('l'),
     ];
     for (const e of events) {
       const hits = SHORTCUTS.filter((s) => matches(s, e, false));

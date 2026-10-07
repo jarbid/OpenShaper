@@ -23,12 +23,13 @@ import {
   propagateCrossSectionToCurves,
   removeCrossSection,
   scaleBoard,
-  sameTarget,
   setFinFromPlanPoint,
   setFinSetup,
   setFinSymmetrical,
   setFinSystem,
   setKnotContinuous,
+  setKnotLock,
+  setKnotTangentLength,
   zeroKnotTangent,
   updateFinSpec,
   withInterpolationType,
@@ -43,14 +44,6 @@ export interface Selection {
   /** The endpoint or one of its two tangent handles. Omitted means the endpoint. */
   kind?: 'end' | 'prev' | 'next';
 }
-
-export interface AngleLock {
-  target: SplineTarget;
-  index: number;
-}
-
-const hasAngleLock = (locks: readonly AngleLock[], target: SplineTarget, index: number): boolean =>
-  locks.some((lock) => lock.index === index && sameTarget(lock.target, target));
 
 /** One undo/redo step: the board to restore plus the action that produced the change. */
 export interface HistoryEntry {
@@ -72,8 +65,6 @@ export interface BoardState {
    */
   adjustThickness: boolean;
   selection: Selection | null;
-  /** Control points whose tangent directions are fixed while handle lengths remain editable. */
-  angleLocks: readonly AngleLock[];
   /** Index of the selected fin (for the fin inspector / highlight), or null. */
   selectedFin: number | null;
 
@@ -81,7 +72,6 @@ export interface BoardState {
   /** Toggle whether cross-sections are slaved to the rocker/deck/outline (JC-4-y). */
   setAdjustThickness: (v: boolean) => void;
   select: (selection: Selection | null) => void;
-  setAngleLocked: (target: SplineTarget, index: number, locked: boolean) => void;
   /** Select a fin by index (clears any control-point selection). */
   selectFin: (index: number | null) => void;
 
@@ -92,6 +82,13 @@ export interface BoardState {
 
   moveControlPoint: (target: SplineTarget, index: number, end: Vec2) => void;
   moveTangent: (target: SplineTarget, index: number, which: 'prev' | 'next', pos: Vec2) => void;
+  /** Set one handle's length along its current (or locked) direction. */
+  setTangentLength: (
+    target: SplineTarget,
+    index: number,
+    which: 'prev' | 'next',
+    length: number,
+  ) => void;
 
   /** Insert a control point on the target spline nearest to `p`, then select it. */
   addControlPoint: (target: SplineTarget, p: Vec2) => void;
@@ -99,6 +96,12 @@ export interface BoardState {
   deleteControlPoint: (target: SplineTarget, index: number) => void;
   /** Toggle a control point between smooth (continuous) and corner. */
   setContinuous: (target: SplineTarget, index: number, continuous: boolean) => void;
+  /**
+   * Lock or unlock a control point's handle directions. A locked handle keeps its
+   * direction through every edit; only its length changes. No-op (and no undo step)
+   * when the point is already in that state or has no handle to lock.
+   */
+  setLocked: (target: SplineTarget, index: number, locked: boolean) => void;
   /** Rebuild a point's handles from the local neighbour chord. */
   fairControlPoint: (target: SplineTarget, index: number) => void;
   /** Collapse one tangent handle onto its control point. */
@@ -234,7 +237,6 @@ export const createBoardStore = (): StoreApi<BoardState> =>
       editing: false,
       adjustThickness: true,
       selection: null,
-      angleLocks: [],
       selectedFin: null,
 
       load: (board) => {
@@ -245,24 +247,11 @@ export const createBoardStore = (): StoreApi<BoardState> =>
           future: [],
           editing: false,
           selection: null,
-          angleLocks: [],
           selectedFin: null,
         });
       },
       setAdjustThickness: (v) => set({ adjustThickness: v }),
       select: (selection) => set({ selection, selectedFin: null }),
-      setAngleLocked: (target, index, locked) => {
-        const angleLocks = get().angleLocks;
-        const alreadyLocked = hasAngleLock(angleLocks, target, index);
-        if (locked === alreadyLocked) return;
-        set({
-          angleLocks: locked
-            ? [...angleLocks, { target, index }]
-            : angleLocks.filter(
-                (entry) => !(entry.index === index && sameTarget(entry.target, target)),
-              ),
-        });
-      },
       selectFin: (index) => set({ selectedFin: index, selection: null }),
 
       beginEdit: (label = 'Edit') => {
@@ -279,12 +268,18 @@ export const createBoardStore = (): StoreApi<BoardState> =>
 
       moveTangent: (target, index, which, pos) =>
         editSpline(target, 'Move tangent', (s) =>
-          withSpline(
-            get().board!,
-            target,
-            moveKnotTangent(s, index, which, pos, hasAngleLock(get().angleLocks, target, index)),
-          ),
+          withSpline(get().board!, target, moveKnotTangent(s, index, which, pos)),
         ),
+
+      setTangentLength: (target, index, which, length) => {
+        const { board } = get();
+        if (!board) return;
+        const spline = getTargetSpline(board, target);
+        const next = setKnotTangentLength(spline, index, which, length);
+        // A collapsed free handle has no direction to lengthen along: no step to record.
+        if (next === spline) return;
+        editSpline(target, 'Set handle length', () => withSpline(board, target, next));
+      },
 
       addControlPoint: (target, p) => {
         const { board } = get();
@@ -295,14 +290,7 @@ export const createBoardStore = (): StoreApi<BoardState> =>
           enforceJunctions(withSpline(board, target, result.spline), target),
           'Add control point',
         );
-        set({
-          selection: { target, index: result.index, kind: 'end' },
-          angleLocks: get().angleLocks.map((lock) =>
-            sameTarget(lock.target, target) && lock.index >= result.index
-              ? { ...lock, index: lock.index + 1 }
-              : lock,
-          ),
-        });
+        set({ selection: { target, index: result.index, kind: 'end' } });
       },
 
       deleteControlPoint: (target, index) => {
@@ -318,22 +306,25 @@ export const createBoardStore = (): StoreApi<BoardState> =>
           enforceJunctions(withSpline(board, target, deleteKnot(spline, index)), target),
           'Delete control point',
         );
-        set({
-          selection: null,
-          angleLocks: get()
-            .angleLocks.filter((lock) => !(sameTarget(lock.target, target) && lock.index === index))
-            .map((lock) =>
-              sameTarget(lock.target, target) && lock.index > index
-                ? { ...lock, index: lock.index - 1 }
-                : lock,
-            ),
-        });
+        set({ selection: null });
       },
 
       setContinuous: (target, index, continuous) =>
         editSpline(target, continuous ? 'Smooth control point' : 'Corner control point', (s) =>
           withSpline(get().board!, target, setKnotContinuous(s, index, continuous)),
         ),
+
+      setLocked: (target, index, locked) => {
+        const { board } = get();
+        if (!board) return;
+        const spline = getTargetSpline(board, target);
+        const next = setKnotLock(spline, index, locked);
+        // A click that changes nothing must not leave an empty undo step.
+        if (next === spline) return;
+        editSpline(target, locked ? 'Lock handle angles' : 'Unlock handle angles', () =>
+          withSpline(board, target, next),
+        );
+      },
 
       fairControlPoint: (target, index) =>
         editSpline(target, 'Fair curve', (s) =>

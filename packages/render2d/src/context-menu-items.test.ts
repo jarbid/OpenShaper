@@ -76,6 +76,7 @@ describe('buildContextMenuItems', () => {
     expect(labels(items)).toEqual([
       'Fair curve',
       'Make corner',
+      'Lock handle angles',
       'Select nose handle point',
       'Select tail handle point',
       'Delete point',
@@ -105,6 +106,7 @@ describe('buildContextMenuItems', () => {
     expect(labels(items)).toEqual([
       'Fair curve',
       'Make corner',
+      'Lock handle angles',
       'Select nose handle point',
       'Select tail handle point',
       'Delete point',
@@ -115,6 +117,38 @@ describe('buildContextMenuItems', () => {
 
     (del as { onSelect: () => void }).onSelect();
     expect(store.getState().board!.outline.knots).toHaveLength(3); // unchanged
+  });
+
+  it('locks a point from its menu, and the menu then offers Unlock', () => {
+    const { store, build } = setup();
+    const point = worldToScreen(VP, vec2(50, 20));
+    (find(build(point), 'Lock handle angles') as { onSelect: () => void }).onSelect();
+    expect(store.getState().board!.outline.knots[1]!.lock).toEqual({
+      prev: vec2(-1, 0),
+      next: vec2(1, 0),
+    });
+    expect(store.getState().past.at(-1)?.label).toBe('Lock handle angles');
+
+    (find(build(point), 'Unlock handle angles') as { onSelect: () => void }).onSelect();
+    expect(store.getState().board!.outline.knots[1]!).not.toHaveProperty('lock');
+  });
+
+  it("offers the point's lock on its handles too", () => {
+    const { store, build } = setup();
+    (
+      find(build(worldToScreen(VP, vec2(55, 20))), 'Lock handle angles') as {
+        onSelect: () => void;
+      }
+    ).onSelect();
+    expect(store.getState().board!.outline.knots[1]!.lock).toBeDefined();
+  });
+
+  it('disables Lock on a point whose handles are both collapsed', () => {
+    const { store, build } = setup();
+    store.getState().zeroTangent({ kind: 'outline' }, 1, 'next');
+    store.getState().zeroTangent({ kind: 'outline' }, 1, 'prev');
+    const lock = find(build(worldToScreen(VP, vec2(50, 20))), 'Lock handle angles');
+    expect(lock?.kind === 'action' && lock.disabled).toBe(true);
   });
 
   it('selects either tangent handle from a control point menu', () => {
@@ -131,14 +165,14 @@ describe('buildContextMenuItems', () => {
     const { store, build } = setup();
     const rightHandle = vec2(55, 20);
     let items = build(worldToScreen(VP, rightHandle));
-    expect(labels(items)).toEqual(['Set handle length to zero', 'Fit view']);
+    expect(labels(items)).toEqual(['Set handle length to zero', 'Lock handle angles', 'Fit view']);
     (find(items, 'Set handle length to zero') as { onSelect: () => void }).onSelect();
     const collapsed = store.getState().board!.outline.knots[1]!;
     expect(collapsed.tangentToNext).toEqual(collapsed.end);
 
     store.getState().select({ target: { kind: 'outline' }, index: 1, kind: 'next' });
     items = build(worldToScreen(VP, collapsed.end));
-    expect(labels(items)).toEqual(['Extend handle', 'Fit view']);
+    expect(labels(items)).toEqual(['Extend handle', 'Lock handle angles', 'Fit view']);
     (find(items, 'Extend handle') as { onSelect: () => void }).onSelect();
     const extended = store.getState().board!.outline.knots[1]!;
     expect(

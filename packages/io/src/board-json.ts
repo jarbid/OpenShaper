@@ -4,6 +4,7 @@ import {
   crossSection,
   defaultFinConfig,
   knot,
+  knotLock,
   noFins,
   splineFromKnots,
   vec2,
@@ -11,7 +12,9 @@ import {
   type FinConfig,
   type FinSetup,
   type Knot,
+  type KnotLock,
   type Spline,
+  type Vec2,
 } from '@openshaper/kernel';
 
 /**
@@ -26,6 +29,9 @@ import {
  *   1 — outline/bottom/deck/crossSections + interpolationType + metadata.
  *   2 — adds the parametric `fins` config. Older docs (v1, or any doc carrying a
  *       legacy `metadata.finType`) are migrated on read via `defaultFinConfig`.
+ *       Later, still 2: a locked knot carries an optional `l` (its fixed handle
+ *       directions). The field is written only for locked knots, so a board without
+ *       locks serializes exactly as before, and a reader that predates it ignores it.
  */
 export const BOARD_JSON_VERSION = 2;
 
@@ -36,6 +42,11 @@ interface KnotJson {
   n: Vec2Tuple; // tangent to next
   c: boolean; // continuous
   o: boolean; // "other" flag
+  l?: KnotLockJson; // handle-angle lock; written only for a locked knot
+}
+interface KnotLockJson {
+  p?: Vec2Tuple; // locked direction of the tangent to prev (unit vector)
+  n?: Vec2Tuple; // locked direction of the tangent to next (unit vector)
 }
 interface CrossSectionJson {
   position: number;
@@ -54,16 +65,44 @@ export interface BoardJson {
   metadata?: Record<string, unknown>;
 }
 
+const lockToJson = (lock: KnotLock): KnotLockJson => ({
+  ...(lock.prev ? { p: [lock.prev.x, lock.prev.y] } : {}),
+  ...(lock.next ? { n: [lock.next.x, lock.next.y] } : {}),
+});
+
 const knotToJson = (k: Knot): KnotJson => ({
   e: [k.end.x, k.end.y],
   p: [k.tangentToPrev.x, k.tangentToPrev.y],
   n: [k.tangentToNext.x, k.tangentToNext.y],
   c: k.continuous,
   o: k.other,
+  ...(k.lock ? { l: lockToJson(k.lock) } : {}),
 });
 
+/**
+ * A stored lock direction as a unit vector. One written by this module is already
+ * unit and is kept bit-for-bit, so a save round-trips exactly; a hand-edited one is
+ * normalized, and a zero one is dropped.
+ */
+const lockDirectionFromJson = (v: Vec2Tuple | undefined): Vec2 | undefined => {
+  if (!v) return undefined;
+  const len = Math.hypot(v[0], v[1]);
+  if (len <= 1e-12) return undefined;
+  return Math.abs(len - 1) <= 1e-9 ? vec2(v[0], v[1]) : vec2(v[0] / len, v[1] / len);
+};
+
+const lockFromJson = (l: KnotLockJson | undefined): KnotLock | undefined =>
+  knotLock(lockDirectionFromJson(l?.p), lockDirectionFromJson(l?.n));
+
 const knotFromJson = (j: KnotJson): Knot =>
-  knot(vec2(j.e[0], j.e[1]), vec2(j.p[0], j.p[1]), vec2(j.n[0], j.n[1]), j.c, j.o);
+  knot(
+    vec2(j.e[0], j.e[1]),
+    vec2(j.p[0], j.p[1]),
+    vec2(j.n[0], j.n[1]),
+    j.c,
+    j.o,
+    lockFromJson(j.l),
+  );
 
 const splineToJson = (s: Spline): KnotJson[] => s.knots.map(knotToJson);
 const splineFromJson = (ks: KnotJson[]): Spline => splineFromKnots(ks.map(knotFromJson));
@@ -115,6 +154,11 @@ const isPoint = (v: unknown): boolean =>
 /** Optional flags: absent is tolerated (older or hand-written files), wrong types are not. */
 const isFlag = (v: unknown): boolean => v === undefined || typeof v === 'boolean';
 
+/** An optional lock: absent, or an object whose directions, where given, are points. */
+const isLock = (v: unknown): boolean =>
+  v === undefined ||
+  (isObject(v) && (v.p === undefined || isPoint(v.p)) && (v.n === undefined || isPoint(v.n)));
+
 /**
  * Check the shape of a curve before any of it reaches the kernel, so a damaged or
  * hand-edited file fails with a message instead of a TypeError or a board with
@@ -132,6 +176,9 @@ const assertKnots = (v: unknown, where: string): void => {
     }
     if (!isFlag(k.c) || !isFlag(k.o)) {
       throw new BoardJsonError(`Malformed document: ${at} has an invalid flag`);
+    }
+    if (!isLock(k.l)) {
+      throw new BoardJsonError(`Malformed document: ${at} has an invalid handle lock`);
     }
   });
 };

@@ -3,6 +3,7 @@ import {
   value,
   xDeriv,
   yDeriv,
+  type Knot,
   type ResolvedFin,
   type Spline,
   type Vec2,
@@ -123,10 +124,55 @@ const square = (ctx: CanvasRenderingContext2D, x: number, y: number, r: number, 
   ctx.fillRect(x - r, y - r, r * 2, r * 2);
 };
 
+/** How far out from its point a locked handle's bar sits, and half its length (px). */
+const LOCK_BAR_AT = 12;
+const LOCK_BAR_HALF = 4;
+
+/**
+ * Mark a locked knot: a short bar across each locked handle's line, a fixed distance
+ * out from the point. It is drawn along the lock rather than the handle, joined to
+ * the point when the handle is shorter than that, so a collapsed handle still shows
+ * which way it will come out.
+ */
+const drawLockBars = (
+  ctx: CanvasRenderingContext2D,
+  k: Knot,
+  vp: Viewport,
+  style: DrawStyle,
+): void => {
+  const end = worldToScreen(vp, k.end);
+  ctx.lineWidth = 1.5;
+  for (const [dir, handle] of [
+    [k.lock?.prev, k.tangentToPrev],
+    [k.lock?.next, k.tangentToNext],
+  ] as const) {
+    if (!dir) continue;
+    const along = worldToScreen(vp, { x: k.end.x + dir.x, y: k.end.y + dir.y });
+    const len = Math.hypot(along.x - end.x, along.y - end.y);
+    if (len <= 1e-9) continue;
+    const ux = (along.x - end.x) / len;
+    const uy = (along.y - end.y) / len;
+    const cx = end.x + ux * LOCK_BAR_AT;
+    const cy = end.y + uy * LOCK_BAR_AT;
+    const tip = worldToScreen(vp, handle);
+    ctx.strokeStyle = style.tangent;
+    ctx.beginPath();
+    if (Math.hypot(tip.x - end.x, tip.y - end.y) < LOCK_BAR_AT) {
+      ctx.moveTo(end.x, end.y);
+      ctx.lineTo(cx, cy);
+    }
+    ctx.moveTo(cx - uy * LOCK_BAR_HALF, cy + ux * LOCK_BAR_HALF);
+    ctx.lineTo(cx + uy * LOCK_BAR_HALF, cy - ux * LOCK_BAR_HALF);
+    ctx.stroke();
+  }
+  ctx.lineWidth = 1;
+};
+
 /**
  * Draw control points + tangent handles for a spline. Smooth (continuous) knots
  * render as circles; corner knots as squares — mirroring the legacy editor so the
- * continuity of a point is readable at a glance.
+ * continuity of a point is readable at a glance. A locked knot adds a bar across
+ * each locked handle's line.
  */
 export const drawControlPoints = (
   ctx: CanvasRenderingContext2D,
@@ -155,6 +201,7 @@ export const drawControlPoints = (
     ctx.lineTo(end.x, end.y);
     ctx.lineTo(next.x, next.y);
     ctx.stroke();
+    if (k.lock) drawLockBars(ctx, k, vp, style);
 
     const endActive =
       (i === selectedIndex && selectedKind === 'end') ||

@@ -7,6 +7,8 @@
  *  - Committing a tangent X or Y field dispatches moveTangent to the store.
  *  - Horizontal-align button dispatches alignTangentsHorizontal.
  *  - Vertical-align button dispatches alignTangentsVertical.
+ *  - The handle-angle lock: the toggle in the pane header and the sidebar, and a
+ *    locked handle edited by its length rather than X/Y.
  */
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
@@ -235,8 +237,38 @@ describe('<ControlPointInspector />', () => {
   });
 });
 
+describe('<ControlPointInspector /> handle-angle lock', () => {
+  it('shows a locked handle read-only with an editable length, and unlocks from the sidebar', () => {
+    const store = createBoardStore();
+    act(() => {
+      store.getState().load(makeBoard());
+      store.getState().setLocked({ kind: 'outline' }, 1, true);
+      store.getState().select({ target: { kind: 'outline' }, index: 1 });
+    });
+
+    render(<ControlPointInspector store={store} units={DEFAULT_LENGTH_UNIT} />);
+
+    expect((screen.getByLabelText('Tangent to next X') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Tangent to next Y') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Endpoint X') as HTMLInputElement).disabled).toBe(false);
+
+    const length = screen.getByLabelText('Tangent to previous Length');
+    fireEvent.change(length, { target: { value: '30' } }); // 30 mm
+    fireEvent.keyDown(length, { key: 'Enter' });
+    const k = store.getState().board!.outline.knots[1]!;
+    // The previous handle leaves at 225°: 3 cm along that line.
+    expect(k.tangentToPrev.x).toBeCloseTo(50 - 3 * Math.SQRT1_2, 9);
+    expect(k.tangentToPrev.y).toBeCloseTo(10 - 3 * Math.SQRT1_2, 9);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Unlock handle angles' }));
+    expect(store.getState().board!.outline.knots[1]!).not.toHaveProperty('lock');
+    expect((screen.getByLabelText('Tangent to next X') as HTMLInputElement).disabled).toBe(false);
+    expect(screen.queryByLabelText('Tangent to previous Length')).toBeNull();
+  });
+});
+
 describe('<SelectedPointEditor />', () => {
-  it('toggles the selected point handle-angle lock before the axis fields', () => {
+  it('toggles the point lock from a button before the axis fields', () => {
     const store = createBoardStore();
     act(() => {
       store.getState().load(makeBoard());
@@ -246,22 +278,70 @@ describe('<SelectedPointEditor />', () => {
     render(<SelectedPointEditor store={store} units={DEFAULT_LENGTH_UNIT} targets={[{ kind: 'outline' }]} />); // prettier-ignore
 
     const unlocked = screen.getByRole('button', { name: 'Lock handle angles' });
+    expect(unlocked.getAttribute('aria-pressed')).toBe('false');
+    expect(unlocked.getAttribute('title')).toBe('Lock handle angles (L)');
     const xField = screen.getByLabelText('X position');
     expect(
       unlocked.compareDocumentPosition(xField) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
 
     fireEvent.click(unlocked);
+    const outlinePoint = () => store.getState().board!.outline.knots[1]!;
+    expect(outlinePoint().lock).toBeDefined();
     expect(
       screen.getByRole('button', { name: 'Unlock handle angles' }).getAttribute('aria-pressed'),
     ).toBe('true');
-    expect(store.getState().angleLocks).toEqual([{ target: { kind: 'outline' }, index: 1 }]);
 
     fireEvent.click(screen.getByRole('button', { name: 'Unlock handle angles' }));
-    expect(
-      screen.getByRole('button', { name: 'Lock handle angles' }).getAttribute('aria-pressed'),
-    ).toBe('false');
-    expect(store.getState().angleLocks).toEqual([]);
+    expect(outlinePoint()).not.toHaveProperty('lock');
+    expect(store.getState().past.map((h) => h.label)).toEqual([
+      'Lock handle angles',
+      'Unlock handle angles',
+    ]);
+  });
+
+  it('edits a locked handle by its length, along its line', () => {
+    const store = createBoardStore();
+    act(() => {
+      store.getState().load(makeBoard());
+      store.getState().setLocked({ kind: 'outline' }, 1, true);
+      store.getState().select({ target: { kind: 'outline' }, index: 1, kind: 'next' });
+    });
+
+    render(<SelectedPointEditor store={store} units={DEFAULT_LENGTH_UNIT} targets={[{ kind: 'outline' }]} />); // prettier-ignore
+
+    // X and Y give way to the one number a locked handle still has.
+    expect(screen.queryByLabelText('X position')).toBeNull();
+    const length = screen.getByLabelText('Nose handle length') as HTMLInputElement;
+    expect(length.value).toBe('70.7'); // 5√2 cm, shown in mm
+
+    fireEvent.change(length, { target: { value: '100' } }); // 100 mm
+    fireEvent.blur(length);
+    const k = store.getState().board!.outline.knots[1]!;
+    expect(k.tangentToNext.x).toBeCloseTo(50 + 10 * Math.SQRT1_2, 9);
+    expect(k.tangentToNext.y).toBeCloseTo(10 + 10 * Math.SQRT1_2, 9);
+
+    // Arrow keys in the field step the length, still along the 45° line.
+    fireEvent.keyDown(screen.getByLabelText('Nose handle length'), { key: 'ArrowUp' });
+    const longer = store.getState().board!.outline.knots[1]!;
+    const len = Math.hypot(longer.tangentToNext.x - 50, longer.tangentToNext.y - 10);
+    expect(len).toBeGreaterThan(10);
+    expect(longer.tangentToNext.y - 10).toBeCloseTo(longer.tangentToNext.x - 50, 9);
+  });
+
+  it('disables the lock on a point with no handle to lock', () => {
+    const store = createBoardStore();
+    act(() => {
+      store.getState().load(makeBoard());
+      store.getState().zeroTangent({ kind: 'outline' }, 1, 'prev');
+      store.getState().zeroTangent({ kind: 'outline' }, 1, 'next');
+      store.getState().select({ target: { kind: 'outline' }, index: 1, kind: 'end' });
+    });
+
+    render(<SelectedPointEditor store={store} units={DEFAULT_LENGTH_UNIT} targets={[{ kind: 'outline' }]} />); // prettier-ignore
+
+    const lock = screen.getByRole('button', { name: 'Lock handle angles' }) as HTMLButtonElement;
+    expect(lock.disabled).toBe(true);
   });
 
   it.each([
