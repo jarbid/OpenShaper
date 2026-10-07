@@ -63,6 +63,9 @@
   nothing consumes them.
 - **Named versions + diff** — versions beyond the undo stack, building on the
   reference-board ("ghost") comparison already shipped.
+- **Curve editing** — handle-angle locks shipped; next are a tension ("fullness") drag,
+  curvature-continuous auto points, a dimension-driven simple mode, and Shape3d tangent
+  types on import. See `docs/design/curve-editing.md`.
 
 ## Why this order
 
