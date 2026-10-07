@@ -1,5 +1,7 @@
+import { tangentToNextLength, tangentToPrevLength, type Knot } from '@openshaper/kernel';
 import {
   canDeleteKnot,
+  canLockKnot,
   getTargetSpline,
   sameTarget,
   type BoardState,
@@ -7,7 +9,9 @@ import {
 } from '@openshaper/store';
 import { handleSideName, visualSideForHandleKind } from '@openshaper/render2d';
 import { Button, Input } from '@openshaper/ui';
+import { Lock, LockOpen } from 'lucide-react';
 import { NumericInput } from './components/numeric-input';
+import { shortcutKeys } from './shortcuts';
 import { useSyncedText } from './use-numeric-field';
 import { useCallback, useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
@@ -59,9 +63,58 @@ const targetLabel = (t: SplineTarget): string => {
 const coordinateLabels = (target: SplineTarget): readonly [string, string] =>
   target.kind === 'crossSection' ? ['Y', 'Z'] : ['X', target.kind === 'outline' ? 'Y' : 'Z'];
 
+/** A handle's length (cm): its distance from the point. */
+const handleLength = (knot: Knot, which: 'prev' | 'next'): number =>
+  which === 'prev' ? tangentToPrevLength(knot) : tangentToNextLength(knot);
+
+/** Whether a handle's direction is locked. */
+const handleLocked = (knot: Knot, which: 'prev' | 'next'): boolean =>
+  (which === 'prev' ? knot.lock?.prev : knot.lock?.next) !== undefined;
+
+/**
+ * Toggle for a point's handle-angle lock — both of its handles. Disabled on a point
+ * with no handle to lock (both collapsed), where there is no direction to keep.
+ */
+function LockToggle({
+  store,
+  target,
+  index,
+  knot,
+  className,
+}: {
+  store: StoreApi<BoardState>;
+  target: SplineTarget;
+  index: number;
+  knot: Knot;
+  className?: string;
+}) {
+  const locked = knot.lock !== undefined;
+  const lockable = locked || canLockKnot(knot);
+  const action = locked ? 'Unlock handle angles' : 'Lock handle angles';
+  return (
+    <Button
+      size="sm"
+      variant={locked ? 'secondary' : 'ghost'}
+      className={className}
+      aria-label={action}
+      title={
+        lockable
+          ? `${action} (${shortcutKeys('toggle-lock')})`
+          : 'Pull a handle out first: there is no direction to lock'
+      }
+      aria-pressed={locked}
+      disabled={!lockable}
+      onClick={() => store.getState().setLocked(target, index, !locked)}
+    >
+      {locked ? <Lock /> : <LockOpen />}
+    </Button>
+  );
+}
+
 /** One compact native-number field; browser steppers commit immediately on pointer/arrow release. */
 function HeaderCoordInput({
   label,
+  ariaLabel = `${label} position`,
   valueCm,
   units,
   onCommit,
@@ -69,6 +122,7 @@ function HeaderCoordInput({
   onNudge,
 }: {
   label: string;
+  ariaLabel?: string;
   valueCm: number;
   units: LengthUnit;
   onCommit: (cm: number) => void;
@@ -99,7 +153,7 @@ function HeaderCoordInput({
     <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
       <span>{label}</span>
       <Input
-        aria-label={`${label} position`}
+        aria-label={ariaLabel}
         type="number"
         step={pointEditStep(units)}
         value={text}
@@ -218,6 +272,7 @@ export function SelectedPointEditor({
     else store.getState().moveTangent(selection.target, selection.index, kind, { x, y });
   };
   const [splineXLabel, splineYLabel] = coordinateLabels(selection.target);
+  const dismiss = () => store.getState().select(null);
 
   return (
     // min-w-0 + horizontal scroll (never wrap): this sits in a fixed-height pane
@@ -227,22 +282,61 @@ export function SelectedPointEditor({
       aria-label={`${label} position editor`}
     >
       <span className="shrink-0 text-xs font-medium text-foreground">{label}</span>
-      <HeaderCoordInput
-        label={splineXLabel}
-        valueCm={point.x}
-        units={units}
-        onCommit={(x) => commit(x, point.y)}
-        onDismiss={() => store.getState().select(null)}
-        onNudge={nudge}
+      <LockToggle
+        store={store}
+        target={selection.target}
+        index={selection.index}
+        knot={knot}
+        className="h-7 w-7 shrink-0 p-0 pointer-coarse:h-9 pointer-coarse:w-9"
       />
-      <HeaderCoordInput
-        label={splineYLabel}
-        valueCm={point.y}
-        units={units}
-        onCommit={(y) => commit(point.x, y)}
-        onDismiss={() => store.getState().select(null)}
-        onNudge={nudge}
-      />
+      {kind !== 'end' && handleLocked(knot, kind) ? (
+        // A locked handle only slides along its line, so its length is the one
+        // number left to edit; X and Y could not be typed independently.
+        <HeaderCoordInput
+          label="Length"
+          ariaLabel={`${label} length`}
+          valueCm={handleLength(knot, kind)}
+          units={units}
+          onCommit={(len) =>
+            store.getState().setTangentLength(selection.target, selection.index, kind, len)
+          }
+          onDismiss={dismiss}
+          onNudge={(key) => {
+            // Read the live knot: key repeat can outrun this render.
+            const state = store.getState();
+            const live =
+              state.board && getTargetSpline(state.board, selection.target).knots[selection.index];
+            if (!live) return;
+            const step = parse(String(pointEditStep(units)), units);
+            const grow = key === 'ArrowUp' || key === 'ArrowRight';
+            state.setTangentLength(
+              selection.target,
+              selection.index,
+              kind,
+              handleLength(live, kind) + (grow ? step : -step),
+            );
+          }}
+        />
+      ) : (
+        <>
+          <HeaderCoordInput
+            label={splineXLabel}
+            valueCm={point.x}
+            units={units}
+            onCommit={(x) => commit(x, point.y)}
+            onDismiss={dismiss}
+            onNudge={nudge}
+          />
+          <HeaderCoordInput
+            label={splineYLabel}
+            valueCm={point.y}
+            units={units}
+            onCommit={(y) => commit(point.x, y)}
+            onDismiss={dismiss}
+            onNudge={nudge}
+          />
+        </>
+      )}
       <span className="shrink-0 text-[11px] text-muted-foreground">{unitSuffix(units)}</span>
     </div>
   );
@@ -263,12 +357,15 @@ function CoordInput({
   valueCm,
   units,
   onCommit,
+  disabled,
 }: {
   group: string;
   label: string;
   valueCm: number;
   units: LengthUnit;
   onCommit: (cm: number) => void;
+  /** Shown but not editable — a locked handle's X/Y. */
+  disabled?: boolean;
 }) {
   const shown = display(valueCm, units);
   // Re-sync when the underlying value changes (drag, undo, reselect).
@@ -281,7 +378,7 @@ function CoordInput({
   };
   return (
     <label className="flex items-center gap-2">
-      <span className="w-3 text-muted-foreground">{label}</span>
+      <span className="min-w-3 text-muted-foreground">{label}</span>
       <NumericInput
         value={text}
         onValueChange={setText}
@@ -289,6 +386,7 @@ function CoordInput({
         onEscape={() => setText(shown)}
         ariaLabel={`${group} ${label}`}
         className="tabular-nums"
+        disabled={disabled}
       />
       <span className="text-xs text-muted-foreground">{unitSuffix(units)}</span>
     </label>
@@ -296,10 +394,72 @@ function CoordInput({
 }
 
 /**
+ * One tangent handle's fields. While the point's handle angles are locked the handle
+ * can only slide along its line, so its X/Y are shown read-only and its length is
+ * the field to edit.
+ */
+function HandleFields({
+  store,
+  target,
+  index,
+  knot,
+  which,
+  units,
+}: {
+  store: StoreApi<BoardState>;
+  target: SplineTarget;
+  index: number;
+  knot: Knot;
+  which: 'prev' | 'next';
+  units: LengthUnit;
+}) {
+  const [xLabel, yLabel] = coordinateLabels(target);
+  const handle = which === 'prev' ? knot.tangentToPrev : knot.tangentToNext;
+  const group = which === 'prev' ? 'Tangent to previous' : 'Tangent to next';
+  const locked = handleLocked(knot, which);
+  const move = (x: number, y: number) =>
+    store.getState().moveTangent(target, index, which, { x, y });
+  return (
+    <>
+      <div className="text-xs font-medium text-muted-foreground">
+        {which === 'prev' ? 'Tangent ← prev' : 'Tangent → next'}
+        {locked ? ' · angle locked' : ''}
+      </div>
+      <CoordInput
+        group={group}
+        label={xLabel}
+        valueCm={handle.x}
+        units={units}
+        onCommit={(x) => move(x, handle.y)}
+        disabled={locked}
+      />
+      <CoordInput
+        group={group}
+        label={yLabel}
+        valueCm={handle.y}
+        units={units}
+        onCommit={(y) => move(handle.x, y)}
+        disabled={locked}
+      />
+      {locked && (
+        <CoordInput
+          group={group}
+          label="Length"
+          valueCm={handleLength(knot, which)}
+          units={units}
+          onCommit={(len) => store.getState().setTangentLength(target, index, which, len)}
+        />
+      )}
+    </>
+  );
+}
+
+/**
  * Numeric editor for the selected control point — port of the legacy
  * `ControlPointInfo`. Edits the on-curve endpoint (X/Y), numeric tangent-handle
- * X/Y fields (prev + next), toggles smooth/corner continuity, deletes interior
- * points, and offers horizontal/vertical tangent alignment buttons.
+ * X/Y fields (prev + next), toggles smooth/corner continuity and the handle-angle
+ * lock, deletes interior points, and offers horizontal/vertical tangent alignment
+ * buttons.
  */
 export function ControlPointInspector({
   store,
@@ -329,10 +489,6 @@ export function ControlPointInspector({
   const deletable = canDeleteKnot(spline, index);
   const setEnd = (x: number, y: number) =>
     store.getState().moveControlPoint(target, index, { x, y });
-  const setPrev = (x: number, y: number) =>
-    store.getState().moveTangent(target, index, 'prev', { x, y });
-  const setNext = (x: number, y: number) =>
-    store.getState().moveTangent(target, index, 'next', { x, y });
 
   return (
     <div className="space-y-2">
@@ -357,38 +513,22 @@ export function ControlPointInspector({
         onCommit={(y) => setEnd(knot.end.x, y)}
       />
 
-      {/* Tangent prev (toward previous segment) */}
-      <div className="text-xs font-medium text-muted-foreground">Tangent ← prev</div>
-      <CoordInput
-        group="Tangent to previous"
-        label={splineXLabel}
-        valueCm={knot.tangentToPrev.x}
+      {/* Tangent handles, toward the previous and the next segment */}
+      <HandleFields
+        store={store}
+        target={target}
+        index={index}
+        knot={knot}
+        which="prev"
         units={units}
-        onCommit={(x) => setPrev(x, knot.tangentToPrev.y)}
       />
-      <CoordInput
-        group="Tangent to previous"
-        label={splineYLabel}
-        valueCm={knot.tangentToPrev.y}
+      <HandleFields
+        store={store}
+        target={target}
+        index={index}
+        knot={knot}
+        which="next"
         units={units}
-        onCommit={(y) => setPrev(knot.tangentToPrev.x, y)}
-      />
-
-      {/* Tangent next (toward next segment) */}
-      <div className="text-xs font-medium text-muted-foreground">Tangent → next</div>
-      <CoordInput
-        group="Tangent to next"
-        label={splineXLabel}
-        valueCm={knot.tangentToNext.x}
-        units={units}
-        onCommit={(x) => setNext(x, knot.tangentToNext.y)}
-      />
-      <CoordInput
-        group="Tangent to next"
-        label={splineYLabel}
-        valueCm={knot.tangentToNext.y}
-        units={units}
-        onCommit={(y) => setNext(knot.tangentToNext.x, y)}
       />
 
       {/* Controls row */}
@@ -402,6 +542,7 @@ export function ControlPointInspector({
         >
           {knot.continuous ? 'Smooth' : 'Corner'}
         </Button>
+        <LockToggle store={store} target={target} index={index} knot={knot} className="shrink-0" />
         <Button
           size="sm"
           variant="ghost"
@@ -420,7 +561,7 @@ export function ControlPointInspector({
           variant="outline"
           className="flex-1 font-mono"
           onClick={() => store.getState().alignTangentsHorizontal(target, index)}
-          title="Align both tangent handles to horizontal axis, preserving their lengths"
+          title="Align both tangent handles to horizontal axis, preserving their lengths. A locked point stays locked, now horizontal."
         >
           —
         </Button>
@@ -429,7 +570,7 @@ export function ControlPointInspector({
           variant="outline"
           className="flex-1 font-mono"
           onClick={() => store.getState().alignTangentsVertical(target, index)}
-          title="Align both tangent handles to vertical axis, preserving their lengths"
+          title="Align both tangent handles to vertical axis, preserving their lengths. A locked point stays locked, now vertical."
         >
           |
         </Button>

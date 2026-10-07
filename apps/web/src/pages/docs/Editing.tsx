@@ -14,6 +14,7 @@ export default function DocsEditing() {
         { id: 'views', label: 'The views' },
         { id: 'guides', label: 'Guides in 3D' },
         { id: 'points', label: 'Control points & tangents' },
+        { id: 'locks', label: 'Locking handle angles' },
         { id: 'sections', label: 'Cross-sections' },
         { id: 'rails', label: 'Rail presets' },
         { id: 'tail', label: 'Concave tails' },
@@ -125,6 +126,38 @@ export default function DocsEditing() {
         <p>
           Press <code>{shortcutKeys('delete-point')}</code> to remove the selected point. The curve
           re-fits through the remaining points.
+        </p>
+      </Section>
+
+      <Section id="locks" title="Locking handle angles">
+        <p>
+          Lock a point to keep the direction of its tangent handles while you work on their length.
+          Select the point or one of its handles and click the padlock in the pane&apos;s header,
+          press <code>{shortcutKeys('toggle-lock')}</code>, or right-click the point or a handle and
+          choose Lock handle angles. A locked point shows a short bar across each locked
+          handle&apos;s line.
+        </p>
+        <p>
+          A locked handle slides along its line: drag it anywhere and it only gets longer or
+          shorter, so tuning how full a curve is can no longer tip its angle by accident. Drag it
+          back through the point and it collapses to zero length rather than flipping round; drag it
+          out again and it comes back the same way. On a smooth point the other handle keeps its own
+          length and direction. With a locked handle selected, the pane header shows its length
+          instead of X and Y: type a value, or use the arrow keys to step it. The sidebar Control
+          point section shows its X and Y read-only, with the length below them.
+        </p>
+        <p>
+          The lock holds through the other point tools too. Fair curve sets new lengths along the
+          locked directions, Extend handle grows a collapsed handle along its lock, and moving the
+          point carries its handles with it. To lock handles level or upright, use the horizontal or
+          vertical align buttons in the sidebar Control point section: aligning a locked point turns
+          its lock with it. Resizing the board scales the locks with the shape.
+        </p>
+        <p>
+          Locks are part of the board. Locking and unlocking undo like any other edit, and locks are
+          saved in OpenShaper&apos;s own <code>.board.json</code> files and share links. A{' '}
+          <code>.brd</code> export leaves them out — BoardCAD has no such setting — so the curve is
+          unchanged but its points come back unlocked.
         </p>
       </Section>
 

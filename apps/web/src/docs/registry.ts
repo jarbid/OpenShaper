@@ -91,6 +91,7 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
     'redo',
     'redo-alt',
     'delete-point',
+    'toggle-lock',
     'save',
     'command-palette',
     'cross-section-prev',

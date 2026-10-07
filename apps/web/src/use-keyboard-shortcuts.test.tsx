@@ -132,6 +132,32 @@ describe('dialog marker (P13)', () => {
   });
 });
 
+describe('lock shortcut', () => {
+  const deckTail = () => boardStore.getState().board!.deck.knots[0]!;
+
+  it('L locks the selected point, and pressing it again unlocks it', () => {
+    act(() => boardStore.getState().select({ target: { kind: 'deck' }, index: 0 }));
+    const notPrevented = fireEvent.keyDown(window, { key: 'l' });
+    expect(notPrevented).toBe(false);
+    expect(deckTail().lock).toBeDefined();
+    fireEvent.keyDown(window, { key: 'L' });
+    expect(deckTail()).not.toHaveProperty('lock');
+  });
+
+  it('L with nothing selected is left to the page', () => {
+    act(() => boardStore.getState().select(null));
+    expect(fireEvent.keyDown(window, { key: 'l' })).toBe(true);
+  });
+
+  it('L typed into a text field locks nothing', () => {
+    act(() => boardStore.getState().select({ target: { kind: 'deck' }, index: 0 }));
+    const input = add('input', { type: 'text' });
+    input.focus();
+    fireEvent.keyDown(input, { key: 'l' });
+    expect(deckTail()).not.toHaveProperty('lock');
+  });
+});
+
 describe('save (P11)', () => {
   it('⌘S goes through the app save path', () => {
     const notPrevented = ctrl(window, 's');

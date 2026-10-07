@@ -2,7 +2,15 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { getLength, getMaxWidth, getThickness, getVolume } from '@openshaper/kernel';
+import {
+  board,
+  getLength,
+  getMaxWidth,
+  getThickness,
+  getVolume,
+  splineFromKnots,
+  vec2,
+} from '@openshaper/kernel';
 import { parseBrd, parseBrdFile } from './brd-reader';
 import { latin1Encode } from './legacy-crypto';
 import { writeBrd } from './brd-writer';
@@ -88,5 +96,24 @@ describe('non-ASCII metadata round-trips through the bytes (P24)', () => {
   it('is one byte per latin1 character, and ? for what has no stand-in', () => {
     expect([...latin1Encode('é')]).toEqual([0xe9]);
     expect([...latin1Encode('漢')]).toEqual([0x3f]);
+  });
+});
+
+describe('writeBrd — handle-angle locks', () => {
+  it('writes a locked point exactly like an unlocked one: .brd has no such setting', () => {
+    const b = loadBrd('shortboard');
+    const locked = board(
+      splineFromKnots(
+        b.outline.knots.map((k, i) =>
+          i === 1 ? { ...k, lock: { prev: vec2(-1, 0), next: vec2(1, 0) } } : k,
+        ),
+      ),
+      b.bottom,
+      b.deck,
+      b.crossSections,
+      b.interpolationType,
+      b.fins,
+    );
+    expect(writeBrd(locked)).toBe(writeBrd(b));
   });
 });

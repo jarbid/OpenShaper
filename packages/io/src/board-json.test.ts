@@ -13,6 +13,8 @@ import {
   knot,
   splineFromKnots,
   vec2,
+  type KnotLock,
+  type Spline,
 } from '@openshaper/kernel';
 import { parseBrd } from './brd-reader';
 import { BoardJsonError, readBoardJson, writeBoardJson } from './board-json';
@@ -141,5 +143,70 @@ describe('board-json structural validation (P6)', () => {
     delete k.c;
     delete k.o;
     expect(read(doc)).not.toThrow();
+  });
+});
+
+describe('board-json handle-angle locks', () => {
+  const R = Math.SQRT1_2;
+  /** The shortboard with outline point 1 fully locked and one section point locked on one side. */
+  const lockedBoard = () => {
+    const b = loadBrd('shortboard');
+    const lockAt = (s: Spline, i: number, lock: KnotLock) =>
+      splineFromKnots(s.knots.map((k, j) => (j === i ? { ...k, lock } : k)));
+    const cs = b.crossSections.map((c, i) =>
+      i === 2 ? crossSection(c.position, lockAt(c.spline, 1, { next: vec2(R, R) })) : c,
+    );
+    return board(
+      lockAt(b.outline, 1, { prev: vec2(-1, 0), next: vec2(1, 0) }),
+      b.bottom,
+      b.deck,
+      cs,
+      b.interpolationType,
+      b.fins,
+    );
+  };
+
+  it('round-trips locks exactly, one-sided ones included', () => {
+    const original = lockedBoard();
+    const { board: restored } = readBoardJson(writeBoardJson(original));
+    expect(restored.outline.knots).toEqual(original.outline.knots);
+    expect(restored.crossSections[2]!.spline.knots[1]!.lock).toEqual({ next: vec2(R, R) });
+  });
+
+  it('writes a board without locks exactly as before: no lock field on any point', () => {
+    const doc = JSON.parse(writeBoardJson(loadBrd('shortboard'))) as {
+      outline: Record<string, unknown>[];
+    };
+    for (const k of doc.outline) expect(Object.keys(k)).toEqual(['e', 'p', 'n', 'c', 'o']);
+    expect(writeBoardJson(loadBrd('shortboard'))).not.toContain('"l"');
+  });
+
+  it('reads a point with no lock field as unlocked', () => {
+    const { board: restored } = readBoardJson(writeBoardJson(loadBrd('shortboard')));
+    for (const k of restored.outline.knots) expect(k).not.toHaveProperty('lock');
+  });
+
+  it('normalizes a hand-edited direction and drops a zero one', () => {
+    const doc = JSON.parse(writeBoardJson(loadBrd('shortboard'))) as {
+      outline: Record<string, unknown>[];
+    };
+    doc.outline[1]!.l = { p: [-3, 0], n: [0, 0] };
+    const k = readBoardJson(JSON.stringify(doc)).board.outline.knots[1]!;
+    expect(k.lock).toEqual({ prev: vec2(-1, 0) });
+
+    doc.outline[1]!.l = { n: [0, 0] };
+    expect(readBoardJson(JSON.stringify(doc)).board.outline.knots[1]!).not.toHaveProperty('lock');
+  });
+
+  it('rejects a malformed lock instead of loading it', () => {
+    const doc = JSON.parse(writeBoardJson(loadBrd('shortboard'))) as {
+      outline: Record<string, unknown>[];
+    };
+    doc.outline[1]!.l = { p: ['up', 1] };
+    expect(() => readBoardJson(JSON.stringify(doc))).toThrow(
+      /outline point 2 has an invalid handle lock/,
+    );
+    doc.outline[1]!.l = 'locked';
+    expect(() => readBoardJson(JSON.stringify(doc))).toThrow(BoardJsonError);
   });
 });

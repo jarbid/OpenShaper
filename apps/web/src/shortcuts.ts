@@ -97,6 +97,13 @@ export const SHORTCUTS: readonly Shortcut[] = [
     match: { keys: ['delete', 'backspace'], notInField: true },
   },
   {
+    id: 'toggle-lock',
+    keys: 'L',
+    label: "Lock or unlock the selected point's handle angles",
+    group: 'Edit',
+    match: { keys: ['l'], notInField: true },
+  },
+  {
     id: 'save',
     keys: '⌘S',
     label: 'Save the board',

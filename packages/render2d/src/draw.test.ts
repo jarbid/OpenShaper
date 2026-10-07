@@ -311,6 +311,43 @@ describe('drawControlPoints', () => {
     expect(radii[5]).toBeGreaterThan(3); // middle knot's hovered next handle
   });
 
+  it('adds a bar across each locked handle, and nothing for a free knot', () => {
+    const { ctx } = makeCtx();
+    const s = splineFromKnots([
+      knot(vec2(0, 0), vec2(0, 0), vec2(10, 0)),
+      knot(vec2(50, 0), vec2(40, 0), vec2(60, 0), true, false, {
+        prev: vec2(-1, 0),
+        next: vec2(1, 0),
+      }),
+      knot(vec2(100, 0), vec2(90, 0), vec2(100, 0)),
+    ]);
+    drawControlPoints(ctx, s, VP, defaultStyle, null);
+    // 3 handle lines (one per knot), plus one bar per locked handle of the middle knot.
+    expect(ctx.stroke).toHaveBeenCalledTimes(5);
+  });
+
+  it("joins a collapsed locked handle's bar to its point, along the lock", () => {
+    const { ctx } = makeCtx();
+    const s = splineFromKnots([
+      knot(vec2(0, 0), vec2(0, 0), vec2(10, 0)),
+      // next collapsed onto the point, but locked pointing up and to the right
+      knot(vec2(50, 0), vec2(40, 0), vec2(50, 0), false, false, {
+        next: vec2(Math.SQRT1_2, Math.SQRT1_2),
+      }),
+    ]);
+    drawControlPoints(ctx, s, VP, defaultStyle, null);
+    const end = worldToScreen(VP, vec2(50, 0));
+    // Screen y runs down, so "up and to the right" is +x, −y, 12 px out from the point.
+    const guide = vi
+      .mocked(ctx.lineTo)
+      .mock.calls.find(
+        ([x, y]) =>
+          Math.abs(x - (end.x + 12 * Math.SQRT1_2)) < 1e-9 &&
+          Math.abs(y - (end.y - 12 * Math.SQRT1_2)) < 1e-9,
+      );
+    expect(guide).toBeDefined();
+  });
+
   it('renders a corner endpoint as a square with its permanent corner style', () => {
     const { ctx } = makeCtx();
     const s = splineFromKnots([

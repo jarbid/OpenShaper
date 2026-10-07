@@ -3,16 +3,40 @@ import {
   closestPointOnSpline,
   value,
   type BezierBoard,
+  type Knot,
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
-import { getTargetSpline, sameTarget, type BoardState, type SplineTarget } from '@openshaper/store';
+import {
+  canLockKnot,
+  getTargetSpline,
+  sameTarget,
+  type BoardState,
+  type SplineTarget,
+} from '@openshaper/store';
 import type { MenuItem } from '@openshaper/ui';
 import type { StoreApi } from 'zustand/vanilla';
 import { handleKindForVisualSide, handleSideName } from './handle-side';
 import { hitTest } from './hit';
 import type { SectionMarker } from './draw';
 import { screenToWorld, type ScreenPoint, type Viewport } from './viewport';
+
+/**
+ * Lock or unlock a point's handle angles. Offered on the point and on either handle:
+ * a handle that refuses to turn is where someone goes looking for the way to free it.
+ */
+const lockItem = (
+  store: StoreApi<BoardState>,
+  target: SplineTarget,
+  index: number,
+  knot: Knot,
+): MenuItem => ({
+  kind: 'action',
+  label: knot.lock ? 'Unlock handle angles' : 'Lock handle angles',
+  // A point with both handles collapsed has no direction to keep.
+  disabled: !knot.lock && !canLockKnot(knot),
+  onSelect: () => store.getState().setLocked(target, index, !knot.lock),
+});
 
 /** Distance from a world point to the nearest point on a spline. */
 const splineDistance = (s: Spline, p: Vec2): number => {
@@ -57,8 +81,10 @@ export interface ContextMenuRequest {
  * the cursor (modern enhancement over the legacy's single static popup):
  *
  *  - on a cross-section marker → add a slice ±10 cm or delete that slice;
- *  - on a control point → fair, smooth/corner, select either handle, or delete;
- *  - on a tangent handle → collapse it, or extend it when already collapsed;
+ *  - on a control point → fair, smooth/corner, lock/unlock its handle angles, select
+ *    either handle, or delete;
+ *  - on a tangent handle → collapse it, or extend it when already collapsed, and
+ *    lock/unlock the point's handle angles;
  *  - on a curve (but not a handle) → Add point here;
  *  - empty space → just the view group.
  *
@@ -168,6 +194,7 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
             else state.zeroTangent(target, hit.index, which);
           },
         },
+        lockItem(store, target, hit.index, knot),
         ...tail,
       ];
     }
@@ -186,6 +213,7 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
         label: knot.continuous ? 'Make corner' : 'Make smooth',
         onSelect: () => store.getState().setContinuous(target, hit.index, !knot.continuous),
       },
+      lockItem(store, target, hit.index, knot),
       {
         kind: 'action',
         label: `Select ${handleSideName(target, 'right').toLowerCase()} handle point`,

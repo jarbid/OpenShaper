@@ -28,6 +28,8 @@ import {
   setFinSymmetrical,
   setFinSystem,
   setKnotContinuous,
+  setKnotLock,
+  setKnotTangentLength,
   zeroKnotTangent,
   updateFinSpec,
   withInterpolationType,
@@ -80,6 +82,13 @@ export interface BoardState {
 
   moveControlPoint: (target: SplineTarget, index: number, end: Vec2) => void;
   moveTangent: (target: SplineTarget, index: number, which: 'prev' | 'next', pos: Vec2) => void;
+  /** Set one handle's length along its current (or locked) direction. */
+  setTangentLength: (
+    target: SplineTarget,
+    index: number,
+    which: 'prev' | 'next',
+    length: number,
+  ) => void;
 
   /** Insert a control point on the target spline nearest to `p`, then select it. */
   addControlPoint: (target: SplineTarget, p: Vec2) => void;
@@ -87,6 +96,12 @@ export interface BoardState {
   deleteControlPoint: (target: SplineTarget, index: number) => void;
   /** Toggle a control point between smooth (continuous) and corner. */
   setContinuous: (target: SplineTarget, index: number, continuous: boolean) => void;
+  /**
+   * Lock or unlock a control point's handle directions. A locked handle keeps its
+   * direction through every edit; only its length changes. No-op (and no undo step)
+   * when the point is already in that state or has no handle to lock.
+   */
+  setLocked: (target: SplineTarget, index: number, locked: boolean) => void;
   /** Rebuild a point's handles from the local neighbour chord. */
   fairControlPoint: (target: SplineTarget, index: number) => void;
   /** Collapse one tangent handle onto its control point. */
@@ -256,6 +271,16 @@ export const createBoardStore = (): StoreApi<BoardState> =>
           withSpline(get().board!, target, moveKnotTangent(s, index, which, pos)),
         ),
 
+      setTangentLength: (target, index, which, length) => {
+        const { board } = get();
+        if (!board) return;
+        const spline = getTargetSpline(board, target);
+        const next = setKnotTangentLength(spline, index, which, length);
+        // A collapsed free handle has no direction to lengthen along: no step to record.
+        if (next === spline) return;
+        editSpline(target, 'Set handle length', () => withSpline(board, target, next));
+      },
+
       addControlPoint: (target, p) => {
         const { board } = get();
         if (!board) return;
@@ -288,6 +313,18 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         editSpline(target, continuous ? 'Smooth control point' : 'Corner control point', (s) =>
           withSpline(get().board!, target, setKnotContinuous(s, index, continuous)),
         ),
+
+      setLocked: (target, index, locked) => {
+        const { board } = get();
+        if (!board) return;
+        const spline = getTargetSpline(board, target);
+        const next = setKnotLock(spline, index, locked);
+        // A click that changes nothing must not leave an empty undo step.
+        if (next === spline) return;
+        editSpline(target, locked ? 'Lock handle angles' : 'Unlock handle angles', () =>
+          withSpline(board, target, next),
+        );
+      },
 
       fairControlPoint: (target, index) =>
         editSpline(target, 'Fair curve', (s) =>
