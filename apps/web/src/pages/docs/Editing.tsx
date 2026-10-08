@@ -70,6 +70,13 @@ export default function DocsEditing() {
           Nothing to set, and it never applies to the cross-section view, which is already the shape
           of its pane.
         </p>
+        <p>
+          Right-click clear space in any 2D view and choose <strong>Set reference curve</strong>
+          to capture its current curves. A faint copy stays underneath as you edit, revealing the
+          original shape wherever the live curves move away. Choose the option again to replace the
+          reference. Each cross-section keeps its own reference while that editor is open;
+          references are temporary and are not saved with the board.
+        </p>
       </Section>
 
       <Section id="guides" title="Guides in 3D">

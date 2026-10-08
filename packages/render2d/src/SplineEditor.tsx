@@ -501,6 +501,24 @@ export function SplineEditor({
   const selection = useSyncExternalStore(store.subscribe, () => store.getState().selection);
   const selectedFin = useSyncExternalStore(store.subscribe, () => store.getState().selectedFin);
   const key = JSON.stringify(targets);
+  // Immutable kernel splines retain the captured shape independently of later edits.
+  const [references, setReferences] = useState<Record<string, Spline[]>>({});
+  const referenceSplines = references[key];
+  const setReferenceCurve = useCallback(() => {
+    const current = store.getState().board;
+    if (!current) return;
+    setReferences((previous) => ({
+      ...previous,
+      [key]: targets.map((target) => getTargetSpline(current, target)),
+    }));
+  }, [store, key, targets]);
+  const clearReferenceCurve = useCallback(() => {
+    setReferences((previous) => {
+      const next = { ...previous };
+      delete next[key];
+      return next;
+    });
+  }, [key]);
 
   // Space-bar pan (CAD standard): holding Space turns any left-drag into a pan,
   // shown by a grab cursor. Ignore key events while typing in a form field, and
@@ -709,6 +727,24 @@ export function SplineEditor({
       for (const g of ghostSplines) drawGhostSpline(ctx, g, vp, { mirrorX, mirrorY }, ghostColor);
     }
     const palette = colors ?? PALETTE;
+    if (referenceSplines) {
+      ctx.save();
+      ctx.globalAlpha = 0.6;
+      referenceSplines.forEach((spline) => {
+        drawSpline(
+          ctx,
+          spline,
+          vp,
+          {
+            ...defaultStyle,
+            curve: '#F9A8D4', // Lighter magenta than the bottom rocker (#F472B6).
+            curveWidth: curveThickness ?? defaultStyle.curveWidth,
+          },
+          { mirrorX, mirrorY },
+        );
+      });
+      ctx.restore();
+    }
     targets.forEach((t, i) => {
       const spline = getTargetSpline(board, t);
       const style: DrawStyle = {
@@ -781,6 +817,7 @@ export function SplineEditor({
     formatSectionPosition,
     overlays,
     ghostSplines,
+    referenceSplines,
     background,
     liveTrace,
     traceInteractive,
@@ -956,6 +993,8 @@ export function SplineEditor({
             mirrorY,
             store,
             onFitView: fitView,
+            onSetReferenceCurve: setReferenceCurve,
+            onClearReferenceCurve: referenceSplines ? clearReferenceCurve : undefined,
             onAddSectionAt,
             sectionMarker: marker ?? undefined,
             onDeleteSection,
@@ -1097,6 +1136,9 @@ export function SplineEditor({
       mirrorX,
       mirrorY,
       fitView,
+      setReferenceCurve,
+      clearReferenceCurve,
+      referenceSplines,
       onAddSectionAt,
       calibration,
       onCalibrationClick,
@@ -1346,6 +1388,8 @@ export function SplineEditor({
           mirrorY,
           store,
           onFitView: fitView,
+          onSetReferenceCurve: setReferenceCurve,
+          onClearReferenceCurve: referenceSplines ? clearReferenceCurve : undefined,
           onAddSectionAt,
           sectionMarker: marker ?? undefined,
           onDeleteSection,
@@ -1366,6 +1410,9 @@ export function SplineEditor({
       mirrorY,
       hitAny,
       fitView,
+      setReferenceCurve,
+      clearReferenceCurve,
+      referenceSplines,
       onAddSectionAt,
       onPickSection,
       onDeleteSection,

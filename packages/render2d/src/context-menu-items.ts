@@ -64,6 +64,10 @@ export interface ContextMenuRequest {
   store: StoreApi<BoardState>;
   /** Re-home the viewport to fit the curves (owned by the editor). */
   onFitView: () => void;
+  /** Capture a stationary reference beneath this pane. */
+  onSetReferenceCurve?: () => void;
+  /** Provided when this pane has a reference to remove. */
+  onClearReferenceCurve?: () => void;
   /**
    * Insert a cross-section at a board-length position (cursor x). Only provided for
    * length-axis panes (outline / rocker); when present, the menu offers "Add
@@ -254,6 +258,20 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
       kind: 'action',
       label: 'Add point here',
       onSelect: () => store.getState().addControlPoint(addTarget, world),
+    });
+  }
+  if ((!best || best.dist > tolWorld) && req.onSetReferenceCurve) {
+    items.push({
+      kind: 'action',
+      label: 'Set reference curve',
+      onSelect: req.onSetReferenceCurve,
+    });
+  }
+  if ((!best || best.dist > tolWorld) && req.onClearReferenceCurve) {
+    items.push({
+      kind: 'action',
+      label: 'Clear reference curve',
+      onSelect: req.onClearReferenceCurve,
     });
   }
   // A cross-section can be added anywhere along the length axis (it just needs an x),
