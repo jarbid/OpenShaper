@@ -74,8 +74,19 @@ export default function DocsEditing() {
           Right-click clear space in any 2D view and choose <strong>Set reference curve</strong>
           to capture its current curves. A faint copy stays underneath as you edit, revealing the
           original shape wherever the live curves move away. Choose the option again to replace the
-          reference. Each cross-section keeps its own reference while that editor is open;
-          references are temporary and are not saved with the board.
+          reference, or choose <strong>Clear reference curve</strong> to remove it. Each
+          cross-section keeps its own reference while that editor is open; references are temporary
+          and are not saved with the board.
+        </p>
+        <p>
+          Right-click a 2D view and enable <strong>Show Tunni controls</strong> to adjust both
+          handles of a curve segment together. Drag the amber dashed line to scale the handles
+          together, or drag its diamond to adjust their balance and strength. The curve endpoints
+          and tangent directions stay fixed. Double-click the diamond to balance the handles.
+          Controls are hidden for degenerate geometry; a drag stops if a handle would cross its
+          endpoint. Turn the option off from the same menu to hide the controls. Each view has its
+          own toggle, initially off, and each drag is one undo step. Controls appear only on the
+          editable half of mirrored views.
         </p>
       </Section>
 

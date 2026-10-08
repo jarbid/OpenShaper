@@ -5,7 +5,15 @@ import {
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
-import { type BoardState, type SplineTarget, getTargetSpline, sameTarget } from '@openshaper/store';
+import {
+  balanceTunni,
+  moveTunniLine,
+  moveTunniPoint,
+  type BoardState,
+  type SplineTarget,
+  getTargetSpline,
+  sameTarget,
+} from '@openshaper/store';
 import { ContextMenu, type MenuItem } from '@openshaper/ui';
 import {
   useCallback,
@@ -18,6 +26,7 @@ import {
 } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
 import { buildContextMenuItems } from './context-menu-items';
+import { drawTunniControls, hitTunniControls, type TunniHit } from './tunni-controls';
 import {
   clear,
   defaultStyle,
@@ -211,6 +220,7 @@ type DragState =
       downAt: ScreenPoint;
       started: boolean;
     }
+  | { mode: 'tunni'; target: SplineTarget; hit: TunniHit; start: Vec2; started: boolean }
   | { mode: 'section'; index: number; started: boolean; handle: SectionHandle; grab: number }
   // Dragging a fin to re-place it (plan pane).
   | { mode: 'fin'; index: number; grab: Vec2; downAt: ScreenPoint; started: boolean }
@@ -240,7 +250,8 @@ type DragState =
 
 /** Whether a drag holds the store's grouped edit open (a section drag only once it moved). */
 const holdsEdit = (d: DragState): boolean =>
-  (d?.mode === 'edit' || d?.mode === 'fin' || d?.mode === 'section') && d.started;
+  (d?.mode === 'tunni' || d?.mode === 'edit' || d?.mode === 'fin' || d?.mode === 'section') &&
+  d.started;
 
 /**
  * A calibration flow in progress. `align` collects two image points then two
@@ -504,6 +515,11 @@ export function SplineEditor({
   // Immutable kernel splines retain the captured shape independently of later edits.
   const [references, setReferences] = useState<Record<string, Spline[]>>({});
   const referenceSplines = references[key];
+  const [tunniEnabled, setTunniEnabled] = useState(false);
+  const toggleTunni = useCallback(() => {
+    setTunniEnabled((enabled) => !enabled);
+    setMenu(null);
+  }, []);
   const setReferenceCurve = useCallback(() => {
     const current = store.getState().board;
     if (!current) return;
@@ -756,6 +772,7 @@ export function SplineEditor({
           : {}),
       };
       drawSpline(ctx, spline, vp, style, { mirrorX, mirrorY });
+      if (tunniEnabled) drawTunniControls(ctx, spline, vp);
       if (overlays?.curvatureComb) drawCurvatureComb(ctx, spline, vp);
       const sel = selection && sameTarget(selection.target, t) ? selection.index : null;
       const hovered =
@@ -818,6 +835,7 @@ export function SplineEditor({
     overlays,
     ghostSplines,
     referenceSplines,
+    tunniEnabled,
     background,
     liveTrace,
     traceInteractive,
@@ -897,6 +915,18 @@ export function SplineEditor({
       return null;
     },
     [vp, board, targets, selection],
+  );
+
+  const hitTunni = useCallback(
+    (p: Vec2, tolerance = HIT_TOL_PX) => {
+      if (!tunniEnabled || !vp || !board) return null;
+      for (const target of targets) {
+        const hit = hitTunniControls(getTargetSpline(board, target), vp, p, tolerance);
+        if (hit) return { target, hit };
+      }
+      return null;
+    },
+    [tunniEnabled, vp, board, targets],
   );
 
   const sectionMarkerAt = useCallback(
@@ -994,6 +1024,8 @@ export function SplineEditor({
             store,
             onFitView: fitView,
             onSetReferenceCurve: setReferenceCurve,
+            tunniEnabled,
+            onToggleTunni: toggleTunni,
             onClearReferenceCurve: referenceSplines ? clearReferenceCurve : undefined,
             onAddSectionAt,
             sectionMarker: marker ?? undefined,
@@ -1071,6 +1103,12 @@ export function SplineEditor({
         };
         return;
       }
+      const tunni = hitTunni(p, touch ? TOUCH_HIT_TOL_PX : HIT_TOL_PX);
+      if (tunni) {
+        drag.current = { mode: 'tunni', ...tunni, start: screenToWorld(vp, p), started: false };
+        setCursor('grabbing');
+        return;
+      }
       // Interactive trace image (after control points so curve edits still win): grab the
       // rotate handle above the image, or drag its body to reposition it.
       if (traceInteractive && background && e.button === 0 && !spaceHeld.current) {
@@ -1137,6 +1175,9 @@ export function SplineEditor({
       mirrorY,
       fitView,
       setReferenceCurve,
+      tunniEnabled,
+      toggleTunni,
+      hitTunni,
       clearReferenceCurve,
       referenceSplines,
       onAddSectionAt,
@@ -1165,7 +1206,7 @@ export function SplineEditor({
           ? 'ew-resize'
           : marker
             ? 'pointer'
-            : picked
+            : picked || hitTunni(p)
               ? 'pointer'
               : 'crosshair',
       );
@@ -1311,6 +1352,37 @@ export function SplineEditor({
         );
         return;
       }
+      if (d.mode === 'tunni') {
+        if (d.started && !store.getState().editing) {
+          drag.current = null;
+          return;
+        }
+        const delta = { x: world.x - d.start.x, y: world.y - d.start.y };
+        if (delta.x === 0 && delta.y === 0 && !d.started) return;
+        const g = d.hit.geometry;
+        const result =
+          d.hit.kind === 'point' && g.point
+            ? moveTunniPoint(g, { x: g.point.x + delta.x, y: g.point.y + delta.y })
+            : moveTunniLine(g, delta);
+        if (!result) {
+          if (d.started) store.getState().endEdit();
+          drag.current = null;
+          return;
+        }
+        if (!d.started) {
+          if (
+            result[0].x === g.c1.x &&
+            result[0].y === g.c1.y &&
+            result[1].x === g.c2.x &&
+            result[1].y === g.c2.y
+          )
+            return;
+          store.getState().beginEdit('Adjust Tunni handles');
+          d.started = true;
+        }
+        store.getState().moveSegmentTangents(d.target, d.hit.index, result[0], result[1]);
+        return;
+      }
       // GRAB_OFFSET: what the pointer moves, the handle moves — it is never assigned
       // the pointer's own position, which would snap it under the cursor.
       const held = { x: world.x + d.grab.x, y: world.y + d.grab.y };
@@ -1389,6 +1461,8 @@ export function SplineEditor({
           store,
           onFitView: fitView,
           onSetReferenceCurve: setReferenceCurve,
+          tunniEnabled,
+          onToggleTunni: toggleTunni,
           onClearReferenceCurve: referenceSplines ? clearReferenceCurve : undefined,
           onAddSectionAt,
           sectionMarker: marker ?? undefined,
@@ -1411,6 +1485,8 @@ export function SplineEditor({
       hitAny,
       fitView,
       setReferenceCurve,
+      tunniEnabled,
+      toggleTunni,
       clearReferenceCurve,
       referenceSplines,
       onAddSectionAt,
@@ -1478,6 +1554,17 @@ export function SplineEditor({
       for (const t of targets) {
         if (hitTest(getTargetSpline(board, t), vp, p)) return;
       }
+      const tunni = hitTunni(p);
+      if (tunni) {
+        if (tunni.hit.kind === 'point') {
+          const handles = balanceTunni(tunni.hit.geometry);
+          if (handles)
+            store
+              .getState()
+              .moveSegmentTangents(tunni.target, tunni.hit.index, handles[0], handles[1]);
+        }
+        return;
+      }
       // Reflect into the canonical half the splines are defined on (control points
       // only live there; the other half is a drawn mirror).
       let world = screenToWorld(vp, p);
@@ -1497,7 +1584,7 @@ export function SplineEditor({
       // Empty space (no nearby curve): re-home the view to fit the curves.
       fitView();
     },
-    [vp, board, store, targets, mirrorX, mirrorY, fitView, localPoint],
+    [vp, board, store, targets, mirrorX, mirrorY, fitView, localPoint, hitTunni],
   );
 
   return (

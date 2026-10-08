@@ -237,6 +237,20 @@ export const setKnotTangentLength = (
   return moveKnotTangent(s, index, which, vec2(k.end.x + dir.x * len, k.end.y + dir.y * len));
 };
 
+/** Adjust the two handles belonging to one segment as a single immutable edit. */
+export const moveSegmentTangents = (s: Spline, index: number, first: Vec2, last: Vec2): Spline => {
+  if (
+    !s.knots[index] ||
+    !s.knots[index + 1] ||
+    ![first.x, first.y, last.x, last.y].every(Number.isFinite)
+  )
+    return s;
+  const a = s.knots[index]!.tangentToNext;
+  const b = s.knots[index + 1]!.tangentToPrev;
+  if (a.x === first.x && a.y === first.y && b.x === last.x && b.y === last.y) return s;
+  return moveKnotTangent(moveKnotTangent(s, index, 'next', first), index + 1, 'prev', last);
+};
+
 /**
  * Toggle a knot between continuous (smooth) and corner. Legacy BezierKnot.setContinous.
  * A locked point made smooth locks both sides along one axis, since its handles now

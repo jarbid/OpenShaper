@@ -64,6 +64,8 @@ export interface ContextMenuRequest {
   store: StoreApi<BoardState>;
   /** Re-home the viewport to fit the curves (owned by the editor). */
   onFitView: () => void;
+  tunniEnabled?: boolean;
+  onToggleTunni?: () => void;
   /** Capture a stationary reference beneath this pane. */
   onSetReferenceCurve?: () => void;
   /** Provided when this pane has a reference to remove. */
@@ -148,6 +150,16 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
   const viewGroup: MenuItem[] = [
     { kind: 'separator' },
     { kind: 'action', label: 'Fit view', onSelect: onFitView },
+    ...(req.onToggleTunni
+      ? [
+          {
+            kind: 'checkbox' as const,
+            label: 'Show Tunni controls',
+            checked: req.tunniEnabled ?? false,
+            onSelect: req.onToggleTunni,
+          },
+        ]
+      : []),
   ];
 
   // The nose and tail dummies carry a single knot and have no rail to shape. `App.tsx`
