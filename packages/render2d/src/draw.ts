@@ -344,6 +344,8 @@ export interface EditorOverlays {
   scrubProbe?: number;
   /** Curvature comb on the edited spline(s). */
   curvatureComb?: boolean;
+  /** Tunni line + point on every segment of the edited spline(s), draggable. */
+  tunni?: boolean;
   /** Vertical reference lines (e.g. center of mass). */
   verticalMarkers?: { x: number; color: string; label?: string }[];
   /** Longitudinal distribution strip (e.g. cross-sectional area vs. length). */

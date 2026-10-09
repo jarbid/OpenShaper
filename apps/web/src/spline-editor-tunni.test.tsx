@@ -13,7 +13,9 @@ beforeEach(installLayoutStubs);
 afterEach(removeLayoutStubs);
 const p = (x: number, y: number): Vec2 => ({ x, y });
 const setup = (mirrorY = false) => {
-  const rig = mountEditor({ mirrorY });
+  // The app owns the Tunni flag (an overlay); stand in for it the way App.tsx does.
+  const onTunniChange = (tunni: boolean) => rig.rerender({ overlays: { tunni } });
+  const rig = mountEditor({ mirrorY, onTunniChange });
   const s = splineFromKnots([
     knot(p(0, 0), p(-20, -40), p(20, 40)),
     knot(p(100, 0), p(80, 40), p(120, -40)),
@@ -105,18 +107,29 @@ describe('Tunni controls in the 2D editor', () => {
     near(s.knots[0]!.tangentToNext, p(15, 30));
     near(s.knots[1]!.tangentToPrev, p(85, 30));
   });
-  it('stops at a handle reversal and closes its undo step', () => {
+  it('holds the last valid shape past a handle reversal and resumes the same drag', () => {
     const rig = setup();
     rig.toggle();
     fireEvent.pointerDown(rig.canvas, { ...MOUSE, ...rig.screenOf(p(50, 40)) });
     fireEvent.pointerMove(rig.canvas, { ...MOUSE, ...rig.screenOf(p(50, 50)) });
     const valid = rig.store.getState().board;
     fireEvent.pointerMove(rig.canvas, { ...MOUSE, ...rig.screenOf(p(50, -10)) });
-    expect(rig.store.getState().editing).toBe(false);
+    expect(rig.store.getState().board).toBe(valid);
+    expect(rig.store.getState().editing).toBe(true);
     fireEvent.pointerMove(rig.canvas, { ...MOUSE, ...rig.screenOf(p(50, 60)) });
     fireEvent.pointerUp(rig.canvas, { ...MOUSE, ...rig.screenOf(p(50, 60)) });
-    expect(rig.store.getState().board).toBe(valid);
+    const s = rig.store.getState().board!.outline;
+    near(s.knots[0]!.tangentToNext, p(30, 60));
+    near(s.knots[1]!.tangentToPrev, p(70, 60));
+    expect(rig.store.getState().editing).toBe(false);
     expect(rig.store.getState().past).toHaveLength(1);
+  });
+  it('offers no Tunni checkbox when the owner does not handle it', () => {
+    const rig = mountEditor();
+    const at = rig.screenOf(p(50, -5));
+    fireEvent.pointerDown(rig.canvas, { ...MOUSE, button: 2, ...at });
+    fireEvent.pointerUp(rig.canvas, { ...MOUSE, button: 2, ...at });
+    expect(screen.queryByRole('menuitemcheckbox', { name: 'Show Tunni controls' })).toBeNull();
   });
   it('closes the grouped edit when a Tunni drag is cancelled', () => {
     const rig = setup();

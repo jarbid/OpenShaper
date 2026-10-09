@@ -1,13 +1,23 @@
-import type { Spline, Vec2 } from '@openshaper/kernel';
+// SPDX-License-Identifier: GPL-3.0-or-later
+/**
+ * Tunni lines for one cubic segment: the line joining its two inner handles, and the
+ * Tunni point that controls their balance. Original implementation of the equations
+ * documented at https://github.com/OliverLeenders/Tunni-Lines (concept: Eduardo Tunni /
+ * FontLab). Every move keeps the segment's anchors and tangent directions; only the two
+ * handle lengths change.
+ */
+import type { Spline } from './bezier-spline';
+import { cross, length, sub, type Vec2 } from './vec2';
 
-const sub = (a: Vec2, b: Vec2): Vec2 => ({ x: a.x - b.x, y: a.y - b.y });
-const cross = (a: Vec2, b: Vec2) => a.x * b.y - a.y * b.x;
 const along = (a: Vec2, v: Vec2, t: number): Vec2 => ({ x: a.x + v.x * t, y: a.y + v.y * t });
 
-/** Relative angular tolerance avoids unstable intersections of nearly parallel handles. */
+/**
+ * Parameter along `u` (from `a`) where the line `a + t·u` meets `b + s·v`. A relative
+ * angular tolerance rejects nearly parallel rays, whose intersection is unstable.
+ */
 const intersection = (a: Vec2, u: Vec2, b: Vec2, v: Vec2): number | null => {
   const det = cross(u, v);
-  if (Math.abs(det) <= 1e-6 * Math.hypot(u.x, u.y) * Math.hypot(v.x, v.y) || det === 0) return null;
+  if (det === 0 || Math.abs(det) <= 1e-6 * length(u) * length(v)) return null;
   const t = cross(sub(b, a), v) / det;
   return Number.isFinite(t) ? t : null;
 };
@@ -17,13 +27,11 @@ export interface TunniGeometry {
   b: Vec2;
   c1: Vec2;
   c2: Vec2;
+  /** Null when the handle rays do not meet on the curve's side (parallel, S-curve). */
   point: Vec2 | null;
 }
 
-/**
- * Original implementation of the Tunni equations documented at
- * https://github.com/OliverLeenders/Tunni-Lines (concept: Eduardo Tunni / FontLab).
- */
+/** Tunni line and point of segment `index` (knot `index` → `index + 1`), or null. */
 export const tunniGeometry = (s: Spline, index: number): TunniGeometry | null => {
   const first = s.knots[index];
   const last = s.knots[index + 1];
@@ -65,6 +73,7 @@ const handles = (
   return result.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y)) ? result : null;
 };
 
+/** Handles that put the Tunni point at `point`, or null if that would reverse one. */
 export const moveTunniPoint = (g: TunniGeometry, point: Vec2): [Vec2, Vec2] | null => {
   if (!g.point) return null;
   const u = sub(g.c1, g.a),
@@ -80,6 +89,7 @@ export const moveTunniPoint = (g: TunniGeometry, point: Vec2): [Vec2, Vec2] | nu
   return handles(g, cross(r, v) / det, cross(u, r) / det);
 };
 
+/** Handles after translating the Tunni line by `delta` (motion along it is ignored). */
 export const moveTunniLine = (g: TunniGeometry, delta: Vec2): [Vec2, Vec2] | null => {
   const p = along(g.c1, delta, 1),
     line = sub(g.c2, g.c1);
@@ -90,6 +100,7 @@ export const moveTunniLine = (g: TunniGeometry, delta: Vec2): [Vec2, Vec2] | nul
   );
 };
 
+/** Equal-tension handles: the Tunni line made parallel to the anchor chord. */
 export const balanceTunni = (g: TunniGeometry): [Vec2, Vec2] | null => {
   if (!g.point) return null;
   const first = intersection(g.a, sub(g.c1, g.a), g.b, sub(g.c2, g.b));

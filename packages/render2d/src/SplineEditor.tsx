@@ -1,19 +1,14 @@
 import {
+  balanceTunni,
   closestPointOnSpline,
+  moveTunniLine,
+  moveTunniPoint,
   value,
   type BezierBoard,
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
-import {
-  balanceTunni,
-  moveTunniLine,
-  moveTunniPoint,
-  type BoardState,
-  type SplineTarget,
-  getTargetSpline,
-  sameTarget,
-} from '@openshaper/store';
+import { type BoardState, type SplineTarget, getTargetSpline, sameTarget } from '@openshaper/store';
 import { ContextMenu, type MenuItem } from '@openshaper/ui';
 import {
   useCallback,
@@ -125,6 +120,11 @@ export interface SplineEditorProps {
   measureCursor?: boolean;
   /** Toggleable analysis overlays (curvature comb, CoM marker, distribution). */
   overlays?: EditorOverlays;
+  /**
+   * Turn the Tunni-controls overlay on or off; the owner holds the flag in `overlays`.
+   * When present, the context menu offers a "Show Tunni controls" checkbox.
+   */
+  onTunniChange?: (enabled: boolean) => void;
   /** Reference (ghost) splines drawn dashed underneath for comparison. */
   ghostSplines?: Spline[];
   /**
@@ -451,6 +451,7 @@ export function SplineEditor({
   readout,
   measureCursor = false,
   overlays,
+  onTunniChange,
   ghostSplines,
   background,
   traceInteractive = false,
@@ -512,29 +513,27 @@ export function SplineEditor({
   const selection = useSyncExternalStore(store.subscribe, () => store.getState().selection);
   const selectedFin = useSyncExternalStore(store.subscribe, () => store.getState().selectedFin);
   const key = JSON.stringify(targets);
-  // Immutable kernel splines retain the captured shape independently of later edits.
-  const [references, setReferences] = useState<Record<string, Spline[]>>({});
-  const referenceSplines = references[key];
-  const [tunniEnabled, setTunniEnabled] = useState(false);
-  const toggleTunni = useCallback(() => {
-    setTunniEnabled((enabled) => !enabled);
-    setMenu(null);
-  }, []);
+  // Reference curves: a snapshot of this pane's splines (immutable, so later edits never
+  // reach it), tagged with the target set it was taken from so it never draws for another.
+  const [reference, setReference] = useState<{ key: string; splines: Spline[] } | null>(null);
+  const referenceSplines = reference?.key === key ? reference.splines : undefined;
   const setReferenceCurve = useCallback(() => {
     const current = store.getState().board;
-    if (!current) return;
-    setReferences((previous) => ({
-      ...previous,
-      [key]: targets.map((target) => getTargetSpline(current, target)),
-    }));
+    if (current) setReference({ key, splines: targets.map((t) => getTargetSpline(current, t)) });
   }, [store, key, targets]);
-  const clearReferenceCurve = useCallback(() => {
-    setReferences((previous) => {
-      const next = { ...previous };
-      delete next[key];
-      return next;
-    });
-  }, [key]);
+  const clearReferenceCurve = useCallback(() => setReference(null), []);
+  // Tunni controls are an app-level overlay (View menu); the context menu flips it too.
+  const tunniEnabled = overlays?.tunni ?? false;
+  const toggleTunni = useMemo(
+    () =>
+      onTunniChange
+        ? () => {
+            onTunniChange(!tunniEnabled);
+            setMenu(null);
+          }
+        : undefined,
+    [onTunniChange, tunniEnabled],
+  );
 
   // Space-bar pan (CAD standard): holding Space turns any left-drag into a pan,
   // shown by a grab cursor. Ignore key events while typing in a form field, and
@@ -1364,11 +1363,9 @@ export function SplineEditor({
           d.hit.kind === 'point' && g.point
             ? moveTunniPoint(g, { x: g.point.x + delta.x, y: g.point.y + delta.y })
             : moveTunniLine(g, delta);
-        if (!result) {
-          if (d.started) store.getState().endEdit();
-          drag.current = null;
-          return;
-        }
+        // A handle would cross its anchor: hold the last valid shape and keep the drag,
+        // so moving back picks it up again.
+        if (!result) return;
         if (!d.started) {
           if (
             result[0].x === g.c1.x &&

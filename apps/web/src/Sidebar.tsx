@@ -147,6 +147,8 @@ export interface OverlayToggles {
   comb: boolean;
   com: boolean;
   dist: boolean;
+  /** Tunni controls: an editing aid, toggled from the View menu or a pane's context menu. */
+  tunni: boolean;
 }
 
 export interface SidebarProps {

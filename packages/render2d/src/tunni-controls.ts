@@ -1,5 +1,4 @@
-import type { Spline, Vec2 } from '@openshaper/kernel';
-import { tunniGeometry, type TunniGeometry } from '@openshaper/store';
+import { tunniGeometry, type Spline, type TunniGeometry, type Vec2 } from '@openshaper/kernel';
 import { worldToScreen, type Viewport } from './viewport';
 
 export interface TunniHit {

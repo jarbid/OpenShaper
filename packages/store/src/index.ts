@@ -32,11 +32,3 @@ export {
   type SplineTarget,
 } from './edits';
 export { selectSpecs, type BoardSpecs } from './selectors';
-
-export {
-  tunniGeometry,
-  moveTunniPoint,
-  moveTunniLine,
-  balanceTunni,
-  type TunniGeometry,
-} from './tunni';

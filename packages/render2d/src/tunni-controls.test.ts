@@ -9,7 +9,7 @@ const curve = splineFromKnots([
 ]);
 const vp = { scale: 20, originX: 200, originY: 200 };
 
-it('draws one Tunni line and diamond only on the editable side', () => {
+it('draws one Tunni line and diamond per segment', () => {
   const ctx = {
     save: vi.fn(),
     restore: vi.fn(),
@@ -28,15 +28,11 @@ it('draws one Tunni line and diamond only on the editable side', () => {
   expect(ctx.moveTo).toHaveBeenCalledWith(300, 75);
 });
 
-it('hits the original point and line but ignores either mirrored half', () => {
-  expect(hitTunniControls(curve, vp, worldToScreen(vp, { x: 5, y: 6 }), 8)?.kind).toBe('point');
-  expect(hitTunniControls(curve, vp, worldToScreen(vp, { x: 5, y: 4 }), 8)?.kind).toBe('line');
-  for (const point of [
-    { x: 5, y: -6 },
-    { x: 5, y: -4 },
-    { x: -5, y: 6 },
-    { x: -5, y: 4 },
-  ]) {
-    expect(hitTunniControls(curve, vp, worldToScreen(vp, point), 8)).toBeNull();
-  }
+it('hits the point before the line it sits beside, and the line along its length', () => {
+  const at = (x: number, y: number) => worldToScreen(vp, { x, y });
+  expect(hitTunniControls(curve, vp, at(5, 6), 8)?.kind).toBe('point');
+  // Nearer the line (10 px) than the point (30 px), but both within 50 px: the point wins.
+  expect(hitTunniControls(curve, vp, at(5, 4.5), 50)?.kind).toBe('point');
+  expect(hitTunniControls(curve, vp, at(3, 4), 8)?.kind).toBe('line');
+  expect(hitTunniControls(curve, vp, at(5, 2), 8)).toBeNull();
 });
