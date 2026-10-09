@@ -19,6 +19,7 @@ import {
   insertKnotAt,
   moveKnotEnd,
   moveKnotTangent,
+  moveSegmentTangents,
   moveCrossSectionPosition,
   propagateCrossSectionToCurves,
   removeCrossSection,
@@ -80,6 +81,7 @@ export interface BoardState {
   /** End a grouped edit (call on drag end). */
   endEdit: () => void;
 
+  moveSegmentTangents: (target: SplineTarget, index: number, first: Vec2, last: Vec2) => void;
   moveControlPoint: (target: SplineTarget, index: number, end: Vec2) => void;
   moveTangent: (target: SplineTarget, index: number, which: 'prev' | 'next', pos: Vec2) => void;
   /** Set one handle's length along its current (or locked) direction. */
@@ -279,6 +281,14 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         // A collapsed free handle has no direction to lengthen along: no step to record.
         if (next === spline) return;
         editSpline(target, 'Set handle length', () => withSpline(board, target, next));
+      },
+      moveSegmentTangents: (target, index, first, last) => {
+        const { board } = get();
+        if (!board) return;
+        const spline = getTargetSpline(board, target);
+        const next = moveSegmentTangents(spline, index, first, last);
+        if (next === spline) return;
+        editSpline(target, 'Adjust Tunni handles', () => withSpline(board, target, next));
       },
 
       addControlPoint: (target, p) => {

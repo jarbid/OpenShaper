@@ -126,7 +126,7 @@ export const mountEditor = (overrides: Partial<EditorProps> = {}) => {
   const store = createBoardStore();
   act(() => store.getState().load(makeBoard()));
   let view: ViewCenter | null = null;
-  const rendered = render(
+  const element = (props: Partial<EditorProps>) => (
     <SplineEditor
       store={store}
       targets={[{ kind: 'outline' }]}
@@ -135,8 +135,10 @@ export const mountEditor = (overrides: Partial<EditorProps> = {}) => {
         view = v;
       }}
       {...overrides}
-    />,
+      {...props}
+    />
   );
+  const rendered = render(element({}));
   const canvas = rendered.container.querySelector('canvas')!;
   /**
    * The client coordinates a pointer event must carry to sit on `world`.
@@ -163,6 +165,8 @@ export const mountEditor = (overrides: Partial<EditorProps> = {}) => {
     midKnot: () => knotAt().end,
     scale: () => view!.scale,
     unmount: rendered.unmount,
+    /** Re-render with `props` layered over the mount's overrides (owner-held state). */
+    rerender: (props: Partial<EditorProps>) => rendered.rerender(element(props)),
   };
 };
 

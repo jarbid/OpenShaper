@@ -82,9 +82,17 @@ export default function DocsSpecs() {
         <Terms>
           <Term name="Grid & guides">Scale reference and station lines.</Term>
           <Term name="Curvature comb">
-            Quills drawn normal to a curve, scaled by curvature. A fair curve gives a smooth comb; a
-            kink shows as a spike or a sudden flip. This is the fastest way to find a flat spot in a
-            rail that looks fine to the eye.
+            Quills drawn normal to every edited curve in the outline, rocker and cross-section
+            views, longer where the curve bends tighter. This is the fastest way to find a flat spot
+            in a rail that looks fine to the eye. How to read it: a smooth envelope along the quill
+            tips means the curvature flows smoothly; a step in the envelope at a control point is a
+            sudden change in curvature there; quills shrinking to the curve are a flat spot. Each
+            comb stays outside the board — deck quills above the deck, bottom quills below the
+            bottom, outline quills away from the stringer — so it never cuts through the foam. Where
+            a curve turns from convex to concave (a deck flowing into a kicked nose, a concave
+            running into the rail) a small ring on the curve marks the inflection. Curves in one
+            view share a scale (deck and bottom quills compare directly); the tightest spots, such
+            as a pinched nose tip, are capped so they do not shrink the rest of the comb.
           </Term>
           <Term name="Volume distribution">
             How volume is spread along the length — where the board carries its float.

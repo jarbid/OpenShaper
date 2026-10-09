@@ -268,6 +268,7 @@ function AppShell() {
     comb: false,
     com: false,
     dist: false,
+    tunni: false,
   });
   // Flip one overlay and report it. These four are entirely unmeasured
   // otherwise — the curvature comb and volume distribution in particular are
@@ -282,6 +283,7 @@ function AppShell() {
     setOverlayToggles((s) => ({ ...s, [key]: enabled }));
   }, []);
   const toggleOverlay = (key: keyof OverlayToggles) => setOverlay(key, !overlayToggles[key]);
+  const setTunniOverlay = useCallback((on: boolean) => setOverlay('tunni', on), [setOverlay]);
 
   // Specs (and the distribution overlay) read the settled board so they don't
   // re-integrate on every drag move — see useSettledBoard. The integrals run in
@@ -705,6 +707,7 @@ function AppShell() {
     return {
       grid: overlayToggles.grid,
       curvatureComb: overlayToggles.comb,
+      tunni: overlayToggles.tunni,
       verticalMarkers: verticalMarkers.length ? verticalMarkers : undefined,
       // Cross-pane "sliding location": the hovered board-x as a solid-inside / dashed
       // probe in every length-axis pane (the hovered pane included — it tracks the cursor).
@@ -1211,6 +1214,12 @@ function AppShell() {
       checked: overlayToggles.dist,
       onSelect: () => toggleOverlay('dist'),
     },
+    {
+      kind: 'checkbox',
+      label: 'Tunni controls',
+      checked: overlayToggles.tunni,
+      onSelect: () => toggleOverlay('tunni'),
+    },
     { kind: 'separator' },
     { kind: 'label', label: 'Zoom' },
     {
@@ -1335,6 +1344,7 @@ function AppShell() {
     onAddSectionAt: addSectionAt,
     onScrub: scrubSection,
     overlays: overlaysFor(kind),
+    onTunniChange: setTunniOverlay,
     ghostSplines: ghostSplinesFor(kind),
     ...(kind === 'crossSection' ? {} : traceProps(kind)),
     headerActions: kind === 'crossSection' ? csControls : undefined,

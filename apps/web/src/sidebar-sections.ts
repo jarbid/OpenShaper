@@ -141,8 +141,8 @@ export const SIDEBAR_SECTIONS: readonly SidebarSection[] = [
     id: 'analysis',
     title: 'Analysis',
     tab: 'shape',
-    // Not cross-section: the comb, CoM and volume distribution all draw on the
-    // outline and rocker, so the toggles do nothing visible from there.
+    // Not pre-opened in the cross-section: CoM and volume distribution draw only on the
+    // outline and rocker. Grid and comb draw there too, toggled from the View menu.
     relevantTo: ['outline', 'rocker', '3d', 'quad'],
     defaultOpen: false,
   },

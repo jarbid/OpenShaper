@@ -398,3 +398,68 @@ describe('buildContextMenuItems: rail presets', () => {
     }
   });
 });
+
+describe('reference curve menu', () => {
+  it.each<SplineTarget[]>([
+    [{ kind: 'outline' }],
+    [{ kind: 'deck' }, { kind: 'bottom' }],
+    [{ kind: 'crossSection', index: 1 }],
+  ])('offers a reference snapshot in clear space for %j', (...targets) => {
+    const { store } = setup();
+    const onSetReferenceCurve = vi.fn();
+    const request = {
+      board: store.getState().board!,
+      targets,
+      vp: VP,
+      screen: worldToScreen(VP, vec2(150, 100)),
+      mirrorX: false,
+      mirrorY: false,
+      store,
+      onFitView: vi.fn(),
+      onSetReferenceCurve,
+    };
+    const item = find(buildContextMenuItems(request), 'Set reference curve');
+    expect(item?.kind).toBe('action');
+    if (item?.kind === 'action') item.onSelect();
+    expect(onSetReferenceCurve).toHaveBeenCalledOnce();
+    expect(
+      find(
+        buildContextMenuItems({
+          ...request,
+          screen: worldToScreen(VP, vec2(0, targets[0]?.kind === 'outline' ? 0 : 5)),
+        }),
+        'Set reference curve',
+      ),
+    ).toBeUndefined();
+  });
+});
+
+it('offers clearing a reference only when one exists, and only in clear space', () => {
+  const { store } = setup();
+  const onClearReferenceCurve = vi.fn();
+  const request = {
+    board: store.getState().board!,
+    targets: TARGETS,
+    vp: VP,
+    screen: worldToScreen(VP, vec2(150, 100)),
+    mirrorX: false,
+    mirrorY: false,
+    store,
+    onFitView: vi.fn(),
+  };
+  expect(find(buildContextMenuItems(request), 'Clear reference curve')).toBeUndefined();
+  const withReference = { ...request, onClearReferenceCurve };
+  const item = find(buildContextMenuItems(withReference), 'Clear reference curve');
+  expect(item?.kind).toBe('action');
+  if (item?.kind === 'action') item.onSelect();
+  expect(onClearReferenceCurve).toHaveBeenCalledOnce();
+  expect(
+    find(
+      buildContextMenuItems({
+        ...withReference,
+        screen: worldToScreen(VP, vec2(50, 20)),
+      }),
+      'Clear reference curve',
+    ),
+  ).toBeUndefined();
+});

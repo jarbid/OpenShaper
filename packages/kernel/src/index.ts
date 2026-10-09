@@ -37,3 +37,5 @@ export * from './board-surface';
 export * from './tessellate';
 export * from './guides';
 export * from './fins';
+export * from './tunni';
+export * from './curvature-comb';

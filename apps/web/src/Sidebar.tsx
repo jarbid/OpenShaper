@@ -147,6 +147,8 @@ export interface OverlayToggles {
   comb: boolean;
   com: boolean;
   dist: boolean;
+  /** Tunni controls: an editing aid, toggled from the View menu or a pane's context menu. */
+  tunni: boolean;
 }
 
 export interface SidebarProps {
@@ -1048,8 +1050,8 @@ function AnalysisSection({
         />
       ))}
       <p className="pt-1 text-xs text-muted-foreground">
-        Grid &amp; guides show in every pane (baseline + centerline emphasized); comb on the edited
-        curves; CoM &amp; volume distribution on the outline and rocker.
+        Grid &amp; guides and the comb show in every 2D pane (the comb on the edited curves, ringing
+        inflections); CoM &amp; volume distribution on the outline and rocker.
       </p>
     </div>
   );
