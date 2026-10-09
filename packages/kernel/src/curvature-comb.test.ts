@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import {
   curvatureCombReference,
   curvatureCombRuns,
+  curvatureCombSide,
   curvatureInflections,
   type CombSample,
 } from './curvature-comb';
@@ -31,7 +32,23 @@ const quarter = (R: number, reverse = false) => {
       : knots,
   );
 };
-const tip = (c: CombSample): Vec2 => ({ x: c.p.x + c.dir.x * c.k, y: c.p.y + c.dir.y * c.k });
+/** Shortboard-like rocker (cf. the bundled shortboard): tail at x=0, nose kick to 14. */
+const rockerPair = () => ({
+  deck: splineFromKnots([
+    knot(vec2(0, 7), vec2(0, 7), vec2(30, 6.2)),
+    knot(vec2(94, 6), vec2(60, 6), vec2(140, 6)),
+    knot(vec2(188, 14), vec2(170, 8), vec2(188, 14)),
+  ]),
+  bottom: splineFromKnots([
+    knot(vec2(0, 6.4), vec2(0, 6.4), vec2(30, 1)),
+    knot(vec2(94, 0), vec2(60, 0), vec2(140, 0)),
+    knot(vec2(188, 11), vec2(175, 3), vec2(188, 11)),
+  ]),
+});
+const tip = (c: CombSample, side: number): Vec2 => ({
+  x: c.p.x + c.normal.x * side * Math.abs(c.k),
+  y: c.p.y + c.normal.y * side * Math.abs(c.k),
+});
 
 describe('curvatureCombRuns', () => {
   it('reports κ = 1/R on a circular arc, positive when turning left', () => {
@@ -39,15 +56,6 @@ describe('curvatureCombRuns', () => {
     expect(samples).toHaveLength(9);
     // The cubic quarter circle is within 3e-4 of round, but its curvature wanders ~2%.
     for (const s of samples) expect(Math.abs(s.k - 0.1) / 0.1).toBeLessThan(0.025);
-  });
-
-  it('puts quills on the convex side whichever way the curve runs', () => {
-    for (const reverse of [false, true]) {
-      for (const s of curvatureCombRuns(quarter(10, reverse), 4).flat()) {
-        // Outward from the circle's centre: the tip is farther from the origin.
-        expect(Math.hypot(tip(s).x, tip(s).y)).toBeGreaterThan(Math.hypot(s.p.x, s.p.y));
-      }
-    }
   });
 
   it('drops a zero-length dummy segment and splits the run instead of yielding NaN', () => {
@@ -59,12 +67,49 @@ describe('curvatureCombRuns', () => {
     ]);
     const runs = curvatureCombRuns(s, 6);
     const all = runs.flat();
-    expect(all.every((c) => [c.p.x, c.p.y, c.dir.x, c.dir.y, c.k].every(Number.isFinite))).toBe(
-      true,
-    );
+    expect(
+      all.every((c) => [c.p.x, c.p.y, c.normal.x, c.normal.y, c.k].every(Number.isFinite)),
+    ).toBe(true);
     // Segment 0 is whole; segment 1 (end → collapsed nose) has no length and no samples.
     expect(all).toHaveLength(7);
     expect(all.every((c) => c.segment === 0)).toBe(true);
+  });
+});
+
+describe('curvatureCombSide', () => {
+  it('stands away from the centre whichever way the curve runs', () => {
+    for (const reverse of [false, true]) {
+      const runs = curvatureCombRuns(quarter(10, reverse), 4);
+      const side = curvatureCombSide(runs, [vec2(0, 0)]);
+      for (const s of runs.flat()) {
+        expect(Math.hypot(tip(s, side).x, tip(s, side).y)).toBeGreaterThan(
+          Math.hypot(s.p.x, s.p.y),
+        );
+      }
+    }
+  });
+
+  it('keeps a rocker deck comb above the deck through the nose kick', () => {
+    // Side view as boards really are: the deck follows the rocker (lowest mid-board) and
+    // kicks up to the nose, so mid-board it sits below the centre of the pane's bounds.
+    const { deck, bottom } = rockerPair();
+    const deckRuns = curvatureCombRuns(deck, 16);
+    const bottomRuns = curvatureCombRuns(bottom, 16);
+    const deckSide = curvatureCombSide(
+      deckRuns,
+      bottomRuns.flat().map((c) => c.p),
+    );
+    const bottomSide = curvatureCombSide(
+      bottomRuns,
+      deckRuns.flat().map((c) => c.p),
+    );
+    for (const s of deckRuns.flat()) expect(s.normal.y * deckSide).toBeGreaterThan(0);
+    for (const s of bottomRuns.flat()) expect(s.normal.y * bottomSide).toBeLessThan(0);
+    // The pane centre would have got the deck wrong.
+    const all = [...deckRuns, ...bottomRuns].flat().map((c) => c.p);
+    const ys = all.map((p) => p.y);
+    const centre = vec2(94, (Math.min(...ys) + Math.max(...ys)) / 2);
+    expect(curvatureCombSide(deckRuns, [centre])).toBe(-deckSide);
   });
 });
 
@@ -72,7 +117,9 @@ describe('curvatureCombReference', () => {
   // Evenly spaced samples along x, so every sample carries the same length.
   const fake = (ks: number[], dx = (_i: number) => 1): CombSample[][] => {
     let x = 0;
-    return [ks.map((k, i) => ({ p: vec2((x += dx(i)), 0), dir: vec2(0, 1), k, segment: 0, t: 0 }))];
+    return [
+      ks.map((k, i) => ({ p: vec2((x += dx(i)), 0), normal: vec2(0, 1), k, segment: 0, t: 0 })),
+    ];
   };
 
   it('is the 95th-percentile |κ|, so one spike cannot flatten the comb', () => {
@@ -121,7 +168,13 @@ describe('curvatureInflections', () => {
 
   it('ignores sign flicker below the flat threshold', () => {
     const runs: CombSample[][] = [
-      [3, 1e-9, -1e-9, 2].map((k, i) => ({ p: vec2(i, 0), dir: vec2(0, 1), k, segment: 0, t: 0 })),
+      [3, 1e-9, -1e-9, 2].map((k, i) => ({
+        p: vec2(i, 0),
+        normal: vec2(0, 1),
+        k,
+        segment: 0,
+        t: 0,
+      })),
     ];
     expect(curvatureInflections(runs, 1e-6)).toEqual([]);
   });

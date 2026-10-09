@@ -1,6 +1,7 @@
 import {
   curvatureCombReference,
   curvatureCombRuns,
+  curvatureCombSide,
   curvatureInflections,
   value,
   type CombSample,
@@ -554,11 +555,13 @@ const COMB_CAP = 3;
 /**
  * Draw curvature combs ("porcupines") for every spline a pane edits: at samples along
  * each segment, a quill normal to the curve whose length is the curvature, with the
- * quill tips joined into an envelope. The classic fairing aid, read the way Rhino's
- * CurvatureGraph and SolidWorks' combs are:
+ * quill tips joined into an envelope. The classic fairing aid:
  *
- * - **Signed.** Quills stand on the convex side, so the comb crosses the curve at an
- *   inflection — marked with a small ring — instead of hiding it.
+ * - **Outside the board.** Each curve's comb stays on the side facing away from the
+ *   pane's other curves (or, alone, from its own middle) — deck quills up, bottom quills
+ *   down, outline quills away from the stringer — and never cuts through the foam. Where the curve turns from
+ *   convex to concave (a nose kick, a concave into the rail) a small ring marks the
+ *   inflection instead of the comb crossing over.
  * - **Continuity.** A smooth envelope means curvature-continuous (G2); a step in it at a
  *   knot is a curvature jump; a quill dropping to the curve is a flat spot.
  * - **One scale per pane.** All splines share it, so deck and bottom quills in the rocker
@@ -580,16 +583,31 @@ export const drawCurvatureComb = (
   const ref = curvatureCombReference(combs.flat());
   if (!(ref > 1e-9)) return;
   const b = boundsOf(combs.flat(2).map((c) => c.p));
-  const length = (Math.hypot(b.maxX - b.minX, b.maxY - b.minY) || 1) * COMB_LENGTH;
-  const tipOf = (c: CombSample): Vec2 => {
-    const d = Math.max(-COMB_CAP, Math.min(COMB_CAP, c.k / ref)) * length;
-    return { x: c.p.x + c.dir.x * d, y: c.p.y + c.dir.y * d };
+  const centre = { x: (b.minX + b.maxX) / 2, y: (b.minY + b.maxY) / 2 };
+  // What each comb stands away from: the pane's other curves (every 4th sample is plenty
+  // for a vote), or the centre when it is the only curve.
+  const insideOf = (i: number): Vec2[] => {
+    const others = combs.flatMap((runs, j) =>
+      j === i
+        ? []
+        : runs
+            .flat()
+            .filter((_, n) => n % 4 === 0)
+            .map((c) => c.p),
+    );
+    return others.length ? others : [centre];
   };
+  const length = (Math.hypot(b.maxX - b.minX, b.maxY - b.minY) || 1) * COMB_LENGTH;
 
   ctx.save();
   ctx.strokeStyle = color;
   ctx.lineWidth = 1;
-  for (const runs of combs) {
+  combs.forEach((runs, i) => {
+    const side = curvatureCombSide(runs, insideOf(i));
+    const tipOf = (c: CombSample): Vec2 => {
+      const d = side * Math.min(COMB_CAP, Math.abs(c.k) / ref) * length;
+      return { x: c.p.x + c.normal.x * d, y: c.p.y + c.normal.y * d };
+    };
     // Quills.
     ctx.globalAlpha = 0.5;
     ctx.beginPath();
@@ -611,7 +629,7 @@ export const drawCurvatureComb = (
       });
     }
     ctx.stroke();
-    // Inflections: rings on the curve where the comb changes side.
+    // Inflections: rings on the curve where the curvature changes sign.
     ctx.globalAlpha = 1;
     for (const p of curvatureInflections(runs, ref * 1e-3)) {
       const s = worldToScreen(vp, p);
@@ -619,7 +637,7 @@ export const drawCurvatureComb = (
       ctx.arc(s.x, s.y, 3.5, 0, Math.PI * 2);
       ctx.stroke();
     }
-  }
+  });
   ctx.restore();
 };
 

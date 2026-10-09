@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * Curvature-comb analysis for one or more splines: signed curvature samples, a robust
- * reference magnitude to scale quills by, and inflection points. Pure; drawing lives in
- * render2d. Sign convention: `curvature` is positive where the curve turns left
- * (counter-clockwise) in the direction of travel, and the comb is drawn on the convex
- * side, i.e. opposite the centre of curvature — so it flips side at an inflection, the
- * way Rhino's CurvatureGraph and SolidWorks' combs do.
+ * Curvature-comb analysis for one or more splines: signed curvature samples, the side a
+ * curve's comb stands on, a robust reference magnitude to scale quills by, and
+ * inflection points. Pure; drawing lives in render2d. Sign convention: `curvature` is
+ * positive where the curve turns left (counter-clockwise) in the direction of travel.
+ *
+ * Unlike a mechanical-CAD comb (Rhino's CurvatureGraph, SolidWorks), which follows the
+ * sign and crosses the curve at every inflection, a board's comb stays on the outside
+ * of the board for the whole curve: a deck comb that dived through the foam at the nose
+ * kick reads as nonsense to a shaper. The sign change is marked as an inflection instead.
  */
 import { curvature, value, xDeriv, yDeriv } from './bezier-curve';
 import type { Spline } from './bezier-spline';
@@ -14,8 +17,8 @@ import type { Vec2 } from './vec2';
 export interface CombSample {
   /** Point on the curve. */
   p: Vec2;
-  /** Unit vector the quill grows along per unit of signed curvature (convex side). */
-  dir: Vec2;
+  /** Unit left normal: (-dy, dx) / |d| in the direction of travel. */
+  normal: Vec2;
   /** Signed curvature (1 / radius, in 1 / world units). */
   k: number;
   segment: number;
@@ -44,13 +47,49 @@ export const curvatureCombRuns = (s: Spline, samplesPerSegment: number): CombSam
         run = [];
         continue;
       }
-      // Left normal is (-dy, dx)/len and the centre of curvature lies along it for k > 0,
-      // so the convex side is its negation. The product dir·k is orientation-independent.
-      run.push({ p: value(c, t), dir: { x: dy / len, y: -dx / len }, k, segment, t });
+      run.push({ p: value(c, t), normal: { x: -dy / len, y: dx / len }, k, segment, t });
     }
   });
   if (run.length) runs.push(run);
   return runs;
+};
+
+/**
+ * Which side of a curve its comb stands on, as a multiplier of `normal`: the side facing
+ * away from the board, voted over the curve's length. `inside` are points known to lie
+ * in or across the board from the curve; each sample stands away from the nearest one.
+ * For a pane with several curves, pass the other curves' sample points — the deck's comb
+ * stands away from the bottom and vice versa. (The pane's bounding-box centre is no
+ * good there: a deck follows the rocker, so mid-board it sits *below* the centre of a
+ * box whose top is the kicked nose.) For a lone curve, pass the centre of its bounds.
+ *
+ * One answer per curve, so the comb never swaps sides partway: the deck comb stays above
+ * the deck through the nose kick, the bottom's below the bottom.
+ */
+export const curvatureCombSide = (
+  runs: readonly (readonly CombSample[])[],
+  inside: readonly Vec2[],
+): 1 | -1 => {
+  if (inside.length === 0) return 1;
+  let vote = 0;
+  for (const run of runs) {
+    for (let i = 1; i < run.length; i++) {
+      const a = run[i - 1]!,
+        b = run[i]!;
+      let near = inside[0]!;
+      let best = Infinity;
+      for (const q of inside) {
+        const d = (q.x - b.p.x) ** 2 + (q.y - b.p.y) ** 2;
+        if (d < best) {
+          best = d;
+          near = q;
+        }
+      }
+      const ds = Math.hypot(b.p.x - a.p.x, b.p.y - a.p.y);
+      vote += ds * Math.sign(b.normal.x * (b.p.x - near.x) + b.normal.y * (b.p.y - near.y));
+    }
+  }
+  return vote < 0 ? -1 : 1;
 };
 
 /**

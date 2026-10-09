@@ -86,12 +86,13 @@ export default function DocsSpecs() {
             views, longer where the curve bends tighter. This is the fastest way to find a flat spot
             in a rail that looks fine to the eye. How to read it: a smooth envelope along the quill
             tips means the curvature flows smoothly; a step in the envelope at a control point is a
-            sudden change in curvature there; quills shrinking to the curve are a flat spot. Quills
-            stand on the outside of the bend, so where a curve turns from convex to concave (a deck
-            flowing into a kicked nose, a concave running into the rail) the comb crosses over and a
-            small ring marks the inflection. Curves in one view share a scale (deck and bottom
-            quills compare directly); the tightest spots, such as a pinched nose tip, are capped so
-            they do not shrink the rest of the comb.
+            sudden change in curvature there; quills shrinking to the curve are a flat spot. Each
+            comb stays outside the board — deck quills above the deck, bottom quills below the
+            bottom, outline quills away from the stringer — so it never cuts through the foam. Where
+            a curve turns from convex to concave (a deck flowing into a kicked nose, a concave
+            running into the rail) a small ring on the curve marks the inflection. Curves in one
+            view share a scale (deck and bottom quills compare directly); the tightest spots, such
+            as a pinched nose tip, are capped so they do not shrink the rest of the comb.
           </Term>
           <Term name="Volume distribution">
             How volume is spread along the length — where the board carries its float.

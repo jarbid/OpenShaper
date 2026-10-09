@@ -370,6 +370,7 @@ function makeRecordingCtx() {
   const moves: { x: number; y: number }[] = [];
   const lines: { x: number; y: number }[] = [];
   const rings: { x: number; y: number }[] = [];
+  const ops: { op: 'M' | 'L'; x: number; y: number }[] = [];
   const ctx = {
     strokeStyle: '',
     fillStyle: '',
@@ -378,12 +379,25 @@ function makeRecordingCtx() {
     save: vi.fn(),
     restore: vi.fn(),
     beginPath: vi.fn(),
-    moveTo: vi.fn((x: number, y: number) => moves.push({ x, y })),
-    lineTo: vi.fn((x: number, y: number) => lines.push({ x, y })),
+    moveTo: vi.fn((x: number, y: number) => {
+      moves.push({ x, y });
+      ops.push({ op: 'M', x, y });
+    }),
+    lineTo: vi.fn((x: number, y: number) => {
+      lines.push({ x, y });
+      ops.push({ op: 'L', x, y });
+    }),
     arc: vi.fn((x: number, y: number) => rings.push({ x, y })),
     stroke: vi.fn(),
   } as unknown as CanvasRenderingContext2D;
-  return { ctx, moves, lines, rings };
+  /** Quills in draw order: a moveTo followed by exactly one lineTo (envelopes run on). */
+  const quills = () =>
+    ops.flatMap((o, i) =>
+      o.op === 'M' && ops[i + 1]?.op === 'L' && ops[i + 2]?.op !== 'L'
+        ? [{ base: o, tip: ops[i + 1]! }]
+        : [],
+    );
+  return { ctx, moves, lines, rings, quills };
 }
 
 /** Quill lengths in px: the first `count` moveTo/lineTo pairs are the quills. */
@@ -431,16 +445,51 @@ describe('drawCurvatureComb', () => {
     expect(r.rings).toHaveLength(0);
   });
 
-  it('changes side at an inflection and rings it', () => {
+  it('keeps an S-curve comb on one side and rings the inflection', () => {
     const r = makeRecordingCtx();
     drawCurvatureComb(r.ctx, [sCurve()], VP, '#38BDF8', 20);
-    // Samples 0..20: tips below the curve for the first half, above for the second.
+    // Samples 0..20 straddle the inflection at 10; the quills do not swap sides.
     const side = (i: number) => Math.sign(r.lines[i]!.y - r.moves[i]!.y);
-    expect(side(2)).toBe(-side(18));
+    expect(side(2)).toBe(side(18));
     expect(r.rings).toHaveLength(1);
     const centre = worldToScreen(VP, vec2(50, 0));
     expect(r.rings[0]!.x).toBeCloseTo(centre.x, 6);
     expect(r.rings[0]!.y).toBeCloseTo(centre.y, 6);
+  });
+
+  it('puts rocker deck quills above the deck and bottom quills below, nose included', () => {
+    // Side view as real boards are (cf. the bundled shortboard): the deck follows the
+    // rocker, lowest mid-board, so it sits below the centre of the pane's bounds there.
+    const deck = splineFromKnots([
+      knot(vec2(0, 7), vec2(0, 7), vec2(30, 6.2)),
+      knot(vec2(94, 6), vec2(60, 6), vec2(140, 6)),
+      knot(vec2(188, 14), vec2(170, 8), vec2(188, 14)),
+    ]);
+    const bottom = splineFromKnots([
+      knot(vec2(0, 6.4), vec2(0, 6.4), vec2(30, 1)),
+      knot(vec2(94, 0), vec2(60, 0), vec2(140, 0)),
+      knot(vec2(188, 11), vec2(175, 3), vec2(188, 11)),
+    ]);
+    const r = makeRecordingCtx();
+    drawCurvatureComb(r.ctx, [deck, bottom], VP, '#38BDF8', 12);
+    // Draw order: deck quills (2 segments × 13 samples), then the bottom's.
+    const q = r.quills();
+    expect(q).toHaveLength(2 * 26);
+    let up = 0;
+    let down = 0;
+    q.forEach(({ base, tip }, i) => {
+      const dy = tip.y - base.y; // screen y grows downward
+      if (Math.abs(dy) < 1e-6) return;
+      if (i < 26) {
+        expect(dy, `deck quill ${i}`).toBeLessThan(0);
+        up++;
+      } else {
+        expect(dy, `bottom quill ${i}`).toBeGreaterThan(0);
+        down++;
+      }
+    });
+    expect(up).toBeGreaterThan(20);
+    expect(down).toBeGreaterThan(20);
   });
 
   it('draws real quills on a spline with a zero-length dummy (every bundled deck)', () => {
