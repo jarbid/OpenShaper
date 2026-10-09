@@ -1,8 +1,9 @@
 import {
-  curvature,
+  curvatureCombReference,
+  curvatureCombRuns,
+  curvatureInflections,
   value,
-  xDeriv,
-  yDeriv,
+  type CombSample,
   type Knot,
   type ResolvedFin,
   type Spline,
@@ -545,83 +546,81 @@ const adaptiveCombSamples = (spline: Spline, vp: Viewport): number => {
   return Math.max(MIN, Math.min(MAX, capped, perSeg));
 };
 
+/** World length of a quill at the reference curvature, as a fraction of the pane's extent. */
+const COMB_LENGTH = 0.06;
+/** Quills are capped at this multiple of the reference length (a flat-topped envelope). */
+const COMB_CAP = 3;
+
 /**
- * Draw a curvature comb ("porcupine") for a spline: at samples along each
- * segment, a quill normal to the curve scaled by curvature magnitude, with the
- * quill tips joined into an envelope. The classic fairing aid — kinks and flat
- * spots that are invisible on the curve jump out on the comb. Auto-scaled so the
- * largest quill is a fixed fraction of the curve's extent.
+ * Draw curvature combs ("porcupines") for every spline a pane edits: at samples along
+ * each segment, a quill normal to the curve whose length is the curvature, with the
+ * quill tips joined into an envelope. The classic fairing aid, read the way Rhino's
+ * CurvatureGraph and SolidWorks' combs are:
  *
- * Quills always bloom *outward* (away from the curve's bounding-box centroid)
- * rather than flipping to the inside at inflections, so the comb reads
- * consistently on outline / rocker / cross-section views. `samplesPerSegment`
- * defaults to an on-screen-length-adaptive count.
+ * - **Signed.** Quills stand on the convex side, so the comb crosses the curve at an
+ *   inflection — marked with a small ring — instead of hiding it.
+ * - **Continuity.** A smooth envelope means curvature-continuous (G2); a step in it at a
+ *   knot is a curvature jump; a quill dropping to the curve is a flat spot.
+ * - **One scale per pane.** All splines share it, so deck and bottom quills in the rocker
+ *   compare directly. A quill at the 95th-percentile curvature is `COMB_LENGTH` of the
+ *   pane's extent; tighter spots are capped at `COMB_CAP` times that.
+ *
+ * `samplesPerSegment` defaults to an on-screen-length-adaptive count.
  */
 export const drawCurvatureComb = (
   ctx: CanvasRenderingContext2D,
-  spline: Spline,
+  splines: readonly Spline[],
   vp: Viewport,
   color = '#38BDF8',
   samplesPerSegment?: number,
 ): void => {
-  if (spline.coeffs.length === 0) return;
-  const nSamples = samplesPerSegment ?? adaptiveCombSamples(spline, vp);
-  const pts: Vec2[] = [];
-  const curvs: number[] = [];
-  for (const k of spline.coeffs) {
-    for (let i = 0; i <= nSamples; i++) {
-      const t = i / nSamples;
-      pts.push(value(k, t));
-      curvs.push(curvature(k, t));
-    }
-  }
-  const maxAbs = curvs.reduce((m, c) => Math.max(m, Math.abs(c)), 0);
-  if (maxAbs < 1e-9) return;
-  const b = boundsOf(pts);
-  const diag = Math.hypot(b.maxX - b.minX, b.maxY - b.minY) || 1;
-  const scale = (diag * 0.12) / maxAbs; // world cm per unit curvature
-  const cx = (b.minX + b.maxX) / 2;
-  const cy = (b.minY + b.maxY) / 2;
+  const combs = splines
+    .filter((s) => s.coeffs.length > 0)
+    .map((s) => curvatureCombRuns(s, samplesPerSegment ?? adaptiveCombSamples(s, vp)));
+  const ref = curvatureCombReference(combs.flat());
+  if (!(ref > 1e-9)) return;
+  const b = boundsOf(combs.flat(2).map((c) => c.p));
+  const length = (Math.hypot(b.maxX - b.minX, b.maxY - b.minY) || 1) * COMB_LENGTH;
+  const tipOf = (c: CombSample): Vec2 => {
+    const d = Math.max(-COMB_CAP, Math.min(COMB_CAP, c.k / ref)) * length;
+    return { x: c.p.x + c.dir.x * d, y: c.p.y + c.dir.y * d };
+  };
 
-  const tips: Vec2[] = pts.map((p, i) => {
-    const k = spline.coeffs[Math.min(Math.floor(i / (nSamples + 1)), spline.coeffs.length - 1)]!;
-    const t = (i % (nSamples + 1)) / nSamples;
-    const dx = xDeriv(k, t);
-    const dy = yDeriv(k, t);
-    const len = Math.hypot(dx, dy) || 1;
-    let nx = -dy / len; // unit normal to the curve direction
-    let ny = dx / len;
-    // Orient the quill outward: away from the curve interior (its centroid).
-    if (nx * (p.x - cx) + ny * (p.y - cy) < 0) {
-      nx = -nx;
-      ny = -ny;
-    }
-    const d = Math.abs(curvs[i]!) * scale; // magnitude only — never flips inward
-    return { x: p.x + nx * d, y: p.y + ny * d };
-  });
-
-  // Quills.
+  ctx.save();
   ctx.strokeStyle = color;
-  ctx.globalAlpha = 0.5;
   ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let i = 0; i < pts.length; i++) {
-    const a = worldToScreen(vp, pts[i]!);
-    const c = worldToScreen(vp, tips[i]!);
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(c.x, c.y);
+  for (const runs of combs) {
+    // Quills.
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath();
+    for (const c of runs.flat()) {
+      const a = worldToScreen(vp, c.p);
+      const tip = worldToScreen(vp, tipOf(c));
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(tip.x, tip.y);
+    }
+    ctx.stroke();
+    // Envelope joining the tips, broken where a degenerate segment left no samples.
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    for (const run of runs) {
+      run.forEach((c, i) => {
+        const tip = worldToScreen(vp, tipOf(c));
+        if (i === 0) ctx.moveTo(tip.x, tip.y);
+        else ctx.lineTo(tip.x, tip.y);
+      });
+    }
+    ctx.stroke();
+    // Inflections: rings on the curve where the comb changes side.
+    ctx.globalAlpha = 1;
+    for (const p of curvatureInflections(runs, ref * 1e-3)) {
+      const s = worldToScreen(vp, p);
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, 3.5, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
-  ctx.stroke();
-  // Envelope joining the tips.
-  ctx.globalAlpha = 0.9;
-  ctx.beginPath();
-  tips.forEach((tp, i) => {
-    const s = worldToScreen(vp, tp);
-    if (i === 0) ctx.moveTo(s.x, s.y);
-    else ctx.lineTo(s.x, s.y);
-  });
-  ctx.stroke();
-  ctx.globalAlpha = 1;
+  ctx.restore();
 };
 
 /** Labeled vertical reference lines at world-x positions (e.g. center of mass). */

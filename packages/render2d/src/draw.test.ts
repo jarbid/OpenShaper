@@ -369,62 +369,126 @@ describe('drawControlPoints', () => {
 function makeRecordingCtx() {
   const moves: { x: number; y: number }[] = [];
   const lines: { x: number; y: number }[] = [];
+  const rings: { x: number; y: number }[] = [];
   const ctx = {
     strokeStyle: '',
     fillStyle: '',
     lineWidth: 0,
     globalAlpha: 1,
+    save: vi.fn(),
+    restore: vi.fn(),
     beginPath: vi.fn(),
     moveTo: vi.fn((x: number, y: number) => moves.push({ x, y })),
     lineTo: vi.fn((x: number, y: number) => lines.push({ x, y })),
+    arc: vi.fn((x: number, y: number) => rings.push({ x, y })),
     stroke: vi.fn(),
   } as unknown as CanvasRenderingContext2D;
-  return { ctx, moves, lines };
+  return { ctx, moves, lines, rings };
 }
 
+/** Quill lengths in px: the first `count` moveTo/lineTo pairs are the quills. */
+const quillLengths = (r: ReturnType<typeof makeRecordingCtx>, count: number) =>
+  r.moves.slice(0, count).map((m, i) => Math.hypot(r.lines[i]!.x - m.x, r.lines[i]!.y - m.y));
+
 describe('drawCurvatureComb', () => {
-  // An arc-like outline half (half-width vs length): the bounding-box centroid is
-  // below the curve, so an outward-blooming comb puts quill tips ABOVE the curve.
+  // An arc-like outline half (half-width vs length): convex everywhere, bulging up, so
+  // quill tips sit ABOVE the curve.
   const arc = () =>
     splineFromKnots([
       knot(vec2(0, 0), vec2(0, 0), vec2(10, 8)),
       knot(vec2(50, 20), vec2(35, 20), vec2(65, 20)),
       knot(vec2(100, 0), vec2(90, 8), vec2(100, 0)),
     ]);
+  // Point-symmetric S-bend: one inflection at (50, 0).
+  const sCurve = () =>
+    splineFromKnots([
+      knot(vec2(0, 0), vec2(-20, -20), vec2(20, 20)),
+      knot(vec2(100, 0), vec2(80, -20), vec2(120, 20)),
+    ]);
 
   it('runs without throwing and emits quill segments', () => {
     const { ctx, moves } = makeRecordingCtx();
-    expect(() => drawCurvatureComb(ctx, arc(), VP)).not.toThrow();
+    expect(() => drawCurvatureComb(ctx, [arc()], VP)).not.toThrow();
     expect(ctx.stroke).toHaveBeenCalled();
     expect(moves.length).toBeGreaterThan(0);
   });
 
-  it('blooms outward: tips sit on the far side of the curve from its centroid', () => {
+  it('blooms outward on a convex curve: tips sit on its convex side', () => {
     // VP has y-down screen mapping, so "above the curve in world" => smaller screen y.
-    // Compare each quill base (moveTo, on the curve) to its tip (lineTo): with the
-    // centroid below, outward tips should be above (screen y_tip <= y_base) for the
-    // vast majority of non-flat samples.
-    const { ctx, moves, lines } = makeRecordingCtx();
-    drawCurvatureComb(ctx, arc(), VP, '#38BDF8', 14);
-    // The first pts.length moveTo/lineTo pairs are the quills (envelope adds only lineTo).
-    const n = Math.min(moves.length, lines.length);
+    const r = makeRecordingCtx();
+    drawCurvatureComb(r.ctx, [arc()], VP, '#38BDF8', 14);
+    const n = 2 * 15; // two segments, 15 samples each (the first has a collapsed start)
     let outward = 0;
     let counted = 0;
-    for (let i = 0; i < n; i++) {
-      const dy = lines[i]!.y - moves[i]!.y;
+    for (let i = 0; i < Math.min(n, r.moves.length); i++) {
+      const dy = r.lines[i]!.y - r.moves[i]!.y;
       if (Math.abs(dy) < 1e-6) continue; // flat sample, no quill
       counted++;
-      if (dy <= 0) outward++; // tip above base in screen space => outward
+      if (dy <= 0) outward++;
     }
     expect(counted).toBeGreaterThan(0);
-    expect(outward).toBeGreaterThan(counted * 0.8);
+    expect(outward).toBe(counted);
+    expect(r.rings).toHaveLength(0);
+  });
+
+  it('changes side at an inflection and rings it', () => {
+    const r = makeRecordingCtx();
+    drawCurvatureComb(r.ctx, [sCurve()], VP, '#38BDF8', 20);
+    // Samples 0..20: tips below the curve for the first half, above for the second.
+    const side = (i: number) => Math.sign(r.lines[i]!.y - r.moves[i]!.y);
+    expect(side(2)).toBe(-side(18));
+    expect(r.rings).toHaveLength(1);
+    const centre = worldToScreen(VP, vec2(50, 0));
+    expect(r.rings[0]!.x).toBeCloseTo(centre.x, 6);
+    expect(r.rings[0]!.y).toBeCloseTo(centre.y, 6);
+  });
+
+  it('draws real quills on a spline with a zero-length dummy (every bundled deck)', () => {
+    // Before: the dummy's NaN curvature poisoned the scale and no tip was finite.
+    const deck = splineFromKnots([...arc().knots, knot(vec2(100, 0), vec2(100, 0), vec2(100, 0))]);
+    const r = makeRecordingCtx();
+    drawCurvatureComb(r.ctx, [deck], VP, '#38BDF8', 10);
+    const coords = [...r.moves, ...r.lines].flatMap((p) => [p.x, p.y]);
+    expect(coords.every(Number.isFinite)).toBe(true);
+    expect(Math.max(...quillLengths(r, 22))).toBeGreaterThan(1);
+  });
+
+  it('caps a curvature spike instead of letting it flatten every other quill', () => {
+    // A nearly collapsed handle at the start puts a huge κ in the first sample.
+    const spiky = splineFromKnots([
+      knot(vec2(0, 0), vec2(0, 0), vec2(0.001, 0.02)),
+      knot(vec2(50, 20), vec2(35, 20), vec2(65, 20)),
+      knot(vec2(100, 0), vec2(90, 8), vec2(100, 0)),
+    ]);
+    const r = makeRecordingCtx();
+    drawCurvatureComb(r.ctx, [spiky], VP, '#38BDF8', 14);
+    const lengths = quillLengths(r, 30);
+    const max = Math.max(...lengths);
+    const sorted = [...lengths].sort((a, b) => a - b);
+    // The median quill is still a visible fraction of the longest (capped) one.
+    expect(sorted[15]! / max).toBeGreaterThan(0.05);
+  });
+
+  it('shares one scale across the splines of a pane', () => {
+    const flatter = splineFromKnots([
+      knot(vec2(0, 0), vec2(0, 0), vec2(10, 2)),
+      knot(vec2(50, 5), vec2(35, 5), vec2(65, 5)),
+      knot(vec2(100, 0), vec2(90, 2), vec2(100, 0)),
+    ]);
+    const alone = makeRecordingCtx();
+    drawCurvatureComb(alone.ctx, [flatter], VP, '#38BDF8', 10);
+    const paired = makeRecordingCtx();
+    drawCurvatureComb(paired.ctx, [flatter, arc()], VP, '#38BDF8', 10);
+    // Drawn beside the curvier arc, the flatter curve's quills are shorter than alone.
+    const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
+    expect(sum(quillLengths(paired, 22))).toBeLessThan(sum(quillLengths(alone, 22)) * 0.8);
   });
 
   it('adapts sample count to on-screen length (more quills when zoomed in)', () => {
     const zoomedOut = makeRecordingCtx();
-    drawCurvatureComb(zoomedOut.ctx, arc(), { scale: 0.5, originX: 0, originY: 0 });
+    drawCurvatureComb(zoomedOut.ctx, [arc()], { scale: 0.5, originX: 0, originY: 0 });
     const zoomedIn = makeRecordingCtx();
-    drawCurvatureComb(zoomedIn.ctx, arc(), { scale: 8, originX: 0, originY: 0 });
+    drawCurvatureComb(zoomedIn.ctx, [arc()], { scale: 8, originX: 0, originY: 0 });
     expect(zoomedIn.moves.length).toBeGreaterThan(zoomedOut.moves.length);
   });
 });

@@ -760,6 +760,14 @@ export function SplineEditor({
       });
       ctx.restore();
     }
+    // One comb pass for the pane, under the curves, so its splines share a scale.
+    if (overlays?.curvatureComb) {
+      drawCurvatureComb(
+        ctx,
+        targets.map((t) => getTargetSpline(board, t)),
+        vp,
+      );
+    }
     targets.forEach((t, i) => {
       const spline = getTargetSpline(board, t);
       const style: DrawStyle = {
@@ -772,7 +780,6 @@ export function SplineEditor({
       };
       drawSpline(ctx, spline, vp, style, { mirrorX, mirrorY });
       if (tunniEnabled) drawTunniControls(ctx, spline, vp);
-      if (overlays?.curvatureComb) drawCurvatureComb(ctx, spline, vp);
       const sel = selection && sameTarget(selection.target, t) ? selection.index : null;
       const hovered =
         hoveredControl && sameTarget(hoveredControl.target, t) ? hoveredControl.hit : null;
