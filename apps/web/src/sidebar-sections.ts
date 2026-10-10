@@ -343,6 +343,26 @@ export function toggleSection(state: SidebarState, id: SectionId, open: boolean)
 }
 
 /**
+ * Bring one tool on screen from outside the sidebar — a menu command such as
+ * Board ▸ Resize… that names a tool rather than a tab.
+ *
+ * Unfolds the panel, makes the tool's tab the active one and expands the section. The
+ * section is marked touched like any other hand toggle: the user asked for this tool
+ * by name, so the next view change must not shut it again.
+ *
+ * A tab already on screen as the pinned panel is left where it is. The tool is visible
+ * there, and switching the active tab would take away the panel the user was working
+ * in — the tab strip is the user's navigation, and this moves it only when it must.
+ */
+export function revealSection(state: SidebarState, id: SectionId): SidebarState {
+  const section = SIDEBAR_SECTIONS.find((s) => s.id === id);
+  if (!section) throw new Error(`Unknown sidebar section: ${id}`);
+  const onScreen = shownTabs(state).includes(section.tab);
+  const withTab = onScreen ? { ...state, collapsed: false } : selectTab(state, section.tab);
+  return toggleSection(withTab, id, true);
+}
+
+/**
  * Whether the master toggle should read "collapse all" (something is open) or
  * "expand all", for the rows it actually governs.
  *

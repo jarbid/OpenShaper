@@ -7,6 +7,7 @@ import {
   isSectionId,
   isSpecGroupId,
   isTabId,
+  revealSection,
   sectionIds,
   sectionsInTab,
   selectTab,
@@ -226,6 +227,47 @@ describe('the tab strip', () => {
     for (const view of ['quad', 'outline', 'rocker', 'crossSection', '3d'] as const) {
       expect(applyViewChange(state({ activeTab: 'build' }), view).activeTab, view).toBe('build');
     }
+  });
+});
+
+describe('revealSection', () => {
+  it('brings a tool on screen from a folded sidebar on another tab', () => {
+    // Board ▸ Resize… from the default layout with the panel folded away.
+    const next = revealSection(state({ collapsed: true }), 'resize');
+    expect(next.collapsed).toBe(false);
+    expect(next.activeTab).toBe('shape');
+    expect(next.open).toContain('resize');
+  });
+
+  it("marks the section the user's, so the next view change leaves it open", () => {
+    // Resize is relevant to no view: untouched, the first view change would shut it.
+    const next = applyViewChange(revealSection(state(), 'resize'), 'outline');
+    expect(next.open).toContain('resize');
+  });
+
+  it('leaves the rest of the accordion alone', () => {
+    const s = toggleSection(state(), 'fins', true);
+    const next = revealSection(s, 'resize');
+    expect(next.open.filter((id) => id !== 'resize')).toEqual(s.open);
+    expect(next.touched).toEqual(['resize', 'fins']);
+  });
+
+  it('keeps the working tab when the tool is already on screen in the pinned panel', () => {
+    // Shape pinned above Build: switching to Shape would take away the Build panel.
+    const s = selectTab(togglePin(state(), 'shape'), 'build');
+    const next = revealSection(s, 'resize');
+    expect(next.activeTab).toBe('build');
+    expect(next.pinnedTab).toBe('shape');
+    expect(next.open).toContain('resize');
+  });
+
+  it('still unfolds a sidebar whose pinned panel holds the tool', () => {
+    const s = { ...selectTab(togglePin(state(), 'shape'), 'build'), collapsed: true };
+    expect(revealSection(s, 'resize').collapsed).toBe(false);
+  });
+
+  it('rejects an unknown section', () => {
+    expect(() => revealSection(state(), 'construction' as never)).toThrow();
   });
 });
 

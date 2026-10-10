@@ -85,7 +85,7 @@ export default function DocsOverview() {
             Control points, tangents, the views, undo.
           </Term>
           <Term name={<Link to="/docs/specs">Specs &amp; measurements</Link>}>
-            Volume, dimensions, weight, the readouts and overlays.
+            Volume, dimensions, resizing, weight, the readouts and overlays.
           </Term>
           <Term name={<Link to="/docs/fins">Fins</Link>}>Setups, systems, profiles.</Term>
           <Term name={<Link to="/docs/construction">Construction templates</Link>}>

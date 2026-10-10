@@ -93,7 +93,12 @@ import { CrossSectionControls } from './CrossSectionControls';
 import { LandscapeHint } from './LandscapeHint';
 import { CoffeeIcon } from './components/Support';
 import { Sidebar, type OverlayToggles, type ResizeFields } from './Sidebar';
-import { applyViewChange, DEFAULT_SIDEBAR_STATE, type SidebarState } from './sidebar-sections';
+import {
+  applyViewChange,
+  DEFAULT_SIDEBAR_STATE,
+  revealSection,
+  type SidebarState,
+} from './sidebar-sections';
 import sampleBrd from './sample-board.brd?raw';
 import { boardStore } from './store';
 import { SUPPORT_URL } from './support';
@@ -673,6 +678,27 @@ function AppShell() {
     setResize({ l: '', w: '', t: '' });
   }, [specs, resize, units]);
 
+  // Board ▸ Resize…: the tool lives in a section of the Shape tab that no view opens
+  // on its own, so asking to scale a finished design did not lead to it. The command
+  // brings it on screen — panel unfolded, or the sheet raised on the compact tiers —
+  // and puts the cursor in its first field.
+  //
+  // An effect keyed on a request counter rather than a call made here: the panel may
+  // be folded or the sheet closed, so the field does not exist until the commit these
+  // updates cause. Passive rather than layout, so it lands after every cleanup in that
+  // commit — a closing dialog handing focus back to its opener cannot take it back.
+  const resizeField = useRef<HTMLInputElement>(null);
+  const [resizeFocus, setResizeFocus] = useState(0);
+  useEffect(() => {
+    if (resizeFocus > 0) resizeField.current?.focus();
+  }, [resizeFocus]);
+  const openResize = () => {
+    setSidebar((s) => revealSection(s, 'resize'));
+    // `half` is where the panels button opens it; one already at `full` stays there.
+    if (!isDesktop && !panelsShowing) setSheetSnap('half');
+    setResizeFocus((n) => n + 1);
+  };
+
   // Fins are part of the board model now; resolve their geometry against the current
   // shape for the 2D overlays (plan footprint + box; profile blade silhouette).
   const resolvedFins = useMemo(() => (board ? resolveFins(board) : []), [board]);
@@ -1249,6 +1275,8 @@ function AppShell() {
   ];
 
   const boardMenu: MenuItem[] = [
+    { kind: 'action', label: 'Resize…', onSelect: openResize },
+    { kind: 'separator' },
     ghost
       ? { kind: 'action', label: 'Clear ghost', onSelect: () => setGhost(null) }
       : { kind: 'action', label: 'Open ghost…', onSelect: () => ghostInput.current?.click() },
@@ -1403,6 +1431,7 @@ function AppShell() {
       resize={resize}
       setResize={setResize}
       applyResize={applyResize}
+      resizeFieldRef={resizeField}
       meta={meta}
       setMeta={setMeta}
       foamType={foamType}

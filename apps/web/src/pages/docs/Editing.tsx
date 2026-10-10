@@ -170,7 +170,8 @@ export default function DocsEditing() {
           locked directions, Extend handle grows a collapsed handle along its lock, and moving the
           point carries its handles with it. To lock handles level or upright, use the horizontal or
           vertical align buttons in the sidebar Control point section: aligning a locked point turns
-          its lock with it. Resizing the board scales the locks with the shape.
+          its lock with it. <Link to="/docs/specs#resize">Resizing the board</Link> scales the locks
+          with the shape.
         </p>
         <p>
           Locks are part of the board. Locking and unlocking undo like any other edit, and locks are

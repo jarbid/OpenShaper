@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { shortcutKeys } from '../../shortcuts';
 import { DocsPage, Section, Term, Terms } from './DocsPage';
 
 export default function DocsSpecs() {
@@ -9,6 +10,7 @@ export default function DocsSpecs() {
       lede="Volume, dimensions, weight and the analysis overlays — what each number means and how it is worked out."
       toc={[
         { id: 'readout', label: 'The spec readout' },
+        { id: 'resize', label: 'Resizing a board' },
         { id: 'volume', label: 'Volume' },
         { id: 'units', label: 'Units' },
         { id: 'weight', label: 'Weight estimate' },
@@ -36,6 +38,37 @@ export default function DocsSpecs() {
           Specs has its own tab, so it is always one click away, and the headline dimensions and
           volume stay on the tab strip even when the panel is folded away — the numbers you check
           most are never more than a glance from wherever you are working.
+        </p>
+      </Section>
+
+      <Section id="resize" title="Resizing a board">
+        <p>
+          To scale a finished design to new dimensions, choose <strong>Board ▸ Resize…</strong>, or
+          open the command palette (<code>{shortcutKeys('command-palette')}</code>, or the menu
+          button on a phone) and type <code>resize</code>. It opens the Resize section of the
+          sidebar&apos;s Shape tab, with the cursor in the first field.
+        </p>
+        <Terms>
+          <Term name="Length, Width, Thickness">
+            The size you want, typed in the current display unit. The board&apos;s present size
+            shows greyed out in each field as a reminder.
+          </Term>
+          <Term name="A blank field">
+            Keeps that dimension as it is. Fill in only length to make the board longer without
+            making it any wider or thicker.
+          </Term>
+          <Term name="Apply">
+            Scales the whole board by one factor along each filled-in axis, so it reaches the target
+            without changing its lines in that direction: a board made 5% wider is 5% wider at the
+            nose, the tail and every station between. Length stretches the outline, rocker and deck
+            and moves the cross-sections and fins along with them; width scales the outline and
+            every cross-section&apos;s width; thickness scales the rocker, deck and cross-section
+            heights. Fins and locked handle angles scale with the board too.
+          </Term>
+        </Terms>
+        <p>
+          Resizing is one step in the undo history (<em>Resize board</em>), so a result you do not
+          like is one undo away. The fields clear once it is applied.
         </p>
       </Section>
 

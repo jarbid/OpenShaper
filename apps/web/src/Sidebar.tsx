@@ -49,6 +49,7 @@ import {
   useSyncExternalStore,
   type Dispatch,
   type ReactNode,
+  type Ref,
   type SetStateAction,
 } from 'react';
 import { ControlPointInspector } from './ControlPointInspector';
@@ -158,6 +159,11 @@ export interface SidebarProps {
   resize: ResizeFields;
   setResize: Dispatch<SetStateAction<ResizeFields>>;
   applyResize: () => void;
+  /**
+   * Attached to the first Resize field, so Board ▸ Resize… can put the cursor in it.
+   * A ref object rather than a callback, so it is stable across renders of the shell.
+   */
+  resizeFieldRef?: Ref<HTMLInputElement>;
 
   meta: BoardMeta;
   setMeta: Dispatch<SetStateAction<BoardMeta>>;
@@ -211,6 +217,7 @@ export const Sidebar = memo(function Sidebar({
   resize,
   setResize,
   applyResize,
+  resizeFieldRef,
   meta,
   setMeta,
   foamType,
@@ -258,6 +265,7 @@ export const Sidebar = memo(function Sidebar({
         resize={resize}
         setResize={setResize}
         applyResize={applyResize}
+        firstFieldRef={resizeFieldRef}
       />
     ),
     controlPoint: <ControlPointInspector store={boardStore} units={units} />,
@@ -889,12 +897,14 @@ function ResizeSection({
   resize,
   setResize,
   applyResize,
+  firstFieldRef,
 }: {
   specs: BoardSpecs | null;
   units: LengthUnit;
   resize: ResizeFields;
   setResize: Dispatch<SetStateAction<ResizeFields>>;
   applyResize: () => void;
+  firstFieldRef?: Ref<HTMLInputElement>;
 }) {
   return (
     <div className="space-y-2 text-sm">
@@ -908,6 +918,7 @@ function ResizeSection({
         <label key={key} className="flex items-center gap-2">
           <span className="w-16 text-muted-foreground">{label}</span>
           <Input
+            ref={key === 'l' ? firstFieldRef : undefined}
             value={resize[key]}
             placeholder={cur != null ? fmtLen(cur, units) : ''}
             onChange={(e) => setResize((r) => ({ ...r, [key]: e.target.value }))}
