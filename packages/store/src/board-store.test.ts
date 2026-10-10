@@ -895,3 +895,70 @@ describe('board store: handle-angle locks', () => {
     expect(store.getState().past.at(-1)!.label).toBe('Set handle length');
   });
 });
+
+describe('board store: keyboard handle rotation and length', () => {
+  const OUTLINE = { kind: 'outline' } as const;
+  const DEG = Math.PI / 180;
+  const withBoard = () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+    return store;
+  };
+  const middle = (store: ReturnType<typeof createBoardStore>) =>
+    store.getState().board!.outline.knots[1]!;
+
+  it('turns a handle in one labelled undo step per call, keeping its length', () => {
+    const store = withBoard();
+    store.getState().rotateTangent(OUTLINE, 1, 'next', 30 * DEG);
+    store.getState().rotateTangent(OUTLINE, 1, 'both', 10 * DEG);
+    const k = middle(store);
+    expect(k.tangentToNext.x).toBeCloseTo(50 + 5 * Math.cos(40 * DEG), 12);
+    expect(k.tangentToNext.y).toBeCloseTo(20 + 5 * Math.sin(40 * DEG), 12);
+    // Smooth: the other handle turned with it.
+    expect(k.tangentToPrev.x).toBeCloseTo(50 - 5 * Math.cos(40 * DEG), 12);
+    expect(k.tangentToPrev.y).toBeCloseTo(20 - 5 * Math.sin(40 * DEG), 12);
+    expect(store.getState().past.map((h) => h.label)).toEqual(['Rotate handle', 'Rotate handles']);
+
+    store.getState().undo();
+    store.getState().undo();
+    expect(middle(store).tangentToNext).toEqual(vec2(55, 20));
+  });
+
+  it('records nothing for a locked handle', () => {
+    const store = withBoard();
+    store.getState().setLocked(OUTLINE, 1, true);
+    const before = store.getState().board;
+    store.getState().rotateTangent(OUTLINE, 1, 'next', 5 * DEG);
+    expect(store.getState().board).toBe(before);
+    expect(store.getState().past.map((h) => h.label)).toEqual(['Lock handle angles']);
+  });
+
+  it('refuses a turn the junction pass would bend back and shorten', () => {
+    // An outline handle may turn up to vertical, never past it: the curve would fold
+    // back on itself, so the junction pass would squash the handle onto the vertical.
+    const store = withBoard();
+    store.getState().rotateTangent(OUTLINE, 1, 'next', 85 * DEG);
+    expect(store.getState().past).toHaveLength(1);
+    const before = store.getState().board;
+    store.getState().rotateTangent(OUTLINE, 1, 'next', 10 * DEG);
+    expect(store.getState().board).toBe(before);
+    expect(store.getState().past).toHaveLength(1);
+    expect(
+      Math.hypot(middle(store).tangentToNext.x - 50, middle(store).tangentToNext.y - 20),
+    ).toBeCloseTo(5, 12);
+  });
+
+  it('steps both handles of a point in one undo step, never below zero', () => {
+    const store = withBoard();
+    store.getState().stepTangentLength(OUTLINE, 1, 'both', 2);
+    expect(middle(store).tangentToPrev).toEqual(vec2(43, 20));
+    expect(middle(store).tangentToNext).toEqual(vec2(57, 20));
+    expect(store.getState().past.map((h) => h.label)).toEqual(['Set handle length']);
+
+    store.getState().stepTangentLength(OUTLINE, 1, 'next', -100);
+    expect(middle(store).tangentToNext).toEqual(vec2(50, 20));
+    // Already collapsed: shortening further records nothing.
+    store.getState().stepTangentLength(OUTLINE, 1, 'next', -1);
+    expect(store.getState().past).toHaveLength(2);
+  });
+});

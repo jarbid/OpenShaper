@@ -23,6 +23,7 @@ import {
   moveCrossSectionPosition,
   propagateCrossSectionToCurves,
   removeCrossSection,
+  rotateKnotTangent,
   scaleBoard,
   setFinFromPlanPoint,
   setFinSetup,
@@ -31,10 +32,12 @@ import {
   setKnotContinuous,
   setKnotLock,
   setKnotTangentLength,
+  stepKnotTangentLength,
   zeroKnotTangent,
   updateFinSpec,
   withInterpolationType,
   withSpline,
+  type KnotHandles,
   type SplineTarget,
 } from './edits';
 
@@ -90,6 +93,24 @@ export interface BoardState {
     index: number,
     which: 'prev' | 'next',
     length: number,
+  ) => void;
+  /**
+   * Turn a handle, or both handles of a point (`'both'`), about the point by `radians`
+   * (counter-clockwise positive), keeping their lengths. One undo step per call. No-op,
+   * with no step, on a locked handle, and when the turn would cross a junction limit
+   * (a profile curve folding back, an outline tip turning in past the centreline): the
+   * junction pass would bend the handle back onto the limit and shorten it.
+   */
+  rotateTangent: (target: SplineTarget, index: number, which: KnotHandles, radians: number) => void;
+  /**
+   * Lengthen (positive) or shorten a handle, or both handles of a point, by `delta` cm
+   * along their directions, never below zero. One undo step per call.
+   */
+  stepTangentLength: (
+    target: SplineTarget,
+    index: number,
+    which: KnotHandles,
+    delta: number,
   ) => void;
 
   /** Insert a control point on the target spline nearest to `p`, then select it. */
@@ -153,6 +174,10 @@ export interface BoardState {
 }
 
 const MAX_HISTORY = 200;
+
+/** Whether two handle positions agree to well below anything an edit could mean (cm). */
+const samePoint = (a: Vec2, b: Vec2): boolean =>
+  Math.abs(a.x - b.x) <= 1e-9 && Math.abs(a.y - b.y) <= 1e-9;
 
 /**
  * What survives of the selection when history replaces `from` with `to`.
@@ -279,6 +304,35 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         const spline = getTargetSpline(board, target);
         const next = setKnotTangentLength(spline, index, which, length);
         // A collapsed free handle has no direction to lengthen along: no step to record.
+        if (next === spline) return;
+        editSpline(target, 'Set handle length', () => withSpline(board, target, next));
+      },
+      rotateTangent: (target, index, which, radians) => {
+        const { board } = get();
+        if (!board) return;
+        const spline = getTargetSpline(board, target);
+        const turned = rotateKnotTangent(spline, index, which, radians);
+        // Locked, collapsed, or no angle: nothing turned, so no step to record.
+        if (turned === spline) return;
+        // The junction pass clamps a handle turned past a limit back onto it, which
+        // shortens it. A turn keeps its length or does not happen.
+        const want = turned.knots[index]!;
+        const got = getTargetSpline(
+          enforceJunctions(withSpline(board, target, turned), target),
+          target,
+        ).knots[index]!;
+        if (!samePoint(want.tangentToPrev, got.tangentToPrev)) return;
+        if (!samePoint(want.tangentToNext, got.tangentToNext)) return;
+        editSpline(target, which === 'both' ? 'Rotate handles' : 'Rotate handle', () =>
+          withSpline(board, target, turned),
+        );
+      },
+      stepTangentLength: (target, index, which, delta) => {
+        const { board } = get();
+        if (!board) return;
+        const spline = getTargetSpline(board, target);
+        const next = stepKnotTangentLength(spline, index, which, delta);
+        // Already collapsed, or no direction to grow along: no step to record.
         if (next === spline) return;
         editSpline(target, 'Set handle length', () => withSpline(board, target, next));
       },

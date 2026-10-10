@@ -21,14 +21,17 @@ export {
   moveKnotTangent,
   moveCrossSectionPosition,
   removeCrossSection,
+  rotateKnotTangent,
   sameTarget,
   scaleBoard,
   setKnotContinuous,
   setKnotLock,
   setKnotTangentLength,
+  stepKnotTangentLength,
   zeroKnotTangent,
   withCrossSections,
   withSpline,
+  type KnotHandles,
   type SplineTarget,
 } from './edits';
 export { selectSpecs, type BoardSpecs } from './selectors';

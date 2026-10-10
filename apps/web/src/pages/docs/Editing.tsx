@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { Link } from 'react-router-dom';
 import { RAIL_PRESETS } from '@openshaper/kernel';
-import { shortcutKeys } from '../../shortcuts';
+import { NUDGE, shortcutKeys } from '../../shortcuts';
 import { DocsPage, Section, Term, Terms } from './DocsPage';
 
 export default function DocsEditing() {
@@ -15,6 +15,7 @@ export default function DocsEditing() {
         { id: 'guides', label: 'Guides in 3D' },
         { id: 'points', label: 'Control points & tangents' },
         { id: 'locks', label: 'Locking handle angles' },
+        { id: 'keyboard', label: 'Nudging from the keyboard' },
         { id: 'sections', label: 'Cross-sections' },
         { id: 'rails', label: 'Rail presets' },
         { id: 'tail', label: 'Concave tails' },
@@ -178,6 +179,45 @@ export default function DocsEditing() {
           saved in OpenShaper&apos;s own <code>.board.json</code> files and share links. A{' '}
           <code>.brd</code> export leaves them out — BoardCAD has no such setting — so the curve is
           unchanged but its points come back unlocked.
+        </p>
+      </Section>
+
+      <Section id="keyboard" title="Nudging from the keyboard">
+        <p>
+          Select a point or a handle and press the arrow keys (<code>{shortcutKeys('nudge')}</code>)
+          to move it one step at a time: 5 mm, 0.5 cm or 0.25 in, depending on the length unit. Hold
+          Shift for {NUDGE.shiftFactor} steps at once. The arrows work in whichever view holds the
+          selection, and not while you are typing in a field. Each press is one undo step.
+        </p>
+        <p>
+          Two keys, held down, change what the arrows do. On their own they do nothing; let go and
+          the arrows move the selection again.
+        </p>
+        <Terms>
+          <Term name={`Hold ${NUDGE.rotateKey.toUpperCase()}: turn`}>
+            <code>{shortcutKeys('nudge-rotate')}</code> turns the selected handle about its point,{' '}
+            {NUDGE.turnDegrees}° per press, keeping its length: ← and ↑ counter-clockwise, → and ↓
+            clockwise, as you see it — in every view, including a phone&apos;s nose-up one. With the
+            point itself selected, both of its handles turn by the same angle. A smooth point&apos;s
+            two handles always turn together, so it stays smooth. Shift turns{' '}
+            {NUDGE.turnDegrees * NUDGE.shiftFactor}°.
+          </Term>
+          <Term name={`Hold ${NUDGE.lengthKey.toUpperCase()}: length`}>
+            <code>{shortcutKeys('nudge-length')}</code> lengthens (→ ↑) or shortens (← ↓) the
+            selected handle by one step along the line it points, never past zero; with the point
+            selected, both of its handles. A handle shortened to nothing grows back the way it
+            pointed: opposite its partner on a smooth point, along its lock when locked, and
+            otherwise toward the neighbouring point. Shift changes it {NUDGE.shiftFactor} steps at
+            once.
+          </Term>
+        </Terms>
+        <p>
+          A lock fixes a handle&apos;s angle, so turning does nothing to a locked handle — and, on a
+          smooth point, to either of its handles — while its length still changes. A turn that would
+          fold a curve back on itself, such as an outline or rocker handle turned past square to the
+          board&apos;s length, is not made at all rather than squashing the handle: the press does
+          nothing, and smaller steps without Shift still take it closer. Every chord is listed on
+          the <Link to="/docs/shortcuts#nudging">shortcuts</Link> page.
         </p>
       </Section>
 

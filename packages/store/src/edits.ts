@@ -237,6 +237,97 @@ export const setKnotTangentLength = (
   return moveKnotTangent(s, index, which, vec2(k.end.x + dir.x * len, k.end.y + dir.y * len));
 };
 
+/** One handle of a knot, or both: a selected point acts on both of its handles. */
+export type KnotHandles = 'prev' | 'next' | 'both';
+
+/** `p` turned about `c` by the angle whose cosine and sine are given. */
+const rotateAbout = (c: Vec2, p: Vec2, cos: number, sin: number): Vec2 => {
+  const dx = p.x - c.x;
+  const dy = p.y - c.y;
+  return vec2(c.x + dx * cos - dy * sin, c.y + dx * sin + dy * cos);
+};
+
+/**
+ * Turn a knot's handles about its point by `radians` (positive = counter-clockwise
+ * in the spline's own x/y), keeping their lengths.
+ *
+ * `which` names the handle to turn, or `'both'` for a selected point. A corner's
+ * handles are independent, so only the named ones turn. A smooth point's two handles
+ * are one tangent line, so they always turn together and stay collinear.
+ *
+ * A lock fixes a handle's angle, so a locked handle never turns. On a smooth point a
+ * lock on either handle therefore holds both. A collapsed handle has no angle to
+ * change. When nothing can turn, `s` itself is returned.
+ */
+export const rotateKnotTangent = (
+  s: Spline,
+  index: number,
+  which: KnotHandles,
+  radians: number,
+): Spline => {
+  const k = s.knots[index];
+  if (!k || !Number.isFinite(radians) || radians === 0) return s;
+  const prevLocked = k.lock?.prev !== undefined;
+  const nextLocked = k.lock?.next !== undefined;
+  if (k.continuous && (prevLocked || nextLocked)) return s;
+  const turnPrev = (which !== 'next' || k.continuous) && !prevLocked;
+  const turnNext = (which !== 'prev' || k.continuous) && !nextLocked;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  const turn = (handle: Vec2, free: boolean): Vec2 =>
+    free && (handle.x !== k.end.x || handle.y !== k.end.y)
+      ? rotateAbout(k.end, handle, cos, sin)
+      : handle;
+  const prev = turn(k.tangentToPrev, turnPrev);
+  const next = turn(k.tangentToNext, turnNext);
+  if (prev === k.tangentToPrev && next === k.tangentToNext) return s;
+  return replaceKnot(s, index, withHandles(k, prev, next));
+};
+
+/**
+ * The direction a handle grows along: its lock's, or where it points now. A collapsed
+ * free handle has neither, so it takes the one it most plausibly had: opposite the
+ * other handle on a smooth point (the only direction that keeps it smooth), otherwise
+ * toward the neighbouring point, as Extend handle does — so a handle shortened to
+ * nothing can be lengthened again.
+ */
+const growDirection = (s: Spline, index: number, which: 'prev' | 'next'): Vec2 | undefined => {
+  const k = s.knots[index]!;
+  const handle = which === 'prev' ? k.tangentToPrev : k.tangentToNext;
+  const own = (which === 'prev' ? k.lock?.prev : k.lock?.next) ?? direction(k.end, handle);
+  if (own) return own;
+  const other = direction(k.end, which === 'prev' ? k.tangentToNext : k.tangentToPrev);
+  if (k.continuous && other) return reversed(other);
+  const neighbour = s.knots[index + (which === 'prev' ? -1 : 1)];
+  return neighbour ? direction(k.end, neighbour.end) : other && reversed(other);
+};
+
+/**
+ * Lengthen (positive `delta`) or shorten a knot's handles by `delta`, each along its
+ * own direction (see {@link setKnotTangentLength}) and never below zero. `'both'`
+ * changes both handles of a point by the same amount. A collapsed handle grows back
+ * along {@link growDirection}. Returns `s` itself when nothing changes.
+ */
+export const stepKnotTangentLength = (
+  s: Spline,
+  index: number,
+  which: KnotHandles,
+  delta: number,
+): Spline => {
+  if (!s.knots[index] || !Number.isFinite(delta) || delta === 0) return s;
+  let out = s;
+  for (const side of which === 'both' ? (['prev', 'next'] as const) : [which]) {
+    const k = out.knots[index]!;
+    const handle = side === 'prev' ? k.tangentToPrev : k.tangentToNext;
+    const length = Math.hypot(handle.x - k.end.x, handle.y - k.end.y);
+    const len = Math.max(0, length + delta);
+    const dir = growDirection(out, index, side);
+    if (len === length || !dir) continue;
+    out = moveKnotTangent(out, index, side, vec2(k.end.x + dir.x * len, k.end.y + dir.y * len));
+  }
+  return out;
+};
+
 /** Adjust the two handles belonging to one segment as a single immutable edit. */
 export const moveSegmentTangents = (s: Spline, index: number, first: Vec2, last: Vec2): Spline => {
   if (

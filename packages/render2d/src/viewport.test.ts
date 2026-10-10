@@ -1,3 +1,4 @@
+import { vec2, type Vec2 } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
 import {
   CSS_PX_PER_CM,
@@ -13,6 +14,7 @@ import {
   viewportFromCenter,
   worldToScreen,
   zoomAt,
+  type ScreenPoint,
 } from './viewport';
 
 describe('viewport', () => {
@@ -229,6 +231,25 @@ describe('the turned-pane pointer mapping', () => {
     // pane, which is what makes the board read nose-up.
     expect(paneToTurnedCanvas({ x: 0, y: 0 }, canvasW)).toEqual({ x: canvasW, y: 0 });
     expect(paneToTurnedCanvas({ x: 0, y: canvasW }, canvasW)).toEqual({ x: 0, y: 0 });
+  });
+
+  // Hold R + arrows turns a handle counter-clockwise for ← and ↑ as seen on screen,
+  // and does it as a positive angle in board coordinates, with no per-view case. That
+  // is one rule for every pane only while no pane shows the board mirrored: board →
+  // screen must keep its orientation, turned or not. (The outline's and the section's
+  // mirrored halves carry no control points, so they cannot hold a selected handle.)
+  it('is a quarter turn, never a reflection: counter-clockwise stays counter-clockwise', () => {
+    const vp = { scale: 2, originX: 30, originY: 300 };
+    /** Cross product of the screen triangle o-a-b, with y flipped to point up as seen. */
+    const seenTurn = (o: ScreenPoint, a: ScreenPoint, b: ScreenPoint) =>
+      (a.x - o.x) * -(b.y - o.y) - -(a.y - o.y) * (b.x - o.x);
+    const [o, a, b] = [vec2(0, 0), vec2(1, 0), vec2(0, 1)]; // counter-clockwise in the board
+    const upright = (p: Vec2) => worldToScreen(vp, p);
+    const turned = (p: Vec2) => turnedCanvasToPane(worldToScreen(vp, p), canvasW);
+    expect(seenTurn(upright(o), upright(a), upright(b))).toBeGreaterThan(0);
+    expect(seenTurn(turned(o), turned(a), turned(b))).toBeGreaterThan(0);
+    // And the turn is the one the docs describe: the board's +x (the nose) points up.
+    expect(turned(a).y).toBeLessThan(turned(o).y);
   });
 
   it('keeps every pane point inside the canvas', () => {

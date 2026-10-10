@@ -62,7 +62,10 @@ outline → rocker → deck and thickness → slices → check in 3D → export.
    constraints all respect the lock without code of their own. A few tools state
    their intent instead of being projected: Fair sets its lengths along the locked
    directions, Extend grows a collapsed handle along its lock, and Align turns the lock
-   with the handles — which is how a handle is locked horizontal or vertical.
+   with the handles — which is how a handle is locked horizontal or vertical. The
+   keyboard turn (hold R + arrows, `rotateKnotTangent`) leaves a locked handle where it
+   is, and on a smooth point a lock on either handle holds both; the keyboard length
+   step (hold T + arrows) works along the lock like the Length field.
 5. **Projection, not distance.** The length is the cursor's reach _along_ the locked
    direction. A sideways drag leaves the length alone, and dragging back past the point
    collapses the handle instead of flipping it.
@@ -86,6 +89,29 @@ outline → rocker → deck and thickness → slices → check in 3D → export.
   Unlock in the right-click menu on a point or a handle, the `L` shortcut, a bar across
   each locked handle's line, and a Length field for a locked handle.
 - Docs: `/docs/editing#locks`.
+
+Later, keyboard turn and length (Phase 0 item 0.3, `docs/design/phase-0.md`): hold R +
+arrows turns the selected handle, or both handles of a selected point, 1° a press
+(`rotateKnotTangent`, store action `rotateTangent`); hold T + arrows changes their length
+by one nudge step (`stepKnotTangentLength`, `stepTangentLength`); Shift makes any step
+10×. Each press is one undo step. The rules that are easy to get wrong:
+
+- **Direction on screen.** ← and ↑ turn counter-clockwise, → and ↓ clockwise, as seen.
+  That is a positive angle in the spline's own x/y in every pane, with no per-view case:
+  `worldToScreen` draws every spline y-up, a nose-up phone pane turns its canvas element
+  a quarter turn (a rotation, never a reflection), and the mirrored halves (the outline
+  below the stringer, a section's left side) are drawn copies with no control points, so
+  a selected handle is always on the half drawn the right way round. Pinned in
+  `packages/render2d/src/viewport.test.ts`; a pane that ever draws a spline mirrored
+  must flip the sign for that pane.
+- **Locks.** A locked handle never turns, and on a smooth point a lock on either handle
+  holds both. Length still changes, along the lock.
+- **Junctions.** A turn the junction pass would clamp (an outline or rocker handle past
+  vertical, a tip handle across the centreline) is refused whole, so a turn always keeps
+  the handle's length.
+- **Hold keys** (`apps/web/src/use-nudge-mode.ts`) are ignored in text fields and with
+  Ctrl/Cmd/Alt, and end on their keyup, window blur, the tab being hidden, and Cmd's
+  keyup (macOS drops the keyup of a key released under Cmd).
 
 ## 5. Next
 

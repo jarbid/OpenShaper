@@ -11,7 +11,8 @@ import { handleSideName, visualSideForHandleKind } from '@openshaper/render2d';
 import { Button, Input } from '@openshaper/ui';
 import { Lock, LockOpen } from 'lucide-react';
 import { NumericInput } from './components/numeric-input';
-import { shortcutKeys } from './shortcuts';
+import { NUDGE, shortcutKeys } from './shortcuts';
+import { useNudgeMode } from './use-nudge-mode';
 import { useSyncedText } from './use-numeric-field';
 import { useCallback, useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
@@ -34,10 +35,31 @@ const parse = (text: string, units: LengthUnit): number => parseLen(text, units)
 /** Control-point nudges are intentionally finer than station-position edits. */
 const pointEditStep = (units: LengthUnit): number => lengthEditStep(units) / 2;
 
+/** One arrow-key step in cm: a {@link pointEditStep}, or `NUDGE.shiftFactor` of them with Shift. */
+const nudgeStepCm = (units: LengthUnit, big: boolean): number =>
+  parse(String(pointEditStep(units)), units) * (big ? NUDGE.shiftFactor : 1);
+
 type ArrowKey = 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown';
 
 const isArrowKey = (key: string): key is ArrowKey =>
   key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown';
+
+/**
+ * Which way an arrow turns a handle: ← and ↑ counter-clockwise (+1), → and ↓
+ * clockwise (−1), as seen on screen.
+ *
+ * A positive angle in a spline's own x/y is counter-clockwise on screen in every
+ * pane, so this needs no per-view case: every 2D view draws its splines y-up; a pane
+ * that stands the board nose-up turns its canvas a quarter turn, a rotation and never
+ * a reflection; and the mirrored halves (the outline below the stringer, a
+ * cross-section's left side) are drawn copies that carry no control points, so a
+ * selected handle is always on the half drawn the right way round. Pinned in
+ * `render2d/src/viewport.test.ts`.
+ */
+const turnSign = (key: ArrowKey): 1 | -1 => (key === 'ArrowLeft' || key === 'ArrowUp' ? 1 : -1);
+
+/** Which way an arrow changes a handle's length: → and ↑ lengthen, ← and ↓ shorten. */
+const growSign = (key: ArrowKey): 1 | -1 => (key === 'ArrowRight' || key === 'ArrowUp' ? 1 : -1);
 
 const targetLabel = (t: SplineTarget): string => {
   switch (t.kind) {
@@ -127,7 +149,8 @@ function HeaderCoordInput({
   units: LengthUnit;
   onCommit: (cm: number) => void;
   onDismiss: () => void;
-  onNudge: (key: ArrowKey) => void;
+  /** An arrow key in the field; `big` when Shift is held. */
+  onNudge: (key: ArrowKey, big: boolean) => void;
 }) {
   const shown = display(valueCm, units);
   // Re-sync when the value changes, even below display precision (drag, undo, reselect).
@@ -167,9 +190,9 @@ function HeaderCoordInput({
           if (e.key === 'ArrowUp' || e.key === 'ArrowDown') commit(e.currentTarget.value);
         }}
         onKeyDown={(e) => {
-          if (isArrowKey(e.key) && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+          if (isArrowKey(e.key) && !e.altKey && !e.ctrlKey && !e.metaKey) {
             e.preventDefault();
-            onNudge(e.key);
+            onNudge(e.key, e.shiftKey);
           } else if (e.key === 'Enter') {
             commit(e.currentTarget.value);
             e.currentTarget.blur();
@@ -201,8 +224,16 @@ export function SelectedPointEditor({
   const board = useSyncExternalStore(store.subscribe, () => store.getState().board);
   const selection = useSyncExternalStore(store.subscribe, () => store.getState().selection);
 
+  const mode = useNudgeMode();
+
+  /**
+   * One arrow-key press on the selection, if this pane holds it: a move by one step,
+   * or, with R or T held, a turn or a length change of the selected handle — of both
+   * handles when the point itself is selected. Shift makes the step ten times larger.
+   * Each press is its own undo step.
+   */
   const nudge = useCallback(
-    (key: ArrowKey): boolean => {
+    (key: ArrowKey, big: boolean): boolean => {
       const state = store.getState();
       const active = state.selection;
       if (!state.board || !active || !targets.some((target) => sameTarget(target, active.target)))
@@ -211,13 +242,24 @@ export function SelectedPointEditor({
       const activeKnot = getTargetSpline(state.board, active.target).knots[active.index];
       if (!activeKnot) return false;
       const activeKind = active.kind ?? 'end';
+      const handles = activeKind === 'end' ? 'both' : activeKind;
+      const stepCm = nudgeStepCm(units, big);
+      if (mode.current === 'rotate') {
+        const degrees = turnSign(key) * NUDGE.turnDegrees * (big ? NUDGE.shiftFactor : 1);
+        state.rotateTangent(active.target, active.index, handles, (degrees * Math.PI) / 180);
+        return true;
+      }
+      if (mode.current === 'length') {
+        state.stepTangentLength(active.target, active.index, handles, growSign(key) * stepCm);
+        return true;
+      }
+
       const activePoint =
         activeKind === 'prev'
           ? activeKnot.tangentToPrev
           : activeKind === 'next'
             ? activeKnot.tangentToNext
             : activeKnot.end;
-      const stepCm = parse(String(pointEditStep(units)), units);
       const next = {
         x: activePoint.x + (key === 'ArrowLeft' ? -stepCm : key === 'ArrowRight' ? stepCm : 0),
         y: activePoint.y + (key === 'ArrowDown' ? -stepCm : key === 'ArrowUp' ? stepCm : 0),
@@ -227,7 +269,7 @@ export function SelectedPointEditor({
       else state.moveTangent(active.target, active.index, activeKind, next);
       return true;
     },
-    [store, targets, units],
+    [store, targets, units, mode],
   );
 
   useEffect(() => {
@@ -237,8 +279,7 @@ export function SelectedPointEditor({
         !isArrowKey(event.key) ||
         event.altKey ||
         event.ctrlKey ||
-        event.metaKey ||
-        event.shiftKey
+        event.metaKey
       )
         return;
       const target = event.target as HTMLElement | null;
@@ -247,7 +288,7 @@ export function SelectedPointEditor({
         (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
       )
         return;
-      if (nudge(event.key)) event.preventDefault();
+      if (nudge(event.key, event.shiftKey)) event.preventDefault();
     };
 
     window.addEventListener('keydown', onKeyDown);
@@ -301,20 +342,19 @@ export function SelectedPointEditor({
             store.getState().setTangentLength(selection.target, selection.index, kind, len)
           }
           onDismiss={dismiss}
-          onNudge={(key) => {
-            // Read the live knot: key repeat can outrun this render.
-            const state = store.getState();
-            const live =
-              state.board && getTargetSpline(state.board, selection.target).knots[selection.index];
-            if (!live) return;
-            const step = parse(String(pointEditStep(units)), units);
-            const grow = key === 'ArrowUp' || key === 'ArrowRight';
-            state.setTangentLength(
-              selection.target,
-              selection.index,
-              kind,
-              handleLength(live, kind) + (grow ? step : -step),
-            );
+          onNudge={(key, big) => {
+            // The field's own arrows step the one number it shows; a held R or T
+            // still means what it does everywhere else.
+            if (mode.current !== 'move') nudge(key, big);
+            else
+              store
+                .getState()
+                .stepTangentLength(
+                  selection.target,
+                  selection.index,
+                  kind,
+                  growSign(key) * nudgeStepCm(units, big),
+                );
           }}
         />
       ) : (

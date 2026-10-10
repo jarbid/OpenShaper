@@ -28,6 +28,7 @@ import {
   vec2,
   type BezierBoard,
   type Knot,
+  type Spline,
 } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
 import {
@@ -47,15 +48,18 @@ import {
   moveKnotTangent,
   propagateCrossSectionToCurves,
   removeCrossSection,
+  rotateKnotTangent,
   scaleBoard,
   setFinFromPlanPoint,
   setKnotContinuous,
   setKnotLock,
   setKnotTangentLength,
   setSplineValueAt,
+  stepKnotTangentLength,
   withFins,
   withSpline,
   zeroKnotTangent,
+  type KnotHandles,
   type SplineTarget,
 } from './edits';
 
@@ -445,6 +449,175 @@ describe('moveKnotTangent (continuous=true, prev direction)', () => {
     // next should mirror: same direction from end, original length 1 (was (1,0))
     expect(k.tangentToNext.x).toBeCloseTo(0, 9);
     expect(k.tangentToNext.y).toBeCloseTo(1, 9);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Keyboard handle edits: rotation and length steps
+// ---------------------------------------------------------------------------
+
+describe('keyboard handle edits', () => {
+  const DEG = Math.PI / 180;
+  const R = Math.SQRT1_2;
+  const angleOf = (k: Knot, which: 'prev' | 'next') => {
+    const h = which === 'prev' ? k.tangentToPrev : k.tangentToNext;
+    return Math.atan2(h.y - k.end.y, h.x - k.end.x);
+  };
+  const lengthOf = (k: Knot, which: 'prev' | 'next') => {
+    const h = which === 'prev' ? k.tangentToPrev : k.tangentToNext;
+    return Math.hypot(h.x - k.end.x, h.y - k.end.y);
+  };
+  /** Signed angle from `a` to `b`, wrapped to (-π, π]. */
+  const turnBetween = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
+  // The middle point's `next` handle leaves at 45°, 4√2 long; its `prev` at 135° on a
+  // corner and 225° on a smooth point, 5√2 long. Unequal lengths and off-axis angles,
+  // so a swapped, rescaled or drifted handle could not pass by coincidence.
+  const spline = (continuous: boolean) =>
+    splineFromKnots([
+      knot(vec2(0, 0), vec2(-5, 0), vec2(5, 5), true),
+      knot(vec2(50, 10), continuous ? vec2(45, 5) : vec2(45, 15), vec2(54, 14), continuous),
+      knot(vec2(100, 0), vec2(95, 0), vec2(105, 0), true),
+    ]);
+
+  describe('rotateKnotTangent', () => {
+    it('turns one handle of a corner by exactly the angle, keeping its length', () => {
+      const s = spline(false);
+      const before = s.knots[1]!;
+      const k = rotateKnotTangent(s, 1, 'next', 10 * DEG).knots[1]!;
+      expect(turnBetween(angleOf(before, 'next'), angleOf(k, 'next'))).toBeCloseTo(10 * DEG, 12);
+      expect(lengthOf(k, 'next')).toBeCloseTo(4 * Math.SQRT2, 12);
+      // The point and the corner's other handle do not move.
+      expect(k.end).toBe(before.end);
+      expect(k.tangentToPrev).toBe(before.tangentToPrev);
+    });
+
+    it('a negative angle turns clockwise', () => {
+      const k = rotateKnotTangent(spline(false), 1, 'next', -45 * DEG).knots[1]!;
+      // 45° turned 45° clockwise is level with the point, 4√2 out.
+      expect(k.tangentToNext.x).toBeCloseTo(50 + 4 * Math.SQRT2, 12);
+      expect(k.tangentToNext.y).toBeCloseTo(10, 12);
+    });
+
+    it('turns both handles of a smooth point together, so they stay collinear', () => {
+      for (const which of ['prev', 'next', 'both'] as const) {
+        const k = rotateKnotTangent(spline(true), 1, which, -7 * DEG).knots[1]!;
+        expect(angleOf(k, 'next')).toBeCloseTo(38 * DEG, 12);
+        expect(angleOf(k, 'prev')).toBeCloseTo(-142 * DEG, 12);
+        expect(lengthOf(k, 'prev')).toBeCloseTo(5 * Math.SQRT2, 12);
+        expect(lengthOf(k, 'next')).toBeCloseTo(4 * Math.SQRT2, 12);
+        const p = vec2(k.tangentToPrev.x - k.end.x, k.tangentToPrev.y - k.end.y);
+        const n = vec2(k.tangentToNext.x - k.end.x, k.tangentToNext.y - k.end.y);
+        expect(p.x * n.y - p.y * n.x).toBeCloseTo(0, 12); // collinear …
+        expect(p.x * n.x + p.y * n.y).toBeLessThan(0); // … and opposite
+      }
+    });
+
+    it('turns both handles of a selected corner point by the same angle', () => {
+      const s = spline(false);
+      const before = s.knots[1]!;
+      const k = rotateKnotTangent(s, 1, 'both', 30 * DEG).knots[1]!;
+      for (const which of ['prev', 'next'] as const) {
+        expect(turnBetween(angleOf(before, which), angleOf(k, which))).toBeCloseTo(30 * DEG, 12);
+        expect(lengthOf(k, which)).toBeCloseTo(lengthOf(before, which), 12);
+      }
+    });
+
+    it('never turns a locked handle: the lock fixes its angle', () => {
+      const corner = setKnotLock(spline(false), 1, true);
+      expect(rotateKnotTangent(corner, 1, 'next', 5 * DEG)).toBe(corner);
+      expect(rotateKnotTangent(corner, 1, 'both', 5 * DEG)).toBe(corner);
+      // On a smooth point the handles turn together, so a lock on either holds both.
+      const smooth = setKnotLock(spline(true), 1, true);
+      for (const which of ['prev', 'next', 'both'] as const)
+        expect(rotateKnotTangent(smooth, 1, which, 5 * DEG)).toBe(smooth);
+    });
+
+    it("a corner's free handle still turns beside a locked one, and the lock is kept", () => {
+      const lock = { next: vec2(Math.SQRT1_2, Math.SQRT1_2) };
+      const s = splineFromKnots([
+        knot(vec2(0, 0), vec2(-5, 0), vec2(5, 5), true),
+        knot(vec2(50, 10), vec2(45, 15), vec2(54, 14), false, false, lock),
+        knot(vec2(100, 0), vec2(95, 0), vec2(105, 0), true),
+      ]);
+      const before = s.knots[1]!;
+      const k = rotateKnotTangent(s, 1, 'both', 20 * DEG).knots[1]!;
+      expect(k.tangentToNext).toBe(before.tangentToNext);
+      expect(k.lock).toBe(lock);
+      expect(turnBetween(angleOf(before, 'prev'), angleOf(k, 'prev'))).toBeCloseTo(20 * DEG, 12);
+      expect(lengthOf(k, 'prev')).toBeCloseTo(5 * Math.SQRT2, 12);
+    });
+
+    it('returns the spline itself when there is nothing to turn', () => {
+      const s = spline(false);
+      expect(rotateKnotTangent(s, 1, 'next', 0)).toBe(s);
+      expect(rotateKnotTangent(s, 1, 'next', Number.NaN)).toBe(s);
+      expect(rotateKnotTangent(s, 7, 'next', 1)).toBe(s);
+      const collapsed = zeroKnotTangent(s, 1, 'next');
+      expect(rotateKnotTangent(collapsed, 1, 'next', 1)).toBe(collapsed);
+    });
+  });
+
+  describe('stepKnotTangentLength', () => {
+    /** The middle knot after a length step. */
+    const stepped = (s: Spline, which: KnotHandles, d: number) =>
+      stepKnotTangentLength(s, 1, which, d).knots[1]!;
+
+    it('lengthens and shortens a handle along its own direction', () => {
+      const longer = stepped(spline(false), 'next', 2);
+      expect(longer.tangentToNext.x).toBeCloseTo(50 + (4 * Math.SQRT2 + 2) * R, 12);
+      expect(longer.tangentToNext.y).toBeCloseTo(10 + (4 * Math.SQRT2 + 2) * R, 12);
+      const shorter = stepped(spline(false), 'next', -2);
+      expect(lengthOf(shorter, 'next')).toBeCloseTo(4 * Math.SQRT2 - 2, 12);
+      expect(shorter.tangentToPrev).toEqual(vec2(45, 15));
+    });
+
+    it('never shortens below zero', () => {
+      const k = stepped(spline(false), 'next', -100);
+      expect(k.tangentToNext).toEqual(k.end);
+    });
+
+    it("changes both of a point's handles by the same amount", () => {
+      const k = stepped(spline(true), 'both', 1);
+      expect(lengthOf(k, 'prev')).toBeCloseTo(5 * Math.SQRT2 + 1, 12);
+      expect(lengthOf(k, 'next')).toBeCloseTo(4 * Math.SQRT2 + 1, 12);
+      // Still smooth: opposite directions.
+      expect(k.tangentToPrev.x - k.end.x).toBeCloseTo(-(5 * Math.SQRT2 + 1) * R, 12);
+      expect(k.tangentToPrev.y - k.end.y).toBeCloseTo(-(5 * Math.SQRT2 + 1) * R, 12);
+    });
+
+    it('changes a locked handle along its lock: length is not locked', () => {
+      const k = stepKnotTangentLength(setKnotLock(spline(false), 1, true), 1, 'next', 3).knots[1]!;
+      expect(k.tangentToNext.x).toBeCloseTo(50 + (4 * Math.SQRT2 + 3) * R, 12);
+      expect(k.tangentToNext.y).toBeCloseTo(10 + (4 * Math.SQRT2 + 3) * R, 12);
+    });
+
+    it('grows a handle shortened to nothing back out the way it pointed', () => {
+      // Smooth: opposite its other handle, which is where it was.
+      const smooth = stepKnotTangentLength(spline(true), 1, 'prev', -100);
+      expect(lengthOf(smooth.knots[1]!, 'prev')).toBe(0);
+      const back = stepKnotTangentLength(smooth, 1, 'prev', 2).knots[1]!;
+      expect(back.tangentToPrev.x).toBeCloseTo(50 - 2 * R, 12);
+      expect(back.tangentToPrev.y).toBeCloseTo(10 - 2 * R, 12);
+      // Locked: along its lock.
+      const locked = stepKnotTangentLength(setKnotLock(spline(false), 1, true), 1, 'prev', -100);
+      const lockedBack = stepKnotTangentLength(locked, 1, 'prev', 2).knots[1]!;
+      expect(lockedBack.tangentToPrev.x).toBeCloseTo(50 - 2 * R, 12);
+      expect(lockedBack.tangentToPrev.y).toBeCloseTo(10 + 2 * R, 12);
+      // A free corner has lost its direction: it grows toward the neighbouring point.
+      const corner = stepKnotTangentLength(spline(false), 1, 'prev', -100);
+      const toward = stepKnotTangentLength(corner, 1, 'prev', 2).knots[1]!;
+      const d = Math.hypot(50, 10);
+      expect(toward.tangentToPrev.x).toBeCloseTo(50 - (2 * 50) / d, 12);
+      expect(toward.tangentToPrev.y).toBeCloseTo(10 - (2 * 10) / d, 12);
+    });
+
+    it('returns the spline itself when nothing changes', () => {
+      const s = spline(false);
+      expect(stepKnotTangentLength(s, 1, 'next', 0)).toBe(s);
+      expect(stepKnotTangentLength(s, 9, 'next', 1)).toBe(s);
+      const collapsed = zeroKnotTangent(s, 1, 'next');
+      expect(stepKnotTangentLength(collapsed, 1, 'next', -1)).toBe(collapsed);
+    });
   });
 });
 

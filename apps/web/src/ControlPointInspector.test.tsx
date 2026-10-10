@@ -9,10 +9,12 @@
  *  - Vertical-align button dispatches alignTangentsVertical.
  *  - The handle-angle lock: the toggle in the pane header and the sidebar, and a
  *    locked handle edited by its length rather than X/Y.
+ *  - Keyboard nudging in the pane header: arrows, Shift ×10, hold R to turn a
+ *    handle, hold T to change its length.
  */
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { createBoardStore, getTargetSpline } from '@openshaper/store';
+import { createBoardStore, getTargetSpline, type SplineTarget } from '@openshaper/store';
 import {
   board,
   crossSection,
@@ -20,6 +22,7 @@ import {
   splineFromKnots,
   vec2,
   type BezierBoard,
+  type Knot,
 } from '@openshaper/kernel';
 import { ControlPointInspector, SelectedPointEditor } from './ControlPointInspector';
 import { DEFAULT_LENGTH_UNIT, LENGTH_UNITS } from './format';
@@ -528,5 +531,196 @@ describe('<SelectedPointEditor />', () => {
       />,
     );
     expect(container.innerHTML).toBe('');
+  });
+});
+
+describe('<SelectedPointEditor /> keyboard modes: Shift, hold R, hold T', () => {
+  const OUTLINE = { kind: 'outline' } as const;
+  const DEG = Math.PI / 180;
+  /** The pane-header editor of the outline pane, with `kind` of outline point 1 selected. */
+  const setup = (kind: 'end' | 'prev' | 'next', target: SplineTarget = OUTLINE, index = 1) => {
+    const store = createBoardStore();
+    act(() => {
+      store.getState().load(makeBoard());
+      store.getState().select({ target, index, kind });
+    });
+    render(<SelectedPointEditor store={store} units={DEFAULT_LENGTH_UNIT} targets={[target]} />);
+    const knot = () => getTargetSpline(store.getState().board!, target).knots[index]!;
+    return { store, knot };
+  };
+  const press = (key: string, init: { shiftKey?: boolean } = {}) =>
+    fireEvent.keyDown(window, { key, ...init });
+  const angle = (k: Knot, which: 'prev' | 'next') => {
+    const h = which === 'prev' ? k.tangentToPrev : k.tangentToNext;
+    return Math.atan2(h.y - k.end.y, h.x - k.end.x);
+  };
+  const length = (k: Knot, which: 'prev' | 'next') => {
+    const h = which === 'prev' ? k.tangentToPrev : k.tangentToNext;
+    return Math.hypot(h.x - k.end.x, h.y - k.end.y);
+  };
+  const labels = (store: ReturnType<typeof createBoardStore>) =>
+    store.getState().past.map((h) => h.label);
+
+  it('Shift moves ten steps, from the pane and from a header field', () => {
+    const { knot } = setup('end');
+    const before = knot().end;
+    press('ArrowRight', { shiftKey: true });
+    expect(knot().end).toEqual({ x: before.x + 5, y: before.y });
+    fireEvent.keyDown(screen.getByLabelText('Y position'), { key: 'ArrowDown', shiftKey: true });
+    expect(knot().end).toEqual({ x: before.x + 5, y: before.y - 5 });
+  });
+
+  it('hold R turns the selected handle 1° a press (Shift 10°), keeping its length', () => {
+    const { store, knot } = setup('next');
+    const a0 = angle(knot(), 'next');
+    const l0 = length(knot(), 'next');
+    const prev0 = knot().tangentToPrev;
+
+    press('r');
+    press('ArrowLeft'); // counter-clockwise
+    expect(angle(knot(), 'next')).toBeCloseTo(a0 + DEG, 12);
+    press('ArrowUp'); // counter-clockwise
+    expect(angle(knot(), 'next')).toBeCloseTo(a0 + 2 * DEG, 12);
+    press('ArrowDown', { shiftKey: true }); // ten clockwise
+    expect(angle(knot(), 'next')).toBeCloseTo(a0 - 8 * DEG, 12);
+    press('ArrowRight'); // clockwise
+    expect(angle(knot(), 'next')).toBeCloseTo(a0 - 9 * DEG, 12);
+    expect(length(knot(), 'next')).toBeCloseTo(l0, 12);
+    expect(knot().tangentToPrev).toEqual(prev0); // a corner's other handle stays
+    expect(labels(store)).toEqual(Array(4).fill('Rotate handle'));
+
+    // Released: the arrows move again.
+    fireEvent.keyUp(window, { key: 'r' });
+    const h = knot().tangentToNext;
+    press('ArrowRight');
+    expect(knot().tangentToNext).toEqual({ x: h.x + 0.5, y: h.y });
+  });
+
+  it('R or T pressed and released on its own changes nothing', () => {
+    const { store, knot } = setup('next');
+    const before = store.getState().board;
+    for (const key of ['r', 't', 'R', 'T']) {
+      expect(press(key)).toBe(true); // not cancelled: the key keeps its default
+      fireEvent.keyUp(window, { key });
+    }
+    expect(store.getState().board).toBe(before);
+    expect(store.getState().past).toEqual([]);
+    // And the arrows move again.
+    const h = knot().tangentToNext;
+    press('ArrowUp');
+    expect(knot().tangentToNext).toEqual({ x: h.x, y: h.y + 0.5 });
+  });
+
+  it('hold R with the point selected turns both of its handles together', () => {
+    const { store, knot } = setup('end');
+    const before = knot();
+    press('r');
+    press('ArrowRight', { shiftKey: true });
+    for (const which of ['prev', 'next'] as const) {
+      expect(angle(knot(), which)).toBeCloseTo(angle(before, which) - 10 * DEG, 12);
+      expect(length(knot(), which)).toBeCloseTo(length(before, which), 12);
+    }
+    expect(knot().end).toEqual(before.end);
+    expect(labels(store)).toEqual(['Rotate handles']);
+  });
+
+  it('hold T lengthens with → ↑ and shortens with ← ↓, along the handle, Shift ten steps', () => {
+    const { store, knot } = setup('prev');
+    const a0 = angle(knot(), 'prev');
+    const l0 = length(knot(), 'prev');
+
+    press('t');
+    press('ArrowRight');
+    expect(length(knot(), 'prev')).toBeCloseTo(l0 + 0.5, 12);
+    press('ArrowUp', { shiftKey: true });
+    expect(length(knot(), 'prev')).toBeCloseTo(l0 + 5.5, 12);
+    press('ArrowLeft');
+    press('ArrowDown');
+    expect(length(knot(), 'prev')).toBeCloseTo(l0 + 4.5, 12);
+    expect(angle(knot(), 'prev')).toBeCloseTo(a0, 12);
+    expect(labels(store)).toEqual(Array(4).fill('Set handle length'));
+
+    // Never below zero.
+    for (let i = 0; i < 3; i++) press('ArrowLeft', { shiftKey: true });
+    expect(length(knot(), 'prev')).toBe(0);
+  });
+
+  it('hold T with the point selected changes both handles in one step', () => {
+    const { store, knot } = setup('end');
+    const before = knot();
+    press('t');
+    press('ArrowUp');
+    expect(length(knot(), 'prev')).toBeCloseTo(length(before, 'prev') + 0.5, 12);
+    expect(length(knot(), 'next')).toBeCloseTo(length(before, 'next') + 0.5, 12);
+    expect(labels(store)).toEqual(['Set handle length']);
+  });
+
+  it('a locked handle does not turn, but its length still changes', () => {
+    const { store, knot } = setup('next');
+    act(() => store.getState().setLocked(OUTLINE, 1, true));
+    const before = knot();
+
+    press('r');
+    press('ArrowLeft');
+    expect(knot()).toBe(before);
+    expect(labels(store)).toEqual(['Lock handle angles']);
+    fireEvent.keyUp(window, { key: 'r' });
+
+    press('t');
+    press('ArrowRight');
+    expect(length(knot(), 'next')).toBeCloseTo(length(before, 'next') + 0.5, 12);
+    expect(angle(knot(), 'next')).toBeCloseTo(angle(before, 'next'), 12);
+  });
+
+  it.each([
+    ['window blur', () => fireEvent.blur(window)],
+    [
+      'the tab being hidden',
+      () => {
+        Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+        fireEvent(document, new Event('visibilitychange'));
+        Object.defineProperty(document, 'visibilityState', {
+          value: 'visible',
+          configurable: true,
+        });
+      },
+    ],
+  ])('%s ends a held mode', (_name, end) => {
+    const { knot } = setup('next');
+    press('r');
+    end();
+    const h = knot().tangentToNext;
+    press('ArrowUp');
+    expect(knot().tangentToNext).toEqual({ x: h.x, y: h.y + 0.5 });
+  });
+
+  it('an R typed into a field starts no mode', () => {
+    const { knot } = setup('next');
+    const field = screen.getByLabelText('X position');
+    field.focus();
+    fireEvent.keyDown(field, { key: 'r' });
+    field.blur();
+    const h = knot().tangentToNext;
+    press('ArrowUp');
+    expect(knot().tangentToNext).toEqual({ x: h.x, y: h.y + 0.5 });
+  });
+
+  it('the cross-section pane follows the same rules', () => {
+    // The bottom-centre point's handle runs out along +x: ← turns it up, on screen
+    // as in the spline, since the editable half of a section is the right-hand one.
+    const target = { kind: 'crossSection', index: 1 } as const;
+    const { store, knot } = setup('next', target, 0);
+    const a0 = angle(knot(), 'next');
+    const l0 = length(knot(), 'next');
+    press('r');
+    press('ArrowLeft');
+    expect(angle(knot(), 'next')).toBeCloseTo(a0 + DEG, 9);
+    expect(length(knot(), 'next')).toBeCloseTo(l0, 9);
+    fireEvent.keyUp(window, { key: 'r' });
+
+    press('t');
+    press('ArrowDown', { shiftKey: true });
+    expect(length(knot(), 'next')).toBeCloseTo(l0 - 5, 9);
+    expect(labels(store)).toEqual(['Rotate handle', 'Set handle length']);
   });
 });
