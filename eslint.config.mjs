@@ -13,17 +13,34 @@ const UI = ['react', 'react-dom', 'react/*', 'react-dom/*', 'three', 'three/*', 
  * Tests and benches are exempt: they may load fixtures through other packages.
  */
 const LAYERS = {
-  kernel: { pkgs: ['io', 'units', 'store', 'render2d', 'render3d', 'export', 'ui'], ui: true },
-  units: { pkgs: ['kernel', 'io', 'store', 'render2d', 'render3d', 'export', 'ui'], ui: true },
-  io: { pkgs: ['units', 'store', 'render2d', 'render3d', 'export', 'ui'], ui: true },
-  export: { pkgs: ['io', 'units', 'store', 'render2d', 'render3d', 'ui'], ui: true },
-  store: { pkgs: ['io', 'units', 'render2d', 'render3d', 'export', 'ui'], ui: true },
-  render2d: { pkgs: ['io', 'units', 'render3d', 'export'], ui: false },
-  render3d: { pkgs: ['io', 'units', 'render2d', 'export', 'ui'], ui: false },
-  ui: { pkgs: ['kernel', 'io', 'units', 'store', 'render2d', 'render3d', 'export'], ui: false },
+  kernel: {
+    pkgs: ['io', 'units', 'store', 'render2d', 'render3d', 'export', 'ui', 'geom'],
+    ui: true,
+  },
+  units: {
+    pkgs: ['kernel', 'io', 'store', 'render2d', 'render3d', 'export', 'ui', 'geom'],
+    ui: true,
+  },
+  io: { pkgs: ['units', 'store', 'render2d', 'render3d', 'export', 'ui', 'geom'], ui: true },
+  export: { pkgs: ['io', 'units', 'store', 'render2d', 'render3d', 'ui', 'geom'], ui: true },
+  store: { pkgs: ['io', 'units', 'render2d', 'render3d', 'export', 'ui', 'geom'], ui: true },
+  render2d: { pkgs: ['io', 'units', 'render3d', 'export', 'geom'], ui: false },
+  render3d: { pkgs: ['io', 'units', 'render2d', 'export', 'ui', 'geom'], ui: false },
+  ui: {
+    pkgs: ['kernel', 'io', 'units', 'store', 'render2d', 'render3d', 'export', 'geom'],
+    ui: false,
+  },
+  // The NURBS core of the geometry overhaul (docs/design/geom-core.md §2): pure,
+  // standalone, and no `node:*` either. No other package may import it yet
+  // (`geom` is listed in every entry above); a later phase grants that explicitly.
+  geom: {
+    pkgs: ['kernel', 'io', 'units', 'store', 'render2d', 'render3d', 'export', 'ui'],
+    ui: true,
+    node: true,
+  },
 };
 
-const layerConfigs = Object.entries(LAYERS).map(([name, { pkgs, ui }]) => ({
+const layerConfigs = Object.entries(LAYERS).map(([name, { pkgs, ui, node = false }]) => ({
   files: [`packages/${name}/src/**/*.{ts,tsx}`],
   ignores: ['**/*.test.{ts,tsx}', '**/*.bench.ts'],
   rules: {
@@ -43,11 +60,44 @@ const layerConfigs = Object.entries(LAYERS).map(([name, { pkgs, ui }]) => ({
                 },
               ]
             : []),
+          ...(node
+            ? [
+                {
+                  group: ['node:*'],
+                  message: `@openshaper/${name} is a pure layer: no Node built-ins outside tests.`,
+                },
+              ]
+            : []),
         ],
       },
     ],
   },
 }));
+
+/**
+ * The apps are not in LAYERS (they may use every package above), except the
+ * experiment's NURBS core, which nothing outside its own phase plan may reach yet.
+ */
+const appConfigs = [
+  {
+    files: ['apps/*/src/**/*.{ts,tsx}'],
+    ignores: ['**/*.test.{ts,tsx}', '**/*.bench.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@openshaper/geom', '@openshaper/geom/*'],
+              message:
+                '@openshaper/geom is not wired into the apps yet (docs/design/geometry-overhaul.md §5).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+];
 
 export default tseslint.config(
   {
@@ -86,4 +136,5 @@ export default tseslint.config(
     },
   },
   ...layerConfigs,
+  ...appConfigs,
 );
