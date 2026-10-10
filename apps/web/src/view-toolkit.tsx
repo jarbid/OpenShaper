@@ -488,6 +488,7 @@ export function EditorPane({
   onAddSectionAt,
   onScrub,
   overlays,
+  onTunniChange,
   ghostSplines,
   background,
   traceInteractive,
@@ -518,6 +519,7 @@ export function EditorPane({
   onAddSectionAt?: (x: number) => void;
   onScrub?: (x: number | null) => void;
   overlays?: EditorOverlays;
+  onTunniChange?: (enabled: boolean) => void;
   ghostSplines?: Spline[];
   background?: React.ComponentProps<typeof SplineEditor>['background'];
   traceInteractive?: React.ComponentProps<typeof SplineEditor>['traceInteractive'];
@@ -593,6 +595,7 @@ export function EditorPane({
           readout={makeReadout(kind, units, longitudinal)}
           measureCursor={kind === 'crossSection'}
           overlays={overlays}
+          onTunniChange={onTunniChange}
           ghostSplines={ghostSplines}
           background={background}
           traceInteractive={traceInteractive}

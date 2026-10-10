@@ -70,6 +70,25 @@ export default function DocsEditing() {
           Nothing to set, and it never applies to the cross-section view, which is already the shape
           of its pane.
         </p>
+        <p>
+          Right-click clear space in any 2D view and choose <strong>Set reference curve</strong>
+          to capture its current curves. A faint copy stays underneath as you edit, revealing the
+          original shape wherever the live curves move away. Choose the option again to replace the
+          reference, or choose <strong>Clear reference curve</strong> to remove it. References are
+          temporary: one lasts while its view stays open, is cleared when you move to another
+          cross-section, and is never saved with the board.
+        </p>
+        <p>
+          Turn on <strong>Tunni controls</strong> from the <strong>View</strong> menu, or
+          right-click a 2D view and check <strong>Show Tunni controls</strong>, to adjust both
+          handles of a curve segment together. Drag the amber dashed line to scale the handles
+          together, or drag its diamond to adjust their balance and strength. The curve endpoints
+          and tangent directions stay fixed. Double-click the diamond to balance the handles.
+          Controls are hidden for degenerate geometry, and a drag holds its last valid shape while a
+          handle would cross its endpoint. The setting applies to every 2D view and stays on as you
+          switch views and cross-sections; each drag is one undo step. Controls appear only on the
+          editable half of mirrored views.
+        </p>
       </Section>
 
       <Section id="guides" title="Guides in 3D">
