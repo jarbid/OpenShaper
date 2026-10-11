@@ -20,7 +20,24 @@ import {
   Vector3,
 } from 'three';
 import type { StoreApi } from 'zustand/vanilla';
-import { boardSpan, meshToGeometry, tessellateAsync } from './geometry';
+import {
+  ANALYSIS_OFF,
+  analysisStatus,
+  isExactAnalysis,
+  sameStatus,
+  type AnalysisMode,
+  type AnalysisStatus,
+  type CurvatureResult,
+} from './analysis';
+import { curvatureUnsupported } from './curvature-mesh';
+import { CurvatureSurface } from './CurvatureSurface';
+import {
+  boardCenter,
+  boardSpan,
+  curvatureAsync,
+  meshToGeometry,
+  tessellateAsync,
+} from './geometry';
 import { BoardViewcube } from './BoardViewcube';
 import { orthographicZoomFor, upForViewDirection } from './view-framing';
 import { Fins3D } from './Fins3D';
@@ -37,8 +54,6 @@ export type Board3DMode = 'shaded' | 'wireframe' | 'shaded-wire' | 'normals';
 export type LightingPreset = 'studio' | 'shaping-bay' | 'neutral';
 /** Surface material look. */
 export type MaterialPreset = 'foam' | 'gloss' | 'matte';
-/** Surface-analysis overlay (replaces the shaded material). */
-export type AnalysisMode = 'none' | 'zebra' | 'curvature' | 'slope';
 
 /** Orbit pose: camera position and look-at target, world cm. */
 export interface CameraPose {
@@ -62,6 +77,12 @@ export interface Board3DViewProps {
   viewCubeLineColor?: string;
   /** Surface-analysis overlay (defaults to 'none'). */
   analysis?: AnalysisMode;
+  /**
+   * Where an exact analysis mode stands — computing, ready (with its scale, for a
+   * legend), or unavailable — reported whenever that changes. The view draws no
+   * legend of its own: lengths in it are the app's to format.
+   */
+  onAnalysisStatus?: (status: AnalysisStatus) => void;
   /** Target tessellation face size in cm (smaller = finer mesh). Defaults to ~0.9 cm. */
   targetFaceSize?: number;
   /** Draw the stringer plane's silhouette on the hull (defaults to false). */
@@ -293,7 +314,8 @@ const BACKGROUND: Record<LightingPreset, string> = {
   neutral: '#14233A',
 };
 
-// --- analysis shader (zebra / curvature / slope) ---------------------------
+// --- screen-space analysis shader (zebra / normal change / slope) ---------
+// The exact modes (mean / Gaussian curvature, rail radius) are CurvatureSurface.
 
 const ANALYSIS_VERT = /* glsl */ `
   varying vec3 vWorldNormal;
@@ -338,7 +360,8 @@ const ANALYSIS_FRAG = /* glsl */ `
       float s = smoothstep(0.4, 0.6, fract(a * uFreq));
       gl_FragColor = vec4(mix(vec3(0.04), vec3(0.96), s), 1.0);
     } else if (uMode == 2) {
-      // Curvature: screen-space change of the normal (rails / nose light up).
+      // Normal change (approx.): screen-space change of the normal per pixel, so
+      // it varies with zoom and triangle size. Rails / nose light up.
       float curv = length(fwidth(N)) * uFreq;
       gl_FragColor = vec4(ramp(curv), 1.0);
     } else {
@@ -349,7 +372,9 @@ const ANALYSIS_FRAG = /* glsl */ `
   }
 `;
 
-const ANALYSIS_FREQ: Record<Exclude<AnalysisMode, 'none'>, number> = {
+type ScreenSpaceMode = 'zebra' | 'curvature' | 'slope';
+
+const ANALYSIS_FREQ: Record<ScreenSpaceMode, number> = {
   zebra: 9.0,
   curvature: 60.0,
   slope: 1.0,
@@ -425,12 +450,53 @@ function SurfaceMaterial({
   );
 }
 
+/**
+ * The latest exact-curvature result for `board`, computed in the worker on demand.
+ *
+ * Asks only while `wanted`, and only for a board the fit can model. The result
+ * stays until a newer one lands, tagged with the board it belongs to; whether it
+ * still matches what is on screen is `analysisStatus`'s call, not this hook's.
+ */
+function useCurvatureResult(board: BezierBoard | null, wanted: boolean): CurvatureResult | null {
+  const [result, setResult] = useState<CurvatureResult | null>(null);
+  useEffect(() => {
+    if (!wanted || !board || curvatureUnsupported(board)) return;
+    let cancelled = false;
+    const abort = new AbortController();
+    curvatureAsync(board, abort.signal).then(
+      (mesh) => {
+        if (!cancelled) setResult({ board, mesh });
+      },
+      (err: unknown) => {
+        // A superseded job rejects with AbortError after its asker has gone.
+        if (cancelled) return;
+        setResult({ board, error: err instanceof Error ? err.message : String(err) });
+      },
+    );
+    return () => {
+      cancelled = true;
+      abort.abort();
+    };
+  }, [board, wanted]);
+  return result;
+}
+
+/** The hull mesh on screen, with the board it was meshed from and its centre. */
+interface Hull {
+  board: BezierBoard;
+  geometry: BufferGeometry;
+  /** What `meshToGeometry` subtracted: board-space overlays are offset by minus this. */
+  center: [number, number, number];
+}
+
 function BoardMesh({
   board,
   mode,
   material,
   color,
   analysis,
+  status,
+  curvature,
   targetFaceSize,
 }: {
   board: BezierBoard;
@@ -438,20 +504,24 @@ function BoardMesh({
   material: MaterialPreset;
   color: string;
   analysis: AnalysisMode;
+  status: AnalysisStatus;
+  curvature: CurvatureResult | null;
   targetFaceSize: number;
 }) {
   // Tessellation runs in a worker; while a new mesh computes we keep showing the
   // previous geometry so dragging control points stays smooth. A superseded board's
   // result is ignored (`cancelled`), and aborting tells the queue nobody here wants
   // it any more, so a job that has not started yet is dropped (mesh-queue.ts).
-  const [geometry, setGeometry] = useState<BufferGeometry | null>(null);
+  const [hull, setHull] = useState<Hull | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const abort = new AbortController();
     tessellateAsync(board, targetFaceSize, abort.signal)
       .then((mesh) => {
-        if (!cancelled) setGeometry(meshToGeometry(mesh));
+        if (!cancelled) {
+          setHull({ board, geometry: meshToGeometry(mesh), center: boardCenter(mesh) });
+        }
       })
       .catch(() => {
         /* leave the last good geometry in place on failure */
@@ -462,29 +532,57 @@ function BoardMesh({
     };
   }, [board, targetFaceSize]);
 
+  const geometry = hull?.geometry ?? null;
   // Free the previous geometry when it changes, and on unmount.
   useEffect(() => () => geometry?.dispose(), [geometry]);
 
+  // What the screen-space shader draws. An exact mode never reaches it, except as
+  // the honest fallback for a concave tail: normal change is the one curvature
+  // view that board can have. While an exact mode computes (or failed), the plain
+  // shaded hull shows instead.
+  const screenSpace: ScreenSpaceMode | null =
+    status.state === 'unavailable'
+      ? 'curvature'
+      : isExactAnalysis(analysis) || analysis === 'none'
+        ? null
+        : analysis;
+
   const analysisMaterial = useMemo(() => {
-    const uMode = analysis === 'zebra' ? 1 : analysis === 'curvature' ? 2 : 3;
-    const m = new ShaderMaterial({
+    if (!screenSpace) return null;
+    const uMode = screenSpace === 'zebra' ? 1 : screenSpace === 'curvature' ? 2 : 3;
+    // fwidth() in the normal-change path is core in WebGL2 (the renderer used here).
+    return new ShaderMaterial({
       vertexShader: ANALYSIS_VERT,
       fragmentShader: ANALYSIS_FRAG,
       uniforms: {
         uMode: { value: uMode },
-        uFreq: { value: analysis === 'none' ? 1.0 : ANALYSIS_FREQ[analysis] },
+        uFreq: { value: ANALYSIS_FREQ[screenSpace] },
       },
       side: DoubleSide,
     });
-    // fwidth() in the curvature path is core in WebGL2 (the renderer used here).
-    return m;
-  }, [analysis]);
-  useEffect(() => () => analysisMaterial.dispose(), [analysisMaterial]);
+  }, [screenSpace]);
+  useEffect(() => () => analysisMaterial?.dispose(), [analysisMaterial]);
 
-  if (!geometry) return null;
+  if (!hull || !geometry) return null;
+
+  // The exact analysis, once it is for this board and the hull it sits on is too.
+  if (
+    status.state === 'ready' &&
+    curvature &&
+    'mesh' in curvature &&
+    curvature.board === board &&
+    hull.board === board
+  ) {
+    const [cx, cy, cz] = hull.center;
+    return (
+      <group position={[-cx, -cy, -cz]}>
+        <CurvatureSurface mesh={curvature.mesh} mode={status.mode} />
+      </group>
+    );
+  }
 
   // Analysis overlay replaces the lit surface entirely.
-  if (analysis !== 'none') {
+  if (analysisMaterial) {
     return <mesh geometry={geometry} material={analysisMaterial} />;
   }
 
@@ -513,6 +611,18 @@ function BoardMesh({
   );
 }
 
+/**
+ * The board as of the last moment the store was not mid-gesture. The exact
+ * analysis asks for this one, so a drag does not queue a second-long fit per
+ * pointer move: it recomputes once, when the edit settles.
+ */
+function useSettledBoard(store: StoreApi<BoardState>, board: BezierBoard | null) {
+  const editing = useSyncExternalStore(store.subscribe, () => store.getState().editing);
+  const settled = useRef(board);
+  if (!editing) settled.current = board;
+  return settled.current;
+}
+
 /** Orbitable 3D view of the board, meshed from the kernel tessellation. */
 export function Board3DView({
   store,
@@ -523,6 +633,7 @@ export function Board3DView({
   finColor,
   viewCubeLineColor = '#22D3EE',
   analysis = 'none',
+  onAnalysisStatus,
   targetFaceSize = DEFAULT_FACE_SIZE,
   showStringer = false,
   showSections = false,
@@ -538,6 +649,18 @@ export function Board3DView({
   const resolved: Board3DMode = mode ?? 'shaded';
   const [flipViewSequence, setFlipViewSequence] = useState(0);
   const [flipHovered, setFlipHovered] = useState(false);
+
+  const exact = isExactAnalysis(analysis);
+  const settled = useSettledBoard(store, board);
+  const curvature = useCurvatureResult(exact ? settled : null, exact);
+  const computed = analysisStatus(analysis, board, curvature);
+  // One object per distinct state, so the report below fires on changes only.
+  const statusRef = useRef<AnalysisStatus>(ANALYSIS_OFF);
+  if (!sameStatus(statusRef.current, computed)) statusRef.current = computed;
+  const status = statusRef.current;
+  useEffect(() => {
+    onAnalysisStatus?.(status);
+  }, [onAnalysisStatus, status]);
 
   return (
     <div className={className} style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -567,6 +690,8 @@ export function Board3DView({
             material={material}
             color={color}
             analysis={analysis}
+            status={status}
+            curvature={curvature}
             targetFaceSize={targetFaceSize}
           />
         )}

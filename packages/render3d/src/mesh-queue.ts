@@ -3,6 +3,11 @@ import type { BezierBoard, BoardMesh } from '@openshaper/kernel';
 /**
  * Scheduling for the tessellation worker.
  *
+ * Generic over what a job produces, because the same scheduling serves two jobs:
+ * the viewport mesh (keyed by target face size) and the exact curvature analysis
+ * (`curvature-mesh.ts`, one key). Each runs on its own worker with its own queue,
+ * so a second-long curvature fit never holds up the mesh a drag is waiting for.
+ *
  * Every edit swaps the board, and the hull, the fins and the guides each ask for
  * the new board's mesh (the latter two only for its centre). Posting each ask
  * straight to the worker queued one ~40 ms job per pointer move — faster than the
@@ -20,40 +25,42 @@ import type { BezierBoard, BoardMesh } from '@openshaper/kernel';
  * dropped — its result still lands in the cache.
  */
 /** What the tessellation worker posts back for job `id`. */
-export type WorkerReply = { id: number; mesh: BoardMesh } | { id: number; error: string };
+export type WorkerReply<R = BoardMesh> = { id: number; result: R } | { id: number; error: string };
 
-export interface MeshQueue {
-  request(board: BezierBoard, targetFaceSize: number, signal?: AbortSignal): Promise<BoardMesh>;
+export interface MeshQueue<R = BoardMesh> {
+  /** `key` tells jobs for the same board apart: the face size, for meshes. */
+  request(board: BezierBoard, key: number, signal?: AbortSignal): Promise<R>;
   /** Hand back the worker's result for job `id`. */
-  receive(id: number, mesh: BoardMesh): void;
+  receive(id: number, result: R): void;
   /** The worker failed job `id`: reject it and move on to the next one. */
   fail(id: number, error: unknown): void;
   /** The worker itself is gone (failed to load, crashed): reject every job. */
   failAll(error: unknown): void;
 }
 
-interface Job {
+interface Job<R> {
   id: number;
   board: BezierBoard;
   faceSize: number;
   /** Callers still interested in the result. */
   live: number;
-  promise: Promise<BoardMesh>;
-  resolve: (mesh: BoardMesh) => void;
+  promise: Promise<R>;
+  resolve: (result: R) => void;
   reject: (err: unknown) => void;
 }
 
-export function createMeshQueue(
-  post: (id: number, board: BezierBoard, targetFaceSize: number) => void,
-  onResult: (board: BezierBoard, targetFaceSize: number, mesh: BoardMesh) => void = () => {},
-): MeshQueue {
+export function createMeshQueue<R = BoardMesh>(
+  post: (id: number, board: BezierBoard, key: number) => void,
+  onResult: (board: BezierBoard, key: number, result: R) => void = () => {},
+): MeshQueue<R> {
+  type J = Job<R>;
   let nextId = 1;
-  let inFlight: Job | null = null;
-  const waiting: Job[] = [];
-  // Jobs not yet finished, by board and face size, so identical asks share one.
-  const open = new WeakMap<BezierBoard, Map<number, Job>>();
+  let inFlight: J | null = null;
+  const waiting: J[] = [];
+  // Jobs not yet finished, by board and key, so identical asks share one.
+  const open = new WeakMap<BezierBoard, Map<number, J>>();
 
-  const forget = (job: Job): void => {
+  const forget = (job: J): void => {
     const byFace = open.get(job.board);
     byFace?.delete(job.faceSize);
     if (byFace?.size === 0) open.delete(job.board);
@@ -67,7 +74,7 @@ export function createMeshQueue(
     post(job.id, job.board, job.faceSize);
   };
 
-  const release = (job: Job): void => {
+  const release = (job: J): void => {
     job.live--;
     if (job.live > 0 || job === inFlight) return;
     const i = waiting.indexOf(job);
@@ -77,14 +84,14 @@ export function createMeshQueue(
     job.reject(new DOMException('Superseded before it started', 'AbortError'));
   };
 
-  const newJob = (board: BezierBoard, faceSize: number): Job => {
-    let resolve!: (mesh: BoardMesh) => void;
+  const newJob = (board: BezierBoard, faceSize: number): J => {
+    let resolve!: (result: R) => void;
     let reject!: (err: unknown) => void;
-    const promise = new Promise<BoardMesh>((res, rej) => {
+    const promise = new Promise<R>((res, rej) => {
       resolve = res;
       reject = rej;
     });
-    const job: Job = { id: nextId++, board, faceSize, live: 0, promise, resolve, reject };
+    const job: J = { id: nextId++, board, faceSize, live: 0, promise, resolve, reject };
     let byFace = open.get(board);
     if (!byFace) {
       byFace = new Map();
@@ -112,13 +119,13 @@ export function createMeshQueue(
       return job.promise;
     },
 
-    receive(id, mesh) {
+    receive(id, result) {
       const job = inFlight;
       if (!job || job.id !== id) return;
       inFlight = null;
       forget(job);
-      onResult(job.board, job.faceSize, mesh);
-      job.resolve(mesh);
+      onResult(job.board, job.faceSize, result);
+      job.resolve(result);
       pump();
     },
 

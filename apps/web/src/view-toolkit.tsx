@@ -42,6 +42,7 @@ import {
   MATERIAL_3D,
   MODE_3D,
   QUALITY_3D,
+  type ExactAnalysisBlock,
   type View3DSettings,
 } from './view3d-settings';
 
@@ -257,7 +258,7 @@ export function MeasurementAxisSelect({
   );
 }
 
-/** A compact typed `<select>`. */
+/** A compact typed `<select>`. An option can be disabled, with its reason as its title. */
 export function Sel<T extends string>({
   value,
   onChange,
@@ -266,7 +267,7 @@ export function Sel<T extends string>({
 }: {
   value: T;
   onChange: (v: T) => void;
-  options: { value: T; label: string }[];
+  options: { value: T; label: string; disabled?: boolean; title?: string }[];
   title: string;
 }) {
   return (
@@ -279,7 +280,7 @@ export function Sel<T extends string>({
       className="h-7 px-1 text-xs"
     >
       {options.map((o) => (
-        <option key={o.value} value={o.value}>
+        <option key={o.value} value={o.value} disabled={o.disabled} title={o.title}>
           {o.label}
         </option>
       ))}
@@ -319,12 +320,31 @@ export function ThreeDControls({
   settings,
   onChange,
   compact = false,
+  exactUnavailable = null,
 }: {
   settings: View3DSettings;
   onChange: (patch: Partial<View3DSettings>) => void;
   compact?: boolean;
+  /**
+   * Why the exact analysis modes cannot run on this board (a concave tail), or
+   * null. They stay listed, disabled, with the reason on them and on the select.
+   */
+  exactUnavailable?: ExactAnalysisBlock | null;
 }) {
   const set = onChange;
+  // Spelled out in the entry itself, not only in a tooltip: a phone has no hover.
+  const analysisOptions = exactUnavailable
+    ? ANALYSIS_3D.map((o) =>
+        o.exact
+          ? {
+              ...o,
+              label: `${o.label} (${exactUnavailable.short})`,
+              disabled: true,
+              title: exactUnavailable.reason,
+            }
+          : o,
+      )
+    : ANALYSIS_3D;
   return (
     <div className="flex flex-wrap items-center gap-1">
       <div className="flex gap-1">
@@ -391,8 +411,10 @@ export function ThreeDControls({
       <Sel
         value={settings.analysis}
         onChange={(analysis) => set({ analysis })}
-        options={ANALYSIS_3D}
-        title="Surface analysis"
+        options={analysisOptions}
+        title={
+          exactUnavailable ? `Surface analysis. ${exactUnavailable.reason}` : 'Surface analysis'
+        }
       />
       <Sel
         value={settings.meshQuality}

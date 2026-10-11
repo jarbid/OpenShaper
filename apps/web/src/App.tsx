@@ -8,7 +8,7 @@ import {
   type Spline,
 } from '@openshaper/kernel';
 import { type EditorOverlays, type SimilarityParams } from '@openshaper/render2d';
-import type { Board3DViewProps } from '@openshaper/render3d';
+import type { AnalysisStatus, Board3DViewProps } from '@openshaper/render3d';
 import { selectSpecs } from '@openshaper/store';
 import {
   BottomSheet,
@@ -76,7 +76,9 @@ import {
   LENGTH_UNITS,
   lengthUnitByKey,
   parseLen,
+  type LengthUnit,
 } from './format';
+import { AnalysisLegend } from './AnalysisLegend';
 import { openHtmlInNewTab, specSheetHtmlFor } from './spec-sheet-open';
 import { loadSession, saveSession } from './session-store';
 import { DEFAULT_SPLIT, loadViewState, saveViewState, type SplitPanes } from './view-state';
@@ -127,7 +129,7 @@ import {
   type View3DSettings,
 } from './view-toolkit';
 import { longitudinalFor, type MeasurementAxis } from './longitudinal';
-import { DEFAULT_VIEW_3D } from './view3d-settings';
+import { DEFAULT_VIEW_3D, exactAnalysisUnavailable } from './view3d-settings';
 import { estimateWeight, FOAM_TYPES, GLASS_SCHEDULES } from './weights';
 import { readRaw, writeRaw } from './persisted';
 
@@ -138,24 +140,39 @@ const Board3DView = lazy(() =>
   import('@openshaper/render3d').then((m) => ({ default: m.Board3DView })),
 );
 
+const ANALYSIS_IDLE: AnalysisStatus = { state: 'off' };
+
 /**
- * Board3DView behind a Suspense boundary, so the lazy 3D chunk can stream in.
+ * Board3DView behind a Suspense boundary, so the lazy 3D chunk can stream in, with
+ * the exact analysis modes' legend over it (the view reports where an analysis
+ * stands; the legend's lengths are formatted here, in the display unit).
  *
  * Memoized: the 3D view subscribes to the board store itself and every prop here is a
- * primitive, a ref-backed value or a stable callback, so an AppShell render (a 2D drag
- * move, a hover scrub) need not re-reconcile the three.js scene.
+ * primitive, a ref-backed value or a stable callback (`units` is one of the constant
+ * `LENGTH_UNITS`), so an AppShell render (a 2D drag move, a hover scrub) need not
+ * re-reconcile the three.js scene.
  */
-const ThreeDPane = memo(function ThreeDPane(props: Board3DViewProps) {
+const ThreeDPane = memo(function ThreeDPane({
+  units,
+  ...props
+}: Board3DViewProps & { units: LengthUnit }) {
+  const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>(ANALYSIS_IDLE);
   return (
-    <Suspense
-      fallback={
-        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-          Loading 3D…
-        </div>
-      }
-    >
-      <Board3DView {...props} />
-    </Suspense>
+    <div className="relative h-full w-full">
+      <Suspense
+        fallback={
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+            Loading 3D…
+          </div>
+        }
+      >
+        <Board3DView {...props} onAnalysisStatus={setAnalysisStatus} />
+      </Suspense>
+      {/* Only an exact mode reports anything but 'off'; switching away clears it. */}
+      {props.analysis && props.analysis !== 'none' && (
+        <AnalysisLegend status={analysisStatus} units={units} />
+      )}
+    </div>
   );
 });
 
@@ -1344,6 +1361,10 @@ function AppShell() {
       : []),
   ];
 
+  // The exact curvature modes read the fitted surface, which a concave tail does not
+  // have; the controls list them disabled with the reason, as the STEP item is.
+  const exactUnavailable = exactAnalysisUnavailable(board);
+
   // One 3D pane element and one set of 2D pane props, shared by the quad/split layout
   // and the single-view layout so the two cannot drift apart.
   const threeDPane = (
@@ -1356,6 +1377,7 @@ function AppShell() {
       finColor={settings.finColor}
       viewCubeLineColor={settings.outlineColor}
       analysis={view3d.analysis}
+      units={units}
       targetFaceSize={faceSizeFor(view3d.meshQuality)}
       showStringer={view3d.showStringer}
       showSections={view3d.showSections}
@@ -1408,7 +1430,12 @@ function AppShell() {
             {titleControl ?? (
               <ViewToggleTitle onDoubleClick={() => selectView('3d')}>3D</ViewToggleTitle>
             )}
-            <ThreeDControls settings={view3d} onChange={patchView3d} compact />
+            <ThreeDControls
+              settings={view3d}
+              onChange={patchView3d}
+              exactUnavailable={exactUnavailable}
+              compact
+            />
           </ViewPaneHeader>
           <PanelBody className="min-h-0 flex-1 p-0">{threeDPane}</PanelBody>
         </Panel>
@@ -1685,7 +1712,11 @@ function AppShell() {
                     drag to orbit • scroll to zoom
                   </span>
                 </div>
-                <ThreeDControls settings={view3d} onChange={patchView3d} />
+                <ThreeDControls
+                  settings={view3d}
+                  onChange={patchView3d}
+                  exactUnavailable={exactUnavailable}
+                />
               </ViewPaneHeader>
               <PanelBody className="min-h-0 flex-1 p-0">{threeDPane}</PanelBody>
             </Panel>

@@ -8,7 +8,9 @@ import {
   type BoardMesh,
 } from '@openshaper/kernel';
 import { BufferAttribute, BufferGeometry } from 'three';
+import { boardCurvatureMesh, type CurvatureMesh } from './curvature-mesh';
 import { createMeshQueue, type MeshQueue, type WorkerReply } from './mesh-queue';
+import type { WorkerRequest } from './worker-protocol';
 
 // Tessellation walks many stations, each interpolating a cross-section — the
 // heaviest 3D cost, and far heavier at fine target-face sizes. We offload it to a
@@ -21,61 +23,93 @@ import { createMeshQueue, type MeshQueue, type WorkerReply } from './mesh-queue'
 // A handful of entries covers what is actually reused — the current board, shared
 // by hull, fins and guides, and the last few undo steps.
 export const MESH_CACHE_SIZE = 8;
+/**
+ * Curvature results are 3–5 MB each and only the current board's is on screen;
+ * two covers switching between the analysis modes and one step of undo.
+ */
+export const CURVATURE_CACHE_SIZE = 2;
 
-interface CacheEntry {
-  board: BezierBoard;
-  faceSize: number;
-  mesh: BoardMesh;
-}
-// Most recently used last.
-const meshCache: CacheEntry[] = [];
-
-const getCached = (board: BezierBoard, faceSize: number): BoardMesh | undefined => {
-  const i = meshCache.findIndex((e) => e.board === board && e.faceSize === faceSize);
-  if (i === -1) return undefined;
-  const [hit] = meshCache.splice(i, 1);
-  meshCache.push(hit!);
-  return hit!.mesh;
+/** A least-recently-used cache keyed by board identity and a number. */
+const createLru = <R>(size: number) => {
+  // Most recently used last.
+  const entries: { board: BezierBoard; key: number; value: R }[] = [];
+  const find = (board: BezierBoard, key: number) =>
+    entries.findIndex((e) => e.board === board && e.key === key);
+  return {
+    get(board: BezierBoard, key: number): R | undefined {
+      const i = find(board, key);
+      if (i === -1) return undefined;
+      const [hit] = entries.splice(i, 1);
+      entries.push(hit!);
+      return hit!.value;
+    },
+    put(board: BezierBoard, key: number, value: R): void {
+      const i = find(board, key);
+      if (i !== -1) entries.splice(i, 1);
+      entries.push({ board, key, value });
+      if (entries.length > size) entries.shift();
+    },
+    size: () => entries.length,
+  };
 };
 
-const putCached = (board: BezierBoard, faceSize: number, mesh: BoardMesh): void => {
-  const i = meshCache.findIndex((e) => e.board === board && e.faceSize === faceSize);
-  if (i !== -1) meshCache.splice(i, 1);
-  meshCache.push({ board, faceSize, mesh });
-  if (meshCache.length > MESH_CACHE_SIZE) meshCache.shift();
-};
+const meshCache = createLru<BoardMesh>(MESH_CACHE_SIZE);
+const curvatureCache = createLru<CurvatureMesh>(CURVATURE_CACHE_SIZE);
 
 /** Test hook: how many meshes the cache holds. */
-export const meshCacheSize = (): number => meshCache.length;
+export const meshCacheSize = (): number => meshCache.size();
 
 // --- worker plumbing (lazy, client-only) ---------------------------------
-let queue: MeshQueue | null = null;
 
-const ensureQueue = (): MeshQueue => {
-  if (queue) return queue;
-  const worker = new Worker(new URL('./tessellate.worker.ts', import.meta.url), {
-    type: 'module',
-  });
-  const q = createMeshQueue(
-    (id, board, targetFaceSize) => worker.postMessage({ id, board, targetFaceSize }),
-    putCached,
-  );
-  worker.onmessage = (e: MessageEvent<WorkerReply>) => {
-    const r = e.data;
-    if ('error' in r) q.fail(r.id, new Error(r.error));
-    else q.receive(r.id, r.mesh);
+/**
+ * A job queue backed by its own lazily started tessellation worker.
+ *
+ * Meshes and curvature each get one: a curvature job takes the better part of a
+ * second, and on a shared worker every mesh a drag asks for would wait behind it.
+ */
+const workerQueue = <R>(
+  toRequest: (id: number, board: BezierBoard, key: number) => WorkerRequest,
+  onResult: (board: BezierBoard, key: number, result: R) => void,
+): (() => MeshQueue<R>) => {
+  let queue: MeshQueue<R> | null = null;
+  return () => {
+    if (queue) return queue;
+    const worker = new Worker(new URL('./tessellate.worker.ts', import.meta.url), {
+      type: 'module',
+    });
+    const q = createMeshQueue<R>(
+      (id, board, key) => worker.postMessage(toRequest(id, board, key)),
+      onResult,
+    );
+    worker.onmessage = (e: MessageEvent<WorkerReply<R>>) => {
+      const r = e.data;
+      if ('error' in r) q.fail(r.id, new Error(r.error));
+      else q.receive(r.id, r.result);
+    };
+    // The worker script failed to load or crashed: settle everything. The next
+    // request starts a fresh worker.
+    worker.onerror = (e) => {
+      e.preventDefault();
+      worker.terminate();
+      if (queue === q) queue = null;
+      q.failAll(new Error(e.message || 'Tessellation worker failed'));
+    };
+    queue = q;
+    return q;
   };
-  // The worker script failed to load or crashed: settle everything. The next
-  // request starts a fresh worker.
-  worker.onerror = (e) => {
-    e.preventDefault();
-    worker.terminate();
-    if (queue === q) queue = null;
-    q.failAll(new Error(e.message || 'Tessellation worker failed'));
-  };
-  queue = q;
-  return q;
 };
+
+const meshQueue = workerQueue<BoardMesh>(
+  (id, board, targetFaceSize) => ({ kind: 'mesh', id, board, targetFaceSize }),
+  (board, faceSize, mesh) => meshCache.put(board, faceSize, mesh),
+);
+
+/** Curvature has one job per board; the queue's key is unused. */
+const CURVATURE_KEY = 0;
+const curvatureQueue = workerQueue<CurvatureMesh>(
+  (id, board) => ({ kind: 'curvature', id, board }),
+  (board, key, result) => curvatureCache.put(board, key, result),
+);
 
 /**
  * Tessellate the board at `targetFaceSize` (cm), off the main thread when a Worker
@@ -90,16 +124,64 @@ export function tessellateAsync(
   targetFaceSize: number,
   signal?: AbortSignal,
 ): Promise<BoardMesh> {
-  const cached = getCached(board, targetFaceSize);
+  const cached = meshCache.get(board, targetFaceSize);
   if (cached) return Promise.resolve(cached);
 
   if (typeof Worker === 'undefined') {
     const mesh = tessellateBoard(board, { targetFaceSize });
-    putCached(board, targetFaceSize, mesh);
+    meshCache.put(board, targetFaceSize, mesh);
     return Promise.resolve(mesh);
   }
 
-  return ensureQueue().request(board, targetFaceSize, signal);
+  return meshQueue().request(board, targetFaceSize, signal);
+}
+
+/**
+ * The board's exact curvature analysis (`curvature-mesh.ts`): fit, then tessellate
+ * with curvature at every vertex. Same contract as {@link tessellateAsync} — off the
+ * main thread when it can be, cached, and dropped while still waiting once every
+ * asker's `signal` has aborted.
+ *
+ * Rejects for a concave tail, which the fit does not model; callers check
+ * `curvatureUnsupported` first so as to say why rather than fail.
+ */
+export function curvatureAsync(board: BezierBoard, signal?: AbortSignal): Promise<CurvatureMesh> {
+  const cached = curvatureCache.get(board, CURVATURE_KEY);
+  if (cached) return Promise.resolve(cached);
+
+  if (typeof Worker === 'undefined') {
+    try {
+      const result = boardCurvatureMesh(board);
+      curvatureCache.put(board, CURVATURE_KEY, result);
+      return Promise.resolve(result);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+
+  return curvatureQueue().request(board, CURVATURE_KEY, signal);
+}
+
+/**
+ * The curvature analysis as a BufferGeometry, in board coordinates (not centred:
+ * the caller places it with the hull's offset, as for fins and guides).
+ *
+ * Group 0 is the hull, carrying `aMean`, `aGauss` and `aRadius` for the analysis
+ * shader; group 1 is the two end caps, which have no curvature and take a plain
+ * material. The arrays are the cached result's own — read, never written.
+ */
+export function curvatureGeometry(mesh: CurvatureMesh): BufferGeometry {
+  const g = new BufferGeometry();
+  g.setAttribute('position', new BufferAttribute(mesh.positions, 3));
+  g.setAttribute('normal', new BufferAttribute(mesh.normals, 3));
+  g.setAttribute('aMean', new BufferAttribute(mesh.mean, 1));
+  g.setAttribute('aGauss', new BufferAttribute(mesh.gaussian, 1));
+  g.setAttribute('aRadius', new BufferAttribute(mesh.minRadius, 1));
+  g.setIndex(new BufferAttribute(mesh.indices, 1));
+  g.addGroup(0, mesh.hullIndexCount, 0);
+  g.addGroup(mesh.hullIndexCount, mesh.indices.length - mesh.hullIndexCount, 1);
+  g.computeBoundingSphere();
+  return g;
 }
 
 /**

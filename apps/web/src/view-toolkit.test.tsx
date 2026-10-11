@@ -16,7 +16,13 @@ import { longitudinalFor } from './longitudinal';
 import sampleBrd from './sample-board.brd?raw';
 import { boardStore } from './store';
 import { makeReadout, MeasurementAxisSelect, ThreeDControls } from './view-toolkit';
-import { DEFAULT_VIEW_3D } from './view3d-settings';
+import {
+  ANALYSIS_3D,
+  DEFAULT_VIEW_3D,
+  EXACT_ANALYSIS_CONCAVE_TAIL,
+  exactAnalysisUnavailable,
+} from './view3d-settings';
+import { swallowBoard } from './test/swallow-board';
 
 describe('ThreeDControls guide toggles', () => {
   it('renders all three toggles', () => {
@@ -77,6 +83,60 @@ describe('ThreeDControls guide toggles', () => {
     );
     const on = screen.getByRole('button', { name: 'Stringer' }).className;
     expect(on).not.toBe(off);
+  });
+});
+
+describe('ThreeDControls surface analysis', () => {
+  const analysisSelect = () => screen.getByTitle(/^Surface analysis/) as HTMLSelectElement;
+  const options = () => Array.from(analysisSelect().options);
+
+  it('lists the exact modes and labels the screen-space one honestly', () => {
+    render(<ThreeDControls settings={DEFAULT_VIEW_3D} onChange={vi.fn()} compact />);
+    expect(options().map((o) => [o.value, o.textContent])).toEqual([
+      ['none', 'No analysis'],
+      ['zebra', 'Zebra'],
+      ['mean-curvature', 'Mean curvature'],
+      ['gaussian-curvature', 'Gaussian curvature'],
+      ['rail-radius', 'Rail radius'],
+      // The old screen-space mode keeps its stored id, so saved settings load.
+      ['curvature', 'Normal change (approx.)'],
+      ['slope', 'Slope'],
+    ]);
+    expect(options().every((o) => !o.disabled)).toBe(true);
+  });
+
+  it('patches the analysis when a mode is picked', () => {
+    const onChange = vi.fn();
+    render(<ThreeDControls settings={DEFAULT_VIEW_3D} onChange={onChange} />);
+    fireEvent.change(analysisSelect(), { target: { value: 'rail-radius' } });
+    expect(onChange).toHaveBeenCalledWith({ analysis: 'rail-radius' });
+  });
+
+  it('disables the exact modes on a concave tail, saying why, and keeps the rest', () => {
+    const block = exactAnalysisUnavailable(swallowBoard());
+    expect(block?.reason).toBe(EXACT_ANALYSIS_CONCAVE_TAIL);
+    render(
+      <ThreeDControls settings={DEFAULT_VIEW_3D} onChange={vi.fn()} exactUnavailable={block} />,
+    );
+    const exact = new Set(ANALYSIS_3D.filter((o) => o.exact).map((o) => o.value));
+    expect(exact.size).toBe(3);
+    for (const o of options()) {
+      if (exact.has(o.value as never)) {
+        expect(o.disabled).toBe(true);
+        expect(o.title).toBe(EXACT_ANALYSIS_CONCAVE_TAIL);
+        // Visible in the entry itself, for a phone with no hover.
+        expect(o.textContent).toMatch(/\(not for concave tails\)$/);
+      } else {
+        expect(o.disabled).toBe(false);
+      }
+    }
+    expect(analysisSelect().title).toContain(EXACT_ANALYSIS_CONCAVE_TAIL);
+  });
+
+  it('has nothing to disable on an ordinary board', () => {
+    const { board } = parseBrd(sampleBrd);
+    expect(exactAnalysisUnavailable(board)).toBeNull();
+    expect(exactAnalysisUnavailable(null)).toBeNull();
   });
 });
 

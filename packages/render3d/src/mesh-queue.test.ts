@@ -132,3 +132,64 @@ describe('mesh queue', () => {
     expect(posts).toHaveLength(1);
   });
 });
+
+describe('the same queue scheduling curvature jobs', () => {
+  // Curvature results are only identities here too; one key per board.
+  type Result = { tag: string };
+  const KEY = 0;
+  const setupCurvature = () => {
+    const posts: { id: number; board: BezierBoard }[] = [];
+    const onResult = vi.fn();
+    const q = createMeshQueue<Result>((id, board) => posts.push({ id, board }), onResult);
+    return { q, posts, onResult };
+  };
+
+  it('a drag fits only the in-flight board and the one it settles on', async () => {
+    const { q, posts, onResult } = setupCurvature();
+    const bs = boards(6);
+    const signals = bs.map(() => new AbortController());
+    const promises = bs.map((b, i) => q.request(b, KEY, signals[i]!.signal));
+    promises.forEach((p) => p.catch(() => {}));
+    for (let i = 0; i < bs.length - 1; i++) signals[i]!.abort();
+
+    const first = { tag: 'first' };
+    q.receive(posts[0]!.id, first);
+    expect(posts.map((p) => p.board)).toEqual([bs[0], bs[5]]);
+    // The first fit was already running; its result still lands for the cache.
+    expect(onResult).toHaveBeenCalledWith(bs[0], KEY, first);
+    for (const p of promises.slice(1, 5)) {
+      await expect(p).rejects.toMatchObject({ name: 'AbortError' });
+    }
+    const last = { tag: 'last' };
+    q.receive(posts[1]!.id, last);
+    await expect(promises[5]).resolves.toBe(last);
+  });
+
+  it('drops a stale reply: a result for a job that is not in flight changes nothing', async () => {
+    const { q, posts, onResult } = setupCurvature();
+    const [a, b] = boards(2);
+    const pa = q.request(a!, KEY);
+    const pb = q.request(b!, KEY);
+    // A reply for a job id that has already been answered (or never existed).
+    q.receive(posts[0]!.id + 1, { tag: 'stale' });
+    expect(onResult).not.toHaveBeenCalled();
+    expect(posts).toHaveLength(1);
+    q.receive(posts[0]!.id, { tag: 'a' });
+    q.receive(posts[0]!.id, { tag: 'a again' }); // duplicate: ignored
+    await expect(pa).resolves.toEqual({ tag: 'a' });
+    expect(onResult).toHaveBeenCalledTimes(1);
+    q.receive(posts[1]!.id, { tag: 'b' });
+    await expect(pb).resolves.toEqual({ tag: 'b' });
+  });
+
+  it('a concave-tail refusal rejects that job with the reason and moves on', async () => {
+    const { q, posts } = setupCurvature();
+    const [a, b] = boards(2);
+    const pa = q.request(a!, KEY);
+    const pb = q.request(b!, KEY);
+    q.fail(posts[0]!.id, new Error('Exact curvature is not available for concave tails'));
+    await expect(pa).rejects.toThrow(/concave/);
+    q.receive(posts[1]!.id, { tag: 'b' });
+    await expect(pb).resolves.toEqual({ tag: 'b' });
+  });
+});

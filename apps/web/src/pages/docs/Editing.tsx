@@ -13,6 +13,7 @@ export default function DocsEditing() {
       toc={[
         { id: 'views', label: 'The views' },
         { id: 'guides', label: 'Guides in 3D' },
+        { id: 'analysis', label: 'Surface analysis in 3D' },
         { id: 'points', label: 'Control points & tangents' },
         { id: 'locks', label: 'Locking handle angles' },
         { id: 'keyboard', label: 'Nudging from the keyboard' },
@@ -122,6 +123,80 @@ export default function DocsEditing() {
           The lines are computed from the same surface the mesh is built from, so they sit on the
           board rather than floating near it. All three toggles are remembered between sessions,
           along with the rest of the 3D appearance settings.
+        </p>
+      </Section>
+
+      <Section id="analysis" title="Surface analysis in 3D">
+        <p>
+          The <strong>Surface analysis</strong> menu in the 3D controls repaints the hull to show
+          its shape rather than its finish. Three modes are <em>exact</em>: they fit the hull with
+          the same B-spline surface the <Link to="/docs/export">STEP export</Link> writes &mdash;
+          within 0.15 mm of the 3D hull &mdash; and work out its curvature mathematically at every
+          point, so what you see does not change with zoom or mesh quality. The rest are quick
+          effects on the viewport mesh.
+        </p>
+        <Terms>
+          <Term name="Zebra">
+            Stripes, as if a striped room were reflected in a glossed board. Stripes that run on
+            smoothly mean a smooth surface; a kink in them is a crease.
+          </Term>
+          <Term name="Mean curvature">
+            How much the surface bends, averaged over its two directions, and which way: red is
+            convex (a domed deck, a rail), blue is concave (a bottom concave, a dished deck), grey
+            is flat. Use it to judge how evenly the deck and bottom flow. The rails are usually
+            beyond the scale and show solid red &mdash; read them with Rail radius.
+          </Term>
+          <Term name="Gaussian curvature">
+            The two bends multiplied: red where the surface curves the same way in every direction,
+            like a dome; blue on a saddle, curving up one way and down the other &mdash; where a
+            concave runs out into the rail, or rocker meets a vee; grey where it is flat or bent one
+            way only, like a cylinder. A fair board has broad, calm areas; blotches show where the
+            shape twists.
+          </Term>
+          <Term name="Rail radius">
+            The tightest radius of curvature at each point &mdash; the smallest circle that fits the
+            surface there. Dark is tight, a hard or tucked edge, fading to light where the board is
+            flat. Follow a rail from tail to nose to see where the edge hardens and softens.
+          </Term>
+          <Term name="Normal change (approx.)">
+            The quick view: how fast the mesh normal turns from one pixel to the next. Rails and
+            nose light up, but the picture changes as you zoom and with mesh quality, and it cannot
+            tell a smooth join from a break &mdash; hence &ldquo;approx.&rdquo; It is the curvature
+            view that works on a concave tail.
+          </Term>
+          <Term name="Slope">
+            How far the surface faces away from straight up: deck and bottom one colour, the rails
+            another.
+          </Term>
+        </Terms>
+        <p>
+          <strong>Reading the exact modes.</strong> A legend in the corner of the 3D view shows the
+          colour scale. Curvature is labelled as a radius in your display unit &mdash; &ldquo;as
+          curved as a ball of radius 3.3 cm&rdquo; &mdash; and the scale fits itself to the board:
+          it ends at the curvature that only the most curved fifth of the surface (by area) goes
+          beyond, so a needle-sharp nose tip cannot wash the rest out to grey. Rail radius runs from
+          the tightest two percent of the board to its median.
+        </p>
+        <p>
+          <strong>Expect a band at every cross-section.</strong> The hull is lofted from one station
+          to the next with a straight-line blend, so it changes direction slightly at each station
+          instead of flowing through it &mdash; a real crease, however small. The exact modes show
+          every one of them as a crisp line across the board where the colour jumps. That is not a
+          drawing artefact: it is the shape the exports describe, and it is where a smoother loft
+          would make a difference.
+        </p>
+        <p>
+          An exact mode takes about a second to compute, in the background, so editing never waits
+          for it. When you pick one, and after each edit, the 3D view shows the board shaded as
+          normal with <em>Computing curvature&hellip;</em> in the corner until the result is ready.
+          During a drag it waits until you let go.
+        </p>
+        <p>
+          The fitted surface does not yet model a{' '}
+          <Link to="/docs/editing#tail">concave (swallow or fish) tail</Link> &mdash; the same limit
+          as STEP export &mdash; so on such a board the three exact modes are listed but disabled,
+          with the reason. If one was already chosen, the view says so and shows Normal change
+          (approx.) instead.
         </p>
       </Section>
 

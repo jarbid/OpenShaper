@@ -76,6 +76,40 @@ test.describe('OpenShaper editor', () => {
     expect(errors).toEqual([]);
   });
 
+  test('paints every surface-analysis mode, the exact ones with a legend', async ({ page }) => {
+    const errors = trackErrors(page);
+    // trackErrors lets WebGL noise through unreported; a shader that fails to
+    // compile is not noise, and three.js reports it as a WebGLProgram error.
+    const shaderErrors: string[] = [];
+    page.on('console', (msg: ConsoleMessage) => {
+      if (/WebGLProgram|Shader Error/.test(msg.text())) shaderErrors.push(msg.text());
+    });
+    await page.goto('/app');
+    await page.getByRole('button', { name: '3D', exact: true }).click();
+    const analysis = page.getByTitle(/^Surface analysis/);
+
+    for (const [value, label] of [
+      ['mean-curvature', 'Mean curvature'],
+      ['gaussian-curvature', 'Gaussian curvature'],
+      ['rail-radius', 'Rail radius'],
+    ]) {
+      await analysis.selectOption(value!);
+      // The fit runs in a worker: computing first, then the scale.
+      const legend = page.getByRole('status', { name: `${label} legend` });
+      await expect(legend).toContainText(/Full colour|or tighter/, { timeout: 30_000 });
+      // Let the analysis surface draw at least once, so its shader compiles.
+      await page.evaluate(
+        () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+      );
+    }
+    for (const value of ['zebra', 'curvature', 'slope', 'none']) {
+      await analysis.selectOption(value);
+    }
+    await expect(page.getByRole('status', { name: /legend$/ })).toHaveCount(0);
+    expect(shaderErrors).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
   test('switches display units from the toolbar', async ({ page }) => {
     await page.goto('/app');
     const units = page.getByRole('combobox', { name: 'Display units' });

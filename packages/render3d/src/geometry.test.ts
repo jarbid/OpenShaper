@@ -23,10 +23,14 @@ import {
   boardCenter,
   boardGeometry,
   boardSpan,
+  curvatureAsync,
+  curvatureGeometry,
   MESH_CACHE_SIZE,
   meshCacheSize,
   tessellateAsync,
 } from './geometry';
+import { curvatureUniforms } from './CurvatureSurface';
+import { stationBoard, swallowBoard } from './test-support/boards';
 
 // ---------------------------------------------------------------------------
 // Shared test board — same shape used in board-store.test.ts so the tessellator
@@ -251,5 +255,73 @@ describe('tessellateAsync cache (no Worker: synchronous path)', () => {
     expect(meshCacheSize()).toBe(MESH_CACHE_SIZE);
     expect(await tessellateAsync(boards[0]!, 5)).toBe(first);
     expect(await tessellateAsync(boards[1]!, 5)).not.toBe(second);
+  });
+});
+
+describe('curvatureAsync (no Worker: synchronous path)', () => {
+  it('computes once per board and serves the cached result after', async () => {
+    const b = stationBoard();
+    const first = await curvatureAsync(b);
+    expect(await curvatureAsync(b)).toBe(first);
+    expect(first.creases).toBe(3);
+  });
+
+  it('rejects a concave tail rather than painting a filled-in notch', async () => {
+    await expect(curvatureAsync(swallowBoard())).rejects.toThrow(/concave/);
+  });
+});
+
+describe('curvatureGeometry (attribute generation)', () => {
+  it('carries position, normal and the three curvature attributes, hull and caps grouped', async () => {
+    const m = await curvatureAsync(stationBoard());
+    const g = curvatureGeometry(m);
+    const verts = m.positions.length / 3;
+    expect(g.attributes['position']!.count).toBe(verts);
+    expect(g.attributes['normal']!.count).toBe(verts);
+    for (const name of ['aMean', 'aGauss', 'aRadius']) {
+      expect(g.attributes[name]!.itemSize).toBe(1);
+      expect(g.attributes[name]!.count).toBe(verts);
+    }
+    // The cached arrays themselves, not copies: nothing here may write to them.
+    expect(g.attributes['aMean']!.array).toBe(m.mean);
+    expect(g.attributes['aRadius']!.array).toBe(m.minRadius);
+    expect(g.index!.count).toBe(m.indices.length);
+    expect(g.groups).toEqual([
+      { start: 0, count: m.hullIndexCount, materialIndex: 0 },
+      { start: m.hullIndexCount, count: m.indices.length - m.hullIndexCount, materialIndex: 1 },
+    ]);
+    // Board coordinates, not centred: the tail sits at x = 0 (less the sliver the
+    // fit trims where the tip is thinner than MIN_DIM), the nose at the length.
+    g.computeBoundingBox();
+    expect(g.boundingBox!.min.x).toBeGreaterThanOrEqual(0);
+    expect(g.boundingBox!.min.x).toBeLessThan(0.5);
+    expect(g.boundingBox!.max.x).toBeGreaterThan(99.5);
+  });
+
+  it('maps each mode to its shader inputs', async () => {
+    const { scale } = await curvatureAsync(stationBoard());
+    const mean = curvatureUniforms('mean-curvature', scale);
+    const gauss = curvatureUniforms('gaussian-curvature', scale);
+    const radius = curvatureUniforms('rail-radius', scale);
+    expect([mean.uMode.value, gauss.uMode.value, radius.uMode.value]).toEqual([1, 2, 3]);
+    expect(mean.uLimit.value).toBe(scale.mean);
+    // Gaussian is shown on a 1/R scale, so its limit is the square root.
+    expect(gauss.uLimit.value).toBeCloseTo(Math.sqrt(scale.gaussian), 12);
+    expect(radius.uLo.value).toBe(scale.radius[0]);
+    expect(radius.uHi.value).toBe(scale.radius[1]);
+    expect(mean.uCount.value).toBe(7);
+    expect(radius.uCount.value).toBe(5);
+    // Padded to the shader's fixed array length with the last stop.
+    expect(radius.uStops.value).toHaveLength(7);
+    expect(radius.uStops.value[6]!.equals(radius.uStops.value[4]!)).toBe(true);
+  });
+
+  it('keeps the shader inputs finite on a degenerate scale', () => {
+    const u = curvatureUniforms('rail-radius', { mean: 0, gaussian: 0, radius: [0, 0] });
+    expect(u.uLo.value).toBeGreaterThan(0);
+    expect(u.uHi.value).toBeGreaterThan(u.uLo.value);
+    expect(
+      curvatureUniforms('mean-curvature', { mean: 0, gaussian: 0, radius: [1, 2] }).uLimit.value,
+    ).toBeGreaterThan(0);
   });
 });

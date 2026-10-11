@@ -151,6 +151,16 @@ describe('view3d persistence', () => {
     expect(v.showSections).toBe(true); // the one good field survives
   });
 
+  it('still loads the old "curvature" mode (now Normal change (approx.)) and loads the exact ones', () => {
+    for (const analysis of ['curvature', 'mean-curvature', 'gaussian-curvature', 'rail-radius']) {
+      saveViewState({ ...DEFAULT_VIEW_STATE, view3d: DEFAULT_VIEW_3D });
+      const raw = JSON.parse(localStorage.getItem('bs.viewState')!);
+      raw.view3d.analysis = analysis;
+      localStorage.setItem('bs.viewState', JSON.stringify(raw));
+      expect(loadViewState().view3d!.analysis).toBe(analysis);
+    }
+  });
+
   it('rejects a colour that is not a hex triplet', () => {
     saveViewState({ ...DEFAULT_VIEW_STATE, view3d: DEFAULT_VIEW_3D });
     const raw = JSON.parse(localStorage.getItem('bs.viewState')!);

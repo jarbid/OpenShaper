@@ -36,6 +36,7 @@ export type FeatureKind =
   | 'export-format'
   | 'board-template'
   | 'rail-preset'
+  | 'analysis-mode'
   | 'shortcut';
 
 export interface DocEntry {
@@ -85,6 +86,15 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
     'pinched',
     'egg',
     'knifey',
+  ]),
+  // The 3D view's Surface analysis menu, by mode id (`ANALYSIS_3D`), 'none' aside.
+  ...entries('analysis-mode', '/docs/editing', [
+    'zebra',
+    'mean-curvature',
+    'gaussian-curvature',
+    'rail-radius',
+    'curvature',
+    'slope',
   ]),
   ...entries('shortcut', '/docs/shortcuts', [
     'undo',
