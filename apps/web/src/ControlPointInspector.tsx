@@ -1,10 +1,17 @@
-import { tangentToNextLength, tangentToPrevLength, type Knot } from '@openshaper/kernel';
 import {
+  tangentToNextLength,
+  tangentToPrevLength,
+  type Knot,
+  type Spline,
+} from '@openshaper/kernel';
+import {
+  blankLocks,
   canDeleteKnot,
   canLockKnot,
   getTargetSpline,
   sameTarget,
   type BoardState,
+  type LockedAxes,
   type SplineTarget,
 } from '@openshaper/store';
 import { handleSideName, visualSideForHandleKind } from '@openshaper/render2d';
@@ -85,6 +92,37 @@ const targetLabel = (t: SplineTarget): string => {
 const coordinateLabels = (target: SplineTarget): readonly [string, string] =>
   target.kind === 'crossSection' ? ['Y', 'Z'] : ['X', target.kind === 'outline' ? 'Y' : 'Z'];
 
+/** A slice point the blank holds, as the editors name and explain it. */
+interface BlankHold {
+  /** The coordinates no edit can change. */
+  readonly locked: LockedAxes;
+  /** What the point is, in place of "Point". */
+  readonly name: string;
+  /** Why it is held, in a few words. */
+  readonly note: string;
+  /** Where to make the change instead, for the locked fields. */
+  readonly hint: string;
+}
+
+const CENTRE_HINT =
+  "A slice's centre points sit on the rocker and the deck. Move them in the Rocker view.";
+const APEX_HINT =
+  'The apex keeps the slice as wide as the outline, so it moves up and down only. Change the width in the Outline view.';
+
+/**
+ * What the blank holds of point `index` of `target`'s spline: a slice's centre points are
+ * fixed and its apex moves up and down only (`constrainSectionToBlank` in the store). Null
+ * for a free point, and for every point of the outline, deck and bottom.
+ */
+const blankHold = (target: SplineTarget, spline: Spline, index: number): BlankHold | null => {
+  const locked = blankLocks(target, spline)?.[index];
+  if (!locked || (!locked.x && !locked.y)) return null;
+  if (!locked.y) return { locked, name: 'Apex', note: 'width from the outline', hint: APEX_HINT };
+  return index === 0
+    ? { locked, name: 'Bottom centre', note: 'on the rocker', hint: CENTRE_HINT }
+    : { locked, name: 'Deck centre', note: 'on the deck', hint: CENTRE_HINT };
+};
+
 /** A handle's length (cm): its distance from the point. */
 const handleLength = (knot: Knot, which: 'prev' | 'next'): number =>
   which === 'prev' ? tangentToPrevLength(knot) : tangentToNextLength(knot);
@@ -142,6 +180,8 @@ function HeaderCoordInput({
   onCommit,
   onDismiss,
   onNudge,
+  disabled,
+  title,
 }: {
   label: string;
   ariaLabel?: string;
@@ -151,6 +191,10 @@ function HeaderCoordInput({
   onDismiss: () => void;
   /** An arrow key in the field; `big` when Shift is held. */
   onNudge: (key: ArrowKey, big: boolean) => void;
+  /** Shown but not editable: a coordinate the blank holds. */
+  disabled?: boolean;
+  /** Why the field is read-only. */
+  title?: string;
 }) {
   const shown = display(valueCm, units);
   // Re-sync when the value changes, even below display precision (drag, undo, reselect).
@@ -173,12 +217,13 @@ function HeaderCoordInput({
     onCommit(parsed);
   };
   return (
-    <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+    <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground" title={title}>
       <span>{label}</span>
       <Input
         aria-label={ariaLabel}
         type="number"
         step={pointEditStep(units)}
+        disabled={disabled}
         value={text}
         onChange={(e) => {
           dirty.current = true;
@@ -298,14 +343,17 @@ export function SelectedPointEditor({
   if (!board || !selection || !targets.some((target) => sameTarget(target, selection.target)))
     return fallback ?? null;
 
-  const knot = getTargetSpline(board, selection.target).knots[selection.index];
+  const spline = getTargetSpline(board, selection.target);
+  const knot = spline.knots[selection.index];
   if (!knot) return fallback ?? null;
   const kind = selection.kind ?? 'end';
   const point =
     kind === 'prev' ? knot.tangentToPrev : kind === 'next' ? knot.tangentToNext : knot.end;
+  // The blank holds a slice's points, never their handles.
+  const hold = kind === 'end' ? blankHold(selection.target, spline, selection.index) : null;
   const label =
     kind === 'end'
-      ? 'Point'
+      ? (hold?.name ?? 'Point')
       : `${handleSideName(selection.target, visualSideForHandleKind(knot, selection.target, kind))} handle`;
   const commit = (x: number, y: number) => {
     if (kind === 'end')
@@ -366,6 +414,8 @@ export function SelectedPointEditor({
             onCommit={(x) => commit(x, point.y)}
             onDismiss={dismiss}
             onNudge={nudge}
+            disabled={hold?.locked.x}
+            title={hold?.locked.x ? hold.hint : undefined}
           />
           <HeaderCoordInput
             label={splineYLabel}
@@ -374,6 +424,8 @@ export function SelectedPointEditor({
             onCommit={(y) => commit(point.x, y)}
             onDismiss={dismiss}
             onNudge={nudge}
+            disabled={hold?.locked.y}
+            title={hold?.locked.y ? hold.hint : undefined}
           />
         </>
       )}
@@ -398,14 +450,17 @@ function CoordInput({
   units,
   onCommit,
   disabled,
+  title,
 }: {
   group: string;
   label: string;
   valueCm: number;
   units: LengthUnit;
   onCommit: (cm: number) => void;
-  /** Shown but not editable — a locked handle's X/Y. */
+  /** Shown but not editable — a locked handle's X/Y, or a coordinate the blank holds. */
   disabled?: boolean;
+  /** Why the field is read-only. */
+  title?: string;
 }) {
   const shown = display(valueCm, units);
   // Re-sync when the underlying value changes (drag, undo, reselect).
@@ -417,7 +472,7 @@ function CoordInput({
     else onCommit(cm);
   };
   return (
-    <label className="flex items-center gap-2">
+    <label className="flex items-center gap-2" title={title}>
       <span className="min-w-3 text-muted-foreground">{label}</span>
       <NumericInput
         value={text}
@@ -526,7 +581,9 @@ export function ControlPointInspector({
 
   const { target, index } = selection;
   const [splineXLabel, splineYLabel] = coordinateLabels(target);
-  const deletable = canDeleteKnot(spline, index);
+  const deletable = canDeleteKnot(spline, index, target);
+  const endpoint = index === 0 || index === spline.knots.length - 1;
+  const hold = blankHold(target, spline, index);
   const setEnd = (x: number, y: number) =>
     store.getState().moveControlPoint(target, index, { x, y });
 
@@ -537,13 +594,17 @@ export function ControlPointInspector({
       </div>
 
       {/* Endpoint */}
-      <div className="text-xs font-medium text-muted-foreground">Endpoint</div>
+      <div className="text-xs font-medium text-muted-foreground">
+        {hold ? `${hold.name} · ${hold.note}` : 'Endpoint'}
+      </div>
       <CoordInput
         group="Endpoint"
         label={splineXLabel}
         valueCm={knot.end.x}
         units={units}
         onCommit={(x) => setEnd(x, knot.end.y)}
+        disabled={hold?.locked.x}
+        title={hold?.locked.x ? hold.hint : undefined}
       />
       <CoordInput
         group="Endpoint"
@@ -551,6 +612,8 @@ export function ControlPointInspector({
         valueCm={knot.end.y}
         units={units}
         onCommit={(y) => setEnd(knot.end.x, y)}
+        disabled={hold?.locked.y}
+        title={hold?.locked.y ? hold.hint : undefined}
       />
 
       {/* Tangent handles, toward the previous and the next segment */}
@@ -588,7 +651,13 @@ export function ControlPointInspector({
           variant="ghost"
           disabled={!deletable}
           onClick={() => store.getState().deleteControlPoint(target, index)}
-          title={deletable ? 'Delete this point (Del)' : 'Endpoints cannot be deleted'}
+          title={
+            deletable
+              ? 'Delete this point (Del)'
+              : endpoint
+                ? 'Endpoints cannot be deleted'
+                : 'The apex keeps the slice as wide as the outline, so it cannot be deleted'
+          }
         >
           Delete
         </Button>

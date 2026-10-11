@@ -343,6 +343,15 @@ describe('buildContextMenuItems: rail presets', () => {
     expect(labels(build(onCurve))).toContain('Add point here');
   });
 
+  it("keeps Delete point disabled on a slice's apex, which holds it to the outline", () => {
+    const { store, build, onHandle } = csSetup();
+    const del = find(build(onHandle), 'Delete point');
+    expect(del?.kind === 'action' && del.disabled).toBe(true);
+    (del as { onSelect: () => void }).onSelect();
+    expect(store.getState().board!.crossSections[1]!.spline.knots).toHaveLength(3);
+    expect(store.getState().past).toHaveLength(0);
+  });
+
   it('keeps left/right for cross-sections, and resolves them by position', () => {
     // Outline and rocker handles are named for the tail and the nose, which stay put
     // when the pane turns the board nose-up. A cross-section has neither end nearer

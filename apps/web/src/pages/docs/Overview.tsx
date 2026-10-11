@@ -77,6 +77,11 @@ export default function DocsOverview() {
           handles. Cross-sections between the ones you have defined are interpolated, so the surface
           stays continuous.
         </p>
+        <p>
+          The outline and the rocker define the blank. Cross-sections shape the rails inside it and
+          never change it — see{' '}
+          <Link to="/docs/editing#blank">cross-sections stay inside the blank</Link>.
+        </p>
       </Section>
 
       <Section id="where" title="Where things live">

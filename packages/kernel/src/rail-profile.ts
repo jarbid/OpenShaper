@@ -24,11 +24,13 @@
  * ## What must not move
  *
  * The rocker and deck own a station's centre thickness and the outline owns its width
- * (`adjustCrossSectionsToThicknessAndWidth`), and `propagateCrossSectionToCurves` pushes
- * any change to those straight back onto the board's curves. Thickness is safe for free
- * here, because both centreline knots are retained untouched. Width is preserved by
- * pinning the new apex to exactly the old `maxX` and capping every generated control
- * point at or inboard of it.
+ * (`adjustCrossSectionsToThicknessAndWidth`): a section refines the blank they define and
+ * never changes it, so a preset must keep both. Thickness is safe for free here, because
+ * both centreline knots are retained untouched.
+ * Width is preserved by pinning the new apex to exactly the old `maxX` and capping every
+ * generated control point at or inboard of it — the same shape the store's own rule for
+ * section edits keeps (`constrainSectionToBlank`), so the result can be edited further
+ * under it.
  *
  * Nothing here is a port: BoardCAD-LE has no rail presets, so there is no legacy oracle
  * and no golden fixture. The tests use analytic oracles (see `.claude/CLAUDE.md` rule 2).

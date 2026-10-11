@@ -1,5 +1,14 @@
 # Two-way thickness ↔ rocker link — design
 
+> **Superseded** by item 0.5 of the Phase 0 plan
+> ([`docs/design/phase-0.md`](../../design/phase-0.md), "Slices never change the outline,
+> rocker or deck"). The link below was built and then removed: a cross-section edit no
+> longer drives the outline, rocker or deck. The outline and rocker define the blank and a
+> slice is held inside it instead (`constrainSectionToBlank` in
+> `packages/store/src/edits.ts`): its centre points are fixed, its apex moves only
+> vertically, and nothing it changes may reach past the apex. Kept as a record of the
+> earlier design.
+
 ## Problem
 
 Cross-sections are currently slaved one-way to the rocker/deck/outline. Every edit runs

@@ -270,6 +270,119 @@ describe('<ControlPointInspector /> handle-angle lock', () => {
   });
 });
 
+describe('a slice point the blank holds', () => {
+  // A slice that already fits its station: outline half-width 20, thickness 6.
+  const sliceBoard = (): BezierBoard => {
+    const k = (ex: number, ey: number) => knot(vec2(ex, ey), vec2(ex - 5, ey), vec2(ex + 5, ey));
+    const prof = splineFromKnots([
+      knot(vec2(0, 0), vec2(-6, 0), vec2(6, 0)),
+      knot(vec2(18, 0.5), vec2(15, 0.2), vec2(19.5, 1), false),
+      knot(vec2(20, 2), vec2(20, 1.2), vec2(20, 3)),
+      knot(vec2(14, 5), vec2(18, 4.5), vec2(10, 5.5)),
+      knot(vec2(0, 6), vec2(6, 6), vec2(-6, 6)),
+    ]);
+    return board(
+      splineFromKnots([k(0, 0), k(50, 20), k(100, 0)]),
+      splineFromKnots([k(0, 2), k(50, 3), k(100, 2)]),
+      splineFromKnots([k(0, 8), k(50, 9), k(100, 8)]),
+      [crossSection(0, prof), crossSection(50, prof), crossSection(100, prof)],
+    );
+  };
+  const SLICE = { kind: 'crossSection', index: 1 } as const;
+  const withSelected = (index: number, kind: 'end' | 'prev' | 'next' = 'end') => {
+    const store = createBoardStore();
+    act(() => {
+      store.getState().load(sliceBoard());
+      store.getState().select({ target: SLICE, index, kind });
+    });
+    return store;
+  };
+  const field = (label: string) => screen.getByLabelText(label) as HTMLInputElement;
+
+  it.each([
+    [0, 'Bottom centre · on the rocker'],
+    [4, 'Deck centre · on the deck'],
+  ])('shows centre point %i read-only in the sidebar, and says why', (index, heading) => {
+    render(<ControlPointInspector store={withSelected(index)} units={DEFAULT_LENGTH_UNIT} />);
+    expect(screen.getByText(heading)).toBeTruthy();
+    expect(field('Endpoint Y').disabled).toBe(true);
+    expect(field('Endpoint Z').disabled).toBe(true);
+    expect(field('Endpoint Y').closest('label')!.getAttribute('title')).toMatch(/Rocker view/);
+    // Its handles stay free.
+    expect(field('Tangent to next Y').disabled).toBe(false);
+    expect(field('Tangent to previous Z').disabled).toBe(false);
+  });
+
+  it("shows only the apex's width read-only, and will not delete it", () => {
+    const store = withSelected(2);
+    render(<ControlPointInspector store={store} units={DEFAULT_LENGTH_UNIT} />);
+    expect(screen.getByText('Apex · width from the outline')).toBeTruthy();
+    expect(field('Endpoint Y').disabled).toBe(true);
+    expect(field('Endpoint Y').closest('label')!.getAttribute('title')).toMatch(/Outline view/);
+
+    // Its height is still typed in, and kept exactly.
+    const height = field('Endpoint Z');
+    expect(height.disabled).toBe(false);
+    fireEvent.change(height, { target: { value: '25' } }); // 25 mm
+    fireEvent.keyDown(height, { key: 'Enter' });
+    expect(store.getState().board!.crossSections[1]!.spline.knots[2]!.end).toEqual(vec2(20, 2.5));
+
+    const del = screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement;
+    expect(del.disabled).toBe(true);
+    expect(del.getAttribute('title')).toMatch(/apex/);
+  });
+
+  it('leaves every other slice point free', () => {
+    render(<ControlPointInspector store={withSelected(3)} units={DEFAULT_LENGTH_UNIT} />);
+    expect(screen.getByText('Endpoint')).toBeTruthy();
+    expect(field('Endpoint Y').disabled).toBe(false);
+    expect(field('Endpoint Z').disabled).toBe(false);
+    expect((screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
+  it('names the point in the pane header and disables what the blank holds', () => {
+    const { unmount } = render(
+      <SelectedPointEditor store={withSelected(2)} units={DEFAULT_LENGTH_UNIT} targets={[SLICE]} />,
+    );
+    expect(screen.getByLabelText('Apex position editor')).toBeTruthy();
+    expect(field('Y position').disabled).toBe(true);
+    expect(field('Z position').disabled).toBe(false);
+    unmount();
+
+    render(
+      <SelectedPointEditor store={withSelected(0)} units={DEFAULT_LENGTH_UNIT} targets={[SLICE]} />,
+    );
+    expect(screen.getByLabelText('Bottom centre position editor')).toBeTruthy();
+    expect(field('Y position').disabled).toBe(true);
+    expect(field('Z position').disabled).toBe(true);
+  });
+
+  it("keeps the apex's handles editable from the pane header", () => {
+    render(
+      <SelectedPointEditor
+        store={withSelected(2, 'next')}
+        units={DEFAULT_LENGTH_UNIT}
+        targets={[SLICE]}
+      />,
+    );
+    expect(field('Y position').disabled).toBe(false);
+    expect(field('Z position').disabled).toBe(false);
+  });
+
+  it('arrow keys move the apex up and down, and never sideways', () => {
+    const store = withSelected(2);
+    render(<SelectedPointEditor store={store} units={DEFAULT_LENGTH_UNIT} targets={[SLICE]} />);
+    const apex = () => store.getState().board!.crossSections[1]!.spline.knots[2]!.end;
+    fireEvent.keyDown(window, { key: 'ArrowRight' });
+    expect(apex()).toEqual(vec2(20, 2));
+    expect(store.getState().past).toHaveLength(0); // no empty undo step
+    fireEvent.keyDown(window, { key: 'ArrowUp' });
+    expect(apex()).toEqual(vec2(20, 2.5));
+  });
+});
+
 describe('<SelectedPointEditor />', () => {
   it('toggles the point lock from a button before the axis fields', () => {
     const store = createBoardStore();

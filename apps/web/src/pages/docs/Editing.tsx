@@ -17,6 +17,7 @@ export default function DocsEditing() {
         { id: 'locks', label: 'Locking handle angles' },
         { id: 'keyboard', label: 'Nudging from the keyboard' },
         { id: 'sections', label: 'Cross-sections' },
+        { id: 'blank', label: 'Cross-sections stay inside the blank' },
         { id: 'rails', label: 'Rail presets' },
         { id: 'tail', label: 'Concave tails' },
         { id: 'undo', label: 'Undo & history' },
@@ -145,7 +146,9 @@ export default function DocsEditing() {
         </p>
         <p>
           Press <code>{shortcutKeys('delete-point')}</code> to remove the selected point. The curve
-          re-fits through the remaining points.
+          re-fits through the remaining points. A curve&apos;s two endpoints cannot be deleted, nor
+          can a cross-section&apos;s widest point — see{' '}
+          <Link to="/docs/editing#blank">Cross-sections stay inside the blank</Link>.
         </p>
       </Section>
 
@@ -248,6 +251,42 @@ export default function DocsEditing() {
           Moving a station carries its profile with it, so the surface between the neighbouring
           stations changes shape. That is deliberate: you are sliding a control station, not
           re-sampling the existing surface.
+        </p>
+      </Section>
+
+      <Section id="blank" title="Cross-sections stay inside the blank">
+        <p>
+          The outline and the rocker — deck and bottom — define the blank, the way a shaper
+          hot-wires the side profile and then cuts the outline. Cross-sections (slices) refine that
+          blank and always sit inside it, so editing one never changes the outline, the deck or the
+          bottom. Those change only in their own views.
+        </p>
+        <Terms>
+          <Term name="Centre points">
+            The two points on the stringer sit on the bottom and on the deck, so they do not move. A
+            ring marks each, and the sidebar and the pane header show their position read-only.
+            Their handles stay free. To make the board thicker or thinner there, edit the rocker.
+          </Term>
+          <Term name="Apex">
+            The section&apos;s widest point holds it to the outline&apos;s width, so it moves only
+            up and down — which is how you raise or lower the rail. Chevrons above and below it show
+            the way it can go, its distance from the stringer shows read-only, and it cannot be
+            deleted. Its handles can lengthen, shorten or lean in, but never out past it, which
+            keeps a smooth apex&apos;s handles upright. To make the board wider or narrower there,
+            edit the outline.
+          </Term>
+          <Term name="Every other point">
+            Moves freely inside the apex, and stops on the line through it when dragged further out;
+            so does every handle. Where two points sit level at the widest, as on a boxy rail,
+            neither is singled out: either can move in while the other keeps the width.
+          </Term>
+        </Terms>
+        <p>
+          A drag the blank refuses outright, such as pulling on a centre point, leaves nothing on
+          the undo stack. With <strong>Resize cross-sections to rocker/deck</strong> on in Settings
+          (the default), editing the outline or the rocker resizes the cross-sections in that area
+          to match; turned off, they keep their own size. Either way, editing a cross-section leaves
+          the curves alone.
         </p>
       </Section>
 

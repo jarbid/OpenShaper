@@ -15,16 +15,14 @@ import {
   board,
   crossSection,
   defaultFinConfig,
-  getDeckAtPos,
   getLength,
   getMaxWidth,
-  getRockerAtPos,
   getWidthAtPos,
   hasTailCutout,
   knot,
   resolveFins,
   splineFromKnots,
-  valueAt,
+  value,
   vec2,
   type BezierBoard,
   type Knot,
@@ -34,7 +32,10 @@ import { describe, expect, it } from 'vitest';
 import {
   alignTangentsHorizontal,
   alignTangentsVertical,
+  blankLocks,
+  canDeleteKnot,
   canLockKnot,
+  constrainSectionToBlank,
   constrainToLock,
   deleteKnot,
   enforceJunctions,
@@ -46,15 +47,14 @@ import {
   moveCrossSectionPosition,
   moveKnotEnd,
   moveKnotTangent,
-  propagateCrossSectionToCurves,
   removeCrossSection,
   rotateKnotTangent,
   scaleBoard,
+  sectionApexIndex,
   setFinFromPlanPoint,
   setKnotContinuous,
   setKnotLock,
   setKnotTangentLength,
-  setSplineValueAt,
   stepKnotTangentLength,
   withFins,
   withSpline,
@@ -865,106 +865,272 @@ describe('scaleBoard', () => {
 });
 
 // ---------------------------------------------------------------------------
-// setSplineValueAt (two-way link primitive)
+// Slices refine the blank: constrainSectionToBlank and the apex
 // ---------------------------------------------------------------------------
 
-describe('setSplineValueAt', () => {
-  const flat = () =>
-    splineFromKnots([
-      knot(vec2(0, 5), vec2(-5, 5), vec2(5, 5)),
-      knot(vec2(100, 5), vec2(95, 5), vec2(105, 5)),
-    ]);
+/**
+ * A slice's half-profile, bottom centre → deck centre, inside the apex line x = 20: a
+ * corner tuck, an apex whose handles stand upright (so the curve's widest point is the
+ * apex itself), a smooth deck-side rail point and the two centre points.
+ */
+const slice = (tuckNext = vec2(19.5, 1)): Spline =>
+  splineFromKnots([
+    knot(vec2(0, 0), vec2(-6, 0), vec2(6, 0)),
+    knot(vec2(18, 0.5), vec2(15, 0.2), tuckNext, false),
+    knot(vec2(20, 2), vec2(20, 1.2), vec2(20, 3)),
+    knot(vec2(14, 5), vec2(18, 4.5), vec2(10, 5.5)),
+    knot(vec2(0, 6), vec2(6, 6), vec2(-6, 6)),
+  ]);
+const APEX_X = 20;
+const SLICE: SplineTarget = { kind: 'crossSection', index: 1 };
 
-  it('inserts a knot on the curve at x and makes value(x) exact', () => {
-    const out = setSplineValueAt(flat(), 50, 8);
-    expect(out.knots).toHaveLength(3);
-    expect(valueAt(out, 50)).toBeCloseTo(8, 6);
-    // Endpoints (tips) are untouched.
-    expect(valueAt(out, 0)).toBeCloseTo(5, 6);
-    expect(valueAt(out, 100)).toBeCloseTo(5, 6);
+/** Every control point of `s`: each knot's end and both handles. */
+const controlPoints = (s: Spline) =>
+  s.knots.flatMap((k) => [k.end, k.tangentToPrev, k.tangentToNext]);
+
+/** Whether no control point of `s` reaches further from the stringer than the apex line. */
+const insideApex = (s: Spline) => controlPoints(s).every((p) => p.x <= APEX_X);
+
+describe('sectionApexIndex, blankLocks and canDeleteKnot', () => {
+  it('finds the widest interior knot, the first from the bottom on a tie', () => {
+    expect(sectionApexIndex(slice())).toBe(2);
+    expect(sectionApexIndex(moveKnotEnd(slice(), 1, vec2(20, 0.5)))).toBe(1);
+    expect(sectionApexIndex(moveKnotEnd(slice(), 3, vec2(20, 5)))).toBe(2);
   });
 
-  it('retargets an interior knot already near the station instead of duplicating', () => {
-    const s = splineFromKnots([
-      knot(vec2(0, 5), vec2(-5, 5), vec2(5, 5)),
-      knot(vec2(50, 5), vec2(45, 5), vec2(55, 5)),
-      knot(vec2(100, 5), vec2(95, 5), vec2(105, 5)),
+  it('has no apex without an interior knot', () => {
+    const bare = splineFromKnots([
+      knot(vec2(0, 0), vec2(0, 0), vec2(10, 0)),
+      knot(vec2(0, 6), vec2(10, 6), vec2(0, 6)),
     ]);
-    const out = setSplineValueAt(s, 50.3, 8); // within VALUE_X_TOL of the x=50 knot
-    expect(out.knots).toHaveLength(3); // no new knot
-    expect(valueAt(out, 50.3)).toBeCloseTo(8, 6);
+    expect(sectionApexIndex(bare)).toBe(-1);
+    expect(sectionApexIndex(splineFromKnots([knot(vec2(0, 0), vec2(0, 0), vec2(0, 0))]))).toBe(-1);
+  });
+
+  it('fixes both centre points of a slice and the x of its apex, and nothing on the curves', () => {
+    const fixed = { x: true, y: true };
+    const free = { x: false, y: false };
+    expect(blankLocks(SLICE, slice())).toEqual([fixed, free, { x: true, y: false }, free, fixed]);
+    for (const kind of ['outline', 'deck', 'bottom'] as const) {
+      expect(blankLocks({ kind }, slice())).toBeNull();
+    }
+  });
+
+  it("refuses to delete a slice's apex, and only a slice's", () => {
+    const s = slice();
+    expect([0, 1, 2, 3, 4].map((i) => canDeleteKnot(s, i, SLICE))).toEqual([
+      false,
+      true,
+      false,
+      true,
+      false,
+    ]);
+    // The same point on a board curve, or with no target given, is an ordinary point.
+    expect(canDeleteKnot(s, 2, { kind: 'outline' })).toBe(true);
+    expect(canDeleteKnot(s, 2)).toBe(true);
+  });
+
+  it('singles out no point when two are tied for widest: either may go, the other holds', () => {
+    const boxy = moveKnotEnd(slice(), 1, vec2(APEX_X, 0.5));
+    const free = { x: false, y: false };
+    expect(blankLocks(SLICE, boxy)!.slice(1, 4)).toEqual([free, free, free]);
+    expect([1, 2, 3].map((i) => canDeleteKnot(boxy, i, SLICE))).toEqual([true, true, true]);
+    // Once one of them is gone, the other is the apex and stays.
+    const left = deleteKnot(boxy, 1);
+    expect(canDeleteKnot(left, 1, SLICE)).toBe(false);
+    expect(blankLocks(SLICE, left)![1]).toEqual({ x: true, y: false });
   });
 });
 
-// ---------------------------------------------------------------------------
-// propagateCrossSectionToCurves (two-way link)
-// ---------------------------------------------------------------------------
-
-describe('propagateCrossSectionToCurves', () => {
-  // bottom(50)=3, deck(50)=9 (thickness 6); outline half-width(50)=20 (width 40).
-  const make = (): BezierBoard => {
-    const k = (ex: number, ey: number) => knot(vec2(ex, ey), vec2(ex - 5, ey), vec2(ex + 5, ey));
-    const outline = splineFromKnots([k(0, 0), k(50, 20), k(100, 0)]);
-    const bottom = splineFromKnots([k(0, 5), k(50, 3), k(100, 5)]);
-    const deck = splineFromKnots([k(0, 11), k(50, 9), k(100, 11)]);
-    // profile: bottom-center(0,0), rail(20,3) widest, tuck(15,5) interior, deck-center(0,6).
-    const prof = splineFromKnots([
-      knot(vec2(0, 0), vec2(0, 0), vec2(8, 0)),
-      knot(vec2(20, 3), vec2(16, 1), vec2(20, 4)),
-      knot(vec2(15, 5), vec2(18, 5), vec2(12, 5)),
-      knot(vec2(0, 6), vec2(8, 6), vec2(0, 6)),
-    ]);
-    return board(outline, bottom, deck, [
-      crossSection(0, prof),
-      crossSection(50, prof),
-      crossSection(100, prof),
-    ]);
-  };
-  const cs1 = { kind: 'crossSection', index: 1 } as const;
-  const editSection1 = (b: BezierBoard, ki: number, end: ReturnType<typeof vec2>) =>
-    withSpline(b, cs1, moveKnotEnd(b.crossSections[1]!.spline, ki, end));
-
-  it('deck-center drag raises the deck only', () => {
-    const prev = make();
-    const next = editSection1(prev, 3, vec2(0, 9)); // deck-center 6 → 9 (+3)
-    const out = propagateCrossSectionToCurves(prev, next, 1);
-    expect(getDeckAtPos(out, 50)).toBeCloseTo(12, 3); // 9 + 3
-    expect(getRockerAtPos(out, 50)).toBeCloseTo(3, 3); // bottom unchanged
-    expect(getWidthAtPos(out, 50)).toBeCloseTo(40, 2); // width unchanged
+describe('constrainSectionToBlank', () => {
+  it('returns the edit itself when it already sits inside the blank', () => {
+    const prev = slice();
+    for (const next of [
+      moveKnotEnd(prev, 1, vec2(16, 0.4)), // a rail point moved inward
+      moveKnotEnd(prev, 2, vec2(20, 2.7)), // the apex moved straight up
+      moveKnotTangent(prev, 2, 'next', vec2(20, 4)), // an apex handle lengthened upright
+      moveKnotTangent(prev, 0, 'next', vec2(8, 0.4)), // a centre point's handle
+      setKnotContinuous(prev, 2, false),
+      setKnotLock(prev, 3, true),
+      fairKnot(prev, 3),
+    ]) {
+      expect(constrainSectionToBlank(prev, next)).toBe(next);
+    }
   });
 
-  it('bottom-center drag drives the bottom rocker only', () => {
-    const prev = make();
-    const next = editSection1(prev, 0, vec2(0, -2)); // bottom-center 0 → -2 (-2)
-    const out = propagateCrossSectionToCurves(prev, next, 1);
-    expect(getRockerAtPos(out, 50)).toBeCloseTo(1, 3); // 3 - 2
-    expect(getDeckAtPos(out, 50)).toBeCloseTo(9, 3); // deck unchanged
+  describe('rule 1: the centre points stay put', () => {
+    it.each([0, 4])('takes back a move of point %i, handles and all, exactly', (i) => {
+      const prev = slice();
+      // Decimals that do not survive a round trip through floating point.
+      const next = moveKnotEnd(prev, i, vec2(0.1, prev.knots[i]!.end.y + 0.7));
+      expect(constrainSectionToBlank(prev, next)).toBe(prev);
+    });
+
+    it('keeps the point where it is while its handle moves', () => {
+      const prev = slice();
+      const next = moveKnotTangent(prev, 4, 'prev', vec2(9, 6.5));
+      const out = constrainSectionToBlank(prev, next);
+      expect(out.knots[4]!.end).toEqual(prev.knots[4]!.end);
+      expect(out.knots[4]!.tangentToPrev).toEqual(vec2(9, 6.5));
+    });
   });
 
-  it('widest-point drag drives the outline width', () => {
-    const prev = make();
-    const next = editSection1(prev, 1, vec2(25, 3)); // rail 20 → 25 maxX (+5 half-width)
-    const out = propagateCrossSectionToCurves(prev, next, 1);
-    expect(getWidthAtPos(out, 50)).toBeGreaterThan(48); // ~50
-    expect(getDeckAtPos(out, 50)).toBeCloseTo(9, 3); // deck unchanged
-    expect(getRockerAtPos(out, 50)).toBeCloseTo(3, 3); // bottom unchanged
+  describe('rule 2: the apex moves vertically only', () => {
+    it.each([
+      ['outward', vec2(26, 2.5)],
+      ['inward', vec2(15, 1.5)],
+    ])('keeps the height and not the width of a move %s', (_, to) => {
+      const prev = slice();
+      const out = constrainSectionToBlank(prev, moveKnotEnd(prev, 2, to));
+      const apex = out.knots[2]!;
+      expect(apex.end).toEqual(vec2(APEX_X, to.y));
+      // Its handles come back with it, still upright.
+      expect(apex.tangentToPrev.x).toBe(APEX_X);
+      expect(apex.tangentToNext.x).toBe(APEX_X);
+      expect(apex.tangentToPrev.y).toBeCloseTo(to.y - 0.8, 12);
+      expect(apex.tangentToNext.y).toBeCloseTo(to.y + 1, 12);
+      // Nothing else moved.
+      for (const i of [0, 1, 3, 4]) expect(out.knots[i]).toBe(prev.knots[i]);
+    });
+
+    it('treats a purely sideways move as no edit at all', () => {
+      const prev = slice();
+      expect(constrainSectionToBlank(prev, moveKnotEnd(prev, 2, vec2(23.3, 2)))).toBe(prev);
+      expect(constrainSectionToBlank(prev, moveKnotEnd(prev, 2, vec2(17.1, 2)))).toBe(prev);
+    });
+
+    describe('with two points tied for widest (a boxy rail)', () => {
+      const boxy = () => moveKnotEnd(slice(), 1, vec2(APEX_X, 0.5));
+
+      it.each([1, 2])('lets point %i move in while the other holds the width', (i) => {
+        const prev = boxy();
+        const next = moveKnotEnd(prev, i, vec2(16, 1.2));
+        expect(constrainSectionToBlank(prev, next)).toBe(next);
+      });
+
+      it('holds the first from the bottom when an edit moves them both in', () => {
+        const prev = boxy();
+        const next = moveKnotEnd(moveKnotEnd(prev, 1, vec2(16, 0.6)), 2, vec2(17, 2.1));
+        const out = constrainSectionToBlank(prev, next);
+        expect(out.knots[1]!.end).toEqual(vec2(APEX_X, 0.6));
+        expect(out.knots[2]).toBe(next.knots[2]);
+      });
+    });
   });
 
-  it('foil-only edit (interior, non-widest, y-only) propagates nothing', () => {
-    const prev = make();
-    const next = editSection1(prev, 2, vec2(15, 4)); // tuck 5 → 4, x kept, maxX kept
-    const out = propagateCrossSectionToCurves(prev, next, 1);
-    expect(out).toBe(next); // referential: curves untouched
-    expect(getDeckAtPos(out, 50)).toBeCloseTo(9, 6);
-    expect(getRockerAtPos(out, 50)).toBeCloseTo(3, 6);
-    expect(getWidthAtPos(out, 50)).toBeCloseTo(40, 6);
+  describe('rule 3: nothing the edit changed reaches past the apex', () => {
+    it('stops a point dragged past the apex on the apex line, its handles inside', () => {
+      const prev = slice();
+      const out = constrainSectionToBlank(prev, moveKnotEnd(prev, 1, vec2(23, 0.8)));
+      const tuck = out.knots[1]!;
+      expect(tuck.end).toEqual(vec2(APEX_X, 0.8));
+      expect(tuck.tangentToPrev.x).toBeCloseTo(17, 12);
+      // The outward handle slides back onto the apex line at its own height.
+      expect(tuck.tangentToNext).toEqual(vec2(APEX_X, tuck.tangentToNext.y));
+      expect(tuck.tangentToNext.y).toBeCloseTo(1.3, 12);
+      expect(insideApex(out)).toBe(true);
+      expect(sectionApexIndex(out)).toBe(1); // a tie: the first from the bottom
+
+      // The next move of the same drag brings it back in: the apex still holds the width.
+      const back = moveKnotEnd(out, 1, vec2(17, 0.6));
+      expect(constrainSectionToBlank(out, back)).toBe(back);
+    });
+
+    it('slides a free handle onto the apex line and keeps a smooth point smooth', () => {
+      const prev = slice();
+      const out = constrainSectionToBlank(prev, moveKnotTangent(prev, 3, 'prev', vec2(26, 4)));
+      const k = out.knots[3]!;
+      expect(k.tangentToPrev).toEqual(vec2(APEX_X, 4));
+      const a = vec2(k.tangentToPrev.x - k.end.x, k.tangentToPrev.y - k.end.y);
+      const b = vec2(k.tangentToNext.x - k.end.x, k.tangentToNext.y - k.end.y);
+      expect(a.x * b.y - a.y * b.x).toBeCloseTo(0, 12); // collinear …
+      expect(a.x * b.x + a.y * b.y).toBeLessThan(0); // … and opposite
+      expect(Math.hypot(b.x, b.y)).toBeCloseTo(Math.hypot(4, 0.5), 12); // its own length
+      expect(insideApex(out)).toBe(true);
+    });
+
+    it('shortens a locked handle along its lock to the apex line', () => {
+      const prev = setKnotLock(slice(), 3, true);
+      const out = constrainSectionToBlank(prev, setKnotTangentLength(prev, 3, 'prev', 10));
+      const k = out.knots[3]!;
+      expect(k.tangentToPrev.x).toBeCloseTo(APEX_X, 12);
+      const lock = k.lock!.prev!;
+      const dx = k.tangentToPrev.x - k.end.x;
+      const dy = k.tangentToPrev.y - k.end.y;
+      expect(dx * lock.y - dy * lock.x).toBeCloseTo(0, 12);
+      expect(dx * lock.x + dy * lock.y).toBeGreaterThan(0);
+    });
+
+    it('stands the apex handles back upright when they are turned outward', () => {
+      const DEG = Math.PI / 180;
+      const prev = slice();
+      const out = constrainSectionToBlank(prev, rotateKnotTangent(prev, 2, 'both', 10 * DEG));
+      const apex = out.knots[2]!;
+      expect(apex.end).toEqual(vec2(APEX_X, 2));
+      expect(apex.tangentToPrev.x).toBe(APEX_X);
+      expect(apex.tangentToNext.x).toBe(APEX_X);
+      expect(apex.tangentToNext.y).toBeCloseTo(3, 12); // the inward handle kept its length
+    });
+
+    it('leaves points the edit did not change alone, even ones already past the apex', () => {
+      // An imported profile whose tuck handle pokes 5 mm past the apex.
+      const prev = slice(vec2(20.5, 1));
+      const elsewhere = moveKnotEnd(prev, 3, vec2(13, 5.2));
+      expect(constrainSectionToBlank(prev, elsewhere)).toBe(elsewhere);
+      expect(elsewhere.knots[1]).toBe(prev.knots[1]);
+
+      // Moving the tuck itself changes that handle, which is then brought in.
+      const out = constrainSectionToBlank(prev, moveKnotEnd(prev, 1, vec2(18, 0.7)));
+      expect(out.knots[1]!.tangentToNext.x).toBe(APEX_X);
+      expect(out.knots[1]!.tangentToNext.y).toBeCloseTo(1.2, 12);
+      expect(out.knots[1]!.end).toEqual(vec2(18, 0.7));
+    });
   });
 
-  it('leaves the nose/tail dummy stations alone', () => {
-    const prev = make();
-    const next = editSection1(prev, 3, vec2(0, 9));
-    expect(propagateCrossSectionToCurves(prev, next, 0)).toBe(next);
-    expect(propagateCrossSectionToCurves(prev, next, prev.crossSections.length - 1)).toBe(next);
+  describe('inserts and deletes', () => {
+    it('lets a shape-preserving insert inside the apex through untouched', () => {
+      const prev = slice();
+      const ins = insertKnotAt(prev, value(prev.coeffs[3]!, 0.5))!;
+      expect(constrainSectionToBlank(prev, ins.spline)).toBe(ins.spline);
+    });
+
+    it('brings an inserted point that would sit past the apex inside it', () => {
+      // The tuck handle reaches to x = 23, so the curve bulges past the apex before it.
+      const prev = slice(vec2(23, 1));
+      const ins = insertKnotAt(prev, value(prev.coeffs[1]!, 0.5))!;
+      expect(ins.index).toBe(2);
+      expect(ins.spline.knots[2]!.end.x).toBeGreaterThan(APEX_X);
+      const out = constrainSectionToBlank(prev, ins.spline);
+      expect(out.knots).toHaveLength(6);
+      expect(insideApex(out)).toBe(true);
+      // The points the insert did not touch are left exactly as they were.
+      expect(out.knots[0]).toBe(prev.knots[0]);
+      expect(out.knots[4]).toBe(prev.knots[3]);
+      expect(out.knots[5]).toBe(prev.knots[4]);
+      expect(out.knots[3]!.end).toEqual(prev.knots[2]!.end);
+    });
+
+    it('still holds the apex once an insert before it has moved it along', () => {
+      const prev = slice();
+      const ins = insertKnotAt(prev, value(prev.coeffs[1]!, 0.5))!;
+      const out = constrainSectionToBlank(prev, moveKnotEnd(ins.spline, 3, vec2(24, 2.4)));
+      expect(out.knots[3]!.end).toEqual(vec2(APEX_X, 2.4));
+    });
+
+    it('still holds the apex once a delete before it has moved it back', () => {
+      const prev = slice();
+      const del = deleteKnot(prev, 1);
+      const out = constrainSectionToBlank(prev, moveKnotEnd(del, 1, vec2(25, 2.2)));
+      expect(out.knots[1]!.end).toEqual(vec2(APEX_X, 2.2));
+      expect(out.knots[0]).toBe(del.knots[0]);
+    });
+
+    it('lets a delete inside the apex through untouched', () => {
+      const prev = slice();
+      const del = deleteKnot(prev, 3);
+      expect(insideApex(del)).toBe(true);
+      expect(constrainSectionToBlank(prev, del)).toBe(del);
+    });
   });
 });
 

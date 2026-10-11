@@ -124,6 +124,27 @@ drag can never reorder the list and change which section subsequent edits addres
 Oracle: analytic, in `edits.test.ts` (`moveCrossSectionPosition`) — index and spline
 identity preserved, neighbours clamped, dummy endpoints refused.
 
+## Sections stay inside the blank (`constrainSectionToBlank`, `packages/store/src/edits.ts`)
+
+The outline, deck and bottom define the blank; a cross-section refines it and never moves
+it (Phase 0 item 0.5, `docs/design/phase-0.md`). The store runs every section edit through
+`constrainSectionToBlank`: the two centre endpoints keep their position, the apex (widest
+interior point) keeps its x and moves only vertically and cannot be deleted, and no point
+or handle the edit changed may pass the apex's x.
+
+What differs from BoardCAD-LE: with `adjustCrossectionThickness` on, legacy frees a
+section centre endpoint's y (JC-4 in `docs/specs/junction-constraints.md`), so dragging it
+changes the thickness there; here it does not move. Legacy has no apex lock at all. Both
+are editing behaviour, not computed values: no golden fixture is superseded, so there is
+no table row above. It also replaces our own earlier two-way link
+(`propagateCrossSectionToCurves`), which pushed section edits back onto the curves.
+
+Oracle: analytic, in `edits.test.ts` (`constrainSectionToBlank`: each rule, inserts and
+deletes, handle-only edits, untouched points left as they are, ties for widest) and
+`board-store.test.ts` ("slices refine the blank": outline, deck and bottom keep their
+identity and the section its width through apex, centre, handle, Tunni, fair, insert,
+delete and rail-preset edits, with the resize setting on and off).
+
 ## `.brd` writer (`packages/io/src/brd-writer.ts`)
 
 `writeBrd` (the export-to-legacy path, paired with the existing `parseBrd` reader) is

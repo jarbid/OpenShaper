@@ -8,7 +8,13 @@ import {
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
-import { type BoardState, type SplineTarget, getTargetSpline, sameTarget } from '@openshaper/store';
+import {
+  type BoardState,
+  type SplineTarget,
+  blankLocks,
+  getTargetSpline,
+  sameTarget,
+} from '@openshaper/store';
 import { ContextMenu, type MenuItem } from '@openshaper/ui';
 import {
   useCallback,
@@ -792,6 +798,8 @@ export function SplineEditor({
         controlPointSize,
         selection?.kind ?? 'end',
         hovered,
+        // A slice's centre points and apex carry a mark for what the blank holds of them.
+        blankLocks(t, spline),
       );
     });
     // Sliding-location probes: a closed board outline for the pane lets the cursor /

@@ -10,6 +10,7 @@ import {
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
+import type { LockedAxes } from '@openshaper/store';
 import { boundsOf, sampleSpline } from './sample';
 import { screenToWorld, worldToScreen, type Viewport } from './viewport';
 import type { Hit } from './hit';
@@ -170,11 +171,60 @@ const drawLockBars = (
   ctx.lineWidth = 1;
 };
 
+/** The radius of the ring round a fixed point, and how far out a free axis's chevrons sit (px). */
+const HELD_RING = 9;
+const HELD_CHEVRON_AT = 11;
+const HELD_CHEVRON = 3;
+
+/**
+ * Mark a point the blank holds, in the same strokes as the lock bars. A point fixed in
+ * both coordinates (a slice's centre point) gets a ring round it. A point held in one
+ * (a slice's apex, which keeps its x) gets a chevron either side along the axis it is
+ * still free on, pointing the two ways it can move.
+ */
+const drawHeldPoint = (
+  ctx: CanvasRenderingContext2D,
+  k: Knot,
+  held: LockedAxes,
+  vp: Viewport,
+  style: DrawStyle,
+): void => {
+  const end = worldToScreen(vp, k.end);
+  ctx.strokeStyle = style.tangent;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  if (held.x && held.y) {
+    ctx.moveTo(end.x + HELD_RING, end.y);
+    ctx.arc(end.x, end.y, HELD_RING, 0, Math.PI * 2);
+  } else {
+    // The free axis on screen: a pane may turn its canvas, never the splines' own axes.
+    const free = held.x ? { x: k.end.x, y: k.end.y + 1 } : { x: k.end.x + 1, y: k.end.y };
+    const along = worldToScreen(vp, free);
+    const len = Math.hypot(along.x - end.x, along.y - end.y);
+    if (len > 1e-9) {
+      const ux = (along.x - end.x) / len;
+      const uy = (along.y - end.y) / len;
+      for (const side of [1, -1]) {
+        const tipX = end.x + side * ux * HELD_CHEVRON_AT;
+        const tipY = end.y + side * uy * HELD_CHEVRON_AT;
+        const baseX = tipX - side * ux * HELD_CHEVRON;
+        const baseY = tipY - side * uy * HELD_CHEVRON;
+        ctx.moveTo(baseX - uy * HELD_CHEVRON, baseY + ux * HELD_CHEVRON);
+        ctx.lineTo(tipX, tipY);
+        ctx.lineTo(baseX + uy * HELD_CHEVRON, baseY - ux * HELD_CHEVRON);
+      }
+    }
+  }
+  ctx.stroke();
+  ctx.lineWidth = 1;
+};
+
 /**
  * Draw control points + tangent handles for a spline. Smooth (continuous) knots
  * render as circles; corner knots as squares — mirroring the legacy editor so the
  * continuity of a point is readable at a glance. A locked knot adds a bar across
- * each locked handle's line.
+ * each locked handle's line, and a point the blank holds its own mark
+ * (`drawHeldPoint`).
  */
 export const drawControlPoints = (
   ctx: CanvasRenderingContext2D,
@@ -188,6 +238,8 @@ export const drawControlPoints = (
   selectedKind: Hit['kind'] = 'end',
   /** The individual point currently under the cursor. */
   hovered: Hit | null = null,
+  /** What the blank holds of each point, by knot index (`blankLocks`); null for none. */
+  held: readonly LockedAxes[] | null = null,
 ): void => {
   const r = pointSize ?? 5;
   const rSq = pointSize != null ? Math.max(1, pointSize - 1) : 4;
@@ -204,6 +256,8 @@ export const drawControlPoints = (
     ctx.lineTo(next.x, next.y);
     ctx.stroke();
     if (k.lock) drawLockBars(ctx, k, vp, style);
+    const hold = held?.[i];
+    if (hold && (hold.x || hold.y)) drawHeldPoint(ctx, k, hold, vp, style);
 
     const endActive =
       (i === selectedIndex && selectedKind === 'end') ||

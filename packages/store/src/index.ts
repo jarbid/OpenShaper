@@ -8,8 +8,10 @@ export {
 export {
   alignTangentsHorizontal,
   alignTangentsVertical,
+  blankLocks,
   canDeleteKnot,
   canLockKnot,
+  constrainSectionToBlank,
   deleteKnot,
   enforceJunctions,
   extendKnotTangent,
@@ -24,6 +26,7 @@ export {
   rotateKnotTangent,
   sameTarget,
   scaleBoard,
+  sectionApexIndex,
   setKnotContinuous,
   setKnotLock,
   setKnotTangentLength,
@@ -32,6 +35,7 @@ export {
   withCrossSections,
   withSpline,
   type KnotHandles,
+  type LockedAxes,
   type SplineTarget,
 } from './edits';
 export { selectSpecs, type BoardSpecs } from './selectors';

@@ -348,6 +348,52 @@ describe('drawControlPoints', () => {
     expect(guide).toBeDefined();
   });
 
+  describe('points the blank holds', () => {
+    const FIXED = { x: true, y: true };
+    const HEIGHT_ONLY = { x: true, y: false };
+    const FREE = { x: false, y: false };
+
+    it('rings a fixed point and draws nothing for a free one', () => {
+      const { ctx } = makeCtx();
+      drawControlPoints(ctx, makeSpline(), VP, defaultStyle, null, undefined, 'end', null, [
+        FIXED,
+        FREE,
+        FREE,
+      ]);
+      // 9 filled dots, plus one ring round the first point …
+      expect(ctx.arc).toHaveBeenCalledTimes(10);
+      const end = worldToScreen(VP, vec2(0, 0));
+      expect(vi.mocked(ctx.arc).mock.calls[0]!.slice(0, 3)).toEqual([end.x, end.y, 9]);
+      // … stroked once, on top of the three handle lines.
+      expect(ctx.stroke).toHaveBeenCalledTimes(4);
+    });
+
+    it('points chevrons along the axis a height-only point can still move on', () => {
+      const { ctx } = makeCtx();
+      drawControlPoints(ctx, makeSpline(), VP, defaultStyle, null, undefined, 'end', null, [
+        FREE,
+        HEIGHT_ONLY,
+        FREE,
+      ]);
+      expect(ctx.arc).toHaveBeenCalledTimes(9); // no ring
+      expect(ctx.stroke).toHaveBeenCalledTimes(4);
+      // The two chevron tips sit 11 px straight above and below the point on screen.
+      const end = worldToScreen(VP, vec2(50, 0));
+      const tips = vi
+        .mocked(ctx.lineTo)
+        .mock.calls.filter(([x]) => Math.abs(x - end.x) < 1e-9)
+        .map(([, y]) => y - end.y);
+      expect(tips).toEqual(expect.arrayContaining([-11, 11]));
+    });
+
+    it('is drawn by nothing but the holds passed in', () => {
+      const { ctx } = makeCtx();
+      drawControlPoints(ctx, makeSpline(), VP, defaultStyle, null, undefined, 'end', null, null);
+      expect(ctx.arc).toHaveBeenCalledTimes(9);
+      expect(ctx.stroke).toHaveBeenCalledTimes(3);
+    });
+  });
+
   it('renders a corner endpoint as a square with its permanent corner style', () => {
     const { ctx } = makeCtx();
     const s = splineFromKnots([

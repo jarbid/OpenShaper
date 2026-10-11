@@ -136,6 +136,10 @@ x is **always locked** (`= 0`) → section centre endpoints stay on the stringer
 (`x = 0`). y is locked when `adjustCrossectionThickness` is **off** (sections keep their
 height) and free when it is **on** (dragging the section's centre changes thickness).
 
+> OpenShaper deliberately goes further here: a section's centre endpoints are fixed in
+> **both** axes whatever the setting, so dragging one never changes thickness. See
+> [Sections stay inside the blank](#sections-stay-inside-the-blank) below.
+
 ### JC-5 — Deck↔bottom endpoints are mutually enslaved (shared tail & nose tips)
 
 **Given** deck and bottom splines,
@@ -257,6 +261,25 @@ yet). `JUNCTION_EPS = 1e-7`.
 | **JC-7** outline tip `LOCK_Y_MORE`                       | **Reproduced** — `clampHandleFloor` raises the outline tail `toNext.y` and nose `toPrev.y` to ≥ the tip y, so the tip segments depart the centreline outward and the planshape can't invert at the tips.                                                                                                                                                                                                |
 | **JC-8** section endpoint `LOCK_X_MORE`                  | **Reproduced** — `clampHandleFloor` raises each section centre tip's inward handle to `x ≥ 0`, so the rail leaves the stringer toward +x and never crosses to the mirrored half. (Interior section points are unconstrained, per legacy.)                                                                                                                                                               |
 | **JC-9** dummy nose/tail special-casing                  | N/A to `enforceJunctions`; dummies are handled in the kernel interpolation, not here.                                                                                                                                                                                                                                                                                                                   |
+
+### Sections stay inside the blank
+
+`enforceJunctions` is not the only constraint on a section edit. Since Phase 0 item 0.5
+(`docs/design/phase-0.md`), the store passes every cross-section edit through
+`constrainSectionToBlank` (`packages/store/src/edits.ts`) first: the outline, deck and
+bottom define the blank, and a section refines it without ever moving them.
+
+- Both centre endpoints keep their position exactly, in x **and** y, whatever
+  `adjustCrossectionThickness` says. Legacy JC-4 frees y when the setting is on; we do not.
+- The apex, the interior point with the largest x, keeps its x and moves only vertically,
+  so the section keeps the outline's width. It cannot be deleted. Of points tied for it,
+  any may move in while another stays on the line. Legacy has no such lock.
+- No point or handle the edit changed may end up beyond the apex's x; unchanged ones are
+  left alone.
+
+It replaces the two-way link (`propagateCrossSectionToCurves`, removed), which pushed a
+section's centre and width changes back onto the deck, bottom and outline. Recorded in
+`docs/specs/divergences.md`.
 
 ## Divergences
 
