@@ -2,14 +2,17 @@
 import {
   board,
   crossSection,
+  crossSectionRing,
   knot,
+  railApex,
   splineFromKnots,
+  tessellationSteps,
   vec2,
   type BezierBoard,
   type CrossSection,
 } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
-import { activeGuideKey, guideLines } from './guide-lines';
+import { activeGuideKey, apexGuideLine, guideLines } from './guide-lines';
 
 const FACE = 1.5; // draft density — fewer stations, faster tests
 
@@ -108,5 +111,39 @@ describe('guideLines', () => {
     const g = guideLines(makeBoard([]), FACE, null);
     expect(g.sections).toEqual([]);
     expect(g.activeKey).toBeNull();
+  });
+});
+
+describe('apexGuideLine', () => {
+  const b = makeBoard([25, 50, 75]);
+
+  it('draws one open polyline per rail, mirrored across the stringer', () => {
+    const apex = apexGuideLine(b, FACE)!;
+    expect(apex).not.toBeNull();
+    expect(apex.paths).toHaveLength(2);
+    const [right, left] = apex.paths;
+    expect(right!.length).toBeGreaterThan(3);
+    // Open: it runs tail to nose, not back to where it started.
+    expect(right![right!.length - 1]![0]).toBeGreaterThan(right![0]![0] + 90);
+    right!.forEach(([x, y, z], i) => {
+      expect(y).toBeGreaterThan(0);
+      expect(left![i]).toEqual([x, -y, z]);
+    });
+  });
+
+  it('samples at the mesh’s own density, so it lies on the hull on screen', () => {
+    const { lengthSteps, ringSteps } = tessellationSteps(b, FACE);
+    const [right] = apexGuideLine(b, FACE)!.paths;
+    expect(right).toHaveLength(lengthSteps);
+    for (const [x, y, z] of right!.filter((_, i) => i % 7 === 3)) {
+      expect(railApex(b, x, ringSteps)).toEqual({ x, y, z });
+      // And it is a point of that ring's +y rail, at the ring's widest.
+      const ring = crossSectionRing(b, x, ringSteps)!;
+      expect(Math.max(...ring.map((p) => p.y))).toBeGreaterThanOrEqual(y - 1e-9);
+    }
+  });
+
+  it('draws nothing for a board with no real cross-sections', () => {
+    expect(apexGuideLine(makeBoard([]), FACE)).toBeNull();
   });
 });

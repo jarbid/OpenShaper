@@ -3,7 +3,7 @@
  * Component tests for ThreeDControls' guide toggles.
  *
  * Covers:
- *  - Both toggles render, in the compact (quad mini-pane) variant too.
+ *  - All three toggles render, in the compact (quad mini-pane) variant too.
  *  - Clicking each one patches only its own field.
  *  - An enabled toggle looks different from a disabled one.
  */
@@ -19,16 +19,18 @@ import { makeReadout, MeasurementAxisSelect, ThreeDControls } from './view-toolk
 import { DEFAULT_VIEW_3D } from './view3d-settings';
 
 describe('ThreeDControls guide toggles', () => {
-  it('renders both toggles', () => {
+  it('renders all three toggles', () => {
     render(<ThreeDControls settings={DEFAULT_VIEW_3D} onChange={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Stringer' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sections' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Apex' })).toBeTruthy();
   });
 
-  it('renders both toggles in the compact quad-view variant', () => {
+  it('renders all three toggles in the compact quad-view variant', () => {
     render(<ThreeDControls settings={DEFAULT_VIEW_3D} onChange={vi.fn()} compact />);
     expect(screen.getByRole('button', { name: 'Stringer' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sections' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Apex' })).toBeTruthy();
   });
 
   it('patches only showStringer when Stringer is clicked', () => {
@@ -43,6 +45,19 @@ describe('ThreeDControls guide toggles', () => {
     render(<ThreeDControls settings={DEFAULT_VIEW_3D} onChange={onChange} />);
     fireEvent.click(screen.getByRole('button', { name: 'Sections' }));
     expect(onChange).toHaveBeenCalledWith({ showSections: true });
+  });
+
+  it('patches only showApex when Apex is clicked, and turns it back off', () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<ThreeDControls settings={DEFAULT_VIEW_3D} onChange={onChange} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Apex' }));
+    expect(onChange).toHaveBeenLastCalledWith({ showApex: true });
+
+    rerender(
+      <ThreeDControls settings={{ ...DEFAULT_VIEW_3D, showApex: true }} onChange={onChange} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Apex' }));
+    expect(onChange).toHaveBeenLastCalledWith({ showApex: false });
   });
 
   it('turns a toggle back off', () => {

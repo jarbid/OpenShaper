@@ -274,6 +274,7 @@ function AppShell() {
     com: false,
     dist: false,
     tunni: false,
+    apex: false,
   });
   // Flip one overlay and report it. These four are entirely unmeasured
   // otherwise — the curvature comb and volume distribution in particular are
@@ -297,12 +298,16 @@ function AppShell() {
   const workerResult = useSpecsWorker(settledBoard, {
     wantDistribution: overlayToggles.dist,
     distributionIntervals: 40,
+    wantApex: overlayToggles.apex,
   });
   const specs = workerResult?.specs ?? null;
   // Volume-distribution overlay: computed off-thread when the overlay is enabled.
   // When disabled the worker skips the sampling, saving ~41 getCrossSectionAreaAt
   // calls per settled-board change.
   const volumeDist = workerResult?.distribution;
+  // Rail apex height for the rocker view: traced off-thread too, from the settled board,
+  // so like the distribution it catches up when a drag is released.
+  const apexHeight = workerResult?.apex;
 
   // View-state restore: active tab, per-pane 2D framing, 3D camera pose —
   // read once at boot (synchronous localStorage), then live changes are
@@ -739,6 +744,7 @@ function AppShell() {
       // probe in every length-axis pane (the hovered pane included — it tracks the cursor).
       scrubProbe: longitudinal && scrubX != null ? scrubX : undefined,
       distribution: longitudinal ? volumeDist : undefined,
+      apexHeight: kind === 'rocker' ? apexHeight : undefined,
       // Plan footprint + box on the outline; blade silhouette on the rocker (rail) view.
       fins:
         (kind === 'outline' || kind === 'rocker') && resolvedFins.length ? resolvedFins : undefined,
@@ -1242,6 +1248,12 @@ function AppShell() {
     },
     {
       kind: 'checkbox',
+      label: 'Apex line',
+      checked: overlayToggles.apex,
+      onSelect: () => toggleOverlay('apex'),
+    },
+    {
+      kind: 'checkbox',
       label: 'Tunni controls',
       checked: overlayToggles.tunni,
       onSelect: () => toggleOverlay('tunni'),
@@ -1347,6 +1359,7 @@ function AppShell() {
       targetFaceSize={faceSizeFor(view3d.meshQuality)}
       showStringer={view3d.showStringer}
       showSections={view3d.showSections}
+      showApex={view3d.showApex}
       activeSectionX={activeSectionX}
       key={cameraEpoch}
       initialCamera={liveViewState.current.camera3d}

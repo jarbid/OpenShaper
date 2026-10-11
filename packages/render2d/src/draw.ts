@@ -406,6 +406,11 @@ export interface EditorOverlays {
   verticalMarkers?: { x: number; color: string; label?: string }[];
   /** Longitudinal distribution strip (e.g. cross-sectional area vs. length). */
   distribution?: { x: number; value: number }[];
+  /**
+   * Height of the rail apex along the board (side view: `x` along the length, `z` the
+   * board height of each station's widest point), drawn dashed. Rocker pane only.
+   */
+  apexHeight?: readonly { x: number; z: number }[];
   /** Resolved fins to draw on this pane (placement + box/blade geometry). */
   fins?: readonly ResolvedFin[];
   /** How to draw fins: `'plan'` (footprint + box, default) or `'profile'` (blade silhouette). */
@@ -754,6 +759,34 @@ export const drawDistribution = (
   ctx.globalAlpha = 0.15;
   ctx.fill();
   ctx.globalAlpha = 1;
+};
+
+/** The 3D apex guide's lime (render3d `Guides3D`), so the two read as one line. */
+const APEX_COLOR = '#84CC16';
+
+/**
+ * The rail apex height in the side view: a dashed line through each station's widest
+ * point, between the deck and bottom curves. It is the line a CNC flips the blank on.
+ */
+export const drawApexHeight = (
+  ctx: CanvasRenderingContext2D,
+  pts: readonly { x: number; z: number }[],
+  vp: Viewport,
+  color = APEX_COLOR,
+): void => {
+  if (pts.length < 2) return;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  pts.forEach((p, i) => {
+    const s = worldToScreen(vp, { x: p.x, y: p.z });
+    if (i === 0) ctx.moveTo(s.x, s.y);
+    else ctx.lineTo(s.x, s.y);
+  });
+  ctx.stroke();
+  ctx.restore();
 };
 
 const FIN_COLOR = '#A78BFA';

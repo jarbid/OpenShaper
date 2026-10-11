@@ -312,7 +312,7 @@ export function OverlayToggle({
 
 /**
  * 3D appearance + analysis controls. `compact` (quad view) shows render mode,
- * lighting, the section toggle, analysis, and mesh quality; the full 3D view also
+ * lighting, the guide toggles, analysis, and mesh quality; the full 3D view also
  * exposes material and board color.
  */
 export function ThreeDControls({
@@ -362,6 +362,14 @@ export function ThreeDControls({
         title="Draw a ring at every cross-section (the active one in cyan)"
       >
         Sections
+      </Button>
+      <Button
+        size="sm"
+        variant={settings.showApex ? 'secondary' : 'ghost'}
+        onClick={() => set({ showApex: !settings.showApex })}
+        title="Draw the rail apex: each station's widest point, where the deck meets the bottom"
+      >
+        Apex
       </Button>
       {!compact && (
         <>

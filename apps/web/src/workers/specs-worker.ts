@@ -1,5 +1,6 @@
 import { getCrossSectionAreaAt, getLength } from '@openshaper/kernel';
 import { selectSpecs } from '@openshaper/store';
+import { apexSamples } from './apex-samples';
 import type { DistributionSample, SpecsRequest, SpecsResponse } from './specs-protocol';
 
 /**
@@ -10,7 +11,8 @@ import type { DistributionSample, SpecsRequest, SpecsResponse } from './specs-pr
  * useSpecsWorker hook.
  *
  * Step 4: also computes the cross-sectional-area distribution (volume-distribution
- * overlay) when the request includes wantDistribution: true.
+ * overlay) when the request includes wantDistribution: true, and the rail apex height
+ * (the rocker view's apex overlay) when it includes wantApex: true.
  */
 
 // Local minimal worker-scope type: the app's tsconfig loads the DOM lib, which
@@ -35,13 +37,20 @@ function computeDistribution(
 }
 
 ctx.onmessage = (e) => {
-  const { id, board, wantDistribution = false, distributionIntervals = 40 } = e.data;
+  const {
+    id,
+    board,
+    wantDistribution = false,
+    distributionIntervals = 40,
+    wantApex = false,
+  } = e.data;
   try {
     const specs = selectSpecs(board);
     const distribution = wantDistribution
       ? computeDistribution(board, distributionIntervals)
       : undefined;
-    ctx.postMessage({ id, ok: true, specs, distribution });
+    const apex = wantApex ? apexSamples(board) : undefined;
+    ctx.postMessage({ id, ok: true, specs, distribution, apex });
   } catch (err) {
     ctx.postMessage({ id, ok: false, error: (err as Error).message });
   }

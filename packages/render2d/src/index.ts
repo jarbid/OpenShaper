@@ -38,6 +38,7 @@ export {
   drawVerticalMarkers,
   fillTextUpright,
   drawDistribution,
+  drawApexHeight,
   drawFinsPlan,
   drawFinsProfile,
   hitFin,

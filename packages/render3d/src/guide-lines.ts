@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import {
+  apexLine,
   crossSectionLoops,
   stringerLoop,
   tessellationSteps,
@@ -13,7 +14,10 @@ type Point = [number, number, number];
 export interface GuideLine {
   /** Stable React key. Rings key by station position so an insert does not remount the rest. */
   key: string;
-  /** One polyline, or two for a station inside a tail notch (one per lobe). */
+  /**
+   * One polyline, or two: one per lobe for a station inside a tail notch, one per
+   * rail for the apex line.
+   */
   paths: Point[][];
 }
 
@@ -65,6 +69,22 @@ export function guideLines(
   }
 
   return { stringer, sections, activeKey: activeGuideKey(sections, activeX) };
+}
+
+/**
+ * The rail apex line on both rails, as two open polylines, or null when the board has
+ * no real station to loft between.
+ *
+ * Kept out of {@link guideLines} so it is only computed while it is shown: like the
+ * stringer, it lofts a section at every one of the mesh's stations. It also takes the
+ * mesh's ring count, so each point lies on the ring the mesh draws at its x rather
+ * than on a finer one the faceted hull would hide it under.
+ */
+export function apexGuideLine(board: BezierBoard, targetFaceSize: number): GuideLine | null {
+  if (board.crossSections.length <= 2) return null;
+  const { lengthSteps, ringSteps } = tessellationSteps(board, targetFaceSize);
+  const line = apexLine(board, { lengthSteps, ringSteps });
+  return line ? { key: 'apex', paths: [toPoints(line.right), toPoints(line.left)] } : null;
 }
 
 const ringKey = (position: number): string => `s${position}`;

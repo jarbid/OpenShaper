@@ -10,5 +10,5 @@ export {
   type CameraPose,
 } from './Board3DView';
 export { Guides3D } from './Guides3D';
-export { guideLines, type GuideLine, type GuideLines } from './guide-lines';
+export { apexGuideLine, guideLines, type GuideLine, type GuideLines } from './guide-lines';
 export { useBoardOffset, type BoardPlacement } from './use-board-offset';

@@ -150,6 +150,8 @@ export interface OverlayToggles {
   dist: boolean;
   /** Tunni controls: an editing aid, toggled from the View menu or a pane's context menu. */
   tunni: boolean;
+  /** Rail apex height, dashed in the rocker view. */
+  apex: boolean;
 }
 
 export interface SidebarProps {
@@ -1041,6 +1043,7 @@ const OVERLAYS: readonly { key: keyof OverlayToggles; label: string }[] = [
   { key: 'comb', label: 'Curvature comb' },
   { key: 'com', label: 'Center of mass' },
   { key: 'dist', label: 'Volume distribution' },
+  { key: 'apex', label: 'Apex line' },
 ];
 
 function AnalysisSection({
@@ -1062,7 +1065,8 @@ function AnalysisSection({
       ))}
       <p className="pt-1 text-xs text-muted-foreground">
         Grid &amp; guides and the comb show in every 2D pane (the comb on the edited curves, ringing
-        inflections); CoM &amp; volume distribution on the outline and rocker.
+        inflections); CoM &amp; volume distribution on the outline and rocker; the apex line,
+        dashed, on the rocker.
       </p>
     </div>
   );

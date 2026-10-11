@@ -1,8 +1,9 @@
 # Specs worker — moving `selectSpecs` off the main thread
 
 Status: **steps 1–4 done** — all main-thread integration work is now off the
-main thread. AppShell computes specs and the volume-distribution overlay via
-`useSpecsWorker(settledBoard, { wantDistribution, distributionIntervals })`,
+main thread. AppShell computes specs, the volume-distribution overlay and the
+rail-apex overlay via
+`useSpecsWorker(settledBoard, { wantDistribution, distributionIntervals, wantApex })`,
 with a synchronous fallback where `Worker` is unavailable (jsdom tests, SSG
 prerender). The weight estimate reads `specs.area` from the worker result instead
 of calling `getArea` redundantly on the main thread. Code:
@@ -72,6 +73,10 @@ miss anyway. The App-side `useSpecsWorker` state is the cross-render cache.
    `SpecsRequest` now carries `wantDistribution?: boolean` and
    `distributionIntervals?: number`; the response carries `distribution?`.
    The weight estimate reads `specs.area` from the worker result.
+   The rocker view's rail-apex overlay rides the same boundary: `wantApex?: boolean`
+   on the request, `apex?` (x and apex height per station, `apexSamples` in
+   `workers/apex-samples.ts`) on the response — a few tens of milliseconds of lofting
+   per board that would otherwise land on the main thread at every commit.
 5. Ghost-board specs (`ghostSpecs`) can reuse the same worker; they're computed
    once per ghost load, so they can simply queue behind board requests.
 

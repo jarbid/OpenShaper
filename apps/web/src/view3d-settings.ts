@@ -69,6 +69,8 @@ export interface View3DSettings {
   showStringer: boolean;
   /** Draw a ring at every real cross-section, the active one highlighted. */
   showSections: boolean;
+  /** Draw the rail apex line — each station's widest point — on both rails. */
+  showApex: boolean;
 }
 
 export const DEFAULT_VIEW_3D: View3DSettings = {
@@ -80,4 +82,5 @@ export const DEFAULT_VIEW_3D: View3DSettings = {
   meshQuality: 'standard',
   showStringer: false,
   showSections: false,
+  showApex: false,
 };

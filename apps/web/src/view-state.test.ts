@@ -104,10 +104,31 @@ describe('view3d persistence', () => {
   it('round-trips the 3D settings', () => {
     const s: ViewState = {
       ...DEFAULT_VIEW_STATE,
-      view3d: { ...DEFAULT_VIEW_3D, showStringer: true, showSections: true, meshQuality: 'fine' },
+      view3d: {
+        ...DEFAULT_VIEW_3D,
+        showStringer: true,
+        showSections: true,
+        showApex: true,
+        meshQuality: 'fine',
+      },
     };
     saveViewState(s);
     expect(loadViewState().view3d).toEqual(s.view3d);
+  });
+
+  it('restores a blob saved before the apex guide existed, apex off and the rest intact', () => {
+    // Written by a build whose 3D settings had no showApex: still version 1, so the
+    // saved panes and camera must survive the upgrade rather than reset to defaults.
+    const old = { ...DEFAULT_VIEW_3D, showStringer: true } as Partial<typeof DEFAULT_VIEW_3D>;
+    delete old.showApex;
+    localStorage.setItem(
+      'bs.viewState',
+      JSON.stringify({ ...DEFAULT_VIEW_STATE, view: 'rocker', view3d: old }),
+    );
+
+    const v = loadViewState();
+    expect(v.view).toBe('rocker');
+    expect(v.view3d).toEqual({ ...DEFAULT_VIEW_3D, showStringer: true, showApex: false });
   });
 
   it('falls back per field, leaving valid siblings intact', () => {
@@ -119,12 +140,14 @@ describe('view3d persistence', () => {
     raw.view3d.lighting = 'disco';
     raw.view3d.meshQuality = 42;
     raw.view3d.showStringer = 'yes';
+    raw.view3d.showApex = 1;
     localStorage.setItem('bs.viewState', JSON.stringify(raw));
 
     const v = loadViewState().view3d!;
     expect(v.lighting).toBe(DEFAULT_VIEW_3D.lighting);
     expect(v.meshQuality).toBe(DEFAULT_VIEW_3D.meshQuality);
     expect(v.showStringer).toBe(DEFAULT_VIEW_3D.showStringer);
+    expect(v.showApex).toBe(DEFAULT_VIEW_3D.showApex);
     expect(v.showSections).toBe(true); // the one good field survives
   });
 

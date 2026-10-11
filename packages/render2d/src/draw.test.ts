@@ -20,6 +20,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   clear,
   defaultStyle,
+  drawApexHeight,
   drawControlPoints,
   drawCurvatureComb,
   drawFinsPlan,
@@ -803,5 +804,39 @@ describe('fillTextUpright', () => {
     const { ctx } = makeCtx();
     fillTextUpright(ctx, 'x', 0, 0, true);
     expect(ctx.rotate).toHaveBeenCalledWith(Math.PI / 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// rail apex height (rocker view)
+// ---------------------------------------------------------------------------
+
+describe('drawApexHeight', () => {
+  const pts = [
+    { x: 0, z: 1 },
+    { x: 50, z: 2.5 },
+    { x: 100, z: 1.5 },
+  ];
+
+  it('strokes one dashed polyline through (x, apex height), then clears the dash', () => {
+    const { ctx, calls } = makeCtx();
+    drawApexHeight(ctx, pts, VP);
+
+    expect(ctx.setLineDash).toHaveBeenCalledWith([6, 4]);
+    expect(ctx.moveTo).toHaveBeenCalledTimes(1);
+    expect(ctx.lineTo).toHaveBeenCalledTimes(2);
+    expect(ctx.stroke).toHaveBeenCalledTimes(1);
+    // The height is the side view's vertical axis, through the same viewport as the curves.
+    const second = worldToScreen(VP, vec2(50, 2.5));
+    expect(ctx.lineTo).toHaveBeenNthCalledWith(1, second.x, second.y);
+    // Wrapped in save/restore so the dash cannot leak into the curves drawn after it.
+    expect(calls[0]).toBe('save');
+    expect(calls.at(-1)).toBe('restore');
+  });
+
+  it('draws nothing for fewer than two points', () => {
+    const { ctx, calls } = makeCtx();
+    drawApexHeight(ctx, pts.slice(0, 1), VP);
+    expect(calls).toEqual([]);
   });
 });

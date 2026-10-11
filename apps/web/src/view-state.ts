@@ -158,6 +158,9 @@ const sanitizeView3D = (v: unknown): View3DSettings | undefined => {
     meshQuality: oneOf(o.meshQuality, QUALITY_3D, d.meshQuality),
     showStringer: bool(o.showStringer, d.showStringer),
     showSections: bool(o.showSections, d.showSections),
+    // Absent from blobs saved before the apex guide existed: it falls back like any
+    // invalid field, so adding it needed no VIEW_STATE_VERSION bump.
+    showApex: bool(o.showApex, d.showApex),
   };
 };
 

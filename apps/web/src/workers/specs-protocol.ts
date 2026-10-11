@@ -13,6 +13,15 @@ export interface DistributionSample {
   value: number;
 }
 
+/**
+ * One sample of the rail apex height: board-length x and the board height (z) of that
+ * station's widest point, on the +y rail.
+ */
+export interface ApexSample {
+  x: number;
+  z: number;
+}
+
 /** main → worker: compute the derived specs for this board. */
 export interface SpecsRequest {
   /** Monotonically increasing; the response echoes it so stale results can be dropped. */
@@ -28,6 +37,11 @@ export interface SpecsRequest {
    * Produces (distributionIntervals + 1) samples. Defaults to 40.
    */
   distributionIntervals?: number;
+  /**
+   * When true the worker also traces the rail apex height (the rocker view's apex
+   * overlay). Defaults to false.
+   */
+  wantApex?: boolean;
 }
 
 /** worker → main. */
@@ -38,5 +52,7 @@ export type SpecsResponse =
       specs: BoardSpecs;
       /** Present only when the request included wantDistribution: true. */
       distribution?: DistributionSample[];
+      /** Present only when the request included wantApex: true (empty if none could be traced). */
+      apex?: ApexSample[];
     }
   | { id: number; ok: false; error: string };

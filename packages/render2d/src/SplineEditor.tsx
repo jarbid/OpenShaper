@@ -34,6 +34,7 @@ import {
   drawControlPoints,
   drawCurvatureComb,
   drawDistribution,
+  drawApexHeight,
   drawGrid,
   drawMeasureCursor,
   drawVProbe,
@@ -124,7 +125,7 @@ export interface SplineEditorProps {
    * info"). Cross-section pane only — length-axis panes use the scrub guide.
    */
   measureCursor?: boolean;
-  /** Toggleable analysis overlays (curvature comb, CoM marker, distribution). */
+  /** Toggleable analysis overlays (curvature comb, CoM marker, distribution, apex height). */
   overlays?: EditorOverlays;
   /**
    * Turn the Tunni-controls overlay on or off; the owner holds the flag in `overlays`.
@@ -744,6 +745,7 @@ export function SplineEditor({
       if (overlays.finView === 'profile') drawFinsProfile(ctx, overlays.fins, vp, selectedFin);
       else drawFinsPlan(ctx, overlays.fins, vp, selectedFin);
     }
+    if (overlays?.apexHeight) drawApexHeight(ctx, overlays.apexHeight, vp);
     if (ghostSplines) {
       for (const g of ghostSplines) drawGhostSpline(ctx, g, vp, { mirrorX, mirrorY }, ghostColor);
     }

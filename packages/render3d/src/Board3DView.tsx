@@ -68,6 +68,8 @@ export interface Board3DViewProps {
   showStringer?: boolean;
   /** Draw a ring at every real cross-section (defaults to false). */
   showSections?: boolean;
+  /** Draw the rail apex line on both rails (defaults to false). */
+  showApex?: boolean;
   /** Board-length position of the active cross-section, drawn in cyan. */
   activeSectionX?: number | null;
   /**
@@ -524,6 +526,7 @@ export function Board3DView({
   targetFaceSize = DEFAULT_FACE_SIZE,
   showStringer = false,
   showSections = false,
+  showApex = false,
   activeSectionX = null,
   initialCamera,
   onCameraChange,
@@ -570,12 +573,13 @@ export function Board3DView({
         {board && board.fins.setup !== 'none' && (
           <Fins3D board={board} targetFaceSize={targetFaceSize} color={finColor} />
         )}
-        {board && (showStringer || showSections) && (
+        {board && (showStringer || showSections || showApex) && (
           <Guides3D
             board={board}
             targetFaceSize={targetFaceSize}
             showStringer={showStringer}
             showSections={showSections}
+            showApex={showApex}
             activeSectionX={activeSectionX}
           />
         )}

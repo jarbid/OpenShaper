@@ -130,6 +130,14 @@ export default function DocsSpecs() {
           <Term name="Volume distribution">
             How volume is spread along the length — where the board carries its float.
           </Term>
+          <Term name="Apex line">
+            A dashed green line in the rocker view at the height of the rail apex — the widest point
+            of each section, measured off the 3D surface. It is the rail point that parts the deck
+            from the bottom: the line a CNC machine flips the blank on. Read against the deck and
+            bottom curves, it shows where along the board the rail sits high or low. It updates when
+            you let go of a drag. The 3D view draws the same line on the hull, and the DXF export
+            carries it on its own layer.
+          </Term>
         </Terms>
       </Section>
 
