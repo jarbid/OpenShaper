@@ -10,7 +10,7 @@ import {
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
-import { boundsOf, sampleSpline } from './sample';
+import { boundsOf } from './sample';
 import { screenToWorld, worldToScreen, type Viewport } from './viewport';
 import type { Hit } from './hit';
 
@@ -49,7 +49,25 @@ const reflections = (m: Mirror): ((p: Vec2) => Vec2)[] => {
   return fns;
 };
 
-/** Stroke a spline as a sampled polyline, plus any requested mirror reflections. */
+/** Trace the exact cubic segments in screen coordinates, including reflections. */
+const traceSpline = (
+  ctx: CanvasRenderingContext2D,
+  spline: Spline,
+  vp: Viewport,
+  reflect: (p: Vec2) => Vec2,
+): void => {
+  ctx.beginPath();
+  const first = worldToScreen(vp, reflect(spline.curves[0]!.p0));
+  ctx.moveTo(first.x, first.y);
+  for (const curve of spline.curves) {
+    const c1 = worldToScreen(vp, reflect(curve.c1));
+    const c2 = worldToScreen(vp, reflect(curve.c2));
+    const end = worldToScreen(vp, reflect(curve.p3));
+    ctx.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, end.x, end.y);
+  }
+};
+
+/** Stroke a spline with native Canvas Bézier curves and any requested reflections. */
 export const drawSpline = (
   ctx: CanvasRenderingContext2D,
   spline: Spline,
@@ -57,32 +75,14 @@ export const drawSpline = (
   style: DrawStyle,
   mirror: Mirror = {},
 ): void => {
-  const pts = sampleSpline(spline);
-  if (pts.length === 0) return;
+  if (spline.curves.length === 0) return;
   ctx.strokeStyle = style.curve;
   ctx.lineWidth = style.curveWidth;
   for (const f of reflections(mirror)) {
-    ctx.beginPath();
-    const first = worldToScreen(vp, f(pts[0]!));
-    ctx.moveTo(first.x, first.y);
-    for (let i = 1; i < pts.length; i++) {
-      const s = worldToScreen(vp, f(pts[i]!));
-      ctx.lineTo(s.x, s.y);
-    }
+    traceSpline(ctx, spline, vp, f);
     ctx.stroke();
   }
 };
-
-/**
- * Total samples a ghost outline is drawn with, spread over however many segments it has.
- *
- * `sampleSpline`'s default is per SEGMENT, which is right for a hand-drawn curve of four
- * or five knots and wrong for one rebuilt from a surface: the interpolated section
- * preview comes off `loftCrossSection` at 96 knots, so a per-segment budget would stroke
- * ~2,300 dashed points every frame of a scrub to draw a line a few hundred pixels long.
- * A total budget makes a ghost cost what it looks like.
- */
-const GHOST_SAMPLES = 240;
 
 /** Stroke a ghost/reference spline (dashed, muted, no handles) under the live curves. */
 export const drawGhostSpline = (
@@ -92,9 +92,7 @@ export const drawGhostSpline = (
   mirror: Mirror = {},
   color?: string,
 ): void => {
-  const segments = Math.max(1, spline.coeffs.length);
-  const pts = sampleSpline(spline, Math.max(3, Math.min(24, Math.ceil(GHOST_SAMPLES / segments))));
-  if (pts.length === 0) return;
+  if (spline.curves.length === 0) return;
   ctx.save();
   // If a custom color is supplied use it at 55% opacity; otherwise fall back to
   // the original semi-transparent silver so callers that pass nothing are unchanged.
@@ -102,13 +100,7 @@ export const drawGhostSpline = (
   ctx.lineWidth = 1.5;
   ctx.setLineDash([6, 4]);
   for (const f of reflections(mirror)) {
-    ctx.beginPath();
-    const first = worldToScreen(vp, f(pts[0]!));
-    ctx.moveTo(first.x, first.y);
-    for (let i = 1; i < pts.length; i++) {
-      const s = worldToScreen(vp, f(pts[i]!));
-      ctx.lineTo(s.x, s.y);
-    }
+    traceSpline(ctx, spline, vp, f);
     ctx.stroke();
   }
   ctx.restore();
