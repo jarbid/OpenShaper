@@ -8,7 +8,8 @@
  *    (`Board/Resize…`). The command palette searches these and shows the
  *    description; `help-text.test.ts` fails when a menu item has no entry.
  *  - **Menu groups whose items are data** — starter templates, recent boards, units
- *    — by `Menu/Group/*`, the group being the menu's `label` row above them. A recent
+ *    — by `Menu/Group/*`, the group being the menu's `label` row above them, up to
+ *    the next separator. Keep a separator after such a group's data rows. A recent
  *    board is named after the board, so it cannot have an entry of its own.
  *  - **Toolbar controls** by `toolbar:<name>`: icon buttons, whose tooltip shows the
  *    description under the label while the Show tips setting is on.
@@ -125,7 +126,7 @@ export const HELP_TEXT: Readonly<Record<string, HelpEntry>> = {
     description:
       'Opens settings for curve colours, point and line sizes, tips and editing behaviour.',
     route: '/docs',
-    anchor: 'help',
+    anchor: 'settings',
     keywords: ['preferences', 'options', 'colours', 'colors', 'tips'],
   },
 
@@ -292,11 +293,13 @@ export const HELP_TEXT: Readonly<Record<string, HelpEntry>> = {
   'Help/About & guides': {
     description: 'Opens the about page, with guides to surfboard design and construction.',
     route: '/docs',
+    anchor: 'help',
     keywords: ['about', 'guides', 'learn'],
   },
   'Help/Buy me a coffee': {
     description: 'Opens the page where you can support OpenShaper’s development.',
     route: '/docs',
+    anchor: 'help',
     keywords: ['donate', 'support'],
   },
 

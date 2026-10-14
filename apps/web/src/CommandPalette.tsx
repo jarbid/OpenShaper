@@ -27,7 +27,8 @@ export interface Command {
 
 /**
  * Looks up the help for a menu item: the menu, the item's label, and the menu's
- * `label` row the item sits under (if any), for groups whose items are data.
+ * `label` row the item sits under (if any), for groups whose items are data. A
+ * group ends at the next separator.
  */
 export type HelpLookup = (menu: string, label: string, group?: string) => HelpEntry | undefined;
 
@@ -47,7 +48,10 @@ export const commandsFromMenus = (
   menus.flatMap(([menu, items]) => {
     let group: string | undefined;
     return items.flatMap((item): Command[] => {
+      // A group runs from its label row to the next separator, so an item added
+      // after it never inherits the group's shared help by accident.
       if (item.kind === 'label') group = item.label;
+      if (item.kind === 'separator') group = undefined;
       if (item.kind !== 'action' && item.kind !== 'checkbox') return [];
       const entry = help?.(menu, item.label, group);
       return [

@@ -48,7 +48,8 @@ const MARGIN = 8;
  *
  * Behaviour worth knowing:
  *  - **Pointer only.** Suppressed for touch, where there is no hover and a
- *    tooltip would either never show or fight the tap.
+ *    tooltip would either never show or fight the tap. That includes the focus a
+ *    tap gives the control in some browsers (Chrome on Android).
  *  - **Focus shows it immediately**, with no delay, so keyboard users tabbing
  *    through a toolbar get the same information without waiting.
  *  - **Never traps or steals focus**, and is `aria-hidden`: the accessible name
@@ -62,6 +63,8 @@ export function Tooltip({ label, shortcut, description, side = 'bottom', childre
   const triggerRef = useRef<HTMLElement | null>(null);
   const tipRef = useRef<HTMLDivElement>(null);
   const timer = useRef<number | null>(null);
+  /** The trigger was last pressed by touch, so the focus that follows is a tap's. */
+  const touched = useRef(false);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -158,12 +161,18 @@ export function Tooltip({ label, shortcut, description, side = 'bottom', childre
     // A click means the user found what they wanted; the tooltip is now noise.
     onPointerDown: chain(
       childProps.onPointerDown as ((e: React.PointerEvent) => void) | undefined,
-      hide,
+      (e: React.PointerEvent) => {
+        touched.current = e.pointerType === 'touch';
+        hide();
+      },
     ),
-    onFocus: chain(childProps.onFocus as ((e: React.FocusEvent) => void) | undefined, () =>
-      show(true),
-    ),
-    onBlur: chain(childProps.onBlur as ((e: React.FocusEvent) => void) | undefined, hide),
+    onFocus: chain(childProps.onFocus as ((e: React.FocusEvent) => void) | undefined, () => {
+      if (!touched.current) show(true);
+    }),
+    onBlur: chain(childProps.onBlur as ((e: React.FocusEvent) => void) | undefined, () => {
+      touched.current = false;
+      hide();
+    }),
   } as Record<string, unknown>);
 
   return (

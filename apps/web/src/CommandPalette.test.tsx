@@ -73,6 +73,30 @@ describe('commandsFromMenus', () => {
       addedOn: '2026-10-10',
     });
   });
+
+  it('ends a group at the next separator, so a later item gets none of its help', () => {
+    const help = (_menu: string, _label: string, group?: string) =>
+      group === 'New'
+        ? { description: 'A starter template.', route: '/docs/files' as const }
+        : undefined;
+    const [shortboard, imported] = commandsFromMenus(
+      [
+        [
+          'File',
+          [
+            { kind: 'label', label: 'New' },
+            { kind: 'action', label: 'Shortboard', onSelect: vi.fn() },
+            { kind: 'separator' },
+            { kind: 'action', label: 'Import…', onSelect: vi.fn() },
+          ],
+        ],
+      ],
+      help,
+    );
+    expect(shortboard!.description).toBe('A starter template.');
+    expect(imported!.description).toBeUndefined();
+    expect(imported!.href).toBeUndefined();
+  });
 });
 
 const cmd = (menu: string, name: string, extra: Partial<Command> = {}): Command => ({

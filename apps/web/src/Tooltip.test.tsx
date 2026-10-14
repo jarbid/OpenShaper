@@ -66,6 +66,24 @@ describe('Tooltip', () => {
     expect(screen.queryByText('Add a cross-section here')).toBeNull();
   });
 
+  // Some browsers focus a button on tap; that focus is the tap's, not a keyboard's.
+  it('does not show on the focus a tap gives, but does on later keyboard focus', () => {
+    render(
+      <Tooltip label="Menu and commands" description="Opens every menu command.">
+        <Button aria-label="Menu">m</Button>
+      </Tooltip>,
+    );
+    const btn = screen.getByRole('button');
+
+    fireEvent.pointerDown(btn, { pointerType: 'touch' });
+    fireEvent.focus(btn);
+    expect(screen.queryByText('Menu and commands')).toBeNull();
+
+    fireEvent.blur(btn);
+    fireEvent.focus(btn);
+    expect(screen.getByText('Menu and commands')).not.toBeNull();
+  });
+
   // Keyboard users shouldn't have to wait out a hover delay.
   it('shows immediately on focus', () => {
     render(

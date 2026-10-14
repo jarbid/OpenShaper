@@ -13,6 +13,7 @@ export default function DocsOverview() {
         { id: 'start', label: 'Getting started' },
         { id: 'layout', label: 'How the editor is laid out' },
         { id: 'help', label: 'Finding a tool' },
+        { id: 'settings', label: 'Settings' },
         { id: 'model', label: 'How a board is described' },
         { id: 'where', label: 'Where things live' },
       ]}
@@ -90,6 +91,39 @@ export default function DocsOverview() {
             Each sidebar section has a small <strong>?</strong> beside its header that opens the
             part of these docs that explains it. Your board is kept while you read; going back to
             the app brings it back as you left it.
+          </Term>
+          <Term name="The Help menu">
+            <strong>Documentation</strong> opens these pages and <strong>Keyboard shortcuts</strong>{' '}
+            the list of every key. <strong>About &amp; guides</strong> opens the about page, with
+            guides to surfboard design and construction. <strong>Buy me a coffee</strong> opens the
+            page where you can support the project; everything in the editor stays free either way.
+          </Term>
+        </Terms>
+      </Section>
+
+      <Section id="settings" title="Settings">
+        <p>
+          <strong>Edit ▸ Settings…</strong> holds the preferences that change how the editor looks
+          and behaves, not the board itself. They are kept in this browser and take effect when you
+          press <strong>Apply</strong>; <strong>Reset to defaults</strong> fills in the original
+          values, which also take effect on Apply.
+        </p>
+        <Terms>
+          <Term name="Curve and overlay colors">
+            The colors of the outline, the deck and bottom rocker lines, the cross-section, the
+            ghost board and the grid, and of the fin blades in the 3D view.
+          </Term>
+          <Term name="Sizes">
+            How big the control points are drawn and how thick the curves are, in screen pixels.
+          </Term>
+          <Term name="Resize cross-sections to rocker/deck">
+            On by default: editing the outline or the rocker resizes the cross-sections in that area
+            to match. Turned off, they keep their own size (see{' '}
+            <Link to="/docs/editing#blank">Cross-sections stay inside the blank</Link>).
+          </Term>
+          <Term name="Show tips">
+            On by default: toolbar buttons show a line on what they do under their name (see{' '}
+            <Link to="/docs#help">Finding a tool</Link>).
           </Term>
         </Terms>
       </Section>

@@ -64,6 +64,15 @@ describe('the help-text table', () => {
     expect(missing).toEqual([]);
   });
 
+  // The overview page covers a little of everything, so "learn more" landing on its
+  // top says nothing about the command. Only the command that opens the docs may.
+  it('points into a section of the overview, not at its top', () => {
+    const vague = entries
+      .filter(([id, e]) => e.route === '/docs' && !e.anchor && id !== 'Help/Documentation')
+      .map(([id]) => id);
+    expect(vague).toEqual([]);
+  });
+
   it('dates new features as real ISO days', () => {
     const bad = entries
       .filter(([, e]) => e.addedOn !== undefined)

@@ -20,10 +20,12 @@ import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { DOCS_ROUTES } from './docs/registry';
-import { commandHelp } from './help-text';
+import { LENGTH_UNITS } from './format';
+import { commandHelp, commandHelpId, HELP_TEXT } from './help-text';
 import { recordRecentBoard } from './recent-boards';
 import sampleBrd from './sample-board.brd?raw';
 import { loadSettings } from './settings';
+import { BOARD_TEMPLATES } from './templates';
 import { setTier } from './test/viewport';
 
 vi.mock('@openshaper/render3d', () => ({ Board3DView: () => null }));
@@ -53,6 +55,8 @@ function readMenu(menu: string): RenderedItem[] {
   for (const row of Array.from(panel.children)) {
     const role = row.getAttribute('role');
     if (role === 'presentation') group = row.textContent ?? undefined;
+    // As in `commandsFromMenus`: a group ends at the next separator.
+    if (role === 'separator') group = undefined;
     if (role !== 'menuitem' && role !== 'menuitemcheckbox') continue;
     // The label span, not the row: the row's text also holds the shortcut.
     const label = row.querySelector('.flex-1')!.textContent!;
@@ -121,6 +125,19 @@ describe('every menu command can be found and explained', () => {
       .map(({ menu, label }) => `"${menu} ▸ ${label}"`)
       // An item seen in both passes over the menus is one item.
       .filter((id, i, all) => all.indexOf(id) === i);
+    // The shared group entries cover only the rows generated from data. Anything
+    // else under a group needs its own entry, even if a separator goes missing.
+    const dataLabels = new Set<string>([
+      ...BOARD_TEMPLATES.map((t) => t.name),
+      'A board from last week',
+      ...LENGTH_UNITS.map((u) => u.label),
+    ]);
+    const borrowed = items
+      .filter(({ menu, label }) => !HELP_TEXT[commandHelpId(menu, label)])
+      .filter(({ label }) => !dataLabels.has(label))
+      .map(({ menu, label }) => `"${menu} ▸ ${label}"`);
+    missing.push(...borrowed.filter((id) => !missing.includes(id)));
+
     expect(
       missing,
       `Menu items without help: ${missing.join(', ')}. ` +
