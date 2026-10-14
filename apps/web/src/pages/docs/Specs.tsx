@@ -51,7 +51,9 @@ export default function DocsSpecs() {
         <Terms>
           <Term name="Length, Width, Thickness">
             The size you want, typed in the current display unit. The board&apos;s present size
-            shows greyed out in each field as a reminder.
+            shows greyed out in each field as a reminder. These are the readout&apos;s Length, Width
+            and Thickness: the straight tip-to-tail length (not Length o/curve, whichever
+            measurement axis is selected), the widest point and the thickest point.
           </Term>
           <Term name="A blank field">
             Keeps that dimension as it is. Fill in only length to make the board longer without

@@ -162,10 +162,11 @@ export interface SidebarProps {
   setResize: Dispatch<SetStateAction<ResizeFields>>;
   applyResize: () => void;
   /**
-   * Attached to the first Resize field, so Board ▸ Resize… can put the cursor in it.
-   * A ref object rather than a callback, so it is stable across renders of the shell.
+   * Attached to the Resize form, so Board ▸ Resize… can scroll it in and put the cursor
+   * in its first field. A ref object rather than a callback, so it is stable across
+   * renders of the shell.
    */
-  resizeFieldRef?: Ref<HTMLInputElement>;
+  resizeFormRef?: Ref<HTMLDivElement>;
 
   meta: BoardMeta;
   setMeta: Dispatch<SetStateAction<BoardMeta>>;
@@ -219,7 +220,7 @@ export const Sidebar = memo(function Sidebar({
   resize,
   setResize,
   applyResize,
-  resizeFieldRef,
+  resizeFormRef,
   meta,
   setMeta,
   foamType,
@@ -267,7 +268,7 @@ export const Sidebar = memo(function Sidebar({
         resize={resize}
         setResize={setResize}
         applyResize={applyResize}
-        firstFieldRef={resizeFieldRef}
+        formRef={resizeFormRef}
       />
     ),
     controlPoint: <ControlPointInspector store={boardStore} units={units} />,
@@ -899,17 +900,20 @@ function ResizeSection({
   resize,
   setResize,
   applyResize,
-  firstFieldRef,
+  formRef,
 }: {
   specs: BoardSpecs | null;
   units: LengthUnit;
   resize: ResizeFields;
   setResize: Dispatch<SetStateAction<ResizeFields>>;
   applyResize: () => void;
-  firstFieldRef?: Ref<HTMLInputElement>;
+  formRef?: Ref<HTMLDivElement>;
 }) {
   return (
-    <div className="space-y-2 text-sm">
+    // The scroll margins are for Board ▸ Resize…, which scrolls this form in: the top
+    // one keeps the section's own header in view above it, the bottom one keeps Apply
+    // clear of the support bar stuck to the bottom of the sheet.
+    <div ref={formRef} className="scroll-mb-14 scroll-mt-14 space-y-2 text-sm">
       {(
         [
           ['l', 'Length', specs?.length],
@@ -920,7 +924,6 @@ function ResizeSection({
         <label key={key} className="flex items-center gap-2">
           <span className="w-16 text-muted-foreground">{label}</span>
           <Input
-            ref={key === 'l' ? firstFieldRef : undefined}
             value={resize[key]}
             placeholder={cur != null ? fmtLen(cur, units) : ''}
             onChange={(e) => setResize((r) => ({ ...r, [key]: e.target.value }))}

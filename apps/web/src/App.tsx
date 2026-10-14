@@ -714,15 +714,44 @@ function AppShell() {
   // be folded or the sheet closed, so the field does not exist until the commit these
   // updates cause. Passive rather than layout, so it lands after every cleanup in that
   // commit — a closing dialog handing focus back to its opener cannot take it back.
-  const resizeField = useRef<HTMLInputElement>(null);
+  //
+  // Focus without the browser's own scroll, then scroll the form in once the sheet has
+  // settled. The sheet animates its height, and a field focused mid-grow is centred in
+  // the still-tiny body — a scroll offset it keeps at full height, which parks the tab
+  // strip and the Resize header above the fold. `nearest` leaves a form that already
+  // fits where it is; the form's scroll margins keep its header and the sticky support
+  // bar's strip clear (`ResizeSection`).
+  const resizeForm = useRef<HTMLDivElement>(null);
   const [resizeFocus, setResizeFocus] = useState(0);
   useEffect(() => {
-    if (resizeFocus > 0) resizeField.current?.focus();
+    const form = resizeForm.current;
+    if (resizeFocus === 0 || !form) return;
+    form.querySelector('input')?.focus({ preventScroll: true });
+    const reveal = () => form.scrollIntoView?.({ block: 'nearest' });
+    // getAnimations flushes style, so a height transition this commit started is
+    // already listed. Absent in jsdom.
+    const growing = form.closest('[role="dialog"]')?.getAnimations?.() ?? [];
+    if (growing.length === 0) {
+      reveal();
+      return;
+    }
+    let live = true;
+    void Promise.allSettled(growing.map((a) => a.finished)).then(() => {
+      if (live) reveal();
+    });
+    return () => {
+      live = false;
+    };
   }, [resizeFocus]);
   const openResize = () => {
     setSidebar((s) => revealSection(s, 'resize'));
-    // `half` is where the panels button opens it; one already at `full` stays there.
-    if (!isDesktop && !panelsShowing) setSheetSnap('half');
+    // `half` is where the panels button opens it; one already at `full` stays there. A
+    // short (landscape) half is too low to show the form above the support bar, so it
+    // goes to `full` — the board is not what this command is about.
+    if (!isDesktop) {
+      if (isShort) setSheetSnap('full');
+      else if (!panelsShowing) setSheetSnap('half');
+    }
     setResizeFocus((n) => n + 1);
   };
 
@@ -1482,7 +1511,7 @@ function AppShell() {
       resize={resize}
       setResize={setResize}
       applyResize={applyResize}
-      resizeFieldRef={resizeField}
+      resizeFormRef={resizeForm}
       meta={meta}
       setMeta={setMeta}
       foamType={foamType}
