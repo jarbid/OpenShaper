@@ -185,7 +185,8 @@ export default function DocsSpecs() {
         <p>
           The mode is listed but disabled until a ghost is loaded. It works on a swallow or fish
           tail too, either board&rsquo;s. It is worked out in the background and follows your edits
-          whenever you pause; during a drag the coloured hull stays a step behind.
+          whenever you pause; during a drag the coloured hull stays a step behind, and the legend
+          says it is measuring and gives the range it last measured until it catches up.
         </p>
       </Section>
     </DocsPage>

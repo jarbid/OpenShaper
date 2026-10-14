@@ -25,6 +25,7 @@ import {
   analysisStatus,
   curvatureCenter,
   DEFAULT_DEVIATION_BAND,
+  deviationCenter,
   deviationStatus,
   isExactAnalysis,
   sameStatus,
@@ -520,11 +521,12 @@ function useDeviationResult(
     const abort = new AbortController();
     deviationAsync(board, ghost, targetFaceSize, abort.signal).then(
       (mesh) => {
-        if (!cancelled) setResult({ board, ghost, mesh });
+        if (!cancelled) setResult({ board, ghost, faceSize: targetFaceSize, mesh });
       },
       (err: unknown) => {
         if (cancelled) return;
-        setResult({ board, ghost, error: err instanceof Error ? err.message : String(err) });
+        const error = err instanceof Error ? err.message : String(err);
+        setResult({ board, ghost, faceSize: targetFaceSize, error });
       },
     );
     return () => {
@@ -620,14 +622,21 @@ function BoardMesh({
   useEffect(() => () => analysisMaterial?.dispose(), [analysisMaterial]);
 
   // The deviation map, on its own mesh: it needs no hull, and may be a step behind
-  // the board during an edit (see `deviationStatus`).
+  // the board during an edit (see `deviationStatus`). It is placed like the hull, so
+  // it stays registered with the fins and guides (`deviationCenter`).
   if (
     status.state === 'ready' &&
     status.mode === 'ghost-deviation' &&
     deviation &&
     'mesh' in deviation
   ) {
-    return <DeviationSurface mesh={deviation.mesh} band={status.band} />;
+    return (
+      <DeviationSurface
+        mesh={deviation.mesh}
+        band={status.band}
+        center={deviationCenter(hull, deviation.mesh)}
+      />
+    );
   }
 
   // The exact analysis, once it is for this board. It is its own mesh, so it does
@@ -727,7 +736,7 @@ export function Board3DView({
   const deviationWanted = analysis === 'ghost-deviation';
   const deviation = useDeviationResult(deviationWanted ? board : null, ghost, targetFaceSize);
   const computed = deviationWanted
-    ? deviationStatus(board, ghost, deviation, deviationBand)
+    ? deviationStatus(board, ghost, deviation, deviationBand, targetFaceSize)
     : analysisStatus(analysis, board, curvature);
   // One object per distinct state, so the report below fires on changes only.
   const statusRef = useRef<AnalysisStatus>(ANALYSIS_OFF);

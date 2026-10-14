@@ -3,7 +3,7 @@ import { useEffect, useMemo } from 'react';
 import { DoubleSide, ShaderMaterial, Vector3 } from 'three';
 import { DIVERGING_RAMP, NO_DATA_STRIPES, hexToRgb } from './analysis-palette';
 import type { DeviationMesh } from './deviation-mesh';
-import { boardCenter, deviationGeometry } from './geometry';
+import { deviationGeometry } from './geometry';
 import { RAMP_GLSL, rampUniforms } from './ramp-shader';
 
 /**
@@ -65,13 +65,21 @@ export const deviationUniforms = (band: number) => ({
 
 /**
  * The board painted by its deviation from the ghost, on the deviation job's own
- * mesh: the hull's, for the board it was computed for. Centred on that mesh's own
- * bounding box, exactly as the hull would be.
+ * mesh: the hull's, for the board it was computed for. Placed around `center`
+ * (`deviationCenter`), the same one the fins and guides are placed by.
  */
-export function DeviationSurface({ mesh, band }: { mesh: DeviationMesh; band: number }) {
+export function DeviationSurface({
+  mesh,
+  band,
+  center,
+}: {
+  mesh: DeviationMesh;
+  band: number;
+  center: readonly [number, number, number];
+}) {
   const geometry = useMemo(() => deviationGeometry(mesh), [mesh]);
   useEffect(() => () => geometry.dispose(), [geometry]);
-  const [cx, cy, cz] = useMemo(() => boardCenter(mesh), [mesh]);
+  const [cx, cy, cz] = center;
 
   const material = useMemo(
     () =>

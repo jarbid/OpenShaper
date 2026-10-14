@@ -114,11 +114,13 @@ describe('the deviation map’s legend', () => {
   const deviation = (
     band: number,
     range: readonly [number, number] | null = [-0.21, 0.43],
+    stale = false,
   ): Extract<AnalysisStatus, { state: 'ready'; mode: 'ghost-deviation' }> => ({
     state: 'ready',
     mode: 'ghost-deviation',
     band,
     range,
+    stale,
     ramp: RAMP,
     stripes: ['#111111', '#222222'],
   });
@@ -206,6 +208,23 @@ describe('the deviation map’s legend', () => {
     expect(text).not.toMatch(/\bcm\b|\bmm\b/);
     expect(text).toContain('+0.5 in');
     expect(text).toContain('On this board: −0.1 in to +0.25 in.');
+  });
+
+  it('shows the range of an earlier board as such, and that it is measuring', () => {
+    const mm = lengthUnitByKey('mm');
+    const { rerender } = render(<AnalysisLegend status={deviation(0.5)} units={mm} />);
+    // Up to date: no spinner.
+    expect(screen.getByRole('status').textContent).not.toContain('Measuring against the ghost…');
+
+    // After an edit the map is the last board's until this one's job lands.
+    rerender(<AnalysisLegend status={deviation(0.5, [-0.21, 0.43], true)} units={mm} />);
+    const text = screen.getByRole('status').textContent!;
+    expect(text).toContain('Measuring against the ghost…');
+    expect(text).toContain('Last measured: −2.1 mm to +4.3 mm.');
+    expect(text).not.toContain('On this board');
+    // The scale itself still keys the colours on screen.
+    expect(screen.getByTestId('analysis-legend-ramp')).toBeTruthy();
+    expect(deviationRangeText(deviation(0.5, null, true), mm)).not.toMatch(/this board/);
   });
 
   it('says so when no part of the board could be measured', () => {

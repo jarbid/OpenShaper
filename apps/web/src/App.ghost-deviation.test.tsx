@@ -32,6 +32,7 @@ vi.mock('@openshaper/render3d', () => ({
           mode: analysis,
           band: deviationBand!,
           range: [-0.25, 0.64],
+          stale: false,
           ramp: ['#0000ff', '#ffffff', '#ff0000'],
           stripes: ['#444444', '#666666'],
         });

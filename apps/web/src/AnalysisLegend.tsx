@@ -66,11 +66,22 @@ export const legendText = (
   }
 };
 
-/** What the deviation map found on the board shown, in a line. */
-export const deviationRangeText = (status: DeviationReady, units: LengthUnit): string =>
-  status.range
-    ? `On this board: ${signedSmallLen(status.range[0], units)} to ${signedSmallLen(status.range[1], units)}.`
-    : 'No part of this board lies within the ghost’s length.';
+/**
+ * What the deviation map found, in a line. A stale map is an earlier board's (the
+ * one on screen is still being measured), so its range is not claimed for this one.
+ */
+export const deviationRangeText = (status: DeviationReady, units: LengthUnit): string => {
+  if (!status.range) {
+    return status.stale
+      ? 'Last measured: no part of the board lay within the ghost’s length.'
+      : 'No part of this board lies within the ghost’s length.';
+  }
+  const span = `${signedSmallLen(status.range[0], units)} to ${signedSmallLen(status.range[1], units)}`;
+  return status.stale ? `Last measured: ${span}.` : `On this board: ${span}.`;
+};
+
+/** A deviation map still showing an earlier board's measurement while this one's runs. */
+const isStale = (status: Ready): boolean => status.mode === 'ghost-deviation' && status.stale;
 
 /** "Computing curvature…" and its kin, per mode. */
 const busyText = (status: Exclude<AnalysisStatus, { state: 'off' }>): string =>
@@ -86,7 +97,7 @@ export function AnalysisLegend({ status, units }: { status: AnalysisStatus; unit
       className="pointer-events-none absolute left-2 top-2 z-[1] w-60 max-w-[calc(100%-1rem)] rounded-md border border-border bg-card/90 px-2 py-1.5 text-xs text-card-foreground shadow-lg"
     >
       <div className="font-medium">{title}</div>
-      {status.state === 'computing' && (
+      {(status.state === 'computing' || (status.state === 'ready' && isStale(status))) && (
         <div className="mt-0.5 flex items-center gap-1.5 text-muted-foreground">
           <LoaderCircle aria-hidden="true" className="size-3 animate-spin" />
           {busyText(status)}
