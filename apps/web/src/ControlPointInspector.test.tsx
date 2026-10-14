@@ -12,7 +12,7 @@
  *  - Keyboard nudging in the pane header: arrows, Shift ×10, hold R to turn a
  *    handle, hold T to change its length.
  */
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { createBoardStore, getTargetSpline, type SplineTarget } from '@openshaper/store';
 import {
@@ -661,7 +661,7 @@ describe('<SelectedPointEditor /> keyboard modes: Shift, hold R, hold T', () => 
     const knot = () => getTargetSpline(store.getState().board!, target).knots[index]!;
     return { store, knot };
   };
-  const press = (key: string, init: { shiftKey?: boolean } = {}) =>
+  const press = (key: string, init: { shiftKey?: boolean; repeat?: boolean } = {}) =>
     fireEvent.keyDown(window, { key, ...init });
   const angle = (k: Knot, which: 'prev' | 'next') => {
     const h = which === 'prev' ? k.tangentToPrev : k.tangentToNext;
@@ -681,6 +681,46 @@ describe('<SelectedPointEditor /> keyboard modes: Shift, hold R, hold T', () => 
     expect(knot().end).toEqual({ x: before.x + 5, y: before.y });
     fireEvent.keyDown(screen.getByLabelText('Y position'), { key: 'ArrowDown', shiftKey: true });
     expect(knot().end).toEqual({ x: before.x + 5, y: before.y - 5 });
+  });
+
+  it('leaves Shift+← → in a header field to text selection', () => {
+    const { store } = setup('end');
+    const field = screen.getByLabelText('X position');
+    for (const key of ['ArrowLeft', 'ArrowRight'])
+      expect(fireEvent.keyDown(field, { key, shiftKey: true })).toBe(true); // not cancelled
+    expect(store.getState().past).toEqual([]);
+  });
+
+  it('a held arrow that outlives R or T does not carry on as a move', () => {
+    for (const hold of ['r', 't']) {
+      cleanup();
+      const { store, knot } = setup('next');
+      press(hold);
+      press('ArrowRight');
+      press('ArrowRight', { repeat: true });
+      fireEvent.keyUp(window, { key: hold });
+      const h = knot().tangentToNext;
+      press('ArrowRight', { repeat: true });
+      press('ArrowRight', { repeat: true });
+      expect(knot().tangentToNext).toEqual(h);
+      expect(store.getState().past).toHaveLength(2);
+      // A fresh press moves again.
+      press('ArrowRight');
+      expect(knot().tangentToNext).toEqual({ x: h.x + 0.5, y: h.y });
+    }
+  });
+
+  it('does nothing behind an open dialog', () => {
+    const { store } = setup('next');
+    const modal = document.createElement('div');
+    modal.setAttribute('data-modal', '');
+    document.body.append(modal);
+    press('ArrowRight');
+    press('r');
+    press('ArrowRight');
+    fireEvent.keyUp(window, { key: 'r' });
+    expect(store.getState().past).toEqual([]);
+    modal.remove();
   });
 
   it('hold R turns the selected handle 1° a press (Shift 10°), keeping its length', () => {
@@ -753,9 +793,12 @@ describe('<SelectedPointEditor /> keyboard modes: Shift, hold R, hold T', () => 
     expect(angle(knot(), 'prev')).toBeCloseTo(a0, 12);
     expect(labels(store)).toEqual(Array(4).fill('Set handle length'));
 
-    // Never below zero.
-    for (let i = 0; i < 3; i++) press('ArrowLeft', { shiftKey: true });
-    expect(length(knot(), 'prev')).toBe(0);
+    // Never below zero; and this corner handle would lose its direction at zero, so it
+    // stops at its last step above it, still pointing the same way.
+    for (let i = 0; i < 4; i++) press('ArrowLeft', { shiftKey: true });
+    expect(length(knot(), 'prev')).toBeCloseTo((l0 + 4.5) % 5, 12);
+    expect(length(knot(), 'prev')).toBeGreaterThan(0);
+    expect(angle(knot(), 'prev')).toBeCloseTo(a0, 12);
   });
 
   it('hold T with the point selected changes both handles in one step', () => {

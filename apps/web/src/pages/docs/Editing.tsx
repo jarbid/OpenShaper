@@ -277,7 +277,9 @@ export default function DocsEditing() {
           Select a point or a handle and press the arrow keys (<code>{shortcutKeys('nudge')}</code>)
           to move it one step at a time: 5 mm, 0.5 cm or 0.25 in, depending on the length unit. Hold
           Shift for {NUDGE.shiftFactor} steps at once. The arrows work in whichever view holds the
-          selection, and not while you are typing in a field. Each press is one undo step.
+          selection, and in the pane header&apos;s own X, Y or Length field, where they step that
+          value (Shift with Left or Right still selects text there); not in any other text field,
+          nor while a dialog is open. Each press is one undo step.
         </p>
         <p>
           Two keys, held down, change what the arrows do. On their own they do nothing; let go and
@@ -286,19 +288,20 @@ export default function DocsEditing() {
         <Terms>
           <Term name={`Hold ${NUDGE.rotateKey.toUpperCase()}: turn`}>
             <code>{shortcutKeys('nudge-rotate')}</code> turns the selected handle about its point,{' '}
-            {NUDGE.turnDegrees}° per press, keeping its length: ← and ↑ counter-clockwise, → and ↓
-            clockwise, as you see it — in every view, including a phone&apos;s nose-up one. With the
-            point itself selected, both of its handles turn by the same angle. A smooth point&apos;s
-            two handles always turn together, so it stays smooth. Shift turns{' '}
+            {NUDGE.turnDegrees}° per press, keeping its length: Left and Up counter-clockwise, Right
+            and Down clockwise, as you see it — in every view, including a phone&apos;s nose-up one.
+            With the point itself selected, both of its handles turn by the same angle. A smooth
+            point&apos;s two handles always turn together, so it stays smooth. Shift turns{' '}
             {NUDGE.turnDegrees * NUDGE.shiftFactor}°.
           </Term>
           <Term name={`Hold ${NUDGE.lengthKey.toUpperCase()}: length`}>
-            <code>{shortcutKeys('nudge-length')}</code> lengthens (→ ↑) or shortens (← ↓) the
-            selected handle by one step along the line it points, never past zero; with the point
-            selected, both of its handles. A handle shortened to nothing grows back the way it
-            pointed: opposite its partner on a smooth point, along its lock when locked, and
-            otherwise toward the neighbouring point. Shift changes it {NUDGE.shiftFactor} steps at
-            once.
+            <code>{shortcutKeys('nudge-length')}</code> lengthens (Right, Up) or shortens (Left,
+            Down) the selected handle by one step along the line it points, never past zero; with
+            the point selected, both of its handles (at a curve&apos;s first or last point, the one
+            handle the curve uses). A handle only shortens to nothing when it can grow back the way
+            it pointed — along its lock, or opposite the other handle of a smooth point — so a point
+            never loses its tangent; any other handle stops at its last step short of zero. Shift
+            changes it {NUDGE.shiftFactor} steps at once.
           </Term>
         </Terms>
         <p>
@@ -306,8 +309,10 @@ export default function DocsEditing() {
           smooth point, to either of its handles — while its length still changes. A turn that would
           fold a curve back on itself, such as an outline or rocker handle turned past square to the
           board&apos;s length, is not made at all rather than squashing the handle: the press does
-          nothing, and smaller steps without Shift still take it closer. Every chord is listed on
-          the <Link to="/docs/shortcuts#nudging">shortcuts</Link> page.
+          nothing, and smaller steps without Shift still take it closer. A ⌘ chord, such as{' '}
+          <code>{shortcutKeys('undo')}</code> to take back a step, ends a held mode: press R or T
+          again before the next arrow. Every chord is listed on the{' '}
+          <Link to="/docs/shortcuts#nudging">shortcuts</Link> page.
         </p>
       </Section>
 

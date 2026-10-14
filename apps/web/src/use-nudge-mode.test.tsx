@@ -48,6 +48,23 @@ describe('useNudgeMode', () => {
     expect(mode.current).toBe('move');
   });
 
+  it('ends when its key is let go under Option, which changes the character', () => {
+    const mode = mount();
+    fireEvent.keyDown(window, { key: 'r', code: 'KeyR' });
+    fireEvent.keyDown(window, { key: 'Alt', code: 'AltLeft', altKey: true });
+    fireEvent.keyUp(window, { key: '®', code: 'KeyR', altKey: true });
+    fireEvent.keyUp(window, { key: 'Alt', code: 'AltLeft' });
+    expect(mode.current).toBe('move');
+
+    fireEvent.keyDown(window, { key: 't', code: 'KeyT' });
+    fireEvent.keyDown(window, { key: 'Alt', code: 'AltLeft', altKey: true });
+    // Another key under Option is not T's release.
+    fireEvent.keyUp(window, { key: '®', code: 'KeyR', altKey: true });
+    expect(mode.current).toBe('length');
+    fireEvent.keyUp(window, { key: '†', code: 'KeyT', altKey: true });
+    expect(mode.current).toBe('move');
+  });
+
   it('with both held, the last pressed wins and letting it go hands back', () => {
     const mode = mount();
     fireEvent.keyDown(window, { key: 't' });

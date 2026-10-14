@@ -109,9 +109,17 @@ by one nudge step (`stepKnotTangentLength`, `stepTangentLength`); Shift makes an
 - **Junctions.** A turn the junction pass would clamp (an outline or rocker handle past
   vertical, a tip handle across the centreline) is refused whole, so a turn always keeps
   the handle's length.
+- **Length never loses a direction.** A step collapses a handle only when it can grow
+  back the way it pointed (its lock, or opposite a smooth point's other handle);
+  otherwise the handle stops at its last step above zero. A selected first or last
+  point acts only on the handle its segment uses, never on the open spline's unused one.
 - **Hold keys** (`apps/web/src/use-nudge-mode.ts`) are ignored in text fields and with
-  Ctrl/Cmd/Alt, and end on their keyup, window blur, the tab being hidden, and Cmd's
-  keyup (macOS drops the keyup of a key released under Cmd).
+  Ctrl/Cmd/Alt, and end on their keyup (matched by `key` or by the `code` recorded at
+  keydown, since Option changes the character), window blur, the tab being hidden, and
+  Cmd's keyup (macOS drops the keyup of a key released under Cmd; so a Cmd chord such
+  as undo ends the mode even with R still down). An arrow's auto-repeats carry on only
+  in the mode its first press used, so letting go of R or T mid-repeat stops the turn
+  rather than starting moves. The arrows do nothing while a `[data-modal]` dialog is open.
 
 ## 5. Next
 

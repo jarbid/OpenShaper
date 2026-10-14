@@ -19,16 +19,18 @@ const modeForKey = (key: string): NudgeMode | undefined => {
  *   Alt it is another chord (⌘R reloads the page), so that is ignored too.
  * - A hold key does nothing by itself, and its default is left alone.
  * - Holding both, the one pressed last wins; letting it go hands back to the other.
- * - A mode ends on its key's keyup, wherever the focus is by then, and whenever a
+ * - A mode ends on its key's keyup (matched by character or physical key, so
+ *   Option pressed meanwhile cannot strand it), wherever the focus is by then, and whenever a
  *   keyup can be missed: the window losing focus, the tab being hidden, and Cmd
  *   being released (macOS sends no keyup for a key let go while Cmd is down).
  */
 export function useNudgeMode(): { readonly current: NudgeMode } {
   const mode = useRef<NudgeMode>('move');
   useEffect(() => {
-    const held: NudgeMode[] = [];
+    // The physical key too: released under Option on macOS, R reads '®' and T '†'.
+    const held: { mode: NudgeMode; code: string }[] = [];
     const sync = () => {
-      mode.current = held.at(-1) ?? 'move';
+      mode.current = held.at(-1)?.mode ?? 'move';
     };
     const clear = () => {
       held.length = 0;
@@ -38,13 +40,13 @@ export function useNudgeMode(): { readonly current: NudgeMode } {
       const m = modeForKey(e.key);
       if (!m || e.ctrlKey || e.metaKey || e.altKey) return;
       if (isTextEntry(e.target as HTMLElement | null)) return;
-      if (!held.includes(m)) held.push(m);
+      if (!held.some((h) => h.mode === m)) held.push({ mode: m, code: e.code });
       sync();
     };
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key === 'Meta') return clear();
       const m = modeForKey(e.key);
-      const i = m ? held.indexOf(m) : -1;
+      const i = held.findIndex((h) => h.mode === m || (e.code !== '' && h.code === e.code));
       if (i < 0) return;
       held.splice(i, 1);
       sync();

@@ -19,7 +19,7 @@ import { Button, Input } from '@openshaper/ui';
 import { Lock, LockOpen } from 'lucide-react';
 import { NumericInput } from './components/numeric-input';
 import { NUDGE, shortcutKeys } from './shortcuts';
-import { useNudgeMode } from './use-nudge-mode';
+import { useNudgeMode, type NudgeMode } from './use-nudge-mode';
 import { useSyncedText } from './use-numeric-field';
 import { useCallback, useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
@@ -189,8 +189,8 @@ function HeaderCoordInput({
   units: LengthUnit;
   onCommit: (cm: number) => void;
   onDismiss: () => void;
-  /** An arrow key in the field; `big` when Shift is held. */
-  onNudge: (key: ArrowKey, big: boolean) => void;
+  /** An arrow key in the field; `big` when Shift is held, `repeat` when auto-repeated. */
+  onNudge: (key: ArrowKey, big: boolean, repeat: boolean) => void;
   /** Shown but not editable: a coordinate the blank holds. */
   disabled?: boolean;
   /** Why the field is read-only. */
@@ -235,9 +235,11 @@ function HeaderCoordInput({
           if (e.key === 'ArrowUp' || e.key === 'ArrowDown') commit(e.currentTarget.value);
         }}
         onKeyDown={(e) => {
-          if (isArrowKey(e.key) && !e.altKey && !e.ctrlKey && !e.metaKey) {
+          // Shift+← → is left to the field: it selects text there.
+          const selecting = e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight');
+          if (isArrowKey(e.key) && !selecting && !e.altKey && !e.ctrlKey && !e.metaKey) {
             e.preventDefault();
-            onNudge(e.key, e.shiftKey);
+            onNudge(e.key, e.shiftKey, e.repeat);
           } else if (e.key === 'Enter') {
             commit(e.currentTarget.value);
             e.currentTarget.blur();
@@ -270,15 +272,27 @@ export function SelectedPointEditor({
   const selection = useSyncExternalStore(store.subscribe, () => store.getState().selection);
 
   const mode = useNudgeMode();
+  // The mode the last fresh arrow press acted in. A held arrow's auto-repeats carry on
+  // only in that mode: letting go of R or T a moment before the arrow must not turn
+  // the rest of a turn into moves.
+  const pressMode = useRef<NudgeMode>('move');
+  const continues = useCallback(
+    (repeat: boolean): boolean => {
+      if (!repeat) pressMode.current = mode.current;
+      return pressMode.current === mode.current;
+    },
+    [mode],
+  );
 
   /**
    * One arrow-key press on the selection, if this pane holds it: a move by one step,
    * or, with R or T held, a turn or a length change of the selected handle — of both
    * handles when the point itself is selected. Shift makes the step ten times larger.
-   * Each press is its own undo step.
+   * Each press is its own undo step; an auto-repeat that outlived its mode is
+   * swallowed (see `continues`).
    */
   const nudge = useCallback(
-    (key: ArrowKey, big: boolean): boolean => {
+    (key: ArrowKey, big: boolean, repeat = false): boolean => {
       const state = store.getState();
       const active = state.selection;
       if (!state.board || !active || !targets.some((target) => sameTarget(target, active.target)))
@@ -286,6 +300,7 @@ export function SelectedPointEditor({
 
       const activeKnot = getTargetSpline(state.board, active.target).knots[active.index];
       if (!activeKnot) return false;
+      if (!continues(repeat)) return true;
       const activeKind = active.kind ?? 'end';
       const handles = activeKind === 'end' ? 'both' : activeKind;
       const stepCm = nudgeStepCm(units, big);
@@ -314,7 +329,7 @@ export function SelectedPointEditor({
       else state.moveTangent(active.target, active.index, activeKind, next);
       return true;
     },
-    [store, targets, units, mode],
+    [store, targets, units, mode, continues],
   );
 
   useEffect(() => {
@@ -333,7 +348,9 @@ export function SelectedPointEditor({
         (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
       )
         return;
-      if (nudge(event.key, event.shiftKey)) event.preventDefault();
+      // Like the global shortcuts, leave the board alone behind an open dialog.
+      if (document.querySelector('[data-modal]')) return;
+      if (nudge(event.key, event.shiftKey, event.repeat)) event.preventDefault();
     };
 
     window.addEventListener('keydown', onKeyDown);
@@ -390,11 +407,11 @@ export function SelectedPointEditor({
             store.getState().setTangentLength(selection.target, selection.index, kind, len)
           }
           onDismiss={dismiss}
-          onNudge={(key, big) => {
+          onNudge={(key, big, repeat) => {
             // The field's own arrows step the one number it shows; a held R or T
             // still means what it does everywhere else.
-            if (mode.current !== 'move') nudge(key, big);
-            else
+            if (mode.current !== 'move') nudge(key, big, repeat);
+            else if (continues(repeat))
               store
                 .getState()
                 .stepTangentLength(

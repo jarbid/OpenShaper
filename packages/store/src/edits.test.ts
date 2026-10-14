@@ -547,6 +547,28 @@ describe('keyboard handle edits', () => {
       expect(lengthOf(k, 'prev')).toBeCloseTo(5 * Math.SQRT2, 12);
     });
 
+    it("a point's handles leave the end knots' unused ones alone", () => {
+      const s = splineFromKnots([
+        knot(vec2(0, 0), vec2(0, -3), vec2(0, 5), false),
+        knot(vec2(50, 10), vec2(45, 15), vec2(54, 14), false),
+        knot(vec2(100, 0), vec2(95, 0), vec2(103, 2), true),
+      ]);
+      const tail = rotateKnotTangent(s, 0, 'both', -10 * DEG).knots[0]!;
+      expect(tail.tangentToPrev).toBe(s.knots[0]!.tangentToPrev);
+      expect(angleOf(tail, 'next')).toBeCloseTo(80 * DEG, 12);
+      // A smooth end point turns its used handle, the unused one along with it.
+      const nose = rotateKnotTangent(s, 2, 'both', 10 * DEG).knots[2]!;
+      expect(angleOf(nose, 'prev')).toBeCloseTo(-170 * DEG, 12);
+      // Only the unused handle has a direction: nothing to turn, smooth or not.
+      for (const continuous of [true, false]) {
+        const flat = splineFromKnots([
+          knot(vec2(0, 0), vec2(0, -3), vec2(0, 0), continuous),
+          knot(vec2(50, 10), vec2(45, 15), vec2(54, 14), false),
+        ]);
+        expect(rotateKnotTangent(flat, 0, 'both', 10 * DEG)).toBe(flat);
+      }
+    });
+
     it('returns the spline itself when there is nothing to turn', () => {
       const s = spline(false);
       expect(rotateKnotTangent(s, 1, 'next', 0)).toBe(s);
@@ -572,8 +594,39 @@ describe('keyboard handle edits', () => {
     });
 
     it('never shortens below zero', () => {
-      const k = stepped(spline(false), 'next', -100);
+      const k = stepped(spline(true), 'next', -100);
       expect(k.tangentToNext).toEqual(k.end);
+    });
+
+    it('never collapses a handle whose direction would be lost', () => {
+      // A free corner handle would have no way back: it stops at its last step.
+      const corner = spline(false);
+      expect(stepKnotTangentLength(corner, 1, 'next', -100)).toBe(corner);
+      const short = stepped(corner, 'next', -5); // 4√2 - 5 ≈ 0.66 left
+      expect(lengthOf(short, 'next')).toBeCloseTo(4 * Math.SQRT2 - 5, 12);
+      // A smooth point's handles, shortened together: one collapses (it grows back
+      // opposite the other), the last one keeps the tangent.
+      const smooth = spline(true);
+      let s = smooth;
+      for (let i = 0; i < 4; i++) s = stepKnotTangentLength(s, 1, 'both', -3);
+      const k = s.knots[1]!;
+      expect(lengthOf(k, 'next')).toBe(0);
+      expect(lengthOf(k, 'prev')).toBeCloseTo(5 * Math.SQRT2 - 6, 12);
+      // Grown back out, the tangent points exactly where it did.
+      for (let i = 0; i < 4; i++) s = stepKnotTangentLength(s, 1, 'both', 3);
+      const back = s.knots[1]!;
+      expect(angleOf(back, 'next')).toBeCloseTo(angleOf(smooth.knots[1]!, 'next'), 12);
+      expect(angleOf(back, 'prev')).toBeCloseTo(angleOf(smooth.knots[1]!, 'prev'), 12);
+    });
+
+    it("a point's handles leave the end knots' unused ones alone", () => {
+      const s = spline(true);
+      const tail = stepKnotTangentLength(s, 0, 'both', 2).knots[0]!;
+      expect(lengthOf(tail, 'prev')).toBeCloseTo(5, 12);
+      expect(lengthOf(tail, 'next')).toBeCloseTo(5 * Math.SQRT2 + 2, 12);
+      const nose = stepKnotTangentLength(s, 2, 'both', 2).knots[2]!;
+      expect(lengthOf(nose, 'next')).toBeCloseTo(5, 12);
+      expect(lengthOf(nose, 'prev')).toBeCloseTo(7, 12);
     });
 
     it("changes both of a point's handles by the same amount", () => {
@@ -603,8 +656,9 @@ describe('keyboard handle edits', () => {
       const lockedBack = stepKnotTangentLength(locked, 1, 'prev', 2).knots[1]!;
       expect(lockedBack.tangentToPrev.x).toBeCloseTo(50 - 2 * R, 12);
       expect(lockedBack.tangentToPrev.y).toBeCloseTo(10 + 2 * R, 12);
-      // A free corner has lost its direction: it grows toward the neighbouring point.
-      const corner = stepKnotTangentLength(spline(false), 1, 'prev', -100);
+      // A free corner handle collapsed some other way has lost its direction: it grows
+      // toward the neighbouring point.
+      const corner = zeroKnotTangent(spline(false), 1, 'prev');
       const toward = stepKnotTangentLength(corner, 1, 'prev', 2).knots[1]!;
       const d = Math.hypot(50, 10);
       expect(toward.tangentToPrev.x).toBeCloseTo(50 - (2 * 50) / d, 12);

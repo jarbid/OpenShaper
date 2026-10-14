@@ -153,15 +153,15 @@ export const SHORTCUTS: readonly Shortcut[] = [
     keys: `${NUDGE.rotateKey.toUpperCase()} + ${ARROWS}`,
     label:
       `Hold ${NUDGE.rotateKey.toUpperCase()}: turn the selected handle, or both handles of a ` +
-      `selected point, ${NUDGE.turnDegrees}° (← ↑ counter-clockwise, → ↓ clockwise)`,
+      `selected point, ${NUDGE.turnDegrees}°: Left or Up counter-clockwise, Right or Down clockwise`,
     group: 'Nudging',
   },
   {
     id: 'nudge-length',
     keys: `${NUDGE.lengthKey.toUpperCase()} + ${ARROWS}`,
     label:
-      `Hold ${NUDGE.lengthKey.toUpperCase()}: lengthen (→ ↑) or shorten (← ↓) the selected ` +
-      'handle, or both handles of a selected point, one step',
+      `Hold ${NUDGE.lengthKey.toUpperCase()}: lengthen (Right or Up) or shorten (Left or Down) ` +
+      'the selected handle, or both handles of a selected point, one step',
     group: 'Nudging',
   },
   {

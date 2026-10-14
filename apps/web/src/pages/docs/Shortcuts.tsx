@@ -17,8 +17,9 @@ const NOTES: Partial<Record<ShortcutGroup, ReactNode>> = {
     <>
       These act on the selected point or handle in whichever view holds it. Hold{' '}
       {NUDGE.rotateKey.toUpperCase()} or {NUDGE.lengthKey.toUpperCase()} first, then press the
-      arrows; let go to move again. A locked handle does not turn, but its length still changes. See{' '}
-      <Link to="/docs/editing#keyboard">nudging from the keyboard</Link>.
+      arrows; let go to move again. They also work in the pane header&apos;s X, Y and Length fields,
+      where the arrows step that value. A locked handle does not turn, but its length still changes.
+      See <Link to="/docs/editing#keyboard">nudging from the keyboard</Link>.
     </>
   ),
 };
