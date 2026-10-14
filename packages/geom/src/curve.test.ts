@@ -9,6 +9,8 @@
  * - every curve (clamped or periodic, rational or not) against A2.4, an
  *   independent basis algorithm, summed over the control points;
  * - derivatives against Richardson-extrapolated central differences;
+ * - multi-span rational derivatives to C‴ against the half-angle closed form
+ *   of A7.1 circular arcs;
  * - one-sided derivatives at a C⁰ knot against the two Bézier halves;
  * - periodic wrap continuity across the seam;
  * - affine invariance and the ellipse as the image of a circle;
@@ -27,6 +29,7 @@ import {
   basisFunction,
   bezierCurve,
   circle,
+  circleArc,
   clampedBasis,
   clampedUniformKnots,
   clampUnclamped,
@@ -476,10 +479,16 @@ describe('every curve against the A2.4 oracle', () => {
 describe('derivatives against finite differences', () => {
   /**
    * Richardson-extrapolated central difference of g at t with step h:
-   * (4·D(h/2) − D(h))/3, truncation O(h⁴). With h = 2⁻⁸ of the span, truncation
-   * is ~h⁴·|g⁽⁵⁾| and cancellation ~ε|g|/h; both sit far below 10⁻⁸ relative to
-   * the derivative scale (design: 1e-8 rel for C′ and C″).
+   * (4·D(h/2) − D(h))/3, truncation O(h⁴). The step is h = 2⁻¹⁰ of the span
+   * (design §16): truncation ~h⁴·|g⁽⁵⁾| ≈ 1e-12 of the derivative scale, and
+   * cancellation ~ε·|g|/h ≈ 2e-13·|g|/span. Measured on these 30 curves the
+   * worst error is 3e-11 of FD_REL's scale, so FD_REL = 1e-8 has a 300× margin
+   * and still catches a derivative wrong by 1e-6 relative. (A step of 2⁻⁸
+   * leaves a truncation of up to 7e-9 relative on the ρ = 10, p = 5 curves.)
    */
+  const FD_STEPS = 1024;
+  const FD_REL = 1e-8;
+
   function richardson(g: (t: number) => Float64Array, t: number, h: number, len: number): number[] {
     const D = (hh: number): number[] => {
       const a = g(t + hh);
@@ -490,6 +499,9 @@ describe('derivatives against finite differences', () => {
     const d2 = D(h / 2);
     return d1.map((x, i) => (4 * d2[i]! - x) / 3);
   }
+
+  const norm3 = (f: ArrayLike<number>, o: number): number =>
+    Math.hypot(f[o]!, f[o + 1]!, f[o + 2]!);
 
   it('C′, C″ and C‴ are the derivatives of C, C′ and C″ inside every span', () => {
     const rng = mulberry32(41);
@@ -510,18 +522,98 @@ describe('derivatives against finite differences', () => {
         if (!(hi > lo)) continue;
         if (c.basis.kind === 'clamped' && (i < p || i >= c.basis.count)) continue;
         const t = lo + (0.25 + 0.5 * rng()) * (hi - lo);
-        const h = (hi - lo) / 256;
+        const h = (hi - lo) / FD_STEPS;
         const all = evalFlat(c, t, 3);
         for (let k = 1; k <= 3; k++) {
           const lower = (x: number): Float64Array => evalFlat(c, x, 3).subarray((k - 1) * 3, k * 3);
           const fd = richardson(lower, t, h, 3);
-          // Relative to the derivative scale M·ρ^(k+1)·(p/h)^k (see the header).
-          const scale = derivTol(c, k, 1) / EPS;
-          for (let d = 0; d < 3; d++) {
+          // Relative to |C⁽ᵏ⁾(t)|, local to this point. Where C⁽ᵏ⁾ nearly
+          // vanishes (C‴ of a quadratic) the difference quotient still carries
+          // the cancellation ε·|C⁽ᵏ⁻¹⁾|/h, so |C⁽ᵏ⁻¹⁾(t)|/span floors the scale:
+          // the natural size of a derivative of C⁽ᵏ⁻¹⁾ over this span.
+          const scale = Math.max(norm3(all, k * 3), norm3(all, (k - 1) * 3) / (hi - lo));
+          const err = Math.hypot(
+            all[k * 3]! - fd[0]!,
+            all[k * 3 + 1]! - fd[1]!,
+            all[k * 3 + 2]! - fd[2]!,
+          );
+          expect(err, `trial ${trial} span ${i} k ${k}`).toBeLessThanOrEqual(FD_REL * scale);
+        }
+      }
+    }
+  });
+});
+
+describe('rational derivatives on a multi-span circle against the closed form', () => {
+  /**
+   * A7.1 builds an arc of sweep θ from n equal rational quadratic segments of
+   * sweep dθ = θ/n, inner weight cos(dθ/2), on knots i/n. On segment i, with
+   * u = n·t − i and k = tan(dθ/4), the angle is the half-angle substitution
+   *   φ(t) = a0 + (i + ½)·dθ + 2·atan(k·(2u − 1)),
+   * so C = O + r·e(φ) with e = cos φ·X + sin φ·Y, e⊥ = −sin φ·X + cos φ·Y, and
+   *   C′ = r·φ′·e⊥,  C″ = r·(φ″·e⊥ − φ′²·e),  C‴ = r·((φ‴ − φ′³)·e⊥ − 3φ′φ″·e),
+   * with τ = k(2u − 1), q = 1 + τ²:
+   *   φ′ = 4nk/q,  φ″ = −16n²k²τ/q²,  φ‴ = −32n³k³(1 − 3τ²)/q³.
+   * Not unit speed, and C″ jumps at every interior double knot (φ″ changes
+   * sign), so both one-sided limits are checked there. Tolerance: the header's
+   * rounding model `derivTol(c, k)`; measured ≤ 2ε·(r + |O|)·(4n)^k, well inside.
+   */
+  const O = { x: 1.5, y: -2, z: 0.25 };
+  const r = 3;
+  const X = vec.normalize({ x: 1, y: 2, z: 2 })!;
+  const Y = vec.normalize(vec.cross(X, { x: 0, y: 0, z: 1 }))!;
+
+  function closedForm(
+    a0: number,
+    a1: number,
+    t: number,
+    side: 'left' | 'right',
+  ): readonly Point3[] {
+    const sweep = a1 - a0;
+    const n = sweep <= Math.PI / 2 ? 1 : sweep <= Math.PI ? 2 : sweep <= 1.5 * Math.PI ? 3 : 4;
+    const dth = sweep / n;
+    const k = Math.tan(dth / 4);
+    let i = Math.floor(t * n);
+    if (side === 'left' && t * n === i) i -= 1;
+    i = Math.min(Math.max(i, 0), n - 1);
+    const tau = k * (2 * (n * t - i) - 1);
+    const q = 1 + tau * tau;
+    const phi = a0 + (i + 0.5) * dth + 2 * Math.atan(tau);
+    const p1 = (4 * n * k) / q;
+    const p2 = (-16 * n * n * k * k * tau) / (q * q);
+    const p3 = (-32 * n ** 3 * k ** 3 * (1 - 3 * tau * tau)) / q ** 3;
+    const e = vec.add(vec.scale(X, Math.cos(phi)), vec.scale(Y, Math.sin(phi)));
+    const ep = vec.add(vec.scale(X, -Math.sin(phi)), vec.scale(Y, Math.cos(phi)));
+    return [
+      vec.add(O, vec.scale(e, r)),
+      vec.scale(ep, r * p1),
+      vec.sub(vec.scale(ep, r * p2), vec.scale(e, r * p1 * p1)),
+      vec.sub(vec.scale(ep, r * (p3 - p1 ** 3)), vec.scale(e, 3 * r * p1 * p2)),
+    ];
+  }
+
+  it('matches C, C′, C″ and C‴ on both sides of every knot, for one to four segments', () => {
+    const arcs: readonly (readonly [number, number])[] = [
+      [0.2, 0.9],
+      [0, Math.PI / 2],
+      [0.3, 2.8],
+      [-1, 3.5],
+      [0, 2 * Math.PI],
+    ];
+    for (const [a0, a1] of arcs) {
+      const c = circleArc(O, X, Y, r, a0, a1);
+      for (let s = 0; s <= 240; s++) {
+        const t = s / 240;
+        for (const side of ['left', 'right'] as const) {
+          if ((t === 0 && side === 'left') || (t === 1 && side === 'right')) continue;
+          const ref = closedForm(a0, a1, t, side);
+          const got = evalFlat(c, t, 3, side);
+          for (let d = 0; d <= 3; d++) {
+            const g = { x: got[3 * d]!, y: got[3 * d + 1]!, z: got[3 * d + 2]! };
             expect(
-              Math.abs(all[k * 3 + d]! - fd[d]!),
-              `trial ${trial} span ${i} k ${k}`,
-            ).toBeLessThanOrEqual(1e-8 * scale);
+              vec.distance(g, ref[d]!),
+              `arc [${a0}, ${a1}] t ${t} ${side} C^(${d})`,
+            ).toBeLessThanOrEqual(derivTol(c, d));
           }
         }
       }
@@ -871,6 +963,91 @@ describe('clampUnclamped', () => {
           expect(Math.abs(got[d]! - ref[d]!)).toBeLessThanOrEqual(1e-13 * 2);
       }
     }
+  });
+
+  /**
+   * The left-hand limit at `t` of the unclamped curve, by A2.4 on the mirrored
+   * knots: `N_{i,p}(t⁻)` on U equals `N_{n−i,p}(−t)` on `U′_j = −U_{m−j}`
+   * (A2.4's half-open spans give right-hand limits). At `t = b` this is the
+   * curve's value on the domain: a knot run that starts before index `count`
+   * switches on `N_{count−1}` from the right only.
+   */
+  function unclampedPointLeft(
+    p: number,
+    U: number[],
+    P: number[],
+    w: number[],
+    dim: number,
+    t: number,
+  ): number[] {
+    const n = w.length - 1;
+    const Um = U.map((_, j) => -U[U.length - 1 - j]!);
+    const Pm = Array.from(
+      { length: P.length },
+      (_, j) => P[(n - Math.floor(j / dim)) * dim + (j % dim)]!,
+    );
+    return unclampedPoint(p, Um, Pm, [...w].reverse(), dim, -t);
+  }
+
+  it('handles every end multiplicity 1 … p + 1 and every position of the end runs', () => {
+    // An end run of multiplicity s covers index p (start) or count (end) at any
+    // offset: runs may start before index p, end after index count, or be
+    // already clamped (s = p + 1 at the very ends). Each start case meets each
+    // end case once, with one or two simple interior knots.
+    const rng = mulberry32(17);
+    let cases = 0;
+    for (const p of [2, 3]) {
+      for (let sa = 1; sa <= p + 1; sa++) {
+        for (let oa = 0; oa <= Math.min(sa - 1, p); oa++) {
+          for (let sb = 1; sb <= p + 1; sb++) {
+            for (let j = 0; j < sb; j++) {
+              // Knot values: simple knots below a = 0, the a-run, simple interior
+              // knots, the b-run, simple knots above b; irregular spacing.
+              const ra = p - oa; // index of the a-run's first knot
+              const ni = 1 + Math.floor(rng() * 2);
+              const after = j + p + 1 - sb;
+              const U: number[] = [];
+              for (let i = ra; i > 0; i--) U.push(-i - 0.3 * rng());
+              for (let i = 0; i < sa; i++) U.push(0);
+              for (let i = 1; i <= ni; i++) U.push(i + 0.3 * rng());
+              const b = ni + 1;
+              for (let i = 0; i < sb; i++) U.push(b);
+              for (let i = 1; i <= after; i++) U.push(b + i + 0.3 * rng());
+              const count = U.length - p - 1;
+              expect([U[p], U[count]]).toEqual([0, b]);
+              const dim = 2;
+              const P = Array.from({ length: count * dim }, () => 2 * rng() - 1);
+              const w = Array.from({ length: count }, () => 0.5 + rng());
+              const label = `p ${p} a-run ${sa}@${ra} b-run ${sb}@${count - j} U ${U.join(',')}`;
+              const c = clampUnclamped({ dim, degree: p, knots: U, points: P, weights: w });
+              expect(curveDomain(c), label).toEqual([0, b]);
+              // Same tolerance as the random case above: 1e-13 · scale.
+              const ts = [
+                ...Array.from({ length: 50 }, () => rng() * b),
+                ...U.filter((x) => x >= 0 && x < b),
+              ];
+              for (const t of ts) {
+                const ref = unclampedPoint(p, U, P, w, dim, t);
+                const got = evalFlat(c, t, 0);
+                for (let d = 0; d < dim; d++)
+                  expect(Math.abs(got[d]! - ref[d]!), `${label} t ${t}`).toBeLessThanOrEqual(2e-13);
+              }
+              // At b the domain's value is the left-hand limit, and the clamped
+              // curve ends exactly on its last control point.
+              const ref = unclampedPointLeft(p, U, P, w, dim, b);
+              const got = evalFlat(c, b, 0);
+              const last = controlPoint(c, c.basis.count - 1);
+              expect([got[0], got[1]], label).toEqual([last.x, last.y]);
+              for (let d = 0; d < dim; d++)
+                expect(Math.abs(got[d]! - ref[d]!), `${label} t = b`).toBeLessThanOrEqual(2e-13);
+              cases++;
+            }
+          }
+        }
+      }
+    }
+    // p = 2: 6 start × 6 end cases; p = 3: 10 × 10.
+    expect(cases).toBe(136);
   });
 
   it('returns a clamped input unchanged', () => {

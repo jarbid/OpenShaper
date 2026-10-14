@@ -32,8 +32,17 @@ import type {
   Side,
 } from './types';
 
-/** Cumulative arc length at breakpoints from the adaptive integration (design §6.4). */
+/**
+ * Cumulative arc length at breakpoints from the adaptive integration (design
+ * §6.4). A table belongs to the one curve it was built from: `lengthAtParam`
+ * and `paramAtLength` reject any other curve, even one with the same domain or
+ * an equal copy (a structured clone or a revived curve), because the domain
+ * alone cannot tell two curves apart and a wrong table gives plausible but
+ * wrong lengths.
+ */
 export interface ArcLengthTable {
+  /** The curve the table was built from (curves are immutable, so identity is ownership). */
+  readonly curve: NurbsCurve;
   /** Parameters `t[0] = domain start < … < t[last] = domain end` (periodic: `t_0 + T`). */
   readonly t: ReadonlyF64;
   /** Arc length from the domain start to `t[i]`. */
@@ -300,17 +309,24 @@ export function arcLengthTable(c: NurbsCurve, tol?: Partial<Tolerances>): ArcLen
     sum = n;
     s[i + 1] = sum + comp;
   }
-  return Object.freeze({ t: part.x, s, total: s[s.length - 1]! });
+  return Object.freeze({ curve: c, t: part.x, s, total: s[s.length - 1]! });
 }
 
+/**
+ * Ownership by identity: the table must have been built from this very curve
+ * object. The shape checks after it guard a hand-made record.
+ */
 function checkTable(c: NurbsCurve, table: ArcLengthTable): void {
+  if (table.curve !== c) {
+    fail(
+      'size-mismatch',
+      'arc-length table was built from a different curve (rebuild it with arcLengthTable(curve))',
+    );
+  }
   const [a, b] = fullRange(c);
   const n = table.t.length;
   if (n < 2 || table.s.length !== n || table.t[0] !== a || table.t[n - 1] !== b) {
-    fail(
-      'size-mismatch',
-      'arc-length table does not belong to this curve (rebuild it with arcLengthTable)',
-    );
+    fail('size-mismatch', 'arc-length table is malformed (rebuild it with arcLengthTable)');
   }
 }
 

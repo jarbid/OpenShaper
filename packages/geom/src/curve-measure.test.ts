@@ -41,6 +41,7 @@ import {
   paramAtLength,
   periodicCircle,
   polyline,
+  reviveCurve,
   transformCurve2,
   vec,
 } from './index';
@@ -361,6 +362,33 @@ describe('arc-length table and its inverse', () => {
     expectCode(() => paramAtLength(arc, at, at.total * 1.001), 'param-out-of-domain');
     expectCode(() => lengthAtParam(arc, at, 1.1), 'param-out-of-domain');
     expectCode(() => lengthAtParam(curves[2]!, at, 3), 'size-mismatch');
+  });
+
+  it('rejects a table built from another curve, even one with the same domain', () => {
+    // Every primitive has domain [0, 1], so a domain check alone would accept the
+    // unit circle's table for the radius-2 circle and return π (half of 2π) at
+    // t = 0.5 instead of 2π. Identity is the only check that tells them apart.
+    const O = { x: 0, y: 0 };
+    const a = circle2(O, 1);
+    const b = circle2(O, 2);
+    const ta = arcLengthTable(a);
+    const tb = arcLengthTable(b);
+    expect(curveDomain(a)).toEqual(curveDomain(b));
+    expect(ta.curve).toBe(a);
+    expect(Math.abs(lengthAtParam(b, tb, 0.5) - 2 * Math.PI)).toBeLessThanOrEqual(
+      LEN_REL * tb.total,
+    );
+    expectCode(() => lengthAtParam(b, ta, 0.5), 'size-mismatch');
+    expectCode(() => paramAtLength(b, ta, 6), 'size-mismatch');
+    // An equal copy is a different object: it needs its own table.
+    const copy = reviveCurve(structuredClone(a));
+    expectCode(() => lengthAtParam(copy, ta, 0.5), 'size-mismatch');
+    expect(lengthAtParam(copy, arcLengthTable(copy), 0.5)).toBe(lengthAtParam(a, ta, 0.5));
+    // A hand-made record that claims the curve but has the wrong breakpoints.
+    expectCode(
+      () => lengthAtParam(a, { ...ta, t: Float64Array.of(0, 0.5) }, 0.25),
+      'size-mismatch',
+    );
   });
 });
 
