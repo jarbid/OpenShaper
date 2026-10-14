@@ -700,10 +700,12 @@ export function surfaceBounds(s: NurbsSurface): Box3 {
 
 /**
  * The magnitude `M` of the `(p + 1)(q + 1)` control points of one span pair
- * (offsets `R[ro + r] + C[co + s]` into `Pw`): the largest absolute homogeneous
- * coordinate divided by the smallest weight, an upper bound of the largest
- * Euclidean coordinate (equal to it for a polynomial surface) with one
- * division. It is the scale of the rounding in the derivatives evaluated there.
+ * (offsets `R[ro + r] + C[co + s]` into `Pw`): their largest absolute
+ * Euclidean coordinate, `max |x_i| / w_i` (one division per point), the
+ * curves' `M` (`speedFloor`). It is the scale of the rounding in the
+ * derivatives evaluated there. (A bound such as `max |Pw| / min w` would be
+ * up to the weight ratio too large and flag regular points of a strongly
+ * weighted patch as degenerate.)
  */
 export function localMagnitude(
   Pw: ReadonlyF64,
@@ -715,19 +717,17 @@ export function localMagnitude(
   co: number,
 ): number {
   let M = 0;
-  let wmin = Infinity;
   for (let r = 0; r <= p; r++) {
     for (let c = 0; c <= q; c++) {
       const i = R[ro + r]! + C[co + c]!;
-      const x = Math.abs(Pw[i]!);
+      let a = Math.abs(Pw[i]!);
       const y = Math.abs(Pw[i + 1]!);
       const z = Math.abs(Pw[i + 2]!);
-      const w = Pw[i + 3]!;
+      if (y > a) a = y;
+      if (z > a) a = z;
+      const x = a / Pw[i + 3]!;
       if (x > M) M = x;
-      if (y > M) M = y;
-      if (z > M) M = z;
-      if (w < wmin) wmin = w;
     }
   }
-  return M / wmin;
+  return M;
 }

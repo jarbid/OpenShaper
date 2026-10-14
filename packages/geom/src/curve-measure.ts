@@ -4,8 +4,9 @@
  * inverse, control-hull bounds (design §6.4).
  *
  * Degenerate points: where `|C′| ≤ degenerateRel · M / L` (`M` the largest
- * absolute Euclidean control coordinate, `L` the domain length or period; see
- * `Tolerances.degenerateRel`) the tangent is `null` and the curvature, which is
+ * absolute Euclidean coordinate of the `p + 1` control points of the point's
+ * span, `L` the domain length or period; see `Tolerances.degenerateRel`) the
+ * tangent is `null` and the curvature, which is
  * undefined there, is reported as 0, so batch outputs stay finite (design §8:
  * never NaN). Check `curveTangent(…) === null` to tell the two apart.
  *
@@ -55,14 +56,25 @@ export interface ArcLengthTable {
 // Local differential geometry
 // ---------------------------------------------------------------------------
 
-/** `degenerateRel · M / L`: below this speed `C′` is rounding noise (see the module comment). */
-export function speedFloor(c: NurbsCurve, t: Tolerances): number {
+/**
+ * `degenerateRel · M / L` at a point of span `span`: below this speed `C′` is
+ * rounding noise (see the module comment). `M` is taken over the `p + 1`
+ * control points of the span only (wrapped like `gatherPoints`), the ones the
+ * rounding in `C′`'s sum comes from: a point's floor, like its value, depends
+ * only on its own control points, so an edit elsewhere cannot change it (a
+ * plan's dirty update relies on this).
+ */
+export function speedFloor(c: NurbsCurve, span: number, t: Tolerances): number {
   const h = c.dim + 1;
+  const p = c.basis.degree;
+  const n = c.basis.count;
   let M = 0;
-  for (let i = 0; i < c.basis.count; i++) {
+  for (let j = 0; j <= p; j++) {
+    let i = span - p + j;
+    if (i < 0) i += n;
     const w = c.cw[i * h + c.dim]!;
     for (let k = 0; k < c.dim; k++) {
-      const x = Math.abs(c.cw[i * h + k]! / w);
+      const x = Math.abs(c.cw[i * h + k]!) / w;
       if (x > M) M = x;
     }
   }
@@ -109,12 +121,21 @@ function checkDimIs(c: NurbsCurve, dims: readonly number[], what: string): void 
   }
 }
 
-/** Evaluates to order `nDer` at a validated parameter (allocating; one scratch). */
-function evalAt(c: NurbsCurve, t: number, nDer: number, side: Side | undefined): ScratchImpl {
+/**
+ * Evaluates to order `nDer` at a validated parameter (allocating; one scratch)
+ * and returns the scratch with the span used.
+ */
+function evalAt(
+  c: NurbsCurve,
+  t: number,
+  nDer: number,
+  side: Side | undefined,
+): { s: ScratchImpl; span: number } {
   const u = checkParam(c.basis, t, side, resolveTolerances());
   const s = makeScratch(c.basis.degree, nDer);
-  evalCurveSpan(c, u, spanOf(c.basis, u, side === 'left'), nDer, s);
-  return s;
+  const span = spanOf(c.basis, u, side === 'left');
+  evalCurveSpan(c, u, span, nDer, s);
+  return { s, span };
 }
 
 /**
@@ -128,11 +149,11 @@ export function curveTangent<D extends 2 | 3>(
   side?: Side,
 ): PointOf<D> | null {
   checkDimIs(c, [2, 3], 'curveTangent');
-  const s = evalAt(c, t, 1, side);
+  const { s, span } = evalAt(c, t, 1, side);
   const f = s.f;
   const o = s.oC;
   const v = speedAt(f, o, c.dim);
-  if (!(v > speedFloor(c, resolveTolerances()))) return null;
+  if (!(v > speedFloor(c, span, resolveTolerances()))) return null;
   const d = o + c.dim;
   if (c.dim === 2) return { x: f[d]! / v, y: f[d + 1]! / v } as PointOf<D>;
   return { x: f[d]! / v, y: f[d + 1]! / v, z: f[d + 2]! / v } as PointOf<D>;
@@ -141,8 +162,8 @@ export function curveTangent<D extends 2 | 3>(
 /** Unsigned curvature `|C′ × C″| / |C′|³` of a 3D curve; 0 where the tangent is degenerate. */
 export function curveCurvature(c: NurbsCurve<3>, t: number, side?: Side): number {
   checkDimIs(c, [3], 'curveCurvature');
-  const s = evalAt(c, t, 2, side);
-  return curvatureAt(s.f, s.oC, 3, speedFloor(c, resolveTolerances()));
+  const { s, span } = evalAt(c, t, 2, side);
+  return curvatureAt(s.f, s.oC, 3, speedFloor(c, span, resolveTolerances()));
 }
 
 /**
@@ -151,8 +172,8 @@ export function curveCurvature(c: NurbsCurve<3>, t: number, side?: Side): number
  */
 export function curveSignedCurvature(c: NurbsCurve<2>, t: number, side?: Side): number {
   checkDimIs(c, [2], 'curveSignedCurvature');
-  const s = evalAt(c, t, 2, side);
-  return curvatureAt(s.f, s.oC, 2, speedFloor(c, resolveTolerances()));
+  const { s, span } = evalAt(c, t, 2, side);
+  return curvatureAt(s.f, s.oC, 2, speedFloor(c, span, resolveTolerances()));
 }
 
 /**
@@ -169,14 +190,14 @@ export function curveCurvatureBatchInto(
   checkDimIs(c, [2, 3], 'curveCurvatureBatchInto');
   const sc = scratchFor(s, c.basis.degree, 2);
   checkOut(out, 0, ts.length, 'curveCurvatureBatchInto');
-  const floor = speedFloor(c, resolveTolerances());
+  const T = resolveTolerances();
   const b = c.basis;
   let span = -1;
   for (let i = 0; i < ts.length; i++) {
     const u = sanitizeParam(b, ts[i]!);
     span = spanFromHint(b, u, span);
     evalCurveSpan(c, u, span, 2, sc);
-    out[i] = curvatureAt(sc.f, sc.oC, c.dim, floor);
+    out[i] = curvatureAt(sc.f, sc.oC, c.dim, speedFloor(c, span, T));
   }
 }
 
@@ -193,11 +214,11 @@ export function curveFrame(
 ): { readonly t: Point3; readonly n: Point3; readonly b: Point3 } | null {
   checkDimIs(c, [3], 'curveFrame');
   const T = resolveTolerances(tol);
-  const s = evalAt(c, t, 2, undefined);
+  const { s, span } = evalAt(c, t, 2, undefined);
   const f = s.f;
   const o = s.oC;
   const v = speedAt(f, o, 3);
-  if (!(v > speedFloor(c, T))) return null;
+  if (!(v > speedFloor(c, span, T))) return null;
   const [x1, y1, z1] = [f[o + 3]!, f[o + 4]!, f[o + 5]!];
   const [x2, y2, z2] = [f[o + 6]!, f[o + 7]!, f[o + 8]!];
   const bx = y1 * z2 - z1 * y2;

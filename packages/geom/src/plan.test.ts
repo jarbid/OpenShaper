@@ -21,6 +21,7 @@ import {
   createScratch,
   curveCurvatureBatchInto,
   curveEvalInto,
+  curveTangent,
   evalCurvePlan,
   evalCurvePlanDirty,
   evalSurfacePlan,
@@ -282,6 +283,49 @@ describe('evalSurfacePlanDirty', () => {
     }
   });
 
+  it('a weight edit back to exactly 1 flips rational: every sample changes, so every index is listed', () => {
+    // Setting the only non-unit weight back to 1 makes the surface polynomial,
+    // and every sample switches from the A4.4 quotient (ΣN·w = 1 ± ulp) to the
+    // polynomial path. changedControlPoints lists every point; the dirty
+    // update with that list equals a full evaluation, in both directions.
+    const s = randomSurface(mulberry32(31), {
+      degreeU: 3,
+      degreeV: 3,
+      countU: 10,
+      countV: 10,
+    });
+    const s0 = withSurfaceWeights(s, [2], [0]);
+    const s1 = withSurfaceWeights(s0, [1], [0]);
+    expect([s.rational, s0.rational, s1.rational]).toEqual([false, true, false]);
+    const uv = params(mulberry32(37), s, 200);
+    const plan = planSurfaceSamples(s, uv, 2);
+    const sc = createScratch({ maxDegree: 3 });
+    const touched = new Int32Array(plan.count);
+    const all = Array.from({ length: 100 }, (_, i) => i);
+    for (const [a, b] of [
+      [s, s0],
+      [s0, s1],
+    ] as const) {
+      const changed = changedControlPoints(a, b);
+      expect(Array.from(changed)).toEqual(all);
+      const live = outputs(plan.count, 2);
+      evalSurfacePlan(plan, a, live, sc);
+      expect(evalSurfacePlanDirty(plan, b, changed, live, touched, sc)).toBe(plan.count);
+      const full = outputs(plan.count, 2);
+      evalSurfacePlan(plan, b, full, sc);
+      for (const key of ['position', 'normal', 'curvature', 'derivatives', 'flags'] as const) {
+        expect(Array.from(live[key]), key).toEqual(Array.from(full[key]));
+      }
+      // Why the contract needs every index: listing only the edited point
+      // leaves the samples it does not reach on the old path, which differ
+      // from the new one by rounding.
+      const stale = outputs(plan.count, 2);
+      evalSurfacePlan(plan, a, stale, sc);
+      evalSurfacePlanDirty(plan, b, Int32Array.of(0), stale, touched, sc);
+      expect(Array.from(stale.derivatives)).not.toEqual(Array.from(full.derivatives));
+    }
+  });
+
   it('keeps deduplicating after the generation counter wraps', () => {
     const s = surfaces(13)[2]!;
     const uv = params(mulberry32(5), s, 30);
@@ -454,6 +498,33 @@ describe('curve plans', () => {
         }
       }
     }
+  });
+
+  it('a dirty update equals a full one when an edit changes the largest control coordinate', () => {
+    // The degenerate-tangent floor of a sample comes from its own span's
+    // control points, so moving P3 far away cannot change the flag of the
+    // sample at t = 0.1, which reads only P0 = (0, 0) and P1 = (1e-11, 0): a
+    // genuine straight segment with C′ = (3e-11, 0) and tangent (1, 0). (A
+    // floor from the whole curve's M = 1000 would call it degenerate, and the
+    // dirty update, which leaves that sample alone, would disagree.)
+    const b = clampedBasis(1, [0, 0, 1 / 3, 2 / 3, 1, 1]);
+    const c0 = makeCurve({ dim: 2, basis: b, points: [0, 0, 1e-11, 0, 1, 0, 2, 0] });
+    const c1 = withControlPoints(c0, [1000, 0], [3]);
+    const plan = planCurveSamples(c0, [0.1, 0.5, 0.9], 2);
+    const sc = createScratch({ maxDegree: 1 });
+    const mk = (): SampleOutputs => ({ flags: new Uint8Array(3), curvature: new Float64Array(3) });
+    const live = mk();
+    evalCurvePlan(plan, c0, live, sc);
+    const touched = new Int32Array(3);
+    const n = evalCurvePlanDirty(plan, c1, changedControlPoints(c0, c1), live, touched, sc);
+    expect(Array.from(touched.slice(0, n))).toEqual([2]);
+    const full = mk();
+    evalCurvePlan(plan, c1, full, sc);
+    expect(Array.from(live.flags!)).toEqual(Array.from(full.flags!));
+    expect(Array.from(live.curvature!)).toEqual(Array.from(full.curvature!));
+    expect(Array.from(full.flags!)).toEqual([0, 0, 0]);
+    expect(curveTangent(c1, 0.1)).toEqual({ x: 1, y: 0 });
+    expect(curveTangent(c0, 0.1)).toEqual({ x: 1, y: 0 });
   });
 
   it('flags degenerate tangents and rejects outputs a curve does not have', () => {

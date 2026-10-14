@@ -13,12 +13,12 @@
  *   `|Su × Sv| ≤ degenerateRel · |Su| · |Sv|` (tangents parallel) or where a
  *   partial is rounding noise, `|Su| ≤ degenerateRel · M / L_u` (likewise v),
  *   with `M` the magnitude of the control points that affect the point (their
- *   largest absolute homogeneous coordinate over their smallest weight, which
- *   bounds their Euclidean coordinates) and `L_u` the u domain length (period). The second
- *   test is the curves' rule (`Tolerances.degenerateRel`): at a pole, `Su` is a
- *   sum of identical points times basis derivatives that cancel, so it is a
- *   few ε·M/L rather than exactly zero, and the scale-free test alone would
- *   accept it.
+ *   largest absolute Euclidean coordinate, `max |x_i| / w_i`) and `L_u` the u
+ *   domain length (period). The second test is the curves' rule
+ *   (`Tolerances.degenerateRel`, same `M`): at a pole, `Su` is a sum of
+ *   identical points times basis derivatives that cancel, so it is a few
+ *   ε·M/L rather than exactly zero, and the scale-free test alone would accept
+ *   it.
  * - **Forms.** `E = Su·Su`, `F = Su·Sv`, `G = Sv·Sv`; `L = Suu·n`, `M = Suv·n`,
  *   `N = Svv·n`. `EG − F²` is computed as `|Su × Sv|²` (the same quantity
  *   without cancellation).

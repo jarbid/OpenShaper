@@ -47,10 +47,11 @@ export interface Tolerances {
   /**
    * Scale-free degeneracy test. Surfaces: `|Su × Sv| ≤ degenerateRel · |Su| · |Sv|`
    * ⇒ degenerate normal. Curves: `|C′| ≤ degenerateRel · M / L` ⇒ degenerate
-   * tangent, with `M` the largest absolute Euclidean control coordinate and `L`
-   * the domain length (period), the size of the rounding in `C′`'s sum.
-   * Surfaces apply the same floor to each partial (`|Su| ≤ degenerateRel · M / L_u`,
-   * likewise v; `M` from the control points of the point's span pair), since a
+   * tangent, with `M` the largest absolute Euclidean coordinate of the point's
+   * span's `p + 1` control points and `L` the domain length (period), the size
+   * of the rounding in `C′`'s sum. Surfaces apply the same floor to each
+   * partial (`|Su| ≤ degenerateRel · M / L_u`, likewise v; `M` the largest
+   * absolute Euclidean coordinate of the point's span-pair control points), since a
    * pole's `Su` is rounding noise rather than zero, and to the curvature
    * difference (`√(H² − K) ≤ degenerateRel · M / (L_u L_v |Su| |Sv|)` ⇒ umbilic:
    * `II` is rounding noise, as on a plane).

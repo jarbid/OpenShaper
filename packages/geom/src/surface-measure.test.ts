@@ -29,10 +29,12 @@ import {
   bezierSurface,
   bilinearPatch,
   createScratch,
+  curveTangent,
   cylinder,
   fundamentalForms,
   fundamentalFormsInto,
   isGeomError,
+  isoCurve,
   limitNormal,
   normalCurvature,
   planeSurface,
@@ -450,6 +452,34 @@ describe('limitNormal, degeneracy and kernels', () => {
     const flags = fundamentalFormsInto(s, 0.5, 0.5, out, 0, createScratch({ maxDegree: 1 }));
     expect(flags).toBe(SAMPLE_DEGENERATE);
     expect([out[3], out[4], out[5]]).toEqual([0, 0, 0]);
+  });
+
+  it('a planar patch with a large weight ratio has a regular normal where Su is small but real', () => {
+    // A rational quadratic × linear patch on z = 0 with weights in ratio 1e6
+    // (the accepted maximum). At u = 0, Su = 2·(w₁/w₀)·(P₁ − P₀) = 8e-7·x̂ and
+    // Sv = ŷ: a well-defined normal +z, far above the rounding (≈ ε·M with
+    // M = 1, the largest Euclidean control coordinate). The u isocurve
+    // through the same points has the regular tangent x̂; the surface rule
+    // must agree with the curves' rule there. (Taking M as max|Pw| / min w,
+    // 1e6 here, set the floor at 1e-6 and flagged these points degenerate.)
+    const s = bezierSurface(
+      [0, 0, 0, 0, 1, 0, 0.4, 0, 0, 0.4, 1, 0, 1, 0, 0, 1, 1, 0],
+      3,
+      2,
+      [1e3, 1e3, 1e-3, 1e-3, 1, 1],
+    );
+    for (const u of [0, 1e-9, 1e-6, 0.5]) {
+      for (const v of [0, 0.5, 1]) {
+        const n = surfaceNormal(s, u, v);
+        expect(n, `u = ${u}, v = ${v}`).toEqual({ kind: 'regular', n: { x: 0, y: 0, z: 1 } });
+        const t = curveTangent(isoCurve(s, 'v', v), u)!;
+        expect(t.x).toBe(1);
+      }
+    }
+    // Su at u = 0 against the closed form (one quotient: a few ulps).
+    const d = surfaceDerivatives(s, 0, 0.5, 1);
+    expect(Math.abs(d.Su.x - 8e-7)).toBeLessThan(1e-20);
+    expect([d.Su.y, d.Su.z, d.Sv.x, d.Sv.y, d.Sv.z]).toEqual([0, 0, 0, 1, 0]);
   });
 
   it('fundamentalFormsInto equals fundamentalForms bit for bit and reports umbilics', () => {

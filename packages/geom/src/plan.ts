@@ -19,6 +19,10 @@
  *   function's: the same kernels run in the same order (positions and
  *   derivatives: `surfaceEvalInto` / `curveEvalInto`; normals: `surfaceNormal`;
  *   curvatures: `principalCurvatures` / `curveCurvatureBatchInto`).
+ * - **Locality.** A sample's outputs depend only on the control points it
+ *   reads, and on the curve's or surface's `rational` flag: a dirty update
+ *   after a change of `rational` must list every control point (see
+ *   {@link evalSurfacePlanDirty}).
  * - **Order.** Samples keep the caller's order, so sample `k` is vertex `k` of
  *   the caller's mesh. A tessellation that orders its vertices span-major makes
  *   the touched ids of a dirty update a few contiguous runs.
@@ -573,6 +577,16 @@ function collectTouched(
  * outputs then equal a full {@link evalSurfacePlan} of `s` bit for bit,
  * provided they held a full evaluation of the previous surface with the same
  * bases and every control point that changed is listed.
+ *
+ * **A change of `rational` changes every sample.** Setting the last non-unit
+ * weight to 1 (or the first weight away from 1) switches every sample between
+ * the polynomial path and the quotient of A4.4, which differ by rounding even
+ * where the local weights are all 1. The caller must then list every control
+ * point (as {@link changedControlPoints} does) or run a full evaluation;
+ * listing only the edited ones leaves the untouched samples on the old path.
+ * The kernel cannot detect this: it does not know the previous surface.
+ * Everything else a sample depends on (its values, its normal and its
+ * degeneracy floors) comes from its own control points only.
  */
 export function evalSurfacePlanDirty(
   plan: SurfaceSamplePlan,
@@ -628,7 +642,6 @@ function curveSample(
   c: NurbsCurve,
   k: number,
   sc: ScratchImpl,
-  floor: number,
   out: SampleOutputs,
 ): void {
   const p = plan.basis.degree;
@@ -650,6 +663,11 @@ function curveSample(
   if (c.rational) ratCurveDerivs(f, sc.oH, dim, nDer, f, sc.oC);
   else polyCurveDerivs(f, sc.oH, dim, nDer, f, sc.oC);
   const o = sc.oC;
+  // The sample's own floor (its span's control points), as curveTangent's.
+  const floor =
+    out.curvature !== undefined || out.flags !== undefined
+      ? speedFloor(c, plan.span[k]!, plan.tol)
+      : 0;
   const pos = out.position;
   if (pos !== undefined) for (let d = 0; d < dim; d++) pos[k * dim + d] = f[o + d]!;
   const der = out.derivatives;
@@ -678,11 +696,16 @@ export function evalCurvePlan(
 ): void {
   checkCurvePlan(plan, c, out);
   const impl = scratchFor(sc, plan.basis.degree, plan.nDer);
-  const floor = speedFloor(c, plan.tol);
-  for (let k = 0; k < plan.count; k++) curveSample(plan, c, k, impl, floor, out);
+  for (let k = 0; k < plan.count; k++) curveSample(plan, c, k, impl, out);
 }
 
-/** The curve form of {@link evalSurfacePlanDirty}: flat indices are control point indices. */
+/**
+ * The curve form of {@link evalSurfacePlanDirty}: flat indices are control
+ * point indices. The same contract holds, including that a change of
+ * `rational` needs every index (or a full evaluation); the degenerate-tangent
+ * floor of a sample comes from its own span's control points (`speedFloor`),
+ * so an edit elsewhere never changes it.
+ */
 export function evalCurvePlanDirty(
   plan: CurveSamplePlan,
   c: NurbsCurve,
@@ -702,7 +725,6 @@ export function evalCurvePlanDirty(
     touched,
     impl,
   );
-  const floor = speedFloor(c, plan.tol);
-  for (let e = 0; e < n; e++) curveSample(plan, c, touched[e]!, impl, floor, out);
+  for (let e = 0; e < n; e++) curveSample(plan, c, touched[e]!, impl, out);
   return n;
 }
