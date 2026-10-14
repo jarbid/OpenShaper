@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { Link } from 'react-router-dom';
+import { shortcutKeys } from '../../shortcuts';
 import { DocsPage, Section, Term, Terms } from './DocsPage';
 
 export default function DocsOverview() {
@@ -11,6 +12,7 @@ export default function DocsOverview() {
       toc={[
         { id: 'start', label: 'Getting started' },
         { id: 'layout', label: 'How the editor is laid out' },
+        { id: 'help', label: 'Finding a tool' },
         { id: 'model', label: 'How a board is described' },
         { id: 'where', label: 'Where things live' },
       ]}
@@ -61,6 +63,33 @@ export default function DocsOverview() {
           <Term name="The menu bar">
             File, Export, Edit, View, Board and Help. On phones this collapses into a single button
             that opens the command palette.
+          </Term>
+        </Terms>
+      </Section>
+
+      <Section id="help" title="Finding a tool">
+        <Terms>
+          <Term name="Searching commands">
+            The command palette (<code>{shortcutKeys('command-palette')}</code>, or the menu button
+            on a phone) searches every menu command. It matches the command&apos;s name, the words a
+            shaper might use for it and what it does, so <code>scale</code> finds{' '}
+            <strong>Resize…</strong>, <code>litres</code> finds the volume tools and{' '}
+            <code>slice</code> finds the cross-section exports. Results are grouped by the menu they
+            live in, each with a line on what it does; the best match is listed first, and Enter
+            runs it. The link under the list opens the documentation for the highlighted command.
+            Commands added in the last 60 days carry a <strong>New</strong> badge.
+          </Term>
+          <Term name="Tips">
+            Hovering or tabbing to a toolbar button shows its name and, under it, a line on what it
+            does. Once you know the buttons, turn the second line off with{' '}
+            <strong>Edit ▸ Settings… ▸ Show tips</strong>; the names keep showing, since an icon
+            button has no other label you can see. Tips are for a mouse or trackpad and keyboard
+            focus — a touch screen does not show them.
+          </Term>
+          <Term name="The ? on a section">
+            Each sidebar section has a small <strong>?</strong> beside its header that opens the
+            part of these docs that explains it. Your board is kept while you read; going back to
+            the app brings it back as you left it.
           </Term>
         </Terms>
       </Section>

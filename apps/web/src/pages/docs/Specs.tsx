@@ -45,8 +45,8 @@ export default function DocsSpecs() {
         <p>
           To scale a finished design to new dimensions, choose <strong>Board ▸ Resize…</strong>, or
           open the command palette (<code>{shortcutKeys('command-palette')}</code>, or the menu
-          button on a phone) and type <code>resize</code>. It opens the Resize section of the
-          sidebar&apos;s Shape tab, with the cursor in the first field.
+          button on a phone) and type <code>resize</code> or <code>scale</code>. It opens the Resize
+          section of the sidebar&apos;s Shape tab, with the cursor in the first field.
         </p>
         <Terms>
           <Term name="Length, Width, Thickness">
@@ -128,6 +128,10 @@ export default function DocsSpecs() {
             running into the rail) a small ring on the curve marks the inflection. Curves in one
             view share a scale (deck and bottom quills compare directly); the tightest spots, such
             as a pinched nose tip, are capped so they do not shrink the rest of the comb.
+          </Term>
+          <Term name="Center of mass">
+            A marker in the outline and rocker views at the point the board&apos;s volume balances
+            on.
           </Term>
           <Term name="Volume distribution">
             How volume is spread along the length — where the board carries its float.

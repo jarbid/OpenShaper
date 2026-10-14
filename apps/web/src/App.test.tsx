@@ -154,7 +154,8 @@ describe('<App /> smoke', () => {
 
     // Palette entries come from the real menus.
     fireEvent.change(input, { target: { value: 'spec sheet' } });
-    expect(screen.getByText(/Export: Spec sheet/)).toBeTruthy();
+    // Listed under its menu, named `Menu: Item` for assistive tech.
+    expect(screen.getByRole('option', { name: 'Export: Spec sheet…' })).toBeTruthy();
 
     fireEvent.keyDown(input, { key: 'Escape' });
     expect(screen.queryByPlaceholderText(/command/i)).toBeNull();

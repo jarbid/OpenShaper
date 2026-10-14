@@ -51,7 +51,7 @@ describe('share entry points', () => {
     fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
     const search = await screen.findByPlaceholderText(/command/i);
     fireEvent.change(search, { target: { value: 'share' } });
-    fireEvent.click(await screen.findByText('File: Share…'));
+    fireEvent.click(await screen.findByRole('option', { name: 'File: Share…' }));
 
     expect(await screen.findByText(/Link size:/)).toBeTruthy();
   });

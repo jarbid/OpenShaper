@@ -79,6 +79,8 @@ import {
 import { boardStore } from './store';
 import { MeasurementAxisSelect, OverlayToggle, Sel, SpecRow, UnitSelect } from './view-toolkit';
 import type { Longitudinal, MeasurementAxis } from './longitudinal';
+import { sectionHelp, type ToolbarHelpId } from './help-text';
+import { DocsHelpLink, HelpTooltip } from './help-tips';
 import {
   fmtWeight,
   FOAM_TYPES,
@@ -581,7 +583,10 @@ function TabPanel({
         <h2 className="min-w-0 flex-1 truncate px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
           {meta.title}
         </h2>
+        {/* A bare tab has no section header of its own, so its docs link sits here. */}
+        {bare && sections[0] && <SectionHelpLink id={sections[0].id} title={meta.title} />}
         <IconButton
+          helpId="sidebar:pin"
           label={pinned ? `Unpin ${meta.title}` : `Pin ${meta.title} open`}
           onClick={() => onSidebarChange(togglePin(sidebar, tab))}
         >
@@ -589,6 +594,7 @@ function TabPanel({
         </IconButton>
         {sections.length > 1 || isSpecs ? (
           <IconButton
+            helpId="sidebar:expand"
             label={expanded ? 'Collapse all sections' : 'Expand all sections'}
             onClick={toggleAll}
           >
@@ -601,6 +607,7 @@ function TabPanel({
         ) : null}
         {showFold && (
           <IconButton
+            helpId="sidebar:fold"
             label="Hide board panels"
             onClick={() => onSidebarChange({ ...sidebar, collapsed: true })}
           >
@@ -642,6 +649,7 @@ function TabPanel({
                 onOpenChange={(v) => onSidebarChange(toggleSection(sidebar, s.id, v))}
                 summary={summaries[s.id]}
                 marked={s.id === 'trace' && hasTrace}
+                action={<SectionHelpLink id={s.id} title={s.title} />}
               >
                 {bodies[s.id]}
               </Disclosure>
@@ -651,18 +659,26 @@ function TabPanel({
   );
 }
 
+/** The `?` docs link for a section, when the help table has one for it. */
+function SectionHelpLink({ id, title }: { id: SectionId; title: string }) {
+  const entry = sectionHelp(id);
+  return entry ? <DocsHelpLink topic={title} entry={entry} /> : null;
+}
+
 /** A square icon button sized for both pointer kinds. */
 function IconButton({
   label,
+  helpId,
   onClick,
   children,
 }: {
   label: string;
+  helpId: ToolbarHelpId;
   onClick: () => void;
   children: ReactNode;
 }) {
   return (
-    <Tooltip label={label}>
+    <HelpTooltip label={label} helpId={helpId}>
       <button
         type="button"
         aria-label={label}
@@ -671,7 +687,7 @@ function IconButton({
       >
         {children}
       </button>
-    </Tooltip>
+    </HelpTooltip>
   );
 }
 

@@ -84,6 +84,8 @@ import { loadSession, saveSession } from './session-store';
 import { DEFAULT_SPLIT, loadViewState, saveViewState, type SplitPanes } from './view-state';
 import { Brandmark } from './components/marks';
 import { CommandPalette, commandsFromMenus } from './CommandPalette';
+import { commandHelp } from './help-text';
+import { HelpTooltip, ShowTipsContext } from './help-tips';
 import { ConstructionPanel } from './ConstructionPanel';
 import { SettingsDialog } from './SettingsDialog';
 import { ShareDialog } from './ShareDialog';
@@ -1547,7 +1549,9 @@ function AppShell() {
     <span className="text-sm text-muted-foreground">Board panels</span>
   );
 
-  return (
+  // The Show tips setting reaches every tooltip by context: the memoised panels
+  // that render tooltips are not re-rendered or rethreaded when it changes.
+  const shell = (
     <div className="flex h-full flex-col">
       {/* Two 44px rows cost 88px, which is 23% of a landscape phone. Where height
           is the scarce axis they sit side by side as one 44px row instead — the
@@ -1578,16 +1582,17 @@ function AppShell() {
           <ToolbarSeparator className="hidden sm:block" />
           {/* Phones: a single button opens the command palette, which lists every menu
               action. Tablets and up get the full menubar. */}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="sm:hidden"
-            title="Menu / commands"
-            aria-label="Menu and commands"
-            onClick={togglePalette}
-          >
-            <MenuIcon className="size-4" />
-          </Button>
+          <HelpTooltip label="Menu and commands" helpId="toolbar:menu">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="sm:hidden"
+              aria-label="Menu and commands"
+              onClick={togglePalette}
+            >
+              <MenuIcon className="size-4" />
+            </Button>
+          </HelpTooltip>
           <MenuBar className="hidden sm:flex">
             <Menu label="File" items={fileMenu} />
             <Menu label="Edit" items={editMenu} />
@@ -1599,18 +1604,19 @@ function AppShell() {
           {/* Sharing is the one action aimed at someone who is not in the room,
               so it gets a button of its own rather than living only in a menu.
               The label drops below sm, where the menubar is a hamburger. */}
-          <Button
-            size="sm"
-            variant="secondary"
-            className="shrink-0"
-            disabled={!board}
-            title="Share this board as a link"
-            aria-label="Share board"
-            onClick={() => setShareOpen(true)}
-          >
-            <Share2 className="size-4" />
-            <span className="hidden sm:inline">Share</span>
-          </Button>
+          <HelpTooltip label="Share this board as a link" helpId="toolbar:share">
+            <Button
+              size="sm"
+              variant="secondary"
+              className="shrink-0"
+              disabled={!board}
+              aria-label="Share board"
+              onClick={() => setShareOpen(true)}
+            >
+              <Share2 className="size-4" />
+              <span className="hidden sm:inline">Share</span>
+            </Button>
+          </HelpTooltip>
           {!isShort && <div className="flex-1" />}
           {SUPPORT_URL && !isShort && (
             <a
@@ -1660,16 +1666,20 @@ function AppShell() {
               names the same action as the rail's own control, and two mounted buttons
               claiming it is one ambiguity for assistive tech and one for tests. */}
           {!isDesktop && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="shrink-0"
-              title={panelsShowing ? 'Hide board panels' : 'Show board panels'}
-              aria-label={panelsShowing ? 'Hide board panels' : 'Show board panels'}
-              onClick={() => setSheetSnap(panelsShowing ? 'closed' : 'half')}
+            <HelpTooltip
+              label={panelsShowing ? 'Hide board panels' : 'Show board panels'}
+              helpId="toolbar:panels"
             >
-              <SlidersHorizontal className="size-4" />
-            </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="shrink-0"
+                aria-label={panelsShowing ? 'Hide board panels' : 'Show board panels'}
+                onClick={() => setSheetSnap(panelsShowing ? 'closed' : 'half')}
+              >
+                <SlidersHorizontal className="size-4" />
+              </Button>
+            </HelpTooltip>
           )}
         </div>
 
@@ -1809,14 +1819,17 @@ function AppShell() {
 
       {paletteOpen && (
         <CommandPalette
-          commands={commandsFromMenus([
-            ['File', fileMenu],
-            ['Edit', editMenu],
-            ['View', viewMenu],
-            ['Board', boardMenu],
-            ['Export', exportMenu],
-            ['Help', helpMenu],
-          ])}
+          commands={commandsFromMenus(
+            [
+              ['File', fileMenu],
+              ['Edit', editMenu],
+              ['View', viewMenu],
+              ['Board', boardMenu],
+              ['Export', exportMenu],
+              ['Help', helpMenu],
+            ],
+            commandHelp,
+          )}
           onClose={() => setPaletteOpen(false)}
         />
       )}
@@ -1920,6 +1933,7 @@ function AppShell() {
       )}
     </div>
   );
+  return <ShowTipsContext.Provider value={settings.showTips}>{shell}</ShowTipsContext.Provider>;
 }
 
 export function App() {
