@@ -6,7 +6,8 @@
  * public value fails here until this list is updated in the same diff
  * (docs/design/geom-core.md, decision 40). Each build step extends it; F1
  * added tolerances, errors, scratch, `vec`, bases, curves, curve measures,
- * quadrature and the exact curve primitives.
+ * quadrature and the exact curve primitives; F2 surfaces, surface measures,
+ * sample plans and the exact surface primitives.
  *
  * The type-level checks run under `tsc` (`pnpm typecheck` type-checks tests):
  * they pin the conventions the core types encode, so loosening one of them
@@ -18,6 +19,7 @@ import type {
   Basis,
   ClampedCurve,
   NurbsCurve,
+  NurbsSurface,
   Point2,
   Point3,
   PointOf,
@@ -31,12 +33,18 @@ const PUBLIC_VALUES: readonly string[] = [
   'DEFAULT_TOLERANCES',
   'GL_MAX_ORDER',
   'GeomError',
+  'SAMPLE_DEGENERATE',
+  'SAMPLE_UMBILIC',
   'arcLengthTable',
   'basisDersInto',
   'basisFunction',
   'basisFunsInto',
   'bezierCurve',
+  'bezierSurface',
+  'bilinearPatch',
+  'boundaryCurve',
   'breakpoints',
+  'changedControlPoints',
   'circle',
   'circle2',
   'circleArc',
@@ -62,32 +70,68 @@ const PUBLIC_VALUES: readonly string[] = [
   'curveSignedCurvature',
   'curveTangent',
   'curveToJSON',
+  'cylinder',
+  'evalCurvePlan',
+  'evalCurvePlanDirty',
+  'evalSurfacePlan',
+  'evalSurfacePlanDirty',
+  'extrude',
   'findSpan',
+  'fundamentalForms',
+  'fundamentalFormsInto',
   'gaussLegendre',
   'integrate1d',
   'isClosed',
   'isGeomError',
+  'isoCurve',
   'issueOf',
   'knotMultiplicities',
   'knotsFromBreaks',
   'lengthAtParam',
+  'limitNormal',
   'line',
   'line2',
   'makeCurve',
+  'makeSurface',
   'mergeNearKnots',
+  'normalCurvature',
   'paramAtLength',
   'periodicBasis',
   'periodicCircle',
   'periodicUniformKnots',
+  'planCurveSamples',
+  'planMatches',
+  'planSurfaceSamples',
+  'planeSurface',
   'polyline',
+  'principalCurvatures',
   'resolveTolerances',
   'reviveCurve',
+  'reviveSurface',
+  'revolve',
   'scaleTolerances',
+  'sphere',
+  'surfaceBounds',
+  'surfaceControlPoint',
+  'surfaceControlWeight',
+  'surfaceDerivatives',
+  'surfaceDomain',
+  'surfaceEvalGridInto',
+  'surfaceEvalInto',
+  'surfaceFromHomogeneous',
+  'surfaceNormal',
+  'surfacePoint',
+  'surfaceToJSON',
+  'torus',
   'transformCurve',
   'transformCurve2',
+  'transformSurface',
   'vec',
   'weightsInto',
   'withControlPoints',
+  'withSurfaceControlNet',
+  'withSurfaceControlPoints',
+  'withSurfaceWeights',
   'withWeights',
 ];
 
@@ -119,7 +163,17 @@ describe('@openshaper/geom public API', () => {
   });
 
   it('keeps internal modules and test helpers out of the main entry', () => {
-    for (const name of ['oneBasisFun', 'curveKnotIns', 'mulberry32', 'checksum', 'evalCurveSpan']) {
+    for (const name of [
+      'oneBasisFun',
+      'curveKnotIns',
+      'mulberry32',
+      'checksum',
+      'evalCurveSpan',
+      'surfaceDerivsH',
+      'evalSurfaceSpan',
+      'surfaceMeasureAt',
+      'randomSurface',
+    ]) {
       expect(name in geom).toBe(false);
     }
   });
@@ -158,6 +212,13 @@ describe('core types', () => {
   it('keeps pcurves and space curves apart', () => {
     expectTypeOf<ClampedCurve<2>>().toExtend<TrimLoop['curves'][number]>();
     expectTypeOf<ClampedCurve<3>>().not.toExtend<TrimLoop['curves'][number]>();
+  });
+
+  it('narrows surface derivatives to what was computed', () => {
+    const _d1 = (s: NurbsSurface) => geom.surfaceDerivatives(s, 0, 0, 1);
+    const _d2 = (s: NurbsSurface) => geom.surfaceDerivatives(s, 0, 0, 2);
+    expectTypeOf<ReturnType<typeof _d1>>().not.toHaveProperty('Suu');
+    expectTypeOf<ReturnType<typeof _d2>>().toHaveProperty('Suu');
   });
 
   it('separates success from failure in Result', () => {

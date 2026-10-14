@@ -10,7 +10,14 @@ import { checksum, mulberry32, randomClampedBasis, randomPeriodicBasis } from '.
 describe('@openshaper/geom/testing', () => {
   it('exports exactly the pinned runtime values', () => {
     expect(Object.keys(testing).sort()).toEqual(
-      ['checksum', 'mulberry32', 'randomClampedBasis', 'randomCurve', 'randomPeriodicBasis'].sort(),
+      [
+        'checksum',
+        'mulberry32',
+        'randomClampedBasis',
+        'randomCurve',
+        'randomPeriodicBasis',
+        'randomSurface',
+      ].sort(),
     );
   });
 

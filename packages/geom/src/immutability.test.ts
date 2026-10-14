@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * Cross-cutting properties of every public F1 operation (design §4.8, §8, §16):
+ * Cross-cutting properties of every public operation (design §4.8, §8, §16):
  *
  * - **Immutability.** The checksum of every input (curves, bases, arrays,
  *   points, tolerance records) is the same before and after the call, on random
@@ -78,9 +78,51 @@ import {
   weightsInto,
   withControlPoints,
   withWeights,
+  bezierSurface,
+  bilinearPatch,
+  boundaryCurve,
+  changedControlPoints,
+  cylinder,
+  evalCurvePlan,
+  evalCurvePlanDirty,
+  evalSurfacePlan,
+  evalSurfacePlanDirty,
+  extrude,
+  fundamentalForms,
+  fundamentalFormsInto,
+  isoCurve,
+  limitNormal,
+  makeSurface,
+  normalCurvature,
+  planCurveSamples,
+  planMatches,
+  planSurfaceSamples,
+  planeSurface,
+  principalCurvatures,
+  reviveSurface,
+  revolve,
+  SAMPLE_DEGENERATE,
+  SAMPLE_UMBILIC,
+  sphere,
+  surfaceBounds,
+  surfaceControlPoint,
+  surfaceControlWeight,
+  surfaceDerivatives,
+  surfaceDomain,
+  surfaceEvalGridInto,
+  surfaceEvalInto,
+  surfaceFromHomogeneous,
+  surfaceNormal,
+  surfacePoint,
+  surfaceToJSON,
+  torus,
+  transformSurface,
+  withSurfaceControlNet,
+  withSurfaceControlPoints,
+  withSurfaceWeights,
 } from './index';
 import type { Affine2, Affine3, NurbsCurve } from './index';
-import { checksum, mulberry32, randomCurve } from './testing';
+import { checksum, mulberry32, randomCurve, randomSurface } from './testing';
 
 /** Every number reachable from `v` (typed arrays included). */
 function numbers(v: unknown, out: number[] = [], seen = new Set<object>()): number[] {
@@ -151,6 +193,57 @@ function cases(seed: number): Case[] {
   const f = (x: number): number => Math.sin(x) + x * x;
   const breaks = [0.3, 0.7];
   const pkt = periodicUniformKnots(5, 2);
+  // Surfaces (F2).
+  const S = randomSurface(rng, {
+    degreeU: 3,
+    degreeV: 2,
+    countU: 6,
+    countV: 5,
+    kindU: kind,
+    kindV: seed % 4 === 1 ? 'periodic' : 'clamped',
+    basis: { maxMult: 2 },
+    weightRange,
+  });
+  const clampedS = randomSurface(rng, {
+    degreeU: 2,
+    degreeV: 2,
+    countU: 4,
+    countV: 4,
+    weightRange,
+  });
+  const [su0, su1] = S.u.domain;
+  const [sv0, sv1] = S.v.domain;
+  const u = su0 + rng() * (su1 - su0);
+  const v = sv0 + rng() * (sv1 - sv0);
+  const us = Float64Array.from({ length: 5 }, () => su0 + rng() * (su1 - su0)).sort();
+  const vs = Float64Array.from({ length: 4 }, () => sv0 + rng() * (sv1 - sv0));
+  const sPts = Float64Array.from({ length: 90 }, () => 2 * rng() - 1);
+  const sW = Float64Array.from({ length: 30 }, () => 0.5 + rng());
+  const sCw = Float64Array.from(S.cw as Float64Array);
+  const sJson = JSON.parse(JSON.stringify(geom.surfaceToJSON(S))) as unknown;
+  const sClone = structuredClone(S);
+  const uvs = Float64Array.from({ length: 24 }, (_, k) =>
+    k % 2 ? sv0 + rng() * (sv1 - sv0) : su0 + rng() * (su1 - su0),
+  );
+  const plan = planSurfaceSamples(S, uvs, 2);
+  const cplan = planCurveSamples(c3, ts, 2);
+  const S2 = withSurfaceControlPoints(S, [0.1, 0.2, 0.3], [7]);
+  const changed = changedControlPoints(S, S2);
+  const touched = new Int32Array(64);
+  const dir = { x: 0.3, y: -1, z: 2 };
+  const sOut = (): Record<string, Float64Array | Uint8Array> => ({
+    position: new Float64Array(36),
+    normal: new Float64Array(36),
+    curvature: new Float64Array(24),
+    derivatives: new Float64Array(216),
+    flags: new Uint8Array(12),
+  });
+  const cOut = (): Record<string, Float64Array | Uint8Array> => ({
+    position: new Float64Array(48),
+    derivatives: new Float64Array(144),
+    curvature: new Float64Array(16),
+    flags: new Uint8Array(16),
+  });
 
   return [
     {
@@ -377,6 +470,185 @@ function cases(seed: number): Case[] {
       frozen: same,
     },
     { name: 'conicArc', inputs: [P, Q, X], run: () => conicArc(P, Q, X, 0.3), frozen: same },
+    // Surfaces (F2)
+    {
+      name: 'makeSurface',
+      inputs: [S.u, S.v, sPts, sW],
+      run: () => makeSurface({ u: S.u, v: S.v, points: sPts, weights: sW }),
+      frozen: same,
+    },
+    {
+      name: 'surfaceFromHomogeneous',
+      inputs: [S.u, sCw],
+      run: () => surfaceFromHomogeneous({ u: S.u, v: S.v, cw: sCw }),
+      frozen: same,
+    },
+    {
+      name: 'reviveSurface',
+      inputs: [sJson, sClone],
+      run: () => [reviveSurface(sJson), reviveSurface(sClone)],
+      frozen: (r) => r as unknown[],
+    },
+    { name: 'surfaceToJSON', inputs: [S], run: () => surfaceToJSON(S), frozen: same },
+    { name: 'surfaceControlPoint', inputs: [S], run: () => surfaceControlPoint(S, 1, 2) },
+    { name: 'surfaceControlWeight', inputs: [S], run: () => surfaceControlWeight(S, 1, 2) },
+    {
+      name: 'withSurfaceControlPoints',
+      inputs: [S, sPts],
+      run: () => [
+        withSurfaceControlPoints(S, sPts),
+        withSurfaceControlPoints(S, sPts.subarray(0, 6), [3, 9]),
+      ],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'withSurfaceWeights',
+      inputs: [S, sW],
+      run: () => [withSurfaceWeights(S, sW), withSurfaceWeights(S, sW.subarray(0, 1), [4])],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'withSurfaceControlNet',
+      inputs: [S, sCw],
+      run: () => withSurfaceControlNet(S, sCw),
+      frozen: same,
+    },
+    { name: 'surfaceDomain', inputs: [S], run: () => surfaceDomain(S), frozen: same },
+    { name: 'surfacePoint', inputs: [S], run: () => surfacePoint(S, u, v) },
+    {
+      name: 'surfaceDerivatives',
+      inputs: [S],
+      run: () => [surfaceDerivatives(S, u, v, 2, { u: 'left' }), surfaceDerivatives(S, u, v, 1)],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'surfaceEvalInto',
+      inputs: [S],
+      run: () => {
+        surfaceEvalInto(S, u, v, 2, out, 1, s, { v: 'left' });
+        return out.slice(1, 19);
+      },
+    },
+    {
+      name: 'surfaceEvalGridInto',
+      inputs: [S, us, vs],
+      run: () => {
+        const g = new Float64Array(360);
+        const g32 = new Float32Array(180);
+        surfaceEvalGridInto(S, us, vs, 2, g, s);
+        surfaceEvalGridInto(S, us, vs, 1, g32, s);
+        return [g, g32];
+      },
+    },
+    {
+      name: 'isoCurve',
+      inputs: [S],
+      run: () => [isoCurve(S, 'u', u), isoCurve(S, 'v', v)],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'boundaryCurve',
+      inputs: [clampedS],
+      run: () => [boundaryCurve(clampedS, 'u0'), boundaryCurve(clampedS, 'v1')],
+      frozen: (r) => r as unknown[],
+    },
+    { name: 'transformSurface', inputs: [S, m3], run: () => transformSurface(S, m3), frozen: same },
+    { name: 'surfaceBounds', inputs: [S], run: () => surfaceBounds(S), frozen: same },
+    {
+      name: 'surfaceNormal',
+      inputs: [S, tol],
+      run: () => surfaceNormal(S, u, v, tol),
+      frozen: same,
+    },
+    { name: 'limitNormal', inputs: [clampedS], run: () => limitNormal(clampedS, 'v0', 0.4) },
+    { name: 'fundamentalForms', inputs: [S], run: () => fundamentalForms(S, u, v) },
+    {
+      name: 'fundamentalFormsInto',
+      inputs: [S],
+      run: () => [fundamentalFormsInto(S, u, v, out, 2, s), out.slice(2, 8)],
+    },
+    { name: 'principalCurvatures', inputs: [S], run: () => principalCurvatures(S, u, v) },
+    { name: 'normalCurvature', inputs: [S, P], run: () => normalCurvature(S, u, v, P) },
+    { name: 'SAMPLE_DEGENERATE', inputs: [], run: () => SAMPLE_DEGENERATE },
+    { name: 'SAMPLE_UMBILIC', inputs: [], run: () => SAMPLE_UMBILIC },
+    {
+      name: 'planSurfaceSamples',
+      inputs: [S, uvs],
+      run: () => planSurfaceSamples(S, uvs, 1),
+      frozen: same,
+    },
+    {
+      name: 'planCurveSamples',
+      inputs: [c3, ts],
+      run: () => planCurveSamples(c3, ts, 3),
+      frozen: same,
+    },
+    { name: 'planMatches', inputs: [plan, S2], run: () => planMatches(plan, S2) },
+    { name: 'changedControlPoints', inputs: [S, S2], run: () => changedControlPoints(S, S2) },
+    {
+      name: 'evalSurfacePlan',
+      inputs: [plan, S],
+      run: () => {
+        const o = sOut();
+        evalSurfacePlan(plan, S, o, s);
+        return o;
+      },
+    },
+    {
+      name: 'evalSurfacePlanDirty',
+      inputs: [plan, S2, changed],
+      run: () => {
+        const o = sOut();
+        const n = evalSurfacePlanDirty(plan, S2, changed, o, touched, s);
+        return [o, touched.slice(0, n)];
+      },
+    },
+    {
+      name: 'evalCurvePlan',
+      inputs: [cplan, c3],
+      run: () => {
+        const o = cOut();
+        evalCurvePlan(cplan, c3, o, s);
+        return o;
+      },
+    },
+    {
+      name: 'evalCurvePlanDirty',
+      inputs: [cplan, c3],
+      run: () => {
+        const o = cOut();
+        const n = evalCurvePlanDirty(cplan, c3, Int32Array.of(0, 3), o, touched, s);
+        return [o, touched.slice(0, n)];
+      },
+    },
+    {
+      name: 'planeSurface',
+      inputs: [P, X, Y],
+      run: () => planeSurface(P, X, Y, { u: [-1, 1], v: [0, 2] }),
+      frozen: same,
+    },
+    {
+      name: 'bilinearPatch',
+      inputs: [P, Q, X, Y],
+      run: () => bilinearPatch(P, Q, X, Y),
+      frozen: same,
+    },
+    {
+      name: 'bezierSurface',
+      inputs: [sPts, sW],
+      run: () => bezierSurface(sPts, 6, 5, sW),
+      frozen: same,
+    },
+    {
+      name: 'revolve',
+      inputs: [c3, P, dir],
+      run: () => [revolve(c3, P, dir), revolve(c3, P, dir, 2)],
+      frozen: (r) => r as unknown[],
+    },
+    { name: 'sphere', inputs: [P], run: () => sphere(P, 2), frozen: same },
+    { name: 'torus', inputs: [P, dir], run: () => torus(P, dir, 3, 1), frozen: same },
+    { name: 'cylinder', inputs: [P, dir], run: () => cylinder(P, dir, 1, 2), frozen: same },
+    { name: 'extrude', inputs: [c3, dir], run: () => extrude(c3, dir), frozen: same },
   ];
 }
 

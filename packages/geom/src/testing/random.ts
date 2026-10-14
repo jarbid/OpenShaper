@@ -8,7 +8,8 @@
  */
 import { clampedBasis, knotsFromBreaks, periodicBasis } from '../basis';
 import { makeCurve } from '../curve';
-import type { ClampedBasis, Dim, NurbsCurve, PeriodicBasis } from '../types';
+import { makeSurface } from '../surface';
+import type { ClampedBasis, Dim, NurbsCurve, NurbsSurface, PeriodicBasis } from '../types';
 
 export interface RandomBasisOptions {
   /** Parameter domain (default `[0, 1]`); a periodic basis uses `[a, b)`. */
@@ -103,4 +104,34 @@ export function randomCurve(rng: () => number, opts: RandomCurveOptions): NurbsC
     ? Array.from({ length: basis.count }, () => wr[0] + rng() * (wr[1] - wr[0]))
     : undefined;
   return makeCurve({ dim: opts.dim, basis, points, weights });
+}
+
+export interface RandomSurfaceOptions {
+  readonly degreeU: number;
+  readonly degreeV: number;
+  readonly countU: number;
+  readonly countV: number;
+  readonly kindU?: 'clamped' | 'periodic';
+  readonly kindV?: 'clamped' | 'periodic';
+  /** Basis options for both directions (domain, maxMult, minSpacing). */
+  readonly basis?: RandomBasisOptions;
+  /** Random weights in `[weightRange[0], weightRange[1]]` (default: polynomial). */
+  readonly weightRange?: readonly [number, number];
+  /** Control coordinates uniform in `[-extent, extent]` (default 1). */
+  readonly extent?: number;
+}
+
+/** A random tensor-product surface (u-major net), optionally rational. */
+export function randomSurface(rng: () => number, opts: RandomSurfaceOptions): NurbsSurface {
+  const bo = opts.basis ?? {};
+  const basis = (kind: 'clamped' | 'periodic' | undefined, p: number, n: number) =>
+    kind === 'periodic' ? randomPeriodicBasis(rng, p, n, bo) : randomClampedBasis(rng, p, n, bo);
+  const u = basis(opts.kindU, opts.degreeU, opts.countU);
+  const v = basis(opts.kindV, opts.degreeV, opts.countV);
+  const n = u.count * v.count;
+  const ext = opts.extent ?? 1;
+  const points = Array.from({ length: 3 * n }, () => (2 * rng() - 1) * ext);
+  const wr = opts.weightRange;
+  const weights = wr ? Array.from({ length: n }, () => wr[0] + rng() * (wr[1] - wr[0])) : undefined;
+  return makeSurface({ u, v, points, weights });
 }

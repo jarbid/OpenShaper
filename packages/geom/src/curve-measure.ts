@@ -56,7 +56,7 @@ export interface ArcLengthTable {
 // ---------------------------------------------------------------------------
 
 /** `degenerateRel · M / L`: below this speed `C′` is rounding noise (see the module comment). */
-function speedFloor(c: NurbsCurve, t: Tolerances): number {
+export function speedFloor(c: NurbsCurve, t: Tolerances): number {
   const h = c.dim + 1;
   let M = 0;
   for (let i = 0; i < c.basis.count; i++) {
@@ -82,7 +82,7 @@ function speedAt(f: Float64Array, o: number, dim: number): number {
  * `|C′ × C″|/|C′|³` in 3D, 0 at a degenerate point. Shared by the single and
  * batch entry points so they agree bit for bit.
  */
-function curvatureAt(f: Float64Array, o: number, dim: number, floor: number): number {
+export function curvatureAt(f: Float64Array, o: number, dim: number, floor: number): number {
   const v = speedAt(f, o, dim);
   if (!(v > floor)) return 0;
   const v3 = v * v * v;

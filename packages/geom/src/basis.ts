@@ -381,6 +381,50 @@ export function breakpoints(b: Basis): Float64Array {
   return Float64Array.from(out);
 }
 
+/** A basis as plain JSON-safe values (inside `SurfaceJSON`). */
+export interface BasisJSON {
+  readonly kind: 'clamped' | 'periodic';
+  readonly degree: number;
+  readonly knots: readonly number[];
+  readonly period?: number;
+}
+
+/**
+ * Re-validates the fields of an untrusted basis (a structured clone or a
+ * {@link BasisJSON}) through {@link clampedBasis} / {@link periodicBasis}.
+ * Internal: `reviveCurve` and `reviveSurface` use it.
+ */
+export function reviveBasis(
+  kind: unknown,
+  degree: unknown,
+  knots: unknown,
+  period: unknown,
+): Basis {
+  const arrayLike =
+    typeof knots === 'object' &&
+    knots !== null &&
+    typeof (knots as { length?: unknown }).length === 'number';
+  if (typeof degree !== 'number' || !arrayLike) fail('size-mismatch', 'basis is malformed');
+  const U = knots as ArrayLike<number>;
+  if (kind === 'clamped') return clampedBasis(degree, U);
+  if (kind === 'periodic') {
+    if (typeof period !== 'number') fail('size-mismatch', 'periodic basis has no period');
+    return periodicBasis(degree, U, period);
+  }
+  return fail('unsupported', `unknown basis kind ${String(kind)}`);
+}
+
+/** The JSON form of a basis: plain arrays. */
+export function basisToJSON(b: Basis): BasisJSON {
+  const knots = Array.from(b.knots as Float64Array);
+  return Object.freeze({
+    kind: b.kind,
+    degree: b.degree,
+    knots,
+    ...(b.kind === 'periodic' ? { period: b.period } : {}),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Parameters and spans
 // ---------------------------------------------------------------------------
@@ -458,6 +502,22 @@ export function findSpan(b: Basis, t: number, side?: Side): number {
  * with `t` moved to the span's period first. Clamped ends get exact unit values.
  */
 export function evalBasisAt(b: Basis, t: number, span: number, nDer: number, s: ScratchImpl): void {
+  evalBasisInto(b, t, span, nDer, s, s.oN, s.oWin);
+}
+
+/**
+ * {@link evalBasisAt} into the region `s.f[no …]`, with the periodic knot window
+ * at `s.f[wo …]`: surfaces keep the u and v bases side by side.
+ */
+export function evalBasisInto(
+  b: Basis,
+  t: number,
+  span: number,
+  nDer: number,
+  s: ScratchImpl,
+  no: number,
+  wo: number,
+): void {
   const p = b.degree;
   const f = s.f;
   let U: ReadonlyF64 = b.knots;
@@ -465,18 +525,18 @@ export function evalBasisAt(b: Basis, t: number, span: number, nDer: number, s: 
   let u = t;
   if (b.kind === 'periodic') {
     if (u < b.knots[span]!) u += b.period; // the left-hand limit at t_0
-    knotWindow(b.knots, b.count, b.period, span, p, f, s.oWin);
+    knotWindow(b.knots, b.count, b.period, span, p, f, wo);
     U = f;
-    i = s.oWin + p - 1;
+    i = wo + p - 1;
   }
-  if (nDer === 0) basisFuns(i, u, p, U, f, s.oN, f, s.oLeft, s.oRight);
-  else dersBasisFuns(i, u, p, nDer, U, f, s.oN, f, s.oLeft, s.oRight, s.oNdu, s.oA);
+  if (nDer === 0) basisFuns(i, u, p, U, f, no, f, s.oLeft, s.oRight);
+  else dersBasisFuns(i, u, p, nDer, U, f, no, f, s.oLeft, s.oRight, s.oNdu, s.oA);
   if (b.kind === 'clamped' && (u === b.domain[0] || u === b.domain[1])) {
     // At a clamped end the values are exactly a unit vector (multiplicity p + 1),
     // but A2.2 forms them as x·(1/x), which can miss 1 by an ulp. Writing them
     // exactly makes C(a) = P_0 and C(b) = P_n bitwise (design §4.6).
-    for (let j = 0; j <= p; j++) f[s.oN + j] = 0;
-    f[s.oN + (u === b.domain[0] ? 0 : p)] = 1;
+    for (let j = 0; j <= p; j++) f[no + j] = 0;
+    f[no + (u === b.domain[0] ? 0 : p)] = 1;
   }
 }
 

@@ -45,13 +45,18 @@ export interface Tolerances {
   /** Zero-cosine stop in point inversion (P&T §6.1, ε₂). */
   readonly cosine: number;
   /**
-   * Scale-free degeneracy test. Surfaces: `|Su × Sv| < degenerateRel · |Su| · |Sv|`
+   * Scale-free degeneracy test. Surfaces: `|Su × Sv| ≤ degenerateRel · |Su| · |Sv|`
    * ⇒ degenerate normal. Curves: `|C′| ≤ degenerateRel · M / L` ⇒ degenerate
    * tangent, with `M` the largest absolute Euclidean control coordinate and `L`
    * the domain length (period), the size of the rounding in `C′`'s sum.
+   * Surfaces apply the same floor to each partial (`|Su| ≤ degenerateRel · M / L_u`,
+   * likewise v; `M` from the control points of the point's span pair), since a
+   * pole's `Su` is rounding noise rather than zero, and to the curvature
+   * difference (`√(H² − K) ≤ degenerateRel · M / (L_u L_v |Su| |Sv|)` ⇒ umbilic:
+   * `II` is rounding noise, as on a plane).
    */
   readonly degenerateRel: number;
-  /** `H² − K ≤ umbilicRel · H²` ⇒ umbilic: principal directions are `null`. */
+  /** `H² − K ≤ umbilicRel · H²` ⇒ umbilic: principal directions are `null` (see also `degenerateRel`). */
   readonly umbilicRel: number;
   /** Rank decisions in pivoted factorisations, relative to the largest pivot after scaling. */
   readonly pivotRel: number;

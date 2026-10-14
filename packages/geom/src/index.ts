@@ -79,19 +79,77 @@ export {
 } from './curve-measure';
 export type { ArcLengthTable } from './curve-measure';
 
+// Surfaces (§6.6)
+export {
+  boundaryCurve,
+  isoCurve,
+  makeSurface,
+  reviveSurface,
+  surfaceBounds,
+  surfaceControlPoint,
+  surfaceControlWeight,
+  surfaceDerivatives,
+  surfaceDomain,
+  surfaceEvalGridInto,
+  surfaceEvalInto,
+  surfaceFromHomogeneous,
+  surfacePoint,
+  surfaceToJSON,
+  transformSurface,
+  withSurfaceControlNet,
+  withSurfaceControlPoints,
+  withSurfaceWeights,
+} from './surface';
+export type { SurfaceDerivs1, SurfaceJSON, SurfaceSide } from './surface';
+export type { BasisJSON } from './basis';
+
+// Surface measures (§6.7)
+export {
+  fundamentalForms,
+  fundamentalFormsInto,
+  limitNormal,
+  normalCurvature,
+  principalCurvatures,
+  SAMPLE_DEGENERATE,
+  SAMPLE_UMBILIC,
+  surfaceNormal,
+} from './surface-measure';
+export type { Curvatures, FundamentalForms, NormalResult } from './surface-measure';
+
+// Sample plans: incremental evaluation (§6.9)
+export {
+  changedControlPoints,
+  evalCurvePlan,
+  evalCurvePlanDirty,
+  evalSurfacePlan,
+  evalSurfacePlanDirty,
+  planCurveSamples,
+  planMatches,
+  planSurfaceSamples,
+} from './plan';
+export type { CurveSamplePlan, SampleOutputs, SurfaceSamplePlan } from './plan';
+
 // Quadrature (§6.10)
 export { GL_MAX_ORDER, gaussLegendre, integrate1d } from './quadrature';
 
-// Exact primitives (§6.11; surfaces land with step F2)
+// Exact primitives (§6.11)
 export {
+  bezierSurface,
+  bilinearPatch,
   circle,
   circle2,
   circleArc,
   conicArc,
+  cylinder,
+  extrude,
   line,
   line2,
   periodicCircle,
+  planeSurface,
   polyline,
+  revolve,
+  sphere,
+  torus,
 } from './primitives';
 
 // Shared value types (§5)

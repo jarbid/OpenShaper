@@ -17,14 +17,7 @@
  */
 import { checkOut, makeScratch, scratchFor, toF64, toNumbers } from './array';
 import type { Scratch, ScratchImpl } from './array';
-import {
-  checkParam,
-  clampedBasis,
-  evalBasisAt,
-  periodicBasis,
-  sanitizeParam,
-  spanOf,
-} from './basis';
+import { checkParam, clampedBasis, evalBasisAt, reviveBasis, sanitizeParam, spanOf } from './basis';
 import { curveDerivsH, curvePointH, polyCurveDerivs, ratCurveDerivs } from './book/curve';
 import { gatherPoints, periodicSpan } from './book/periodic';
 import { findSpan as a21 } from './book/basis';
@@ -70,7 +63,7 @@ function checkDim(dim: unknown): asserts dim is Dim {
 }
 
 /** O(1) structural check that a basis is consistent (it was validated by its factory). */
-function checkBasisShape(b: Basis): void {
+export function checkBasisShape(b: Basis): void {
   const ok =
     typeof b === 'object' &&
     b !== null &&
@@ -82,7 +75,7 @@ function checkBasisShape(b: Basis): void {
 }
 
 /** Builds Pw from Euclidean points (stride `dim`) and optional weights, validating both. */
-function buildCw(
+export function buildCw(
   dim: number,
   count: number,
   points: ArrayLike<number>,
@@ -120,7 +113,7 @@ function buildCw(
   return { cw, rational };
 }
 
-function checkWeight(w: number, i: number): void {
+export function checkWeight(w: number, i: number): void {
   if (!Number.isFinite(w))
     fail('non-finite', `weight ${i} is not finite: ${w}`, { index: i, value: w });
   if (!(w > 0))
@@ -171,18 +164,27 @@ export function curveFromHomogeneous<D extends Dim, B extends Basis>(spec: {
     });
   }
   const cw = toF64(spec.cw);
+  return freezeCurve(spec.dim, spec.basis, cw, checkHomogeneous(cw, count, spec.dim));
+}
+
+/**
+ * Validates homogeneous control points (stride `dim + 1`): finite coordinates,
+ * finite positive weights. Returns `rational` (some weight is not exactly 1).
+ */
+export function checkHomogeneous(cw: ReadonlyF64, count: number, dim: number): boolean {
+  const h = dim + 1;
   let rational = false;
   for (let i = 0; i < count; i++) {
-    const w = cw[i * h + spec.dim]!;
+    const w = cw[i * h + dim]!;
     checkWeight(w, i);
     if (w !== 1) rational = true;
-    for (let c = 0; c < spec.dim; c++) {
+    for (let c = 0; c < dim; c++) {
       if (!Number.isFinite(cw[i * h + c]!)) {
         fail('non-finite', `control point ${i} is not finite`, { index: i, value: cw[i * h + c] });
       }
     }
   }
-  return freezeCurve(spec.dim, spec.basis, cw, rational);
+  return rational;
 }
 
 /** A Bézier curve of degree `count − 1` on `[0, 1]` (one span, clamped). */
@@ -324,16 +326,7 @@ export function reviveCurve(x: unknown): NurbsCurve {
   if (!isRecord(x)) fail('size-mismatch', 'reviveCurve expects a curve object');
   const dim = x.dim;
   checkDim(dim);
-  const basisOf = (kind: unknown, degree: unknown, knots: unknown, period: unknown): Basis => {
-    if (typeof degree !== 'number' || !isArrayLike(knots))
-      fail('size-mismatch', 'curve basis is malformed');
-    if (kind === 'clamped') return clampedBasis(degree, knots);
-    if (kind === 'periodic') {
-      if (typeof period !== 'number') fail('size-mismatch', 'periodic curve has no period');
-      return periodicBasis(degree, knots, period);
-    }
-    return fail('unsupported', `unknown basis kind ${String(kind)}`);
-  };
+  const basisOf = reviveBasis;
   if ('cw' in x) {
     const b = x.basis;
     if (!isRecord(b) || !isArrayLike(x.cw)) fail('size-mismatch', 'cloned curve is malformed');
@@ -437,7 +430,7 @@ function weightsOf(c: NurbsCurve): Float64Array {
 }
 
 /** Validates an optional index list against `count`; returns it as numbers. */
-function checkIndices(indices: ArrayLike<number>, count: number): void {
+export function checkIndices(indices: ArrayLike<number>, count: number): void {
   for (let k = 0; k < indices.length; k++) {
     const i = indices[k]!;
     if (!Number.isInteger(i) || i < 0 || i >= count) {
@@ -457,17 +450,31 @@ export function withControlPoints<C extends NurbsCurve>(
   points: ArrayLike<number>,
   indices?: ArrayLike<number>,
 ): C {
-  const { dim } = c;
+  const cw = replacePoints(c.cw, c.dim, c.basis.count, points, indices);
+  return Object.freeze({ ...c, cw }) as C;
+}
+
+/**
+ * A copy of the net `cw0` (stride `dim + 1`, `count` points) with new Euclidean
+ * points, keeping weights: all of them, or `points[k·dim …]` for control point
+ * `indices[k]` (the last entry wins for a repeated index). Validates.
+ */
+export function replacePoints(
+  cw0: ReadonlyF64,
+  dim: number,
+  count: number,
+  points: ArrayLike<number>,
+  indices: ArrayLike<number> | undefined,
+): Float64Array {
   const h = dim + 1;
-  const n = c.basis.count;
-  const rows = indices === undefined ? n : indices.length;
+  const rows = indices === undefined ? count : indices.length;
   if (points.length !== rows * dim) {
     fail('size-mismatch', `expected ${rows * dim} values; got ${points.length}`, {
       value: points.length,
     });
   }
-  if (indices !== undefined) checkIndices(indices, n);
-  const cw = Float64Array.from(c.cw as Float64Array);
+  if (indices !== undefined) checkIndices(indices, count);
+  const cw = Float64Array.from(cw0 as Float64Array);
   for (let k = 0; k < rows; k++) {
     const i = indices === undefined ? k : indices[k]!;
     const w = cw[i * h + dim]!;
@@ -478,7 +485,7 @@ export function withControlPoints<C extends NurbsCurve>(
       cw[i * h + d] = w * x;
     }
   }
-  return Object.freeze({ ...c, cw }) as C;
+  return cw;
 }
 
 /**
@@ -492,14 +499,24 @@ export function withWeights<C extends NurbsCurve>(
   weights: ArrayLike<number>,
   indices?: ArrayLike<number>,
 ): C {
-  const { dim } = c;
+  const { cw, rational } = replaceWeights(c.cw, c.dim, c.basis.count, weights, indices);
+  return Object.freeze({ ...c, cw, rational }) as C;
+}
+
+/** {@link replacePoints} for weights: Euclidean points kept, `rational` re-derived. */
+export function replaceWeights(
+  cw0: ReadonlyF64,
+  dim: number,
+  count: number,
+  weights: ArrayLike<number>,
+  indices: ArrayLike<number> | undefined,
+): { cw: Float64Array; rational: boolean } {
   const h = dim + 1;
-  const n = c.basis.count;
-  const rows = indices === undefined ? n : indices.length;
+  const rows = indices === undefined ? count : indices.length;
   if (weights.length !== rows)
     fail('size-mismatch', `expected ${rows} weights; got ${weights.length}`);
-  if (indices !== undefined) checkIndices(indices, n);
-  const cw = Float64Array.from(c.cw as Float64Array);
+  if (indices !== undefined) checkIndices(indices, count);
+  const cw = Float64Array.from(cw0 as Float64Array);
   for (let k = 0; k < rows; k++) {
     const i = indices === undefined ? k : indices[k]!;
     const w = weights[k]!;
@@ -509,8 +526,8 @@ export function withWeights<C extends NurbsCurve>(
     cw[i * h + dim] = w;
   }
   let rational = false;
-  for (let i = 0; i < n; i++) if (cw[i * h + dim] !== 1) rational = true;
-  return Object.freeze({ ...c, cw, rational }) as C;
+  for (let i = 0; i < count; i++) if (cw[i * h + dim] !== 1) rational = true;
+  return { cw, rational };
 }
 
 /** The parameter domain: `[a, b]` (clamped) or `[t_0, t_0 + T)` (periodic). */
@@ -684,7 +701,7 @@ export function curveDerivatives<D extends Dim>(
 // Affine maps (NURBS are affinely invariant: map the control points)
 // ---------------------------------------------------------------------------
 
-function checkAffine(m: ArrayLike<number>, len: number): void {
+export function checkAffine(m: ArrayLike<number>, len: number): void {
   if (m.length !== len) fail('size-mismatch', `affine map needs ${len} entries; got ${m.length}`);
   for (let i = 0; i < len; i++) {
     if (!Number.isFinite(m[i]!))

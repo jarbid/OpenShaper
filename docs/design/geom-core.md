@@ -318,10 +318,21 @@ exact equality.
 ### 4.7 Orientation and signs
 
 - Surface normal `n = Su × Sv / |Su × Sv|`; degenerate when
-  `|Su × Sv| < degenerateRel · |Su| · |Sv|`.
+  `|Su × Sv| ≤ degenerateRel · |Su| · |Sv|`, or when a partial is at its rounding
+  floor, `|Su| ≤ degenerateRel · M / L_u` (likewise v) — the curves' rule, with `M`
+  the magnitude of the point's span-pair control points (largest absolute
+  homogeneous coordinate over smallest weight). A pole's `Su` is a sum of equal
+  points times cancelling basis derivatives: rounding noise, not zero.
 - Principal curvatures `k₁ ≥ k₂` are positive where the surface bends **towards**
   `n` (`k = II / I`, `II = S″ · n`): a sphere with outward `n` has `k = −1/r`.
-  `H = (k₁ + k₂)/2`, `K = k₁k₂`.
+  `H = (k₁ + k₂)/2`, `K = k₁k₂`. They are computed from the shape operator in the
+  orthonormal tangent frame `e₁ = Su/|Su|`, `e₂ = n × e₁`, a symmetric
+  `[[a, b], [b, c]]`: `√(H² − K) = √(((a − c)/2)² + b²)` has no cancellation (the
+  textbook form loses half the digits at an umbilic). Umbilic (directions `null`)
+  when `H² − K ≤ umbilicRel · H²` or `√(H² − K) ≤ degenerateRel · M / (L_u L_v |Su| |Sv|)`
+  (`II` at rounding level, as on a plane). Principal directions: `d₂ = n × d₁`.
+- Primitives orient by the right-hand rule so that `n` points out of a closed
+  solid: sphere, torus and cylinder have outward normals.
 - Signed curvature of a 2D curve is positive when it turns counter-clockwise.
 - Trim loops keep the material on the **left** in (u, v): outer loop counter-clockwise
   (positive signed area), holes clockwise.
@@ -351,7 +362,11 @@ exact equality.
   survive cloning: worker code sends `issueOf(e)`.
 - **No module state.** No registries, default scratch, or caches at module level. The
   only module-level data are constant tables computed once at module evaluation
-  (Gauss–Legendre nodes and weights, n ≤ 64) and never mutated. Caches keyed by
+  (Gauss–Legendre nodes and weights, n ≤ 64; zero-length typed arrays that a new
+  scratch starts its growable buffers with, which nothing can write) and never
+  mutated. Kernels whose working memory depends on the input size (the grid's
+  bases, a dirty update's stamps) grow buffers **inside the caller's scratch** on
+  first use and reuse them, so steady-state frames allocate nothing. Caches keyed by
   geometry (plans, solver factors) are objects the caller owns; consumers that keep
   them per board use bounded `WeakMap`s (`.claude/CLAUDE.md`).
 - **Determinism.** Same input, same bits: no randomness (randomised insertion orders
@@ -776,8 +791,20 @@ export function surfaceFromHomogeneous(spec: {
   readonly v: Basis;
   readonly cw: ArrayLike<number>;
 }): NurbsSurface;
-export function reviveSurface(x: unknown): NurbsSurface;
+export function reviveSurface(x: unknown): NurbsSurface; // clone or JSON → validated; bases rebuilt
 export function surfaceToJSON(s: NurbsSurface): SurfaceJSON;
+export interface BasisJSON {
+  readonly kind: 'clamped' | 'periodic';
+  readonly degree: number;
+  readonly knots: readonly number[];
+  readonly period?: number;
+}
+export interface SurfaceJSON {
+  readonly u: BasisJSON;
+  readonly v: BasisJSON;
+  readonly points: readonly number[]; // Euclidean, u-major, stride 3
+  readonly weights?: readonly number[]; // present iff rational
+}
 
 export function surfaceControlPoint(s: NurbsSurface, i: number, j: number): Point3;
 export function surfaceControlWeight(s: NurbsSurface, i: number, j: number): number;
@@ -795,13 +822,19 @@ export function withSurfaceControlNet(s: NurbsSurface, cw: ArrayLike<number>): N
 export function surfaceDomain(s: NurbsSurface): { readonly u: Interval; readonly v: Interval };
 
 export function surfacePoint(s: NurbsSurface, u: number, v: number): Point3; // A3.5 / A4.3
+export interface SurfaceSide {
+  readonly u?: Side;
+  readonly v?: Side;
+}
+export type SurfaceDerivs1 = Pick<SurfaceDerivs, 'S' | 'Su' | 'Sv'>;
+// Overloads: order 2 → SurfaceDerivs; order 1 → SurfaceDerivs1 (no fields that were not computed).
 export function surfaceDerivatives(
   s: NurbsSurface,
   u: number,
   v: number,
   order: 1 | 2,
-  side?: { readonly u?: Side; readonly v?: Side },
-): SurfaceDerivs; // A3.6 / A4.4
+  side?: SurfaceSide,
+): SurfaceDerivs | SurfaceDerivs1; // A3.6 / A4.4
 export function surfaceEvalInto(
   s: NurbsSurface,
   u: number,
@@ -810,9 +843,12 @@ export function surfaceEvalInto(
   out: Float64Array,
   o: number,
   sc: Scratch,
-  side?: { readonly u?: Side; readonly v?: Side },
+  side?: SurfaceSide,
 ): void;
-/** Separable: basis once per u and per v, then combined; output row-major over (us, vs). */
+/**
+ * Separable: basis once per u and per v, then combined; output row-major over (us, vs).
+ * Bit for bit surfaceEvalInto. The v bases live in the scratch's growable buffer (§4.8).
+ */
 export function surfaceEvalGridInto(
   s: NurbsSurface,
   us: ReadonlyF64,
@@ -821,7 +857,9 @@ export function surfaceEvalGridInto(
   out: NumArray,
   sc: Scratch,
 ): void;
-export function isoCurve(s: NurbsSurface, fixed: ParamDir, value: number): NurbsCurve<3>; // exact: Σ N(u)·Pw
+// exact: Σ N(u)·Pw with the other basis shared. fixed = 'u' reproduces S(value, v) bit for bit
+// (same sums, same order); a polynomial surface gives a polynomial curve (weights exactly 1).
+export function isoCurve(s: NurbsSurface, fixed: ParamDir, value: number): NurbsCurve<3>;
 export function boundaryCurve(s: NurbsSurface, edge: SurfaceEdge): NurbsCurve<3>; // clamped directions only
 export function transformSurface(s: NurbsSurface, m: Affine3): NurbsSurface;
 export function surfaceBounds(s: NurbsSurface): Box3;
@@ -856,8 +894,19 @@ export function surfaceNormal(
   v: number,
   tol?: Partial<Tolerances>,
 ): NormalResult;
-export function limitNormal(s: NurbsSurface, edge: SurfaceEdge, t: number): Point3 | null; // collapsed edges (poles)
-export function fundamentalForms(s: NurbsSurface, u: number, v: number): FundamentalForms | null;
+/** Collapsed edges (poles): ±(Suv × Sv) on v0/v1, ±(Su × Suv) on u0/u1 (+ on the 0 edge); the normal elsewhere. */
+export function limitNormal(
+  s: NurbsSurface,
+  edge: SurfaceEdge,
+  t: number,
+  tol?: Partial<Tolerances>,
+): Point3 | null;
+export function fundamentalForms(
+  s: NurbsSurface,
+  u: number,
+  v: number,
+  tol?: Partial<Tolerances>,
+): FundamentalForms | null;
 export function fundamentalFormsInto(
   s: NurbsSurface,
   u: number,
@@ -876,7 +925,8 @@ export function normalCurvature(
   s: NurbsSurface,
   u: number,
   v: number,
-  direction: Point3,
+  direction: Point3, // projected onto the tangent plane; null if within `angle` of n
+  tol?: Partial<Tolerances>,
 ): number | null;
 ```
 
@@ -915,27 +965,41 @@ export function toClampedSurface(s: NurbsSurface, dir: ParamDir, seam?: number):
 
 ```ts
 export interface SurfaceSamplePlan {
+  readonly kind: 'surface';
   readonly count: number;
   readonly nDer: 0 | 1 | 2;
   readonly u: Basis;
   readonly v: Basis; // identity is the validity key
-  readonly uv: ReadonlyF64; // stride 2, ordered span-major
+  readonly uv: ReadonlyF64; // stride 2, sanitized, in the caller's order
   readonly spanU: ReadonlyI32;
   readonly spanV: ReadonlyI32;
   readonly basisU: ReadonlyF64; // count × (nDer+1) × (p+1)
   readonly basisV: ReadonlyF64; // count × (nDer+1) × (q+1)
+  readonly rowOff: ReadonlyI32; // count × (p+1): net offset i·v.count·4 of each row read (wrapped)
+  readonly colOff: ReadonlyI32; // count × (q+1): net offset j·4 of each column read
   readonly cpStart: ReadonlyI32;
-  readonly cpSamples: ReadonlyI32; // CSR: control point → samples
+  readonly cpSamples: ReadonlyI32; // CSR: control point → samples, ascending
+  readonly tol: Tolerances; // degenerate / umbilic flags
 }
 export interface CurveSamplePlan {
-  /* the same for one direction; nDer up to 3 */
+  readonly kind: 'curve';
+  readonly count: number;
+  readonly nDer: 0 | 1 | 2 | 3;
+  readonly basis: Basis;
+  readonly t: ReadonlyF64;
+  readonly span: ReadonlyI32;
+  readonly basisT: ReadonlyF64; // count × (nDer+1) × (p+1)
+  readonly cpIndex: ReadonlyI32; // count × (p+1), wrapped
+  readonly cpStart: ReadonlyI32;
+  readonly cpSamples: ReadonlyI32;
+  readonly tol: Tolerances;
 }
 export interface SampleOutputs {
-  readonly position?: NumArray; // stride 3
-  readonly normal?: NumArray; // stride 3, nDer ≥ 1; (0,0,0) + DEGENERATE flag when degenerate
-  readonly curvature?: NumArray; // stride 2: k1, k2 (nDer = 2)
-  readonly derivatives?: Float64Array; // raw SKL, stride 18
-  readonly flags?: Uint8Array; // SAMPLE_DEGENERATE = 1, SAMPLE_UMBILIC = 2
+  readonly position?: NumArray; // stride 3 (curves: dim)
+  readonly normal?: NumArray; // surfaces, nDer ≥ 1, stride 3; (0,0,0) + DEGENERATE flag when degenerate
+  readonly curvature?: NumArray; // nDer = 2. Surfaces stride 2 (k1, k2); curves stride 1 (as curveCurvatureBatchInto)
+  readonly derivatives?: Float64Array; // stride 3/9/18 by the plan's nDer (surfaceEvalInto's layout); curves (nDer+1)·dim
+  readonly flags?: Uint8Array; // SAMPLE_DEGENERATE = 1, SAMPLE_UMBILIC = 2 (curves: degenerate tangent)
 }
 export const SAMPLE_DEGENERATE: 1;
 export const SAMPLE_UMBILIC: 2;
@@ -943,16 +1007,19 @@ export function planSurfaceSamples(
   s: NurbsSurface,
   uv: ArrayLike<number>,
   nDer: 0 | 1 | 2,
+  tol?: Partial<Tolerances>,
 ): SurfaceSamplePlan;
 export function planCurveSamples(
   c: NurbsCurve,
   ts: ArrayLike<number>,
   nDer: 0 | 1 | 2 | 3,
+  tol?: Partial<Tolerances>,
 ): CurveSamplePlan;
 export function planMatches(
   plan: SurfaceSamplePlan | CurveSamplePlan,
   g: NurbsSurface | NurbsCurve,
 ): boolean;
+/** Ascending flat indices; every index when `rational` differs (the evaluation path changes everywhere). */
 export function changedControlPoints(
   a: NurbsSurface | NurbsCurve,
   b: NurbsSurface | NurbsCurve,
@@ -963,7 +1030,7 @@ export function evalSurfacePlan(
   out: SampleOutputs,
   sc: Scratch,
 ): void;
-/** Recomputes only samples touched by changedCps; returns their count, ids sorted into `touched`. */
+/** Recomputes only samples touched by changedCps; returns their count, ids sorted into `touched` (length ≥ count). */
 export function evalSurfacePlanDirty(
   plan: SurfaceSamplePlan,
   s: NurbsSurface,
@@ -989,7 +1056,14 @@ export function evalCurvePlanDirty(
 ```
 
 A plan stores polynomial basis values, so it stays valid when weights or control
-points change and is invalidated only by a new `Basis` (knot insertion, elevation).
+points change and is invalidated only by a new `Basis` (knot insertion, elevation, a
+revived copy). Samples keep the caller's order (sample `k` is the caller's vertex
+`k`); a tessellation that orders vertices span-major makes the touched ids a few
+contiguous runs. Plan outputs equal the direct functions bit for bit (positions and
+derivatives `surfaceEvalInto` / `curveEvalInto`, normals `surfaceNormal`, curvatures
+`principalCurvatures` / `curveCurvatureBatchInto`): the same kernels run in the same
+order. Offsets are `Int32Array` in plans and in scratch alike, so the A3.6 kernel stays
+monomorphic (offsets held in doubles measured ~20% slower).
 
 ### 6.10 Quadrature [F1]
 
@@ -1055,9 +1129,13 @@ export function revolve(
   axisDir: Point3,
   angle?: number,
 ): NurbsSurface;
-export function sphere(center: Point3, r: number): NurbsSurface; // poles: clamped v
-export function torus(center: Point3, axis: Point3, R: number, r: number): NurbsSurface; // doubly periodic
-export function cylinder(base: Point3, axis: Point3, r: number, h: number): NurbsSurface; // periodic u
+// u turns about +z from +x; v clamped from the south pole (v = 0) to the north pole, exact
+// two-quarter semicircle; pole rows collapsed; outward n.
+export function sphere(center: Point3, r: number): NurbsSurface;
+// R > r; doubly periodic (8-point periodic circles); v starts on the outer equator; outward n.
+export function torus(center: Point3, axis: Point3, R: number, r: number): NurbsSurface;
+// extrude(periodicCircle, h·axis): periodic u, v from base (0) to top (1); outward n.
+export function cylinder(base: Point3, axis: Point3, r: number, h: number): NurbsSurface;
 export function extrude(c: NurbsCurve<3>, dir: Point3): NurbsSurface;
 export function ruled(a: NurbsCurve<3>, b: NurbsCurve<3>): NurbsSurface; // via makeCompatible [A1]
 ```
@@ -1648,6 +1726,7 @@ export function randomPeriodicBasis(
   opts?: RandomBasisOptions,
 ): PeriodicBasis;
 export function randomCurve(rng: () => number, opts: RandomCurveOptions): NurbsCurve;
+export function randomSurface(rng: () => number, opts: RandomSurfaceOptions): NurbsSurface; // F2
 export function checksum(value: unknown): string; // typed arrays and records, for immutability tests
 export function solveFairReference(
   p: FairProblem,
@@ -1683,22 +1762,22 @@ scans `src/**/*.ts` (excluding tests, `tolerance.ts` and vendored files) for lit
 matching `/\b\d+(\.\d+)?e-\d+\b/i` and fails on any. Tolerances are never loosened to
 make a test pass (golden-data rule 2).
 
-| Name             | Default         | Meaning                                                                                                                                                                                 | Why this value                                                                                                                      |
-| ---------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `point`          | 1e-6 cm (10 nm) | Points coincide: vertex merge, loop closure, `isClosed`, vertex on curve end, edge-gap floor.                                                                                           | ~10³ above accumulated rounding at board scale (300 cm × 2.2e-16 × ~10⁴ operations ≈ 7e-10 cm); ~10⁴ below a CNC finishing pass.    |
-| `fit`            | 1e-4 cm (1 µm)  | Largest 3D error accepted from any approximation: fits, pcurves, projections, `curveOnSurfaceTo3d`.                                                                                     | Two orders below CNC accuracy (0.1 mm) and 50× below the existing STEP fit target (0.005 cm); reachable with modest control counts. |
-| `constraint`     | 1e-9 cm         | Post-solve `‖Cx − d‖∞` after iterative refinement.                                                                                                                                      | Constraints must stay exact; ~10³ × rounding at condition ~10⁶.                                                                     |
-| `paramRel`       | 1e-12 × domain  | Parameter equality, clamping slack, Newton parameter-step stop.                                                                                                                         | Relative, so a rescaled domain behaves the same; far below any meaningful parameter difference.                                     |
-| `knotRel`        | 1e-10 × domain  | Distinct knots closer than this: rejected at construction, snapped in operations.                                                                                                       | Above accumulated rounding of insertion and merging; below any real knot spacing (3e-8 cm on a 300 cm curve).                       |
-| `angle`          | 1e-9 rad        | Parallel and perpendicular tests in exact checks.                                                                                                                                       | `atan2` angles are good to ~1e-16; not a continuity threshold (those are the caller's, §6.18).                                      |
-| `cosine`         | 1e-12           | Zero-cosine stop in point inversion (P&T §6.1, ε₂).                                                                                                                                     | Orthogonality to rounding at unit vectors.                                                                                          |
-| `degenerateRel`  | 1e-12           | `\|Su × Sv\| < degenerateRel · \|Su\| · \|Sv\|` ⇒ degenerate normal. Curves: `\|C′\| ≤ degenerateRel · M / L` ⇒ degenerate tangent (`M` largest control coordinate, `L` domain length). | Scale-free; catches poles, collapsed tips and cusps from coincident control points.                                                 |
-| `umbilicRel`     | 1e-10           | `H² − K ≤ umbilicRel · H²` ⇒ umbilic: principal directions are `null`.                                                                                                                  | Directions are noise below this.                                                                                                    |
-| `pivotRel`       | 1e-12           | Rank decisions in pivoted Cholesky / LDLᵀ / QR, relative to the largest pivot after scaling.                                                                                            | Dependent constraint rows have pivots at rounding level; genuine ones are O(1) after scaling.                                       |
-| `quadRel`        | 1e-10           | Adaptive quadrature relative target.                                                                                                                                                    | 3e-6 cm³ on a 30 L board; cheap because polynomial cases are exact.                                                                 |
-| `weightRatioMax` | 1e6             | Max/min weight ratio above which a warning is issued.                                                                                                                                   | Rational evaluation loses about six digits beyond it.                                                                               |
-| `newtonMaxIter`  | 32              | Cap for projection, inverse arc length and other Newton loops.                                                                                                                          | Quadratic convergence needs < 8 from the sampled seed; the cap only bounds pathological cases (`converged: false`).                 |
-| `quadMaxSplits`  | 4096            | Cap on adaptive subintervals per integral.                                                                                                                                              | 61k evaluations at GK15; reaching it means a singular integrand, reported as `converged: false`.                                    |
+| Name             | Default         | Meaning                                                                                                                                                                                                                                                                                                                               | Why this value                                                                                                                      |
+| ---------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------- | ---- | ---- | ---- | -------------------------------- | ---- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
+| `point`          | 1e-6 cm (10 nm) | Points coincide: vertex merge, loop closure, `isClosed`, vertex on curve end, edge-gap floor.                                                                                                                                                                                                                                         | ~10³ above accumulated rounding at board scale (300 cm × 2.2e-16 × ~10⁴ operations ≈ 7e-10 cm); ~10⁴ below a CNC finishing pass.    |
+| `fit`            | 1e-4 cm (1 µm)  | Largest 3D error accepted from any approximation: fits, pcurves, projections, `curveOnSurfaceTo3d`.                                                                                                                                                                                                                                   | Two orders below CNC accuracy (0.1 mm) and 50× below the existing STEP fit target (0.005 cm); reachable with modest control counts. |
+| `constraint`     | 1e-9 cm         | Post-solve `‖Cx − d‖∞` after iterative refinement.                                                                                                                                                                                                                                                                                    | Constraints must stay exact; ~10³ × rounding at condition ~10⁶.                                                                     |
+| `paramRel`       | 1e-12 × domain  | Parameter equality, clamping slack, Newton parameter-step stop.                                                                                                                                                                                                                                                                       | Relative, so a rescaled domain behaves the same; far below any meaningful parameter difference.                                     |
+| `knotRel`        | 1e-10 × domain  | Distinct knots closer than this: rejected at construction, snapped in operations.                                                                                                                                                                                                                                                     | Above accumulated rounding of insertion and merging; below any real knot spacing (3e-8 cm on a 300 cm curve).                       |
+| `angle`          | 1e-9 rad        | Parallel and perpendicular tests in exact checks.                                                                                                                                                                                                                                                                                     | `atan2` angles are good to ~1e-16; not a continuity threshold (those are the caller's, §6.18).                                      |
+| `cosine`         | 1e-12           | Zero-cosine stop in point inversion (P&T §6.1, ε₂).                                                                                                                                                                                                                                                                                   | Orthogonality to rounding at unit vectors.                                                                                          |
+| `degenerateRel`  | 1e-12           | `\|Su × Sv\| ≤ degenerateRel · \|Su\| · \|Sv\|` ⇒ degenerate normal. Curves: `\|C′\| ≤ degenerateRel · M / L` ⇒ degenerate tangent (`M` largest control coordinate, `L` domain length). Surfaces apply the same floor to each partial and to `√(H² − K)` (÷ `L_u L_v \|Su\| \|Sv\|`: umbilic), `M` from the point's span pair (§4.7). | Su × Sv\                                                                                                                            | < degenerateRel · \  | Su\  | · \  | Sv\  | `⇒ degenerate normal. Curves:`\  | C′\  | ≤ degenerateRel · M / L` ⇒ degenerate tangent (`M`largest control coordinate,`L` domain length). | Scale-free; catches poles, collapsed tips and cusps from coincident control points. |
+| `umbilicRel`     | 1e-10           | `H² − K ≤ umbilicRel · H²` ⇒ umbilic: principal directions are `null` (also below the `degenerateRel` floor).                                                                                                                                                                                                                         | Directions are noise below this.                                                                                                    |
+| `pivotRel`       | 1e-12           | Rank decisions in pivoted Cholesky / LDLᵀ / QR, relative to the largest pivot after scaling.                                                                                                                                                                                                                                          | Dependent constraint rows have pivots at rounding level; genuine ones are O(1) after scaling.                                       |
+| `quadRel`        | 1e-10           | Adaptive quadrature relative target.                                                                                                                                                                                                                                                                                                  | 3e-6 cm³ on a 30 L board; cheap because polynomial cases are exact.                                                                 |
+| `weightRatioMax` | 1e6             | Max/min weight ratio above which a warning is issued.                                                                                                                                                                                                                                                                                 | Rational evaluation loses about six digits beyond it.                                                                               |
+| `newtonMaxIter`  | 32              | Cap for projection, inverse arc length and other Newton loops.                                                                                                                                                                                                                                                                        | Quadratic convergence needs < 8 from the sampled seed; the cap only bounds pathological cases (`converged: false`).                 |
+| `quadMaxSplits`  | 4096            | Cap on adaptive subintervals per integral.                                                                                                                                                                                                                                                                                            | 61k evaluations at GK15; reaching it means a singular integrand, reported as `converged: false`.                                    |
 
 Options with domain meaning carry their own named defaults next to their functions:
 `DEFAULT_TESSELLATION` (chord 0.01 cm, angle 0.1 rad, provisional until Phase 3
@@ -2318,31 +2397,31 @@ seeded `mulberry32` and print the failing seed. Cross-cutting tests: public-API 
 and after every public operation), finiteness of every output, `*Into` kernels equal
 their wrappers bit for bit.
 
-| Module                | Oracle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Tolerance and why                                                                                                                                                                                                                                       |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `basis`               | P&T Ex. 2.3 (`U = {0,0,0,1,2,3,4,4,5,5,5}`, p = 2, u = 5/2 → 1/8, 6/8, 1/8) and Ex. 2.4 derivatives; Bézier knots give Bernstein polynomials in closed form; A2.4 vs A2.2                                                                                                                                                                                                                                                                                                                                                  | `4(p+1)ε` absolute: A2.2 sums p + 1 terms of O(1) relative error. Book examples exact in binary fractions: bitwise.                                                                                                                                     |
-| `basis` (properties)  | Partition of unity, non-negativity, derivative sums 0; `findSpan` vs linear scan incl. `u = b` and every multiplicity, both sides                                                                                                                                                                                                                                                                                                                                                                                          | `4(p+1)ε`; spans exact.                                                                                                                                                                                                                                 |
-| `book/curve`, `curve` | Bézier vs closed-form Bernstein sum and its exact derivatives; rational circle (A7.1, 9-point and periodic 8-point): `\|C(t) − c\| = r`; ellipse as affine image; affine invariance                                                                                                                                                                                                                                                                                                                                        | Radius `64 ε r`: ~10 flops and one division per coordinate; a wrong weight errs ≥ 1e-3 r. Bernstein `64 ε · scale · p!` for derivatives.                                                                                                                |
-| `curve` (derivatives) | Central differences with Richardson extrapolation inside spans; one-sided derivatives at C⁰ knots equal the split halves' end derivatives; multi-span rational: A7.1 arcs of 1–4 segments against the half-angle closed form to C‴, both sides of every knot                                                                                                                                                                                                                                                               | 1e-8 rel for C′, C″ and C‴ (truncation ~h⁴ ≈ 1e-12, cancellation ~ε/h² ≈ 2e-10 at h = 2⁻¹⁰ of the span), relative to the local `max(\|C⁽ᵏ⁾(t)\|, \|C⁽ᵏ⁻¹⁾(t)\|/span)`; one-sided: `1e-13 · scale`; closed form: `64 ε · M · ρ^(k+1) · p!/(p−k)! / h^k`. |
-| `curve-measure`       | Circle curvature `1/r`, length `2πr`; parabola curvature `2/(1+4x²)^{3/2}`, length `x√(1+4x²)/2 + asinh(2x)/4`; ellipse curvature; `paramAtLength(lengthAtParam(t)) = t`                                                                                                                                                                                                                                                                                                                                                   | Curvature `1e-12` rel (two derivative evaluations, one division); length `10 · quadRel` rel (GK estimate is not a bound: 10× margin); inverse `paramRel`.                                                                                               |
-| `curve-ops`           | Shape invariance under insert, refine, elevate, split, reverse∘reverse, reparameterise, `toClamped`, Bézier decomposition, at 1,000 params and every knot; counts `m = n + p + 1`; P&T Ex. 5.1 (insertion) fixtures; eq. 5.36 Bézier elevation closed form; `makeCompatible` keeps shapes; periodic middle-period consistency                                                                                                                                                                                              | `1e-13 · scale`: each op is convex combinations (~ε per step) chained ≤ 100 times; book fixtures bitwise where exact in binary.                                                                                                                         |
-| `surface`             | Rational sphere (A8.1): radius `r`; torus: points on the torus; cylinder; plane; `z = xy` bilinear; iso-curve equals the surface at the fixed parameter; boundary curve equals the net row                                                                                                                                                                                                                                                                                                                                 | `64 ε r` for radii; iso and boundary `1e-14 · scale` (same arithmetic re-associated).                                                                                                                                                                   |
-| `surface-measure`     | Sphere `k₁ = k₂ = −1/r`, `K = 1/r²`; torus `k = −1/r` and `−cos v/(R + r cos v)`, `K = cos v/(r(R + r cos v))`; cylinder `(0, −1/r)`; plane 0; `z = xy`: `K = −1/(1+x²+y²)²`; `limitNormal` at sphere poles = ±axis                                                                                                                                                                                                                                                                                                        | `1e-12` rel: second derivatives of rational patches lose ~3 digits to the quotient rule.                                                                                                                                                                |
-| `plan`                | `evalSurfacePlan` = `surfaceEvalInto` bitwise; dirty update after random edits = full re-evaluation bitwise; touched set = brute-force support; `planMatches` false after insertion                                                                                                                                                                                                                                                                                                                                        | Exact: same arithmetic in the same order.                                                                                                                                                                                                               |
-| `quadrature`          | GL nodes vs Abramowitz–Stegun tables; exact on monomials to degree `2n − 1`; adaptive vs closed forms (∫ rational, ∫ √, ∫ with a kink at a break)                                                                                                                                                                                                                                                                                                                                                                          | Nodes `4ε`; monomials `4nε` rel; adaptive `10 · quadRel` rel.                                                                                                                                                                                           |
-| `primitives`          | Exactness above; `conicArc` ρ = 0.5 is a parabola; ρ vs eccentricity; `revolve` of a line is a cone with the right half-angle                                                                                                                                                                                                                                                                                                                                                                                              | `64 ε · scale`.                                                                                                                                                                                                                                         |
-| `fit`                 | Interpolation passes through the data; **polynomial reproduction** (data from a degree-≤ p polynomial gives that polynomial); end derivatives exact; periodic interpolation C^(p−1) at the seam; LSQ optimality (normal-equation residual) and agreement with dense QR; constraints exact; **convergence** of error ∝ h^(p+1) fitting sin and circle data                                                                                                                                                                  | Data `1e-12 · scale` (collocation condition ~10–100); reproduction `1e-10 · scale` (normal equations square it); constraints `constraint`; convergence slope within ±0.3 of p + 1.                                                                      |
-| `solver`              | **Holladay:** knots at the data sites, `bend` only on shape ⇒ the natural cubic spline (reference path); planar data ⇒ plane with zero energy; DOF rules bitwise (`===`) where §10.3 says so; `offsetFrom` neighbours keep the apex normal within `angle`; target = current ⇒ x unchanged; range-space vs `solveFairReference`; KKT stationarity; rigid-motion equivariance; mirror-symmetric input ⇒ symmetric output; separable and coupled paths agree; dependent and inconsistent rows reported with the right indices | Range-space vs reference `1e-9` rel (Schur path error ~cond·ε ≈ 2e-10 at cond 10⁶ after scaling); residual `constraint`; bitwise where stated.                                                                                                          |
-| `project`             | Points built as `S(u*, v*) + d·n` with `\|d\| < 1/κ_max` on sphere, cylinder, torus project to `(u*, v*)` at distance `\|d\|`; circle: radial foot; random points vs dense sampling + Newton brute force; `converged` honest                                                                                                                                                                                                                                                                                               | Parameter `1e-12` rel of the domain; distance `point`; brute force agreement `1e-9 · scale`.                                                                                                                                                            |
-| `curve-on-surface`    | `v = const` on a cylinder is an exact circle; chain-rule derivatives vs finite differences; `isoLinePcurve` exact; fitted pcurve and 3D edge: reported `maxDeviation` / `maxError` honest against 4× denser sampling                                                                                                                                                                                                                                                                                                       | Exact cases `64 ε · scale`; FD `1e-8` rel; honesty: dense max ≤ reported × 1.01 and reported ≤ `fit` when `withinTolerance`.                                                                                                                            |
-| `trim`                | Trimmed disc area `πr²`; square with circular hole `a² − πr²`; rejects CW outer (re-oriented with warning), self-intersection, open loops, holes outside; `classifyUV` vs winding number                                                                                                                                                                                                                                                                                                                                   | Areas `10 · quadRel` rel (rational pcurves) or `1e-13` rel (polynomial: exact rule); classification exact (exact predicates).                                                                                                                           |
-| `predicates`          | Exact BigInt determinant sign on random, 1-ulp-perturbed, cocircular and large-offset inputs; fixed CCW triples give > 0                                                                                                                                                                                                                                                                                                                                                                                                   | Exact sign.                                                                                                                                                                                                                                             |
-| `cdt`                 | Every constraint present; every triangle strictly CCW; local Delaunay on unconstrained edges (exact incircle); symmetric half-edges; Euler `T = 2V − B − 2 + 2H`; area sum = shoelace; differential vs `delaunator` (general position: same triangle sets) and `constrainautor` (unique CDT: same edge sets) on 10⁴ seeded cases; adversarial: points on segments, collinear chains, 1-ulp near-duplicates, cocircular grids, slivers                                                                                      | Exact; area `1e-12` rel (summation).                                                                                                                                                                                                                    |
-| `tessellate`          | Chord error ≤ `chordTol` at centroids and edge midpoints (by projection); shared edge vertices bitwise identical across faces; Euler characteristic 2 (lens, cylinder) and 0 (torus); mesh volume converges at O(h²)                                                                                                                                                                                                                                                                                                       | Chord as stated; watertight exact; convergence ratio 3.5–4.5 per halving.                                                                                                                                                                               |
-| `integrate`, `mass`   | Polynomial prism (exact rational volume), lens `πabh`, sphere `4/3 πr³`, torus `2π²Rr²`, cylinder with trimmed caps `πr²h`, plate with hole `(4L² − πr²)t`, spherical cap area `2πrh`; polynomial volume unchanged from n to n + 5 GL points; translation by 100 cm leaves volume unchanged; flipped orientation negates it                                                                                                                                                                                                | Polynomial `1e-12` rel (exact rule, ~10³ summed terms); rational `10 · quadRel` rel; translation `1e-12` rel.                                                                                                                                           |
-| `continuity`          | Two planes hinged at θ: angle θ; plane tangent to a cylinder: G1 with mismatch exactly `1/r`; a patch split by knot insertion: zeros; a deliberate gap δ reads δ; lens rail dihedral `cos φ = (4h²/a² − 1)/(4h²/a² + 1)`; `knotContinuity` on designed C⁰/C¹/C²/G1 joins (G1 with speed ratio ≠ 1 is G1, not C1)                                                                                                                                                                                                           | Angles `1e-12` rad; gaps `point`; mismatch `1e-12` rel.                                                                                                                                                                                                 |
-| `brep`                | Euler on the corpus; defect-injection catalogue (§13) all detected; `edgeGaps` equal independently sampled deviations                                                                                                                                                                                                                                                                                                                                                                                                      | Exact; gaps `1e-12 · scale`.                                                                                                                                                                                                                            |
-| `step`                | `readStepSubset(writeStep(b))` bitwise equals `b`; byte-identical output for the same timestamp; Part 21 lexical rules (reals contain `.`; strings escaped); no dangling or unused ids; complex sub-entity order; arity table; **OCCT protocol (§15) on the corpus**                                                                                                                                                                                                                                                       | Bitwise; OCCT checks as in §15.3.                                                                                                                                                                                                                       |
+| Module                | Oracle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Tolerance and why                                                                                                                                                                                                                                       |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | --- |
+| `basis`               | P&T Ex. 2.3 (`U = {0,0,0,1,2,3,4,4,5,5,5}`, p = 2, u = 5/2 → 1/8, 6/8, 1/8) and Ex. 2.4 derivatives; Bézier knots give Bernstein polynomials in closed form; A2.4 vs A2.2                                                                                                                                                                                                                                                                                                                                                                                                     | `4(p+1)ε` absolute: A2.2 sums p + 1 terms of O(1) relative error. Book examples exact in binary fractions: bitwise.                                                                                                                                     |
+| `basis` (properties)  | Partition of unity, non-negativity, derivative sums 0; `findSpan` vs linear scan incl. `u = b` and every multiplicity, both sides                                                                                                                                                                                                                                                                                                                                                                                                                                             | `4(p+1)ε`; spans exact.                                                                                                                                                                                                                                 |
+| `book/curve`, `curve` | Bézier vs closed-form Bernstein sum and its exact derivatives; rational circle (A7.1, 9-point and periodic 8-point): `\|C(t) − c\| = r`; ellipse as affine image; affine invariance                                                                                                                                                                                                                                                                                                                                                                                           | Radius `64 ε r`: ~10 flops and one division per coordinate; a wrong weight errs ≥ 1e-3 r. Bernstein `64 ε · scale · p!` for derivatives.                                                                                                                |
+| `curve` (derivatives) | Central differences with Richardson extrapolation inside spans; one-sided derivatives at C⁰ knots equal the split halves' end derivatives; multi-span rational: A7.1 arcs of 1–4 segments against the half-angle closed form to C‴, both sides of every knot                                                                                                                                                                                                                                                                                                                  | 1e-8 rel for C′, C″ and C‴ (truncation ~h⁴ ≈ 1e-12, cancellation ~ε/h² ≈ 2e-10 at h = 2⁻¹⁰ of the span), relative to the local `max(\|C⁽ᵏ⁾(t)\|, \|C⁽ᵏ⁻¹⁾(t)\|/span)`; one-sided: `1e-13 · scale`; closed form: `64 ε · M · ρ^(k+1) · p!/(p−k)! / h^k`. |
+| `curve-measure`       | Circle curvature `1/r`, length `2πr`; parabola curvature `2/(1+4x²)^{3/2}`, length `x√(1+4x²)/2 + asinh(2x)/4`; ellipse curvature; `paramAtLength(lengthAtParam(t)) = t`                                                                                                                                                                                                                                                                                                                                                                                                      | Curvature `1e-12` rel (two derivative evaluations, one division); length `10 · quadRel` rel (GK estimate is not a bound: 10× margin); inverse `paramRel`.                                                                                               |
+| `curve-ops`           | Shape invariance under insert, refine, elevate, split, reverse∘reverse, reparameterise, `toClamped`, Bézier decomposition, at 1,000 params and every knot; counts `m = n + p + 1`; P&T Ex. 5.1 (insertion) fixtures; eq. 5.36 Bézier elevation closed form; `makeCompatible` keeps shapes; periodic middle-period consistency                                                                                                                                                                                                                                                 | `1e-13 · scale`: each op is convex combinations (~ε per step) chained ≤ 100 times; book fixtures bitwise where exact in binary.                                                                                                                         |
+| `surface`             | Rational sphere (A8.1): radius `r`; torus: points on the torus; cylinder; plane; `z = xy` bilinear; cone from a revolved line; Bézier patches vs the closed-form Bernstein double sum with the quotient rule written out (to second order); linear precision (Greville nets reproduce `(u, v, uv)` on random knots); vs A2.4 summed over the net; partials vs Richardson differences; one-sided partials at a C⁰ knot line vs the Bézier halves; invariance under A5.1 per row/column; iso-curve equals the surface at the fixed parameter; boundary curve equals the net row | `64 ε r` for radii; Bézier `64 ε · M · ρ^(k+l+1) · (2p)^k (2q)^l`; iso (`u` fixed) bitwise, (`v` fixed) and boundary `1e-14 · scale` (same arithmetic re-associated); FD `1e-8` of the local scale; insertion `1e-13 · scale`.                          |
+| `surface-measure`     | Sphere `k₁ = k₂ = −1/r`, `K = 1/r²`; torus `k = −1/r` and `−cos v/(R + r cos v)`, `K = cos v/(r(R + r cos v))`, directions along meridian and parallel; cylinder `(0, −1/r)`, zero direction along the axis; plane 0; `z = xy`: every form coefficient, `K = −1/(1+x²+y²)²`; paraboloid, saddle and elliptic paraboloid (graph formulas); Weingarten `L = −Su·n_u` … vs differences of the normal; Euler's theorem; `limitNormal` at sphere poles = ±axis                                                                                                                     | `1e-12` rel: second derivatives of rational patches lose ~3 digits to the quotient rule. Normals `1e-13`; directions `1e-10` (eigenvector error ~ rounding/gap); FD `1e-8` of the local scale, step resolving `κ·                                       | Su  | `.  |
+| `plan`                | `evalSurfacePlan` = `surfaceEvalInto` bitwise; dirty update after random edits = full re-evaluation bitwise; touched set = brute-force support; `planMatches` false after insertion                                                                                                                                                                                                                                                                                                                                                                                           | Exact: same arithmetic in the same order.                                                                                                                                                                                                               |
+| `quadrature`          | GL nodes vs Abramowitz–Stegun tables; exact on monomials to degree `2n − 1`; adaptive vs closed forms (∫ rational, ∫ √, ∫ with a kink at a break)                                                                                                                                                                                                                                                                                                                                                                                                                             | Nodes `4ε`; monomials `4nε` rel; adaptive `10 · quadRel` rel.                                                                                                                                                                                           |
+| `primitives`          | Exactness above; `conicArc` ρ = 0.5 is a parabola; ρ vs eccentricity; `revolve` of a line is a cone with the right half-angle                                                                                                                                                                                                                                                                                                                                                                                                                                                 | `64 ε · scale`.                                                                                                                                                                                                                                         |
+| `fit`                 | Interpolation passes through the data; **polynomial reproduction** (data from a degree-≤ p polynomial gives that polynomial); end derivatives exact; periodic interpolation C^(p−1) at the seam; LSQ optimality (normal-equation residual) and agreement with dense QR; constraints exact; **convergence** of error ∝ h^(p+1) fitting sin and circle data                                                                                                                                                                                                                     | Data `1e-12 · scale` (collocation condition ~10–100); reproduction `1e-10 · scale` (normal equations square it); constraints `constraint`; convergence slope within ±0.3 of p + 1.                                                                      |
+| `solver`              | **Holladay:** knots at the data sites, `bend` only on shape ⇒ the natural cubic spline (reference path); planar data ⇒ plane with zero energy; DOF rules bitwise (`===`) where §10.3 says so; `offsetFrom` neighbours keep the apex normal within `angle`; target = current ⇒ x unchanged; range-space vs `solveFairReference`; KKT stationarity; rigid-motion equivariance; mirror-symmetric input ⇒ symmetric output; separable and coupled paths agree; dependent and inconsistent rows reported with the right indices                                                    | Range-space vs reference `1e-9` rel (Schur path error ~cond·ε ≈ 2e-10 at cond 10⁶ after scaling); residual `constraint`; bitwise where stated.                                                                                                          |
+| `project`             | Points built as `S(u*, v*) + d·n` with `\|d\| < 1/κ_max` on sphere, cylinder, torus project to `(u*, v*)` at distance `\|d\|`; circle: radial foot; random points vs dense sampling + Newton brute force; `converged` honest                                                                                                                                                                                                                                                                                                                                                  | Parameter `1e-12` rel of the domain; distance `point`; brute force agreement `1e-9 · scale`.                                                                                                                                                            |
+| `curve-on-surface`    | `v = const` on a cylinder is an exact circle; chain-rule derivatives vs finite differences; `isoLinePcurve` exact; fitted pcurve and 3D edge: reported `maxDeviation` / `maxError` honest against 4× denser sampling                                                                                                                                                                                                                                                                                                                                                          | Exact cases `64 ε · scale`; FD `1e-8` rel; honesty: dense max ≤ reported × 1.01 and reported ≤ `fit` when `withinTolerance`.                                                                                                                            |
+| `trim`                | Trimmed disc area `πr²`; square with circular hole `a² − πr²`; rejects CW outer (re-oriented with warning), self-intersection, open loops, holes outside; `classifyUV` vs winding number                                                                                                                                                                                                                                                                                                                                                                                      | Areas `10 · quadRel` rel (rational pcurves) or `1e-13` rel (polynomial: exact rule); classification exact (exact predicates).                                                                                                                           |
+| `predicates`          | Exact BigInt determinant sign on random, 1-ulp-perturbed, cocircular and large-offset inputs; fixed CCW triples give > 0                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Exact sign.                                                                                                                                                                                                                                             |
+| `cdt`                 | Every constraint present; every triangle strictly CCW; local Delaunay on unconstrained edges (exact incircle); symmetric half-edges; Euler `T = 2V − B − 2 + 2H`; area sum = shoelace; differential vs `delaunator` (general position: same triangle sets) and `constrainautor` (unique CDT: same edge sets) on 10⁴ seeded cases; adversarial: points on segments, collinear chains, 1-ulp near-duplicates, cocircular grids, slivers                                                                                                                                         | Exact; area `1e-12` rel (summation).                                                                                                                                                                                                                    |
+| `tessellate`          | Chord error ≤ `chordTol` at centroids and edge midpoints (by projection); shared edge vertices bitwise identical across faces; Euler characteristic 2 (lens, cylinder) and 0 (torus); mesh volume converges at O(h²)                                                                                                                                                                                                                                                                                                                                                          | Chord as stated; watertight exact; convergence ratio 3.5–4.5 per halving.                                                                                                                                                                               |
+| `integrate`, `mass`   | Polynomial prism (exact rational volume), lens `πabh`, sphere `4/3 πr³`, torus `2π²Rr²`, cylinder with trimmed caps `πr²h`, plate with hole `(4L² − πr²)t`, spherical cap area `2πrh`; polynomial volume unchanged from n to n + 5 GL points; translation by 100 cm leaves volume unchanged; flipped orientation negates it                                                                                                                                                                                                                                                   | Polynomial `1e-12` rel (exact rule, ~10³ summed terms); rational `10 · quadRel` rel; translation `1e-12` rel.                                                                                                                                           |
+| `continuity`          | Two planes hinged at θ: angle θ; plane tangent to a cylinder: G1 with mismatch exactly `1/r`; a patch split by knot insertion: zeros; a deliberate gap δ reads δ; lens rail dihedral `cos φ = (4h²/a² − 1)/(4h²/a² + 1)`; `knotContinuity` on designed C⁰/C¹/C²/G1 joins (G1 with speed ratio ≠ 1 is G1, not C1)                                                                                                                                                                                                                                                              | Angles `1e-12` rad; gaps `point`; mismatch `1e-12` rel.                                                                                                                                                                                                 |
+| `brep`                | Euler on the corpus; defect-injection catalogue (§13) all detected; `edgeGaps` equal independently sampled deviations                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Exact; gaps `1e-12 · scale`.                                                                                                                                                                                                                            |
+| `step`                | `readStepSubset(writeStep(b))` bitwise equals `b`; byte-identical output for the same timestamp; Part 21 lexical rules (reals contain `.`; strings escaped); no dangling or unused ids; complex sub-entity order; arity table; **OCCT protocol (§15) on the corpus**                                                                                                                                                                                                                                                                                                          | Bitwise; OCCT checks as in §15.3.                                                                                                                                                                                                                       |
 
 ---
 
@@ -2381,6 +2460,15 @@ may fail a regression of more than 2×.
 | P23 | `writeStep`                                                     | board-size 3-face B-rep                             | ≤ 100 ms, file size at both precisions | existing writer ≈ 0.5 s incl. fit  |
 | P24 | Allocation                                                      | 10k simulated drag frames                           | no GC beyond `cw` copies               | —                                  |
 
+**First measurements (F2, `src/eval.bench.ts`).** On the session's 4-vCPU cloud
+container (Node 22.22; a plain loop runs ~1.4 ns per multiply-add and a small typed
+array costs ~1.5 µs to allocate, several times a desktop) every P1–P9 target was
+missed, under `vitest bench`: P1 0.31 M/s, P2 0.31 M/s, P3 9.1 ms, P4 0.27 M/s, P5
+0.18 M/s, P6 8.5 ms, P7 6.5 ms, P8 0.36 ms (5.5% touched), P9 1.8 ms. The same code
+run as a plain Node script: P3 5.1–6.9 ms, P7 4.4 ms, P6 4.7–5.3 ms. P1/P2/P4/P5 call
+allocating wrappers, which create a scratch per call: on this machine that allocation
+dominates. Re-measure on the reference desktop before acting on tier-2 options (§9).
+
 ---
 
 ## 18. Build order
@@ -2406,7 +2494,8 @@ API test, ESLint layer, lockfile entry, this document.
 - **F2 Surfaces.** `book/surface.ts`; `surface.ts` (incl. exact iso and boundary
   curves); `surface-measure.ts`; `plan.ts` (sample plans and dirty evaluation);
   surface primitives (plane, bilinear, Bézier patch, revolve, sphere, torus,
-  cylinder, extrude); the `bench` script and P1–P9.
+  cylinder, extrude); the `bench` script and P1–P9 (`src/eval.bench.ts`);
+  `randomSurface` in `testing`.
 
 **Track A — fitting and solving:**
 
