@@ -16,6 +16,7 @@ import { makeCompatible } from './curve-ops';
 import { fail } from './errors';
 import { makeSurface, surfaceFromHomogeneous } from './surface';
 import { resolveTolerances } from './tolerance';
+import type { Tolerances } from './tolerance';
 import type {
   Basis,
   ClampedCurve,
@@ -634,14 +635,28 @@ export function cylinder(base: Point3, axis: Point3, r: number, h: number): Nurb
  * and j = 1 `b`'s, so with unequal weights the segment is a rational line
  * (straight, non-uniform in v). Polynomial curves give
  * `S(u, v) = (1 − v)·a(u) + v·b(u)` exactly.
+ *
+ * Unifying near-coincident knots of `a` and `b` (closer than
+ * `knotRel × domain`) moves the boundary rows by up to `makeCompatible`'s
+ * certified `maxDeviation`; above `tol.point` that would break
+ * `S(u, 0) = a(u)`, so it throws `knots-near-coincident` instead.
  */
-export function ruled(a: NurbsCurve<3>, b: NurbsCurve<3>): NurbsSurface {
+export function ruled(a: NurbsCurve<3>, b: NurbsCurve<3>, tol?: Partial<Tolerances>): NurbsSurface {
   checkCurveShape(a);
   checkCurveShape(b);
   if (a.dim !== 3 || b.dim !== 3) {
     fail('dimension-mismatch', `ruled needs 3D curves; got dimensions ${a.dim} and ${b.dim}`);
   }
-  const [ca, cb] = makeCompatible([a, b]).curves as readonly [NurbsCurve<3>, NurbsCurve<3>];
+  const tl = resolveTolerances(tol);
+  const m = makeCompatible([a, b], tl);
+  if (m.maxDeviation > tl.point) {
+    fail(
+      'knots-near-coincident',
+      `unifying the curves' near-coincident knots moves them by up to ${m.maxDeviation} > point ${tl.point}`,
+      { value: m.maxDeviation },
+    );
+  }
+  const [ca, cb] = m.curves as readonly [NurbsCurve<3>, NurbsCurve<3>];
   const n = ca.basis.count;
   const cw = new Float64Array(n * 8);
   for (let i = 0; i < n; i++) {

@@ -33,6 +33,9 @@ import {
   isGeomError,
   isoCurve,
   line,
+  makeCompatible,
+  makeCurve,
+  clampedBasis,
   normalizeSurfaceDomain,
   periodicCircle,
   refineKnots,
@@ -394,6 +397,34 @@ describe('ruled', () => {
         }
       }
     }
+  });
+
+  it('rules curves with near-coincident knots; refuses when unifying them moves a boundary beyond point', () => {
+    // a's knots are 1.5·d apart (valid); b's lies between them, within d of both
+    // (d = knotRel × domain = 1e-10). makeCompatible snaps b's knot onto one of a's.
+    const d = 1e-10;
+    const cubic = (ks: number[], z: number): NurbsCurve<3> => {
+      const n = ks.length + 4;
+      return makeCurve({
+        dim: 3,
+        basis: clampedBasis(3, [0, 0, 0, 0, ...ks, 1, 1, 1, 1]),
+        points: Array.from({ length: n }, (_, i) => [i, (i * i) % 3, z]).flat(),
+      });
+    };
+    const a = cubic([0.3, 0.3 + 1.5 * d], 0);
+    const b = cubic([0.3 + 0.75 * d], 1);
+    const { maxDeviation } = makeCompatible([a, b]);
+    expect(maxDeviation).toBeGreaterThan(0);
+    const s = ruled(a, b);
+    for (let i = 0; i <= 200; i++) {
+      const u = i / 200;
+      // a keeps its knots: exact to rounding. b moved: within the certified bound.
+      expect(dist(surfacePoint(s, u, 0), curvePoint(a, u))).toBeLessThan(SHAPE * 8);
+      expect(dist(surfacePoint(s, u, 1), curvePoint(b, u))).toBeLessThanOrEqual(
+        maxDeviation + SHAPE * 8,
+      );
+    }
+    expectCode(() => ruled(a, b, { point: maxDeviation / 2 }), 'knots-near-coincident');
   });
 
   it('rejects mixed kinds and 2D curves', () => {

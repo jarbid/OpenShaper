@@ -821,7 +821,8 @@ export function toClamped<D extends Dim>(
 export function decomposeBezier<D extends Dim>(c: ClampedCurve<D>): readonly ClampedCurve<D>[]; // A5.6
 /**
  * All clamped or all periodic with equal domains; common degree and knots, shapes
- * unchanged. Near-coincident knots of different curves are unified (most-used value);
+ * unchanged. Near-coincident knots of different curves are unified without chaining
+ * (most-used values kept, others snap to the nearest kept value within knotRel × domain);
  * maxDeviation is the certified bound of removeKnot for that move, 0 when none moved.
  */
 export function makeCompatible<C extends NurbsCurve>(
@@ -1222,7 +1223,8 @@ export function torus(center: Point3, axis: Point3, R: number, r: number): Nurbs
 // extrude(periodicCircle, h·axis): periodic u, v from base (0) to top (1); outward n.
 export function cylinder(base: Point3, axis: Point3, r: number, h: number): NurbsSurface;
 export function extrude(c: NurbsCurve<3>, dir: Point3): NurbsSurface;
-export function ruled(a: NurbsCurve<3>, b: NurbsCurve<3>): NurbsSurface; // via makeCompatible [A1]
+// via makeCompatible; throws knots-near-coincident if unifying knots moves a boundary > tol.point [A1]
+export function ruled(a: NurbsCurve<3>, b: NurbsCurve<3>, tol?: Partial<Tolerances>): NurbsSurface;
 ```
 
 ### 6.12 Fitting [A2; `fairness` options from A3]

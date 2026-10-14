@@ -763,11 +763,15 @@ export function removeKnot<D extends Dim>(
  * one kind and equal domains (periodic: equal `t_0` and period).
  *
  * Distinct knots of different curves closer than `knotRel × domain` would make
- * sliver spans, so each cluster of them is unified on its most frequent value
- * (ties: the smallest), moving a knot by at most a few `knotRel × domain`
- * (§4.3). `maxKnotShift` is the largest such move; `maxDeviation` is a
- * rigorous bound ({@link deviationBound}) on the shape change it caused, 0 when
- * no knot moved (every other step is exact).
+ * sliver spans, so they are unified without chaining: the most used values
+ * (ties: the smallest) are kept, and every other value within
+ * `knotRel × domain` of a kept one snaps to the nearest, so a knot moves by
+ * less than `knotRel × domain` (§4.3). `maxKnotShift` is the largest such move;
+ * `maxDeviation` is a rigorous bound ({@link deviationBound}) on the shape
+ * change it caused, 0 when no knot moved (every other step is exact). Throws
+ * `knots-near-coincident` when a value cannot snap without merging two knots
+ * of one curve (which needs that curve to have two knots less than
+ * `2 · knotRel × domain` apart, both near a more used value).
  */
 export function makeCompatible<C extends NurbsCurve>(
   cs: readonly C[],
@@ -807,29 +811,49 @@ export function makeCompatible<C extends NurbsCurve>(
   const pMax = Math.max(...cs.map((c) => c.basis.degree));
   const elevated = cs.map((c) => elevateDir(c.basis, c.cw, h, pMax - c.basis.degree, tl));
 
-  // Unify near-coincident values across curves (the ends never cluster: each
-  // curve's own knots are ≥ knotRel × domain from them).
+  // Unify near-coincident values across curves without chaining: values become
+  // representatives greedily, most used first (ties: the smallest), unless a
+  // representative is already within d; such a value snaps to the nearest
+  // representative within d that no curve of its own already maps a knot to.
+  // Representatives are pairwise ≥ d apart, so the merged knots are valid and no
+  // knot moves by d or more. The ends never move: every curve uses them (most
+  // used), and each curve's own knots are ≥ d from them.
   const d = tl.knotRel * (e - a);
   const values = mergedBreaks(
     Float64Array.from(elevated.flatMap((r) => Array.from(r.basis.knots as Float64Array))),
     Float64Array.of(a),
   );
+  const users = values.map((v) =>
+    elevated.flatMap((r, idx) => (multiplicity(r.basis.knots, v) > 0 ? [idx] : [])),
+  );
+  const order = values
+    .map((_, i) => i)
+    .sort((i, j) => users[j]!.length - users[i]!.length || i - j);
+  const reps: number[] = []; // representative values
+  const claimed: Set<number>[] = []; // per representative, the curves mapped onto it
   const rep = new Map<number, number>();
-  for (let i = 0; i < values.length; ) {
-    let j = i;
-    while (j + 1 < values.length && values[j + 1]! - values[j]! < d) j++;
-    let best = values[i]!;
-    let bestUses = -1;
-    for (let k = i; k <= j; k++) {
-      const v = values[k]!;
-      const uses = elevated.filter((r) => multiplicity(r.basis.knots, v) > 0).length;
-      if (uses > bestUses) {
-        best = v;
-        bestUses = uses;
-      }
+  for (const i of order) {
+    const v = values[i]!;
+    const near = [...reps.keys()]
+      .filter((k) => Math.abs(reps[k]! - v) < d)
+      .sort((k, l) => Math.abs(reps[k]! - v) - Math.abs(reps[l]! - v) || reps[k]! - reps[l]!);
+    if (near.length === 0) {
+      reps.push(v);
+      claimed.push(new Set(users[i]));
+      rep.set(v, v);
+      continue;
     }
-    for (let k = i; k <= j; k++) rep.set(values[k]!, best);
-    i = j + 1;
+    const k = near.find((k) => users[i]!.every((c) => !claimed[k]!.has(c)));
+    if (k === undefined) {
+      const c = users[i]!.find((c) => claimed[near[0]!]!.has(c))!;
+      fail(
+        'knots-near-coincident',
+        `curve ${c}: knot ${v} would merge with another of its knots on unifying near-coincident knots at ${reps[near[0]!]}`,
+        { index: c, t: v },
+      );
+    }
+    for (const c of users[i]!) claimed[k]!.add(c);
+    rep.set(v, reps[k]!);
   }
   let maxKnotShift = 0;
   let maxDeviation = 0;
@@ -837,18 +861,7 @@ export function makeCompatible<C extends NurbsCurve>(
     const U = r.basis.knots;
     const V = Float64Array.from(U as Float64Array, (x) => rep.get(x) ?? x);
     let shift = 0;
-    for (let i = 0; i < U.length; i++) {
-      shift = Math.max(shift, Math.abs(V[i]! - U[i]!));
-      if (i > 0 && V[i] === V[i - 1] && U[i] !== U[i - 1]) {
-        fail(
-          'knots-near-coincident',
-          `curve ${idx}: knots ${U[i - 1]} and ${U[i]} would merge into one`,
-          {
-            index: idx,
-          },
-        );
-      }
-    }
+    for (let i = 0; i < U.length; i++) shift = Math.max(shift, Math.abs(V[i]! - U[i]!));
     if (shift === 0) return r;
     maxKnotShift = Math.max(maxKnotShift, shift);
     const basis = periodic

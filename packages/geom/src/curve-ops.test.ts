@@ -34,6 +34,7 @@ import {
   clampedBasis,
   controlPointsInto,
   createScratch,
+  curveFromHomogeneous,
   curveDerivatives,
   curveEvalBatchInto,
   curvePoint,
@@ -422,6 +423,42 @@ describe('removeKnot (A5.8)', () => {
     expect(lossy).toBeGreaterThan(0);
   });
 
+  it('reports an honest bound for a lossy rational removal (weights change too)', () => {
+    // Insert a knot into a rational curve, then scale one of the new homogeneous points
+    // by (1 + δ): its Euclidean point stays, its weight moves, so the knot is no longer
+    // removable exactly and every removal changes the weights (ΔW ≠ 0, P&T eq. 5.30).
+    const rng = mulberry32(23);
+    for (let trial = 0; trial < 10; trial++) {
+      const p = 2 + (trial % 3);
+      const c0 = randomCurve(rng, {
+        dim: 3,
+        degree: p,
+        count: p + 6,
+        weightRange: [0.5, 2],
+      }) as ClampedCurve<3>;
+      const t = 0.35 + 0.3 * rng();
+      const ins = insertKnot(c0, t);
+      const cw = Float64Array.from(ins.cw as Float64Array);
+      let k = 0;
+      while (ins.basis.knots[k + 1]! <= t) k++; // t = U[k], last copy
+      const i = k - p + 1 + (trial % p); // one of the p new points
+      const delta = 1e-4 * (trial % 2 ? 1 : -1);
+      for (let c = 0; c < 4; c++) cw[4 * i + c] = cw[4 * i + c]! * (1 + delta);
+      const target = curveFromHomogeneous({ dim: 3, basis: ins.basis, cw }) as ClampedCurve<3>;
+      // A5.8's rational check distance is point·w_min/(1 + |P|_max) ≥ point/7 here, above
+      // the ≤ 4·δ homogeneous change; the certified bound stays below point.
+      const point = 1e-2;
+      const r = removeKnot(target, t, 1, { point });
+      expect(r.removed).toBe(1);
+      expect(r.maxDeviation).toBeGreaterThan(0);
+      expect(r.maxDeviation).toBeLessThanOrEqual(point);
+      const ts = params(target, 20000);
+      const dense = maxDist(evalPts(target, ts), evalPts(r.curve, ts), 3);
+      expect(dense).toBeGreaterThan(0);
+      expect(dense).toBeLessThanOrEqual(r.maxDeviation);
+    }
+  });
+
   it('rejects non-knots, ends, excess counts and periodic curves', () => {
     const c = randomCurve(mulberry32(23), { dim: 2, degree: 3, count: 8 }) as ClampedCurve<2>;
     expectCode(() => removeKnot(c, 0.123456), 'unsupported');
@@ -641,6 +678,67 @@ describe('makeCompatible', () => {
     expect(r.maxDeviation).toBeGreaterThan(0);
   });
 
+  /** A cubic on [0, 1] with interior knots `ks` (each simple) and a bumpy net. */
+  const cubicWith = (ks: number[], seed: number): NurbsCurve<2> => {
+    const rng = mulberry32(seed);
+    const n = ks.length + 4;
+    return makeCurve({
+      dim: 2,
+      basis: clampedBasis(3, [0, 0, 0, 0, ...ks, 1, 1, 1, 1]),
+      points: Array.from({ length: n }, (_, i) => [i / (n - 1), 2 * rng() - 1]).flat(),
+    });
+  };
+
+  it('never chains near-coincident knots: two knots of one curve ≥ knotRel apart stay apart', () => {
+    // A's knots are 1.5·d apart (valid); B's knot lies between them, within d of both.
+    // Unifying transitively would put all three into one cluster and merge A's two knots.
+    const d = 1e-10; // knotRel × domain
+    const A = cubicWith([0.3, 0.3 + 1.5 * d], 1);
+    const B = cubicWith([0.3 + 0.75 * d], 2);
+    const r = makeCompatible([A, B]);
+    // §4.3: a knot moves by less than knotRel × domain.
+    expect(r.maxKnotShift).toBeGreaterThan(0);
+    expect(r.maxKnotShift).toBeLessThan(d);
+    // A keeps both knots (B's knot snaps onto one of them), so A is unchanged.
+    expect(knotMultiplicities(r.curves[0]!.basis).values).toEqual(
+      knotMultiplicities(A.basis).values,
+    );
+    expect(shapeError(A, r.curves[0]!)).toBeLessThan(SHAPE);
+    const ts = params(B, 50000);
+    expect(maxDist(evalPts(B, ts), evalPts(r.curves[1]!, ts), 2)).toBeLessThanOrEqual(
+      r.maxDeviation,
+    );
+  });
+
+  it('moves a knot by less than knotRel × domain however many curves crowd a value', () => {
+    // Eight curves with one knot each at 0.5 + 0.9·d·k: every neighbour pair is within d.
+    const d = 1e-10;
+    const cs = Array.from({ length: 8 }, (_, k) => cubicWith([0.5 + 0.9 * d * k], 10 + k));
+    const r = makeCompatible(cs);
+    expect(r.maxKnotShift).toBeGreaterThan(0);
+    expect(r.maxKnotShift).toBeLessThan(d);
+    // Greedy representatives: 0.5, 0.5 + 1.8·d, … (pairwise ≥ d apart, which the basis
+    // constructor checks); every other knot snaps 0.9·d onto its left neighbour.
+    const vals = knotMultiplicities(r.curves[0]!.basis).values;
+    for (const [k, c] of cs.entries()) {
+      const ts = params(c, 20000);
+      expect(maxDist(evalPts(c, ts), evalPts(r.curves[k]!, ts), 2)).toBeLessThanOrEqual(
+        r.maxDeviation,
+      );
+    }
+    expect(vals.length).toBe(2 + 4);
+  });
+
+  it('rejects a unification that would merge two knots of one curve', () => {
+    // B and C share 0.5 (most used, so it is kept); A's knots 0.5 ± 0.9·d are 1.8·d
+    // apart but both within d of 0.5. The greedy unification cannot keep them apart.
+    const d = 1e-10;
+    const A = cubicWith([0.5 - 0.9 * d, 0.5 + 0.9 * d], 3);
+    const B = cubicWith([0.5], 4);
+    const C = cubicWith([0.5], 5);
+    expectCode(() => makeCompatible([A, B, C]), 'knots-near-coincident');
+  });
+
   it('rejects mixed dimensions, kinds and domains; accepts an empty list', () => {
     const rng = mulberry32(53);
     const a = randomCurve(rng, { dim: 2, degree: 2, count: 5 });
@@ -731,6 +829,78 @@ describe('deviationBound (removal and makeCompatible certificates)', () => {
         lam = Math.max(lam, sum);
       }
       expect(lam).toBeLessThanOrEqual((2 / Math.PI) * Math.log(p + 1) + 1);
+    }
+  });
+
+  /** `c` with homogeneous point `i` scaled by `1 + delta`: same Euclidean point, new weight. */
+  const reweighted = (c: NurbsCurve<3>, i: number, delta: number): NurbsCurve<3> => {
+    const cw = Float64Array.from(c.cw as Float64Array);
+    for (let k = 0; k < 4; k++) cw[4 * i + k] = cw[4 * i + k]! * (1 + delta);
+    return curveFromHomogeneous({ dim: 3, basis: c.basis, cw });
+  };
+
+  it('bounds a weight change (ΔW ≠ 0): dense ≤ bound', () => {
+    // A reweighted point pulls the curve towards it by (P_i − C(t))·ΔW/W, so the
+    // quotient term R·max|ΔW| of eq. 5.30 carries the bound. With P_i at the centre
+    // of the net's box the centred numerator difference vanishes identically, and
+    // only that term is left (a bound without it would be rounding noise).
+    const centred = makeCurve({
+      dim: 3,
+      basis: clampedBasis(3, [0, 0, 0, 0, 0.5, 1, 1, 1, 1]),
+      points: [0, 0, 0, 0, 1, 0, 1, 0.5, 0.5, 2, 1, 1, 2, 0, 0],
+      weights: [1, 0.8, 1.3, 0.9, 1],
+    });
+    const cases: [NurbsCurve<3>, number, number][] = [
+      [centred, 2, 0.1],
+      [centred, 2, -0.2],
+    ];
+    const rng = mulberry32(72);
+    for (let trial = 0; trial < 12; trial++) {
+      const p = 1 + (trial % 5);
+      const c = randomCurve(rng, {
+        dim: 3,
+        degree: p,
+        count: p + 5,
+        maxMult: 2,
+        weightRange: [0.5, 2],
+      }) as NurbsCurve<3>;
+      cases.push([c, 1 + (trial % (p + 3)), 0.2 * rng() - 0.1]);
+    }
+    for (const [c, i, delta] of cases) {
+      const q = reweighted(c, i, delta);
+      const U = c.basis.knots;
+      const bound = deviationBound(c.basis.degree, U, c.cw, U, q.cw, 3, true);
+      const ts = params(c, 20000);
+      const dense = maxDist(evalPts(c, ts), evalPts(q, ts), 3);
+      expect(dense).toBeGreaterThan(0);
+      expect(dense).toBeLessThanOrEqual(bound);
+    }
+  });
+
+  it('the rational bound is translation invariant (centred on the net), so it stays tight', () => {
+    // The deviation of two curves does not change when both nets move by the same
+    // offset; the bound centres the numerators on the first net's box so it does not
+    // either. Uncentred, |ΔA| would grow with |offset|·|ΔW|: ~10³ times larger here.
+    // Rounding of the 10³-sized homogeneous coordinates: ~10³ ε relative to the 1e-2
+    // differences, so 1e-9 relative slack.
+    const rng = mulberry32(73);
+    for (let trial = 0; trial < 6; trial++) {
+      const p = 2 + (trial % 3);
+      const c = randomCurve(rng, {
+        dim: 3,
+        degree: p,
+        count: p + 4,
+        weightRange: [0.5, 2],
+      }) as NurbsCurve<3>;
+      const q = reweighted(c, 2, 0.05);
+      const shift = (x: NurbsCurve<3>): Float64Array =>
+        Float64Array.from(x.cw as Float64Array, (v, k) =>
+          k % 4 === 3 ? v : v + 1000 * x.cw[k - (k % 4) + 3]!,
+        );
+      const U = c.basis.knots;
+      const b0 = deviationBound(p, U, c.cw, U, q.cw, 3, true);
+      const b1 = deviationBound(p, U, shift(c), U, shift(q), 3, true);
+      expect(Math.abs(b1 - b0)).toBeLessThan(1e-9 * b0);
     }
   });
 
