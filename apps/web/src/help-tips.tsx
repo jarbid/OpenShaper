@@ -8,16 +8,24 @@
  * memoised panels that render tooltips (`Sidebar`) are not re-rendered or rethreaded
  * for it — a context change re-renders only the tooltips that read it.
  */
-import { Tooltip, type TooltipProps } from '@openshaper/ui';
+import { Tooltip, TooltipsEnabledContext, type TooltipProps } from '@openshaper/ui';
 import { CircleHelp } from 'lucide-react';
-import { createContext, useContext } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 import { docsHref, toolbarHelp, type HelpEntry, type ToolbarHelpId } from './help-text';
 
 /**
- * Whether tooltips carry their longer description. Labels always show — an icon
- * button's name is not optional — so off means short tooltips, not none.
+ * The Show tips setting. Off hides every tooltip: `ShowTipsProvider` switches the
+ * ui `Tooltip` off too, not just the help descriptions.
  */
 export const ShowTipsContext = createContext(true);
+
+export function ShowTipsProvider({ value, children }: { value: boolean; children: ReactNode }) {
+  return (
+    <ShowTipsContext.Provider value={value}>
+      <TooltipsEnabledContext.Provider value={value}>{children}</TooltipsEnabledContext.Provider>
+    </ShowTipsContext.Provider>
+  );
+}
 
 /** A `Tooltip` whose description comes from the help table while tips are on. */
 export function HelpTooltip({

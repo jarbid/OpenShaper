@@ -173,7 +173,7 @@ describe('the help in the app', () => {
     expect(within(resize).getByText(/new length, width and thickness/)).toBeTruthy();
   });
 
-  it('describes toolbar buttons until Show tips is turned off', async () => {
+  it('shows tooltips until Show tips is turned off', async () => {
     // The Settings dialog links to the privacy page, so it needs a router around it.
     render(
       <MemoryRouter>
@@ -199,7 +199,7 @@ describe('the help in the app', () => {
     expect(loadSettings().showTips).toBe(false);
 
     fireEvent.focus(share);
-    expect(screen.getByText('Share this board as a link')).toBeTruthy();
+    expect(screen.queryByText('Share this board as a link')).toBeNull();
     expect(described()).toBeNull();
   });
 

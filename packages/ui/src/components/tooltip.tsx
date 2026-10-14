@@ -1,5 +1,7 @@
 import {
   cloneElement,
+  createContext,
+  useContext,
   useCallback,
   useEffect,
   useId,
@@ -32,6 +34,12 @@ export interface TooltipProps {
   children: ReactElement;
 }
 
+/**
+ * Whether tooltips show at all. The editor turns them off from its Show tips
+ * setting; triggers keep their `aria-label`, so nothing is lost to screen readers.
+ */
+export const TooltipsEnabledContext = createContext(true);
+
 /** Delay before showing. Long enough not to fire while sweeping across a toolbar. */
 const OPEN_DELAY_MS = 400;
 /** Gap between the trigger and the tooltip. */
@@ -58,7 +66,12 @@ const MARGIN = 8;
  *
  * The trigger keeps its own handlers — they're chained, not replaced.
  */
-export function Tooltip({ label, shortcut, description, side = 'bottom', children }: TooltipProps) {
+export function Tooltip(props: TooltipProps) {
+  // Off renders the bare trigger: no listeners, so nothing can open.
+  return useContext(TooltipsEnabledContext) ? <EnabledTooltip {...props} /> : props.children;
+}
+
+function EnabledTooltip({ label, shortcut, description, side = 'bottom', children }: TooltipProps) {
   const id = useId();
   const triggerRef = useRef<HTMLElement | null>(null);
   const tipRef = useRef<HTMLDivElement>(null);

@@ -85,7 +85,7 @@ import { DEFAULT_SPLIT, loadViewState, saveViewState, type SplitPanes } from './
 import { Brandmark } from './components/marks';
 import { CommandPalette, commandsFromMenus } from './CommandPalette';
 import { commandHelp } from './help-text';
-import { HelpTooltip, ShowTipsContext } from './help-tips';
+import { HelpTooltip, ShowTipsProvider } from './help-tips';
 import { ConstructionPanel } from './ConstructionPanel';
 import { SettingsDialog } from './SettingsDialog';
 import { ShareDialog } from './ShareDialog';
@@ -1933,7 +1933,7 @@ function AppShell() {
       )}
     </div>
   );
-  return <ShowTipsContext.Provider value={settings.showTips}>{shell}</ShowTipsContext.Provider>;
+  return <ShowTipsProvider value={settings.showTips}>{shell}</ShowTipsProvider>;
 }
 
 export function App() {

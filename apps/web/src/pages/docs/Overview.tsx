@@ -82,10 +82,9 @@ export default function DocsOverview() {
           </Term>
           <Term name="Tips">
             Hovering or tabbing to a toolbar button shows its name and, under it, a line on what it
-            does. Once you know the buttons, turn the second line off with{' '}
-            <strong>Edit ▸ Settings… ▸ Show tips</strong>; the names keep showing, since an icon
-            button has no other label you can see. Tips are for a mouse or trackpad and keyboard
-            focus — a touch screen does not show them.
+            does. Once you know the buttons, turn tooltips off with{' '}
+            <strong>Edit ▸ Settings… ▸ Show tips</strong>. Tips are for a mouse or trackpad and
+            keyboard focus — a touch screen does not show them.
           </Term>
           <Term name="The ? on a section">
             Each sidebar section has a small <strong>?</strong> beside its header that opens the
@@ -122,8 +121,8 @@ export default function DocsOverview() {
             <Link to="/docs/editing#blank">Cross-sections stay inside the blank</Link>).
           </Term>
           <Term name="Show tips">
-            On by default: toolbar buttons show a line on what they do under their name (see{' '}
-            <Link to="/docs#help">Finding a tool</Link>).
+            On by default: hovering a button shows its name and what it does. Turned off, no
+            tooltips show (see <Link to="/docs#help">Finding a tool</Link>).
           </Term>
         </Terms>
       </Section>

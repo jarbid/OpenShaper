@@ -238,7 +238,8 @@ export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProp
               onChange={(v) => set('showTips', v)}
             />
             <p className="text-xs text-muted-foreground">
-              Adds a line on what a toolbar button does under its name. Names always show.
+              Shows a button's name and what it does when you hover over it or tab to it. Turn off
+              to hide tooltips.
             </p>
           </SettingsGroup>
         </PanelBody>
