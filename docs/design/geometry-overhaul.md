@@ -443,7 +443,7 @@ asymmetric test board (B only).
 | Control     | Editing rails never changes the outline or rocker (automated test plus manual check); numeric entry is exact; keyboard nudging works in 2D and 3D.                                                                     |
 | Export      | STEP opens as one solid in Rhino 8, Fusion 360 and FreeCAD (and SolidWorks if available), a 3 mm offset succeeds, volume within 1% of the spec panel; STL is watertight; a CAM toolpath generates.                     |
 | Performance | Drag cost and render counts no worse than the classic engine on `apps/web/tools/perf/browser-perf.mjs` (desktop and throttled phone); no new runtime dependency; bundle size delta recorded.                           |
-| Usability   | Jared plus one or two shapers (a shaper User01 knows, User02) complete set tasks: shape a rail in the tail, set edge hardness, make a swallow from a template, compare against a ghost.                                    |
+| Usability   | Jared plus one or two shapers (a shaper User01 knows, User02) complete set tasks: shape a rail in the tail, set edge hardness, make a swallow from a template, compare against a ghost.                                |
 
 **If adopted (Phase 7, on `main`):** the new engine replaces the classic one.
 Golden fixtures are regenerated against the new oracles, with

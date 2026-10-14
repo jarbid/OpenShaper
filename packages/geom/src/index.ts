@@ -11,8 +11,90 @@
  *
  * Every export is listed by name, and `index.test.ts` pins the runtime export
  * list, so each change to the public API shows up in a diff. Internal modules
- * (`book/`, `linalg/`, assembly helpers) are never re-exported.
+ * (`book/`, `linalg/`, assembly helpers) are never re-exported. Test helpers
+ * live in the `@openshaper/geom/testing` subpath, never here.
  */
+
+// Tolerances, errors, scratch, vectors (§6.1)
+export { DEFAULT_TOLERANCES, resolveTolerances, scaleTolerances } from './tolerance';
+export type { Tolerances } from './tolerance';
+export { GeomError, isGeomError, issueOf } from './errors';
+export { createScratch } from './array';
+export type { Scratch } from './array';
+export * as vec from './vec';
+
+// Bases (§6.2)
+export {
+  basisDersInto,
+  basisFunction,
+  basisFunsInto,
+  breakpoints,
+  clampedBasis,
+  clampedUniformKnots,
+  findSpan,
+  knotMultiplicities,
+  knotsFromBreaks,
+  mergeNearKnots,
+  periodicBasis,
+  periodicUniformKnots,
+} from './basis';
+
+// Curves (§6.3)
+export {
+  bezierCurve,
+  clampUnclamped,
+  controlPoint,
+  controlPointsInto,
+  controlWeight,
+  curveDerivatives,
+  curveDomain,
+  curveEvalBatchInto,
+  curveEvalInto,
+  curveFromHomogeneous,
+  curvePoint,
+  curveToJSON,
+  isClosed,
+  makeCurve,
+  reviveCurve,
+  transformCurve,
+  transformCurve2,
+  weightsInto,
+  withControlPoints,
+  withWeights,
+} from './curve';
+export type { CurveJSON } from './curve';
+
+// Curve measures (§6.4)
+export {
+  arcLengthTable,
+  curveBounds,
+  curveCurvature,
+  curveCurvatureBatchInto,
+  curveFrame,
+  curveLength,
+  curveSignedCurvature,
+  curveTangent,
+  lengthAtParam,
+  paramAtLength,
+} from './curve-measure';
+export type { ArcLengthTable } from './curve-measure';
+
+// Quadrature (§6.10)
+export { GL_MAX_ORDER, gaussLegendre, integrate1d } from './quadrature';
+
+// Exact primitives (§6.11; surfaces land with step F2)
+export {
+  circle,
+  circle2,
+  circleArc,
+  conicArc,
+  line,
+  line2,
+  periodicCircle,
+  polyline,
+} from './primitives';
+
+// Shared value types (§5)
 export type {
   Affine2,
   Affine3,

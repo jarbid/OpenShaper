@@ -626,7 +626,8 @@ export function clampUnclamped<D extends Dim>(spec: {
   readonly knots: ArrayLike<number>;
   readonly points: ArrayLike<number>;
   readonly weights?: ArrayLike<number>;
-}): ClampedCurve<D>; // exact
+  readonly tol?: Partial<Tolerances>; // knotRel check of the input knots
+}): ClampedCurve<D>; // exact (A5.1 at the domain ends)
 export function reviveCurve(x: unknown): NurbsCurve; // clone or JSON → validated
 export function curveToJSON(c: NurbsCurve): CurveJSON; // plain arrays
 export interface CurveJSON {
@@ -680,8 +681,9 @@ export function curveEvalBatchInto(
   out: NumArray,
   s: Scratch,
 ): void;
-export function transformCurve(c: NurbsCurve<3>, m: Affine3): NurbsCurve<3>;
-export function transformCurve2(c: NurbsCurve<2>, m: Affine2): NurbsCurve<2>;
+// Generic so a clamped or periodic input keeps its type; the basis is shared.
+export function transformCurve<C extends NurbsCurve<3>>(c: C, m: Affine3): C;
+export function transformCurve2<C extends NurbsCurve<2>>(c: C, m: Affine2): C;
 ```
 
 ### 6.4 Curve measures [F1]
@@ -700,7 +702,12 @@ export function curveCurvatureBatchInto(
   out: Float64Array,
   s: Scratch,
 ): void;
-export function curveFrame(c: NurbsCurve<3>, t: number): { t: Point3; n: Point3; b: Point3 } | null;
+/** null where the tangent is degenerate or |C′ × C″| ≤ sin(angle)·|C′|·|C″| (no normal). */
+export function curveFrame(
+  c: NurbsCurve<3>,
+  t: number,
+  tol?: Partial<Tolerances>,
+): { readonly t: Point3; readonly n: Point3; readonly b: Point3 } | null;
 export function curveLength(
   c: NurbsCurve,
   range?: Interval,
@@ -711,7 +718,8 @@ export interface ArcLengthTable {
   readonly s: ReadonlyF64;
   readonly total: number;
 }
-export function arcLengthTable(c: NurbsCurve, tol?: Partial<Tolerances>): ArcLengthTable; // per-span GL breakpoints
+/** Breakpoints of the adaptive GK 7–15 partition (every knot plus its refinements); total = curveLength. */
+export function arcLengthTable(c: NurbsCurve, tol?: Partial<Tolerances>): ArcLengthTable;
 export function lengthAtParam(c: NurbsCurve, table: ArcLengthTable, t: number): number;
 export function paramAtLength(
   c: NurbsCurve,
@@ -1619,6 +1627,20 @@ export function writeStep(
 
 ```ts
 export function mulberry32(seed: number): () => number;
+// Seeded random geometry for property tests (F1): knots at least `minSpacing × domain` apart.
+export function randomClampedBasis(
+  rng: () => number,
+  degree: number,
+  count: number,
+  opts?: RandomBasisOptions,
+): ClampedBasis;
+export function randomPeriodicBasis(
+  rng: () => number,
+  degree: number,
+  count: number,
+  opts?: RandomBasisOptions,
+): PeriodicBasis;
+export function randomCurve(rng: () => number, opts: RandomCurveOptions): NurbsCurve;
 export function checksum(value: unknown): string; // typed arrays and records, for immutability tests
 export function solveFairReference(
   p: FairProblem,
@@ -1654,22 +1676,22 @@ scans `src/**/*.ts` (excluding tests, `tolerance.ts` and vendored files) for lit
 matching `/\b\d+(\.\d+)?e-\d+\b/i` and fails on any. Tolerances are never loosened to
 make a test pass (golden-data rule 2).
 
-| Name             | Default         | Meaning                                                                                             | Why this value                                                                                                                      |
-| ---------------- | --------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `point`          | 1e-6 cm (10 nm) | Points coincide: vertex merge, loop closure, `isClosed`, vertex on curve end, edge-gap floor.       | ~10³ above accumulated rounding at board scale (300 cm × 2.2e-16 × ~10⁴ operations ≈ 7e-10 cm); ~10⁴ below a CNC finishing pass.    |
-| `fit`            | 1e-4 cm (1 µm)  | Largest 3D error accepted from any approximation: fits, pcurves, projections, `curveOnSurfaceTo3d`. | Two orders below CNC accuracy (0.1 mm) and 50× below the existing STEP fit target (0.005 cm); reachable with modest control counts. |
-| `constraint`     | 1e-9 cm         | Post-solve `‖Cx − d‖∞` after iterative refinement.                                                  | Constraints must stay exact; ~10³ × rounding at condition ~10⁶.                                                                     |
-| `paramRel`       | 1e-12 × domain  | Parameter equality, clamping slack, Newton parameter-step stop.                                     | Relative, so a rescaled domain behaves the same; far below any meaningful parameter difference.                                     |
-| `knotRel`        | 1e-10 × domain  | Distinct knots closer than this: rejected at construction, snapped in operations.                   | Above accumulated rounding of insertion and merging; below any real knot spacing (3e-8 cm on a 300 cm curve).                       |
-| `angle`          | 1e-9 rad        | Parallel and perpendicular tests in exact checks.                                                   | `atan2` angles are good to ~1e-16; not a continuity threshold (those are the caller's, §6.18).                                      |
-| `cosine`         | 1e-12           | Zero-cosine stop in point inversion (P&T §6.1, ε₂).                                                 | Orthogonality to rounding at unit vectors.                                                                                          |
-| `degenerateRel`  | 1e-12           | `\|Su × Sv\| < degenerateRel · \|Su\| · \|Sv\|` ⇒ degenerate normal.                                | Scale-free; catches poles and collapsed tips.                                                                                       |
-| `umbilicRel`     | 1e-10           | `H² − K ≤ umbilicRel · H²` ⇒ umbilic: principal directions are `null`.                              | Directions are noise below this.                                                                                                    |
-| `pivotRel`       | 1e-12           | Rank decisions in pivoted Cholesky / LDLᵀ / QR, relative to the largest pivot after scaling.        | Dependent constraint rows have pivots at rounding level; genuine ones are O(1) after scaling.                                       |
-| `quadRel`        | 1e-10           | Adaptive quadrature relative target.                                                                | 3e-6 cm³ on a 30 L board; cheap because polynomial cases are exact.                                                                 |
-| `weightRatioMax` | 1e6             | Max/min weight ratio above which a warning is issued.                                               | Rational evaluation loses about six digits beyond it.                                                                               |
-| `newtonMaxIter`  | 32              | Cap for projection, inverse arc length and other Newton loops.                                      | Quadratic convergence needs < 8 from the sampled seed; the cap only bounds pathological cases (`converged: false`).                 |
-| `quadMaxSplits`  | 4096            | Cap on adaptive subintervals per integral.                                                          | 61k evaluations at GK15; reaching it means a singular integrand, reported as `converged: false`.                                    |
+| Name             | Default         | Meaning                                                                                                                                                                                 | Why this value                                                                                                                      |
+| ---------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `point`          | 1e-6 cm (10 nm) | Points coincide: vertex merge, loop closure, `isClosed`, vertex on curve end, edge-gap floor.                                                                                           | ~10³ above accumulated rounding at board scale (300 cm × 2.2e-16 × ~10⁴ operations ≈ 7e-10 cm); ~10⁴ below a CNC finishing pass.    |
+| `fit`            | 1e-4 cm (1 µm)  | Largest 3D error accepted from any approximation: fits, pcurves, projections, `curveOnSurfaceTo3d`.                                                                                     | Two orders below CNC accuracy (0.1 mm) and 50× below the existing STEP fit target (0.005 cm); reachable with modest control counts. |
+| `constraint`     | 1e-9 cm         | Post-solve `‖Cx − d‖∞` after iterative refinement.                                                                                                                                      | Constraints must stay exact; ~10³ × rounding at condition ~10⁶.                                                                     |
+| `paramRel`       | 1e-12 × domain  | Parameter equality, clamping slack, Newton parameter-step stop.                                                                                                                         | Relative, so a rescaled domain behaves the same; far below any meaningful parameter difference.                                     |
+| `knotRel`        | 1e-10 × domain  | Distinct knots closer than this: rejected at construction, snapped in operations.                                                                                                       | Above accumulated rounding of insertion and merging; below any real knot spacing (3e-8 cm on a 300 cm curve).                       |
+| `angle`          | 1e-9 rad        | Parallel and perpendicular tests in exact checks.                                                                                                                                       | `atan2` angles are good to ~1e-16; not a continuity threshold (those are the caller's, §6.18).                                      |
+| `cosine`         | 1e-12           | Zero-cosine stop in point inversion (P&T §6.1, ε₂).                                                                                                                                     | Orthogonality to rounding at unit vectors.                                                                                          |
+| `degenerateRel`  | 1e-12           | `\|Su × Sv\| < degenerateRel · \|Su\| · \|Sv\|` ⇒ degenerate normal. Curves: `\|C′\| ≤ degenerateRel · M / L` ⇒ degenerate tangent (`M` largest control coordinate, `L` domain length). | Scale-free; catches poles, collapsed tips and cusps from coincident control points.                                                 |
+| `umbilicRel`     | 1e-10           | `H² − K ≤ umbilicRel · H²` ⇒ umbilic: principal directions are `null`.                                                                                                                  | Directions are noise below this.                                                                                                    |
+| `pivotRel`       | 1e-12           | Rank decisions in pivoted Cholesky / LDLᵀ / QR, relative to the largest pivot after scaling.                                                                                            | Dependent constraint rows have pivots at rounding level; genuine ones are O(1) after scaling.                                       |
+| `quadRel`        | 1e-10           | Adaptive quadrature relative target.                                                                                                                                                    | 3e-6 cm³ on a 30 L board; cheap because polynomial cases are exact.                                                                 |
+| `weightRatioMax` | 1e6             | Max/min weight ratio above which a warning is issued.                                                                                                                                   | Rational evaluation loses about six digits beyond it.                                                                               |
+| `newtonMaxIter`  | 32              | Cap for projection, inverse arc length and other Newton loops.                                                                                                                          | Quadratic convergence needs < 8 from the sampled seed; the cap only bounds pathological cases (`converged: false`).                 |
+| `quadMaxSplits`  | 4096            | Cap on adaptive subintervals per integral.                                                                                                                                              | 61k evaluations at GK15; reaching it means a singular integrand, reported as `converged: false`.                                    |
 
 Options with domain meaning carry their own named defaults next to their functions:
 `DEFAULT_TESSELLATION` (chord 0.01 cm, angle 0.1 rad, provisional until Phase 3
@@ -2371,7 +2393,9 @@ API test, ESLint layer, lockfile entry, this document.
   `book/basis.ts`, `book/curve.ts`, `book/periodic.ts`; `basis.ts`; `curve.ts`;
   `curve-measure.ts` (curvature, arc length); curve primitives (line, polyline,
   circle and arc, periodic circle, conic); the `testing` subpath (`mulberry32`,
-  `checksum`); no-magic-tolerance and immutability tests.
+  `checksum`, random bases and curves); no-magic-tolerance and immutability tests.
+  `book/refine.ts` starts here with A5.1 only, which `clampUnclamped` (§6.3) needs;
+  A1 adds the rest.
 - **F2 Surfaces.** `book/surface.ts`; `surface.ts` (incl. exact iso and boundary
   curves); `surface-measure.ts`; `plan.ts` (sample plans and dirty evaluation);
   surface primitives (plane, bilinear, Bézier patch, revolve, sphere, torus,
