@@ -11,7 +11,7 @@ is adopted after testing.
 
 ## Inputs
 
-- **Jörg Schobert** (MSc maths, six years on parametric windsurf-board surfaces;
+- **User01** (MSc maths, six years on parametric windsurf-board surfaces;
   works with a shaper on Shape3D). B-splines over cubic Béziers; smooth flow
   slice to slice, which interpolation between slices does not give; nose and tail
   slices are where quality is lost. Asked for an **apex curve** with slice points
@@ -20,7 +20,7 @@ is adopted after testing.
   CNC depend on it), **keyboard control** of points with modifiers that restrict a
   move to handle rotation or handle length, and ideas from **font tools** (Tunni
   lines). Also: an architecture overhaul.
-- **Ben Fowler** (shaper, came from BoardCAD): batwing tails render wrong in 3D
+- **User02** (shaper, came from BoardCAD): batwing tails render wrong in 3D
   though the PDF is right; wants to **scale a finished design**; asked about 3D
   export for CNC.
 - **UI review**: tools are hard to find, and there is no good way to explain them
@@ -42,19 +42,19 @@ Measured against the code, not assumed:
   overhaul therefore does not need a CAD kernel to reach STEP.
 - **Station creases.** `loftSection` blends adjacent stations linearly in x, so
   the hull has a tangent break at every cross-section; the STEP fit keeps those
-  breaks on purpose so that STEP matches STL. This is Jörg's "flow from slice to
+  breaks on purpose so that STEP matches STL. This is User01's "flow from slice to
   slice" complaint, and no sampling change can remove it.
 - **Slices drive the curves.** `propagateCrossSectionToCurves`
   (`packages/store/src/edits.ts`, called from `board-store.ts`) pushes a slice's
   width and centre changes onto the outline, rocker and deck. Deliberate
   (`docs/superpowers/specs/2026-06-04-two-way-thickness-rocker-link-design.md`),
-  and the opposite of what Jörg asks for.
+  and the opposite of what User01 asks for.
 - **No explicit apex or tuck line.** The outline is effectively the projected
   apex; there is no stored parting line.
 - **Tips.** `MIN_DIM` floors width and thickness at 0.5 cm, so pointed ends carry
   a small false flat.
 - **One notch only.** `outline-cutout.ts` models exactly one tail notch and says
-  so; a batwing produces a wrong mesh (Ben's report). Every exporter builds one
+  so; a batwing produces a wrong mesh (User02's report). Every exporter builds one
   half and mirrors it, so asymmetric boards are out of reach without restructuring.
 - **Analysis.** The 3D view's zebra / curvature / slope modes run on mesh normals
   averaged from faces; "curvature" is `fwidth(N)` in screen space, so it changes
@@ -75,7 +75,7 @@ Phase 5 of the overhaul and nowhere else.
 
 ### 0.1 Make Resize findable
 
-Ben asked for a way to scale a finished design; it exists. **Resize** is a
+User02 asked for a way to scale a finished design; it exists. **Resize** is a
 collapsed section in the Shape tab marked relevant to no view
 (`apps/web/src/sidebar-sections.ts`, `relevantTo: []`).
 
@@ -108,7 +108,7 @@ collapsed section in the Shape tab marked relevant to no view
 - No new UI library: the existing `Tooltip` already positions, delays and handles
   touch and focus.
 
-### 0.3 Keyboard nudging with modifiers (Jörg)
+### 0.3 Keyboard nudging with modifiers (User01)
 
 Arrow-key nudging exists (`ControlPointInspector.tsx`) but returns early on any
 modifier. Add:
@@ -130,7 +130,7 @@ Back/Forward in browsers on Windows and Linux. The modes are listed in
 Shipped in #75 as **Tunni controls** (View ▸ Tunni controls): drag the line
 between a segment's handles, or its diamond, to change both at once.
 
-### 0.5 Slices never change the outline, rocker or deck (Jörg's first request)
+### 0.5 Slices never change the outline, rocker or deck (User01's first request)
 
 Decided as a rule, not a setting. The outline and the side profile (rocker
 and deck) define the blank, the way a shaper hot-wires the side profile and then
@@ -192,5 +192,5 @@ distance to the ghost, measured in each station plane to the ghost's section at 
 same x. Both boards share the tail-at-x=0 rule, so this needs no alignment step.
 Diverging palette, legend in display units, adjustable ± band; beyond the ghost's
 length is shown as "no data". A pure kernel function plus a render attribute.
-Serves Jörg's point that board development is evolutionary and changes must be
+Serves User01's point that board development is evolutionary and changes must be
 measurable.
