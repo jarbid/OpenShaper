@@ -177,8 +177,8 @@ export default function DocsEditing() {
         <p>
           <strong>Reading the exact modes.</strong> A legend in the corner of the 3D view shows the
           colour scale. Curvature is labelled as a radius in your display unit &mdash; &ldquo;as
-          curved as a ball of radius 3.3 cm&rdquo; &mdash; and the scale fits itself to the board:
-          it ends at the curvature that only the most curved fifth of the surface (by area) goes
+          curved as a ball of this radius&rdquo; &mdash; and the scale fits itself to the board: it
+          ends at the curvature that only the most curved fifth of the surface (by area) goes
           beyond, so a needle-sharp nose tip cannot wash the rest out to grey. Rail radius runs from
           the tightest two percent of the board to its median.
         </p>

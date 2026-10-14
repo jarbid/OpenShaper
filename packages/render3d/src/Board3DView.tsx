@@ -23,6 +23,7 @@ import type { StoreApi } from 'zustand/vanilla';
 import {
   ANALYSIS_OFF,
   analysisStatus,
+  curvatureCenter,
   DEFAULT_DEVIATION_BAND,
   deviationStatus,
   isExactAnalysis,
@@ -629,24 +630,25 @@ function BoardMesh({
     return <DeviationSurface mesh={deviation.mesh} band={status.band} />;
   }
 
-  if (!hull || !geometry) return null;
-
-  // The exact analysis, once it is for this board and the hull it sits on is too.
+  // The exact analysis, once it is for this board. It is its own mesh, so it does
+  // not wait for the hull (`curvatureCenter` places it): what the legend reports as
+  // ready is what is drawn.
   if (
     status.state === 'ready' &&
     status.mode !== 'ghost-deviation' &&
     curvature &&
     'mesh' in curvature &&
-    curvature.board === board &&
-    hull.board === board
+    curvature.board === board
   ) {
-    const [cx, cy, cz] = hull.center;
+    const [cx, cy, cz] = curvatureCenter(hull, board, curvature.mesh);
     return (
       <group position={[-cx, -cy, -cz]}>
         <CurvatureSurface mesh={curvature.mesh} mode={status.mode} />
       </group>
     );
   }
+
+  if (!hull || !geometry) return null;
 
   // Analysis overlay replaces the lit surface entirely.
   if (analysisMaterial) {

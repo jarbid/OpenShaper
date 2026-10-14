@@ -5,6 +5,7 @@ import { DIVERGING_RAMP, NO_DATA_STRIPES, SEQUENTIAL_RAMP } from './analysis-pal
 import {
   ANALYSIS_OFF,
   analysisStatus,
+  curvatureCenter,
   deviationStatus,
   isExactAnalysis,
   rampFor,
@@ -97,6 +98,27 @@ describe('analysisStatus', () => {
         reason: 'concave-tail',
       });
     }
+  });
+});
+
+describe('curvatureCenter', () => {
+  const board = stationBoard();
+  // A box from (0, -10, 1) to (200, 10, 9): bounding-box centre (100, 0, 5).
+  const mesh = {
+    positions: new Float32Array([0, -10, 1, 200, 10, 9, 50, 0, 3]),
+  } as unknown as CurvatureMesh;
+
+  it("sits on the hull's centre when the hull is for this board", () => {
+    expect(curvatureCenter({ board, center: [99, 1, 4] }, board, mesh)).toEqual([99, 1, 4]);
+  });
+
+  it('places itself when the hull is missing or for another board', () => {
+    // A failed tessellation leaves the previous board's hull on screen: a ready
+    // status must still paint the surface, not a legend over the plain hull.
+    expect(curvatureCenter(null, board, mesh)).toEqual([100, 0, 5]);
+    expect(curvatureCenter({ board: stationBoard(), center: [99, 1, 4] }, board, mesh)).toEqual([
+      100, 0, 5,
+    ]);
   });
 });
 

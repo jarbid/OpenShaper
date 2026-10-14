@@ -21,6 +21,7 @@ import type { BezierBoard } from '@openshaper/kernel';
 import { DIVERGING_RAMP, NO_DATA_STRIPES, SEQUENTIAL_RAMP } from './analysis-palette';
 import { curvatureUnsupported, type CurvatureMesh, type CurvatureScale } from './curvature-mesh';
 import type { DeviationMesh } from './deviation-mesh';
+import { boardCenter } from './geometry';
 
 export type ExactAnalysisMode = 'mean-curvature' | 'gaussian-curvature' | 'rail-radius';
 
@@ -162,3 +163,19 @@ export const sameStatus = (a: AnalysisStatus, b: AnalysisStatus): boolean => {
   }
   return true;
 };
+
+/**
+ * The centre the exact-analysis surface is placed around (negated, as for the hull).
+ *
+ * The hull's own centre when the hull on screen is meshed from this board, so the
+ * painted surface sits exactly where the hull, fins and guides do. Otherwise (the
+ * fit landed before the mesh, or the board's tessellation failed and the previous
+ * hull stays) the curvature mesh's own bounding-box centre: a `ready` status then
+ * always paints the surface it reports, instead of a legend over a plain hull.
+ */
+export const curvatureCenter = (
+  hull: { readonly board: BezierBoard; readonly center: readonly [number, number, number] } | null,
+  board: BezierBoard,
+  mesh: CurvatureMesh,
+): readonly [number, number, number] =>
+  hull && hull.board === board ? hull.center : boardCenter(mesh);
