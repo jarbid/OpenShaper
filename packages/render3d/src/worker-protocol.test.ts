@@ -3,6 +3,7 @@ import type { BoardMesh } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
 import type { CurvatureMesh } from './curvature-mesh';
 import type { DeviationMesh } from './deviation-mesh';
+import { apexGuideLine, type GuideLine } from './guide-lines';
 import { handleWorkerRequest } from './worker-protocol';
 import { stationBoard, swallowBoard } from './test-support/boards';
 
@@ -62,6 +63,15 @@ describe('tessellation worker protocol', () => {
     // Against itself: the two cap hubs carry no data, and the rest reads zero.
     expect(m.noData).toBe(2);
     expect(Math.max(Math.abs(m.range![0]), Math.abs(m.range![1]))).toBeLessThan(0.01);
+  });
+
+  it('answers an apex request with the same guide the main thread would build', () => {
+    const b = stationBoard();
+    const handled = handleWorkerRequest({ kind: 'apex', id: 5, board: b, targetFaceSize: 3 });
+    const reply = deliver(handled) as { id: number; result: GuideLine | null };
+    expect(reply.id).toBe(5);
+    expect(reply.result).toEqual(apexGuideLine(b, 3));
+    expect(reply.result!.paths).toHaveLength(2);
   });
 
   it('reports a concave tail as an error for that job, so the queue moves on', () => {

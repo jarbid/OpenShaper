@@ -4,14 +4,17 @@
  * so the protocol can be tested without a Worker (`tessellate.worker.ts` is only
  * the `onmessage` shell around it).
  *
- * Three jobs: the viewport mesh, the exact curvature analysis (`curvature-mesh.ts`)
- * and the deviation from a ghost board (`deviation-mesh.ts`). `BezierBoard` is plain
+ * Four jobs: the viewport mesh, the exact curvature analysis (`curvature-mesh.ts`),
+ * the deviation from a ghost board (`deviation-mesh.ts`) and the rail apex guide
+ * (`guide-lines.ts`), which lofts a section at every one of the mesh's stations and
+ * is too heavy to redo on the main thread each time a mesh lands. `BezierBoard` is plain
  * readonly data, so it travels by structured clone; every typed array in a result is
  * transferred back (zero-copy).
  */
 import { tessellateBoard, type BezierBoard, type BoardMesh } from '@openshaper/kernel';
 import { boardCurvatureMesh, curvatureTransferables, type CurvatureMesh } from './curvature-mesh';
 import { boardDeviationMesh, deviationTransferables, type DeviationMesh } from './deviation-mesh';
+import { apexGuideLine, type GuideLine } from './guide-lines';
 import type { WorkerReply } from './mesh-queue';
 
 export type WorkerRequest =
@@ -23,10 +26,15 @@ export type WorkerRequest =
       board: BezierBoard;
       ghost: BezierBoard;
       targetFaceSize: number;
-    };
+    }
+  | { kind: 'apex'; id: number; board: BezierBoard; targetFaceSize: number };
 
 export interface HandledRequest {
-  reply: WorkerReply<BoardMesh> | WorkerReply<CurvatureMesh> | WorkerReply<DeviationMesh>;
+  reply:
+    | WorkerReply<BoardMesh>
+    | WorkerReply<CurvatureMesh>
+    | WorkerReply<DeviationMesh>
+    | WorkerReply<GuideLine | null>;
   /** Buffers to transfer with the reply. */
   transfer: ArrayBuffer[];
 }
@@ -36,6 +44,13 @@ export const handleWorkerRequest = (req: WorkerRequest): HandledRequest => {
     if (req.kind === 'curvature') {
       const result = boardCurvatureMesh(req.board);
       return { reply: { id: req.id, result }, transfer: curvatureTransferables(result) };
+    }
+    if (req.kind === 'apex') {
+      // Plain arrays of points: cloned, nothing to transfer.
+      return {
+        reply: { id: req.id, result: apexGuideLine(req.board, req.targetFaceSize) },
+        transfer: [],
+      };
     }
     if (req.kind === 'deviation') {
       const result = boardDeviationMesh(req.board, req.ghost, req.targetFaceSize);

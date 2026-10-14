@@ -1046,7 +1046,7 @@ const OVERLAYS: readonly { key: keyof OverlayToggles; label: string }[] = [
   { key: 'comb', label: 'Curvature comb' },
   { key: 'com', label: 'Center of mass' },
   { key: 'dist', label: 'Volume distribution' },
-  { key: 'apex', label: 'Apex line' },
+  { key: 'apex', label: 'Apex height' },
 ];
 
 function AnalysisSection({
@@ -1068,8 +1068,8 @@ function AnalysisSection({
       ))}
       <p className="pt-1 text-xs text-muted-foreground">
         Grid &amp; guides and the comb show in every 2D pane (the comb on the edited curves, ringing
-        inflections); CoM &amp; volume distribution on the outline and rocker; the apex line,
-        dashed, on the rocker.
+        inflections); CoM &amp; volume distribution on the outline and rocker; the apex height,
+        dashed, on the rocker. The apex line on the 3D hull is the 3D view&rsquo;s Apex button.
       </p>
     </div>
   );

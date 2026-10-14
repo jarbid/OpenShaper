@@ -177,6 +177,8 @@ export interface ApexLineOptions {
   ringSteps?: number;
   /** Plateau tolerance (cm). Default {@link APEX_PLATEAU}. */
   plateau?: number;
+  /** Twin-peak tolerance (cm). Default {@link APEX_TWIN_PEAK}. */
+  twinPeak?: number;
 }
 
 const lerp3 = (a: GuidePoint, b: GuidePoint, t: number): GuidePoint => ({
@@ -201,19 +203,86 @@ const pointAlong = (pts: readonly GuidePoint[], lo: number, hi: number, s: numbe
 };
 
 /**
+ * How close (cm) a second, separate local maximum must come to the widest point for
+ * the rail to count as having two "widest" points. A tenth of a millimetre: below what
+ * a shaper can see or sand to.
+ *
+ * A boxy rail drawn with its two corner knots level and their handles leaned in a
+ * hair has a face that dips inward between them: two maxima, one at each corner,
+ * equal on paper. Which one the ring's vertices favour changes from station to station
+ * with where they fall, so a bare widest point would flip between the top and bottom
+ * of the face — its full height. Within this band the midpoint (by arc length) of the
+ * two refined peaks is taken instead, like {@link APEX_PLATEAU}'s plateau midpoint.
+ * A rounded rail has one maximum and never meets this rule.
+ */
+export const APEX_TWIN_PEAK = 0.01;
+
+/**
+ * The arc-length offset from vertex `i` of `rail` to the peak of the parabola through
+ * it and its two neighbours, clamped to the edges either side; 0 where there is no
+ * peak to refine (an end of the rail, a degenerate edge, no downward bend).
+ */
+const peakOffset = (rail: readonly GuidePoint[], i: number): number => {
+  if (i === 0 || i === rail.length - 1) return 0;
+  const a = rail[i - 1]!;
+  const m = rail[i]!;
+  const c = rail[i + 1]!;
+  const h0 = dist3(a, m);
+  const h1 = dist3(m, c);
+  if (!(h0 > 0 && h1 > 0)) return 0;
+  // y(s) = m.y + slope·s + bend·s² through s = -h0, 0, h1. Where `m` is the highest of
+  // the three the parabola opens downward and its peak lies between the outer two.
+  const into = (m.y - a.y) / h0;
+  const out = (c.y - m.y) / h1;
+  const bend = (out - into) / (h0 + h1);
+  if (!(bend < 0)) return 0;
+  const peak = -(into + bend * h0) / (2 * bend);
+  return Math.min(h1, Math.max(-h0, peak));
+};
+
+/** The point `s` (from {@link peakOffset}) along the edges either side of vertex `i`. */
+const pointAtOffset = (rail: readonly GuidePoint[], i: number, s: number): GuidePoint => {
+  const m = rail[i]!;
+  if (s === 0) return m;
+  return s < 0
+    ? lerp3(m, rail[i - 1]!, -s / dist3(rail[i - 1]!, m))
+    : lerp3(m, rail[i + 1]!, s / dist3(m, rail[i + 1]!));
+};
+
+/** Arc length along `rail` from its first vertex to vertex `i`. */
+const arcTo = (rail: readonly GuidePoint[], i: number): number => {
+  let run = 0;
+  for (let k = 0; k < i; k++) run += dist3(rail[k]!, rail[k + 1]!);
+  return run;
+};
+
+/** True when vertex `i` is at least as wide as each neighbour it has. */
+const isLocalMax = (rail: readonly GuidePoint[], i: number): boolean =>
+  (i === 0 || rail[i]!.y >= rail[i - 1]!.y) &&
+  (i === rail.length - 1 || rail[i]!.y >= rail[i + 1]!.y);
+
+/**
  * The widest point of one rail (largest y), as a point ON the polyline `rail`.
  *
  * - A vertical plateau — neighbours within `plateau` of the widest vertex — gives the
  *   plateau's midpoint by arc length.
+ * - Two separate maxima within `twinPeak` of each other (a face dipping in a hair
+ *   between two level corners) give the midpoint between their refined peaks.
  * - Otherwise the widest vertex and its two neighbours are fitted with a parabola in
  *   arc length, and its peak is taken on the polyline between them. A bare argmax would
  *   step a whole ring spacing up or down the rail whenever the widest vertex changed
  *   between stations; the peak moves continuously instead, and sits exactly halfway
  *   when two vertices tie, so the hand-over from one vertex to the next is seamless.
  *
- * Either way the result lies on the polyline, never off it.
+ * Either way the result lies on the polyline, never off it — so on a coarse ring it can
+ * sit a little inside the widest vertex (the chord sags below the arc it samples): under
+ * ten microns on the default ring.
  */
-const widestOn = (rail: readonly GuidePoint[], plateau: number): GuidePoint | null => {
+const widestOn = (
+  rail: readonly GuidePoint[],
+  plateau: number,
+  twinPeak: number,
+): GuidePoint | null => {
   if (rail.length === 0) return null;
   let best = 0;
   for (let i = 1; i < rail.length; i++) if (rail[i]!.y > rail[best]!.y) best = i;
@@ -229,24 +298,22 @@ const widestOn = (rail: readonly GuidePoint[], plateau: number): GuidePoint | nu
     return pointAlong(rail, lo, hi, run / 2);
   }
 
-  // At a centreline end of the half-ring there is no neighbour on one side to fit.
-  if (best === 0 || best === rail.length - 1) return rail[best]!;
-  const a = rail[best - 1]!;
-  const m = rail[best]!;
-  const c = rail[best + 1]!;
-  const h0 = dist3(a, m);
-  const h1 = dist3(m, c);
-  if (!(h0 > 0 && h1 > 0)) return m;
-  // y(s) = m.y + slope·s + bend·s² through s = -h0, 0, h1. `m` is strictly the highest
-  // of the three (a tie within `plateau` was handled above), so the parabola opens
-  // downward and its peak lies between the outer two.
-  const into = (m.y - a.y) / h0;
-  const out = (c.y - m.y) / h1;
-  const bend = (out - into) / (h0 + h1);
-  if (!(bend < 0)) return m;
-  const peak = -(into + bend * h0) / (2 * bend);
-  const s = Math.min(h1, Math.max(-h0, peak));
-  return s < 0 ? lerp3(m, a, -s / h0) : lerp3(m, c, s / h1);
+  const twinFloor = rail[best]!.y - Math.max(0, twinPeak);
+  let first = best;
+  let last = best;
+  for (let i = 0; i < rail.length; i++) {
+    if (rail[i]!.y >= twinFloor && isLocalMax(rail, i)) {
+      first = Math.min(first, i);
+      last = Math.max(last, i);
+    }
+  }
+  if (last > first) {
+    const from = arcTo(rail, first) + peakOffset(rail, first);
+    const to = arcTo(rail, last) + peakOffset(rail, last);
+    return pointAlong(rail, 0, rail.length - 1, (from + to) / 2);
+  }
+
+  return pointAtOffset(rail, best, peakOffset(rail, best));
 };
 
 /**
@@ -264,12 +331,13 @@ export const railApex = (
   x: number,
   ringSteps: number,
   plateau: number = APEX_PLATEAU,
+  twinPeak: number = APEX_TWIN_PEAK,
 ): GuidePoint | null => {
   const loops = crossSectionLoops(board, x, ringSteps);
   if (!loops) return null;
   // A whole ring's first `half` points are the +y rail, bottom centre to deck centre;
   // a notch's right lobe is exactly that rail pushed outboard, `half` points long.
-  return widestOn(loops[0]!.slice(0, ringHalf(ringSteps)), plateau);
+  return widestOn(loops[0]!.slice(0, ringHalf(ringSteps)), plateau, twinPeak);
 };
 
 /**
@@ -288,10 +356,11 @@ export const apexLine = (board: BezierBoard, opts: ApexLineOptions = {}): ApexLi
   const lengthSteps = opts.lengthSteps ?? Math.ceil(length / APEX_STATION_SPACING) + 1;
   const ringSteps = opts.ringSteps ?? tessellationSteps(board, APEX_RING_SPACING).ringSteps;
   const plateau = opts.plateau ?? APEX_PLATEAU;
+  const twinPeak = opts.twinPeak ?? APEX_TWIN_PEAK;
 
   const right: GuidePoint[] = [];
   for (const x of stations(length, lengthSteps)) {
-    const p = railApex(board, x, ringSteps, plateau);
+    const p = railApex(board, x, ringSteps, plateau, twinPeak);
     if (p) right.push(p);
   }
   if (right.length < 2) return null;

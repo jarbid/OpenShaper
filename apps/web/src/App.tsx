@@ -795,7 +795,9 @@ function AppShell() {
       // probe in every length-axis pane (the hovered pane included — it tracks the cursor).
       scrubProbe: longitudinal && scrubX != null ? scrubX : undefined,
       distribution: longitudinal ? volumeDist : undefined,
-      apexHeight: kind === 'rocker' ? apexHeight : undefined,
+      // Gated on the toggle as well as the result: switching it off must hide the line
+      // at once, not when (or if) the worker answers the request without it.
+      apexHeight: kind === 'rocker' && overlayToggles.apex ? apexHeight : undefined,
       // Plan footprint + box on the outline; blade silhouette on the rocker (rail) view.
       fins:
         (kind === 'outline' || kind === 'rocker') && resolvedFins.length ? resolvedFins : undefined,
@@ -1299,7 +1301,7 @@ function AppShell() {
     },
     {
       kind: 'checkbox',
-      label: 'Apex line',
+      label: 'Apex height',
       checked: overlayToggles.apex,
       onSelect: () => toggleOverlay('apex'),
     },

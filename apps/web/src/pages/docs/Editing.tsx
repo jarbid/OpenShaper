@@ -111,12 +111,13 @@ export default function DocsEditing() {
             for seeing which one a change belongs to.
           </Term>
           <Term name="Apex">
-            A green line down each rail through the rail apex: the widest point of every section,
-            where the rail stops facing down and starts facing up. It is the line that parts the
-            deck from the bottom &mdash; where a CNC machine flips the blank to cut the other side.
-            Where a rail has a truly vertical face, the line runs down the middle of it; inside a
-            swallow or fish notch it follows the outer rail. The rocker view can show the same
-            line&rsquo;s height (see <Link to="/docs/specs#overlays">Analysis overlays</Link>).
+            A dashed green line down each rail through the rail apex: the widest point of every
+            section, where the rail stops facing down and starts facing up. It is the line that
+            parts the deck from the bottom &mdash; where a CNC machine flips the blank to cut the
+            other side. Where a rail has a truly vertical face, or one that dips in a hair between
+            two level corners, the line runs down the middle of it; inside a swallow or fish notch
+            it follows the outer rail. The rocker view can show the same line&rsquo;s height (Apex
+            height, see <Link to="/docs/specs#overlays">Analysis overlays</Link>).
           </Term>
         </Terms>
         <p>

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * The rail apex line (Phase 0, item 0.6) as the app wires it: View ▸ Apex line and
+ * The rail apex line (Phase 0, item 0.6) as the app wires it: View ▸ Apex height and
  * the sidebar's Analysis checkbox draw its height in the rocker pane only, and the
  * 3D controls' Apex button turns on the guide on the hull.
  *
@@ -13,6 +13,23 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { boardStore } from './store';
 import { openSection } from './test/sidebar';
+
+/**
+ * When set, every specs-worker result carries these apex points, whatever was asked:
+ * a result that lags the toggle (or an `ok: false` reply that never replaces it).
+ */
+const stale = vi.hoisted(() => ({ apex: null as { x: number; z: number }[] | null }));
+
+vi.mock('./use-specs-worker', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./use-specs-worker')>();
+  return {
+    ...actual,
+    useSpecsWorker: (...args: Parameters<typeof actual.useSpecsWorker>) => {
+      const result = actual.useSpecsWorker(...args);
+      return result && stale.apex ? { ...result, apex: stale.apex } : result;
+    },
+  };
+});
 
 vi.mock('@openshaper/render3d', () => ({
   Board3DView: (props: { showApex?: boolean }) => (
@@ -35,6 +52,7 @@ vi.mock('@openshaper/render2d', async (importOriginal) => {
 
 beforeEach(() => {
   localStorage.clear();
+  stale.apex = null;
 });
 
 /** The apex points a pane was handed, or null. Rocker = deck, outline, cross-section. */
@@ -47,17 +65,17 @@ const ready = () => screen.findAllByText(/\d+\.\dL/);
 
 const toggleFromViewMenu = () => {
   fireEvent.click(screen.getByRole('menuitem', { name: 'View' }));
-  fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Apex line' }));
+  fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Apex height' }));
 };
 
 describe('apex height overlay', () => {
-  it('is off until View ▸ Apex line turns it on, then draws in the rocker pane only', async () => {
+  it('is off until View ▸ Apex height turns it on, then draws in the rocker pane only', async () => {
     render(<App />);
     await ready();
     expect(apexOn('deck')).toBeNull();
 
     toggleFromViewMenu();
-    const item = screen.getByRole('menuitemcheckbox', { name: 'Apex line' });
+    const item = screen.getByRole('menuitemcheckbox', { name: 'Apex height' });
     expect(item.getAttribute('aria-checked')).toBe('true');
     await waitFor(() => expect(apexOn('deck')).not.toBeNull());
 
@@ -78,12 +96,28 @@ describe('apex height overlay', () => {
     await waitFor(() => expect(apexOn('deck')).toBeNull());
   });
 
+  it('is never drawn while switched off, even from a worker result that still has it', async () => {
+    stale.apex = [
+      { x: 10, z: 3 },
+      { x: 20, z: 3 },
+    ];
+    render(<App />);
+    await ready();
+    expect(apexOn('deck')).toBeNull();
+
+    toggleFromViewMenu();
+    expect(apexOn('deck')).toEqual(stale.apex);
+    // Off: gone at once, though the worker's result still carries the points.
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Apex height' }));
+    expect(apexOn('deck')).toBeNull();
+  });
+
   it('turns on from the sidebar’s Analysis section too', async () => {
     render(<App />);
     await ready();
     openSection('analysis');
 
-    fireEvent.click(screen.getByRole('checkbox', { name: /apex line/i }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /apex height/i }));
     await waitFor(() => expect(apexOn('deck')?.length).toBeGreaterThan(100));
   });
 });

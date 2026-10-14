@@ -19,6 +19,7 @@ import { splineFromKnots } from './bezier-spline';
 import { crossSection } from './cross-section';
 import {
   APEX_PLATEAU,
+  APEX_TWIN_PEAK,
   apexLine,
   crossSectionLoops,
   crossSectionRing,
@@ -177,6 +178,54 @@ describe('railApex', () => {
     expect(APEX_PLATEAU).toBeGreaterThan(2e-7);
     // Without the plateau rule the lean decides, and the line drops to the chine.
     expect(Math.abs(railApex(b, x, 113, 0)!.z - mid)).toBeGreaterThan(1);
+  });
+
+  it('takes the middle of a face dipping in a hair between two level corners', () => {
+    // A boxy rail whose face bows in by 50 µm between its corners, with one corner 2 µm
+    // wider than the other: which corner is "widest" is noise, and must not move the
+    // line the face's whole height when the noise changes sign.
+    const W = 20;
+    const T = 5;
+    const dented = (topLean: number) =>
+      prismBoard(
+        W,
+        T,
+        0,
+        polylineSpline([
+          [0, 0],
+          [W, 0],
+          [W - 5e-3, T / 2],
+          [W - topLean, T],
+          [0, T],
+        ]),
+      );
+    const bottomWide = dented(2e-4);
+    const topWide = dented(-2e-4);
+    const x = 30;
+
+    for (const b of [bottomWide, topWide]) {
+      const apex = railApex(b, x, 113)!;
+      expect(apex.z).toBeCloseTo(T / 2, 0);
+      expect(apex.y).toBeGreaterThan(W - 1e-2);
+    }
+    expect(Math.abs(railApex(bottomWide, x, 113)!.z - railApex(topWide, x, 113)!.z)).toBeLessThan(
+      0.5,
+    );
+    expect(APEX_TWIN_PEAK).toBeGreaterThan(5e-3);
+    // Without the twin-peak rule the 2 µm decides, and the line jumps across the face.
+    expect(
+      Math.abs(
+        railApex(bottomWide, x, 113, APEX_PLATEAU, 0)!.z -
+          railApex(topWide, x, 113, APEX_PLATEAU, 0)!.z,
+      ),
+    ).toBeGreaterThan(T / 2);
+  });
+
+  it('leaves a round rail with one widest point alone', () => {
+    // The twin-peak rule must not touch the refined peak of an ordinary rail.
+    for (const x of [20, 60, 95, 140, 170]) {
+      expect(railApex(shortboard, x, 400)).toEqual(railApex(shortboard, x, 400, APEX_PLATEAU, 0));
+    }
   });
 
   it('returns null for a degenerate board instead of throwing', () => {

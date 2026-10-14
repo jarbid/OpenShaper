@@ -20,6 +20,7 @@ import {
 } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
 import {
+  apexGuideAsync,
   boardCenter,
   boardGeometry,
   boardSpan,
@@ -36,6 +37,7 @@ import { DIVERGING_RAMP, NO_DATA_STRIPES, hexToRgb } from './analysis-palette';
 import type { DeviationMesh } from './deviation-mesh';
 import { deviationUniforms } from './DeviationSurface';
 import { stationBoard, swallowBoard } from './test-support/boards';
+import { apexGuideLine } from './guide-lines';
 
 // ---------------------------------------------------------------------------
 // Shared test board — same shape used in board-store.test.ts so the tessellator
@@ -273,6 +275,16 @@ describe('curvatureAsync (no Worker: synchronous path)', () => {
 
   it('rejects a concave tail rather than painting a filled-in notch', async () => {
     await expect(curvatureAsync(swallowBoard())).rejects.toThrow(/concave/);
+  });
+});
+
+describe('apexGuideAsync (no Worker: synchronous path)', () => {
+  it('builds the apex guide once per board and face size, then serves it cached', async () => {
+    const b = stationBoard();
+    const first = await apexGuideAsync(b, 3);
+    expect(first).toEqual(apexGuideLine(b, 3));
+    expect(await apexGuideAsync(b, 3)).toBe(first);
+    expect(await apexGuideAsync(b, 2)).not.toBe(first);
   });
 });
 

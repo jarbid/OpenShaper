@@ -75,10 +75,13 @@ export function guideLines(
  * The rail apex line on both rails, as two open polylines, or null when the board has
  * no real station to loft between.
  *
- * Kept out of {@link guideLines} so it is only computed while it is shown: like the
- * stringer, it lofts a section at every one of the mesh's stations. It also takes the
- * mesh's ring count, so each point lies on the ring the mesh draws at its x rather
- * than on a finer one the faceted hull would hide it under.
+ * Kept out of {@link guideLines} so it is only computed while it is shown, and in the
+ * worker (`apexGuideAsync`): like the stringer, it lofts a section at every one of the
+ * mesh's stations. Those are the mesh's station COUNT, not its x positions — the
+ * stations are inset a hair from the tips and the tessellator's are not — so a point
+ * lies on the loft's ring at its own x, at the mesh's ring density, and generally
+ * between two drawn rings rather than on one. At that density it stays within a
+ * facet's sag of the faceted hull, which the depth bias in `Guides3D` covers.
  */
 export function apexGuideLine(board: BezierBoard, targetFaceSize: number): GuideLine | null {
   if (board.crossSections.length <= 2) return null;

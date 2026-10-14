@@ -286,7 +286,7 @@ const FORMAT_NOTES: Record<ExportFormat, string> = {
   step: 'The hull as true B-spline surfaces, as one solid body. This is the one to use for CAD and CAM: it can be offset, shelled and machined, and the file is around ten times smaller than the equivalent STL. Fin boxes are not included.',
   dxf: 'Outline, rocker and cross-section curves, and the rail apex line, as polylines — approximated as short straight segments, which almost every CAD and CAM package reads.',
   'dxf-spline':
-    'The same curves as true splines. Smaller files and exact geometry, if your software supports them.',
+    'The same curves as true splines (the rail apex line stays a polyline). Smaller files and exact geometry, if your software supports them.',
   'pdf-1to1':
     'Full-scale printable templates, tiled across your paper size with overlap and cut marks.',
   'rail-bands':

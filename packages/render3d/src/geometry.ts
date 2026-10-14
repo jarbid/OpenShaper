@@ -10,6 +10,7 @@ import {
 import { BufferAttribute, BufferGeometry } from 'three';
 import { boardCurvatureMesh, type CurvatureMesh } from './curvature-mesh';
 import { boardDeviationMesh, type DeviationMesh } from './deviation-mesh';
+import { apexGuideLine, type GuideLine } from './guide-lines';
 import { createMeshQueue, type MeshQueue, type WorkerReply } from './mesh-queue';
 import type { WorkerRequest } from './worker-protocol';
 
@@ -88,6 +89,12 @@ const deviationKey = (ghost: BezierBoard, faceSize: number): DeviationKey => {
 
 const deviationCache = createLru<DeviationMesh, DeviationKey>(DEVIATION_CACHE_SIZE);
 
+/**
+ * Apex guides are a few hundred points each; as many as meshes, so every board whose
+ * mesh is cached can have its line back without a second job.
+ */
+const apexCache = createLru<GuideLine | null>(MESH_CACHE_SIZE);
+
 /** Test hook: how many meshes the cache holds. */
 export const meshCacheSize = (): number => meshCache.size();
 
@@ -96,9 +103,10 @@ export const meshCacheSize = (): number => meshCache.size();
 /**
  * A job queue backed by its own lazily started tessellation worker.
  *
- * Meshes, curvature and deviation each get one: a curvature job takes the better
- * part of a second, a deviation job a tenth to a third of one, and on a shared worker
- * every mesh a drag asks for would wait behind them.
+ * Meshes, curvature, deviation and the apex guide each get one: a curvature job takes
+ * the better part of a second, a deviation job a tenth to a third of one, an apex job
+ * tens of milliseconds, and on a shared worker every mesh a drag asks for would wait
+ * behind them.
  */
 const workerQueue = <R, K = number>(
   toRequest: (id: number, board: BezierBoard, key: K) => WorkerRequest,
@@ -153,6 +161,11 @@ const deviationQueue = workerQueue<DeviationMesh, DeviationKey>(
     targetFaceSize: faceSize,
   }),
   (board, key, result) => deviationCache.put(board, key, result),
+);
+
+const apexQueue = workerQueue<GuideLine | null>(
+  (id, board, targetFaceSize) => ({ kind: 'apex', id, board, targetFaceSize }),
+  (board, faceSize, line) => apexCache.put(board, faceSize, line),
 );
 
 /**
@@ -234,6 +247,33 @@ export function deviationAsync(
   }
 
   return deviationQueue().request(board, key, signal);
+}
+
+/**
+ * The rail apex guide (`apexGuideLine`) at the mesh density for `targetFaceSize`. Same
+ * contract as {@link tessellateAsync} — off the main thread when it can be, cached by
+ * `(board, targetFaceSize)`, and dropped while still waiting once every asker's
+ * `signal` has aborted. Resolves to null for a board with no line to draw.
+ */
+export function apexGuideAsync(
+  board: BezierBoard,
+  targetFaceSize: number,
+  signal?: AbortSignal,
+): Promise<GuideLine | null> {
+  const cached = apexCache.get(board, targetFaceSize);
+  if (cached !== undefined) return Promise.resolve(cached);
+
+  if (typeof Worker === 'undefined') {
+    try {
+      const line = apexGuideLine(board, targetFaceSize);
+      apexCache.put(board, targetFaceSize, line);
+      return Promise.resolve(line);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+
+  return apexQueue().request(board, targetFaceSize, signal);
 }
 
 /**
