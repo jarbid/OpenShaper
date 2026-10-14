@@ -120,6 +120,17 @@ import {
   withSurfaceControlNet,
   withSurfaceControlPoints,
   withSurfaceWeights,
+  closestPointOnCurve,
+  closestPointOnSurface,
+  curveOnSurface,
+  curveOnSurfaceDerivatives,
+  curveOnSurfaceEvalInto,
+  curveOnSurfacePoint,
+  DEFAULT_PROJECTION_SEEDING,
+  isoLinePcurve,
+  projectCurveSamplesToSurface,
+  projectPointsToCurveInto,
+  projectPointsToSurfaceInto,
 } from './index';
 import type { Affine2, Affine3, NurbsCurve } from './index';
 import { checksum, mulberry32, randomCurve, randomSurface } from './testing';
@@ -231,6 +242,16 @@ function cases(seed: number): Case[] {
   const changed = changedControlPoints(S, S2);
   const touched = new Int32Array(64);
   const dir = { x: 0.3, y: -1, z: 2 };
+  // Projection and curves on surfaces (B1).
+  const pcurve = geom.line2(
+    { x: su0 + 0.2 * (su1 - su0), y: sv0 + 0.7 * (sv1 - sv0) },
+    { x: su0 + 0.9 * (su1 - su0), y: sv0 + 0.1 * (sv1 - sv0) },
+  );
+  const cos = curveOnSurface(S, pcurve);
+  const seeding = { oversample: 3 };
+  const pts2 = Float64Array.from({ length: 8 }, () => 2 * rng() - 1);
+  const uvSeeds = Float64Array.from({ length: 16 }, (_, k) => (k % 2 ? v : u));
+  const iso = isoCurve(S, 'v', v);
   const sOut = (): Record<string, Float64Array | Uint8Array> => ({
     position: new Float64Array(36),
     normal: new Float64Array(36),
@@ -649,6 +670,87 @@ function cases(seed: number): Case[] {
     { name: 'torus', inputs: [P, dir], run: () => torus(P, dir, 3, 1), frozen: same },
     { name: 'cylinder', inputs: [P, dir], run: () => cylinder(P, dir, 1, 2), frozen: same },
     { name: 'extrude', inputs: [c3, dir], run: () => extrude(c3, dir), frozen: same },
+    // Projection and curves on surfaces (B1)
+    { name: 'DEFAULT_PROJECTION_SEEDING', inputs: [], run: () => DEFAULT_PROJECTION_SEEDING },
+    {
+      name: 'closestPointOnCurve',
+      inputs: [c3, P, c2, P2, tol, seeding],
+      run: () => [
+        closestPointOnCurve(c3, P, { tol, seeding }),
+        closestPointOnCurve(c3, P, { seed: t }),
+        closestPointOnCurve(c2, P2, { range: curveDomain(c2) }),
+      ],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'closestPointOnSurface',
+      inputs: [S, P, tol, seeding],
+      run: () => [
+        closestPointOnSurface(S, P, { tol, seeding }),
+        closestPointOnSurface(S, Q, { seed: { u, v } }),
+      ],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'projectPointsToCurveInto',
+      inputs: [c3, pts3, c2, pts2],
+      run: () => {
+        const ot = new Float64Array(8);
+        const od = new Float64Array(8);
+        const n = projectPointsToCurveInto(c3, pts3, ot, od, { warmStart: true });
+        const n2 = projectPointsToCurveInto(c2, pts2, ot, od);
+        return [n, n2, ot, od];
+      },
+    },
+    {
+      name: 'projectPointsToSurfaceInto',
+      inputs: [S, pts3, uvSeeds],
+      run: () => {
+        const ouv = new Float64Array(16);
+        const od = new Float64Array(8);
+        const n = projectPointsToSurfaceInto(S, pts3, ouv, od, { warmStart: true });
+        const n2 = projectPointsToSurfaceInto(S, pts3, ouv, od, { seeds: uvSeeds });
+        return [n, n2, ouv, od];
+      },
+    },
+    {
+      name: 'curveOnSurface',
+      inputs: [S, pcurve],
+      run: () => curveOnSurface(S, pcurve),
+      frozen: same,
+    },
+    {
+      name: 'curveOnSurfacePoint',
+      inputs: [cos],
+      run: () => curveOnSurfacePoint(cos, 0.3),
+      frozen: same,
+    },
+    {
+      name: 'curveOnSurfaceDerivatives',
+      inputs: [cos],
+      run: () => curveOnSurfaceDerivatives(cos, 0.6, 2),
+      frozen: same,
+    },
+    {
+      name: 'curveOnSurfaceEvalInto',
+      inputs: [cos],
+      run: () => {
+        curveOnSurfaceEvalInto(cos, 0.4, 2, out, 5, s);
+        return out.slice(5, 14);
+      },
+    },
+    {
+      name: 'isoLinePcurve',
+      inputs: [S],
+      run: () => [isoLinePcurve(S, 'u', u), isoLinePcurve(S, 'v', v)],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'projectCurveSamplesToSurface',
+      inputs: [iso, S, us, tol],
+      run: () => projectCurveSamplesToSurface(iso as NurbsCurve<3>, S, us, { tol }),
+      frozen: same,
+    },
   ];
 }
 

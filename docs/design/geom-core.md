@@ -1376,9 +1376,15 @@ export function fairnessEnergy(
 ): number;
 ```
 
-### 6.14 Projection [B1]
+### 6.14 Projection [B1; `closestPointOnTrimmed` B2]
 
 ```ts
+/** Global seeding density (§11.2); every query takes `seeding?: Partial<ProjectionSeeding>`. */
+export interface ProjectionSeeding {
+  readonly oversample: number; // samples per span and direction: oversample · degree + 1
+  readonly starts: number; // Newton runs from the best cells
+}
+export const DEFAULT_PROJECTION_SEEDING: ProjectionSeeding; // { oversample: 2, starts: 3 }
 export interface CurveProjection<D extends Dim> {
   readonly t: number;
   readonly point: PointOf<D>;
@@ -1394,6 +1400,7 @@ export interface SurfaceProjection {
   readonly iterations: number;
   readonly onBoundary: false | SurfaceEdge | 'trim';
 }
+/** `seed`: a local projection (Newton from it; global seeding only if it does not converge). */
 export function closestPointOnCurve<D extends 2 | 3>(
   c: NurbsCurve<D>,
   p: PointOf<D>,
@@ -1404,12 +1411,16 @@ export function closestPointOnSurface(
   p: Point3,
   opts?: { readonly seed?: UV; readonly tol?: Partial<Tolerances> },
 ): SurfaceProjection;
+/** B2: needs trim-loop classification (§11.2 "Trimmed"). */
 export function closestPointOnTrimmed(
   ts: TrimmedSurface,
   p: Point3,
   opts?: { readonly tol?: Partial<Tolerances> },
 ): SurfaceProjection;
-/** pts stride dim; warmStart seeds each point from the previous result. Returns the count not converged. */
+/**
+ * pts stride dim; warmStart starts each point from the previous result and keeps it within the
+ * continuity bound (§11.2), `seeds` are local starts. Returns the count not converged.
+ */
 export function projectPointsToCurveInto(
   c: NurbsCurve<2> | NurbsCurve<3>,
   pts: ReadonlyF64,
@@ -1453,6 +1464,24 @@ export function curveOnSurfaceEvalInto(
   sc: Scratch,
 ): void;
 export function isoLinePcurve(s: NurbsSurface, fixed: ParamDir, value: number): ClampedCurve<2>; // exact, degree 1
+/**
+ * B1: C(ts[i]) projected onto s (warm-started batch), periodic directions unwrapped so the
+ * samples are continuous; the input of the pcurve fit below.
+ */
+export interface PcurveSamples {
+  readonly t: ReadonlyF64;
+  readonly uv: ReadonlyF64; // stride 2, unwrapped
+  readonly distance: ReadonlyF64;
+  readonly maxDistance: number;
+  readonly notConverged: number;
+  readonly withinTolerance: boolean; // all converged and maxDistance ≤ fit
+}
+export function projectCurveSamplesToSurface(
+  c: NurbsCurve<3>,
+  s: NurbsSurface,
+  ts: ArrayLike<number>, // finite, non-decreasing
+  opts?: { readonly tol?: Partial<Tolerances>; readonly seeding?: Partial<ProjectionSeeding> },
+): PcurveSamples;
 /** Same-parameter pcurve of a 3D curve lying on s (sample, warm-started projection, 2D LSQ, refine). */
 export function projectCurveToSurface(
   c: NurbsCurve<3>,
@@ -1473,6 +1502,22 @@ export function curveOnSurfaceTo3d(
   readonly withinTolerance: boolean;
 }>;
 ```
+
+`curveOnSurface` validates once that the pcurve stays inside every clamped direction of the
+surface's domain within `paramRel` (control hull first, exact by the convex-hull property;
+a span whose hull pokes out is searched for its extreme coordinate) and throws
+`param-out-of-domain` naming the parameter; periodic directions accept any value and wrap.
+Derivatives are right-hand limits in `t`; at a surface knot line the surface side is the one
+the pcurve moves into (left when `u′ < 0`, or `u′ = 0` and `u″ < 0`).
+
+**TODO(integration): pcurve and 3D edge fitting.** `projectCurveToSurface` and
+`curveOnSurfaceTo3d` are not implemented in B1: both fit a curve to samples, which needs
+Track A's constrained least squares (A2). At integration, `projectCurveToSurface` fits a
+`ClampedCurve<2>` to `projectCurveSamplesToSurface`'s unwrapped `(t, uv)` samples (same
+parameter), refining knots until the 3D deviation, measured on 4× denser samples, is
+within `fit`; `curveOnSurfaceTo3d` fits a `ClampedCurve<3>` to `curveOnSurfacePoint`
+samples the same way. Their oracles are in §16 (`curve-on-surface`: honesty against 4×
+denser sampling) and benchmark P18 (§17).
 
 ### 6.16 Trimmed surfaces and integration [B2]
 
@@ -2077,16 +2122,45 @@ control indices, so per-frame evaluation has no modular arithmetic.
 - **Seeds:** each non-empty span sampled at `2p + 1` parameters (a `(2p + 1)²` grid per
   surface span pair); the three best start Newton. The derivative of the squared
   distance has at most `2p − 1` roots per polynomial span, so this is dense enough in
-  practice; brute-force tests (§16) are the check.
+  practice; brute-force tests (§16) are the check. Cells are visited in order of the
+  distance to their control-point box (a lower bound, convex hull) and the visit stops
+  at the first box farther than the third-best sample, which loses nothing full sampling
+  would find. The density is the option `seeding` (`DEFAULT_PROJECTION_SEEDING`,
+  `{ oversample: 2, starts: 3 }`). **Measured (B1):** sampling is not a proof. On
+  graph- and tube-like nets (control points at their Greville abscissae plus offsets)
+  2 of 2,720 points measured landed on a near-tie, another local minimum within 1% of
+  the global distance; on fully random, self-folding nets (sheets a few hundredths
+  apart) ~2% of points (23 of 1,200) miss, and `{ oversample: 4 }` still misses 8. The
+  brute-force tests hold the default to at most one near-tie per 40 points and
+  `{ oversample: 4, starts: 10 }` to the global minimum.
 - **Newton:** P&T §6.1 for curves, the 2 × 2 system for surfaces; stop on
-  `distance ≤ point`, cosine `≤ cosine`, or a parameter step `≤ paramRel`; damped
-  (Levenberg–Marquardt) when a step increases the distance; clamp on clamped
-  directions and wrap on periodic ones. An iterate leaving the domain switches to 1D
-  Newton on the boundary iso-curve; the better of the two wins.
+  cosine `≤ cosine` or a parameter step `≤ paramRel` (`distance ≤ point` only decides
+  `converged` at the iteration cap: stopping there would leave the parameters off by up
+  to `point/|Su|`); damped (Levenberg–Marquardt) when a step increases the distance;
+  clamp on clamped directions and wrap on periodic ones. A parameter on a bound whose
+  gradient points out is active, and Newton continues as 1D Newton on the bounding
+  iso-curve. Near a minimum the distance is flat to rounding over steps of ~√ε, so a
+  step that raises the distance by at most `point` is accepted when it lowers the
+  zero-cosine measure (decided by the gradient, accurate to ε); without this the
+  parameters stop ~√ε short (measured 2e-9 on a cylinder).
+- **C⁰ breaks (B1).** A knot of multiplicity `≥ p` is a crease where the derivative
+  jumps and Newton oscillates. Newton runs inside one C¹ patch (the domain cut at those
+  knots, repeating every period in a periodic direction), its bounds treated like domain
+  bounds; a result held at a break by an outward gradient restarts in the neighbouring
+  patch and moves on while that lowers the distance, so a result that stays is a kink
+  minimum. A seed sampled on its cell's upper end starts in that cell's patch.
 - **Trimmed:** if the unconstrained minimum classifies outside, project onto each trim
-  loop's image as a curve on the surface (`onBoundary: 'trim'`).
+  loop's image as a curve on the surface (`onBoundary: 'trim'`). (B2.)
 - **Batches:** warm start from the previous point's result, falling back to seeding
-  when Newton fails.
+  when Newton fails: a warm result is kept if it converged within the continuity bound
+  `d_i ≤ d_{i−1} + |P_i − P_{i−1}| + point`, which the global minimum always satisfies.
+  A warm batch follows one branch (what a pcurve or a tracked point wants) and can keep
+  it where another becomes closer without breaking the bound; a cold batch is the global
+  answer. A warm result within `point` of the geometry is global, so the samples of a
+  curve lying on a surface are exact. Caller seeds (`seed`, `seeds`) are local
+  projections. (B1 tried using the warm result as the incumbent of a pruned global
+  search instead: every near-surface point then samples all neighbouring cells, whose
+  boxes contain it, and P17 cost 170× the target.)
 - Always returns the best point found, with `converged` and `iterations`.
 
 ### 11.3 Integration over trimmed domains
@@ -2472,6 +2546,14 @@ may fail a regression of more than 2×.
 | P23 | `writeStep`                                                     | board-size 3-face B-rep                             | ≤ 100 ms, file size at both precisions | existing writer ≈ 0.5 s incl. fit  |
 | P24 | Allocation                                                      | 10k simulated drag frames                           | no GC beyond `cw` copies               | —                                  |
 
+**P17 (B1, same container, `vitest bench`):** warm batch 8.7 ms per 1k points (target
+2 ms); cold `closestPointOnSurface` ~300 µs mean (target 20 µs): ~100 µs build the
+40 × 20 net's 629 cell boxes on every call, and a point near the surface lies inside
+the control boxes of the ~9–16 neighbouring cells, each sampled at 49 points
+(separable bases). Tier-2 options if the desktop misses too: a caller-owned prepared
+projector (boxes built once per surface), or a coarse first pass of fewer samples per
+cell.
+
 **First measurements (F2, `src/eval.bench.ts`).** On the session's 4-vCPU cloud
 container (Node 22.22; a plain loop runs ~1.4 ns per multiply-add and a small typed
 array costs ~1.5 µs to allocate, several times a desktop) every P1–P9 target was
@@ -2528,7 +2610,9 @@ API test, ESLint layer, lockfile entry, this document.
 
 - **B1 Projection and curves on surfaces.** `project.ts` (curve, surface, batches with
   warm start); `curve-on-surface.ts` evaluation and chain-rule derivatives;
-  `isoLinePcurve`; P17. Pcurve **fitting** is not here (see integration).
+  `isoLinePcurve`; `projectCurveSamplesToSurface` (the fit's input); P17. Pcurve
+  **fitting** is not here (see integration and the TODO in §6.15);
+  `closestPointOnTrimmed` moves to B2 with trim classification.
 - **B2 Trimmed surfaces, CDT and quadrature.** `mesh/predicates.ts` (vendored,
   `NOTICE.md`), `mesh/cdt.ts`, `mesh/refine.ts` (5-day timebox, §12); `trim.ts`;
   `mesh/tessellate.ts` (incl. retarget); `integrate.ts` (Green's theorem, area);

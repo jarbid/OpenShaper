@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * Evaluation benchmarks P1–P9 (docs/design/geom-core.md §17), run with
+ * Evaluation and projection benchmarks P1–P9 and P17 (docs/design/geom-core.md §17), run with
  * `pnpm --filter @openshaper/geom bench` (not part of `pnpm test`).
  *
  * Each case prints its measured rate or time next to the design's target. A
@@ -13,6 +13,9 @@ import { test } from 'vitest';
 import {
   clampedBasis,
   clampedUniformKnots,
+  closestPointOnSurface,
+  projectPointsToSurfaceInto,
+  surfaceNormal,
   createScratch,
   curveEvalBatchInto,
   curvePoint,
@@ -251,4 +254,50 @@ test('sample plans: P6–P8', async ({ bench }) => {
   process.stdout.write(
     `P8 touched ${touchedCount} of ${count} samples (${((100 * touchedCount) / count).toFixed(1)}%)\n`,
   );
+});
+
+test('projection: P17', async ({ bench }) => {
+  const rng = mulberry32(5);
+  const s = bicubic(40, 20, false, 6);
+  const count = 1000;
+  // A path near the surface (a pcurve-like sweep, 0.1 cm off it) for the warm batch,
+  // and scattered points near it for the cold queries.
+  const near = (u: number, v: number, d: number): [number, number, number] => {
+    const p = surfacePoint(s, u, v);
+    const n = surfaceNormal(s, u, v);
+    const k = n.kind === 'regular' ? n.n : { x: 0, y: 0, z: 1 };
+    return [p.x + d * k.x, p.y + d * k.y, p.z + d * k.z];
+  };
+  const path = new Float64Array(3 * count);
+  for (let i = 0; i < count; i++) {
+    const t = i / (count - 1);
+    path.set(near(0.05 + 0.9 * t, 0.5 + 0.3 * Math.sin(6 * t), 0.1), 3 * i);
+  }
+  // 100 cold queries per call keep one call short enough for the harness.
+  const scattered = Array.from({ length: 100 }, () => {
+    const [x, y, z] = near(rng(), rng(), 2 * (rng() - 0.5));
+    return { x, y, z };
+  });
+  const uv = new Float64Array(2 * count);
+  const dist = new Float64Array(count);
+  let sink = 0;
+  await runGroup(bench, 'projection (B1)', [
+    {
+      id: 'P17',
+      name: 'projectPointsToSurfaceInto warm, 1k points, bicubic 40 × 20',
+      units: 0,
+      target: { kind: 'time', value: 2 },
+      fn: () => void projectPointsToSurfaceInto(s, path, uv, dist, { warmStart: true }),
+    },
+    {
+      id: 'P17',
+      name: 'closestPointOnSurface cold, bicubic 40 × 20 (per point)',
+      units: scattered.length,
+      target: { kind: 'rate', value: 50_000 }, // ≤ 20 µs mean
+      fn: () => {
+        for (const p of scattered) sink += closestPointOnSurface(s, p).distance;
+      },
+    },
+  ]);
+  if (Number.isNaN(sink)) process.stdout.write('unreachable\n');
 });

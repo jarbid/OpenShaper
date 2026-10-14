@@ -7,7 +7,8 @@
  * (docs/design/geom-core.md, decision 40). Each build step extends it; F1
  * added tolerances, errors, scratch, `vec`, bases, curves, curve measures,
  * quadrature and the exact curve primitives; F2 surfaces, surface measures,
- * sample plans and the exact surface primitives.
+ * sample plans and the exact surface primitives; B1 projection and curves on
+ * surfaces.
  *
  * The type-level checks run under `tsc` (`pnpm typecheck` type-checks tests):
  * they pin the conventions the core types encode, so loosening one of them
@@ -30,6 +31,7 @@ import type {
 
 /** Every runtime (value) export of `@openshaper/geom`, sorted. */
 const PUBLIC_VALUES: readonly string[] = [
+  'DEFAULT_PROJECTION_SEEDING',
   'DEFAULT_TOLERANCES',
   'GL_MAX_ORDER',
   'GeomError',
@@ -51,6 +53,8 @@ const PUBLIC_VALUES: readonly string[] = [
   'clampUnclamped',
   'clampedBasis',
   'clampedUniformKnots',
+  'closestPointOnCurve',
+  'closestPointOnSurface',
   'conicArc',
   'controlPoint',
   'controlPointsInto',
@@ -66,6 +70,10 @@ const PUBLIC_VALUES: readonly string[] = [
   'curveFrame',
   'curveFromHomogeneous',
   'curveLength',
+  'curveOnSurface',
+  'curveOnSurfaceDerivatives',
+  'curveOnSurfaceEvalInto',
+  'curveOnSurfacePoint',
   'curvePoint',
   'curveSignedCurvature',
   'curveTangent',
@@ -84,6 +92,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'isClosed',
   'isGeomError',
   'isoCurve',
+  'isoLinePcurve',
   'issueOf',
   'knotMultiplicities',
   'knotsFromBreaks',
@@ -105,6 +114,9 @@ const PUBLIC_VALUES: readonly string[] = [
   'planeSurface',
   'polyline',
   'principalCurvatures',
+  'projectCurveSamplesToSurface',
+  'projectPointsToCurveInto',
+  'projectPointsToSurfaceInto',
   'resolveTolerances',
   'reviveCurve',
   'reviveSurface',
@@ -173,6 +185,10 @@ describe('@openshaper/geom public API', () => {
       'evalSurfaceSpan',
       'surfaceMeasureAt',
       'randomSurface',
+      'prepareSurface',
+      'projectSurfaceBatch',
+      'newtonSurface',
+      'directionCells',
     ]) {
       expect(name in geom).toBe(false);
     }

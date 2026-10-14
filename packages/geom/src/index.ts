@@ -152,6 +152,27 @@ export {
   torus,
 } from './primitives';
 
+// Projection (§6.14)
+export {
+  closestPointOnCurve,
+  closestPointOnSurface,
+  DEFAULT_PROJECTION_SEEDING,
+  projectPointsToCurveInto,
+  projectPointsToSurfaceInto,
+} from './project';
+export type { CurveProjection, ProjectionSeeding, SurfaceProjection } from './project';
+
+// Curves on surfaces (§6.15)
+export {
+  curveOnSurface,
+  curveOnSurfaceDerivatives,
+  curveOnSurfaceEvalInto,
+  curveOnSurfacePoint,
+  isoLinePcurve,
+  projectCurveSamplesToSurface,
+} from './curve-on-surface';
+export type { PcurveSamples } from './curve-on-surface';
+
 // Shared value types (§5)
 export type {
   Affine2,
