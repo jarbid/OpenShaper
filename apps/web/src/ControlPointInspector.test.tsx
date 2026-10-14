@@ -330,10 +330,40 @@ describe('a slice point the blank holds', () => {
     const del = screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement;
     expect(del.disabled).toBe(true);
     expect(del.getAttribute('title')).toMatch(/apex/);
+
+    // Its upright handles cannot be laid flat: one would reach past the apex line.
+    const flat = screen.getByRole('button', { name: '—' }) as HTMLButtonElement;
+    expect(flat.disabled).toBe(true);
+    expect(flat.getAttribute('title')).toMatch(/apex/);
+  });
+
+  it('puts a typed value the blank holds short back to what was stored', () => {
+    // The apex's outward handle typed out past the apex line: it stays on the line.
+    const store = withSelected(2);
+    render(<ControlPointInspector store={store} units={DEFAULT_LENGTH_UNIT} />);
+    const handle = field('Tangent to next Y');
+    const was = handle.value;
+    fireEvent.change(handle, { target: { value: '250' } }); // 250 mm, past the 200 mm apex
+    fireEvent.keyDown(handle, { key: 'Enter' });
+    expect(store.getState().board!.crossSections[1]!.spline.knots[2]!.tangentToNext.x).toBe(20);
+    expect(field('Tangent to next Y').value).toBe(was);
+  });
+
+  it('puts a typed value the blank holds short back to what was stored, in the pane header', () => {
+    // The apex's outward handle again, which already sits on the apex line.
+    const store = withSelected(2, 'next');
+    render(<SelectedPointEditor store={store} units={DEFAULT_LENGTH_UNIT} targets={[SLICE]} />);
+    const y = field('Y position');
+    const was = y.value;
+    fireEvent.change(y, { target: { value: '300' } }); // 300 mm, past the 200 mm apex
+    fireEvent.keyDown(y, { key: 'Enter' });
+    expect(store.getState().board!.crossSections[1]!.spline.knots[2]!.tangentToNext.x).toBe(20);
+    expect(field('Y position').value).toBe(was);
   });
 
   it('leaves every other slice point free', () => {
     render(<ControlPointInspector store={withSelected(3)} units={DEFAULT_LENGTH_UNIT} />);
+    expect((screen.getByRole('button', { name: '—' }) as HTMLButtonElement).disabled).toBe(false);
     expect(screen.getByText('Endpoint')).toBeTruthy();
     expect(field('Endpoint Y').disabled).toBe(false);
     expect(field('Endpoint Z').disabled).toBe(false);

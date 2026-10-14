@@ -387,6 +387,50 @@ describe('drawControlPoints', () => {
       expect(tips).toEqual(expect.arrayContaining([-11, 11]));
     });
 
+    it('keeps the ring clear of a large or hovered point', () => {
+      const { ctx } = makeCtx();
+      // Size 10, hovered: the point is drawn 15.5 px across its radius.
+      drawControlPoints(
+        ctx,
+        makeSpline(),
+        VP,
+        defaultStyle,
+        null,
+        10,
+        'end',
+        { index: 0, kind: 'end' },
+        [FIXED, FREE, FREE],
+      );
+      const ring = vi.mocked(ctx.arc).mock.calls[0]![2];
+      expect(ring).toBeGreaterThan(10 * 1.55);
+    });
+
+    it("puts the chevrons beyond a locked handle's bar on the same axis", () => {
+      const { ctx } = makeCtx();
+      const s = splineFromKnots([
+        knot(vec2(0, 0), vec2(0, 0), vec2(10, 0)),
+        // An upright apex with its handles locked upright: the bars sit on the chevrons' axis.
+        knot(vec2(50, 0), vec2(50, -10), vec2(50, 10), true, false, {
+          prev: vec2(0, -1),
+          next: vec2(0, 1),
+        }),
+        knot(vec2(100, 0), vec2(90, 0), vec2(100, 0)),
+      ]);
+      drawControlPoints(ctx, s, VP, defaultStyle, null, undefined, 'end', null, [
+        FREE,
+        HEIGHT_ONLY,
+        FREE,
+      ]);
+      const end = worldToScreen(VP, vec2(50, 0));
+      // Chevron tips: the lineTo points on the axis other than the point and the handle tips.
+      const out = vi
+        .mocked(ctx.lineTo)
+        .mock.calls.filter(([x]) => Math.abs(x - end.x) < 1e-9)
+        .map(([, y]) => Math.abs(y - end.y))
+        .filter((d) => d > 0 && d !== 20);
+      expect(Math.min(...out)).toBeGreaterThan(12);
+    });
+
     it('is drawn by nothing but the holds passed in', () => {
       const { ctx } = makeCtx();
       drawControlPoints(ctx, makeSpline(), VP, defaultStyle, null, undefined, 'end', null, null);

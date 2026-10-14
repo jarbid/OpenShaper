@@ -5,13 +5,16 @@ import {
   type Spline,
 } from '@openshaper/kernel';
 import {
+  alignTangentsHorizontal,
   blankLocks,
   canDeleteKnot,
   canLockKnot,
+  constrainSectionToBlank,
   getTargetSpline,
   sameTarget,
   type BoardState,
   type LockedAxes,
+  whyKnotIsKept,
   type SplineTarget,
 } from '@openshaper/store';
 import { handleSideName, visualSideForHandleKind } from '@openshaper/render2d';
@@ -105,9 +108,9 @@ interface BlankHold {
 }
 
 const CENTRE_HINT =
-  "A slice's centre points sit on the rocker and the deck. Move them in the Rocker view.";
+  "A slice's centre points sit on the rocker and the deck. With Resize cross-sections to rocker/deck on, they follow the Rocker view; off, the slice keeps its own thickness.";
 const APEX_HINT =
-  'The apex keeps the slice as wide as the outline, so it moves up and down only. Change the width in the Outline view.';
+  'The apex keeps the slice as wide as the outline, so it moves up and down only. With Resize cross-sections to rocker/deck on, it follows the Outline view; off, the slice keeps its own width.';
 
 /**
  * What the blank holds of point `index` of `target`'s spline: a slice's centre points are
@@ -215,6 +218,9 @@ function HeaderCoordInput({
     if (Math.abs(parsed - lastCommitted.current) <= 1e-9) return;
     lastCommitted.current = parsed;
     onCommit(parsed);
+    // Show what was stored, not what was typed: the blank may have held the point short of
+    // it, or refused it, and then the value (and so the re-sync) never changes.
+    setText(shown);
   };
   return (
     <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground" title={title}>
@@ -485,8 +491,10 @@ function CoordInput({
 
   const commit = () => {
     const cm = parseTypedLen(text, units);
-    if (cm === null) setText(shown);
-    else onCommit(cm);
+    if (cm !== null) onCommit(cm);
+    // Back to what is stored: a value the blank held short or refused changes nothing, so
+    // the re-sync would never fire and the typed number would stay up, unstored.
+    setText(shown);
   };
   return (
     <label className="flex items-center gap-2" title={title}>
@@ -599,8 +607,11 @@ export function ControlPointInspector({
   const { target, index } = selection;
   const [splineXLabel, splineYLabel] = coordinateLabels(target);
   const deletable = canDeleteKnot(spline, index, target);
-  const endpoint = index === 0 || index === spline.knots.length - 1;
   const hold = blankHold(target, spline, index);
+  // Lying a slice's apex handles flat would push one out past the apex line, where it would
+  // collapse onto the point; the store refuses it, so the button says so.
+  const flatAligned = target.kind === 'crossSection' && alignTangentsHorizontal(spline, index);
+  const noFlat = flatAligned && constrainSectionToBlank(spline, flatAligned) !== flatAligned;
   const setEnd = (x: number, y: number) =>
     store.getState().moveControlPoint(target, index, { x, y });
 
@@ -668,13 +679,7 @@ export function ControlPointInspector({
           variant="ghost"
           disabled={!deletable}
           onClick={() => store.getState().deleteControlPoint(target, index)}
-          title={
-            deletable
-              ? 'Delete this point (Del)'
-              : endpoint
-                ? 'Endpoints cannot be deleted'
-                : 'The apex keeps the slice as wide as the outline, so it cannot be deleted'
-          }
+          title={whyKnotIsKept(spline, index, target) ?? 'Delete this point (Del)'}
         >
           Delete
         </Button>
@@ -686,8 +691,13 @@ export function ControlPointInspector({
           size="sm"
           variant="outline"
           className="flex-1 font-mono"
+          disabled={noFlat}
           onClick={() => store.getState().alignTangentsHorizontal(target, index)}
-          title="Align both tangent handles to horizontal axis, preserving their lengths. A locked point stays locked, now horizontal."
+          title={
+            noFlat
+              ? "A handle laid flat here would reach past the slice's apex, the outline's width"
+              : 'Align both tangent handles to horizontal axis, preserving their lengths. A locked point stays locked, now horizontal.'
+          }
         >
           —
         </Button>

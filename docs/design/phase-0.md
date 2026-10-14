@@ -150,6 +150,18 @@ This changes editing behaviour on purpose, so the store characterization snapsho
 may change; any change is justified in the commit, never accepted with
 `vitest -u` alone.
 
+As built, two refinements of the bullets above:
+
+- **Ties for widest.** When two or more knots sit exactly level at the widest (a
+  boxy Shape3D rail, or a rail point pushed out until it stops on the apex line),
+  none of them is singled out as the apex: any of them may move in or be deleted
+  while another stays on the line, and the width is held as long as one does. Only
+  an edit that moves them all in puts the first from the bottom centre back. The
+  editors then show no apex marker on the tied knots, since none is held by itself.
+- **Paste.** Pasting a profile onto a station takes its shape, fitted to the
+  station's centre points and apex line, so it lands inside the blank whether or
+  not "Resize cross-sections to rocker/deck" is on.
+
 ### 0.6 Apex line guide
 
 The rail apex — each station's widest point — as a 3D guide toggle next to

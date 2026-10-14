@@ -394,6 +394,55 @@ describe('board store: slices refine the blank', () => {
       expect(store.getState().past).toHaveLength(0);
     });
 
+    it('records nothing for a push straight out on a smooth apex handle', () => {
+      // ArrowRight on the apex's upper handle: the blank takes all of it back.
+      const store = setup();
+      const before = store.getState().board;
+      for (let i = 0; i < 3; i++) store.getState().moveTangent(SLICE, 2, 'next', vec2(25, 3));
+      expect(store.getState().board).toBe(before);
+      expect(store.getState().past).toHaveLength(0);
+    });
+
+    describe("a handle length edit keeps the handle's angle", () => {
+      const angle = (h: Vec2, at: Vec2) => Math.atan2(h.y - at.y, h.x - at.x);
+
+      it('stops a typed length where the handle meets the apex line', () => {
+        const store = setup();
+        const was = slice(store).knots[3]!;
+        store.getState().setTangentLength(SLICE, 3, 'prev', 10);
+        const k = slice(store).knots[3]!;
+        expect(k.tangentToPrev.x).toBe(20);
+        expect(angle(k.tangentToPrev, k.end)).toBeCloseTo(angle(was.tangentToPrev, was.end), 12);
+        expect(angle(k.tangentToNext, k.end)).toBeCloseTo(angle(was.tangentToNext, was.end), 12);
+        expect(store.getState().past.map((h) => h.label)).toEqual(['Set handle length']);
+      });
+
+      it('stops hold-T nudges on the line, and then records nothing', () => {
+        const store = setup();
+        const was = slice(store).knots[1]!; // the tuck: (18, 0.5) → (19.5, 1)
+        // It reaches the line, 2.11 long, on the second press …
+        for (let i = 0; i < 2; i++) store.getState().stepTangentLength(SLICE, 1, 'next', 0.5);
+        const k = slice(store).knots[1]!;
+        expect(k.tangentToNext.x).toBe(20);
+        expect(angle(k.tangentToNext, k.end)).toBeCloseTo(angle(was.tangentToNext, was.end), 12);
+        // … and stays there, without a step per press.
+        const at = store.getState().board;
+        for (let i = 0; i < 4; i++) store.getState().stepTangentLength(SLICE, 1, 'next', 0.5);
+        expect(store.getState().board).toBe(at);
+        expect(store.getState().past).toHaveLength(2);
+      });
+    });
+
+    it('will not lay the apex handles flat, which would collapse one, but aligns others', () => {
+      const store = setup();
+      const before = store.getState().board;
+      store.getState().alignTangentsHorizontal(SLICE, 2);
+      expect(store.getState().board).toBe(before);
+      expect(store.getState().past).toHaveLength(0);
+      store.getState().alignTangentsHorizontal(SLICE, 3);
+      expect(slice(store).knots[3]!.tangentToPrev.y).toBe(5);
+    });
+
     it('will not delete the apex, but deletes another rail point', () => {
       const store = setup();
       const before = store.getState().board;
@@ -425,6 +474,23 @@ describe('board store: slices refine the blank', () => {
         expect(slice(store).knots[apex]!.end).toEqual(vec2(20, y + 0.3));
       },
     );
+
+    it('pastes a wider, thicker profile as a shape, fitted into the station', () => {
+      // A mid-board profile 60 wide and 10 thick, pasted onto this 40 × 6 station.
+      const wide = splineFromKnots([
+        knot(vec2(0, 0), vec2(-6, 0), vec2(6, 0)),
+        knot(vec2(30, 3), vec2(30, 1), vec2(30, 5)),
+        knot(vec2(0, 10), vec2(10, 10), vec2(-10, 10)),
+      ]);
+      const store = expectBlankKept((s) => s.getState().pasteCrossSection(1, wide));
+      const k = slice(store).knots;
+      expect(k).toHaveLength(3);
+      expect(k[0]!.end).toEqual(vec2(0, 0));
+      expect(k[2]!.end).toEqual(vec2(0, 6));
+      expect(k[1]!.end.x).toBe(20); // on the apex line exactly
+      expect(k[1]!.end.y).toBeCloseTo(1.8, 12); // 3 of 10 up, as 1.8 of 6
+      expect(store.getState().past.map((h) => h.label)).toEqual(['Paste cross-section']);
+    });
 
     it('adds a point to the slice without moving the blank', () => {
       const store = expectBlankKept((s) => s.getState().addControlPoint(SLICE, vec2(8, 5.9)));

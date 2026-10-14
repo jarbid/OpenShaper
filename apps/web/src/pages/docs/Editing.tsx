@@ -357,20 +357,23 @@ export default function DocsEditing() {
           <Term name="Centre points">
             The two points on the stringer sit on the bottom and on the deck, so they do not move. A
             ring marks each, and the sidebar and the pane header show their position read-only.
-            Their handles stay free. To make the board thicker or thinner there, edit the rocker.
+            Their handles stay free. To make the board thicker or thinner there, edit the rocker
+            (with <strong>Resize cross-sections to rocker/deck</strong> on, as it is by default).
           </Term>
           <Term name="Apex">
             The section&apos;s widest point holds it to the outline&apos;s width, so it moves only
             up and down — which is how you raise or lower the rail. Chevrons above and below it show
             the way it can go, its distance from the stringer shows read-only, and it cannot be
             deleted. Its handles can lengthen, shorten or lean in, but never out past it, which
-            keeps a smooth apex&apos;s handles upright. To make the board wider or narrower there,
-            edit the outline.
+            keeps a smooth apex&apos;s handles upright (so they cannot be aligned flat). To make the
+            board wider or narrower there, edit the outline (with the same setting on).
           </Term>
           <Term name="Every other point">
             Moves freely inside the apex, and stops on the line through it when dragged further out;
-            so does every handle. Where two points sit level at the widest, as on a boxy rail,
-            neither is singled out: either can move in while the other keeps the width.
+            so does every handle. A value typed past the line stops there too, and the field shows
+            where it stopped; a handle&apos;s length stops where the handle meets the line, keeping
+            its angle. Where two points sit level at the widest, as on a boxy rail, neither is
+            singled out: either can move in while the other keeps the width.
           </Term>
         </Terms>
         <p>
@@ -378,7 +381,8 @@ export default function DocsEditing() {
           the undo stack. With <strong>Resize cross-sections to rocker/deck</strong> on in Settings
           (the default), editing the outline or the rocker resizes the cross-sections in that area
           to match; turned off, they keep their own size. Either way, editing a cross-section leaves
-          the curves alone.
+          the curves alone. A pasted cross-section brings its shape, stretched to the station&apos;s
+          centre points and apex line, so it lands inside the blank too.
         </p>
       </Section>
 

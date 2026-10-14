@@ -171,10 +171,16 @@ const drawLockBars = (
   ctx.lineWidth = 1;
 };
 
-/** The radius of the ring round a fixed point, and how far out a free axis's chevrons sit (px). */
+/**
+ * The radius of the ring round a fixed point, how far out a free axis's chevrons sit, and
+ * the chevrons' size (px). Each is a least: the ring stays `HELD_GAP` clear of the point as
+ * drawn (which the control-point size setting and a hover enlarge), and the chevrons stay
+ * clear of the point and of a locked handle's bar, which would otherwise cap them.
+ */
 const HELD_RING = 9;
 const HELD_CHEVRON_AT = 11;
 const HELD_CHEVRON = 3;
+const HELD_GAP = 3;
 
 /**
  * Mark a point the blank holds, in the same strokes as the lock bars. A point fixed in
@@ -188,15 +194,23 @@ const drawHeldPoint = (
   held: LockedAxes,
   vp: Viewport,
   style: DrawStyle,
+  /** How far the point's own mark reaches from its centre (px). */
+  pointReach: number,
 ): void => {
   const end = worldToScreen(vp, k.end);
   ctx.strokeStyle = style.tangent;
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   if (held.x && held.y) {
-    ctx.moveTo(end.x + HELD_RING, end.y);
-    ctx.arc(end.x, end.y, HELD_RING, 0, Math.PI * 2);
+    const ring = Math.max(HELD_RING, pointReach + HELD_GAP);
+    ctx.moveTo(end.x + ring, end.y);
+    ctx.arc(end.x, end.y, ring, 0, Math.PI * 2);
   } else {
+    const tipAt = Math.max(
+      HELD_CHEVRON_AT,
+      pointReach + HELD_GAP + HELD_CHEVRON,
+      k.lock ? LOCK_BAR_AT + HELD_GAP + HELD_CHEVRON : 0,
+    );
     // The free axis on screen: a pane may turn its canvas, never the splines' own axes.
     const free = held.x ? { x: k.end.x, y: k.end.y + 1 } : { x: k.end.x + 1, y: k.end.y };
     const along = worldToScreen(vp, free);
@@ -205,8 +219,8 @@ const drawHeldPoint = (
       const ux = (along.x - end.x) / len;
       const uy = (along.y - end.y) / len;
       for (const side of [1, -1]) {
-        const tipX = end.x + side * ux * HELD_CHEVRON_AT;
-        const tipY = end.y + side * uy * HELD_CHEVRON_AT;
+        const tipX = end.x + side * ux * tipAt;
+        const tipY = end.y + side * uy * tipAt;
         const baseX = tipX - side * ux * HELD_CHEVRON;
         const baseY = tipY - side * uy * HELD_CHEVRON;
         ctx.moveTo(baseX - uy * HELD_CHEVRON, baseY + ux * HELD_CHEVRON);
@@ -256,12 +270,17 @@ export const drawControlPoints = (
     ctx.lineTo(next.x, next.y);
     ctx.stroke();
     if (k.lock) drawLockBars(ctx, k, vp, style);
-    const hold = held?.[i];
-    if (hold && (hold.x || hold.y)) drawHeldPoint(ctx, k, hold, vp, style);
 
     const endActive =
       (i === selectedIndex && selectedKind === 'end') ||
       (hovered?.index === i && hovered.kind === 'end');
+    const endScale = endActive ? 1.55 : 1;
+    const hold = held?.[i];
+    if (hold && (hold.x || hold.y)) {
+      // A square reaches furthest at its corners.
+      const reach = k.continuous ? r * endScale : rSq * endScale * Math.SQRT2;
+      drawHeldPoint(ctx, k, hold, vp, style, reach);
+    }
     const prevActive =
       (i === selectedIndex && selectedKind === 'prev') ||
       (hovered?.index === i && hovered.kind === 'prev');
@@ -277,7 +296,6 @@ export const drawControlPoints = (
 
     // Draw the endpoint first and handles last. A selected zero-length handle then
     // remains visible on top of the endpoint and can be dragged out again.
-    const endScale = endActive ? 1.55 : 1;
     if (k.continuous) dot(ctx, end.x, end.y, r * endScale, endFill);
     else square(ctx, end.x, end.y, rSq * endScale, endFill);
     dot(

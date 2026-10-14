@@ -14,6 +14,7 @@ import {
   sameTarget,
   type BoardState,
   type SplineTarget,
+  whyKnotIsKept,
 } from '@openshaper/store';
 import type { MenuItem } from '@openshaper/ui';
 import type { StoreApi } from 'zustand/vanilla';
@@ -246,6 +247,7 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
         label: 'Delete point',
         // Endpoints stay, and so does a slice's apex, which holds it to the outline's width.
         disabled: !canDeleteKnot(spline, hit.index, target),
+        title: whyKnotIsKept(spline, hit.index, target) ?? undefined,
         shortcut: 'Del',
         onSelect: () => store.getState().deleteControlPoint(target, hit.index),
       },

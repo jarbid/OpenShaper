@@ -1126,6 +1126,45 @@ describe('constrainSectionToBlank', () => {
       expect(apex.tangentToNext.y).toBeCloseTo(3, 12); // the inward handle kept its length
     });
 
+    it('takes back an outward push on a smooth apex handle exactly, turning nothing', () => {
+      // The pushed handle stands back upright, and its partner turns back to within
+      // rounding of where it was: it must land exactly there, or the push would record.
+      const prev = slice();
+      const next = moveKnotTangent(prev, 2, 'next', vec2(25, 3));
+      expect(next.knots[2]!.tangentToPrev).not.toEqual(prev.knots[2]!.tangentToPrev);
+      expect(constrainSectionToBlank(prev, next)).toBe(prev);
+    });
+
+    describe('an apex locked a fraction past upright', () => {
+      // Imported data: the apex's upper handle leans out 0.1 mm, and the point is locked.
+      const leaning = () =>
+        setKnotLock(
+          splineFromKnots([
+            ...slice().knots.slice(0, 2),
+            knot(vec2(20, 2), vec2(20, 1.2), vec2(20.01, 3), false),
+            ...slice().knots.slice(3),
+          ]),
+          2,
+          true,
+        );
+
+      it('keeps its handle when it is raised, rather than collapsing it onto the point', () => {
+        const prev = leaning();
+        const next = moveKnotEnd(prev, 2, vec2(20, 2.5));
+        const out = constrainSectionToBlank(prev, next);
+        expect(out.knots[2]!.tangentToNext).toEqual(next.knots[2]!.tangentToNext);
+        expect(out.knots[2]!.end).toEqual(vec2(APEX_X, 2.5));
+      });
+
+      it('lets that handle reach no further out than it did', () => {
+        const prev = leaning();
+        const out = constrainSectionToBlank(prev, setKnotTangentLength(prev, 2, 'next', 3));
+        const h = out.knots[2]!.tangentToNext;
+        expect(h.x).toBeCloseTo(20.01, 12);
+        expect(h.y).toBeCloseTo(3, 9); // its old length along the same lock
+      });
+    });
+
     it('leaves points the edit did not change alone, even ones already past the apex', () => {
       // An imported profile whose tuck handle pokes 5 mm past the apex.
       const prev = slice(vec2(20.5, 1));

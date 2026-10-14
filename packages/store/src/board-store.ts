@@ -10,11 +10,13 @@ import {
   alignTangentsHorizontal,
   alignTangentsVertical,
   canDeleteKnot,
+  capSectionHandleLengths,
   constrainSectionToBlank,
   deleteKnot,
   enforceJunctions,
   extendKnotTangent,
   fairKnot,
+  fitSectionToBlank,
   getTargetSpline,
   insertCrossSection,
   insertKnotAt,
@@ -265,6 +267,71 @@ export const createBoardStore = (): StoreApi<BoardState> =>
       return { held, board: enforceJunctions(withSpline(board, target, held), target) };
     };
 
+    /**
+     * Whether knot `index`'s handles come through {@link settle} where `after` puts them.
+     * The junction pass clamps a handle past a limit back onto it, and the blank slides
+     * one pushed out past a slice's apex onto the apex line; either turns or shortens it.
+     * An edit that promises to keep a handle's angle or length checks this first, and does
+     * not happen rather than land as something else.
+     */
+    const settlesAsAsked = (target: SplineTarget, before: Spline, after: Spline, index: number) => {
+      const { board } = get();
+      if (!board) return false;
+      const want = after.knots[index];
+      const got = getTargetSpline(settle(board, target, before, after).board, target).knots[index];
+      return (
+        !!want &&
+        !!got &&
+        samePoint(want.tangentToPrev, got.tangentToPrev) &&
+        samePoint(want.tangentToNext, got.tangentToNext)
+      );
+    };
+
+    /**
+     * A handle length edit of knot `index`: on a slice stopped where the handle meets the
+     * apex line, along its own direction, and refused if the blank would still turn it.
+     * (The outline, rocker and deck keep their junction pass's say, as before.)
+     */
+    const editLength = (target: SplineTarget, index: number, fn: (s: Spline) => Spline) => {
+      const { board } = get();
+      if (!board) return;
+      const spline = getTargetSpline(board, target);
+      let next = fn(spline);
+      // A collapsed free handle has no direction to change length along: no step to record.
+      if (next === spline) return;
+      if (target.kind === 'crossSection') {
+        next = capSectionHandleLengths(spline, next, index);
+        // Already on the line: stopping there again changes nothing, so records nothing.
+        const was = spline.knots[index]!;
+        const got = next.knots[index]!;
+        if (
+          samePoint(was.tangentToPrev, got.tangentToPrev) &&
+          samePoint(was.tangentToNext, got.tangentToNext)
+        )
+          return;
+        if (!settlesAsAsked(target, spline, next, index)) return;
+      }
+      editSpline(target, 'Set handle length', () => next);
+    };
+
+    /**
+     * Align knot `index`'s handles. On a slice they keep their lengths, as the buttons
+     * promise, or the align does not happen: lying an apex's handles flat would push one
+     * out past the apex line, where the blank would collapse it onto the point.
+     */
+    const editAlign = (
+      target: SplineTarget,
+      index: number,
+      align: (s: Spline, index: number) => Spline,
+    ) => {
+      const { board } = get();
+      if (!board) return;
+      const spline = getTargetSpline(board, target);
+      const next = align(spline, index);
+      if (target.kind === 'crossSection' && !settlesAsAsked(target, spline, next, index)) return;
+      editSpline(target, 'Align tangents', () => next);
+    };
+
     /** Replace `target`'s spline with `fn` of it, through {@link settle}, as one commit. */
     const editSpline = (target: SplineTarget, label: string, fn: (s: Spline) => Spline) => {
       const { board } = get();
@@ -316,15 +383,8 @@ export const createBoardStore = (): StoreApi<BoardState> =>
       moveTangent: (target, index, which, pos) =>
         editSpline(target, 'Move tangent', (s) => moveKnotTangent(s, index, which, pos)),
 
-      setTangentLength: (target, index, which, length) => {
-        const { board } = get();
-        if (!board) return;
-        const spline = getTargetSpline(board, target);
-        const next = setKnotTangentLength(spline, index, which, length);
-        // A collapsed free handle has no direction to lengthen along: no step to record.
-        if (next === spline) return;
-        editSpline(target, 'Set handle length', () => next);
-      },
+      setTangentLength: (target, index, which, length) =>
+        editLength(target, index, (s) => setKnotTangentLength(s, index, which, length)),
       rotateTangent: (target, index, which, radians) => {
         const { board } = get();
         if (!board) return;
@@ -332,25 +392,12 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         const turned = rotateKnotTangent(spline, index, which, radians);
         // Locked, collapsed, or no angle: nothing turned, so no step to record.
         if (turned === spline) return;
-        // The junction pass clamps a handle turned past a limit back onto it, which
-        // shortens it, and so does the blank one turned out past a slice's apex. A turn
-        // keeps its length or does not happen.
-        const want = turned.knots[index]!;
-        const settled = settle(board, target, spline, turned).board;
-        const got = getTargetSpline(settled, target).knots[index]!;
-        if (!samePoint(want.tangentToPrev, got.tangentToPrev)) return;
-        if (!samePoint(want.tangentToNext, got.tangentToNext)) return;
+        // A turn keeps its length or does not happen.
+        if (!settlesAsAsked(target, spline, turned, index)) return;
         editSpline(target, which === 'both' ? 'Rotate handles' : 'Rotate handle', () => turned);
       },
-      stepTangentLength: (target, index, which, delta) => {
-        const { board } = get();
-        if (!board) return;
-        const spline = getTargetSpline(board, target);
-        const next = stepKnotTangentLength(spline, index, which, delta);
-        // Already collapsed, or no direction to grow along: no step to record.
-        if (next === spline) return;
-        editSpline(target, 'Set handle length', () => next);
-      },
+      stepTangentLength: (target, index, which, delta) =>
+        editLength(target, index, (s) => stepKnotTangentLength(s, index, which, delta)),
       moveSegmentTangents: (target, index, first, last) => {
         const { board } = get();
         if (!board) return;
@@ -406,11 +453,9 @@ export const createBoardStore = (): StoreApi<BoardState> =>
       extendTangent: (target, index, which) =>
         editSpline(target, 'Extend handle', (s) => extendKnotTangent(s, index, which)),
 
-      alignTangentsHorizontal: (target, index) =>
-        editSpline(target, 'Align tangents', (s) => alignTangentsHorizontal(s, index)),
+      alignTangentsHorizontal: (target, index) => editAlign(target, index, alignTangentsHorizontal),
 
-      alignTangentsVertical: (target, index) =>
-        editSpline(target, 'Align tangents', (s) => alignTangentsVertical(s, index)),
+      alignTangentsVertical: (target, index) => editAlign(target, index, alignTangentsVertical),
 
       addCrossSection: (position) => {
         const { board } = get();
@@ -442,7 +487,9 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         const { board } = get();
         if (!board) return;
         const target: SplineTarget = { kind: 'crossSection', index };
-        commit(enforceJunctions(withSpline(board, target, spline), target), 'Paste cross-section');
+        // The shape is pasted; the station keeps its own blank, as for any slice edit.
+        const fitted = fitSectionToBlank(getTargetSpline(board, target), spline);
+        commit(enforceJunctions(withSpline(board, target, fitted), target), 'Paste cross-section');
       },
 
       applyRailPreset: (index, presetId) => {

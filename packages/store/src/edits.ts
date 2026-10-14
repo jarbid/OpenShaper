@@ -12,6 +12,7 @@ import {
   knot,
   knotLock,
   mirrorFinIndex,
+  scaleKnot,
   scaleSpline,
   splineFromKnots,
   splitCurve,
@@ -546,8 +547,10 @@ const widestKnots = (s: Spline): number[] => {
 
 /**
  * The apex of a cross-section: its widest point, the interior knot reaching furthest from
- * the stringer (largest `end.x`). On a tie the first from the bottom centre, as the rail
- * presets' own apex search picks it, so the answer depends on nothing but the profile.
+ * the stringer (largest `end.x`), whose x is the line no slice point may pass. On a tie the
+ * first from the bottom centre, as the rail presets' own apex search picks it, so the
+ * answer depends on nothing but the profile. That knot is not held by itself on a tie,
+ * though: any tied knot may move in while another holds the width (see `soleApex`).
  * -1 when there is no interior knot: there is no apex to hold.
  */
 export const sectionApexIndex = (s: Spline): number => widestKnots(s)[0] ?? -1;
@@ -629,19 +632,33 @@ const carryKnot = (k: Knot, end: Vec2, was: Knot | undefined): Knot => {
  * Bring one handle of `k` back inside the apex line `x = apexX`, if it is outside it.
  *
  * A locked handle keeps its angle, so it is shortened along its lock to where it meets the
- * line. A free one slides across onto the line at its own height, which on a point that
- * sits on the line (the apex) stands it upright: the only way a smooth apex can point.
+ * line (or, on the apex itself, to the reach it had). A free one slides across onto the
+ * line at its own height, which on a point that sits on the line (the apex) stands it
+ * upright: the only way a smooth apex can point.
  * The other handle of a smooth point then turns to stay opposite, keeping its length. It
- * points inward, so it never crosses the line itself.
+ * points inward, so it never crosses the line itself. Turned back to within rounding of
+ * where `was` had it (the edit only pushed against the line), it takes that exact
+ * position, so a push the blank takes back entirely leaves no drift and records nothing.
  */
-const clampHandle = (k: Knot, which: 'prev' | 'next', apexX: number): Knot => {
+const clampHandle = (
+  k: Knot,
+  which: 'prev' | 'next',
+  apexX: number,
+  was: Knot | undefined,
+): Knot => {
   const handle = which === 'prev' ? k.tangentToPrev : k.tangentToNext;
   if (handle.x <= apexX) return k;
   const lock = which === 'prev' ? k.lock?.prev : k.lock?.next;
   const otherLock = which === 'prev' ? k.lock?.next : k.lock?.prev;
   let held: Vec2;
   if (lock) {
-    const len = lock.x > 0 ? Math.max(0, (apexX - k.end.x) / lock.x) : 0;
+    // On a point on the apex line, a handle locked leaning out can't be brought in without
+    // collapsing it onto the point. It keeps the reach it had instead (an apex locked a
+    // fraction past upright, raised or lowered), and only reaching further out is held.
+    const had = which === 'prev' ? was?.tangentToPrev : was?.tangentToNext;
+    const limit = k.end.x >= apexX && had ? Math.max(apexX, had.x) : apexX;
+    if (handle.x <= limit) return k;
+    const len = lock.x > 0 ? Math.max(0, (limit - k.end.x) / lock.x) : 0;
     held = vec2(k.end.x + lock.x * len, k.end.y + lock.y * len);
   } else {
     held = vec2(apexX, handle.y);
@@ -651,6 +668,9 @@ const clampHandle = (k: Knot, which: 'prev' | 'next', apexX: number): Knot => {
   if (k.continuous && !lock && !otherLock && dir) {
     const len = Math.hypot(other.x - k.end.x, other.y - k.end.y);
     other = vec2(k.end.x - dir.x * len, k.end.y - dir.y * len);
+    const old = which === 'prev' ? was?.tangentToNext : was?.tangentToPrev;
+    if (old && Math.abs(other.x - old.x) <= RETURN_EPS && Math.abs(other.y - old.y) <= RETURN_EPS)
+      other = old;
   }
   return which === 'prev' ? withHandles(k, held, other) : withHandles(k, other, held);
 };
@@ -743,10 +763,10 @@ export const constrainSectionToBlank = (prev: Spline, next: Spline): Spline => {
         k = carryKnot(k, vec2(apexX, k.end.y), was);
       }
       if (!was || !samePosition(k.tangentToPrev, was.tangentToPrev)) {
-        k = clampHandle(k, 'prev', apexX);
+        k = clampHandle(k, 'prev', apexX, was);
       }
       if (!was || !samePosition(k.tangentToNext, was.tangentToNext)) {
-        k = clampHandle(k, 'next', apexX);
+        k = clampHandle(k, 'next', apexX, was);
       }
       if (k !== knots[i]) {
         knots[i] = k;
@@ -757,6 +777,74 @@ export const constrainSectionToBlank = (prev: Spline, next: Spline): Spline => {
 
   if (!adjusted) return next;
   if (knots.length === pk.length && knots.every((k, i) => sameKnot(k, pk[i]!))) return prev;
+  return splineFromKnots(knots);
+};
+
+/**
+ * A handle length edit of knot `index` of a slice, `prev` becoming `next`, stopped where
+ * the handle meets the apex line rather than past it. {@link constrainSectionToBlank} would
+ * slide a handle pushed past the line across onto it, turning it, which suits a drag; a
+ * length edit keeps the handle's angle, so it stops on the line along its own direction
+ * instead. A handle on a point already on the line (the apex) cannot be stopped short that
+ * way and is left for the blank rule to settle; a caller that keeps angles refuses it.
+ */
+export const capSectionHandleLengths = (prev: Spline, next: Spline, index: number): Spline => {
+  const apex = sectionApexIndex(prev);
+  const was = prev.knots[index];
+  if (apex < 0 || !was || next.knots.length !== prev.knots.length) return next;
+  const apexX = prev.knots[apex]!.end.x;
+  let out = next;
+  for (const side of ['prev', 'next'] as const) {
+    const k = out.knots[index]!;
+    const handle = side === 'prev' ? k.tangentToPrev : k.tangentToNext;
+    const had = side === 'prev' ? was.tangentToPrev : was.tangentToNext;
+    if (handle.x <= apexX || handle.x === had.x || k.end.x >= apexX) continue;
+    // On the line along the handle's own direction, at exactly the apex's x.
+    const t = (apexX - k.end.x) / (handle.x - k.end.x);
+    out = moveKnotTangent(out, index, side, vec2(apexX, k.end.y + (handle.y - k.end.y) * t));
+  }
+  return out;
+};
+
+/** `k` with all three of its points moved by `d`. */
+const shiftKnot = (k: Knot, d: Vec2): Knot =>
+  withHandles(
+    { ...k, end: vec2(k.end.x + d.x, k.end.y + d.y) },
+    vec2(k.tangentToPrev.x + d.x, k.tangentToPrev.y + d.y),
+    vec2(k.tangentToNext.x + d.x, k.tangentToNext.y + d.y),
+  );
+
+/**
+ * A pasted profile `pasted` fitted into the blank of the station whose slice is `current`:
+ * stretched and moved so its centre points land on the station's and its apex on the
+ * station's apex line, which is the slice's thickness and half-width. Paste takes the
+ * shape; the blank, as for any slice edit ({@link constrainSectionToBlank}), stays the
+ * station's own, whether or not cross-sections are resized to the rocker and outline.
+ * `pasted` itself when either profile has no apex or the pasted one has no width or
+ * thickness to stretch.
+ */
+export const fitSectionToBlank = (current: Spline, pasted: Spline): Spline => {
+  const ca = sectionApexIndex(current);
+  const pa = sectionApexIndex(pasted);
+  if (ca < 0 || pa < 0) return pasted;
+  const c0 = current.knots[0]!.end;
+  const c1 = current.knots.at(-1)!.end;
+  const p0 = pasted.knots[0]!.end;
+  const p1 = pasted.knots.at(-1)!.end;
+  const apexX = current.knots[ca]!.end.x;
+  const width = pasted.knots[pa]!.end.x - p0.x;
+  const thickness = p1.y - p0.y;
+  if (!(width > 0) || !(thickness > 0)) return pasted;
+  const sx = (apexX - c0.x) / width;
+  const sy = (c1.y - c0.y) / thickness;
+  const knots = pasted.knots.map((k) =>
+    shiftKnot(scaleKnot(shiftKnot(k, vec2(-p0.x, -p0.y)), sx, sy), c0),
+  );
+  // Exactly on the blank, not to within rounding: the centre points, and the apex's x.
+  const last = knots.length - 1;
+  knots[0] = carryKnot(knots[0]!, c0, undefined);
+  knots[last] = carryKnot(knots[last]!, c1, undefined);
+  knots[pa] = carryKnot(knots[pa]!, vec2(apexX, knots[pa]!.end.y), undefined);
   return splineFromKnots(knots);
 };
 
@@ -1214,6 +1302,17 @@ export const canDeleteKnot = (s: Spline, index: number, target?: SplineTarget): 
   index > 0 &&
   index < s.knots.length - 1 &&
   !(target?.kind === 'crossSection' && index === soleApex(s));
+
+/**
+ * Why point `index` cannot be deleted ({@link canDeleteKnot}), in the words the inspector's
+ * Delete button and the editor's context menu both show on their disabled item; null when
+ * it can be.
+ */
+export const whyKnotIsKept = (s: Spline, index: number, target?: SplineTarget): string | null => {
+  if (canDeleteKnot(s, index, target)) return null;
+  if (index <= 0 || index >= s.knots.length - 1) return 'Endpoints cannot be deleted';
+  return 'The apex keeps the slice as wide as the outline, so it cannot be deleted';
+};
 
 const DELETE_MAX_ITERATIONS = 1000;
 const DELETE_LENGTH_TOLERANCE = 0.1; // cm — legacy convergence threshold
