@@ -9,6 +9,7 @@ import {
 } from '@openshaper/kernel';
 import { BufferAttribute, BufferGeometry } from 'three';
 import { boardCurvatureMesh, type CurvatureMesh } from './curvature-mesh';
+import { boardDeviationMesh, type DeviationMesh } from './deviation-mesh';
 import { createMeshQueue, type MeshQueue, type WorkerReply } from './mesh-queue';
 import type { WorkerRequest } from './worker-protocol';
 
@@ -28,22 +29,27 @@ export const MESH_CACHE_SIZE = 8;
  * two covers switching between the analysis modes and one step of undo.
  */
 export const CURVATURE_CACHE_SIZE = 2;
+/**
+ * Deviation results are the viewport mesh plus a float per vertex (1–7 MB); two
+ * covers one step of undo and a change of mesh quality.
+ */
+export const DEVIATION_CACHE_SIZE = 2;
 
-/** A least-recently-used cache keyed by board identity and a number. */
-const createLru = <R>(size: number) => {
+/** A least-recently-used cache keyed by board identity and a key compared by identity. */
+const createLru = <R, K = number>(size: number) => {
   // Most recently used last.
-  const entries: { board: BezierBoard; key: number; value: R }[] = [];
-  const find = (board: BezierBoard, key: number) =>
+  const entries: { board: BezierBoard; key: K; value: R }[] = [];
+  const find = (board: BezierBoard, key: K) =>
     entries.findIndex((e) => e.board === board && e.key === key);
   return {
-    get(board: BezierBoard, key: number): R | undefined {
+    get(board: BezierBoard, key: K): R | undefined {
       const i = find(board, key);
       if (i === -1) return undefined;
       const [hit] = entries.splice(i, 1);
       entries.push(hit!);
       return hit!.value;
     },
-    put(board: BezierBoard, key: number, value: R): void {
+    put(board: BezierBoard, key: K, value: R): void {
       const i = find(board, key);
       if (i !== -1) entries.splice(i, 1);
       entries.push({ board, key, value });
@@ -56,6 +62,32 @@ const createLru = <R>(size: number) => {
 const meshCache = createLru<BoardMesh>(MESH_CACHE_SIZE);
 const curvatureCache = createLru<CurvatureMesh>(CURVATURE_CACHE_SIZE);
 
+/**
+ * What a deviation job is for, besides the board: the ghost it is measured against
+ * and the mesh density. Interned per (ghost, face size), because the queue and the
+ * cache compare keys by identity.
+ */
+interface DeviationKey {
+  readonly ghost: BezierBoard;
+  readonly faceSize: number;
+}
+const deviationKeys = new WeakMap<BezierBoard, Map<number, DeviationKey>>();
+const deviationKey = (ghost: BezierBoard, faceSize: number): DeviationKey => {
+  let byFace = deviationKeys.get(ghost);
+  if (!byFace) {
+    byFace = new Map();
+    deviationKeys.set(ghost, byFace);
+  }
+  let key = byFace.get(faceSize);
+  if (!key) {
+    key = { ghost, faceSize };
+    byFace.set(faceSize, key);
+  }
+  return key;
+};
+
+const deviationCache = createLru<DeviationMesh, DeviationKey>(DEVIATION_CACHE_SIZE);
+
 /** Test hook: how many meshes the cache holds. */
 export const meshCacheSize = (): number => meshCache.size();
 
@@ -64,20 +96,21 @@ export const meshCacheSize = (): number => meshCache.size();
 /**
  * A job queue backed by its own lazily started tessellation worker.
  *
- * Meshes and curvature each get one: a curvature job takes the better part of a
- * second, and on a shared worker every mesh a drag asks for would wait behind it.
+ * Meshes, curvature and deviation each get one: a curvature job takes the better
+ * part of a second, a deviation job a tenth to a third of one, and on a shared worker
+ * every mesh a drag asks for would wait behind them.
  */
-const workerQueue = <R>(
-  toRequest: (id: number, board: BezierBoard, key: number) => WorkerRequest,
-  onResult: (board: BezierBoard, key: number, result: R) => void,
-): (() => MeshQueue<R>) => {
-  let queue: MeshQueue<R> | null = null;
+const workerQueue = <R, K = number>(
+  toRequest: (id: number, board: BezierBoard, key: K) => WorkerRequest,
+  onResult: (board: BezierBoard, key: K, result: R) => void,
+): (() => MeshQueue<R, K>) => {
+  let queue: MeshQueue<R, K> | null = null;
   return () => {
     if (queue) return queue;
     const worker = new Worker(new URL('./tessellate.worker.ts', import.meta.url), {
       type: 'module',
     });
-    const q = createMeshQueue<R>(
+    const q = createMeshQueue<R, K>(
       (id, board, key) => worker.postMessage(toRequest(id, board, key)),
       onResult,
     );
@@ -109,6 +142,17 @@ const CURVATURE_KEY = 0;
 const curvatureQueue = workerQueue<CurvatureMesh>(
   (id, board) => ({ kind: 'curvature', id, board }),
   (board, key, result) => curvatureCache.put(board, key, result),
+);
+
+const deviationQueue = workerQueue<DeviationMesh, DeviationKey>(
+  (id, board, { ghost, faceSize }) => ({
+    kind: 'deviation',
+    id,
+    board,
+    ghost,
+    targetFaceSize: faceSize,
+  }),
+  (board, key, result) => deviationCache.put(board, key, result),
 );
 
 /**
@@ -160,6 +204,61 @@ export function curvatureAsync(board: BezierBoard, signal?: AbortSignal): Promis
   }
 
   return curvatureQueue().request(board, CURVATURE_KEY, signal);
+}
+
+/**
+ * The board's deviation from `ghost` (`deviation-mesh.ts`): its viewport mesh at
+ * `targetFaceSize`, with the signed distance to the ghost at every vertex. Same
+ * contract as {@link tessellateAsync} — off the main thread when it can be, cached
+ * by `(board, ghost, targetFaceSize)`, and dropped while still waiting once every
+ * asker's `signal` has aborted.
+ */
+export function deviationAsync(
+  board: BezierBoard,
+  ghost: BezierBoard,
+  targetFaceSize: number,
+  signal?: AbortSignal,
+): Promise<DeviationMesh> {
+  const key = deviationKey(ghost, targetFaceSize);
+  const cached = deviationCache.get(board, key);
+  if (cached) return Promise.resolve(cached);
+
+  if (typeof Worker === 'undefined') {
+    try {
+      const result = boardDeviationMesh(board, ghost, targetFaceSize);
+      deviationCache.put(board, key, result);
+      return Promise.resolve(result);
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+
+  return deviationQueue().request(board, key, signal);
+}
+
+/**
+ * The deviation analysis as a BufferGeometry, in board coordinates (not centred: the
+ * caller places it, as for the curvature analysis).
+ *
+ * `aDeviation` is (signed distance in cm, 1) where there is data and (0, 0) where
+ * there is none: NaN never reaches the GPU, where comparisons with it are not
+ * reliable across drivers. The other arrays are the cached result's own — read,
+ * never written.
+ */
+export function deviationGeometry(mesh: DeviationMesh): BufferGeometry {
+  const packed = new Float32Array(mesh.deviation.length * 2);
+  mesh.deviation.forEach((d, i) => {
+    if (Number.isNaN(d)) return;
+    packed[i * 2] = d;
+    packed[i * 2 + 1] = 1;
+  });
+  const g = new BufferGeometry();
+  g.setAttribute('position', new BufferAttribute(mesh.positions, 3));
+  g.setAttribute('normal', new BufferAttribute(mesh.normals, 3));
+  g.setAttribute('aDeviation', new BufferAttribute(packed, 2));
+  g.setIndex(new BufferAttribute(mesh.indices, 1));
+  g.computeBoundingSphere();
+  return g;
 }
 
 /**

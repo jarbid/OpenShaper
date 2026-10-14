@@ -96,6 +96,8 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
     'curvature',
     'slope',
   ]),
+  // Documented with the ghost board it compares against (and listed on /docs/editing).
+  ...entries('analysis-mode', '/docs/specs', ['ghost-deviation']),
   ...entries('shortcut', '/docs/shortcuts', [
     'undo',
     'redo',

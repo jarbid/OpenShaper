@@ -1,13 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useEffect, useMemo } from 'react';
-import { DoubleSide, MeshStandardMaterial, ShaderMaterial, Vector3 } from 'three';
-import { hexToRgb } from './analysis-palette';
+import { DoubleSide, MeshStandardMaterial, ShaderMaterial } from 'three';
 import { rampFor, type ExactAnalysisMode } from './analysis';
 import type { CurvatureMesh, CurvatureScale } from './curvature-mesh';
 import { curvatureGeometry } from './geometry';
-
-/** The longest ramp the shader takes. */
-const MAX_STOPS = 7;
+import { RAMP_GLSL, rampUniforms } from './ramp-shader';
 
 /**
  * Each vertex carries all three quantities; `uMode` picks one and maps it to a
@@ -53,21 +50,10 @@ const VERT = /* glsl */ `
  */
 const FRAG = /* glsl */ `
   precision highp float;
-  uniform vec3 uStops[${MAX_STOPS}];
-  uniform int uCount;
+  ${RAMP_GLSL}
   varying float vT;
   varying vec3 vNormal;
   varying vec3 vViewDir;
-
-  vec3 ramp(float t) {
-    float x = clamp(t, 0.0, 1.0) * float(uCount - 1);
-    vec3 c = uStops[0];
-    for (int i = 0; i < ${MAX_STOPS - 1}; i++) {
-      if (i >= uCount - 1) break;
-      c = mix(c, uStops[i + 1], clamp(x - float(i), 0.0, 1.0));
-    }
-    return c;
-  }
 
   void main() {
     float facing = abs(dot(normalize(vNormal), normalize(vViewDir)));
@@ -77,11 +63,6 @@ const FRAG = /* glsl */ `
 
 /** Shader uniforms for a mode and the result's scale. Exported for the tests. */
 export const curvatureUniforms = (mode: ExactAnalysisMode, scale: CurvatureScale) => {
-  const ramp = rampFor(mode);
-  const stops = Array.from({ length: MAX_STOPS }, (_, i) => {
-    const [r, g, b] = hexToRgb(ramp[Math.min(i, ramp.length - 1)]!);
-    return new Vector3(r, g, b);
-  });
   const tiny = 1e-12;
   const [lo, hi] = scale.radius;
   return {
@@ -92,8 +73,7 @@ export const curvatureUniforms = (mode: ExactAnalysisMode, scale: CurvatureScale
     uLo: { value: Math.max(tiny, lo) },
     // log(hi/lo) is the divisor: keep the range open even on a degenerate board.
     uHi: { value: Math.max(hi, Math.max(tiny, lo) * 2) },
-    uStops: { value: stops },
-    uCount: { value: ramp.length },
+    ...rampUniforms(rampFor(mode)),
   };
 };
 

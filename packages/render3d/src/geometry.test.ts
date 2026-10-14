@@ -25,11 +25,16 @@ import {
   boardSpan,
   curvatureAsync,
   curvatureGeometry,
+  deviationAsync,
+  deviationGeometry,
   MESH_CACHE_SIZE,
   meshCacheSize,
   tessellateAsync,
 } from './geometry';
 import { curvatureUniforms } from './CurvatureSurface';
+import { DIVERGING_RAMP, NO_DATA_STRIPES, hexToRgb } from './analysis-palette';
+import type { DeviationMesh } from './deviation-mesh';
+import { deviationUniforms } from './DeviationSurface';
 import { stationBoard, swallowBoard } from './test-support/boards';
 
 // ---------------------------------------------------------------------------
@@ -323,5 +328,52 @@ describe('curvatureGeometry (attribute generation)', () => {
     expect(
       curvatureUniforms('mean-curvature', { mean: 0, gaussian: 0, radius: [1, 2] }).uLimit.value,
     ).toBeGreaterThan(0);
+  });
+});
+
+describe('deviationAsync (no Worker: synchronous path)', () => {
+  it('measures once per board, ghost and face size, and serves the cached result after', async () => {
+    const b = stationBoard();
+    const ghost = stationBoard();
+    const first = await deviationAsync(b, ghost, 3);
+    expect(await deviationAsync(b, ghost, 3)).toBe(first);
+    // Another ghost, or another mesh density, is another measurement.
+    expect(await deviationAsync(b, stationBoard(), 3)).not.toBe(first);
+    expect(await deviationAsync(b, ghost, 2.5)).not.toBe(first);
+  });
+});
+
+describe('deviationGeometry (attribute generation)', () => {
+  it('packs each vertex as (distance, 1), and no data as (0, 0) so NaN never reaches the GPU', () => {
+    const m = {
+      positions: new Float32Array(9),
+      normals: new Float32Array(9),
+      indices: new Uint32Array([0, 1, 2]),
+      deviation: new Float32Array([0.25, Number.NaN, -0.5]),
+      range: [-0.5, 0.25],
+      noData: 1,
+    } as DeviationMesh;
+    const g = deviationGeometry(m);
+    const a = g.attributes['aDeviation']!;
+    expect(a.itemSize).toBe(2);
+    expect(Array.from(a.array as Float32Array)).toEqual([0.25, 1, 0, 0, -0.5, 1]);
+    // The cached arrays themselves, not copies: nothing here may write to them.
+    expect(g.attributes['position']!.array).toBe(m.positions);
+    expect(g.attributes['normal']!.array).toBe(m.normals);
+    expect(Array.from(m.deviation, (d) => (Number.isNaN(d) ? 'NaN' : d))).toEqual([
+      0.25,
+      'NaN',
+      -0.5,
+    ]);
+  });
+
+  it('feeds the shader the band, the diverging ramp and the no-data stripes', () => {
+    const u = deviationUniforms(0.5);
+    expect(u.uBand.value).toBe(0.5);
+    expect(u.uCount.value).toBe(DIVERGING_RAMP.length);
+    expect(u.uStops.value[0]!.toArray()).toEqual(hexToRgb(DIVERGING_RAMP[0]!));
+    expect(u.uNoData.value.map((v) => v.toArray())).toEqual(NO_DATA_STRIPES.map(hexToRgb));
+    // A zero band would divide by zero in the shader.
+    expect(deviationUniforms(0).uBand.value).toBeGreaterThan(0);
   });
 });

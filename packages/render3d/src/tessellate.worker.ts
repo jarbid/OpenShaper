@@ -1,8 +1,9 @@
 /**
- * Off-main-thread board tessellation and curvature analysis. The kernel mesh build
+ * Off-main-thread board tessellation and surface analysis. The kernel mesh build
  * walks every station interpolating a cross-section — heavy at fine target-face
- * sizes — and the curvature analysis fits the whole hull, so both run in a worker
- * to keep editing responsive (project principle #4: the UI never blocks).
+ * sizes — the curvature analysis fits the whole hull, and the deviation from a ghost
+ * measures every vertex against the ghost's section, so all three run in a worker to
+ * keep editing responsive (project principle #4: the UI never blocks).
  *
  * The protocol lives in `worker-protocol.ts`, where it can be tested; this is only
  * the shell that receives and replies.

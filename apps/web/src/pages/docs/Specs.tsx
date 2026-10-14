@@ -143,12 +143,46 @@ export default function DocsSpecs() {
 
       <Section id="ghost" title="Comparing two boards">
         <p>
-          Load a second board as a reference and it is drawn dashed underneath the one you are
-          editing, in every view, with its specs shown alongside yours. The cross-section ghost is
-          interpolated to whatever station you are looking at, so the comparison is like-for-like.
+          Load a second board as a reference with <strong>Board ▸ Open ghost…</strong> and it is
+          drawn dashed underneath the one you are editing, in every view, with its specs shown
+          alongside yours. The cross-section ghost is interpolated to whatever station you are
+          looking at, so the comparison is like-for-like. <strong>Board ▸ Clear ghost</strong> puts
+          it away.
         </p>
         <p>
           This is the practical way to answer "what did I actually change from the one that worked".
+        </p>
+        <Terms>
+          <Term name="Deviation from ghost">
+            A mode in the 3D view&rsquo;s <strong>Surface analysis</strong> menu that paints the
+            whole hull by how far it lies from the ghost: red where your board has more foam, blue
+            where it has less, the pale middle of the scale where the two agree. It is measured
+            across the board, in each station&rsquo;s own plane: a point a given distance from the
+            tail is compared with the ghost&rsquo;s cross-section at the same distance from{' '}
+            <em>its</em> tail, and the number is the shortest way from the point to that section. On
+            the deck, bottom and rails that is simply how much foam was added or taken off there.
+          </Term>
+        </Terms>
+        <p>
+          <strong>The band.</strong> A slider beside the menu sets how big a difference gets full
+          colour: anything beyond it, either way, is painted at full strength. It runs from 1 mm to
+          2 cm and starts at 5 mm. Narrow it to see sanding-sized differences, widen it to see the
+          shape of a deliberate change. The legend in the corner of the 3D view gives the band and
+          the biggest differences found, in your display unit.
+        </p>
+        <p>
+          <strong>No alignment.</strong> Both boards keep their tail at the same place, so nothing
+          is slid or rotated to make them match. A board that is longer or shorter shows the change
+          where it happens: past the end of a shorter ghost there is nothing to compare with, and
+          that part is striped grey &mdash; <em>no data</em>. So is the very end of the board
+          itself, a pointed tip or the middle of a square tail&rsquo;s end face, where there is no
+          edge of a section to measure from. Near the nose and tail the surface turns to face along
+          the board, so there a difference in length shows up as a difference across it.
+        </p>
+        <p>
+          The mode is listed but disabled until a ghost is loaded. It works on a swallow or fish
+          tail too, either board&rsquo;s. It is worked out in the background and follows your edits
+          whenever you pause; during a drag the coloured hull stays a step behind.
         </p>
       </Section>
     </DocsPage>

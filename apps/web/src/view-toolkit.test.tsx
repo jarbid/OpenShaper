@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * Component tests for ThreeDControls' guide toggles.
+ * Component tests for ThreeDControls' guide toggles and analysis menu.
  *
  * Covers:
  *  - All three toggles render, in the compact (quad mini-pane) variant too.
  *  - Clicking each one patches only its own field.
  *  - An enabled toggle looks different from a disabled one.
+ *  - The analysis menu disables what cannot run, saying why; the deviation map's
+ *    band control appears with it and reads out in the display unit.
  */
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { parseBrd } from '@openshaper/io';
 import { splineLengthToX } from '@openshaper/kernel';
-import { fmtLen, lengthUnitByKey } from './format';
+import { fmtLen, fmtSmallLen, lengthUnitByKey } from './format';
 import { longitudinalFor } from './longitudinal';
 import sampleBrd from './sample-board.brd?raw';
 import { boardStore } from './store';
@@ -19,21 +21,26 @@ import { makeReadout, MeasurementAxisSelect, ThreeDControls } from './view-toolk
 import {
   ANALYSIS_3D,
   DEFAULT_VIEW_3D,
+  DEVIATION_BAND,
   EXACT_ANALYSIS_CONCAVE_TAIL,
   exactAnalysisUnavailable,
+  GHOST_DEVIATION_NO_GHOST,
+  ghostDeviationUnavailable,
 } from './view3d-settings';
 import { swallowBoard } from './test/swallow-board';
 
+const MM = lengthUnitByKey('mm');
+
 describe('ThreeDControls guide toggles', () => {
   it('renders all three toggles', () => {
-    render(<ThreeDControls settings={DEFAULT_VIEW_3D} onChange={vi.fn()} />);
+    render(<ThreeDControls units={MM} settings={DEFAULT_VIEW_3D} onChange={vi.fn()} />);
     expect(screen.getByRole('button', { name: 'Stringer' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sections' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Apex' })).toBeTruthy();
   });
 
   it('renders all three toggles in the compact quad-view variant', () => {
-    render(<ThreeDControls settings={DEFAULT_VIEW_3D} onChange={vi.fn()} compact />);
+    render(<ThreeDControls units={MM} settings={DEFAULT_VIEW_3D} onChange={vi.fn()} compact />);
     expect(screen.getByRole('button', { name: 'Stringer' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Sections' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Apex' })).toBeTruthy();
@@ -41,26 +48,32 @@ describe('ThreeDControls guide toggles', () => {
 
   it('patches only showStringer when Stringer is clicked', () => {
     const onChange = vi.fn();
-    render(<ThreeDControls settings={DEFAULT_VIEW_3D} onChange={onChange} />);
+    render(<ThreeDControls units={MM} settings={DEFAULT_VIEW_3D} onChange={onChange} />);
     fireEvent.click(screen.getByRole('button', { name: 'Stringer' }));
     expect(onChange).toHaveBeenCalledWith({ showStringer: true });
   });
 
   it('patches only showSections when Sections is clicked', () => {
     const onChange = vi.fn();
-    render(<ThreeDControls settings={DEFAULT_VIEW_3D} onChange={onChange} />);
+    render(<ThreeDControls units={MM} settings={DEFAULT_VIEW_3D} onChange={onChange} />);
     fireEvent.click(screen.getByRole('button', { name: 'Sections' }));
     expect(onChange).toHaveBeenCalledWith({ showSections: true });
   });
 
   it('patches only showApex when Apex is clicked, and turns it back off', () => {
     const onChange = vi.fn();
-    const { rerender } = render(<ThreeDControls settings={DEFAULT_VIEW_3D} onChange={onChange} />);
+    const { rerender } = render(
+      <ThreeDControls units={MM} settings={DEFAULT_VIEW_3D} onChange={onChange} />,
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Apex' }));
     expect(onChange).toHaveBeenLastCalledWith({ showApex: true });
 
     rerender(
-      <ThreeDControls settings={{ ...DEFAULT_VIEW_3D, showApex: true }} onChange={onChange} />,
+      <ThreeDControls
+        units={MM}
+        settings={{ ...DEFAULT_VIEW_3D, showApex: true }}
+        onChange={onChange}
+      />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Apex' }));
     expect(onChange).toHaveBeenLastCalledWith({ showApex: false });
@@ -69,17 +82,27 @@ describe('ThreeDControls guide toggles', () => {
   it('turns a toggle back off', () => {
     const onChange = vi.fn();
     render(
-      <ThreeDControls settings={{ ...DEFAULT_VIEW_3D, showSections: true }} onChange={onChange} />,
+      <ThreeDControls
+        units={MM}
+        settings={{ ...DEFAULT_VIEW_3D, showSections: true }}
+        onChange={onChange}
+      />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Sections' }));
     expect(onChange).toHaveBeenCalledWith({ showSections: false });
   });
 
   it('shows an enabled toggle as visually distinct from a disabled one', () => {
-    const { rerender } = render(<ThreeDControls settings={DEFAULT_VIEW_3D} onChange={vi.fn()} />);
+    const { rerender } = render(
+      <ThreeDControls units={MM} settings={DEFAULT_VIEW_3D} onChange={vi.fn()} />,
+    );
     const off = screen.getByRole('button', { name: 'Stringer' }).className;
     rerender(
-      <ThreeDControls settings={{ ...DEFAULT_VIEW_3D, showStringer: true }} onChange={vi.fn()} />,
+      <ThreeDControls
+        units={MM}
+        settings={{ ...DEFAULT_VIEW_3D, showStringer: true }}
+        onChange={vi.fn()}
+      />,
     );
     const on = screen.getByRole('button', { name: 'Stringer' }).className;
     expect(on).not.toBe(off);
@@ -91,7 +114,7 @@ describe('ThreeDControls surface analysis', () => {
   const options = () => Array.from(analysisSelect().options);
 
   it('lists the exact modes and labels the screen-space one honestly', () => {
-    render(<ThreeDControls settings={DEFAULT_VIEW_3D} onChange={vi.fn()} compact />);
+    render(<ThreeDControls units={MM} settings={DEFAULT_VIEW_3D} onChange={vi.fn()} compact />);
     expect(options().map((o) => [o.value, o.textContent])).toEqual([
       ['none', 'No analysis'],
       ['zebra', 'Zebra'],
@@ -101,13 +124,14 @@ describe('ThreeDControls surface analysis', () => {
       // The old screen-space mode keeps its stored id, so saved settings load.
       ['curvature', 'Normal change (approx.)'],
       ['slope', 'Slope'],
+      ['ghost-deviation', 'Deviation from ghost'],
     ]);
     expect(options().every((o) => !o.disabled)).toBe(true);
   });
 
   it('patches the analysis when a mode is picked', () => {
     const onChange = vi.fn();
-    render(<ThreeDControls settings={DEFAULT_VIEW_3D} onChange={onChange} />);
+    render(<ThreeDControls units={MM} settings={DEFAULT_VIEW_3D} onChange={onChange} />);
     fireEvent.change(analysisSelect(), { target: { value: 'rail-radius' } });
     expect(onChange).toHaveBeenCalledWith({ analysis: 'rail-radius' });
   });
@@ -116,7 +140,12 @@ describe('ThreeDControls surface analysis', () => {
     const block = exactAnalysisUnavailable(swallowBoard());
     expect(block?.reason).toBe(EXACT_ANALYSIS_CONCAVE_TAIL);
     render(
-      <ThreeDControls settings={DEFAULT_VIEW_3D} onChange={vi.fn()} exactUnavailable={block} />,
+      <ThreeDControls
+        units={MM}
+        settings={DEFAULT_VIEW_3D}
+        onChange={vi.fn()}
+        exactUnavailable={block}
+      />,
     );
     const exact = new Set(ANALYSIS_3D.filter((o) => o.exact).map((o) => o.value));
     expect(exact.size).toBe(3);
@@ -137,6 +166,92 @@ describe('ThreeDControls surface analysis', () => {
     const { board } = parseBrd(sampleBrd);
     expect(exactAnalysisUnavailable(board)).toBeNull();
     expect(exactAnalysisUnavailable(null)).toBeNull();
+  });
+
+  it('disables Deviation from ghost until a ghost is loaded, saying why', () => {
+    const block = ghostDeviationUnavailable(null);
+    expect(block?.reason).toBe(GHOST_DEVIATION_NO_GHOST);
+    expect(ghostDeviationUnavailable(parseBrd(sampleBrd).board)).toBeNull();
+
+    const { rerender } = render(
+      <ThreeDControls
+        units={MM}
+        settings={DEFAULT_VIEW_3D}
+        onChange={vi.fn()}
+        ghostUnavailable={block}
+      />,
+    );
+    for (const o of options()) {
+      if (o.value === 'ghost-deviation') {
+        expect(o.disabled).toBe(true);
+        expect(o.title).toBe(GHOST_DEVIATION_NO_GHOST);
+        // Visible in the entry itself, for a phone with no hover.
+        expect(o.textContent).toBe('Deviation from ghost (load a ghost first)');
+      } else {
+        expect(o.disabled).toBe(false);
+      }
+    }
+    // The menu's own tooltip only says so once the mode is the one chosen.
+    expect(analysisSelect().title).toBe('Surface analysis');
+    rerender(
+      <ThreeDControls
+        units={MM}
+        settings={{ ...DEFAULT_VIEW_3D, analysis: 'ghost-deviation' }}
+        onChange={vi.fn()}
+        ghostUnavailable={block}
+      />,
+    );
+    expect(analysisSelect().title).toContain(GHOST_DEVIATION_NO_GHOST);
+    // Nothing to adjust while there is nothing to measure against.
+    expect(screen.queryByRole('slider', { name: 'Deviation band' })).toBeNull();
+  });
+});
+
+describe('ThreeDControls deviation band', () => {
+  const deviation = { ...DEFAULT_VIEW_3D, analysis: 'ghost-deviation' as const };
+  const band = () => screen.getByRole('slider', { name: 'Deviation band' }) as HTMLInputElement;
+
+  it('appears with the deviation map only, in the quad pane too', () => {
+    const { rerender } = render(
+      <ThreeDControls units={MM} settings={DEFAULT_VIEW_3D} onChange={vi.fn()} compact />,
+    );
+    expect(screen.queryByRole('slider', { name: 'Deviation band' })).toBeNull();
+    rerender(<ThreeDControls units={MM} settings={deviation} onChange={vi.fn()} compact />);
+    expect(band()).toBeTruthy();
+  });
+
+  it('runs from 1 mm to 2 cm, starts at 5 mm, and patches only the band', () => {
+    const onChange = vi.fn();
+    render(<ThreeDControls units={MM} settings={deviation} onChange={onChange} />);
+    expect([band().min, band().max, band().step]).toEqual(['0.1', '2', '0.05']);
+    expect(DEVIATION_BAND.initial).toBe(0.5);
+    expect(band().value).toBe('0.5');
+    fireEvent.change(band(), { target: { value: '1.2' } });
+    expect(onChange).toHaveBeenCalledWith({ deviationBand: 1.2 });
+  });
+
+  // Every unit the toolbar offers, so a fixed suffix anywhere would show up.
+  for (const key of ['mm', 'cm', 'in', 'ftin']) {
+    it(`reads the band out in ${key}`, () => {
+      const units = lengthUnitByKey(key);
+      render(
+        <ThreeDControls
+          units={units}
+          settings={{ ...deviation, deviationBand: 0.75 }}
+          onChange={vi.fn()}
+        />,
+      );
+      const text = `±${fmtSmallLen(0.75, units)}`;
+      expect(band().getAttribute('aria-valuetext')).toBe(text);
+      expect(screen.getByText(text)).toBeTruthy();
+    });
+  }
+
+  it('never shows an inch user a metric band', () => {
+    render(
+      <ThreeDControls units={lengthUnitByKey('in')} settings={deviation} onChange={vi.fn()} />,
+    );
+    expect(band().getAttribute('aria-valuetext')).toBe('±0.2 in');
   });
 });
 

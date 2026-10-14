@@ -193,3 +193,23 @@ describe('the same queue scheduling curvature jobs', () => {
     await expect(pb).resolves.toEqual({ tag: 'b' });
   });
 });
+
+describe('mesh queue with object keys', () => {
+  it('shares a job between asks for the same key object, and not across keys', async () => {
+    const posts: { id: number; key: { face: number } }[] = [];
+    const q = createMeshQueue<BoardMesh, { face: number }>((id, _b, key) =>
+      posts.push({ id, key }),
+    );
+    const [a] = boards(1);
+    const k1 = { face: 1 };
+    const k2 = { face: 1 }; // equal, but a different key: keys compare by identity
+    const p1 = q.request(a!, k1);
+    expect(q.request(a!, k1)).toBe(p1);
+    const p2 = q.request(a!, k2);
+    expect(p2).not.toBe(p1);
+    const m1 = mesh();
+    q.receive(posts[0]!.id, m1);
+    await expect(p1).resolves.toBe(m1);
+    expect(posts.map((p) => p.key)).toEqual([k1, k2]);
+  });
+});

@@ -23,18 +23,23 @@ import type { StoreApi } from 'zustand/vanilla';
 import {
   ANALYSIS_OFF,
   analysisStatus,
+  DEFAULT_DEVIATION_BAND,
+  deviationStatus,
   isExactAnalysis,
   sameStatus,
   type AnalysisMode,
   type AnalysisStatus,
   type CurvatureResult,
+  type DeviationResult,
 } from './analysis';
 import { curvatureUnsupported } from './curvature-mesh';
 import { CurvatureSurface } from './CurvatureSurface';
+import { DeviationSurface } from './DeviationSurface';
 import {
   boardCenter,
   boardSpan,
   curvatureAsync,
+  deviationAsync,
   meshToGeometry,
   tessellateAsync,
 } from './geometry';
@@ -78,11 +83,23 @@ export interface Board3DViewProps {
   /** Surface-analysis overlay (defaults to 'none'). */
   analysis?: AnalysisMode;
   /**
-   * Where an exact analysis mode stands — computing, ready (with its scale, for a
-   * legend), or unavailable — reported whenever that changes. The view draws no
-   * legend of its own: lengths in it are the app's to format.
+   * Where a computed analysis mode (exact curvature, deviation from the ghost)
+   * stands — computing, ready (with its scale, for a legend), or unavailable —
+   * reported whenever that changes. The view draws no legend of its own: lengths in
+   * it are the app's to format.
    */
   onAnalysisStatus?: (status: AnalysisStatus) => void;
+  /**
+   * The ghost (reference) board the "Deviation from ghost" analysis measures
+   * against. Without one that mode reports itself unavailable and the hull is drawn
+   * plain.
+   */
+  ghost?: BezierBoard | null;
+  /**
+   * Half-width (cm) of the deviation map's colour band: full colour at ± this much,
+   * saturated beyond it. Defaults to {@link DEFAULT_DEVIATION_BAND}.
+   */
+  deviationBand?: number;
   /** Target tessellation face size in cm (smaller = finer mesh). Defaults to ~0.9 cm. */
   targetFaceSize?: number;
   /** Draw the stringer plane's silhouette on the hull (defaults to false). */
@@ -481,6 +498,42 @@ function useCurvatureResult(board: BezierBoard | null, wanted: boolean): Curvatu
   return result;
 }
 
+/**
+ * The latest deviation of `board` from `ghost`, measured in the worker on demand at
+ * the viewport's face size, so the map is drawn on the hull's own triangles.
+ *
+ * Asks for the live board, not the settled one: a job takes a tenth to a third of a
+ * second, and the map then follows an edit whenever the pointer rests. A superseded
+ * board's result is ignored, as for the hull; `deviationStatus` decides whether the
+ * one held still applies.
+ */
+function useDeviationResult(
+  board: BezierBoard | null,
+  ghost: BezierBoard | null,
+  targetFaceSize: number,
+): DeviationResult | null {
+  const [result, setResult] = useState<DeviationResult | null>(null);
+  useEffect(() => {
+    if (!board || !ghost) return;
+    let cancelled = false;
+    const abort = new AbortController();
+    deviationAsync(board, ghost, targetFaceSize, abort.signal).then(
+      (mesh) => {
+        if (!cancelled) setResult({ board, ghost, mesh });
+      },
+      (err: unknown) => {
+        if (cancelled) return;
+        setResult({ board, ghost, error: err instanceof Error ? err.message : String(err) });
+      },
+    );
+    return () => {
+      cancelled = true;
+      abort.abort();
+    };
+  }, [board, ghost, targetFaceSize]);
+  return result;
+}
+
 /** The hull mesh on screen, with the board it was meshed from and its centre. */
 interface Hull {
   board: BezierBoard;
@@ -497,6 +550,7 @@ function BoardMesh({
   analysis,
   status,
   curvature,
+  deviation,
   targetFaceSize,
 }: {
   board: BezierBoard;
@@ -506,6 +560,7 @@ function BoardMesh({
   analysis: AnalysisMode;
   status: AnalysisStatus;
   curvature: CurvatureResult | null;
+  deviation: DeviationResult | null;
   targetFaceSize: number;
 }) {
   // Tessellation runs in a worker; while a new mesh computes we keep showing the
@@ -536,14 +591,14 @@ function BoardMesh({
   // Free the previous geometry when it changes, and on unmount.
   useEffect(() => () => geometry?.dispose(), [geometry]);
 
-  // What the screen-space shader draws. An exact mode never reaches it, except as
+  // What the screen-space shader draws. A computed mode never reaches it, except as
   // the honest fallback for a concave tail: normal change is the one curvature
-  // view that board can have. While an exact mode computes (or failed), the plain
-  // shaded hull shows instead.
+  // view that board can have. While a computed mode computes (or failed, or has no
+  // ghost to measure against), the plain shaded hull shows instead.
   const screenSpace: ScreenSpaceMode | null =
-    status.state === 'unavailable'
+    status.state === 'unavailable' && status.reason === 'concave-tail'
       ? 'curvature'
-      : isExactAnalysis(analysis) || analysis === 'none'
+      : isExactAnalysis(analysis) || analysis === 'ghost-deviation' || analysis === 'none'
         ? null
         : analysis;
 
@@ -563,11 +618,23 @@ function BoardMesh({
   }, [screenSpace]);
   useEffect(() => () => analysisMaterial?.dispose(), [analysisMaterial]);
 
+  // The deviation map, on its own mesh: it needs no hull, and may be a step behind
+  // the board during an edit (see `deviationStatus`).
+  if (
+    status.state === 'ready' &&
+    status.mode === 'ghost-deviation' &&
+    deviation &&
+    'mesh' in deviation
+  ) {
+    return <DeviationSurface mesh={deviation.mesh} band={status.band} />;
+  }
+
   if (!hull || !geometry) return null;
 
   // The exact analysis, once it is for this board and the hull it sits on is too.
   if (
     status.state === 'ready' &&
+    status.mode !== 'ghost-deviation' &&
     curvature &&
     'mesh' in curvature &&
     curvature.board === board &&
@@ -634,6 +701,8 @@ export function Board3DView({
   viewCubeLineColor = '#22D3EE',
   analysis = 'none',
   onAnalysisStatus,
+  ghost = null,
+  deviationBand = DEFAULT_DEVIATION_BAND,
   targetFaceSize = DEFAULT_FACE_SIZE,
   showStringer = false,
   showSections = false,
@@ -653,7 +722,11 @@ export function Board3DView({
   const exact = isExactAnalysis(analysis);
   const settled = useSettledBoard(store, board);
   const curvature = useCurvatureResult(exact ? settled : null, exact);
-  const computed = analysisStatus(analysis, board, curvature);
+  const deviationWanted = analysis === 'ghost-deviation';
+  const deviation = useDeviationResult(deviationWanted ? board : null, ghost, targetFaceSize);
+  const computed = deviationWanted
+    ? deviationStatus(board, ghost, deviation, deviationBand)
+    : analysisStatus(analysis, board, curvature);
   // One object per distinct state, so the report below fires on changes only.
   const statusRef = useRef<AnalysisStatus>(ANALYSIS_OFF);
   if (!sameStatus(statusRef.current, computed)) statusRef.current = computed;
@@ -692,6 +765,7 @@ export function Board3DView({
             analysis={analysis}
             status={status}
             curvature={curvature}
+            deviation={deviation}
             targetFaceSize={targetFaceSize}
           />
         )}

@@ -38,13 +38,19 @@ export const MATERIAL_3D: { value: MaterialPreset; label: string }[] = [
 
 /**
  * Surface-analysis modes, in menu order. `exact` marks the ones computed from the
- * fitted B-spline hull, which a concave tail does not have.
+ * fitted B-spline hull, which a concave tail does not have; `ghost` the one that
+ * measures against a loaded ghost board.
  *
  * `curvature` is the old screen-space mode, kept under its id so saved settings
  * still load, and labelled for what it measures: how fast the mesh normal turns
  * per pixel, which changes with zoom and triangle size.
  */
-export const ANALYSIS_3D: { value: AnalysisMode; label: string; exact?: true }[] = [
+export const ANALYSIS_3D: {
+  value: AnalysisMode;
+  label: string;
+  exact?: true;
+  ghost?: true;
+}[] = [
   { value: 'none', label: 'No analysis' },
   { value: 'zebra', label: 'Zebra' },
   { value: 'mean-curvature', label: 'Mean curvature', exact: true },
@@ -52,6 +58,7 @@ export const ANALYSIS_3D: { value: AnalysisMode; label: string; exact?: true }[]
   { value: 'rail-radius', label: 'Rail radius', exact: true },
   { value: 'curvature', label: 'Normal change (approx.)' },
   { value: 'slope', label: 'Slope' },
+  { value: 'ghost-deviation', label: 'Deviation from ghost', ghost: true },
 ];
 
 export const QUALITY_3D: { value: MeshQuality; label: string }[] = [
@@ -83,7 +90,19 @@ export interface View3DSettings {
   showSections: boolean;
   /** Draw the rail apex line — each station's widest point — on both rails. */
   showApex: boolean;
+  /**
+   * Half-width (cm) of the "Deviation from ghost" colour band: full colour at ± this
+   * much, saturated beyond. Within {@link DEVIATION_BAND}.
+   */
+  deviationBand: number;
 }
+
+/**
+ * The deviation band's range and step (cm): 1 mm to 2 cm in half-millimetre steps,
+ * 5 mm by default — wide enough that a deliberate change reads as a strong colour,
+ * narrow enough that a sanding-sized one still shows.
+ */
+export const DEVIATION_BAND = { min: 0.1, max: 2, step: 0.05, initial: 0.5 } as const;
 
 export const DEFAULT_VIEW_3D: View3DSettings = {
   mode: 'shaded',
@@ -95,6 +114,7 @@ export const DEFAULT_VIEW_3D: View3DSettings = {
   showStringer: false,
   showSections: false,
   showApex: false,
+  deviationBand: DEVIATION_BAND.initial,
 };
 
 /** The menu label of an analysis mode. */
@@ -105,8 +125,8 @@ export const analysisLabel = (mode: AnalysisMode): string =>
 export const EXACT_ANALYSIS_CONCAVE_TAIL =
   'Mean curvature, Gaussian curvature and rail radius need the fitted surface, which does not yet model concave (swallow / fish) tails. Normal change (approx.) still works on this board.';
 
-/** Why the exact modes are off: in full, and short enough for a menu entry. */
-export interface ExactAnalysisBlock {
+/** Why analysis modes are off: in full, and short enough for a menu entry. */
+export interface AnalysisBlock {
   readonly reason: string;
   readonly short: string;
 }
@@ -116,7 +136,15 @@ export interface ExactAnalysisBlock {
  * available. The same rule as the STEP export, for the same reason: both read the
  * fitted surface (`fitBoardSurface`).
  */
-export const exactAnalysisUnavailable = (board: BezierBoard | null): ExactAnalysisBlock | null =>
+export const exactAnalysisUnavailable = (board: BezierBoard | null): AnalysisBlock | null =>
   board && hasTailCutout(board.outline)
     ? { reason: EXACT_ANALYSIS_CONCAVE_TAIL, short: 'not for concave tails' }
     : null;
+
+/** Shown wherever the deviation map is offered or chosen with no ghost loaded. */
+export const GHOST_DEVIATION_NO_GHOST =
+  'Deviation from ghost compares this board with a reference board. Load one with Board ▸ Open ghost… first.';
+
+/** Why the deviation map is unavailable — there is no ghost to measure against — or null. */
+export const ghostDeviationUnavailable = (ghost: BezierBoard | null): AnalysisBlock | null =>
+  ghost ? null : { reason: GHOST_DEVIATION_NO_GHOST, short: 'load a ghost first' };

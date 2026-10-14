@@ -129,7 +129,11 @@ import {
   type View3DSettings,
 } from './view-toolkit';
 import { longitudinalFor, type MeasurementAxis } from './longitudinal';
-import { DEFAULT_VIEW_3D, exactAnalysisUnavailable } from './view3d-settings';
+import {
+  DEFAULT_VIEW_3D,
+  exactAnalysisUnavailable,
+  ghostDeviationUnavailable,
+} from './view3d-settings';
 import { estimateWeight, FOAM_TYPES, GLASS_SCHEDULES } from './weights';
 import { readRaw, writeRaw } from './persisted';
 
@@ -144,13 +148,14 @@ const ANALYSIS_IDLE: AnalysisStatus = { state: 'off' };
 
 /**
  * Board3DView behind a Suspense boundary, so the lazy 3D chunk can stream in, with
- * the exact analysis modes' legend over it (the view reports where an analysis
+ * the computed analysis modes' legend over it (the view reports where an analysis
  * stands; the legend's lengths are formatted here, in the display unit).
  *
  * Memoized: the 3D view subscribes to the board store itself and every prop here is a
  * primitive, a ref-backed value or a stable callback (`units` is one of the constant
- * `LENGTH_UNITS`), so an AppShell render (a 2D drag move, a hover scrub) need not
- * re-reconcile the three.js scene.
+ * `LENGTH_UNITS`, `ghost` changes only when a ghost is opened or cleared), so an
+ * AppShell render (a 2D drag move, a hover scrub) need not re-reconcile the three.js
+ * scene.
  */
 const ThreeDPane = memo(function ThreeDPane({
   units,
@@ -1362,8 +1367,10 @@ function AppShell() {
   ];
 
   // The exact curvature modes read the fitted surface, which a concave tail does not
-  // have; the controls list them disabled with the reason, as the STEP item is.
+  // have; the controls list them disabled with the reason, as the STEP item is. The
+  // deviation map likewise needs a ghost to measure against.
   const exactUnavailable = exactAnalysisUnavailable(board);
+  const ghostUnavailable = ghostDeviationUnavailable(ghost);
 
   // One 3D pane element and one set of 2D pane props, shared by the quad/split layout
   // and the single-view layout so the two cannot drift apart.
@@ -1377,6 +1384,8 @@ function AppShell() {
       finColor={settings.finColor}
       viewCubeLineColor={settings.outlineColor}
       analysis={view3d.analysis}
+      ghost={ghost}
+      deviationBand={view3d.deviationBand}
       units={units}
       targetFaceSize={faceSizeFor(view3d.meshQuality)}
       showStringer={view3d.showStringer}
@@ -1433,7 +1442,9 @@ function AppShell() {
             <ThreeDControls
               settings={view3d}
               onChange={patchView3d}
+              units={units}
               exactUnavailable={exactUnavailable}
+              ghostUnavailable={ghostUnavailable}
               compact
             />
           </ViewPaneHeader>
@@ -1715,7 +1726,9 @@ function AppShell() {
                 <ThreeDControls
                   settings={view3d}
                   onChange={patchView3d}
+                  units={units}
                   exactUnavailable={exactUnavailable}
+                  ghostUnavailable={ghostUnavailable}
                 />
               </ViewPaneHeader>
               <PanelBody className="min-h-0 flex-1 p-0">{threeDPane}</PanelBody>

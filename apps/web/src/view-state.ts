@@ -22,6 +22,7 @@ import { SPLIT_PANE_KINDS, type EditorKind, type SplitPaneKind, type View } from
 import {
   ANALYSIS_3D,
   DEFAULT_VIEW_3D,
+  DEVIATION_BAND,
   LIGHTING_3D,
   MATERIAL_3D,
   MODE_3D,
@@ -161,6 +162,13 @@ const sanitizeView3D = (v: unknown): View3DSettings | undefined => {
     // Absent from blobs saved before the apex guide existed: it falls back like any
     // invalid field, so adding it needed no VIEW_STATE_VERSION bump.
     showApex: bool(o.showApex, d.showApex),
+    // Likewise the deviation band; out of range is as good as absent.
+    deviationBand:
+      typeof o.deviationBand === 'number' &&
+      o.deviationBand >= DEVIATION_BAND.min &&
+      o.deviationBand <= DEVIATION_BAND.max
+        ? o.deviationBand
+        : d.deviationBand,
   };
 };
 

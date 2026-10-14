@@ -2,6 +2,7 @@
 import type { BoardMesh } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
 import type { CurvatureMesh } from './curvature-mesh';
+import type { DeviationMesh } from './deviation-mesh';
 import { handleWorkerRequest } from './worker-protocol';
 import { stationBoard, swallowBoard } from './test-support/boards';
 
@@ -41,6 +42,26 @@ describe('tessellation worker protocol', () => {
     for (const a of [m.mean, m.gaussian, m.minRadius]) expect(a.length).toBe(verts);
     expect(m.scale.mean).toBeGreaterThan(0);
     expect(m.hullIndexCount).toBeGreaterThan(0);
+  });
+
+  it('answers a deviation request with the measured mesh, every array transferred', () => {
+    const b = stationBoard();
+    const handled = handleWorkerRequest({
+      kind: 'deviation',
+      id: 7,
+      board: b,
+      ghost: b,
+      targetFaceSize: 3,
+    });
+    expect(handled.transfer).toHaveLength(4);
+    const reply = deliver(handled) as { id: number; result: DeviationMesh };
+    expect(reply.id).toBe(7);
+    const m = reply.result;
+    expect(m.deviation).toHaveLength(m.positions.length / 3);
+    expect(m.indices.length % 3).toBe(0);
+    // Against itself: the two cap hubs carry no data, and the rest reads zero.
+    expect(m.noData).toBe(2);
+    expect(Math.max(Math.abs(m.range![0]), Math.abs(m.range![1]))).toBeLessThan(0.01);
   });
 
   it('reports a concave tail as an error for that job, so the queue moves on', () => {

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test';
 
 /**
@@ -106,6 +107,45 @@ test.describe('OpenShaper editor', () => {
       await analysis.selectOption(value);
     }
     await expect(page.getByRole('status', { name: /legend$/ })).toHaveCount(0);
+    expect(shaderErrors).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
+  test('paints the deviation from a ghost board once one is open', async ({ page }) => {
+    const errors = trackErrors(page);
+    const shaderErrors: string[] = [];
+    page.on('console', (msg: ConsoleMessage) => {
+      if (/WebGLProgram|Shader Error/.test(msg.text())) shaderErrors.push(msg.text());
+    });
+    await page.goto('/app');
+    await page.getByRole('button', { name: '3D', exact: true }).click();
+    const analysis = page.getByTitle(/^Surface analysis/);
+    const deviation = analysis.locator('option[value="ghost-deviation"]');
+    // Listed, but nothing to measure against yet.
+    await expect(deviation).toBeDisabled();
+
+    // Board ▸ Open ghost… is the third file picker (after the board and the trace).
+    await page
+      .locator('input[type="file"]')
+      .nth(2)
+      .setInputFiles({
+        name: 'ghost.brd',
+        mimeType: 'text/plain',
+        buffer: readFileSync(new URL('../src/sample-board.brd', import.meta.url)),
+      });
+    await expect(deviation).toBeEnabled();
+    await analysis.selectOption('ghost-deviation');
+
+    // Measured in the worker: then the band and the range, in the display unit.
+    const legend = page.getByRole('status', { name: 'Deviation from ghost legend' });
+    await expect(legend).toContainText('On this board', { timeout: 30_000 });
+    await expect(legend).toContainText('+5 mm');
+    await page.getByRole('slider', { name: 'Deviation band' }).fill('1');
+    await expect(legend).toContainText('+10 mm');
+    // Let the deviation surface draw at least once, so its shader compiles.
+    await page.evaluate(
+      () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+    );
     expect(shaderErrors).toEqual([]);
     expect(errors).toEqual([]);
   });

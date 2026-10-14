@@ -30,7 +30,7 @@ import {
   Select,
 } from '@openshaper/ui';
 import { useMemo } from 'react';
-import { fmtLen, LENGTH_UNITS, type LengthUnit } from './format';
+import { fmtLen, fmtSmallLen, LENGTH_UNITS, type LengthUnit } from './format';
 import type { Longitudinal, MeasurementAxis } from './longitudinal';
 import { SelectedPointEditor } from './ControlPointInspector';
 import { boardStore } from './store';
@@ -38,11 +38,12 @@ import type { EditorSettings } from './settings';
 import { useIsCoarsePointer } from './useMediaQuery';
 import {
   ANALYSIS_3D,
+  DEVIATION_BAND,
   LIGHTING_3D,
   MATERIAL_3D,
   MODE_3D,
   QUALITY_3D,
-  type ExactAnalysisBlock,
+  type AnalysisBlock,
   type View3DSettings,
 } from './view3d-settings';
 
@@ -312,39 +313,84 @@ export function OverlayToggle({
 // --- 3D appearance controls ------------------------------------------------
 
 /**
+ * The deviation map's ± band: a slider over {@link DEVIATION_BAND} (cm), read out in
+ * the display unit. Full colour at this much more or less foam than the ghost.
+ */
+function DeviationBandControl({
+  band,
+  onChange,
+  units,
+}: {
+  band: number;
+  onChange: (band: number) => void;
+  units: LengthUnit;
+}) {
+  const text = `±${fmtSmallLen(band, units)}`;
+  return (
+    <label
+      className="flex items-center gap-1 text-xs pointer-coarse:min-h-11"
+      title="Deviation band: full colour at this much more or less foam than the ghost"
+    >
+      <input
+        type="range"
+        min={DEVIATION_BAND.min}
+        max={DEVIATION_BAND.max}
+        step={DEVIATION_BAND.step}
+        value={band}
+        onChange={(e) => onChange(Number(e.target.value))}
+        aria-label="Deviation band"
+        aria-valuetext={text}
+        className="w-20 pointer-coarse:w-28"
+      />
+      <span className="min-w-12 tabular-nums">{text}</span>
+    </label>
+  );
+}
+
+/**
  * 3D appearance + analysis controls. `compact` (quad view) shows render mode,
  * lighting, the guide toggles, analysis, and mesh quality; the full 3D view also
- * exposes material and board color.
+ * exposes material and board color. With "Deviation from ghost" chosen, its band
+ * control follows the analysis menu in both.
  */
 export function ThreeDControls({
   settings,
   onChange,
+  units,
   compact = false,
   exactUnavailable = null,
+  ghostUnavailable = null,
 }: {
   settings: View3DSettings;
   onChange: (patch: Partial<View3DSettings>) => void;
+  /** The display unit, for the deviation band's readout. */
+  units: LengthUnit;
   compact?: boolean;
   /**
    * Why the exact analysis modes cannot run on this board (a concave tail), or
    * null. They stay listed, disabled, with the reason on them and on the select.
    */
-  exactUnavailable?: ExactAnalysisBlock | null;
+  exactUnavailable?: AnalysisBlock | null;
+  /**
+   * Why "Deviation from ghost" cannot run (no ghost is loaded), or null. Listed
+   * disabled with the reason, like the exact modes.
+   */
+  ghostUnavailable?: AnalysisBlock | null;
 }) {
   const set = onChange;
   // Spelled out in the entry itself, not only in a tooltip: a phone has no hover.
-  const analysisOptions = exactUnavailable
-    ? ANALYSIS_3D.map((o) =>
-        o.exact
-          ? {
-              ...o,
-              label: `${o.label} (${exactUnavailable.short})`,
-              disabled: true,
-              title: exactUnavailable.reason,
-            }
-          : o,
-      )
-    : ANALYSIS_3D;
+  const analysisOptions = ANALYSIS_3D.map((o) => {
+    const block = o.exact ? exactUnavailable : o.ghost ? ghostUnavailable : null;
+    return block
+      ? { ...o, label: `${o.label} (${block.short})`, disabled: true, title: block.reason }
+      : o;
+  });
+  // The select carries the concave-tail reason whenever it applies, as before; the
+  // missing ghost only once its mode is the one chosen, since that is the usual case.
+  const reasons = [
+    exactUnavailable?.reason,
+    settings.analysis === 'ghost-deviation' ? ghostUnavailable?.reason : undefined,
+  ].filter((r): r is string => !!r);
   return (
     <div className="flex flex-wrap items-center gap-1">
       <div className="flex gap-1">
@@ -412,10 +458,15 @@ export function ThreeDControls({
         value={settings.analysis}
         onChange={(analysis) => set({ analysis })}
         options={analysisOptions}
-        title={
-          exactUnavailable ? `Surface analysis. ${exactUnavailable.reason}` : 'Surface analysis'
-        }
+        title={reasons.length ? `Surface analysis. ${reasons.join(' ')}` : 'Surface analysis'}
       />
+      {settings.analysis === 'ghost-deviation' && !ghostUnavailable && (
+        <DeviationBandControl
+          band={settings.deviationBand}
+          onChange={(deviationBand) => set({ deviationBand })}
+          units={units}
+        />
+      )}
       <Sel
         value={settings.meshQuality}
         onChange={(meshQuality) => set({ meshQuality })}

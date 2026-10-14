@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * Colour ramps for the exact curvature analysis, shared by the shader that paints
- * the hull and the legend that explains it (the legend gets these through
- * `AnalysisStatus`, so the two cannot disagree).
+ * Colour ramps for the computed analyses, shared by the shader that paints the hull
+ * and the legend that explains it (the legend gets these through `AnalysisStatus`,
+ * so the two cannot disagree).
  *
- * - **Diverging** (mean and Gaussian curvature): two hues that read as opposites,
- *   blue for negative (concave / saddle) and red for positive (convex / dome),
- *   meeting at a neutral grey that means "flat". Lightness falls symmetrically
- *   away from the middle, so the strength of a colour reads as magnitude in both
- *   directions and the zero crossing stays visible to colour-blind readers.
+ * - **Diverging** (mean and Gaussian curvature, deviation from a ghost): two hues
+ *   that read as opposites, blue for negative (concave / saddle / less foam) and red
+ *   for positive (convex / dome / more foam), meeting at a neutral grey that means
+ *   "flat" or "the same". Lightness falls symmetrically away from the middle, so the
+ *   strength of a colour reads as magnitude in both directions and the zero crossing
+ *   stays visible to colour-blind readers.
  * - **Sequential** (rail radius): one hue, light to dark. Dark is the tight end —
  *   a hard rail edge — so what matters most is what stands out most against the
  *   pale, nearly flat deck and bottom.
@@ -28,6 +29,13 @@ export const DIVERGING_RAMP: readonly string[] = [
   '#e34948',
   '#9b1c1f',
 ];
+
+/**
+ * "No data" in the deviation map: two darker greys in diagonal stripes. A plain grey
+ * would read as a point on the diverging ramp, whose middle is a pale grey meaning
+ * "no difference"; stripes cannot be mistaken for any colour on it.
+ */
+export const NO_DATA_STRIPES: readonly [string, string] = ['#6b737d', '#4a515a'];
 
 /** Tight (a hard rail) … flat. Five stops of one hue, dark to light. */
 export const SEQUENTIAL_RAMP: readonly string[] = [

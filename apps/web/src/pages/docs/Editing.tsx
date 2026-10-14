@@ -168,6 +168,10 @@ export default function DocsEditing() {
             How far the surface faces away from straight up: deck and bottom one colour, the rails
             another.
           </Term>
+          <Term name="Deviation from ghost">
+            With a reference board loaded, how far your board lies from it at every point: red for
+            more foam, blue for less. See <Link to="/docs/specs#ghost">Comparing two boards</Link>.
+          </Term>
         </Terms>
         <p>
           <strong>Reading the exact modes.</strong> A legend in the corner of the 3D view shows the
