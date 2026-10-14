@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * Evaluation benchmarks P1–P9 (docs/design/geom-core.md §17), run with
+ * Evaluation and knot-operation benchmarks P1–P10 (docs/design/geom-core.md
+ * §17), run with
  * `pnpm --filter @openshaper/geom bench` (not part of `pnpm test`).
  *
  * Each case prints its measured rate or time next to the design's target. A
@@ -16,6 +17,7 @@ import {
   createScratch,
   curveEvalBatchInto,
   curvePoint,
+  elevateDegree,
   evalSurfacePlan,
   evalSurfacePlanDirty,
   makeCurve,
@@ -23,6 +25,7 @@ import {
   periodicCircle,
   planSurfaceSamples,
   principalCurvatures,
+  refineKnotsSurface,
   surfaceEvalGridInto,
   surfacePoint,
   withSurfaceControlPoints,
@@ -251,4 +254,39 @@ test('sample plans: P6–P8', async ({ bench }) => {
   process.stdout.write(
     `P8 touched ${touchedCount} of ${count} samples (${((100 * touchedCount) / count).toFixed(1)}%)\n`,
   );
+});
+
+test('knot operations: P10', async ({ bench }) => {
+  const rng = mulberry32(4);
+  const s = bicubic(40, 20, true, 5);
+  // 40 new u-knots (k + ½)/40: never equal to the uniform knots i/37 (odd vs even numerators).
+  const xs = Float64Array.from({ length: 40 }, (_, k) => (k + 0.5) / 40);
+  const curve = makeCurve({
+    dim: 3,
+    basis: clampedBasis(3, clampedUniformKnots(3, 100)),
+    points: Array.from({ length: 300 }, () => rng()),
+    weights: Array.from({ length: 100 }, () => 0.5 + rng()),
+  });
+  let count = 0;
+  await runGroup(bench, 'knot operations (A1)', [
+    {
+      id: 'P10a',
+      name: 'refineKnotsSurface, 40 u-knots, rational bicubic 40 × 20',
+      units: 0,
+      target: { kind: 'time', value: 2 },
+      fn: () => {
+        count += refineKnotsSurface(s, 'u', xs).u.count;
+      },
+    },
+    {
+      id: 'P10b',
+      name: 'elevateDegree 3 → 5, rational, 100 control points',
+      units: 0,
+      target: { kind: 'time', value: 1 },
+      fn: () => {
+        count += elevateDegree(curve, 2).basis.count;
+      },
+    },
+  ]);
+  if (count < 0) process.stdout.write('unreachable\n');
 });

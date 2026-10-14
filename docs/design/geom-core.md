@@ -78,8 +78,9 @@ benchmarks.
 
 **Not in Phase 1:** board concepts (tail at x = 0 is board2's rule; geom has no frame
 convention); surface/surface and plane/surface intersection (Phase 2 adds
-`intersectSurfacePlane` for cross-sections as cuts); knot removal and degree
-reduction; offsets and booleans; rotation-minimising frames; T-splines and
+`intersectSurfacePlane` for cross-sections as cuts); degree reduction (knot
+removal with a certified tolerance, P&T A5.8, joined Phase 1 with step A1: it
+undoes insertion when cleaning up nets, and its bound is checked, not assumed); offsets and booleans; rotation-minimising frames; T-splines and
 hierarchical splines; non-manifold or multi-shell B-reps; collapsed edges and poles in
 STEP; trims on periodic surfaces; STEP reading in the product.
 
@@ -159,7 +160,7 @@ packages/geom/
       curve.ts            A3.1 / A4.1 point, A3.2 derivatives, A4.2 rational derivatives
       surface.ts          A3.5 / A4.3 point, A3.6 derivatives, A4.4 rational derivatives
       periodic.ts         periodic span windows; unroll to / extract from a clamped window
-      refine.ts           A5.1, A5.3, A5.4, A5.5, A5.6, A5.9 (+ row/column form), eq. 5.36
+      refine.ts           A5.1, A5.3, A5.4, A5.5, A5.6, A5.8, A5.9 (+ row/column form), eq. 5.36
       fit.ts              eqs. 9.4–9.6, 9.8, 9.68–9.69; A9.1, §9.2.2, A9.4, A9.6 structure
       primitives.ts       A7.1 circle, A7.3 open conic, A8.1 revolve
     basis.ts              Basis factories, validation, knot generators, multiplicities, spans
@@ -278,12 +279,15 @@ exact equality.
   wraps. Seam coedges use the lines `u = t_0` and `u = t_0 + T`.
 - Periodic geometry leaves geom only through exact conversion: `toClamped` (inserts
   the seam to multiplicity `p` and unrolls) for STEP and B-rep edges.
-- **Periodic operations** (insert, refine, elevate, reverse): unroll to a clamped
+- **Periodic operations** (insert, refine, elevate, sub-curves, `toClamped`): unroll to a clamped
   window covering `[t_0 − T, t_0 + 2T]` (exact, by insertion at the window ends), run
   the clamped book algorithm, and extract the middle period. With `n ≥ p + 1`, every
   basis function of the middle period has support inside the window away from the
   clamped ends, so the extracted net is the periodic result; a test checks that the
-  middle period equals its neighbours shifted by `T` within `point`.
+  middle period equals its neighbours shifted by `T` within `point`. **Reversal** maps
+  the one-period list directly (an exact index mirror that keeps the run of `t_0` at
+  the start): mirroring the window would compute `t_0` as
+  `(t_0 − T) + ((t_0 + 2T) − (t_0 + T))`, which rounding can move off `t_0`.
 
 ### 4.5 Rational representation
 
@@ -756,26 +760,73 @@ export function curveBounds(c: NurbsCurve): Box3; // control-hull bound
 
 ### 6.5 Curve operations [A1]
 
-Generic signatures keep the input's kind and dimension (`C extends NurbsCurve`).
+Generic signatures keep the input's kind and dimension (`C extends NurbsCurve`). Every
+operation takes `tol?` last: parameters are validated with `paramRel`, a parameter that
+becomes a knot snaps to an existing knot within `knotRel × domain` (§4.3), and the
+result's basis is validated with the caller's `knotRel`. A polynomial input keeps its
+weights exactly 1 (A5.8 and A5.9 can round them by an ulp). Per-direction kernels
+(`insertDir`, `refineDir`, … in `curve-ops.ts`, internal) act on a basis and a net of
+`h`-double points, so `surface-ops.ts` runs the same code on whole rows (§6.8).
 
 ```ts
-export function insertKnot<C extends NurbsCurve>(c: C, t: number, times?: number): C; // A5.1
-export function refineKnots<C extends NurbsCurve>(c: C, x: ArrayLike<number>): C; // A5.4
-export function elevateDegree<C extends NurbsCurve>(c: C, by: number): C; // A5.9
+export function insertKnot<C extends NurbsCurve>(
+  c: C,
+  t: number,
+  times?: number,
+  tol?: Partial<Tolerances>,
+): C; // A5.1
+export function refineKnots<C extends NurbsCurve>(
+  c: C,
+  x: ArrayLike<number>,
+  tol?: Partial<Tolerances>,
+): C; // A5.4
+export function elevateDegree<C extends NurbsCurve>(c: C, by: number, tol?: Partial<Tolerances>): C; // A5.9
+/**
+ * A5.8, clamped only. Removes `t` up to `times` times while the curve moves by at most
+ * `tol.point`: A5.8's homogeneous check (`point`, or P&T eq. 5.30's
+ * `point · w_min / (1 + |P|_max)` when rational) proposes, a rigorous bound certifies
+ * (Chebyshev nodes per span × the Lebesgue constant; rational: the eq. 5.30 quotient
+ * bound), and fewer removals are tried if it fails. `removed` may be 0.
+ */
+export function removeKnot<D extends Dim>(
+  c: ClampedCurve<D>,
+  t: number,
+  times?: number,
+  tol?: Partial<Tolerances>,
+): { readonly curve: ClampedCurve<D>; readonly removed: number; readonly maxDeviation: number };
 export function splitCurve<D extends Dim>(
   c: ClampedCurve<D>,
   t: number,
+  tol?: Partial<Tolerances>,
 ): readonly [ClampedCurve<D>, ClampedCurve<D>];
-/** Periodic: t1 < t0 means across the seam. */
-export function subCurve<D extends Dim>(c: NurbsCurve<D>, t0: number, t1: number): ClampedCurve<D>;
-export function reverseCurve<C extends NurbsCurve>(c: C): C;
-export function reparameterize<C extends NurbsCurve>(c: C, domain: Interval): C; // affine
-export function normalizeDomain<C extends NurbsCurve>(c: C): C; // [0, 1] or period 1
-export function toClamped<D extends Dim>(c: PeriodicCurve<D>, seam?: number): ClampedCurve<D>; // exact
+/** Periodic: t1 ≤ t0 means across the seam (domain [t0, t1 + T]); t1 = t0 is the whole loop. */
+export function subCurve<D extends Dim>(
+  c: NurbsCurve<D>,
+  t0: number,
+  t1: number,
+  tol?: Partial<Tolerances>,
+): ClampedCurve<D>;
+export function reverseCurve<C extends NurbsCurve>(c: C, tol?: Partial<Tolerances>): C;
+export function reparameterize<C extends NurbsCurve>(
+  c: C,
+  domain: Interval,
+  tol?: Partial<Tolerances>,
+): C; // affine
+export function normalizeDomain<C extends NurbsCurve>(c: C, tol?: Partial<Tolerances>): C; // [0, 1] or period 1
+export function toClamped<D extends Dim>(
+  c: PeriodicCurve<D>,
+  seam?: number,
+  tol?: Partial<Tolerances>,
+): ClampedCurve<D>; // exact
 export function decomposeBezier<D extends Dim>(c: ClampedCurve<D>): readonly ClampedCurve<D>[]; // A5.6
-/** All clamped or all periodic with equal domains; common degree and knots, shapes unchanged. */
+/**
+ * All clamped or all periodic with equal domains; common degree and knots, shapes
+ * unchanged. Near-coincident knots of different curves are unified (most-used value);
+ * maxDeviation is the certified bound of removeKnot for that move, 0 when none moved.
+ */
 export function makeCompatible<C extends NurbsCurve>(
   cs: readonly C[],
+  tol?: Partial<Tolerances>,
 ): { readonly curves: readonly C[]; readonly maxKnotShift: number; readonly maxDeviation: number };
 ```
 
@@ -934,33 +985,55 @@ export function normalCurvature(
 
 ### 6.8 Surface operations [A1]
 
+The curve kernels of §6.5 on rows: a u row of the u-major net is contiguous; the v
+direction transposes, runs the kernel and transposes back. The other direction's basis
+is kept by reference. Every function takes `tol?` last, as §6.5.
+
 ```ts
 export function insertKnotSurface(
   s: NurbsSurface,
   dir: ParamDir,
   t: number,
   times?: number,
+  tol?: Partial<Tolerances>,
 ): NurbsSurface; // A5.3
 export function refineKnotsSurface(
   s: NurbsSurface,
   dir: ParamDir,
   x: ArrayLike<number>,
+  tol?: Partial<Tolerances>,
 ): NurbsSurface; // A5.5
-export function elevateDegreeSurface(s: NurbsSurface, dir: ParamDir, by: number): NurbsSurface; // A5.9 row-wise
-export function splitSurface(
+export function elevateDegreeSurface(
   s: NurbsSurface,
   dir: ParamDir,
+  by: number,
+  tol?: Partial<Tolerances>,
+): NurbsSurface; // A5.9 row-wise
+export function splitSurface(
+  s: NurbsSurface,
+  dir: ParamDir, // clamped direction only
   t: number,
+  tol?: Partial<Tolerances>,
 ): readonly [NurbsSurface, NurbsSurface];
-export function reverseSurface(s: NurbsSurface, dir: ParamDir): NurbsSurface;
-export function swapUV(s: NurbsSurface): NurbsSurface;
+export function reverseSurface(
+  s: NurbsSurface,
+  dir: ParamDir,
+  tol?: Partial<Tolerances>,
+): NurbsSurface;
+export function swapUV(s: NurbsSurface): NurbsSurface; // the normal flips
 export function reparameterizeSurface(
   s: NurbsSurface,
   dir: ParamDir,
   domain: Interval,
+  tol?: Partial<Tolerances>,
 ): NurbsSurface;
-export function normalizeSurfaceDomain(s: NurbsSurface): NurbsSurface;
-export function toClampedSurface(s: NurbsSurface, dir: ParamDir, seam?: number): NurbsSurface;
+export function normalizeSurfaceDomain(s: NurbsSurface, tol?: Partial<Tolerances>): NurbsSurface;
+export function toClampedSurface(
+  s: NurbsSurface,
+  dir: ParamDir,
+  seam?: number,
+  tol?: Partial<Tolerances>,
+): NurbsSurface;
 ```
 
 ### 6.9 Sample plans: incremental evaluation [F2]
@@ -2416,7 +2489,7 @@ their wrappers bit for bit.
 | `book/curve`, `curve` | Bézier vs closed-form Bernstein sum and its exact derivatives; rational circle (A7.1, 9-point and periodic 8-point): `\|C(t) − c\| = r`; ellipse as affine image; affine invariance                                                                                                                                                                                                                                                                                                                                                                                           | Radius `64 ε r`: ~10 flops and one division per coordinate; a wrong weight errs ≥ 1e-3 r. Bernstein `64 ε · scale · p!` for derivatives.                                                                                                                |
 | `curve` (derivatives) | Central differences with Richardson extrapolation inside spans; one-sided derivatives at C⁰ knots equal the split halves' end derivatives; multi-span rational: A7.1 arcs of 1–4 segments against the half-angle closed form to C‴, both sides of every knot                                                                                                                                                                                                                                                                                                                  | 1e-8 rel for C′, C″ and C‴ (truncation ~h⁴ ≈ 1e-12, cancellation ~ε/h² ≈ 2e-10 at h = 2⁻¹⁰ of the span), relative to the local `max(\|C⁽ᵏ⁾(t)\|, \|C⁽ᵏ⁻¹⁾(t)\|/span)`; one-sided: `1e-13 · scale`; closed form: `64 ε · M · ρ^(k+1) · p!/(p−k)! / h^k`. |
 | `curve-measure`       | Circle curvature `1/r`, length `2πr`; parabola curvature `2/(1+4x²)^{3/2}`, length `x√(1+4x²)/2 + asinh(2x)/4`; ellipse curvature; `paramAtLength(lengthAtParam(t)) = t`                                                                                                                                                                                                                                                                                                                                                                                                      | Curvature `1e-12` rel (two derivative evaluations, one division); length `10 · quadRel` rel (GK estimate is not a bound: 10× margin); inverse `paramRel`.                                                                                               |
-| `curve-ops`           | Shape invariance under insert, refine, elevate, split, reverse∘reverse, reparameterise, `toClamped`, Bézier decomposition, at 1,000 params and every knot; counts `m = n + p + 1`; P&T Ex. 5.1 (insertion) fixtures; eq. 5.36 Bézier elevation closed form; `makeCompatible` keeps shapes; periodic middle-period consistency                                                                                                                                                                                                                                                 | `1e-13 · scale`: each op is convex combinations (~ε per step) chained ≤ 100 times; book fixtures bitwise where exact in binary.                                                                                                                         |
+| `curve-ops`           | Shape invariance under insert, refine, elevate, split, reverse∘reverse, reparameterise, `toClamped`, Bézier decomposition, at 1,000 params and every knot; counts `m = n + p + 1`; P&T Ex. 5.1 (insertion) fixtures; eq. 5.36 Bézier elevation closed form; `makeCompatible` keeps shapes; periodic middle-period consistency; removal of an inserted knot recovers the curve; a lossy removal's bound ≥ dense-sampled deviation                                                                                                                                              | `1e-13 · scale`: each op is convex combinations (~ε per step) chained ≤ 100 times; book fixtures bitwise where exact in binary.                                                                                                                         |
 | `surface`             | Rational sphere (A8.1): radius `r`; torus: points on the torus; cylinder; plane; `z = xy` bilinear; cone from a revolved line; Bézier patches vs the closed-form Bernstein double sum with the quotient rule written out (to second order); linear precision (Greville nets reproduce `(u, v, uv)` on random knots); vs A2.4 summed over the net; partials vs Richardson differences; one-sided partials at a C⁰ knot line vs the Bézier halves; invariance under A5.1 per row/column; iso-curve equals the surface at the fixed parameter; boundary curve equals the net row | `64 ε r` for radii; Bézier `64 ε · M · ρ^(k+l+1) · (2p)^k (2q)^l`; iso (`u` fixed) bitwise, (`v` fixed) and boundary `1e-14 · scale` (same arithmetic re-associated); FD `1e-8` of the local scale; insertion `1e-13 · scale`.                          |
 | `surface-measure`     | Sphere `k₁ = k₂ = −1/r`, `K = 1/r²`; torus `k = −1/r` and `−cos v/(R + r cos v)`, `K = cos v/(r(R + r cos v))`, directions along meridian and parallel; cylinder `(0, −1/r)`, zero direction along the axis; plane 0; `z = xy`: every form coefficient, `K = −1/(1+x²+y²)²`; paraboloid, saddle and elliptic paraboloid (graph formulas); Weingarten `L = −Su·n_u` … vs differences of the normal; Euler's theorem; `limitNormal` at sphere poles = ±axis                                                                                                                     | `1e-12` rel: second derivatives of rational patches lose ~3 digits to the quotient rule. Normals `1e-13`; directions `1e-10` (eigenvector error ~ rounding/gap); FD `1e-8` of the local scale, step resolving `κ·                                       | Su  | `.  |
 | `plan`                | `evalSurfacePlan` = `surfaceEvalInto` bitwise; dirty update after random edits = full re-evaluation bitwise; touched set = brute-force support; `planMatches` false after insertion                                                                                                                                                                                                                                                                                                                                                                                           | Exact: same arithmetic in the same order.                                                                                                                                                                                                               |
@@ -2480,6 +2553,10 @@ missed, under `vitest bench`: P1 0.31 M/s, P2 0.31 M/s, P3 9.1 ms, P4 0.27 M/s, 
 run as a plain Node script: P3 5.1–6.9 ms, P7 4.4 ms, P6 4.7–5.3 ms. P1/P2/P4/P5 call
 allocating wrappers, which create a scratch per call: on this machine that allocation
 dominates. Re-measure on the reference desktop before acting on tier-2 options (§9).
+
+**A1 (`src/eval.bench.ts`, same container).** P10 met: refining a rational bicubic
+40 × 20 with 40 u-knots 0.105 ms (target 2 ms); elevating a rational cubic with 100
+control points to degree 5 0.046 ms (target 1 ms).
 
 ---
 

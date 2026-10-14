@@ -120,8 +120,30 @@ import {
   withSurfaceControlNet,
   withSurfaceControlPoints,
   withSurfaceWeights,
+  decomposeBezier,
+  elevateDegree,
+  elevateDegreeSurface,
+  insertKnot,
+  insertKnotSurface,
+  makeCompatible,
+  normalizeDomain,
+  normalizeSurfaceDomain,
+  refineKnots,
+  refineKnotsSurface,
+  removeKnot,
+  reparameterize,
+  reparameterizeSurface,
+  reverseCurve,
+  reverseSurface,
+  ruled,
+  splitCurve,
+  splitSurface,
+  subCurve,
+  swapUV,
+  toClamped,
+  toClampedSurface,
 } from './index';
-import type { Affine2, Affine3, NurbsCurve } from './index';
+import type { Affine2, Affine3, ClampedCurve, NurbsCurve, PeriodicCurve } from './index';
 import { checksum, mulberry32, randomCurve, randomSurface } from './testing';
 
 /** Every number reachable from `v` (typed arrays included). */
@@ -231,6 +253,24 @@ function cases(seed: number): Case[] {
   const changed = changedControlPoints(S, S2);
   const touched = new Int32Array(64);
   const dir = { x: 0.3, y: -1, z: 2 };
+  // Curve and surface operations (A1).
+  const cc =
+    c3.basis.kind === 'clamped'
+      ? (c3 as ClampedCurve<3>)
+      : toClamped(c3 as PeriodicCurve<3>, c3.basis.domain[0]);
+  const [ca, cb] = cc.basis.domain;
+  const tm = ca + 0.43 * (cb - ca);
+  const ins = insertKnot(cc, tm, 2);
+  const xs = Float64Array.of(a + 0.31 * (e - a), a + 0.62 * (e - a), a + 0.62 * (e - a));
+  const pc = randomCurve(rng, {
+    dim: 2,
+    degree: 3,
+    count: 7,
+    kind: 'periodic',
+    weightRange,
+  }) as PeriodicCurve<2>;
+  const c3b = randomCurve(rng, { dim: 3, degree: 2, count: 6, kind, weightRange }) as NurbsCurve<3>;
+  const tor = torus(P, dir, 3, 1);
   const sOut = (): Record<string, Float64Array | Uint8Array> => ({
     position: new Float64Array(36),
     normal: new Float64Array(36),
@@ -649,6 +689,102 @@ function cases(seed: number): Case[] {
     { name: 'torus', inputs: [P, dir], run: () => torus(P, dir, 3, 1), frozen: same },
     { name: 'cylinder', inputs: [P, dir], run: () => cylinder(P, dir, 1, 2), frozen: same },
     { name: 'extrude', inputs: [c3, dir], run: () => extrude(c3, dir), frozen: same },
+    // Curve operations (A1)
+    { name: 'insertKnot', inputs: [c3], run: () => insertKnot(c3, t, 1), frozen: same },
+    { name: 'refineKnots', inputs: [c3, xs], run: () => refineKnots(c3, xs), frozen: same },
+    {
+      name: 'removeKnot',
+      inputs: [ins],
+      run: () => removeKnot(ins, tm, 2),
+      frozen: (r) => [r, (r as { curve: unknown }).curve],
+    },
+    { name: 'elevateDegree', inputs: [c2], run: () => elevateDegree(c2, 2), frozen: same },
+    {
+      name: 'splitCurve',
+      inputs: [cc],
+      run: () => splitCurve(cc, tm),
+      frozen: (r) => [r, ...(r as unknown[])],
+    },
+    {
+      name: 'subCurve',
+      inputs: [c3],
+      // Periodic: from 0.7 across the seam to 0.2; clamped: [0.2, 0.7].
+      run: () =>
+        kind === 'clamped'
+          ? subCurve(c3, a + 0.2 * (e - a), a + 0.7 * (e - a))
+          : subCurve(c3, a + 0.7 * (e - a), a + 0.2 * (e - a)),
+      frozen: same,
+    },
+    { name: 'reverseCurve', inputs: [c3], run: () => reverseCurve(c3), frozen: same },
+    {
+      name: 'reparameterize',
+      inputs: [c3],
+      run: () => reparameterize(c3, [2, 5]),
+      frozen: same,
+    },
+    { name: 'normalizeDomain', inputs: [c1], run: () => normalizeDomain(c1), frozen: same },
+    { name: 'toClamped', inputs: [pc], run: () => toClamped(pc, 0.3), frozen: same },
+    {
+      name: 'decomposeBezier',
+      inputs: [cc],
+      run: () => decomposeBezier(cc),
+      frozen: (r) => [r, ...(r as unknown[])],
+    },
+    {
+      name: 'makeCompatible',
+      inputs: [c3, c3b],
+      run: () => makeCompatible([c3, c3b]),
+      frozen: (r) => {
+        const x = r as { curves: readonly unknown[] };
+        return [x, x.curves, ...x.curves];
+      },
+    },
+    { name: 'ruled', inputs: [c3, c3b], run: () => ruled(c3, c3b), frozen: same },
+    // Surface operations (A1)
+    {
+      name: 'insertKnotSurface',
+      inputs: [S],
+      run: () => insertKnotSurface(S, 'u', u),
+      frozen: same,
+    },
+    {
+      name: 'refineKnotsSurface',
+      inputs: [S, vs],
+      run: () => refineKnotsSurface(S, 'v', vs),
+      frozen: same,
+    },
+    {
+      name: 'elevateDegreeSurface',
+      inputs: [S],
+      run: () => elevateDegreeSurface(S, 'v', 1),
+      frozen: same,
+    },
+    {
+      name: 'splitSurface',
+      inputs: [clampedS],
+      run: () => splitSurface(clampedS, 'v', 0.55),
+      frozen: (r) => [r, ...(r as unknown[])],
+    },
+    { name: 'reverseSurface', inputs: [S], run: () => reverseSurface(S, 'u'), frozen: same },
+    { name: 'swapUV', inputs: [S], run: () => swapUV(S), frozen: same },
+    {
+      name: 'reparameterizeSurface',
+      inputs: [S],
+      run: () => reparameterizeSurface(S, 'v', [-1, 1]),
+      frozen: same,
+    },
+    {
+      name: 'normalizeSurfaceDomain',
+      inputs: [S],
+      run: () => normalizeSurfaceDomain(S),
+      frozen: same,
+    },
+    {
+      name: 'toClampedSurface',
+      inputs: [tor],
+      run: () => toClampedSurface(tor, 'v', 0.2),
+      frozen: same,
+    },
   ];
 }
 

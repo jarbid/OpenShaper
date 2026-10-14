@@ -79,6 +79,22 @@ export {
 } from './curve-measure';
 export type { ArcLengthTable } from './curve-measure';
 
+// Curve operations (§6.5)
+export {
+  decomposeBezier,
+  elevateDegree,
+  insertKnot,
+  makeCompatible,
+  normalizeDomain,
+  refineKnots,
+  removeKnot,
+  reparameterize,
+  reverseCurve,
+  splitCurve,
+  subCurve,
+  toClamped,
+} from './curve-ops';
+
 // Surfaces (§6.6)
 export {
   boundaryCurve,
@@ -116,6 +132,19 @@ export {
 } from './surface-measure';
 export type { Curvatures, FundamentalForms, NormalResult } from './surface-measure';
 
+// Surface operations (§6.8)
+export {
+  elevateDegreeSurface,
+  insertKnotSurface,
+  normalizeSurfaceDomain,
+  refineKnotsSurface,
+  reparameterizeSurface,
+  reverseSurface,
+  splitSurface,
+  swapUV,
+  toClampedSurface,
+} from './surface-ops';
+
 // Sample plans: incremental evaluation (§6.9)
 export {
   changedControlPoints,
@@ -148,6 +177,7 @@ export {
   planeSurface,
   polyline,
   revolve,
+  ruled,
   sphere,
   torus,
 } from './primitives';

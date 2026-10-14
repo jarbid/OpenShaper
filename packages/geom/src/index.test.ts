@@ -7,7 +7,9 @@
  * (docs/design/geom-core.md, decision 40). Each build step extends it; F1
  * added tolerances, errors, scratch, `vec`, bases, curves, curve measures,
  * quadrature and the exact curve primitives; F2 surfaces, surface measures,
- * sample plans and the exact surface primitives.
+ * sample plans and the exact surface primitives; A1 curve and surface
+ * operations (insertion, refinement, removal, elevation, splitting,
+ * compatibility) and `ruled`.
  *
  * The type-level checks run under `tsc` (`pnpm typecheck` type-checks tests):
  * they pin the conventions the core types encode, so loosening one of them
@@ -71,6 +73,9 @@ const PUBLIC_VALUES: readonly string[] = [
   'curveTangent',
   'curveToJSON',
   'cylinder',
+  'decomposeBezier',
+  'elevateDegree',
+  'elevateDegreeSurface',
   'evalCurvePlan',
   'evalCurvePlanDirty',
   'evalSurfacePlan',
@@ -80,6 +85,8 @@ const PUBLIC_VALUES: readonly string[] = [
   'fundamentalForms',
   'fundamentalFormsInto',
   'gaussLegendre',
+  'insertKnot',
+  'insertKnotSurface',
   'integrate1d',
   'isClosed',
   'isGeomError',
@@ -91,10 +98,13 @@ const PUBLIC_VALUES: readonly string[] = [
   'limitNormal',
   'line',
   'line2',
+  'makeCompatible',
   'makeCurve',
   'makeSurface',
   'mergeNearKnots',
   'normalCurvature',
+  'normalizeDomain',
+  'normalizeSurfaceDomain',
   'paramAtLength',
   'periodicBasis',
   'periodicCircle',
@@ -105,12 +115,23 @@ const PUBLIC_VALUES: readonly string[] = [
   'planeSurface',
   'polyline',
   'principalCurvatures',
+  'refineKnots',
+  'refineKnotsSurface',
+  'removeKnot',
+  'reparameterize',
+  'reparameterizeSurface',
   'resolveTolerances',
+  'reverseCurve',
+  'reverseSurface',
   'reviveCurve',
   'reviveSurface',
   'revolve',
+  'ruled',
   'scaleTolerances',
   'sphere',
+  'splitCurve',
+  'splitSurface',
+  'subCurve',
   'surfaceBounds',
   'surfaceControlPoint',
   'surfaceControlWeight',
@@ -122,6 +143,9 @@ const PUBLIC_VALUES: readonly string[] = [
   'surfaceNormal',
   'surfacePoint',
   'surfaceToJSON',
+  'swapUV',
+  'toClamped',
+  'toClampedSurface',
   'torus',
   'transformCurve',
   'transformCurve2',
@@ -173,6 +197,9 @@ describe('@openshaper/geom public API', () => {
       'evalSurfaceSpan',
       'surfaceMeasureAt',
       'randomSurface',
+      'insertDir',
+      'deviationBound',
+      'unrollPeriodic',
     ]) {
       expect(name in geom).toBe(false);
     }

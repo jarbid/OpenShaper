@@ -35,7 +35,7 @@ import type { Scratch, ScratchImpl } from './array';
 import { evalBasisAt, evalBasisInto, sanitizeParam, spanOf } from './basis';
 import { curveDerivsH, curvePointH, polyCurveDerivs, ratCurveDerivs } from './book/curve';
 import { polySurfaceDerivs, ratSurfaceDerivs, surfaceDerivsH } from './book/surface';
-import { checkBasisShape } from './curve';
+import { checkCurveShape } from './curve';
 import { curvatureAt, speedFloor } from './curve-measure';
 import { fail } from './errors';
 import {
@@ -288,18 +288,6 @@ export function planCurveSamples(
     cpSamples,
     tol: t,
   });
-}
-
-function checkCurveShape(c: NurbsCurve): void {
-  if (typeof c !== 'object' || c === null) fail('size-mismatch', 'expected a curve');
-  checkBasisShape(c.basis);
-  if (
-    !(c.dim === 1 || c.dim === 2 || c.dim === 3) ||
-    !(c.cw instanceof Float64Array) ||
-    c.cw.length !== c.basis.count * (c.dim + 1)
-  ) {
-    fail('size-mismatch', 'curve net does not match its basis (use makeCurve)');
-  }
 }
 
 const isSurface = (g: NurbsSurface | NurbsCurve): g is NurbsSurface =>

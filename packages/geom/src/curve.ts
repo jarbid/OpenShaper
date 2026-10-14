@@ -21,7 +21,7 @@ import { checkParam, clampedBasis, evalBasisAt, reviveBasis, sanitizeParam, span
 import { curveDerivsH, curvePointH, polyCurveDerivs, ratCurveDerivs } from './book/curve';
 import { gatherPoints, periodicSpan } from './book/periodic';
 import { findSpan as a21 } from './book/basis';
-import { curveKnotIns } from './book/refine';
+import { clampKnots, runEnd } from './book/refine';
 import { fail } from './errors';
 import { resolveTolerances } from './tolerance';
 import type { Tolerances } from './tolerance';
@@ -72,6 +72,19 @@ export function checkBasisShape(b: Basis): void {
     b.knots.length === (b.kind === 'clamped' ? b.count + b.degree + 1 : b.count);
   if (!ok)
     fail('size-mismatch', 'basis is not a validated Basis (use clampedBasis or periodicBasis)');
+}
+
+/** O(1) consistency check of a curve record: a validated basis and a net of `count · (dim + 1)` values. */
+export function checkCurveShape(c: NurbsCurve): void {
+  if (typeof c !== 'object' || c === null) fail('size-mismatch', 'expected a curve');
+  checkBasisShape(c.basis);
+  if (
+    !(c.dim === 1 || c.dim === 2 || c.dim === 3) ||
+    !(c.cw instanceof Float64Array) ||
+    c.cw.length !== c.basis.count * (c.dim + 1)
+  ) {
+    fail('size-mismatch', 'curve net does not match its basis (use makeCurve)');
+  }
 }
 
 /** Builds Pw from Euclidean points (stride `dim`) and optional weights, validating both. */
@@ -207,19 +220,6 @@ export function bezierCurve<D extends Dim>(
   return makeCurve({ dim, basis: clampedBasis(count - 1, knots), points, weights });
 }
 
-/** Last index of the run of knots equal to `U[i]`. */
-function runEnd(U: ReadonlyF64, i: number): number {
-  let j = i;
-  while (j + 1 < U.length && U[j + 1] === U[i]) j++;
-  return j;
-}
-/** First index of the run of knots equal to `U[i]`. */
-function runStart(U: ReadonlyF64, i: number): number {
-  let j = i;
-  while (j > 0 && U[j - 1] === U[i]) j--;
-  return j;
-}
-
 /**
  * Converts an unclamped (non-periodic) B-spline or NURBS curve on its domain
  * `[knots[p], knots[count]]` to the identical clamped curve, exactly: each
@@ -243,7 +243,7 @@ export function clampUnclamped<D extends Dim>(spec: {
   const U0 = spec.knots;
   if (U0.length < 2 * (p + 1))
     fail('knot-count', `degree ${p} needs ≥ ${2 * (p + 1)} knots; got ${U0.length}`);
-  let U: Float64Array = new Float64Array(U0.length);
+  const U = new Float64Array(U0.length);
   for (let i = 0; i < U0.length; i++) {
     const x = U0[i]!;
     if (!Number.isFinite(x)) fail('non-finite', `knot ${i} is not finite: ${x}`, { index: i });
@@ -272,39 +272,12 @@ export function clampUnclamped<D extends Dim>(spec: {
     }
   }
   const h = dim + 1;
-  let Pw: Float64Array = buildCw(dim, count, spec.points, spec.weights).cw;
-  let n = count - 1;
-  // Clamp the start: insert a until its multiplicity is p.
-  let k = runEnd(U, p);
-  let s = k - runStart(U, p) + 1;
-  if (s < p) {
-    const ins = curveKnotIns(n, p, U, Pw, h, a, k, s, p - s);
-    U = ins.UQ;
-    Pw = ins.Qw;
-    n += p - s;
-    k += p - s;
-  }
-  const L = k; // last index of the a-run, now of multiplicity ≥ p
-  // Clamp the end: insert b until its multiplicity is p. The new knots go after
-  // the b-run's first index F, which therefore stays put.
-  const F = runStart(U, n + 1);
-  const bEnd = runEnd(U, F);
-  s = bEnd - F + 1;
-  if (s < p) {
-    const ins = curveKnotIns(n, p, U, Pw, h, b, bEnd, s, p - s);
-    U = ins.UQ;
-    Pw = ins.Qw;
-    n += p - s;
-  }
-  // Keep knots L − p … F + p and control points L − p … F − 1: the only ones
-  // whose basis functions reach [a, b]; the outermost knot of each end is
-  // outside every such support on [a, b], so it is set to a (b) exactly.
-  const first = L - p;
-  const last = F - 1;
-  const knots = U.slice(first, F + p + 1);
-  knots[0] = a;
-  knots[knots.length - 1] = b;
-  const cw = Pw.slice(first * h, (last + 1) * h);
+  const { U: knots, Pw: cw } = clampKnots(
+    p,
+    U,
+    buildCw(dim, count, spec.points, spec.weights).cw,
+    h,
+  );
   return curveFromHomogeneous({
     dim,
     basis: clampedBasis(p, knots, spec.tol),
