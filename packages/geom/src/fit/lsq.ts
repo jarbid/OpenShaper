@@ -8,7 +8,11 @@
  * `x[c·N + i]` is coordinate `c` of control point `i`. With data rows `A`
  * (basis values at the data parameters), weights `W` and targets `q`:
  *
- *     minimise ½ Σ_k ω_k |A_k x − q_k|²   subject to   C x = d
+ *     minimise ½ Σ_k ω_k |A_k x − q_k|² + ½ Σ_c x_cᵀ F x_c   subject to   C x = d
+ *
+ * `F` is an optional fairness penalty on the shape (design §10.1 with
+ * `on: 'shape'`; `solver/fairness.ts`), one scalar matrix for every
+ * coordinate, added to the normal equations: `H = AᵀWA + F`.
  *
  * `H = Aᵀ W A` is the same band matrix for every coordinate; its Cholesky
  * factor is computed once. `H` is accepted only when its estimated reciprocal
@@ -43,6 +47,7 @@ import {
   bandSymMul,
 } from '../linalg/banded';
 import { pivotedCholesky, pivotedCholeskySolve } from '../linalg/dense';
+import type { Csr } from '../linalg/sparse';
 import type { DesignRows } from './assemble';
 import { rowBandwidth } from './assemble';
 
@@ -63,6 +68,8 @@ export interface LsqProblem {
   /** `rows × dim` targets. */
   readonly targets: ArrayLike<number>;
   readonly constraints: readonly ConstraintRow[];
+  /** Fairness penalty `F` (scalar, symmetric, `N × N`), or `null`. */
+  readonly penalty?: Csr | null;
 }
 
 export type LsqOutcome =
@@ -100,7 +107,22 @@ function rowDot(r: ConstraintRow, x: Float64Array): number {
 export function solveLsq(prob: LsqProblem, pivotRel: number): LsqOutcome {
   const { N, dim, data } = prob;
   const { rows, K, idx, val } = data;
-  const H = bandSym(N, rowBandwidth(data));
+  const pen = prob.penalty ?? null;
+  let bw = rowBandwidth(data);
+  if (pen !== null) {
+    for (let i = 0; i < N; i++) {
+      for (let q = pen.rowPtr[i]!; q < pen.rowPtr[i + 1]!; q++)
+        bw = Math.max(bw, Math.abs(i - pen.col[q]!));
+    }
+  }
+  const H = bandSym(N, bw);
+  if (pen !== null) {
+    for (let i = 0; i < N; i++) {
+      for (let q = pen.rowPtr[i]!; q < pen.rowPtr[i + 1]!; q++) {
+        if (pen.col[q]! <= i) bandSymAdd(H, i, pen.col[q]!, pen.val[q]!);
+      }
+    }
+  }
   const g = new Float64Array(dim * N);
   for (let r = 0; r < rows; r++) {
     const w = prob.weights === null ? 1 : prob.weights[r]!;

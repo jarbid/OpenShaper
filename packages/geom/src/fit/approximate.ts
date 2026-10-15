@@ -57,6 +57,8 @@ import type {
 } from '../types';
 import { collocate, curveRows, surfaceRows } from './assemble';
 import { boxCentre, checkDegree, pointValues } from './interpolate';
+import { checkFairness, curveFairnessMatrix, surfaceFairnessMatrix } from '../solver/fairness';
+import type { FairnessWeights, ResolvedFairness } from '../solver/fairness';
 import { solveLsq } from './lsq';
 import type { ConstraintRow, LsqOutcome } from './lsq';
 import {
@@ -360,18 +362,80 @@ function span01(b: Basis): readonly [number, number] {
 }
 
 // ---------------------------------------------------------------------------
+// Fairness (design §6.12 `fairness`, A3)
+// ---------------------------------------------------------------------------
+
+/**
+ * A fit's fairness weights, validated; fits have no reference shape, so the
+ * energy is on the shape (`on: 'displacement'` is for edits, `FairProblem`).
+ */
+function fitFairness(
+  w: FairnessWeights | undefined,
+  kind: 'curve' | 'surface',
+): ResolvedFairness | null {
+  if (w === undefined) return null;
+  const fw = checkFairness(w, kind, 'shape');
+  if (fw.on !== 'shape') {
+    fail(
+      'unsupported',
+      "a fit has no reference shape: fairness on 'displacement' applies to edits (FairProblem)",
+    );
+  }
+  return fw.stretch > 0 || fw.bend > 0 || fw.jerk > 0 ? fw : null;
+}
+
+/** The bounding-box diagonal of `count` points (stride `dim`). */
+function boxDiagonal(points: ArrayLike<number>, count: number, dim: number): number {
+  let s = 0;
+  for (let d = 0; d < dim; d++) {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let k = 0; k < count; k++) {
+      const x = points[k * dim + d]!;
+      if (x < lo) lo = x;
+      if (x > hi) hi = x;
+    }
+    if (count > 0) s += (hi - lo) * (hi - lo);
+  }
+  return Math.sqrt(s);
+}
+
+/**
+ * The scaled metric's speed for a fit: there is no reference geometry yet, so
+ * one constant speed per direction, the data's box diagonal over the domain
+ * length (1 when the data are one point). Constant, so the metric is
+ * the parametric one times fixed factors that make the weights independent
+ * of the domain length and comparable across data scales.
+ */
+function fitSpeed(diagonal: number, b: Basis): number {
+  const len = b.domain[1] - b.domain[0];
+  return diagonal > 0 ? diagonal / len : 1;
+}
+
+function fitPenaltyCurve(
+  b: Basis,
+  dim: number,
+  fw: ResolvedFairness,
+  diagonal: number,
+  tol: Tolerances,
+): ReturnType<typeof curveFairnessMatrix> {
+  const sp = fitSpeed(diagonal, b);
+  return curveFairnessMatrix(b, [], dim, false, fw, { kind: 'uniform', u: sp, v: sp }, tol);
+}
+
+// ---------------------------------------------------------------------------
 // Curves
 // ---------------------------------------------------------------------------
 
-/** A validated curve constraint with its values as an array. */
-interface CurveCons {
+/** A validated curve constraint with its values as an array (internal; also read by the solver). */
+export interface CurveCons {
   readonly kind: 'point' | 'derivative' | 'tangentDirection';
   readonly t: number;
   readonly order: number;
   readonly value: Float64Array;
 }
 
-function checkCurveConstraints<D extends Dim>(
+export function checkCurveConstraints<D extends Dim>(
   cons: readonly CurveConstraint<D>[],
   dim: D,
   p: number,
@@ -431,7 +495,7 @@ function checkCurveConstraints<D extends Dim>(
 }
 
 /** Unit normals of a unit direction `d` (2D: one; 3D: two, orthonormal). */
-function normalsOf(d: Float64Array): Float64Array[] {
+export function normalsOf(d: Float64Array): Float64Array[] {
   if (d.length === 2) return [Float64Array.of(-d[1]!, d[0]!)];
   // Cross with the axis of the smallest |component| (well away from parallel).
   const ax = Math.abs(d[0]!);
@@ -610,13 +674,25 @@ interface CurveProblem {
   readonly weights: Float64Array | null;
   readonly cons: readonly CurveCons[];
   readonly tol: Tolerances;
+  /** Fairness on the shape, and the data's box diagonal (the scaled metric's length). */
+  readonly fair: ResolvedFairness | null;
+  readonly diagonal: number;
 }
 
 function solveCurve(P: CurveProblem, basis: Basis, ts: Float64Array): CurveSolve | GeomIssue {
   const data = curveRows(collocate(basis, ts, 0));
   const rows = curveConstraintRows(basis, P.cons, P.dim, P.centre, P.tol);
+  const penalty = P.fair === null ? null : fitPenaltyCurve(basis, P.dim, P.fair, P.diagonal, P.tol);
   const out = solveLsq(
-    { N: basis.count, dim: P.dim, data, weights: P.weights, targets: P.targets, constraints: rows },
+    {
+      N: basis.count,
+      dim: P.dim,
+      data,
+      weights: P.weights,
+      targets: P.targets,
+      constraints: rows,
+      penalty,
+    },
     P.tol.pivotRel,
   );
   if (!out.ok) return undetermined(out);
@@ -823,6 +899,7 @@ export function approximateCurve<D extends Dim>(
     readonly constraints?: readonly CurveConstraint<D>[];
     readonly parameterCorrection?: number;
     readonly tol?: Partial<Tolerances>;
+    readonly fairness?: FairnessWeights;
   } = {},
 ): Result<CurveFit<D>> {
   const tol = resolveTolerances(opts.tol);
@@ -854,6 +931,7 @@ export function approximateCurve<D extends Dim>(
     );
   }
   const cons = checkCurveConstraints(opts.constraints ?? [], dim, p);
+  const fair = fitFairness(opts.fairness, 'curve');
 
   let basis: Basis | null = null;
   if (opts.knots !== undefined) {
@@ -864,7 +942,9 @@ export function approximateCurve<D extends Dim>(
     used === null ? boxCentre(points, n, dim) : boxCentre(pick(points, dim, used), nUsed, dim);
   const targets = new Float64Array(n * dim);
   for (let k = 0; k < n * dim; k++) targets[k] = points[k]! - centre[k % dim]!;
-  const P: CurveProblem = { dim, n, points, targets, centre, weights, cons, tol };
+  const diagonal =
+    used === null ? boxDiagonal(points, n, dim) : boxDiagonal(pick(points, dim, used), nUsed, dim);
+  const P: CurveProblem = { dim, n, points, targets, centre, weights, cons, tol, fair, diagonal };
 
   const adaptive = basis === null && opts.count === undefined;
   if (basis === null) {
@@ -959,7 +1039,7 @@ export function approximateCurve<D extends Dim>(
 // Surfaces
 // ---------------------------------------------------------------------------
 
-interface SurfCons {
+export interface SurfCons {
   readonly u: number;
   readonly v: number;
   readonly du: number;
@@ -968,7 +1048,7 @@ interface SurfCons {
   readonly axes: number;
 }
 
-function checkSurfaceConstraints(
+export function checkSurfaceConstraints(
   cons: readonly SurfaceConstraint[],
   bu: Basis,
   bv: Basis,
@@ -1228,6 +1308,7 @@ export function approximateSurface(
     readonly constraints?: readonly SurfaceConstraint[];
     readonly parameterCorrection?: number;
     readonly tol?: Partial<Tolerances>;
+    readonly fairness?: FairnessWeights;
   },
 ): Result<SurfaceFit> {
   const tol = resolveTolerances(opts.tol);
@@ -1247,6 +1328,24 @@ export function approximateSurface(
   for (let k = 0; k < n * 3; k++) targets[k] = points[k]! - centre[k % 3]!;
   const crows = surfaceConstraintRows(bu, bv, cons, centre);
   const N = bu.count * bv.count;
+  const fair = fitFairness(opts.fairness, 'surface');
+  let penalty = null;
+  if (fair !== null) {
+    const diag =
+      used === null
+        ? boxDiagonal(points, n, 3)
+        : boxDiagonal(pick(points, 3, used), used.length, 3);
+    const speed = (b: Basis): number => fitSpeed(diag, b);
+    penalty = surfaceFairnessMatrix(
+      bu,
+      bv,
+      [],
+      false,
+      fair,
+      { kind: 'uniform', u: speed(bu), v: speed(bv) },
+      tol,
+    );
+  }
 
   const solve = (params: Float64Array): SurfaceSolve | GeomIssue => {
     const us = new Float64Array(n);
@@ -1256,7 +1355,10 @@ export function approximateSurface(
       vs[k] = params[2 * k + 1]!;
     }
     const data = surfaceRows(collocate(bu, us, 0), collocate(bv, vs, 0), bv.count, 0, 0);
-    const out = solveLsq({ N, dim: 3, data, weights, targets, constraints: crows }, tol.pivotRel);
+    const out = solveLsq(
+      { N, dim: 3, data, weights, targets, constraints: crows, penalty },
+      tol.pivotRel,
+    );
     if (!out.ok) return undetermined(out);
     const surface = makeSurface({ u: bu, v: bv, points: toPoints(out.x, N, 3, centre) });
     return { surface, out, ...measureSurface(surface, params, points, weights) };

@@ -151,6 +151,12 @@ import {
   lsqKnots,
   parameterize,
   skinCurves,
+  fairInfluenceInto,
+  fairnessEnergy,
+  makeDofMap,
+  prepareFairSolver,
+  solveFair,
+  solveFairInto,
 } from './index';
 import type { Affine2, Affine3, ClampedCurve, NurbsCurve, PeriodicCurve } from './index';
 import { checksum, mulberry32, randomCurve, randomSurface } from './testing';
@@ -315,6 +321,23 @@ function cases(seed: number): Case[] {
   const fitUV = Float64Array.from({ length: 40 }, () => rng());
   const fitScattered = Float64Array.from({ length: 60 }, () => rng());
   const sec = [0, 1, 2].map((z) => circle({ x: 0, y: 0, z }, X, Y, 1 + z)) as NurbsCurve<3>[];
+  // Constrained fair solver (A3).
+  const rules = [
+    { kind: 'fix', cp: 0 },
+    { kind: 'fixAxes', cp: 1, axes: 4 },
+  ] as const;
+  const dof = makeDofMap(S, rules);
+  const solverCons = [{ kind: 'point', uv: { u, v }, value: P }] as const;
+  const stiff = Float64Array.from({ length: S.u.count * S.v.count }, () => 0.5 + rng());
+  const fairness = { bend: 1, stretch: 0.1 } as const;
+  const problem = { target: S, dof, fairness, stiffness: stiff, constraints: solverCons };
+  const solverOf = () => {
+    const r = prepareFairSolver(problem);
+    if (!r.ok) throw new Error(JSON.stringify(r.issues));
+    return r.value;
+  };
+  const solver = solverOf();
+  const moved = Float64Array.of(P.x + 0.1, P.y - 0.2, P.z + 0.3);
   return [
     {
       name: 'DEFAULT_TOLERANCES',
@@ -861,6 +884,41 @@ function cases(seed: number): Case[] {
       inputs: [sec],
       run: () => skinCurves(sec),
       frozen: same,
+    },
+    // Constrained fair solver (A3). The solver keeps drag-session work buffers,
+    // so it is not checksummed as an input of the solves.
+    {
+      name: 'fairnessEnergy',
+      inputs: [S, S2, fairness],
+      run: () => fairnessEnergy(S2, fairness, S),
+    },
+    { name: 'makeDofMap', inputs: [S, rules], run: () => makeDofMap(S, rules), frozen: same },
+    {
+      name: 'prepareFairSolver',
+      inputs: [S, dof, stiff, solverCons, fairness],
+      run: () => prepareFairSolver(problem),
+      frozen: (r) => [r, (r as { ok: true; value: unknown }).value],
+    },
+    {
+      name: 'solveFairInto',
+      inputs: [S, moved],
+      run: () => solveFairInto(solver, moved, new Float64Array(S.cw.length)),
+      frozen: same,
+    },
+    {
+      name: 'solveFair',
+      inputs: [S, moved],
+      run: () => solveFair(solver, moved),
+      frozen: (r) => [r, (r as { result: unknown }).result],
+    },
+    {
+      name: 'fairInfluenceInto',
+      inputs: [S],
+      run: () => {
+        const o = new Float64Array(S.u.count * S.v.count * 3);
+        fairInfluenceInto(solver, 0, 2, o);
+        return o;
+      },
     },
   ];
 }

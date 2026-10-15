@@ -1331,7 +1331,7 @@ export function approximateCurve<D extends Dim>(
     readonly constraints?: readonly CurveConstraint<D>[];
     readonly parameterCorrection?: number; // passes; default 0
     readonly tol?: Partial<Tolerances>;
-    // readonly fairness?: FairnessWeights; [A3]
+    readonly fairness?: FairnessWeights; // on the shape (A3); 'displacement' throws
   },
 ): Result<CurveFit<D>>; // §9.4.1 + A9.6, generalised
 export interface SurfaceFit {
@@ -1353,7 +1353,7 @@ export function approximateSurface(
     readonly constraints?: readonly SurfaceConstraint[];
     readonly parameterCorrection?: number;
     readonly tol?: Partial<Tolerances>;
-    // readonly fairness?: FairnessWeights; [A3]
+    readonly fairness?: FairnessWeights; // on the shape (A3); 'displacement' throws
   },
 ): Result<SurfaceFit>; // A9.7 generalised: one tensor LSQ over all data
 /** Sections made compatible, then interpolated across (clamped or periodic). */
@@ -1480,12 +1480,14 @@ export type DofRule =
     };
 export interface DofMap {
   readonly cpCount: number;
+  readonly dim: number; // coordinates per control point (3 for surfaces)
   readonly dofCount: number;
   readonly separable: boolean;
   readonly rowPtr: ReadonlyI32;
   readonly col: ReadonlyI32;
   readonly val: ReadonlyF64; // T, CSR, 3·cpCount rows
   readonly fixed: ReadonlyF64; // x_fixed
+  readonly rules: readonly DofRule[]; // validated, frozen copies
 }
 export function makeDofMap(target: NurbsCurve | NurbsSurface, rules: readonly DofRule[]): DofMap; // throws conflicting-dof-rules
 export type LinearConstraint =
@@ -1525,6 +1527,7 @@ export interface SolveReport {
   readonly dependent: ReadonlyI32; // consistent, redundant rows (dropped)
   readonly inconsistent: ReadonlyI32; // rows that could not be met (dropped; residual reported)
   readonly multipliers: ReadonlyF64; // constraint forces, one per row
+  readonly residuals: ReadonlyF64; // |C_r x − d_r| per row
 }
 export function prepareFairSolver(p: FairProblem, tol?: Partial<Tolerances>): Result<FairSolver>; // once per drag
 /** values: per constraint, stride 3 (raw constraints use the first). Allocates only the report. */
@@ -1550,6 +1553,50 @@ export function fairnessEnergy(
   reference?: NurbsCurve | NurbsSurface,
 ): number;
 ```
+
+Notes (A3, as built):
+
+- **Unknowns are displacements.** The solver assembles everything for
+  `δ = x − x_ref = T z + (x_fixed − x_ref)`, so a zero move gives `z = 0` and returns
+  the target bit for bit, and right-hand sides are small numbers with no cancellation
+  against board coordinates. This replaces the centring and scaling of §7 for the
+  solver (the fitters still centre their data).
+- **Singular `K`.** When stiffness and data leave `K` singular (fairness alone has the
+  affine motions as its null space) the factor is of `K + ρ C′ᵀC′`, which has the same
+  KKT solution on the constraint set and is positive definite exactly when the
+  constrained problem has a unique solution; `ρ` balances the largest diagonals. This
+  is not regularisation (decision 24): the solution is unchanged, and the multipliers
+  are corrected by the term it adds. A system the constraints do not determine either
+  is still `not-positive-definite`; a numerically singular one (estimated reciprocal
+  condition of the diagonally scaled `K` below `pivotRel`) is `singular-system`.
+- **Refinement** is one step on the constraint residual (`Δλ = S⁻¹(C′z − e′)`,
+  `z −= Y Δλ`), which is what keeps `‖Cx − d‖∞ ≤ constraint` at board scale; the
+  stationarity residual is reported, not refined.
+- **Exact rules** (`copy`, coordinate-plane `mirror`) are re-applied from their
+  masters' final coordinates after the scatter, so they hold with `===` for any plane
+  offset; `fix` and `fixAxes` coordinates are never written.
+- **Separable problems** are not split into three factorisations: their `K` is
+  block-diagonal by axis, and RCM numbers the blocks one after the other, so the one
+  envelope factor costs what three per-axis factors cost. Sharing one numeric factor
+  between axes whose locks agree (§10.4 step 5) is not implemented; it would save at
+  most 3× on the factor and the Schur columns (see the A3 measurements, §17).
+- **Fairness matrices.** Polynomial surfaces assemble `F` from one-dimensional span
+  Gram matrices by Kronecker products, accumulated directly into the tensor-product
+  sparsity pattern; rational ones integrate each span pair point-wise with a
+  Gauss–Legendre rule that starts at `p + 3` points per direction and grows until two
+  successive rules agree to `quadRel` (the adaptive form of the `p + 4` test of
+  §10.2). The scaled metric's speed of a span (pair) is the root-mean-square
+  `|S_u|`, `|S_v|` over it, integrated exactly with the same Gram matrices; a span
+  whose speed is at the rounding level (`degenerateRel` test) takes the RMS speed of
+  the others.
+- **Fits with fairness** have no reference shape, so the scaled metric uses one
+  constant speed per direction: the data's bounding-box diagonal over the domain
+  length. It is the parametric energy times fixed factors, which makes the weight
+  independent of the domain length and comparable across data scales. A fit's
+  fairness is `on: 'shape'`; `'displacement'` throws (`unsupported`).
+- **`fairnessEnergy`** has no factor ½ (the solver's objective carries it) and, with a
+  `reference`, measures the displacement with the reference's speeds; `w.on` is not
+  read.
 
 ### 6.14 Projection [B1]
 
@@ -2663,6 +2710,26 @@ control points to degree 5 0.046 ms (target 1 ms).
 **A2 (`src/eval.bench.ts`, same container).** P11 met: `interpolateCurve`, 200
 points, cubic, centripetal 0.36 ms (target 2 ms); `interpolateSurface`, 60 × 30 grid,
 bicubic 1.46 ms (target 20 ms).
+
+**A3 (`src/eval.bench.ts`, same container, under `vitest bench`).** A 64 × 8
+bicubic band (512 control points), fairness `bend 1, stretch 0.01`, stiffness 0.01.
+P12 thin-plate + membrane Gram, scaled metric 2.49 ms (target 2 ms; 12.5 ms before
+the Kronecker terms were formed on the fly and accumulated straight into the tensor
+pattern). P13 `prepareFairSolver`: separable, 1,536 DOF, m = 20 13.3 ms (target 3);
+coupled (every 8th point slides in a turned frame), 1,536 DOF, m = 20 34.2 ms
+(target 15); coupled, 1,500 DOF, m = 150 86.1 ms (target 100, met). P14
+`solveFairInto` per move: m = 20 0.30 ms (target 0.1; about half is the report's
+stationarity residual, one product with `Hs` and one with `Tᵀ`); m = 150 0.98 ms
+(target 2, met). P15 `approximateCurve`, 2k points → 80 control points, three
+constraints and fairness 4.45 ms (target 3). P16 `approximateSurface`, 8k points →
+64 × 8 with fairness and two correction passes 379 ms (target 30): as a plain Node
+script 126 ms, of which the fit without correction is 21 ms and the two
+parameter-correction passes (A2's Newton foot points, 16k per pass) the rest; the
+fairness term adds about 13 ms. P24: 10,000 simulated drag frames on the coupled
+m = 20 solver, 0.29 ms per frame; the only allocation is the frame's report (two
+`Float64Array(m)`, two short `Int32Array`). Missed targets are reported (§17); the
+first candidates are a shared per-axis factor on the separable path (§6.13 notes)
+and a cheaper P16 correction pass.
 
 ---
 

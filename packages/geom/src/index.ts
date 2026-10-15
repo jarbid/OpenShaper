@@ -192,6 +192,14 @@ export type { CurveConstraint, CurveFit, SurfaceConstraint, SurfaceFit } from '.
 export { skinCurves } from './fit/skin';
 export type { SkinResult } from './fit/skin';
 
+// Constrained fair solver (§6.13)
+export { fairnessEnergy } from './solver/fairness';
+export type { FairnessWeights } from './solver/fairness';
+export { makeDofMap } from './solver/dof';
+export type { DofMap, DofRule } from './solver/dof';
+export { fairInfluenceInto, prepareFairSolver, solveFair, solveFairInto } from './solver/solver';
+export type { FairProblem, FairSolver, LinearConstraint, SolveReport } from './solver/solver';
+
 // Shared value types (§5)
 export type {
   Affine2,

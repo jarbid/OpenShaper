@@ -10,7 +10,9 @@
  * sample plans and the exact surface primitives; A1 curve and surface
  * operations (insertion, refinement, removal, elevation, splitting,
  * compatibility) and `ruled`; A2 fitting (parameterisation, knot placement,
- * interpolation, least-squares approximation, skinning).
+ * interpolation, least-squares approximation, skinning); A3 the constrained
+ * fair solver (`makeDofMap`, `prepareFairSolver`, `solveFair`,
+ * `solveFairInto`, `fairInfluenceInto`) and `fairnessEnergy`.
  *
  * The type-level checks run under `tsc` (`pnpm typecheck` type-checks tests):
  * they pin the conventions the core types encode, so loosening one of them
@@ -85,6 +87,8 @@ const PUBLIC_VALUES: readonly string[] = [
   'evalSurfacePlan',
   'evalSurfacePlanDirty',
   'extrude',
+  'fairInfluenceInto',
+  'fairnessEnergy',
   'findSpan',
   'fundamentalForms',
   'fundamentalFormsInto',
@@ -108,6 +112,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'lsqKnots',
   'makeCompatible',
   'makeCurve',
+  'makeDofMap',
   'makeSurface',
   'mergeNearKnots',
   'normalCurvature',
@@ -123,6 +128,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'planSurfaceSamples',
   'planeSurface',
   'polyline',
+  'prepareFairSolver',
   'principalCurvatures',
   'refineKnots',
   'refineKnotsSurface',
@@ -138,6 +144,8 @@ const PUBLIC_VALUES: readonly string[] = [
   'ruled',
   'scaleTolerances',
   'skinCurves',
+  'solveFair',
+  'solveFairInto',
   'sphere',
   'splitCurve',
   'splitSurface',
@@ -215,6 +223,12 @@ describe('@openshaper/geom public API', () => {
       'householderLsq',
       'collocate',
       'chordParams',
+      'solveFairReference',
+      'assembleFair',
+      'envCholFactor',
+      'rcmOrder',
+      'curveFairnessMatrix',
+      'surfaceLocal',
     ]) {
       expect(name in geom).toBe(false);
     }
