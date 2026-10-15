@@ -13,7 +13,8 @@
  *   least-squares knots, and at `count = params.length` they are the classic
  *   interpolation knots (data sites for odd degree, midpoints for even);
  * - **definitions**: centripetal increments are square roots of chords; the
- *   generalised exponent reproduces the three named methods bit for bit; a
+ *   generalised exponent reproduces the three named methods bit for bit,
+ *   and stays finite for large exponents (against log-space increments); a
  *   closed list counts the closing chord;
  * - **Schoenberg–Whitney**: least-squares knots leave every span with at
  *   least one parameter, for random parameters and every admissible count.
@@ -73,6 +74,39 @@ describe('parameterize (eqs. 9.3–9.6)', () => {
     const half = parameterize(pts, 3, { exponent: 0.25 });
     expect(half[0]).toBe(0);
     expect(half[9]).toBe(1);
+  });
+
+  it('stays finite for large exponents (chords normalised by the longest)', () => {
+    // Oracle: the increments computed in log space, exp(e·(ln d_k − ln d_max)),
+    // whose ratios are the definition's. Relative tolerance 1e-12: raising a
+    // ratio rounded once (ε) to the power e multiplies its relative error by e
+    // (≤ 400 here, so ≤ 1e-13), and the log-space oracle errs alike.
+    const oracle = (pts: number[], e: number): number[] => {
+      const d: number[] = [];
+      for (let k = 2; k < pts.length; k += 2)
+        d.push(Math.hypot(pts[k]! - pts[k - 2]!, pts[k + 1]! - pts[k - 1]!));
+      const lmax = Math.log(Math.max(...d));
+      const inc = d.map((x) => Math.exp(e * (Math.log(x) - lmax)));
+      const total = inc.reduce((a, b) => a + b);
+      let acc = 0;
+      return [0, ...inc.map((x) => (acc += x) / total)];
+    };
+    for (const [pts, e] of [
+      // Overflow: 30^400 = ∞ made every parameter NaN.
+      [[0, 0, 10, 0, 30, 0, 31, 0], 400],
+      // Underflow: 0.01^200 = 0 for every chord read as coincident points.
+      [[0, 0, 0.01, 0, 0.02, 0, 0.035, 0], 200],
+      [[0, 0, 0.01, 0, 0.02, 0, 0.035, 0], 3],
+    ] as const) {
+      const ub = parameterize(pts, 2, { exponent: e });
+      const want = oracle([...pts], e);
+      for (let k = 0; k < want.length; k++) {
+        expect(Number.isFinite(ub[k]!), `e ${e} entry ${k}`).toBe(true);
+        expect(Math.abs(ub[k]! - want[k]!), `e ${e} entry ${k}`).toBeLessThanOrEqual(
+          1e-12 * Math.max(want[k]!, Number.MIN_VALUE),
+        );
+      }
+    }
   });
 
   it('counts the closing chord for a closed list', () => {

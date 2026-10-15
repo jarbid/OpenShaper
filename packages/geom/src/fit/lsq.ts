@@ -25,7 +25,13 @@
  * caller's (unscaled) rows: the KKT system is `H x + Cᵀ λ = Aᵀ W q`, `C x = d`.
  *
  * The caller centres the data (design §7); `H` depends only on the basis and
- * the weights, not on coordinates, so no further scaling changes the solve.
+ * the weights, not on coordinates, so scaling the data by the box extent (§7)
+ * would scale `x` and every residual by the same factor and change nothing
+ * else. What does depend on scale is how a residual compares with the
+ * `constraint` tolerance: rounding leaves `|C_r x − d_r| ≈ ε‖C_r‖‖x‖`, and a
+ * derivative row's norm grows as `(p/h)^k` with the knot spacing `h`, so
+ * {@link LsqOutcome} returns each row's 2-norm for the caller to judge the
+ * residual in length units (`residual / max(1, rowNorm)`, `approximate.ts`).
  */
 import {
   bandCholFactor,
@@ -80,6 +86,8 @@ export type LsqOutcome =
       readonly dependent: Int32Array;
       /** `|C_r x − d_r|` per constraint row, after refinement. */
       readonly residual: Float64Array;
+      /** `‖C_r‖₂` per constraint row (the caller's rows, unscaled). */
+      readonly rowNorm: Float64Array;
     };
 
 function rowDot(r: ConstraintRow, x: Float64Array): number {
@@ -125,7 +133,9 @@ export function solveLsq(prob: LsqProblem, pivotRel: number): LsqOutcome {
   const m = cons.length;
   const lambda = new Float64Array(m);
   const residual = new Float64Array(m);
-  if (m === 0) return { ok: true, x, lambda, dependent: new Int32Array(0), residual };
+  if (m === 0) {
+    return { ok: true, x, lambda, dependent: new Int32Array(0), residual, rowNorm: residual };
+  }
 
   // Unit-norm rows (scaled copies) and Y = H⁻¹ Cᵀ, one dense column per row.
   const scale = new Float64Array(m);
@@ -204,5 +214,12 @@ export function solveLsq(prob: LsqProblem, pivotRel: number): LsqOutcome {
   const dependent: number[] = [];
   for (let k = F.rank; k < m; k++) dependent.push(F.perm[k]!);
   dependent.sort((a, b) => a - b);
-  return { ok: true, x, lambda, dependent: Int32Array.from(dependent), residual };
+  return {
+    ok: true,
+    x,
+    lambda,
+    dependent: Int32Array.from(dependent),
+    residual,
+    rowNorm: scale,
+  };
 }

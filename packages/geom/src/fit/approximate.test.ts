@@ -19,7 +19,15 @@
  * - **adaptivity and correction**: the adaptive fit meets its tolerance and
  *   reports its error honestly; parameter correction never increases the
  *   residual;
- * - **weights**: a point of weight 0 changes nothing.
+ * - **book**: with point constraints at the ends the fit is P&T eqs.
+ *   9.63–9.67 (ends fixed, interior by least squares), checked against that
+ *   system solved by dense QR; without them the ends are free;
+ * - **weights**: a point of weight 0 changes nothing, also when the fit
+ *   places its own parameters and knots (the oracle is the fit of the other
+ *   points alone, matched exactly);
+ * - **scale**: constraint residuals of large derivative rows are judged per
+ *   unit row norm, so rounding at board scale is not reported as a
+ *   contradiction.
  *
  * Tolerances ("scale" = diagonal of the data's bounding box): reproduction
  * `1e-10 · scale` (normal equations square the collocation condition, design
@@ -729,6 +737,188 @@ describe('approximateCurve', () => {
       expect(Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!)).toBeLessThanOrEqual(1e-12 * 2);
     }
     expect(Math.abs(fit.maxError - base.maxError)).toBeLessThanOrEqual(1e-12 * 2);
+  });
+
+  it('ignores a point of weight 0 also when it would place the parameters and knots', () => {
+    // Oracle: the fit of the other points alone. Parameters, knots, centre and
+    // the normal equations' sums are then the same numbers in the same order,
+    // so the control points must agree exactly, not to a tolerance.
+    const closed = new Float64Array(2 * 40);
+    for (let k = 0; k < 40; k++) {
+      const a = (2 * Math.PI * k) / 40;
+      closed.set([Math.cos(a) * (1 + 0.2 * Math.cos(3 * a)), Math.sin(a)], 2 * k);
+    }
+    const cases = [
+      { pts: halfCircle(50).pts, opts: { count: 8 } },
+      { pts: halfCircle(50).pts, opts: { tolerance: 1e-6 } },
+      { pts: halfCircle(50).pts, opts: { count: 8, params: 'chord' as const } },
+      { pts: closed, opts: { count: 9, periodic: true } },
+      { pts: closed, opts: { tolerance: 1e-5, periodic: true } },
+    ];
+    for (const { pts, opts } of cases) {
+      const n = pts.length / 2;
+      const base = value(approximateCurve(pts, 2, opts));
+      for (const at of [0, 25, n]) {
+        const withOutlier = Float64Array.from([
+          ...pts.subarray(0, 2 * at),
+          5,
+          5,
+          ...pts.subarray(2 * at),
+        ]);
+        const w = Float64Array.from({ length: n + 1 }, (_, k) => (k === at ? 0 : 1));
+        const fit = value(approximateCurve(withOutlier, 2, { ...opts, dataWeights: w }));
+        const label = `${JSON.stringify(opts)} outlier at ${at}`;
+        expect(Array.from(fit.curve.basis.knots), label).toEqual(
+          Array.from(base.curve.basis.knots),
+        );
+        expect(Array.from(fit.curve.cw), label).toEqual(Array.from(base.curve.cw));
+        expect(fit.maxError, label).toBe(base.maxError);
+        expect(fit.rmsError, label).toBe(base.rmsError);
+        const all = Array.from(fit.params);
+        const rest = [...all.slice(0, at), ...all.slice(at + 1)];
+        expect(rest, label).toEqual(Array.from(base.params));
+        // The outlier's reported parameter lies between its neighbours' (clamped,
+        // or across the seam when periodic).
+        const u = fit.params[at]!;
+        expect(u >= 0 && u <= 1, label).toBe(true);
+        if (!opts.periodic && at > 0 && at < n) {
+          expect(u >= fit.params[at - 1]! && u <= fit.params[at + 1]!, label).toBe(true);
+        }
+      }
+    }
+    // Explicit parameters: knots come from those of positive weight, on [0, 1].
+    const { pts, ts } = halfCircle(50);
+    const base = value(approximateCurve(pts, 2, { count: 8, params: ts }));
+    const outlier = Float64Array.from([5, 5, ...pts]);
+    const tsOut = Float64Array.from([0, ...ts.map((t) => (t === 0 ? 1e-3 : t))]);
+    const w = Float64Array.from({ length: 51 }, (_, k) => (k === 0 ? 0 : 1));
+    const fit = value(approximateCurve(outlier, 2, { count: 8, params: tsOut, dataWeights: w }));
+    const kb = base.curve.basis.knots;
+    const kf = fit.curve.basis.knots;
+    expect(kf[0]).toBe(0);
+    expect(kf[kf.length - 1]).toBe(1);
+    // Interior knots: the centred rule on the shifted first parameter moves
+    // them by at most the shift (1e-3) times their weight in the interpolation.
+    for (let i = 4; i < kb.length - 4; i++)
+      expect(Math.abs(kf[i]! - kb[i]!)).toBeLessThanOrEqual(1e-3);
+    expect(fit.maxError).toBeLessThan(10 * base.maxError);
+    expectCode(
+      () =>
+        approximateCurve(pts, 2, {
+          count: 5,
+          dataWeights: Float64Array.from({ length: 50 }, (_, k) => (k < 4 ? 1 : 0)),
+        }),
+      'too-few-points',
+    );
+    expectCode(
+      () =>
+        approximateCurve(pts, 2, {
+          dataWeights: Float64Array.from({ length: 50 }, (_, k) => (k < 3 ? 1 : 0)),
+        }),
+      'too-few-points',
+    );
+  });
+
+  it('is P&T eqs. 9.63–9.67 with point constraints at the ends; without them the ends are free', () => {
+    // §9.4.1 fixes P_0 = Q_0 and P_n = Q_m and solves (NᵀN) P = R for the
+    // interior points, R_k = Q_k − N_0(ū_k) Q_0 − N_n(ū_k) Q_m (eqs. 9.63–9.67).
+    // Oracle: that system by dense Householder QR on A2.4 basis rows, on the
+    // fit's own knots and parameters. Tolerance REPRO (normal equations).
+    const rng = mulberry32(47);
+    const m1 = 50;
+    const pts = new Float64Array(2 * m1);
+    for (let k = 0; k < m1; k++) {
+      const x = (6 * k) / (m1 - 1);
+      pts.set([x, Math.sin(x) + 0.01 * (rng() - 0.5)], 2 * k);
+    }
+    const Q0 = { x: pts[0]!, y: pts[1]! };
+    const Qm = { x: pts[2 * m1 - 2]!, y: pts[2 * m1 - 1]! };
+    const free = value(approximateCurve(pts, 2, { count: 8 }));
+    const book = value(
+      approximateCurve(pts, 2, {
+        count: 8,
+        constraints: [
+          { kind: 'point', t: 0, value: Q0 },
+          { kind: 'point', t: 1, value: Qm },
+        ],
+      }),
+    );
+    expect(Array.from(book.params)).toEqual(Array.from(free.params));
+    const b = book.curve.basis;
+    const N = b.count;
+    const A = new Float64Array((m1 - 2) * (N - 2));
+    const R = new Float64Array((m1 - 2) * 2);
+    for (let k = 1; k < m1 - 1; k++) {
+      const row = basisRow(b, book.params[k]!, 0);
+      for (let i = 1; i < N - 1; i++) A[(k - 1) * (N - 2) + i - 1] = row[i]!;
+      R[(k - 1) * 2] = pts[2 * k]! - row[0]! * Q0.x - row[N - 1]! * Qm.x;
+      R[(k - 1) * 2 + 1] = pts[2 * k + 1]! - row[0]! * Q0.y - row[N - 1]! * Qm.y;
+    }
+    const P = householderLsq(m1 - 2, N - 2, A, R, 2, DEFAULT_TOLERANCES.pivotRel)!;
+    const scale = scaleOf(pts, 2);
+    expect(
+      Math.hypot(cp(book.curve, 0)[0]! - Q0.x, cp(book.curve, 0)[1]! - Q0.y),
+    ).toBeLessThanOrEqual(CONSTRAINT);
+    for (let i = 1; i < N - 1; i++) {
+      const got = cp(book.curve, i);
+      expect(Math.abs(got[0]! - P[(i - 1) * 2]!), `P_${i}`).toBeLessThanOrEqual(REPRO * scale);
+      expect(Math.abs(got[1]! - P[(i - 1) * 2 + 1]!), `P_${i}`).toBeLessThanOrEqual(REPRO * scale);
+    }
+    // Unconstrained, the fit is closer overall and does not pass through the ends
+    // (its gaps are of the order of the ±0.005 noise).
+    expect(free.rmsError).toBeLessThan(book.rmsError);
+    const c0 = cp(free.curve, 0);
+    expect(Math.hypot(c0[0]! - Q0.x, c0[1]! - Q0.y)).toBeGreaterThan(1e-4);
+  });
+
+  it('judges constraint residuals per unit row norm, so large derivative rows do not misfire', () => {
+    // A board-scale curve (300 cm, 300 control points) with C″(0) = 0 given
+    // twice (consistent, dependent) and C′(1) fixed; and a 3000 cm curve. The
+    // C″ rows have norm ~5e5: rounding alone left raw residuals of 4e-9, which
+    // an absolute 1e-9 test called inconsistent (a failure) or inexact.
+    for (const [S, count] of [
+      [300, 300],
+      [3000, 80],
+    ] as const) {
+      const n = 1000;
+      const pts = new Float64Array(3 * n);
+      for (let k = 0; k < n; k++) {
+        const t = k / (n - 1);
+        pts.set([S * t, 0.01 * S * Math.sin(6 * t), 0.003 * S * Math.cos(5 * t)], 3 * k);
+      }
+      const zero = { x: 0, y: 0, z: 0 };
+      const end = { x: S, y: 0, z: 0 };
+      const r = approximateCurve(pts, 3, {
+        count,
+        constraints: [
+          { kind: 'derivative', t: 0, order: 2, value: zero },
+          { kind: 'derivative', t: 0, order: 2, value: zero },
+          { kind: 'derivative', t: 1, order: 1, value: end },
+        ],
+      });
+      const label = `S ${S} count ${count}: ${r.issues.map((i) => i.message).join('; ')}`;
+      expect(r.ok, label).toBe(true);
+      expect(new Set(r.issues.map((i) => i.code)), label).toEqual(
+        new Set(['dependent-constraints']),
+      );
+      // The constraints hold to rounding relative to the derivative's size.
+      const c = value(r).curve as NurbsCurve<3>;
+      const [, , d2] = curveDerivatives(c, 0, 2);
+      const [, d1] = curveDerivatives(c, 1, 1);
+      expect(Math.hypot(d2!.x, d2!.y, d2!.z), label).toBeLessThanOrEqual(1e-12 * S * count ** 2);
+      expect(Math.hypot(d1!.x - S, d1!.y, d1!.z), label).toBeLessThanOrEqual(1e-12 * S * count);
+    }
+    // A real contradiction in a derivative row is still a failure.
+    const { pts } = halfCircle(200);
+    const bad = approximateCurve(pts, 2, {
+      count: 40,
+      constraints: [
+        { kind: 'derivative', t: 0, order: 1, value: { x: 0, y: 3 } },
+        { kind: 'derivative', t: 0, order: 1, value: { x: 0, y: 3.001 } },
+      ],
+    });
+    expect(bad.ok).toBe(false);
+    expect(bad.issues.some((i) => i.code === 'inconsistent-constraints')).toBe(true);
   });
 
   it('returns data-dependent failures and throws on invalid input', () => {

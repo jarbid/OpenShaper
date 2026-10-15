@@ -38,7 +38,17 @@ function increment(d: number, e: number): number {
  * |Q_k − Q_{k−1}|^e / d`, `ū_n = 1`, where `d` is the sum of all increments.
  * `closed`: the chord `Q_n → Q_0` is part of the total, so `ū_n < 1` and the
  * period is 1. `count` points of stride `r` in `Q`; writes `count` values to
- * `ub`. Returns the total `d` (0 when every increment is 0).
+ * `ub`. Returns the total `d` (of the normalised increments below; 0 when
+ * every increment is 0).
+ *
+ * For an exponent other than 0, ½ and 1, each chord is divided by the
+ * longest before it is raised to the power: the ratios, hence the
+ * parameters, are unchanged, but the largest increment is 1, so a large
+ * exponent can neither overflow (`d^e = ∞` gave `∞/∞ = NaN`) nor underflow
+ * every increment to 0 (short distinct chords read as coincident points).
+ * Increments far below the longest still underflow to 0: those parameters
+ * repeat, as they do to rounding anyway. The named methods are computed as
+ * written, bit for bit.
  */
 export function chordParams(
   Q: ArrayLike<number>,
@@ -48,13 +58,23 @@ export function chordParams(
   closed: boolean,
   ub: Float64Array,
 ): number {
+  let unit = 1;
+  if (e !== 0 && e !== 0.5 && e !== 1) {
+    unit = 0;
+    for (let k = 1; k < count; k++) unit = Math.max(unit, chord(Q, r, k - 1, k));
+    if (closed) unit = Math.max(unit, chord(Q, r, count - 1, 0));
+    if (!(unit > 0)) {
+      ub.fill(0, 0, count);
+      return 0;
+    }
+  }
   ub[0] = 0;
   let d = 0;
   for (let k = 1; k < count; k++) {
-    d += increment(chord(Q, r, k - 1, k), e);
+    d += increment(chord(Q, r, k - 1, k) / unit, e);
     ub[k] = d;
   }
-  if (closed) d += increment(chord(Q, r, count - 1, 0), e);
+  if (closed) d += increment(chord(Q, r, count - 1, 0) / unit, e);
   if (!(d > 0)) return 0;
   for (let k = 1; k < count; k++) ub[k] = ub[k]! / d;
   if (!closed) ub[count - 1] = 1;

@@ -9,8 +9,12 @@
  *   back that spline's control net (curves, periodic curves, surfaces);
  * - **polynomial reproduction**: data on a polynomial of degree ≤ p, at its own
  *   parameters, give that polynomial everywhere, not just at the data;
- * - **end derivatives** hold exactly; with them, a cubic is reproduced;
+ * - **end derivatives** hold exactly for degrees 2–5; with them, a
+ *   polynomial of degree min(p, 3) is reproduced; for p = 2 the knots are eq.
+ *   9.22's midpoints;
  * - **book fixture**: P&T Ex. 9.1 (chord-length parameters and knots);
+ * - **hand fixture**: A9.3 on a grid with a pole row averages over the other
+ *   lines only (both directions);
  * - **periodic**: C^(p−1) across the seam;
  * - **convergence**: the error of interpolating a circle (periodic) and a sine
  *   (clamped) falls as h^(p+1).
@@ -206,14 +210,16 @@ describe('interpolateCurve (A9.1)', () => {
     }
   });
 
-  it('holds end derivatives exactly and reproduces a cubic with them (§9.2.2)', () => {
+  it('holds end derivatives exactly and reproduces a polynomial with them (§9.2.2)', () => {
     const rng = mulberry32(14);
     for (let p = 2; p <= 5; p++) {
-      const P = polynomial(rng, 2, 3);
-      // The cubic's end derivatives: its own degree-3 interpolant is the cubic (polynomial reproduction).
+      // A polynomial of degree d = min(p, 3), and its end derivatives: its own
+      // degree-d interpolant is the polynomial (polynomial reproduction).
+      const deg = Math.min(p, 3);
+      const P = polynomial(rng, 2, deg);
       const ub = randomParams(rng, p + 4);
       const data = Float64Array.from(Array.from(ub, (t) => P(t)).flat());
-      const exact = interpolateCurve(data, 2, { degree: 3, params: ub }).curve;
+      const exact = interpolateCurve(data, 2, { degree: deg, params: ub }).curve;
       const [, d0] = curveDerivatives(exact, 0, 1);
       const [, d1] = curveDerivatives(exact, 1, 1);
       for (const ends of [
@@ -221,13 +227,17 @@ describe('interpolateCurve (A9.1)', () => {
         [d0!, null],
         [null, d1!],
       ] as const) {
-        const r = interpolateCurve(data, 2, {
-          degree: Math.max(p, 3),
-          params: ub,
-          endDerivatives: ends,
-        });
+        const r = interpolateCurve(data, 2, { degree: p, params: ub, endDerivatives: ends });
         const extra = (ends[0] ? 1 : 0) + (ends[1] ? 1 : 0);
         expect(r.curve.basis.count).toBe(ub.length + extra);
+        if (p === 2 && extra === 2) {
+          // Eq. 9.22 (p = 2, both ends): {0,0,0, ū_1/2, (ū_1+ū_2)/2, …, (ū_{n−1}+1)/2, 1,1,1}.
+          const n = ub.length - 1;
+          const want = [0, 0, 0, ub[1]! / 2];
+          for (let j = 1; j < n; j++) want.push((ub[j]! + ub[j + 1]!) / 2);
+          want.push(1, 1, 1);
+          expect(Array.from(r.curve.basis.knots)).toEqual(want);
+        }
         if (ends[0]) {
           const [, g] = curveDerivatives(r.curve, 0, 1);
           expect(Math.hypot(g!.x - d0!.x, g!.y - d0!.y)).toBeLessThanOrEqual(CONSTRAINT);
@@ -472,6 +482,58 @@ describe('interpolateSurface (A9.4)', () => {
       }
       expect(r.maxError).toBeLessThanOrEqual(DATA * scale);
     }
+  });
+
+  it('averages A9.3 parameters over the lines that do not collapse (a pole row)', () => {
+    // Hand fixture, chord length, 3 × 3 grid whose last row is a pole (a board's
+    // nose): every point of row 2 is (5, 0, 0).
+    //   v (along rows): row 0 chords 1, 2 → {0, 1/3, 1}; row 1 chords 3, 1 →
+    //   {0, 3/4, 1}; row 2 collapses and is skipped: ū_1 = (1/3 + 3/4)/2 = 13/24
+    //   (averaging it in as zeros would give 13/36).
+    //   u (along columns): chords 2, 3 → 2/5; 2√2, 3√2 → 2/5; √5, 5 → √5/(√5 + 5).
+    // The transposed grid must give the same values with u and v exchanged.
+    // Tolerance 4ε: two sums and a division, each rounded once.
+    const rows: number[][][] = [
+      [
+        [0, 0, 0],
+        [0, 1, 0],
+        [0, 3, 0],
+      ],
+      [
+        [2, 0, 0],
+        [2, 3, 0],
+        [2, 4, 0],
+      ],
+      [
+        [5, 0, 0],
+        [5, 0, 0],
+        [5, 0, 0],
+      ],
+    ];
+    const g = Float64Array.from(rows.flat(2));
+    const gt = Float64Array.from([0, 1, 2].flatMap((l) => [0, 1, 2].flatMap((k) => rows[k]![l]!)));
+    const wantV = [0, 13 / 24, 1];
+    const wantU = [0, (2 / 5 + 2 / 5 + Math.sqrt(5) / (Math.sqrt(5) + 5)) / 3, 1];
+    const tol = 4 * Number.EPSILON;
+    const r = interpolateSurface(g, 3, 3, {
+      degreeU: 2,
+      degreeV: 2,
+      paramU: 'chord',
+      paramV: 'chord',
+    });
+    const t = interpolateSurface(gt, 3, 3, {
+      degreeU: 2,
+      degreeV: 2,
+      paramU: 'chord',
+      paramV: 'chord',
+    });
+    for (let k = 0; k < 3; k++) {
+      expect(Math.abs(r.paramsV[k]! - wantV[k]!), `v ${k}`).toBeLessThanOrEqual(tol);
+      expect(Math.abs(r.paramsU[k]! - wantU[k]!), `u ${k}`).toBeLessThanOrEqual(tol);
+      expect(Math.abs(t.paramsU[k]! - wantV[k]!), `transposed u ${k}`).toBeLessThanOrEqual(tol);
+      expect(Math.abs(t.paramsV[k]! - wantU[k]!), `transposed v ${k}`).toBeLessThanOrEqual(tol);
+    }
+    expect(r.maxError).toBeLessThanOrEqual(DATA * scaleOf(g, 3));
   });
 
   it('reproduces a bicubic polynomial height field everywhere', () => {

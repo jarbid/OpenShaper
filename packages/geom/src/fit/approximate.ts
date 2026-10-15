@@ -7,7 +7,13 @@
  * - Curves follow P&T §9.4.1 (eqs. 9.63–9.69: the normal equations on knots
  *   from eqs. 9.68–9.69, centred: see `approxKnots`) and A9.6
  *   WCLeastSquaresCurve (weighted data, point and derivative constraints held
- *   exactly through Lagrange multipliers). The
+ *   exactly through Lagrange multipliers). One difference from §9.4.1: the
+ *   book fixes `P_0 = Q_0` and `P_n = Q_m` and fits only the interior control
+ *   points; here every control point is fitted, so a clamped result need not
+ *   pass through the first and last data points (it is the closer fit). The
+ *   book's curve is this fit with `point` constraints `C(0) = Q_0` and
+ *   `C(1) = Q_m`, which a caller that needs the ends (an edge meeting a
+ *   vertex) adds. The
  *   KKT system is solved in range space through the Schur complement
  *   (`lsq.ts`, design §10.4) rather than A9.6's dense inverse; the solution
  *   is the same. Tangent-direction constraints are the linear rows
@@ -161,6 +167,64 @@ function checkWeights(w: ArrayLike<number> | undefined, n: number): Float64Array
   return out;
 }
 
+/** Indices of the points of positive weight, or `null` when every point counts. */
+function usedIndices(w: Float64Array | null): Int32Array | null {
+  if (w === null || w.every((x) => x > 0)) return null;
+  const out: number[] = [];
+  for (let k = 0; k < w.length; k++) if (w[k]! > 0) out.push(k);
+  return Int32Array.from(out);
+}
+
+/** The points (stride `dim`) at `used`. */
+function pick(points: ArrayLike<number>, dim: number, used: Int32Array): Float64Array {
+  const out = new Float64Array(used.length * dim);
+  for (let i = 0; i < used.length; i++) {
+    for (let c = 0; c < dim; c++) out[i * dim + c] = points[used[i]! * dim + c]!;
+  }
+  return out;
+}
+
+/**
+ * Parameters for all `n` points from `uu`, the parameters of the points at
+ * `used` (non-decreasing; periodic: in `[0, 1)`, period 1). A point of weight
+ * 0 between two used points gets the value interpolated linearly in index;
+ * clamped, one before the first (after the last) used point gets the first
+ * (last) value; periodic, the interpolation runs across the seam, from the
+ * last used point to the first plus one period, wrapped into `[0, 1)`. These
+ * parameters place nothing (knots come from `uu`): they are only reported.
+ */
+function spreadParams(
+  uu: Float64Array,
+  used: Int32Array,
+  n: number,
+  periodic: boolean,
+): Float64Array {
+  const ub = new Float64Array(n);
+  const last = used.length - 1;
+  const first = used[0]!;
+  const end = used[last]!;
+  const between = (k: number, i0: number, u0: number, i1: number, u1: number): number =>
+    u0 + ((k - i0) / (i1 - i0)) * (u1 - u0);
+  for (let k = 0; k < first; k++) {
+    ub[k] = periodic
+      ? wrapParam(0, 1, between(k + n, end, uu[last]!, first + n, uu[0]! + 1))
+      : uu[0]!;
+  }
+  for (let i = 0; i < last; i++) {
+    const a = used[i]!;
+    const b = used[i + 1]!;
+    ub[a] = uu[i]!;
+    for (let k = a + 1; k < b; k++) ub[k] = between(k, a, uu[i]!, b, uu[i + 1]!);
+  }
+  ub[end] = uu[last]!;
+  for (let k = end + 1; k < n; k++) {
+    ub[k] = periodic
+      ? wrapParam(0, 1, between(k, end, uu[last]!, first + n, uu[0]! + 1))
+      : uu[last]!;
+  }
+  return ub;
+}
+
 function checkCount(x: number | undefined, what: string, min: number): void {
   if (x !== undefined && (!Number.isInteger(x) || x < min)) {
     fail('too-few-points', `${what} must be an integer ≥ ${min}; got ${x}`, { value: x });
@@ -225,36 +289,52 @@ function undetermined(out: LsqOutcome & { ok: false }): GeomIssue {
 /**
  * Checks the constraint outcome: dependent rows within `constraint` are a
  * warning, outside it an error; independent rows above it a warning.
+ *
+ * A row's residual is judged in length units, as `|C_r x − d_r| / max(1,
+ * ‖C_r‖₂)`. Rounding leaves a residual of about `ε‖C_r‖‖x‖`, and a row of
+ * derivative order `k` has norm about `(p/h)^k` for knot spacing `h`, so the
+ * raw residual of a derivative row grows with the number of control points
+ * and with the derivative's size: a C″ row at board scale (300 cm, 300
+ * control points) has norm ~5e5 and leaves raw residuals of 4·10⁻⁹ from
+ * rounding alone. Divided by its norm, the residual is the change in control
+ * coordinates that would remove it, which `constraint` bounds at any scale.
+ * Rows of norm ≤ 1, which include every point row (B-spline values sum to 1,
+ * so their 2-norm is at most 1), are judged on the raw residual, so a point
+ * constraint is never held more loosely than `constraint`. Issues report the
+ * raw residual (caller units) as `value`.
  */
 function constraintIssues(out: LsqOutcome & { ok: true }, tol: Tolerances): GeomIssue[] {
   const issues: GeomIssue[] = [];
   const dep = new Set(out.dependent);
   for (let k = 0; k < out.residual.length; k++) {
     const r = out.residual[k]!;
+    const norm = Math.max(1, out.rowNorm[k]!);
+    const judged = r / norm;
+    const what = norm > 1 ? `residual ${r}; ${judged} per unit row norm` : `residual ${r}`;
     if (dep.has(k)) {
       issues.push(
-        r <= tol.constraint
+        judged <= tol.constraint
           ? issue(
               'dependent-constraints',
               'warning',
-              `constraint row ${k} depends on the others (consistent; residual ${r})`,
+              `constraint row ${k} depends on the others (consistent; ${what})`,
               k,
               r,
             )
           : issue(
               'inconsistent-constraints',
               'error',
-              `constraint row ${k} depends on the others and contradicts them (residual ${r})`,
+              `constraint row ${k} depends on the others and contradicts them (${what})`,
               k,
               r,
             ),
       );
-    } else if (r > tol.constraint) {
+    } else if (judged > tol.constraint) {
       issues.push(
         issue(
           'constraint-residual',
           'warning',
-          `constraint row ${k} holds only to ${r} (> constraint tolerance ${tol.constraint})`,
+          `constraint row ${k} holds only to ${what} (> constraint tolerance ${tol.constraint})`,
           k,
           r,
         ),
@@ -427,6 +507,8 @@ function checkClamped(b: Basis, t: number, tol: Tolerances): number {
 /**
  * Data parameters of an approximation, in the basis domain when the basis is
  * given (`map`), otherwise on `[0, 1]` (clamped) or `[0, 1)` (periodic).
+ * A method parameterises the points of positive weight (`used`) only; the
+ * others get parameters by {@link spreadParams}.
  * Explicit parameters without a basis must be non-decreasing from exactly 0
  * (to exactly 1 when clamped, below 1 when periodic): they define the knots.
  * With a basis they may be in any order inside its domain.
@@ -438,10 +520,20 @@ function approxParams(
   spec: ArrayLike<number> | Parameterization | undefined,
   periodic: boolean,
   basis: Basis | null,
+  used: Int32Array | null,
   tol: Tolerances,
 ): Float64Array {
   if (spec === undefined || isMethod(spec)) {
-    const ub = parameterize(points, dim, spec ?? 'centripetal', periodic);
+    const method = spec ?? 'centripetal';
+    const ub =
+      used === null
+        ? parameterize(points, dim, method, periodic)
+        : spreadParams(
+            parameterize(pick(points, dim, used), dim, method, periodic),
+            used,
+            n,
+            periodic,
+          );
     if (basis === null) return ub;
     const [a, L] = span01(basis);
     return ub.map((u) => (basis.kind === 'clamped' && u === 1 ? basis.domain[1] : a + u * L));
@@ -567,13 +659,15 @@ function measureCurve(
 /**
  * Knots to add where the error exceeds `tolerance` (design §6.12, adaptive
  * insertion): spans are taken worst first; each gets one knot midway between
- * the two middle distinct data parameters it holds, so both halves keep data.
+ * the two middle distinct parameters of positive weight it holds, so both
+ * halves keep data.
  * A span with fewer than two distinct parameters, or whose new knot would be
  * within `knotRel` of a neighbour, is left alone. At most `budget` knots.
  */
 function splitKnots(
   b: Basis,
   ts: Float64Array,
+  weights: Float64Array | null,
   errors: Float64Array,
   tolerance: number,
   budget: number,
@@ -599,6 +693,7 @@ function splitKnots(
   const worst = new Float64Array(spans);
   const members: number[][] = Array.from({ length: spans }, () => []);
   for (let k = 0; k < ts.length; k++) {
+    if (weights !== null && weights[k] === 0) continue;
     const s = spanOfT(ts[k]!);
     members[s]!.push(ts[k]!);
     if (errors[k]! > worst[s]!) worst[s] = errors[k]!;
@@ -687,7 +782,9 @@ function correctCurveParams(
 /**
  * Weighted, constrained least-squares approximation of `points` (stride
  * `dim`) by a B-spline curve of `degree` (default 3); P&T §9.4.1 and A9.6,
- * generalised (see the module comment).
+ * generalised (see the module comment). Unlike §9.4.1, the end points are not
+ * interpolated unless constrained: add `point` constraints at the domain ends
+ * for the book's curve.
  *
  * The basis is one of: the given `knots` (clamped: a full clamped knot
  * vector; `periodic`: one period of a period-1 basis); `count` control points
@@ -701,8 +798,12 @@ function correctCurveParams(
  * period 1).
  *
  * `params` (default `'centripetal'`) are mapped onto a given basis's domain.
- * `dataWeights` (≥ 0, default 1) weight each point's squared error; a point of
- * weight 0 is ignored, also by the reported errors. `constraints` hold exactly
+ * `dataWeights` (≥ 0, default 1) weight each point's squared error. A point of
+ * weight 0 is ignored: the result is the fit of the other points alone (the
+ * same parameters, knots and control points), and the reported errors skip
+ * it; its reported parameter is interpolated between its neighbours'
+ * (explicit `params` are used as given, but knots come only from those of
+ * positive weight). `constraints` hold exactly
  * (to `constraint` after one step of iterative refinement), provided the data
  * alone determine every control point. `parameterCorrection` passes (default
  * 0) re-project the data onto the curve and refit on the final basis.
@@ -743,14 +844,24 @@ export function approximateCurve<D extends Dim>(
     });
   }
   const weights = checkWeights(opts.dataWeights, n);
+  const used = usedIndices(weights);
+  const nUsed = used === null ? n : used.length;
+  if (nUsed < p + 1) {
+    fail(
+      'too-few-points',
+      `degree ${p} approximation needs ≥ ${p + 1} points of positive weight; got ${nUsed}`,
+      { value: nUsed },
+    );
+  }
   const cons = checkCurveConstraints(opts.constraints ?? [], dim, p);
 
   let basis: Basis | null = null;
   if (opts.knots !== undefined) {
     basis = periodic ? periodicBasis(p, opts.knots, 1, tol) : clampedBasis(p, opts.knots, tol);
   }
-  let ts = approxParams(points, dim, n, opts.params, periodic, basis, tol);
-  const centre = boxCentre(points, n, dim);
+  let ts = approxParams(points, dim, n, opts.params, periodic, basis, used, tol);
+  const centre =
+    used === null ? boxCentre(points, n, dim) : boxCentre(pick(points, dim, used), nUsed, dim);
   const targets = new Float64Array(n * dim);
   for (let k = 0; k < n * dim; k++) targets[k] = points[k]! - centre[k % dim]!;
   const P: CurveProblem = { dim, n, points, targets, centre, weights, cons, tol };
@@ -758,15 +869,26 @@ export function approximateCurve<D extends Dim>(
   const adaptive = basis === null && opts.count === undefined;
   if (basis === null) {
     const count = opts.count ?? p + 1;
-    if (count > n) {
-      fail('too-few-points', `${count} control points need ≥ ${count} data points; got ${n}`, {
-        value: count,
-      });
+    if (count > nUsed) {
+      fail(
+        'too-few-points',
+        `${count} control points need ≥ ${count} data points of positive weight; got ${nUsed}`,
+        { value: count },
+      );
     }
+    // Knots from the parameters of positive weight only; clamped, the ends
+    // stay at the domain's (explicit parameters may start or end at a point
+    // of weight 0).
+    const tsUsed = used === null ? ts : pick(ts, 1, used);
     let shift = 0;
     const built = tryBasis(() => {
-      if (!periodic) return snappedClamped(p, lsqKnots(ts, p, count), tol);
-      const knots = periodicLsq(ts, count, p);
+      if (!periodic) {
+        const U = lsqKnots(tsUsed, p, count);
+        U.fill(ts[0]!, 0, p + 1);
+        U.fill(ts[n - 1]!, count);
+        return snappedClamped(p, U, tol);
+      }
+      const knots = periodicLsq(tsUsed, count, p);
       shift = knots.shift;
       return snappedPeriodic(p, knots.T, tol);
     });
@@ -780,11 +902,12 @@ export function approximateCurve<D extends Dim>(
   const issues: GeomIssue[] = [];
 
   if (adaptive) {
-    const maxCount = opts.maxCount ?? n;
+    const maxCount = opts.maxCount ?? nUsed;
     while (best.maxError > tolerance && best.basis.count < maxCount) {
       const extra = splitKnots(
         best.basis,
         ts,
+        weights,
         best.errors,
         tolerance,
         maxCount - best.basis.count,
@@ -819,14 +942,12 @@ export function approximateCurve<D extends Dim>(
   const ci = constraintIssues(best.out, tol);
   if (ci.some((x) => x.severity === 'error')) return errResult(ci);
   issues.push(...ci);
-  let used = n;
-  if (weights !== null) used = weights.reduce((s, w) => s + (w > 0 ? 1 : 0), 0);
   return okResult(
     Object.freeze({
       curve: best.curve as NurbsCurve<D>,
       params: ts,
       maxError: best.maxError,
-      rmsError: Math.sqrt(best.sumSq / used),
+      rmsError: Math.sqrt(best.sumSq / nUsed),
       withinTolerance: best.maxError <= tolerance,
       multipliers: best.out.lambda,
     }),
@@ -1092,7 +1213,9 @@ function correctSurfaceParams(
  * `interpolateSurface`), whose parameters come from A9.3 by `params` (default
  * `'centripetal'`) mapped onto the bases' domains. Weights, constraints
  * (`axes` select coordinates) and `parameterCorrection` passes as in
- * {@link approximateCurve}; `withinTolerance` compares with `tol.fit`.
+ * {@link approximateCurve}, except that a grid's A9.3 parameters come from
+ * every grid point, weight 0 included (A9.3 needs whole lines; give `uv` to
+ * choose the parameters yourself). `withinTolerance` compares with `tol.fit`.
  */
 export function approximateSurface(
   points: ArrayLike<number>,
@@ -1115,9 +1238,11 @@ export function approximateSurface(
   checkBasisShape(bv);
   checkCount(opts.parameterCorrection, 'parameterCorrection', 0);
   const weights = checkWeights(opts.dataWeights, n);
+  const used = usedIndices(weights);
   let uv = surfaceParams(points, n, layout, bu, bv, opts.params ?? 'centripetal', tol);
   const cons = checkSurfaceConstraints(opts.constraints ?? [], bu, bv, tol);
-  const centre = boxCentre(points, n, 3);
+  const centre =
+    used === null ? boxCentre(points, n, 3) : boxCentre(pick(points, 3, used), used.length, 3);
   const targets = new Float64Array(n * 3);
   for (let k = 0; k < n * 3; k++) targets[k] = points[k]! - centre[k % 3]!;
   const crows = surfaceConstraintRows(bu, bv, cons, centre);
@@ -1160,14 +1285,12 @@ export function approximateSurface(
   const ci = constraintIssues(best.out, tol);
   if (ci.some((x) => x.severity === 'error')) return errResult(ci);
   issues.push(...ci);
-  let used = n;
-  if (weights !== null) used = weights.reduce((s, w) => s + (w > 0 ? 1 : 0), 0);
   return okResult(
     Object.freeze({
       surface: best.surface,
       params: uv,
       maxError: best.maxError,
-      rmsError: Math.sqrt(best.sumSq / used),
+      rmsError: Math.sqrt(best.sumSq / (used === null ? n : used.length)),
       withinTolerance: best.maxError <= tol.fit,
       multipliers: best.out.lambda,
     }),

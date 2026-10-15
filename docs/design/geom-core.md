@@ -1398,6 +1398,32 @@ Notes (A2, as built):
   The periodic analogue `τ_j = ū(h·(j + (p − 1)/2))` is shifted by `τ_0` with the
   parameters (as `interpolatePeriodic`); the `(p − 1)/2` offset is what keeps an
   even degree's knots off the data sites when `count` equals the number of points.
+- **End points.** §9.4.1 fixes `P_0 = Q_0` and `P_n = Q_m` and fits only the
+  interior control points. `approximateCurve` fits every control point, so a
+  clamped result need not pass through the first and last data points (it is the
+  closer fit: a noisy sine, 50 points, 8 control points, ends off by 3e-3 to
+  1.4e-2 in probes with ±0.005 noise).
+  The book's curve is the fit with `point` constraints `C(0) = Q_0`, `C(1) = Q_m`
+  (tested against eqs. 9.63–9.67 solved directly); callers that need the ends,
+  such as an edge meeting a vertex, add them.
+- **Weight 0** removes a point entirely: parameters by a method, least-squares
+  knots, adaptive splits and the centring box use only the points of positive
+  weight, so the result is the fit of the other points (the same numbers). A
+  0-weight point's reported parameter is interpolated in index between its
+  neighbours'. On a grid layout, `approximateSurface`'s A9.3 parameters use every
+  grid point (whole lines are needed); pass `uv` to choose them.
+- **Constraint residuals** are judged per row as `|C_r x − d_r| / max(1, ‖C_r‖₂)`
+  against `constraint`. Rounding leaves `≈ ε‖C_r‖‖x‖`, and a derivative row of
+  order `k` has norm `≈ (p/h)^k`: at board scale (300 cm, 300 control points) a
+  C″ row has norm ~5e5 and rounding alone left raw residuals of 4e-9, which the
+  absolute test called a contradiction. Point rows (norm ≤ 1, partition of unity)
+  are judged on the raw residual, as before. The §7 scaling by the box extent is
+  not applied: `H` does not depend on coordinates, so it would scale `x` and every
+  residual alike and change nothing else; the per-row measure is what makes the
+  test scale-free. Issues report the raw residual.
+- **Parameter exponents** other than 0, ½ and 1 divide each chord by the longest
+  before raising it to the power (same ratios), so a large exponent neither
+  overflows to `NaN` nor underflows short distinct chords into "coincident".
 - **Data-dependent failures** are `Result` errors: a control point the data do not
   determine (`schoenberg-whitney`, with its index, or with the condition estimate
   when the normal equations are only numerically singular), computed knots that crowd
