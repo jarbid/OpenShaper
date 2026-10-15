@@ -884,3 +884,77 @@ describe('review of B3: G1 is not stricter than C1 far from the origin', () => {
     expect(knotContinuity(corner, 0.5).geometric).toBe(0);
   });
 });
+
+describe('review of B3 (second round): rounding floor of rational derivatives of order > degree', () => {
+  /** Inserts `x` once (P&T A5.1) into the rational Bézier curve of degree `p`: a removable knot. */
+  const withRemovableKnot = (p: number, pts: number[], w: number[], x: number): NurbsCurve<2> => {
+    const bz = bezierCurve(2, pts, w);
+    const ins = curveKnotIns(p, p, bz.basis.knots, bz.cw, 3, x, p, 0, 1);
+    const n = p + 2;
+    return makeCurve({
+      dim: 2,
+      basis: clampedBasis(p, ins.UQ),
+      points: Array.from({ length: n }, (_, i) =>
+        [0, 1].map((k) => ins.Qw[3 * i + k]! / ins.Qw[3 * i + 2]!),
+      ).flat(),
+      weights: Array.from({ length: n }, (_, i) => ins.Qw[3 * i + 2]!),
+    });
+  };
+
+  it('a rational quadratic arc with a removable knot reads C3 (N‴ ≡ 0 for p = 2, the rational C‴ is not)', () => {
+    const arc = [1, 0, 1, Math.tan(0.3), Math.cos(0.6), Math.sin(0.6)];
+    const wts = [1, Math.cos(0.3), 1];
+    // Several parameters: the one-sided C‴ differ by ~1e-14 of rounding at each (measured 1e-15 … 4e-14),
+    // far below the floor degenerateRel · scale = 1e-12, and the exact value is 0.
+    for (const x of [0.4, 0.123, 0.5, 0.77]) {
+      const k = knotContinuity(withRemovableKnot(2, arc, wts, x), x);
+      expect([k.parametric, k.geometric], `x = ${x}`).toEqual([3, 2]);
+      expect(k.jumps.d3).toBeLessThan(1e-12);
+    }
+  });
+
+  it('a rational linear segment with a removable knot reads C3 (N″ ≡ 0 for p = 1)', () => {
+    const k = knotContinuity(withRemovableKnot(1, [0, 0, 2, 1], [1, 3], 0.37), 0.37);
+    expect([k.parametric, k.geometric]).toEqual([3, 2]);
+  });
+
+  it('a real jump in a rational quadratic is still seen: a weight change at the knot is not C3', () => {
+    // Different weights on the two sides of a simple knot of a quadratic: C¹ but not C².
+    const c = makeCurve({
+      dim: 2,
+      basis: clampedBasis(2, [0, 0, 0, 0.4, 1, 1, 1]),
+      points: [0, 0, 1, 2, 2, 1, 3, 0],
+      weights: [1, 1, 3, 1],
+    });
+    const k = knotContinuity(c, 0.4);
+    expect(k.parametric).toBe(1);
+    expect(k.jumps.d2).toBeGreaterThan(0.1);
+  });
+
+  it('the roof (degree 1, C⁰ knot at 0.3 crossed by the pcurve) has arc-length RMS gap exact at every density', () => {
+    // Review case: the pcurve crosses a surface knot line the edge and pcurves lack.
+    // z(x) is 0 → 0.3 on [0, 0.3] and 0.3 → 0 on [0.3, 1]; ∫z² = 0.3²·(0.3 + 0.7)/3.
+    const xs = [0, 0.3, 1];
+    const zs = [0, 0.3, 0];
+    const pts: number[] = [];
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) pts.push(xs[i]!, j, zs[i]!);
+    const roof = makeSurface({
+      u: clampedBasis(1, [0, 0, 0.3, 1, 1]),
+      v: clampedBasis(1, [0, 0, 1, 1]),
+      points: pts,
+    });
+    const flat = planeSurface({ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 });
+    const pc = line2({ x: 0, y: 0 }, { x: 1, y: 0 });
+    const exact = Math.sqrt(0.09 / 3);
+    for (const n of [2, 4, 8, undefined]) {
+      const p = edgeContinuity(
+        line({ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }),
+        { surface: flat, pcurve: pc, sameSense: true },
+        { surface: roof, pcurve: pc, sameSense: true },
+        n === undefined ? {} : { samplesPerSpan: n },
+      );
+      // Tolerance 1e-14 relative: with the break at 0.3 each piece is a quadratic, integrated exactly by n ≥ 2.
+      expect(Math.abs(p.rms.gap - exact), `n = ${String(n)}`).toBeLessThan(1e-14 * exact);
+    }
+  });
+});

@@ -1040,7 +1040,10 @@ interface OneSide {
  * of the span's control points (magnitude `M`, largest absolute Euclidean
  * coordinate, as `speedFloor`) times the basis derivatives, so its rounding
  * scales with that sum; `ρ` (max/min weight of the span, 1 when polynomial)
- * bounds the growth through the quotient rule.
+ * bounds the growth through the quotient rule. For a rational span the floor is
+ * at least the one propagated through the quotient rule from the homogeneous
+ * derivatives: `Σ|N_j^(k)|` is exactly 0 for `k > p`, but the rational
+ * `C^(k)` is not.
  */
 function evalSide(
   c: NurbsCurve,
@@ -1068,10 +1071,50 @@ function evalSide(
     for (let k = 0; k < dim; k++) M = Math.max(M, Math.abs(c.cw[i * h + k]!) / w);
   }
   const floor = new Float64Array(4);
+  const nsum = new Float64Array(4);
   for (let k = 1; k <= 3; k++) {
     let sum = 0;
     for (let j = 0; j <= p; j++) sum += Math.abs(sc.f[sc.oN + k * (p + 1) + j]!);
+    nsum[k] = sum;
     floor[k] = tol.degenerateRel * M * (wmax / wmin) * sum;
+  }
+  if (wmax > wmin) {
+    // Rational: C = A/w, so C^(k) = (A^(k) − Σᵢ₌₁ᵏ binom(k, i) w^(i) C^(k−i)) / w
+    // (P&T eq. 4.8, A4.2). A^(k) and w^(k) have rounding scale `degenerateRel`
+    // times their control magnitudes times Σ|N^(k)|, which vanishes for k > p
+    // (the B-spline sums are exactly 0) while the quotient's C^(k) does not: the
+    // floor is propagated through the quotient rule from the lower orders'.
+    const wd = new Float64Array(4); // w^(i) at t
+    for (let j = 0; j <= p; j++) {
+      let i = span - p + j;
+      if (i < 0) i += b.count;
+      const w = c.cw[i * h + dim]!;
+      for (let k = 1; k <= 3; k++) wd[k] = wd[k]! + sc.f[sc.oN + k * (p + 1) + j]! * w;
+    }
+    const mag = (k: number): number => {
+      let m2 = 0;
+      for (let i = 0; i < dim; i++) m2 += d[k * dim + i]! ** 2;
+      return Math.sqrt(m2);
+    };
+    const f = new Float64Array(4);
+    f[0] = tol.degenerateRel * M * (wmax / wmin);
+    const binom = [
+      [1, 0, 0, 0],
+      [1, 1, 0, 0],
+      [1, 2, 1, 0],
+      [1, 3, 3, 1],
+    ];
+    for (let k = 1; k <= 3; k++) {
+      // Rounding of A^(k) (magnitude M·wmax) and of each w^(i) (magnitude wmax).
+      let acc = tol.degenerateRel * M * wmax * nsum[k]!;
+      for (let i = 1; i <= k; i++) {
+        acc +=
+          binom[k]![i]! *
+          (tol.degenerateRel * wmax * nsum[i]! * mag(k - i) + Math.abs(wd[i]!) * f[k - i]!);
+      }
+      f[k] = acc / wmin + tol.degenerateRel * mag(k);
+      floor[k] = Math.max(floor[k]!, f[k]!);
+    }
   }
   return { d, floor, speedFloor: speedFloor(c, span, tol) };
 }

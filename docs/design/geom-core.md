@@ -1681,7 +1681,7 @@ export interface BoundarySide {
   readonly sameSense: boolean;
 }
 export interface ContinuitySampling {
-  readonly samplesPerSpan?: number; // default: highest degree involved + 1
+  readonly samplesPerSpan?: number; // default: composed degree (deg_u + deg_v)·deg p of the gap, or the edge's degree, + 1
   readonly refineMax?: boolean; // default true
   readonly refineSteps?: number; // default 40
   readonly tol?: Partial<Tolerances>;
@@ -2366,9 +2366,13 @@ For an edge with 3D curve `C(t)` and sides `(S_A, p_A)`, `(S_B, p_B)`:
 - **Degenerate samples** (a normal undefined, the edge tangent at its rounding
   floor, or `t̂` within `angle` of a normal) are flagged; their angle and
   curvatures read 0 and are left out of maxima and RMS values.
-- **Sampling:** `samplesPerSpan` Gauss points (default `degree + 1` of the highest
-  degree involved) on each span of the union of the edge's and both pcurves' knots
-  (for `boundaryContinuity`, A's boundary knots and B's mapped onto A by projection).
+- **Sampling:** `samplesPerSpan` Gauss points (default the composed degree of the gap,
+  `(deg_u + deg_v) · deg p`, or the edge's degree, if larger, + 1: exact for polynomial sides
+  with polynomial speed, convergent otherwise) on each span of the union of the edge's and
+  both pcurves' knots and of the parameters where a pcurve crosses an interior knot line of
+  its surface (the gap, angle and curvature are only piecewise smooth there; found on the
+  pcurve's Bézier pieces as trimming does) (for `boundaryContinuity`, A's boundary knots and
+  B's mapped onto A by projection).
   The **RMS** is arc-length weighted, `√(Σ wᵢ |C′(tᵢ)| mᵢ² / Σ wᵢ |C′(tᵢ)|)`: the
   quadrature of `√(∫ m² ds / ∫ ds)`, independent of the edge's parameterisation.
   With `refineMax` (default true) the **maximum** also includes both ends (the
@@ -2382,7 +2386,9 @@ For an edge with 3D curve `C(t)` and sides `(S_A, p_A)`, `(S_B, p_B)`:
   the gap is measured from A.
 - **Along curves.** `knotContinuity` compares one-sided derivatives: `C^(k)` agrees
   when its jump is within `degenerateRel · M · ρ · Σⱼ |N_j^(k)(t)|` (the rounding
-  scale of that derivative: span magnitude `M`, weight ratio `ρ`), so a designed
+  scale of that derivative: span magnitude `M`, weight ratio `ρ`; for a rational span at
+  least the floor propagated through the quotient rule from the homogeneous derivatives,
+  since `Σ|N_j^(k)| = 0` for `k > p` while the rational `C^(k)` is not zero), so a designed
   C^k join reads C^k exactly. Geometric: G1 when the unit tangents agree within
   `angle`, G2 when the curvature vectors `K = (C″ − (C″·T)T)/|C′|²` also agree within
   the propagated floor. `curveJoinContinuity` measures gap, tangent angle and
