@@ -16,6 +16,7 @@
     "build": "tsc -p tsconfig.json --noEmit",
     "coverage": "vitest run --coverage --coverage.include=src --coverage.reporter=text-summary --coverage.reporter=json-summary",
     "test": "vitest run",
+    "test:occt": "vitest run -c vitest.occt.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -23,6 +24,7 @@
     "@kninnug/constrainautor": "4.1.0",
     "@types/node": "^22.10.0",
     "delaunator": "5.1.0",
+    "occt-wasm": "5.3.5",
     "typescript": "~6.0.3",
     "vitest": "^5.0.3"
   }

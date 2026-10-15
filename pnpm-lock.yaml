@@ -193,6 +193,9 @@ importers:
       delaunator:
         specifier: 5.1.0
         version: 5.1.0
+      occt-wasm:
+        specifier: 5.3.5
+        version: 5.3.5
       typescript:
         specifier: ~6.0.3
         version: 6.0.3
@@ -2079,6 +2082,9 @@ packages:
     resolution: {integrity: sha512-FQN4MRfuJeHf7cBbBMJFXhKSDq+2kAArBlmRBvcvFE5BB1HZKXtSFASDhdlz9zOYwxh8lDdnvmMOe/+5cdoEdg==}
     engines: {node: '>= 0.8'}
 
+  comlink@4.4.2:
+    resolution: {integrity: sha512-OxGdvBmJuNKSCMO4NTl1L47VRp6xn2wG4F/2hYzB6tiCb709otOxtEYCSvK80PtjODfXXZu8ds+Nw5kVCjqd2g==}
+
   commander@2.20.3:
     resolution: {integrity: sha512-GpVkmM8vF2vQUkj2LvZmD35JxeJOLCwJ9cUkugyk2nuhbv3+mJvpLYYt+0+USMxE+oj+ey/lJEnhZw75x/OMcQ==}
 
@@ -3047,6 +3053,9 @@ packages:
   obug@2.2.1:
     resolution: {integrity: sha512-XrsrhT5sybtKI6wakr2SPOlGZWWYbUXZ7a0jT8/QOeAPau+1X/bSegNe5YR75oJmEZQbKningirmGOEJCIk61Q==}
     engines: {node: '>=12.20.0'}
+
+  occt-wasm@5.3.5:
+    resolution: {integrity: sha512-P9OuWBo13BinouzKSaOXYoNnXbm9kR8+m7g5+DOeCrS945cQX8rROEVwL2SzStySJCQZajc57uE+BrEPXo+P+w==}
 
   optionator@0.9.4:
     resolution: {integrity: sha512-6IpQ7mKUxRcZNLIObR0hz7lxsapSSIYNZJwXPGeF0mTVqGKFIXj1DQcMoT22S3ROcLyY/rz0PWaWZ9ayWmad9g==}
@@ -5739,6 +5748,8 @@ snapshots:
     dependencies:
       delayed-stream: 1.0.0
 
+  comlink@4.4.2: {}
+
   commander@2.20.3: {}
 
   common-tags@1.8.2: {}
@@ -6738,6 +6749,10 @@ snapshots:
       object-keys: 1.1.1
 
   obug@2.2.1: {}
+
+  occt-wasm@5.3.5:
+    dependencies:
+      comlink: 4.4.2
 
   optionator@0.9.4:
     dependencies:

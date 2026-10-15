@@ -9,7 +9,9 @@
  * quadrature and the exact curve primitives; F2 surfaces, surface measures,
  * sample plans and the exact surface primitives; B1 projection and curves on
  * surfaces; B2 trimmed surfaces, integration, exact predicates, constrained
- * Delaunay triangulation and tessellation; B3 continuity measures.
+ * Delaunay triangulation and tessellation; B3 continuity measures; B4 the
+ * B-rep (structure, geometric check, orientation, transforms, mass properties,
+ * continuity across edges) and the STEP writer.
  *
  * The type-level checks run under `tsc` (`pnpm typecheck` type-checks tests):
  * they pin the conventions the core types encode, so loosening one of them
@@ -32,6 +34,7 @@ import type {
 
 /** Every runtime (value) export of `@openshaper/geom`, sorted. */
 const PUBLIC_VALUES: readonly string[] = [
+  'DEFAULT_BREP_CHECK_SAMPLING',
   'DEFAULT_CONTINUITY_SAMPLING',
   'DEFAULT_PROJECTION_SEEDING',
   'DEFAULT_TESSELLATION',
@@ -50,7 +53,9 @@ const PUBLIC_VALUES: readonly string[] = [
   'boundaryContinuity',
   'boundaryCurve',
   'breakpoints',
+  'brepEdgeContinuity',
   'changedControlPoints',
+  'checkBrep',
   'checkTriangulation',
   'checkTrimLoops',
   'circle',
@@ -97,6 +102,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'evalSurfacePlan',
   'evalSurfacePlanDirty',
   'extrude',
+  'faceTrimmedSurface',
   'findSpan',
   'fundamentalForms',
   'fundamentalFormsInto',
@@ -116,14 +122,17 @@ const PUBLIC_VALUES: readonly string[] = [
   'limitNormal',
   'line',
   'line2',
+  'makeBrep',
   'makeCurve',
   'makeSurface',
   'makeTrimLoop',
   'makeTrimmedSurface',
+  'massProperties',
   'mergeNearKnots',
   'naturalBoundaryLoop',
   'normalCurvature',
   'orient2d',
+  'orientBrep',
   'paramAtLength',
   'periodicBasis',
   'periodicCircle',
@@ -156,8 +165,10 @@ const PUBLIC_VALUES: readonly string[] = [
   'surfaceNormal',
   'surfacePoint',
   'surfaceToJSON',
+  'tessellateBrep',
   'tessellateTrimmedSurface',
   'torus',
+  'transformBrep',
   'transformCurve',
   'transformCurve2',
   'transformSurface',
@@ -168,6 +179,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'withSurfaceControlPoints',
   'withSurfaceWeights',
   'withWeights',
+  'writeStep',
 ];
 
 /** The `vec` namespace (design §6.1). */
@@ -218,6 +230,20 @@ describe('@openshaper/geom public API', () => {
       'insertSteiner',
       'rectangleLoop',
       'loopsOf',
+      'clampSurface',
+      'flipBrep',
+      'unwrapBrep',
+      'signedVolume',
+      'trimFace',
+      'writeStepCore',
+      'writeStepUnchecked',
+      'readStepSubset',
+      'formatKnots',
+      'boxSolid',
+      'cylinderSolid',
+      'sphericalZoneSolid',
+      'torusSolid',
+      'MUTATIONS',
     ]) {
       expect(name in geom).toBe(false);
     }

@@ -277,8 +277,11 @@ export function rectangleLoop(s: NurbsSurface): TrimLoop {
   return freezeLoop(curves, resolveTolerances());
 }
 
-/** A clamped 2D curve traversed backwards: knots `a + b − u`, control points reversed, same domain. */
-function reverseCurve2(c: ClampedCurve<2>): ClampedCurve<2> {
+/**
+ * A clamped 2D curve traversed backwards: knots `a + b − u`, control points reversed, same
+ * domain. Internal (the B-rep reverses pcurves with it); not part of the public API.
+ */
+export function reverseCurve2(c: ClampedCurve<2>): ClampedCurve<2> {
   const p = c.basis.degree;
   const U = c.basis.knots;
   const m = U.length - 1;

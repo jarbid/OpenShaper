@@ -1789,7 +1789,11 @@ export interface BrepReport {
   };
   readonly signedVolume: number;
 }
-export function checkBrep(b: Brep, tol?: Partial<Tolerances>): BrepReport; // geometric, expensive
+export function checkBrep(
+  b: Brep,
+  tol?: Partial<Tolerances>,
+  sampling?: BrepCheckSampling,
+): BrepReport; // geometric, expensive
 export function orientBrep(b: Brep, tol?: Partial<Tolerances>): Brep; // outward by signed volume
 export function transformBrep(b: Brep, m: Affine3): Brep; // det < 0 flips senses
 export function faceTrimmedSurface(b: Brep, face: number): TrimmedSurface;
@@ -1803,13 +1807,60 @@ export function massProperties(
 };
 export interface BrepMesh {
   readonly faces: readonly FaceMesh[];
-  readonly positions: Float64Array;
+  readonly positions: Float64Array; // per-face blocks; boundary vertices at the shared edge positions
   readonly normals: Float64Array; // render3d converts to Float32 about the centre
   readonly indices: Uint32Array;
-  readonly faceRanges: Uint32Array; // triangle ranges per face
+  readonly faceRanges: Uint32Array; // faces + 1 entries: triangle ranges per face
+  readonly vertexRanges: Uint32Array; // faces + 1 entries (added in B4)
+  readonly weld: Uint32Array; // vertex -> welded id; the welded mesh is a closed 2-manifold (added in B4)
+  readonly maxChordError: number; // added in B4
 }
 export function tessellateBrep(b: Brep, opts: TessellationOptions): Result<BrepMesh>; // edge-first, watertight
 ```
+
+**As built (B4, 2026-10-15)** — what the code settled, with the decisions it needed:
+
+- **Loop and pcurve conventions** (the types left them open; `brep/faces.ts` states them
+  once). A loop's coedges are in _face orientation_: seen from outside, the outer loop runs
+  counter-clockwise and a hole clockwise. A coedge's `pcurve` is parameterised like the
+  edge curve whatever its `sense` (so reversing a loop touches no pcurve). With `sameSense`
+  the loop is also counter-clockwise in (u, v); without it, clockwise: a face's (u, v)
+  trim loop is its face-orientation loop traversed backwards when `sameSense` is false.
+  `interior` for `brepEdgeContinuity` is `'left'` exactly when `sense === sameSense`.
+- **`makeBrep`** also checks that a coedge's pcurve runs over its edge's parameter range
+  (`paramRel`), that the two uses of an edge run in opposite directions, that every vertex
+  belongs to an edge, and the Phase 1 scope (one solid, one closed shell, all faces in it:
+  `unsupported` otherwise). It returns every problem found, located; it throws only for a
+  spec that is not a B-rep spec at all.
+- **`checkBrep`** takes a third argument, `BrepCheckSampling` (`samplesPerSpan`, default the
+  composed degree of the gap function plus one; `refineSteps`, default
+  `DEFAULT_BREP_CHECK_SAMPLING.refineSteps = 40`). A gap above `Tolerances.fit` (an edge
+  against its pcurve images, a vertex against an edge or pcurve end) is an error; below it
+  the number is reported in `edgeGaps` and flows into the STEP uncertainty. A wrong
+  `sameSense` is caught as a trim-loop orientation error; a face flipped _with_ its loop
+  by `makeBrep`'s coherence rule; the whole shell flipped by the sign of `signedVolume`.
+- **`orientBrep`** flips every `sameSense` and reverses every loop when the measured volume
+  is negative (same object back when outward). **`transformBrep`** with a negative
+  determinant does the same flip, because the mirror image of an outward B-rep is
+  inside-out under unchanged flags (the naive mirror is built in `brep.test.ts` to show it).
+- **`massProperties`** integrates the volume by the divergence theorem with the bounding-box
+  centre as reference, and the first moments with the bounding box's **minimum corner**: from
+  the centre a symmetric face's moment integral is zero, its inner integral is rounding noise,
+  and the integrators' stopping rule (relative to `∫|f|`) never converges on noise (measured:
+  22 million evaluations on a cylinder band before the change, 31 ms after).
+- **Periodic faces.** Untrimmed faces keep their periodic surface (decision 29: `outer =
+null`). A trimmed face (and every face written to STEP) is converted to the exactly equal
+  surface clamped in both directions on the same domain, `[t_0, t_0 + T]`, by
+  `brep/clamp.ts` (unroll, A5.1 at the domain ends, trim). That is the surface form of
+  A1's `toClamped`, written on the same book code because A1 is not on this branch yet;
+  when the tracks merge it should call `toClamped` and the module shrinks to the net
+  reshuffling. Pcurves are unchanged by the conversion. Pcurves must stay inside one period.
+- **`tessellateBrep`** samples every edge once (3D chord, angle, `maxEdge`), meshes each
+  face against pcurve images of those samples (`BoundarySamples`, edge ids = welded ids), and
+  overwrites the boundary vertices with the shared 3D positions (edge curve interiors, B-rep
+  vertex points at the ends), so equal welded ids have bitwise equal positions. Faces with
+  `sameSense = false` have their triangles reversed and normals negated. Vertices are kept
+  per face so creases keep two normals; `weld` closes the mesh topologically.
 
 ### 6.20 STEP [B4]
 
@@ -1822,7 +1873,8 @@ export interface StepWriteOptions {
   readonly originatingSystem?: string;
   readonly precision?: 'roundTrip' | number; // default 'roundTrip'; a number = significant digits
   readonly pcurves?: 'always' | 'trimmedOnly'; // default 'always'
-  readonly splitPeriodicFaces?: boolean; // default false
+  readonly tol?: Partial<Tolerances>; // for the gate's checkBrep (B4)
+  // splitPeriodicFaces: deferred (see the as-built note)
 }
 export interface StepStats {
   readonly entities: number;
@@ -1833,11 +1885,28 @@ export interface StepStats {
   readonly maxEdgeGap: number;
 } // file units
 /** Throws brep-invalid (with the report) or step-unsupported. */
-export function writeStep(
-  b: Brep,
-  opts?: StepWriteOptions,
-): { readonly text: string; readonly stats: StepStats; readonly report: BrepReport };
+export interface StepResult {
+  readonly text: string;
+  readonly stats: StepStats;
+  readonly report: BrepReport;
+}
+export function writeStep(b: Brep, opts?: StepWriteOptions): StepResult;
 ```
+
+**As built (B4):** `pcurves: 'trimmedOnly'` leaves a plain 3D curve on an edge that is not a
+seam and whose faces are all untrimmed (natural boundary: four straight pcurves on the four
+sides of the domain); a seam always carries its pcurves. A file written that way cannot be
+read back by `readStepSubset`. `timestamp` defaults to a constant instant (geom has no
+clock; callers pass the real one). The declared uncertainty is `max(2 × max(maxEdgeGap,
+maxVertexGap), Tolerances.point)` in file units, so the floor is 10 nm in model units
+(0.01 µm = `1e-5` mm), not the `1e-7` mm of §14's first draft: a declared accuracy tighter
+than the tolerance the checks themselves use would be a claim nothing measured. `precision`
+applies to coordinates, knots and weights alike; `formatKnots` derives multiplicities from
+the formatted text and refuses (`step-unsupported`) a precision that merges knots into an
+invalid multiplicity. `splitPeriodicFaces` is **not implemented**: it needs B-rep surgery
+(a new edge and two half faces per periodic face), and OCCT 5.3.5 imports the seamed faces
+as valid solids (§15.5), so there is no importer to serve yet; the manual matrix
+(`step-export.md`) is where a need would show up.
 
 ### 6.21 `@openshaper/geom/testing` [from F1, grows per step]
 
@@ -2434,6 +2503,16 @@ defect-injection catalogue mutates valid B-reps (flip a face sense, flip a coedg
 reverse a loop, drop a face, move a vertex, corrupt a weight) and asserts each is
 detected.
 
+**As built (B4):** `testing/mutations.ts` holds nine mutations (the six above plus offset
+an edge curve, reverse a pcurve, declare a wrong genus), each tagged with the layer that
+must reject it (`makeBrep` for the structural ones, `checkBrep` for the geometric ones;
+reversing "one loop" of a one-face solid reverses the whole shell, so only the measured
+volume catches it) and run against every solid of the corpus. A weight inside the net moves
+no edge and cannot be seen by any edge check; the weight mutation therefore scales the last
+control point in both directions, which lies on two edges whatever the bases. Check 3's
+trim-loop validity reports a wrong loop orientation as `trim-orientation`; items 1 and 2 use
+`Tolerances.fit` as the error limit.
+
 ---
 
 ## 14. STEP writer scope (AP214)
@@ -2467,13 +2546,13 @@ import them from geom).
 
 - Periodic curves and surfaces are written clamped through the exact `toClamped` at a
   seam, closed by a `SEAM_CURVE` edge with exact degree-1 pcurves; `closed_curve`,
-  `u_closed`, `v_closed` state the geometric truth. `splitPeriodicFaces: true` emits
-  two faces per periodic surface instead, for importers that dislike seams.
+  `u_closed`, `v_closed` state the geometric truth. `splitPeriodicFaces: true` (two
+  faces per periodic surface, for importers that dislike seams) is deferred, see §6.20.
 - `master_representation` is `.CURVE_3D.` where the 3D curve defines the edge (iso
   and boundary rows) and `.PCURVE_S1.` / `.PCURVE_S2.` where a parameter-space trim
   does.
 - **Uncertainty is measured:** `2 × max(maxEdgeGap, maxVertexGap)` from `checkBrep`,
-  floored at 1e-7 mm, in file units. OCCT then has no gap to heal, and the validator
+  floored at `Tolerances.point` (as built, B4; the first draft said 1e-7 mm), in file units. OCCT then has no gap to heal, and the validator
   can tell real tolerance growth from declared uncertainty.
 - **Refusal:** `writeStep` runs `checkBrep` and throws `brep-invalid` (carrying the
   report); `step-unsupported` for collapsed edges or open shells.
@@ -2595,6 +2674,67 @@ init ≈ 0.13–0.2 s, small solids import in 0.01–0.2 s. STEP files go to
 4. Always on regardless: `checkBrep`, `readStepSubset`, the arity table and the
    bitwise round trip.
 5. Never vendor the WASM into git. Worth upstreaming: exposing GProp's epsilon.
+
+### 15.5 Results (B4, 2026-10-15, `occt-wasm` 5.3.5 on Node 22.22)
+
+The WASM runs here without workaround (init 0.14 s; a corpus solid imports in 5 to 180 ms),
+so the validator is real, not the stopgap of §15.4: `pnpm --filter @openshaper/geom
+test:occt` is 33 tests, all passing, in about 7 s.
+
+**What runs** (`src/step/step.occt.test.ts`). For each of ten corpus solids (V1 box and
+trimmed box, V2 cylinder, V3 torus, V4 zone and split zone, a mirrored cylinder and zone, a
+rotated cylinder and trimmed box) written with the file unit mm and again with cm: B1 type,
+B2 `isValid`, B3 counts (1 solid, 1 shell, faces / edges / vertices = `StepStats`), B4 tolerance
+growth (the largest `Ve` / `Ed` tolerance in OCCT's BREP text is at most twice the declared
+uncertainty, itself at least `Tolerances.point` = 1e-5 mm), B5 edge curves (each of ours equals
+an OCCT edge parameter by parameter at 9 samples, 1e-6 mm), B6 surfaces (each OCCT face equals one
+of ours at a 5 × 5 grid over its `uvBounds`, 1e-6 mm), B8 volume, plus `containsPoint` inside
+and outside probes. Writer options are exercised on box, cylinder and split zone
+(`trimmedOnly` pcurves, inch file unit, 9 digits). Four mutations of a good file are
+pinned. **B7** and Path A (`toOcctBrepText`, the unhealed native BREP) are **not built**: B7
+compares two OCCT volumes of one solid through different paths; the mesh-volume oracle
+below carries the accuracy claim in the meantime. V5 (fitted pcurve, integration) and V6
+(poles) wait for their milestones; the polynomial prism, lens and plate-with-hole of the
+corpus table are not built (the box covers the polynomial case, and no builder makes a
+holed face yet, so `FACE_BOUND` is untested against OCCT).
+
+**Measured** (model cm, file mm, exact volume = closed form):
+
+| solid      | `getVolume` vs exact | OCCT mesh volume vs exact (0.01 mm deflection) | our `massProperties` |
+| ---------- | -------------------- | ---------------------------------------------- | -------------------- |
+| box        | 0.000 %              | 0.0000 %                                       | exact to 1e-13       |
+| cylinder   | +0.792 %             | −0.0074 %                                      | 1e-9 (31 ms)         |
+| zone       | +0.823 %             | −0.0483 %                                      | 1e-9 (0.5 s)         |
+| split zone | +0.555 %             | −0.0418 %                                      | 1e-9 (0.4 s)         |
+| torus      | +0.194 %             | −0.0257 %                                      | 1e-9 (0.17 s)        |
+
+So §15.2's finding stands on the rational solids: GProp's default volume is 0.2 to 0.8 %
+off, and the mesh volume is the usable oracle. Its bound in the test is `curved area ×
+deflection` plus the Float32 rounding of the returned positions (`2⁻²³` of the extent over the
+area): every point of an inscribed mesh is within the deflection of the surface, and planar
+faces mesh exactly. The measured errors are well inside it.
+
+**Observed behaviour worth knowing.**
+
+- Every corpus solid imports as **one valid solid at the tolerance 1e-7 mm** (OCCT's
+  floor), including the doubly periodic torus (one face, two seams, one vertex), the
+  seamed bands with `u_closed`, and the mirrored copies with opposite `same_sense`.
+- OCCT converts a closed clamped circle edge into a **periodic** B-spline (knots
+  0, ¼, ½, ¾, 1, multiplicity 2) on the same parameter range `[0, 1]` and the same
+  points; encodings are therefore compared by evaluation (B5), not by knot lists.
+- `uvBounds` is the face's _trimmed_ extent (a cap trimmed by a circle of radius 1.5 on a
+  plane with domain ±3 reports ±1.5), and parameters are not unit-scaled by the importer
+  (lengths are: cm model → mm file), which is what the writer relies on.
+- The mutation verdicts of §15.2 reproduce: a flipped `same_sense` or a flipped
+  `ORIENTED_EDGE` imports as a valid solid with the same volume (the writer's gate and
+  `readStepSubset` + `checkBrep` reject both), a vertex moved 0.5 mm off its edges and a
+  rational weight changed from 0.7071 to 0.6 import valid but with the shape tolerance grown past
+  the declared uncertainty (B4 sees them). Each assertion is pinned, so an `occt-wasm`
+  change shows as a failing test.
+- `getVolume` aside, nothing needed a workaround, and no file was rejected. The OCCT
+  mutations are text edits of a good file (`writeStepUnchecked` writes the catalogue's
+  Brep-level mutations in `step.test.ts`, where `readStepSubset` + `checkBrep` must reject
+  each file).
 
 ---
 
@@ -2756,7 +2896,8 @@ API test, ESLint layer, lockfile entry, this document.
   `mesh/tessellate.ts` (incl. retarget); `integrate.ts` (Green's theorem, area);
   devDependencies `delaunator` and `@kninnug/constrainautor`; P19–P21.
 - **B3 Continuity.** `continuity.ts`.
-- **B4 B-rep, STEP and the OCCT validator.** `brep/` (make, check, orient, transform,
+- **B4 B-rep, STEP and the OCCT validator.** _Done 2026-10-15 apart from what §15.5 lists
+  as not built (Path A, B7, V5, V6, prism, lens, plate with a hole)._ `brep/` (make, check, orient, transform,
   mass, watertight mesh); `step/` (writer, schema, subset reader in `testing`);
   analytic solids V1–V4 and the extra corpus in `testing/solids.ts`; devDependency
   `occt-wasm@5.3.5`, `vitest.occt.config.ts`, `test:occt`, the branch's `ci.yml` step;

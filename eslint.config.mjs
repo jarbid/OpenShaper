@@ -43,6 +43,7 @@ const LAYERS = {
         group: [
           'delaunator',
           '@kninnug/constrainautor',
+          'occt-wasm',
           './testing',
           './testing/*',
           '../testing',

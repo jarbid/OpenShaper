@@ -216,6 +216,20 @@ export type {
   KnotContinuity,
 } from './continuity';
 
+// B-rep (§6.19)
+export { makeBrep, transformBrep } from './brep/brep';
+export { checkBrep, DEFAULT_BREP_CHECK_SAMPLING, orientBrep } from './brep/check';
+export type { BrepCheckSampling, BrepEuler, BrepReport } from './brep/check';
+export { faceTrimmedSurface } from './brep/faces';
+export { massProperties } from './brep/mass';
+export { brepEdgeContinuity } from './brep/continuity';
+export { tessellateBrep } from './brep/mesh';
+export type { BrepMesh } from './brep/mesh';
+
+// STEP (§6.20)
+export { writeStep } from './step/write';
+export type { StepResult, StepStats, StepWriteOptions } from './step/write';
+
 // Shared value types (§5)
 export type {
   Affine2,

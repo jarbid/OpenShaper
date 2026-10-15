@@ -153,9 +153,27 @@ import {
   DEFAULT_CONTINUITY_SAMPLING,
   edgeContinuity,
   knotContinuity,
+  brepEdgeContinuity,
+  checkBrep,
+  DEFAULT_BREP_CHECK_SAMPLING,
+  faceTrimmedSurface,
+  makeBrep,
+  massProperties,
+  orientBrep,
+  tessellateBrep,
+  transformBrep,
+  writeStep,
 } from './index';
 import type { Affine2, Affine3, NurbsCurve, Result, TrimLoop } from './index';
-import { checksum, mulberry32, randomCurve, randomSurface } from './testing';
+import {
+  boxSolid,
+  checksum,
+  cylinderSolid,
+  mulberry32,
+  randomCurve,
+  randomSurface,
+  sphericalZoneSolid,
+} from './testing';
 
 /** Every number reachable from `v` (typed arrays included). */
 function numbers(v: unknown, out: number[] = [], seen = new Set<object>()): number[] {
@@ -337,6 +355,21 @@ function cases(seed: number): Case[] {
   const contOpts = { samplesPerSpan: 2, refineSteps: 6 };
   const bSide = { surface: clampedS, edge: 'u1' as const, sameSense: true };
   const thresholds = { gap: 1e-3, angle: 1e-2, curvatureRel: 0.1, curvatureAbs: 1e-3 };
+  // B-rep and STEP (B4): a trimmed box (polynomial) and a cylinder (rational, periodic, seam).
+  const brepBox = boxSolid(2, 3, 5, { trimmed: true });
+  const brepCyl = cylinderSolid(1.5, 4);
+  const brepZone = sphericalZoneSolid(2, 1, { split: true });
+  const brepSpec = {
+    vertices: brepBox.vertices,
+    edges: brepBox.edges,
+    faces: brepBox.faces,
+    shells: brepBox.shells,
+    solids: brepBox.solids,
+  };
+  const mirrorX: Affine3 = [-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
+  const brepSampling = { samplesPerSpan: 3, refineSteps: 8 };
+  const stepOpts = { timestamp: '2026-01-01T00:00:00', fileUnit: 'mm' as const };
+  const fin = (r: { value: unknown }): readonly unknown[] => [r.value];
 
   return [
     {
@@ -958,6 +991,66 @@ function cases(seed: number): Case[] {
       inputs: [faceMesh, trimmed],
       run: () => retargetTessellation(faceMesh, trimmed),
       frozen: same,
+    },
+    {
+      name: 'makeBrep',
+      inputs: [brepSpec],
+      run: () => makeBrep(brepSpec),
+      frozen: (r) => fin(r as { value: unknown }),
+    },
+    {
+      name: 'DEFAULT_BREP_CHECK_SAMPLING',
+      inputs: [],
+      run: () => DEFAULT_BREP_CHECK_SAMPLING,
+      frozen: same,
+    },
+    {
+      name: 'checkBrep',
+      inputs: [brepCyl, brepSampling],
+      run: () => checkBrep(brepCyl, undefined, brepSampling),
+      frozen: (r) => [r, (r as { euler: unknown }).euler],
+    },
+    {
+      name: 'orientBrep',
+      inputs: [brepZone],
+      run: () => orientBrep(brepZone),
+      frozen: same,
+    },
+    {
+      name: 'transformBrep',
+      inputs: [brepCyl, mirrorX],
+      run: () => transformBrep(brepCyl, mirrorX),
+      frozen: same,
+    },
+    {
+      name: 'faceTrimmedSurface',
+      inputs: [brepBox, brepCyl],
+      run: () => [faceTrimmedSurface(brepBox, 0), faceTrimmedSurface(brepCyl, 1)],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'massProperties',
+      inputs: [brepBox],
+      run: () => massProperties(brepBox),
+      frozen: (r) => [r, (r as { volume: unknown }).volume],
+    },
+    {
+      name: 'brepEdgeContinuity',
+      inputs: [brepZone, contOpts],
+      run: () => brepEdgeContinuity(brepZone, 2, contOpts),
+      frozen: same,
+    },
+    {
+      name: 'tessellateBrep',
+      inputs: [brepCyl, meshOpts],
+      run: () => valueOf(tessellateBrep(brepCyl, meshOpts)),
+      frozen: same,
+    },
+    {
+      name: 'writeStep',
+      inputs: [brepCyl, stepOpts],
+      run: () => writeStep(brepCyl, stepOpts),
+      frozen: (r) => [r, (r as { stats: unknown }).stats],
     },
   ];
 }

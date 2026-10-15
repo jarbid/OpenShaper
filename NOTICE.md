@@ -42,3 +42,13 @@ OpenShaper's web app bundles open-source libraries including React, Three.js,
   work buffers moved into factories, in
   `packages/geom/src/mesh/vendor/robust-predicates.ts`.
   Upstream: https://github.com/mourner/robust-predicates
+
+## Test-only tools (never shipped)
+
+- **occt-wasm** 5.3.5 (wrapper `MIT OR Apache-2.0`; the compiled WebAssembly is
+  OpenCascade Technology, `LGPL-2.1-only`). A devDependency of `packages/geom`
+  only, imported by `packages/geom/src/**/*.occt.test.ts` to check that our STEP
+  files import as valid solids (`pnpm --filter @openshaper/geom test:occt`).
+  It is not bundled, vendored or distributed with OpenShaper, and nothing in the
+  web app or desktop shell can import it.
+  Upstream: https://github.com/andymai/occt-wasm
