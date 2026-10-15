@@ -165,6 +165,9 @@ export function crossings(
     if (pc.t1 - pc.t0 <= minWidth) return;
     const [l, r] = splitPiece(pc, 0.5);
     crossings(l, k, value, minWidth, out);
+    // The split point is both halves' shared end, so a crossing exactly there
+    // straddles neither half's box strictly: record it here.
+    if (ctrl(r, 0, k) === value) out.push(r.t0);
     crossings(r, k, value, minWidth, out);
     return;
   }

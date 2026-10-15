@@ -186,6 +186,76 @@ describe('integrateTrimmed: multi-span surfaces under a trim (knot-line splits)'
     expect(adaptive.converged).toBe(true);
     expect(relErr(exact.value, adaptive.value)).toBeLessThanOrEqual(1e-12);
   });
+
+  it('a trim crossing a knot line exactly at a de Casteljau split point keeps that break', () => {
+    // Bilinear plane (u, v, 0) with a u-knot at 0.5; f = max(u − 0.5, 0)² is
+    // a polynomial on each span. The cubic side is non-monotone in u and
+    // crosses u = 0.5 at s = 0.18…, exactly at s = 0.5 (the first bisection
+    // point: u(½) = (0.25 + 3 + 0 + 0.75) / 8), and at s = 0.85….
+    const S = makeSurface({
+      u: clampedBasis(1, [0, 0, 0.5, 1, 1]),
+      v: clampedBasis(1, [0, 0, 1, 1]),
+      points: [0, 0, 0, 0, 1, 0, 0.5, 0, 0, 0.5, 1, 0, 1, 0, 0, 1, 1, 0],
+    });
+    const cubic = [0.25, 0.1, 1.0, 0.3, 0.0, 0.5, 0.75, 0.7];
+    const corners = [
+      { x: 0.75, y: 0.7 },
+      { x: 0.05, y: 0.95 },
+      { x: 0.02, y: 0.05 },
+      { x: 0.25, y: 0.1 },
+    ];
+    const ts = ok(
+      makeTrimmedSurface(
+        S,
+        loop([
+          bezierCurve(2, cubic),
+          line2(corners[0]!, corners[1]!),
+          line2(corners[1]!, corners[2]!),
+          line2(corners[2]!, corners[3]!),
+        ]),
+      ),
+    );
+    const f = (u: number): number => Math.max(u - 0.5, 0) ** 2;
+    // Oracle (independent of the code): Green, ∬ f = ∮ G(u) dv with
+    // G(u) = max(u − 0.5, 0)³ / 3, by composite Simpson on each Bézier side.
+    // G is C², so the error is O(h⁴) ≈ 1e-17 here, far below the bound.
+    const sides: number[][] = [cubic];
+    for (let k = 0; k < 3; k++) {
+      const p = corners[k]!;
+      const q = corners[k + 1]!;
+      sides.push([p.x, p.y, q.x, q.y]);
+    }
+    const G = (u: number): number => Math.max(u - 0.5, 0) ** 3 / 3;
+    let want = 0;
+    const N = 20000;
+    for (const cp of sides) {
+      const n = cp.length / 2 - 1;
+      const at = (s: number): [number, number] => {
+        // Bernstein form: u(s) and v′(s).
+        let u = 0;
+        let dv = 0;
+        for (let j = 0; j <= n; j++) {
+          const bin = n === 3 ? [1, 3, 3, 1][j]! : 1;
+          u += bin * s ** j * (1 - s) ** (n - j) * cp[2 * j]!;
+        }
+        for (let j = 0; j < n; j++) {
+          const bin = n === 3 ? [1, 2, 1][j]! : 1;
+          dv += n * bin * s ** j * (1 - s) ** (n - 1 - j) * (cp[2 * j + 3]! - cp[2 * j + 1]!);
+        }
+        return [u, dv];
+      };
+      const g = (s: number): number => {
+        const [u, dv] = at(s);
+        return G(u) * dv;
+      };
+      let sum = g(0) + g(1);
+      for (let i = 1; i < N; i++) sum += (i % 2 === 1 ? 4 : 2) * g(i / N);
+      want += sum / (3 * N);
+    }
+    const r = integrateTrimmed(ts, (u) => f(u), { polynomialDegree: [2, 0] });
+    expect(r.converged).toBe(true);
+    expect(relErr(r.value, want)).toBeLessThanOrEqual(EXACT);
+  });
 });
 
 /** Radon's 7-point rule on a triangle (exact for degree ≤ 5; Strang & Fix, table 4.1), closed form. */
