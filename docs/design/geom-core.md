@@ -1529,7 +1529,7 @@ denser sampling) and benchmark P18 (§17).
 export function makeTrimLoop(
   curves: readonly ClampedCurve<2>[],
   opts?: { readonly snap?: boolean; readonly tol?: Partial<Tolerances> },
-): Result<TrimLoop>; // snap: make joins bitwise
+): Result<TrimLoop>; // snap: make joins within paramRel × loop extent ((u, v) units) bitwise
 export function naturalBoundaryLoop(s: NurbsSurface): TrimLoop; // clamped surfaces only
 export function makeTrimmedSurface(
   surface: NurbsSurface,
@@ -1568,7 +1568,13 @@ export function enclosedVolume(
 ): QuadratureResult;
 ```
 
-As built (B2): trim validation and `classifyUV` are certified by subdivision of the
+As built (B2): trim-loop closure is a parameter-space question, so a join gap is
+measured in (u, v) units against `paramRel × max(width, height)` of the loop's
+control-point box (never above `uvTol`, as the loop lies in the domain), not
+against the 3D `point`. `closestPointOnTrimmed` takes, when the surface's minimum
+classifies outside, the nearer of the best local minimum inside the trim (seeding
+and Newton results restricted to inside samples) and the trim loops' images.
+Trim validation and `classifyUV` are certified by subdivision of the
 loops' rational Bézier pieces (convex-hull boxes; `pieces.ts`) at the resolution
 `paramRel · max(L_u, L_v)`; points within `√2` of that of a loop are `'boundary'`,
 every other point is classified exactly by a certified ray-crossing winding number.
@@ -1641,6 +1647,8 @@ export interface FaceMesh {
   readonly loopVertices: ReadonlyU32; // B2: boundary samples' vertices in loop order
   readonly loopStarts: ReadonlyU32;
   readonly boundarySource: 'trim' | 'caller';
+  readonly naturalOuter: boolean; // B2: outer = null (retarget checks it)
+  readonly loopCurves: ReadonlyU32; // B2: trim curves per loop (retarget checks it); empty for caller samples
   readonly plan: SurfaceSamplePlan; // all later evaluation, including drags, goes through it
   readonly position: ReadonlyF64; // B2: the plan's outputs over uv: positions,
   readonly normal: ReadonlyF64; //     exact normals (nDer ≥ 1),
@@ -1653,7 +1661,7 @@ export function tessellateTrimmedSurface(
   opts: TessellationOptions,
   boundary?: BoundarySamples,
 ): Result<FaceMesh>;
-/** Keeps topology while a trim moves; null when a triangle would flip (exact orient2d) ⇒ re-tessellate. */
+/** Keeps topology while a trim moves; null when a triangle would flip (exact orient2d) or the loop structure (naturalOuter, loopCurves) changed ⇒ re-tessellate. */
 export function retargetTessellation(mesh: FaceMesh, ts: TrimmedSurface): FaceMesh | null;
 ```
 
@@ -2193,8 +2201,11 @@ control indices, so per-frame evaluation has no modular arithmetic.
   bounds; a result held at a break by an outward gradient restarts in the neighbouring
   patch and moves on while that lowers the distance, so a result that stays is a kink
   minimum. A seed sampled on its cell's upper end starts in that cell's patch.
-- **Trimmed:** if the unconstrained minimum classifies outside, project onto each trim
-  loop's image as a curve on the surface (`onBoundary: 'trim'`). (B2.)
+- **Trimmed:** if the unconstrained minimum classifies outside, the trimmed minimum is
+  a local minimum inside the trim or on a trim loop's image: take the nearer of the
+  best inside minimum (seeds from inside samples only, Newton results kept only
+  inside) and the projection onto each trim loop's image as a curve on the surface
+  (`onBoundary: 'trim'`). (B2.)
 - **Batches:** warm start from the previous point's result, falling back to seeding
   when Newton fails: a warm result is kept if it converged within the continuity bound
   `d_i ≤ d_{i−1} + |P_i − P_{i−1}| + point`, which the global minimum always satisfies.
@@ -2272,7 +2283,10 @@ For an edge with 3D curve `C(t)` and sides `(S_A, p_A)`, `(S_B, p_B)`:
    are checked with exact `orient2d`, and only a flip forces a re-tessellation.
 
 As built (B2), for a single face (B4 adds the edge-first B-rep pass; until then a
-caller shares an edge by passing the same `BoundarySamples` to both faces):
+caller shares an edge by passing the same `BoundarySamples` to both faces, which is
+bitwise watertight only for faces on the same surface: faces on different surfaces
+evaluate their own surfaces at the shared (u, v), so their shared vertices agree only
+to the surfaces' gap along the edge):
 
 - Trim curves are sampled adaptively before the CDT (chord to the curve's image and
   to the surface along the straight (u, v) chord, angle, `maxEdge`, local seed

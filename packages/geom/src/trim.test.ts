@@ -15,12 +15,18 @@
  *   exact winding number of polygons (computed with exact `orient2d` and the
  *   crossing rule); points within 1e-9 of a boundary are skipped (the
  *   classifier's band is `√2 · paramRel · L` ≈ 1.4e-12 here);
- * - closest point on a trimmed plane: analytic.
+ * - closest point on a trimmed plane: analytic; on a two-valley quartic
+ *   trimmed to one valley (the surface's minimum outside, the trimmed minimum
+ *   an interior one): brute force over a dense grid of the trimmed domain
+ *   (the converged result is at most the best sample, and within 1e-6
+ *   relative of it: grid step 1e-3 in x, the distance's error is quadratic in
+ *   the step).
  */
 import { describe, expect, it } from 'vitest';
 import { bezierCurve, transformCurve2 } from './curve';
 import { orient2d } from './mesh/predicates';
-import { circle2, line2, planeSurface, polyline, sphere } from './primitives';
+import { bezierSurface, circle2, line2, planeSurface, polyline, sphere } from './primitives';
+import { surfacePoint } from './surface';
 import { DEFAULT_TOLERANCES } from './tolerance';
 import {
   checkTrimLoops,
@@ -76,10 +82,11 @@ describe('makeTrimLoop', () => {
     expect(Object.isFrozen(c)).toBe(true);
   });
 
-  it('requires bitwise joins; snaps a join within point tolerance on request', () => {
+  it('requires bitwise joins; snaps a join within the parameter tolerance on request', () => {
     const a = line2({ x: 0, y: 0 }, { x: 1, y: 0 });
     const b = line2({ x: 1, y: 0 }, { x: 0, y: 1 });
-    const gap = line2({ x: 0, y: 1 + 1e-9 }, { x: 0, y: 0 });
+    // Join tolerance: paramRel × loop extent = 1e-12 in (u, v) units here.
+    const gap = line2({ x: 0, y: 1 + 5e-13 }, { x: 0, y: 0 });
     const r = makeTrimLoop([a, b, gap]);
     expect(codes(r)).toEqual(['trim-not-closed']);
     const s = ok(makeTrimLoop([a, b, gap], { snap: true }));
@@ -87,6 +94,19 @@ describe('makeTrimLoop', () => {
     expect(Math.abs(s.signedArea - 0.5)).toBeLessThanOrEqual(1e-15);
     const far = line2({ x: 0, y: 1.001 }, { x: 0, y: 0 });
     expect(codes(makeTrimLoop([a, b, far], { snap: true }))).toEqual(['trim-not-closed']);
+    // A (u, v) gap is not compared with the 3D length `point` (1e-6 cm): 9e-7
+    // is far above parameter equality and is not snapped.
+    const near = line2({ x: 0, y: 1 + 9e-7 }, { x: 0, y: 0 });
+    expect(codes(makeTrimLoop([a, b, near], { snap: true }))).toEqual(['trim-not-closed']);
+    // The tolerance scales with the loop: the same relative gap on a loop 1000× larger snaps.
+    const k = 1000;
+    const big = [
+      line2({ x: 0, y: 0 }, { x: k, y: 0 }),
+      line2({ x: k, y: 0 }, { x: 0, y: k }),
+      line2({ x: 0, y: k * (1 + 5e-13) }, { x: 0, y: 0 }),
+    ];
+    expect(codes(makeTrimLoop(big))).toEqual(['trim-not-closed']);
+    expect(ok(makeTrimLoop(big, { snap: true })).curves[2]!.cw[1]).toBe(k);
     // There and back: zero area, no orientation.
     expect(codes(makeTrimLoop([a, line2({ x: 1, y: 0 }, { x: 0, y: 0 })]))).toEqual([
       'trim-orientation',
@@ -279,5 +299,46 @@ describe('closestPointOnTrimmed', () => {
     });
     expect(Math.abs(c.distance - Math.hypot(0.4, 0.1))).toBeLessThanOrEqual(1e-12);
     expect(Math.abs(c.uv.u - (0.5 + 0.3 * Math.cos(th)))).toBeLessThanOrEqual(1e-12);
+  });
+
+  it('finds a minimum inside the trim when the surface minimum is outside it', () => {
+    // z = (x² − 1)² over x = 4u − 2 ∈ [−2, 2], y = 2v − 1: valleys at x = ±1.
+    // Power basis in u: 256u⁴ − 512u³ + 352u² − 96u + 9; Bernstein coefficients
+    // b_i = Σ_{j≤i} C(i, j)/C(4, j) a_j.
+    const a = [9, -96, 352, -512, 256];
+    const C = (n: number, k: number): number => {
+      let r = 1;
+      for (let i = 1; i <= k; i++) r = (r * (n - k + i)) / i;
+      return r;
+    };
+    const pts: number[] = [];
+    for (let i = 0; i <= 4; i++) {
+      let b = 0;
+      for (let j = 0; j <= i; j++) b += (C(i, j) / C(4, j)) * a[j]!;
+      for (let j = 0; j <= 1; j++) pts.push(-2 + i, -1 + 2 * j, b);
+    }
+    const S = bezierSurface(pts, 5, 2);
+    // Trimmed to u ∈ [0, 0.5] (x ≤ 0): the valley at x = −1 only.
+    const left = ok(makeTrimmedSurface(S, poly([0, 0, 0.5, 0, 0.5, 1, 0, 1])));
+    const p = { x: 0.01, y: 0, z: -5 };
+    const r = closestPointOnTrimmed(left, p);
+    let bf = Infinity;
+    const n = 2000;
+    for (let i = 0; i <= n; i++) {
+      for (let j = 0; j <= 10; j++) {
+        const q = surfacePoint(S, (0.5 * i) / n, j / 10);
+        bf = Math.min(bf, Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z));
+      }
+    }
+    expect(r.onBoundary).toBe(false);
+    expect(r.converged).toBe(true);
+    expect(classifyUV(left, r.uv)).toBe('inside');
+    expect(r.distance).toBeLessThanOrEqual(bf);
+    expect((bf - r.distance) / bf).toBeLessThanOrEqual(1e-6);
+    // The untrimmed minimum is the other valley, outside the trim.
+    const right = ok(makeTrimmedSurface(S, poly([0.5, 0, 1, 0, 1, 1, 0.5, 1])));
+    const rr = closestPointOnTrimmed(right, p);
+    expect(rr.uv.u).toBeGreaterThan(0.5);
+    expect(rr.distance).toBeLessThan(r.distance);
   });
 });

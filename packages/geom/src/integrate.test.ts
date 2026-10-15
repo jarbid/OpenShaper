@@ -10,7 +10,11 @@
  * - cylinder closed by two trimmed planar caps: volume `πr²h`;
  * - polynomial prism (bicubic top over the unit square, ruled walls): volume
  *   `Σ z_ij / 16` exactly (each cubic Bernstein integrates to ¼);
- * - polynomial integrands over polygonal loops: Green's rule is exact.
+ * - polynomial integrands over polygonal loops: Green's rule is exact;
+ * - multi-span bicubic (a C0 u-knot of multiplicity 3, simple knots in u and
+ *   v) under a polynomial trim crossing every knot line: the exact Green rule
+ *   (trim curves split where they cross knot lines) against the tensor rule
+ *   over the natural domain, and against adaptive integration.
  *
  * Tolerances and why:
  * - rational geometry or the area element (adaptive): `10 · quadRel` relative,
@@ -24,11 +28,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import { bezierSurface, circle2, cylinder, line2, planeSurface, sphere, torus } from './primitives';
-import { transformCurve2 } from './curve';
+import { bezierCurve, transformCurve2 } from './curve';
+import { clampedBasis } from './basis';
+import { mulberry32 } from './testing';
 import { DEFAULT_TOLERANCES } from './tolerance';
 import { enclosedVolume, integrateTrimmed, surfaceArea } from './integrate';
-import { makeTrimLoop, makeTrimmedSurface } from './trim';
-import { transformSurface } from './surface';
+import { makeTrimLoop, makeTrimmedSurface, naturalBoundaryLoop } from './trim';
+import { makeSurface, transformSurface } from './surface';
 import type { ClampedCurve, NurbsSurface, Result, TrimLoop, TrimmedSurface } from './types';
 
 const QREL = 10 * DEFAULT_TOLERANCES.quadRel;
@@ -133,6 +139,52 @@ describe('integrateTrimmed: exact rules', () => {
     const f = (u: number, v: number): number => u ** 6 * v;
     const low = integrateTrimmed(ts, (u, v) => f(u, v), { polynomialDegree: [1, 1] });
     expect(relErr(low.value, radon7Refined(P, f))).toBeGreaterThan(1e-6);
+  });
+});
+
+describe('integrateTrimmed: multi-span surfaces under a trim (knot-line splits)', () => {
+  // Bicubic: u knots 0.3 (multiplicity 3, C0) and 0.6; v knots 0.25 and 0.7.
+  const U = [0, 0, 0, 0, 0.3, 0.3, 0.3, 0.6, 1, 1, 1, 1];
+  const V = [0, 0, 0, 0, 0.25, 0.7, 1, 1, 1, 1];
+  const nu = U.length - 4;
+  const nv = V.length - 4;
+  const rnd = mulberry32(7);
+  const pts: number[] = [];
+  for (let i = 0; i < nu; i++) {
+    for (let j = 0; j < nv; j++) {
+      pts.push(2 * (i / (nu - 1)) + 0.2 * rnd(), 1.5 * (j / (nv - 1)) + 0.2 * rnd(), rnd());
+    }
+  }
+  const s = makeSurface({ u: clampedBasis(3, U), v: clampedBasis(3, V), points: pts });
+  /** The volume integrand S·(S_u × S_v): bidegree (3p − 1, 3q − 1) per span pair. */
+  const vol = (_u: number, _v: number, d: ArrayLike<number>): number =>
+    d[0]! * (d[4]! * d[8]! - d[5]! * d[7]!) +
+    d[1]! * (d[5]! * d[6]! - d[3]! * d[8]!) +
+    d[2]! * (d[3]! * d[7]! - d[4]! * d[6]!);
+  const deg = [8, 8] as const;
+
+  it('the exact Green rule over the natural loop equals the tensor rule', () => {
+    const tensor = integrateTrimmed(ok(makeTrimmedSurface(s, null)), vol, {
+      polynomialDegree: deg,
+    });
+    const green = integrateTrimmed(ok(makeTrimmedSurface(s, naturalBoundaryLoop(s))), vol, {
+      polynomialDegree: deg,
+    });
+    expect(relErr(green.value, tensor.value)).toBeLessThanOrEqual(EXACT);
+  });
+
+  it('a curved trim crossing every knot line: exact rule equals adaptive', () => {
+    // Triangle with one quadratic side; it crosses u = 0.3, 0.6 and v = 0.25, 0.7.
+    const a = { x: 0.1, y: 0.1 };
+    const b = { x: 0.9, y: 0.15 };
+    const c = { x: 0.15, y: 0.85 };
+    const tri = loop([line2(a, b), bezierCurve(2, [b.x, b.y, 0.75, 0.95, c.x, c.y]), line2(c, a)]);
+    const ts = ok(makeTrimmedSurface(s, tri));
+    const exact = integrateTrimmed(ts, vol, { polynomialDegree: deg });
+    // Adaptive to quadRel 1e-13; the file's 10× margin gives the bound.
+    const adaptive = integrateTrimmed(ts, vol, { tol: { quadRel: 1e-13 } });
+    expect(adaptive.converged).toBe(true);
+    expect(relErr(exact.value, adaptive.value)).toBeLessThanOrEqual(1e-12);
   });
 });
 

@@ -15,10 +15,14 @@
  *   `orient2d`); a doubly periodic torus welded along its bitwise-identical
  *   seam vertices has Euler characteristic 0; boundary vertices lie exactly on
  *   their trim curves at their stored parameters;
- * - **watertight shared edges**: two faces on one surface sharing a trim
- *   circle, the second given the first's boundary samples reversed: the
- *   shared vertices' positions are bitwise equal and every shared edge is used
- *   once by each face in opposite directions;
+ * - **watertight shared edges** (faces sharing one parameterisation only): two
+ *   faces on one surface sharing a trim circle, the second given the first's
+ *   boundary samples reversed: the shared vertices' positions are bitwise
+ *   equal (by construction: the same surface at the same (u, v)) and every
+ *   shared edge is used once by each face in opposite directions. Faces on
+ *   different surfaces are B4's edge-first pass (design §11.5);
+ * - **retarget**: refuses a mesh whose loop structure (natural outer or not,
+ *   curves per loop) differs from the new trim;
  * - **creases and folds** (normal discontinuities, where no refinement can
  *   meet `angleTol`): across a C0 knot line no triangle straddles the crease
  *   (edges are compared with one-sided normals and split on the knot line);
@@ -32,7 +36,7 @@ import { describe, expect, it } from 'vitest';
 import { transformCurve2 } from '../curve';
 import { closestPointOnSurface } from '../project';
 import { clampedBasis } from '../basis';
-import { bezierSurface, circle2, sphere, torus } from '../primitives';
+import { bezierSurface, circle2, planeSurface, polyline, sphere, torus } from '../primitives';
 import { makeSurface } from '../surface';
 import { DEFAULT_TOLERANCES } from '../tolerance';
 import { makeTrimLoop, makeTrimmedSurface } from '../trim';
@@ -327,7 +331,7 @@ describe('tessellateTrimmedSurface: trimmed faces', () => {
     );
   });
 
-  it('two faces sharing a trim circle are watertight', () => {
+  it('two faces on one surface sharing a trim circle are watertight', () => {
     const tol = { chordTol: 0.01, angleTol: 0.1 };
     const inner = ok(tessellateTrimmedSurface(disc, tol));
     const ring = ok(makeTrimmedSurface(S, null, [ok(makeTrimLoop([cwCircle(0.45, 0.5, 0.3)]))]));
@@ -394,6 +398,42 @@ describe('tessellateTrimmedSurface: trimmed faces', () => {
     expect(rm!.position[3 * v]).not.toBe(m.position[3 * v]);
     const far = ok(makeTrimmedSurface(S, ok(makeTrimLoop([circle2({ x: 0.45, y: 0.5 }, 0.05)]))));
     expect(retargetTessellation(m, far)).toBeNull();
+  });
+
+  it('retarget refuses a changed loop structure (natural or not, curves per loop)', () => {
+    const tol = { chordTol: 0.01, angleTol: 0.1 };
+    const P = planeSurface({ x: 0, y: 0, z: 0 }, { x: 10, y: 0, z: 0 }, { x: 0, y: 10, z: 0 });
+    // Inset rectangle of four curves vs the natural boundary (also four edges).
+    const c = [0.2, 0.2, 0.8, 0.2, 0.8, 0.8, 0.2, 0.8];
+    const sides = [0, 1, 2, 3].map((k) =>
+      polyline([c[2 * k]!, c[2 * k + 1]!, c[(2 * k + 2) % 8]!, c[(2 * k + 3) % 8]!], 2),
+    );
+    const inset = ok(makeTrimmedSurface(P, ok(makeTrimLoop(sides))));
+    const nat = ok(makeTrimmedSurface(P, null));
+    const mInset = ok(tessellateTrimmedSurface(inset, tol));
+    const mNat = ok(tessellateTrimmedSurface(nat, tol));
+    expect([mInset.naturalOuter, Array.from(mInset.loopCurves)]).toEqual([false, [4]]);
+    expect([mNat.naturalOuter, Array.from(mNat.loopCurves)]).toEqual([true, [4]]);
+    expect(retargetTessellation(mInset, nat)).toBeNull();
+    expect(retargetTessellation(mNat, inset)).toBeNull();
+    expect(retargetTessellation(mInset, inset)).not.toBeNull();
+    // The same total curve count, spread differently over the loops.
+    const sq = [0.1, 0.1, 0.9, 0.1, 0.9, 0.9, 0.1, 0.9];
+    const tri = [0.4, 0.4, 0.4, 0.6, 0.6, 0.5]; // clockwise
+    const outer1 = ok(makeTrimLoop([polyline(sq, 2, true)]));
+    const outer2 = ok(
+      makeTrimLoop([polyline(sq.slice(0, 6), 2), polyline([...sq.slice(4), 0.1, 0.1], 2)]),
+    );
+    const hole1 = ok(makeTrimLoop([polyline(tri, 2, true)]));
+    const hole2 = ok(
+      makeTrimLoop([polyline(tri.slice(0, 4), 2), polyline([...tri.slice(2), 0.4, 0.4], 2)]),
+    );
+    const a = ok(makeTrimmedSurface(P, outer1, [hole2]));
+    const b = ok(makeTrimmedSurface(P, outer2, [hole1]));
+    const mA = ok(tessellateTrimmedSurface(a, tol));
+    expect(Array.from(mA.loopCurves)).toEqual([1, 2]);
+    expect(retargetTessellation(mA, b)).toBeNull();
+    expect(retargetTessellation(mA, a)).not.toBeNull();
   });
 
   it('fails on crossing caller boundaries', () => {

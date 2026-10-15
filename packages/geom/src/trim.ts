@@ -29,7 +29,7 @@ import { curveOnSurface, curveOnSurfaceEvalInto } from './curve-on-surface';
 import { errResult, fail, okResult } from './errors';
 import { bezierPieces, ctrl, monotone, pieceBox, splitPiece } from './pieces';
 import type { Piece } from './pieces';
-import { checkSeeding, closestPointOnSurface } from './project';
+import { checkSeeding, closestPointOnSurface, closestPointOnSurfaceWhere } from './project';
 import type { ProjectionSeeding, SurfaceProjection } from './project';
 import { gaussLegendre, integrate1d } from './quadrature';
 import { checkSurfaceShape } from './surface';
@@ -132,12 +132,40 @@ function freezeLoop(curves: readonly ClampedCurve<2>[], t: Tolerances): TrimLoop
 }
 
 /**
+ * Join tolerance of a trim loop, in parameter units: `paramRel` (parameter
+ * equality, design §7) times the larger side of the loop's control-point box.
+ * A loop lives in (u, v), so its closure is a parameter question: `point`
+ * (cm) has no meaning there, and mapping the gap to 3D would accept large
+ * (u, v) gaps where the surface degenerates (a pole). The loop lies in the
+ * domain, so this never exceeds the classification resolution `uvTol`.
+ */
+function joinTol(curves: readonly ClampedCurve<2>[], t: Tolerances): number {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const c of curves) {
+    for (let i = 0; i < c.basis.count; i++) {
+      const x = c.cw[3 * i]! / c.cw[3 * i + 2]!;
+      const y = c.cw[3 * i + 1]! / c.cw[3 * i + 2]!;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+  }
+  return t.paramRel * Math.max(x1 - x0, y1 - y0);
+}
+
+/**
  * A trim loop from clamped 2D curves head to tail. Joins must be bitwise
  * (end control point of curve i = start control point of curve i + 1, and
- * last to first); with `snap`, a join within `point` is made bitwise by moving
- * the next curve's start control point (its weight kept). Errors
- * (`trim-not-closed`): a gap above `point`, or below it without `snap`, or a
- * join a weighted control point cannot reproduce bitwise. A loop of zero
+ * last to first); with `snap`, a join within the parameter tolerance
+ * `paramRel × max(box width, box height)` of the loop's control points (in
+ * (u, v) units, see {@link joinTol}) is made bitwise by moving the next
+ * curve's start control point (its weight kept). Errors (`trim-not-closed`):
+ * a gap above that tolerance, or below it without `snap`, or a join a
+ * weighted control point cannot reproduce bitwise. A loop of zero
  * signed area has no orientation (`trim-orientation`). Contract violations
  * (no curves, not 2D, not clamped) throw.
  */
@@ -152,6 +180,7 @@ export function makeTrimLoop(
   curves.forEach(checkPcurve);
   const out = curves.slice();
   const n = out.length;
+  const tolUV = joinTol(curves, t);
   for (let i = 0; i < n; i++) {
     const j = (i + 1) % n;
     const a = endOf(out[i]!);
@@ -159,14 +188,14 @@ export function makeTrimLoop(
     if (a.x === b.x && a.y === b.y) continue;
     const gap = Math.hypot(a.x - b.x, a.y - b.y);
     const at = { index: j, uv: { u: b.x, v: b.y } };
-    if (gap > t.point || !opts?.snap) {
+    if (gap > tolUV || !opts?.snap) {
       return errResult([
         {
           code: 'trim-not-closed',
           severity: 'error',
           message:
-            gap > t.point
-              ? `trim curve ${i} ends ${gap} from the start of curve ${j} (point tolerance ${t.point})`
+            gap > tolUV
+              ? `trim curve ${i} ends ${gap} (u, v) from the start of curve ${j} (join tolerance ${tolUV} = paramRel × loop extent)`
               : `trim curve ${i} ends ${gap} from the start of curve ${j}: within tolerance but not bitwise (pass snap: true)`,
           at,
           value: gap,
@@ -845,9 +874,12 @@ function projectOnTrimCurve(
 
 /**
  * The closest point of a trimmed surface: the closest point of the surface
- * when it classifies inside (or on the boundary); otherwise the closest point
- * of the trim loops' images on the surface (`onBoundary: 'trim'`), found per
- * curve by {@link projectOnTrimCurve}. Like the untrimmed projection this is a
+ * when it classifies inside (or on the boundary). Otherwise the trimmed
+ * minimum is either a local minimum of the surface inside the trim or a point
+ * of a trim loop's image: the nearer of the best inside minimum (seeded from
+ * the samples inside only, results kept only inside) and the closest point of
+ * the loops' images (`onBoundary: 'trim'`, per curve by
+ * {@link projectOnTrimCurve}). Like the untrimmed projection this is a
  * sampled global search (§11.2), not a proof.
  */
 export function closestPointOnTrimmed(
@@ -871,6 +903,14 @@ export function closestPointOnTrimmed(
     }
   }
   const { c, r } = best!;
+  const inner = closestPointOnSurfaceWhere(
+    s,
+    p,
+    (u, v) => classifyPrepared(pl, u, v) !== 'outside',
+    t,
+    seeding,
+  );
+  if (inner !== null && inner.distance * inner.distance < r.d2) return inner;
   const sc = makeScratch(Math.max(c.basis.degree, s.u.degree, s.v.degree), 0);
   const uvOut = new Float64Array(2);
   curveEvalInto(c, r.t, 0, uvOut, 0, sc);

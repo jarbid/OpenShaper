@@ -19,9 +19,12 @@
  *    floor (`paramRel`). A natural boundary is sampled at the seed grid lines,
  *    canonically (ascending), so its seam edges in a periodic direction get
  *    bitwise identical samples. Joins use the trim curves' exact end control
- *    points. A caller can instead pass the boundary samples (shared edges of a
- *    B-rep: every face then has identical boundary (u, v), hence watertight
- *    shared edges).
+ *    points. A caller can instead pass the boundary samples. Faces sharing one
+ *    parameterisation (trims of the same surface) then get bitwise identical
+ *    shared-edge positions; faces on different surfaces each evaluate their
+ *    own surface, so their shared vertices agree only to the surfaces' gap
+ *    along the edge (bitwise watertightness across surfaces is B4's
+ *    edge-first pass, positions from the edge curve, design §11.5).
  * 3. **CDT in metric-scaled (u, v)**, `(x, y) = (u·2^a, v·2^b)` with `2^a`,
  *    `2^b` the powers of two nearest the mean `|S_u|`, `|S_v|`: near-Delaunay
  *    in 3D, and exact (scaling by powers of two loses nothing, so orientation
@@ -136,6 +139,13 @@ export interface FaceMesh {
   readonly loopStarts: ReadonlyU32;
   /** Where the boundary came from: sampled from the trim loops, or supplied by the caller. */
   readonly boundarySource: 'trim' | 'caller';
+  /** The outer loop was the natural boundary (`outer = null`). */
+  readonly naturalOuter: boolean;
+  /**
+   * Trim curves per loop (the natural boundary counts its four edges), so
+   * `boundaryEdge` ids map back to loops; empty for caller samples.
+   */
+  readonly loopCurves: ReadonlyU32;
   /** All later evaluation, including drags, goes through it. */
   readonly plan: SurfaceSamplePlan;
   /** Positions, stride 3. */
@@ -452,10 +462,11 @@ function sampleLoops(
   ctx: Ctx,
   ts: TrimmedSurface,
   grid: { us: number[]; vs: number[] },
-): { samples: Sample[]; loopStarts: number[] } {
+): { samples: Sample[]; loopStarts: number[]; loopCurves: number[] } {
   const s = ctx.s;
   const samples: Sample[] = [];
   const loopStarts: number[] = [0];
+  const loopCurves: number[] = [];
   const natural = ts.outer === null;
   const loops: TrimLoop[] = natural ? [rectangleLoop(s), ...ts.holes] : loopsOf(ts);
   const [u0, u1] = s.u.domain;
@@ -490,8 +501,9 @@ function sampleLoops(
       g++;
     }
     loopStarts.push(samples.length);
+    loopCurves.push(loop.curves.length);
   });
-  return { samples, loopStarts };
+  return { samples, loopStarts, loopCurves };
 }
 
 // ---------------------------------------------------------------------------
@@ -581,6 +593,7 @@ export function tessellateTrimmedSurface(
   // Boundary samples.
   let samples: Sample[];
   let loopStarts: number[];
+  let loopCurves: number[] = [];
   let edgeIds: ArrayLike<number> | undefined;
   if (boundary !== undefined) {
     const uv = boundary.uv;
@@ -606,7 +619,7 @@ export function tessellateTrimmedSurface(
     loopStarts = ls;
     edgeIds = boundary.edges;
   } else {
-    ({ samples, loopStarts } = sampleLoops(ctx, ts, grid));
+    ({ samples, loopStarts, loopCurves } = sampleLoops(ctx, ts, grid));
   }
   // Seeds: interior grid nodes not too close to the boundary.
   const { us, vs } = grid;
@@ -681,7 +694,16 @@ export function tessellateTrimmedSurface(
   for (let v = 0; v < st.nv; v++) cacheVertex(ctx, st, vc, v);
   const maxErr = refine(ctx, st, vc);
   return okResult(
-    ...assemble(ctx, st, samples, loopStarts, edgeIds, boundary === undefined, o.nDer, maxErr),
+    ...assemble(
+      ctx,
+      st,
+      samples,
+      { loopStarts, loopCurves, naturalOuter: ts.outer === null },
+      edgeIds,
+      boundary === undefined,
+      o.nDer,
+      maxErr,
+    ),
   );
 }
 
@@ -850,7 +872,11 @@ function assemble(
   ctx: Ctx,
   st: CdtState,
   samples: readonly Sample[],
-  loopStarts: readonly number[],
+  loops: {
+    readonly loopStarts: readonly number[];
+    readonly loopCurves: readonly number[];
+    readonly naturalOuter: boolean;
+  },
   edgeIds: ArrayLike<number> | undefined,
   fromTrim: boolean,
   nDer: 0 | 1 | 2,
@@ -911,8 +937,10 @@ function assemble(
     boundaryEdge,
     boundaryParam,
     loopVertices,
-    loopStarts: Uint32Array.from(loopStarts),
+    loopStarts: Uint32Array.from(loops.loopStarts),
     boundarySource: fromTrim ? ('trim' as const) : ('caller' as const),
+    naturalOuter: loops.naturalOuter,
+    loopCurves: Uint32Array.from(loops.loopCurves),
     ...outputs,
     maxChordError: maxErr,
   });
@@ -950,8 +978,8 @@ function evaluate(
  * §11.5 step 6): boundary vertices keep their trim parameters and take the new
  * curves' points there (a natural boundary keeps its (u, v)); interior vertices
  * keep their (u, v). Returns `null` when a triangle would flip or degenerate
- * (exact `orient2d` in (u, v)) or the loops no longer match the mesh's (curve
- * counts per loop, natural or not): then re-tessellate. Chord accuracy is not
+ * (exact `orient2d` in (u, v)) or the loops no longer match the mesh's
+ * (`naturalOuter`, curve counts per loop `loopCurves`): then re-tessellate. Chord accuracy is not
  * re-measured (`maxChordError` is the source's). Needs a mesh sampled from the
  * trim loops (`boundarySource: 'trim'`).
  */
@@ -963,7 +991,10 @@ export function retargetTessellation(mesh: FaceMesh, ts: TrimmedSurface): FaceMe
   const s = ts.surface;
   const natural = ts.outer === null;
   const loops: TrimLoop[] = natural ? [rectangleLoop(s), ...ts.holes] : loopsOf(ts);
-  if (loops.length !== mesh.loopStarts.length - 1) return null;
+  // Same loop structure: natural or not, and the same curve count per loop
+  // (else a boundary vertex's curve id would name another loop's curve).
+  if (natural !== mesh.naturalOuter || loops.length !== mesh.loopCurves.length) return null;
+  if (loops.some((l, li) => l.curves.length !== mesh.loopCurves[li])) return null;
   const curves: { c: ClampedCurve<2>; keep: boolean }[] = [];
   loops.forEach((l, li) => l.curves.forEach((c) => curves.push({ c, keep: natural && li === 0 })));
   const uv = Float64Array.from(mesh.uv);

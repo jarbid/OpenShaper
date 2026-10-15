@@ -1255,7 +1255,15 @@ function surfaceEvalAt(pr: SurfaceProblem, x: number, y: number, lu = false, lv 
   return surfaceDist2(pr);
 }
 
-function seedSurface(pr: SurfaceProblem): void {
+/**
+ * Global seeding (§11.2): the best sample of each cell, cells visited by their
+ * box bound. With `inside`, only samples it accepts are candidates (a trimmed
+ * domain); a cell without one offers no seed.
+ */
+function seedSurface(
+  pr: SurfaceProblem,
+  inside: ((u: number, v: number) => boolean) | null = null,
+): void {
   const { cu, cv, box, lb, heap, seeds, mu, mv, sc, s } = pr;
   const nPairs = cu.n * cv.n;
   for (let i = 0; i < nPairs; i++) lb[i] = boxDist2(pr.P, box, i * 6, 3);
@@ -1316,13 +1324,16 @@ function seedSurface(pr: SurfaceProblem): void {
         const ez = z / w - P[2]!;
         const d2 = ex * ex + ey * ey + ez * ez;
         if (d2 < bd) {
+          const x = sampleAt(ua, ub, a, mu);
+          const y = sampleAt(va, vb, b, mv);
+          if (inside !== null && !inside(x, y)) continue;
           bd = d2;
-          bu = sampleAt(ua, ub, a, mu);
-          bv = sampleAt(va, vb, b, mv);
+          bu = x;
+          bv = y;
         }
       }
     }
-    offerSeed(seeds, bd, bu, bv, (bu < ub ? UP_U : 0) | (bv < vb ? UP_V : 0));
+    if (bd < Infinity) offerSeed(seeds, bd, bu, bv, (bu < ub ? UP_U : 0) | (bv < vb ? UP_V : 0));
   }
 }
 
@@ -1701,6 +1712,34 @@ export function closestPointOnSurface(
     solveSurfaceFrom(pr, x, y, isConverged);
   } else solveSurfaceSeeded(pr);
   return surfaceResult(pr);
+}
+
+/**
+ * The closest point of `s` to `p` over a region of its domain (internal;
+ * trim.ts, §11.2 "Trimmed"): global seeding over the samples `inside`
+ * accepts, Newton (unconstrained by the region) from each seed, and the best
+ * result `inside` accepts. A minimum of the region that is not a minimum of
+ * the surface lies on the region's boundary, which the caller searches;
+ * `null` when no sample or result is accepted.
+ */
+export function closestPointOnSurfaceWhere(
+  s: NurbsSurface,
+  p: Point3,
+  inside: (u: number, v: number) => boolean,
+  tol: Tolerances,
+  seeding: ProjectionSeeding,
+): SurfaceProjection | null {
+  const pr = prepareSurface(s, tol, seeding);
+  readPoint(pr.P, p, 3);
+  seedSurface(pr, inside);
+  pr.best.d2 = Infinity;
+  for (let k = 0; k < pr.seeds.count; k++) {
+    newtonSurface(pr, pr.seeds.x[k]!, pr.seeds.y[k]!, pr.trial, pr.seeds.up[k]!);
+    if (!inside(sanitizeParam(s.u, pr.trial.x), sanitizeParam(s.v, pr.trial.y))) continue;
+    keepBetter(pr.best, pr.trial);
+    if (pr.best.d2 === 0) break;
+  }
+  return pr.best.d2 < Infinity ? surfaceResult(pr) : null;
 }
 
 function surfaceResult(pr: SurfaceProblem): SurfaceProjection {
