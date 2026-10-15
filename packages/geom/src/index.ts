@@ -182,6 +182,16 @@ export {
   torus,
 } from './primitives';
 
+// Fitting (§6.12)
+export { averagedKnots, lsqKnots, parameterize } from './fit/param';
+export type { Parameterization } from './fit/param';
+export { interpolateCurve, interpolatePeriodic, interpolateSurface } from './fit/interpolate';
+export type { CurveInterpolation, SurfaceInterpolation } from './fit/interpolate';
+export { approximateCurve, approximateSurface } from './fit/approximate';
+export type { CurveConstraint, CurveFit, SurfaceConstraint, SurfaceFit } from './fit/approximate';
+export { skinCurves } from './fit/skin';
+export type { SkinResult } from './fit/skin';
+
 // Shared value types (§5)
 export type {
   Affine2,

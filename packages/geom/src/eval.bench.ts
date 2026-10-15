@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * Evaluation and knot-operation benchmarks P1–P10 (docs/design/geom-core.md
+ * Evaluation, knot-operation and interpolation benchmarks P1–P11 (docs/design/geom-core.md
  * §17), run with
  * `pnpm --filter @openshaper/geom bench` (not part of `pnpm test`).
  *
@@ -20,6 +20,8 @@ import {
   elevateDegree,
   evalSurfacePlan,
   evalSurfacePlanDirty,
+  interpolateCurve,
+  interpolateSurface,
   makeCurve,
   makeSurface,
   periodicCircle,
@@ -285,6 +287,43 @@ test('knot operations: P10', async ({ bench }) => {
       target: { kind: 'time', value: 1 },
       fn: () => {
         count += elevateDegree(curve, 2).basis.count;
+      },
+    },
+  ]);
+  if (count < 0) process.stdout.write('unreachable\n');
+});
+
+test('interpolation: P11', async ({ bench }) => {
+  const rng = mulberry32(5);
+  // 200 points along a noisy helix; a 60 × 30 grid on a wavy sheet.
+  const pts = Float64Array.from({ length: 600 }, (_, i) => {
+    const k = Math.floor(i / 3);
+    const a = k * 0.2;
+    return i % 3 === 0 ? Math.cos(a) : i % 3 === 1 ? Math.sin(a) + 0.01 * rng() : 0.05 * k;
+  });
+  const grid = Float64Array.from({ length: 60 * 30 * 3 }, (_, i) => {
+    const k = Math.floor(i / 90);
+    const l = Math.floor(i / 3) % 30;
+    return i % 3 === 0 ? k : i % 3 === 1 ? l : Math.sin(0.2 * k) * Math.cos(0.3 * l) + 0.01 * rng();
+  });
+  let count = 0;
+  await runGroup(bench, 'interpolation (A2)', [
+    {
+      id: 'P11a',
+      name: 'interpolateCurve, 200 points, cubic, centripetal',
+      units: 0,
+      target: { kind: 'time', value: 2 },
+      fn: () => {
+        count += interpolateCurve(pts, 3).curve.basis.count;
+      },
+    },
+    {
+      id: 'P11b',
+      name: 'interpolateSurface, 60 × 30 grid, bicubic',
+      units: 0,
+      target: { kind: 'time', value: 20 },
+      fn: () => {
+        count += interpolateSurface(grid, 60, 30).surface.u.count;
       },
     },
   ]);

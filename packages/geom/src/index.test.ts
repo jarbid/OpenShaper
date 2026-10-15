@@ -9,7 +9,8 @@
  * quadrature and the exact curve primitives; F2 surfaces, surface measures,
  * sample plans and the exact surface primitives; A1 curve and surface
  * operations (insertion, refinement, removal, elevation, splitting,
- * compatibility) and `ruled`.
+ * compatibility) and `ruled`; A2 fitting (parameterisation, knot placement,
+ * interpolation, least-squares approximation, skinning).
  *
  * The type-level checks run under `tsc` (`pnpm typecheck` type-checks tests):
  * they pin the conventions the core types encode, so loosening one of them
@@ -37,7 +38,10 @@ const PUBLIC_VALUES: readonly string[] = [
   'GeomError',
   'SAMPLE_DEGENERATE',
   'SAMPLE_UMBILIC',
+  'approximateCurve',
+  'approximateSurface',
   'arcLengthTable',
+  'averagedKnots',
   'basisDersInto',
   'basisFunction',
   'basisFunsInto',
@@ -88,6 +92,9 @@ const PUBLIC_VALUES: readonly string[] = [
   'insertKnot',
   'insertKnotSurface',
   'integrate1d',
+  'interpolateCurve',
+  'interpolatePeriodic',
+  'interpolateSurface',
   'isClosed',
   'isGeomError',
   'isoCurve',
@@ -98,6 +105,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'limitNormal',
   'line',
   'line2',
+  'lsqKnots',
   'makeCompatible',
   'makeCurve',
   'makeSurface',
@@ -106,6 +114,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'normalizeDomain',
   'normalizeSurfaceDomain',
   'paramAtLength',
+  'parameterize',
   'periodicBasis',
   'periodicCircle',
   'periodicUniformKnots',
@@ -128,6 +137,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'revolve',
   'ruled',
   'scaleTolerances',
+  'skinCurves',
   'sphere',
   'splitCurve',
   'splitSurface',
@@ -200,6 +210,11 @@ describe('@openshaper/geom public API', () => {
       'insertDir',
       'deviationBound',
       'unrollPeriodic',
+      'solveLsq',
+      'bandLuFactor',
+      'householderLsq',
+      'collocate',
+      'chordParams',
     ]) {
       expect(name in geom).toBe(false);
     }

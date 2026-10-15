@@ -142,6 +142,15 @@ import {
   swapUV,
   toClamped,
   toClampedSurface,
+  approximateCurve,
+  approximateSurface,
+  averagedKnots,
+  interpolateCurve,
+  interpolatePeriodic,
+  interpolateSurface,
+  lsqKnots,
+  parameterize,
+  skinCurves,
 } from './index';
 import type { Affine2, Affine3, ClampedCurve, NurbsCurve, PeriodicCurve } from './index';
 import { checksum, mulberry32, randomCurve, randomSurface } from './testing';
@@ -285,6 +294,27 @@ function cases(seed: number): Case[] {
     flags: new Uint8Array(16),
   });
 
+  // Fitting (A2).
+  const fitPts = Float64Array.from({ length: 30 }, (_, k) =>
+    k % 3 === 0 ? k / 3 + 0.2 * rng() : k % 3 === 1 ? Math.sin(k) + 0.1 * rng() : 0.3 * rng(),
+  );
+  const ringPts = Float64Array.from({ length: 24 }, (_, k) => {
+    const a = (2 * Math.PI * Math.floor(k / 3)) / 8;
+    return k % 3 === 0 ? Math.cos(a) : k % 3 === 1 ? Math.sin(a) : 0.1 * rng();
+  });
+  const fitParams = Float64Array.from({ length: 10 }, (_, k) => k / 9);
+  const fitW = Float64Array.from({ length: 10 }, () => 0.5 + rng());
+  const fitCons = [{ kind: 'point', t: 0.5, value: { x: 4, y: 0, z: 0 } }] as const;
+  const fitGrid = Float64Array.from({ length: 5 * 4 * 3 }, (_, k) => {
+    const i = Math.floor(k / 12);
+    const j = Math.floor(k / 3) % 4;
+    return k % 3 === 0 ? i : k % 3 === 1 ? j : Math.sin(i + j) + 0.1 * rng();
+  });
+  const fitBu = clampedBasis(2, clampedUniformKnots(2, 4));
+  const fitBv = clampedBasis(2, clampedUniformKnots(2, 3));
+  const fitUV = Float64Array.from({ length: 40 }, () => rng());
+  const fitScattered = Float64Array.from({ length: 60 }, () => rng());
+  const sec = [0, 1, 2].map((z) => circle({ x: 0, y: 0, z }, X, Y, 1 + z)) as NurbsCurve<3>[];
   return [
     {
       name: 'DEFAULT_TOLERANCES',
@@ -783,6 +813,53 @@ function cases(seed: number): Case[] {
       name: 'toClampedSurface',
       inputs: [tor],
       run: () => toClampedSurface(tor, 'v', 0.2),
+      frozen: same,
+    },
+    // Fitting (A2)
+    { name: 'parameterize', inputs: [fitPts], run: () => parameterize(fitPts, 3, 'centripetal') },
+    { name: 'averagedKnots', inputs: [fitParams], run: () => averagedKnots(fitParams, 3) },
+    { name: 'lsqKnots', inputs: [fitParams], run: () => lsqKnots(fitParams, 2, 6) },
+    {
+      name: 'interpolateCurve',
+      inputs: [fitPts, P],
+      run: () => interpolateCurve(fitPts, 3, { endDerivatives: [P, null] }),
+      frozen: same,
+    },
+    {
+      name: 'interpolatePeriodic',
+      inputs: [ringPts],
+      run: () => interpolatePeriodic(ringPts, 3),
+      frozen: same,
+    },
+    {
+      name: 'interpolateSurface',
+      inputs: [fitGrid],
+      run: () => interpolateSurface(fitGrid, 5, 4, { degreeV: 2, periodicU: rational }),
+      frozen: same,
+    },
+    {
+      name: 'approximateCurve',
+      inputs: [fitPts, fitParams, fitW, fitCons],
+      run: () =>
+        approximateCurve(fitPts, 3, {
+          count: 6,
+          params: fitParams,
+          dataWeights: fitW,
+          constraints: fitCons,
+          parameterCorrection: 1,
+        }),
+      frozen: (r) => [r, (r as { ok: true; value: unknown }).value],
+    },
+    {
+      name: 'approximateSurface',
+      inputs: [fitScattered, fitUV, fitBu, fitBv],
+      run: () => approximateSurface(fitScattered, { uv: fitUV }, { u: fitBu, v: fitBv }),
+      frozen: (r) => [(r as { ok: true; value: unknown }).value],
+    },
+    {
+      name: 'skinCurves',
+      inputs: [sec],
+      run: () => skinCurves(sec),
       frozen: same,
     },
   ];

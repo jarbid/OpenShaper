@@ -1229,6 +1229,10 @@ export function ruled(a: NurbsCurve<3>, b: NurbsCurve<3>, tol?: Partial<Toleranc
 
 ### 6.12 Fitting [A2; `fairness` options from A3]
 
+Every fitter returns what it achieved, measured on its result (§7): interpolants
+their `maxError` at the data, approximations `maxError` and `rmsError` over the data
+of positive weight. Fitted domains are `[0, 1]` (period 1, decision 10).
+
 ```ts
 export type Parameterization = 'uniform' | 'chord' | 'centripetal' | { readonly exponent: number };
 export function parameterize(
@@ -1236,10 +1240,15 @@ export function parameterize(
   dim: Dim,
   method: Parameterization,
   closed?: boolean,
-): Float64Array; // eqs. 9.4–9.6
+): Float64Array; // eqs. 9.3–9.6 (exponent 0, 1, ½ reproduce the named methods bit for bit)
 export function averagedKnots(params: ArrayLike<number>, degree: number): Float64Array; // eq. 9.8
 export function lsqKnots(params: ArrayLike<number>, degree: number, count: number): Float64Array; // eqs. 9.68–9.69
 
+export interface CurveInterpolation<C extends NurbsCurve = NurbsCurve> {
+  readonly curve: C;
+  readonly params: ReadonlyF64; // curve parameter of each data point
+  readonly maxError: number;
+}
 export function interpolateCurve<D extends Dim>(
   points: ArrayLike<number>,
   dim: D,
@@ -1247,16 +1256,24 @@ export function interpolateCurve<D extends Dim>(
     readonly degree?: number; // default 3
     readonly params?: ArrayLike<number> | Parameterization; // default 'centripetal'
     readonly endDerivatives?: readonly [PointOf<D> | null, PointOf<D> | null];
+    readonly tol?: Partial<Tolerances>;
   },
-): ClampedCurve<D>; // A9.1, §9.2.2
+): CurveInterpolation<ClampedCurve<D>>; // A9.1, §9.2.2 (eq. 9.22 knots)
 export function interpolatePeriodic<D extends Dim>(
   points: ArrayLike<number>,
   dim: D,
   opts?: {
     readonly degree?: number;
     readonly params?: ArrayLike<number> | Parameterization;
+    readonly tol?: Partial<Tolerances>;
   },
-): PeriodicCurve<D>; // cyclic system
+): CurveInterpolation<PeriodicCurve<D>>; // cyclic system; knots by periodic averaging, shifted with the params
+export interface SurfaceInterpolation {
+  readonly surface: NurbsSurface;
+  readonly paramsU: ReadonlyF64;
+  readonly paramsV: ReadonlyF64;
+  readonly maxError: number;
+}
 export function interpolateSurface(
   grid: ArrayLike<number>,
   rows: number,
@@ -1268,8 +1285,9 @@ export function interpolateSurface(
     readonly paramV?: Parameterization;
     readonly periodicU?: boolean;
     readonly periodicV?: boolean;
+    readonly tol?: Partial<Tolerances>;
   },
-): NurbsSurface; // A9.4
+): SurfaceInterpolation; // A9.4 with A9.3's parameters
 
 export type CurveConstraint<D extends Dim = Dim> =
   | { readonly kind: 'point'; readonly t: number; readonly value: PointOf<D> }
@@ -1279,7 +1297,7 @@ export type CurveConstraint<D extends Dim = Dim> =
       readonly order: 1 | 2;
       readonly value: PointOf<D>;
     }
-  | { readonly kind: 'tangentDirection'; readonly t: number; readonly direction: PointOf<D> }; // C′ ∥ d, linear
+  | { readonly kind: 'tangentDirection'; readonly t: number; readonly direction: PointOf<D> }; // n·C′ = 0 for n ⟂ d (either sense)
 export type SurfaceConstraint =
   | { readonly kind: 'point'; readonly uv: UV; readonly value: Point3; readonly axes?: number } // bitmask x=1,y=2,z=4
   | {
@@ -1292,7 +1310,7 @@ export type SurfaceConstraint =
     };
 export interface CurveFit<D extends Dim = Dim> {
   readonly curve: NurbsCurve<D>;
-  readonly params: ReadonlyF64;
+  readonly params: ReadonlyF64; // after parameter correction
   readonly maxError: number;
   readonly rmsError: number;
   readonly withinTolerance: boolean;
@@ -1301,7 +1319,7 @@ export interface CurveFit<D extends Dim = Dim> {
 export function approximateCurve<D extends Dim>(
   points: ArrayLike<number>,
   dim: D,
-  opts: {
+  opts?: {
     readonly degree?: number;
     readonly periodic?: boolean;
     readonly knots?: ArrayLike<number>; // fixed knots, or …
@@ -1311,16 +1329,18 @@ export function approximateCurve<D extends Dim>(
     readonly params?: ArrayLike<number> | Parameterization;
     readonly dataWeights?: ArrayLike<number>;
     readonly constraints?: readonly CurveConstraint<D>[];
-    readonly fairness?: FairnessWeights; // [A3]
     readonly parameterCorrection?: number; // passes; default 0
     readonly tol?: Partial<Tolerances>;
+    // readonly fairness?: FairnessWeights; [A3]
   },
-): Result<CurveFit<D>>; // A9.6, generalised
+): Result<CurveFit<D>>; // §9.4.1 + A9.6, generalised
 export interface SurfaceFit {
   readonly surface: NurbsSurface;
+  readonly params: ReadonlyF64; // (u, v) per point, after parameter correction
   readonly maxError: number;
   readonly rmsError: number;
-  readonly withinTolerance: boolean;
+  readonly withinTolerance: boolean; // against tol.fit
+  readonly multipliers: ReadonlyF64;
 }
 export function approximateSurface(
   points: ArrayLike<number>,
@@ -1328,23 +1348,60 @@ export function approximateSurface(
   opts: {
     readonly u: Basis;
     readonly v: Basis; // fixed bases (lsqKnots or caller's)
+    readonly params?: Parameterization; // grid layout: A9.3 by this method (default 'centripetal')
     readonly dataWeights?: ArrayLike<number>;
     readonly constraints?: readonly SurfaceConstraint[];
-    readonly fairness?: FairnessWeights; // [A3]
     readonly parameterCorrection?: number;
     readonly tol?: Partial<Tolerances>;
+    // readonly fairness?: FairnessWeights; [A3]
   },
-): Result<SurfaceFit>;
+): Result<SurfaceFit>; // A9.7 generalised: one tensor LSQ over all data
 /** Sections made compatible, then interpolated across (clamped or periodic). */
+export interface SkinResult {
+  readonly surface: NurbsSurface;
+  readonly params: ReadonlyF64; // v of each section
+  readonly maxError: number; // control-point gap to each section's iso-curve + makeCompatible's maxDeviation
+}
 export function skinCurves(
   sections: readonly NurbsCurve<3>[],
   opts?: {
-    readonly degree?: number;
+    readonly degree?: number; // default min(3, sections − 1)
     readonly params?: ArrayLike<number> | Parameterization;
     readonly periodic?: boolean;
+    readonly tol?: Partial<Tolerances>;
   },
-): NurbsSurface;
+): SkinResult;
 ```
+
+Notes (A2, as built):
+
+- **Solves.** Interpolation factors the square collocation system once per
+  direction with a pivoted band LU (`linalg/banded.ts`; rows equilibrated, band
+  measured from the entries, so a periodic wrap simply widens it). Least squares
+  assembles `H = AᵀWA` as a symmetric band (one factor for every coordinate) and
+  holds constraints in range space through the Schur complement with one step of
+  iterative refinement (§10.4 steps 2–4, `fit/lsq.ts`); A9.6's dense inverse is not
+  used. The data are centred first (§7).
+- **Data-dependent failures** are `Result` errors: a control point the data do not
+  determine (`schoenberg-whitney`, with its index), computed knots that crowd
+  closer than `knotRel`, dependent constraints that disagree
+  (`inconsistent-constraints`). Dependent but consistent rows
+  (`dependent-constraints`) and residuals above `constraint`
+  (`constraint-residual`) are warnings. Interpolation throws for coincident
+  consecutive data (`schoenberg-whitney`): no valid knots exist.
+- **Adaptive knots** start from `degree + 1` control points and add, per pass, one
+  knot in each span whose data error exceeds the tolerance (worst first), midway
+  between the span's two middle distinct parameters, so both halves keep data.
+  They stop when the tolerance holds, at `maxCount`, when no span can be split, or
+  when the data stop determining the control points (the last good fit is kept
+  and `withinTolerance` says so).
+- **Parameter correction** moves each parameter to its foot point on the current
+  result by Newton's iteration (P&T §6.1, eqs. 6.3 and 6.5–6.7; `newtonMaxIter`,
+  `paramRel`), keeps a move only if it brings the point closer, and refits on the
+  same basis, so the weighted sum of squares never grows.
+- **Rational sections** in `skinCurves` interpolate homogeneous points (P&T §10.3);
+  very different weights can overshoot to a weight ≤ 0, which throws
+  `weight-not-positive` from the surface factory.
 
 ### 6.13 Constrained fair solver [A3] — formulation in §10
 
@@ -2559,6 +2616,10 @@ dominates. Re-measure on the reference desktop before acting on tier-2 options (
 **A1 (`src/eval.bench.ts`, same container).** P10 met: refining a rational bicubic
 40 × 20 with 40 u-knots 0.105 ms (target 2 ms); elevating a rational cubic with 100
 control points to degree 5 0.046 ms (target 1 ms).
+
+**A2 (`src/eval.bench.ts`, same container).** P11 met: `interpolateCurve`, 200
+points, cubic, centripetal 0.36 ms (target 2 ms); `interpolateSurface`, 60 × 30 grid,
+bicubic 1.46 ms (target 20 ms).
 
 ---
 
