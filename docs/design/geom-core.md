@@ -1507,8 +1507,10 @@ export function curveOnSurfaceTo3d(
 surface's domain within `paramRel` (control hull first, exact by the convex-hull property;
 a span whose hull pokes out is searched for its extreme coordinate) and throws
 `param-out-of-domain` naming the parameter; periodic directions accept any value and wrap.
-Derivatives are right-hand limits in `t`; at a surface knot line the surface side is the one
-the pcurve moves into (left when `u′ < 0`, or `u′ = 0` and `u″ < 0`).
+Derivatives are right-hand limits in `t` (left-hand at the end of a clamped pcurve, where
+no right-hand side exists); at a surface knot line the surface side is the one the pcurve
+moves into (left when `u′ < 0`, or `u′ = 0` and `u″ < 0`), or at that end the one it arrives
+from (left when `u′ > 0`, or `u′ = 0` and `u″ < 0`).
 
 **TODO(integration): pcurve and 3D edge fitting.** `projectCurveToSurface` and
 `curveOnSurfaceTo3d` are not implemented in B1: both fit a curve to samples, which needs
@@ -2136,13 +2138,20 @@ control indices, so per-frame evaluation has no modular arithmetic.
 - **Newton:** P&T §6.1 for curves, the 2 × 2 system for surfaces; stop on
   cosine `≤ cosine` or a parameter step `≤ paramRel` (`distance ≤ point` only decides
   `converged` at the iteration cap: stopping there would leave the parameters off by up
-  to `point/|Su|`); damped (Levenberg–Marquardt) when a step increases the distance;
+  to `point/|Su|`); damped (Levenberg–Marquardt, diagonal scaling `λ·diag(G)` so a
+  vanishing `|Su|` at a pole does not freeze the u step) when a step increases the distance;
   clamp on clamped directions and wrap on periodic ones. A parameter on a bound whose
   gradient points out is active, and Newton continues as 1D Newton on the bounding
   iso-curve. Near a minimum the distance is flat to rounding over steps of ~√ε, so a
   step that raises the distance by at most `point` is accepted when it lowers the
   zero-cosine measure (decided by the gradient, accurate to ε); without this the
-  parameters stop ~√ε short (measured 2e-9 on a cylinder).
+  parameters stop ~√ε short (measured 2e-9 on a cylinder). **Second order (B1
+  review):** the cosine test also holds at a maximum or saddle, and trivially where a
+  partial vanishes (coincident end control points: a nose or tail), so where it holds
+  the Hessian of the squared distance over the directions with a negligible gradient
+  is checked; a feasible direction of negative curvature `κ` is stepped by
+  `√(−2κ/|S_ee|²)` (the minimum of the quartic model, exact for a zero tangent on a
+  quadratic), halved until the distance drops, and Newton resumes.
 - **C⁰ breaks (B1).** A knot of multiplicity `≥ p` is a crease where the derivative
   jumps and Newton oscillates. Newton runs inside one C¹ patch (the domain cut at those
   knots, repeating every period in a periodic direction), its bounds treated like domain

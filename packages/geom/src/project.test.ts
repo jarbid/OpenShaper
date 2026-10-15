@@ -722,6 +722,132 @@ describe('closestPointOnCurve', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Vanishing partials: poles and collapsed ends
+// ---------------------------------------------------------------------------
+
+describe('vanishing partials (poles, coincident end control points)', () => {
+  it('converges near both poles of a sphere, at every azimuth, to the radial foot', () => {
+    // Su → 0 at a pole, so |Su|² ≪ |Sv|² near it: damping must scale per
+    // row (Marquardt), or the u step freezes behind |Sv|² and Newton stops
+    // short (measured before the fix: 560 of these 1,152 points, up to 2e-3
+    // too far).
+    const c = { x: 0.5, y: -1, z: 2 };
+    const r = 2;
+    const s = sphere(c, r);
+    for (const off of [1e-6, 1e-3, 1e-2, 0.05]) {
+      for (const h of [-5, -2, -1.2, -0.5, 0.5, 1.2, 2, 5]) {
+        for (let i = 0; i < 36; i++) {
+          const a = (2 * Math.PI * (i + 0.5)) / 36;
+          const p = {
+            x: c.x + off * r * Math.cos(a),
+            y: c.y + off * r * Math.sin(a),
+            z: c.z + h * r,
+          };
+          const res = closestPointOnSurface(s, p);
+          const pc = vec.sub(p, c);
+          const exact = Math.abs(vec.norm(pc) - r);
+          const scale = vec.norm(p) + r;
+          expect(res.converged).toBe(true);
+          expect(Math.abs(res.distance - exact)).toBeLessThanOrEqual(64 * EPS * scale);
+          const foot = vec.add(c, vec.scale(pc, r / vec.norm(pc)));
+          // 1e-6 off the axis the foot is ~1e-7 from the pole, on a C⁰ break
+          // of the revolved net's u direction, where the patch crossing
+          // compares distances: those are flat to rounding (ε·scale) over foot
+          // moves of ~√(ε·scale·r) ≈ 7e-8 (measured 3.5e-8; `point` is 1e-6).
+          const flat = off < 1e-3 ? Math.sqrt(EPS * scale * r) : 0;
+          expect(vec.distance(res.point, foot)).toBeLessThanOrEqual(footTol(scale, exact) + flat);
+        }
+      }
+    }
+  });
+
+  it('leaves a zero end tangent of a curve that is a maximum of the distance', () => {
+    // C(t) = (t², 0) on [0, 1] (first two control points coincide), and the
+    // mirror C(t) = (1 − (1 − t)², 0): C′ vanishes at the collapsed end, so
+    // the zero-cosine test holds there whatever the point. From (a², 1) the
+    // end is a maximum (D″ = r·C″ = −2a² < 0) and the foot is t = a at
+    // distance 1. One span, so one seed: nothing else recovers.
+    const head = makeCurve({
+      dim: 2,
+      basis: clampedBasis(2, [0, 0, 0, 1, 1, 1]),
+      points: [0, 0, 0, 0, 1, 0],
+    });
+    const tail = makeCurve({
+      dim: 3,
+      basis: clampedBasis(2, [0, 0, 0, 1, 1, 1]),
+      points: [0, 0, 0, 1, 0, 0, 1, 0, 0],
+    });
+    for (const a of [0.02, 0.1, 0.3, 0.7]) {
+      const rh = closestPointOnCurve(head, { x: a * a, y: 1 });
+      expect(rh.converged).toBe(true);
+      expect(Math.abs(rh.t - a)).toBeLessThanOrEqual(PARAM_REL);
+      expect(Math.abs(rh.distance - 1)).toBeLessThanOrEqual(64 * EPS);
+      const rt = closestPointOnCurve(tail, { x: 1 - a * a, y: 0, z: -1 });
+      expect(rt.converged).toBe(true);
+      expect(Math.abs(rt.t - (1 - a))).toBeLessThanOrEqual(PARAM_REL);
+      expect(Math.abs(rt.distance - 1)).toBeLessThanOrEqual(64 * EPS);
+    }
+    // Behind the collapsed end it is the minimum (D″ = r·C″ > 0) and stays.
+    const back = closestPointOnCurve(head, { x: -0.5, y: 1 });
+    expect(back.converged).toBe(true);
+    expect(back.t).toBe(0);
+    expect(Math.abs(back.distance - Math.hypot(0.5, 1))).toBeLessThanOrEqual(64 * EPS);
+  });
+
+  it('leaves an edge where Su vanishes when it is a maximum of the distance', () => {
+    // S(u, v) = (u², v, 0): the first two u-rows coincide, so Su = 0 along
+    // u = 0 and that edge passes both the zero-cosine test and the bound's
+    // KKT test (r·Su = 0) whatever the point. From (a², v*, 1) the foot is
+    // (a, v*) at distance 1.
+    const s = makeSurface({
+      u: clampedBasis(2, [0, 0, 0, 1, 1, 1]),
+      v: clampedBasis(1, [0, 0, 1, 1]),
+      points: [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 1, 1, 0],
+    });
+    for (const a of [0.02, 0.1, 0.3, 0.7]) {
+      for (const v of [0, 0.4, 1]) {
+        const res = closestPointOnSurface(s, { x: a * a, y: v, z: 1 });
+        expect(res.converged).toBe(true);
+        expect(Math.abs(res.uv.u - a)).toBeLessThanOrEqual(PARAM_REL);
+        expect(Math.abs(res.uv.v - v)).toBeLessThanOrEqual(PARAM_REL);
+        expect(Math.abs(res.distance - 1)).toBeLessThanOrEqual(64 * EPS);
+        expect(res.onBoundary).toBe(v === 0 ? 'v0' : v === 1 ? 'v1' : false);
+      }
+    }
+  });
+
+  it('leaves an exact maximum or saddle that a seed starts on', () => {
+    // The zero-cosine test holds exactly at a stationary point of any kind;
+    // a seed (a local start) placed on one must still reach a minimum.
+    // Parabola (t, t²) from (0, 1): t = 0 is a maximum (D″ = 1 − 2 < 0), the
+    // feet are t = ±1/√2 at distance √3/2.
+    const parabola = makeCurve({
+      dim: 2,
+      basis: clampedBasis(2, [-1, -1, -1, 1, 1, 1]),
+      points: [-1, 1, 0, -1, 1, 1],
+    });
+    const rc = closestPointOnCurve(parabola, { x: 0, y: 1 }, { seed: 0 });
+    expect(rc.converged).toBe(true);
+    expect(Math.abs(Math.abs(rc.t) - Math.SQRT1_2)).toBeLessThanOrEqual(2 * PARAM_REL);
+    expect(Math.abs(rc.distance - Math.sqrt(3) / 2)).toBeLessThanOrEqual(64 * EPS);
+    // Saddle (u, v, uv) on [−2, 2]² from (0, 0, 2): the origin is a saddle
+    // of D with positive diagonal (|Su|² = |Sv|² = 1) and off-diagonal
+    // r·Suv = −2, so only the oblique eigenvector (1, 1)/√2 descends. The
+    // feet are ±(1, 1) at distance √3.
+    const saddle = makeSurface({
+      u: clampedBasis(1, [-2, -2, 2, 2]),
+      v: clampedBasis(1, [-2, -2, 2, 2]),
+      points: [-2, -2, 4, -2, 2, -4, 2, -2, -4, 2, 2, 4],
+    });
+    const rs = closestPointOnSurface(saddle, { x: 0, y: 0, z: 2 }, { seed: { u: 0, v: 0 } });
+    expect(rs.converged).toBe(true);
+    expect(Math.abs(Math.abs(rs.uv.u) - 1)).toBeLessThanOrEqual(4 * PARAM_REL);
+    expect(Math.abs(rs.uv.v - rs.uv.u)).toBeLessThanOrEqual(4 * PARAM_REL);
+    expect(Math.abs(rs.distance - Math.sqrt(3))).toBeLessThanOrEqual(64 * EPS * 4);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Batches, honesty, errors
 // ---------------------------------------------------------------------------
 

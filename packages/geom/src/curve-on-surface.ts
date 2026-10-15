@@ -9,11 +9,14 @@
  *       C′  = Su·u′ + Sv·v′
  *       C″  = Suu·u′² + 2·Suv·u′·v′ + Svv·v′² + Su·u″ + Sv·v″
  *
- *   They are right-hand limits in `t` (the pcurve's default side, §4.6). At a
- *   surface knot line the surface side is the one the pcurve moves into: left
- *   in u when `u′ < 0` (or `u′ = 0` and `u″ < 0`), likewise in v, so the
- *   derivatives are the curve's own right-hand derivatives also where the
- *   surface is only C⁰ across the line.
+ *   They are right-hand limits in `t` (the pcurve's default side, §4.6),
+ *   except at the end of a clamped pcurve, where only the left-hand limit
+ *   exists. At a surface knot line the surface side is the one the pcurve
+ *   moves into: left in u when `u′ < 0` (or `u′ = 0` and `u″ < 0`), likewise
+ *   in v; at the end of a clamped pcurve, the side it arrives from: left in u
+ *   when `u′ > 0` (or `u′ = 0` and `u″ < 0`). The derivatives are then the
+ *   curve's own one-sided derivatives also where the surface is only C⁰
+ *   across the line.
  * - **Domain.** A pcurve must stay inside the surface's domain in clamped
  *   directions (within `paramRel` of its length); in periodic directions it may
  *   run past one period, and evaluation wraps (§4.4). {@link curveOnSurface}
@@ -211,8 +214,15 @@ export function curveOnSurface(
 /** Whether the left-hand limit exists at a sanitized parameter. */
 const hasLeft = (b: Basis, x: number): boolean => b.kind === 'periodic' || x > b.domain[0];
 
-/** The pcurve moves to smaller values: `d1 < 0`, or `d1 = 0` and `d2 < 0`. */
+/** After `t` (right-hand derivatives) the pcurve moves to smaller values: `d1 < 0`, or `d1 = 0` and `d2 < 0`. */
 const movesBack = (d1: number, d2: number): boolean => d1 < 0 || (d1 === 0 && d2 < 0);
+
+/**
+ * Before `t` (left-hand derivatives, at the end of a clamped pcurve) the
+ * pcurve came from smaller values: `x(t − h) = x − d1·h + ½d2·h²`, so
+ * `d1 > 0`, or `d1 = 0` and `d2 < 0`.
+ */
+const cameFromBelow = (d1: number, d2: number): boolean => d1 > 0 || (d1 === 0 && d2 < 0);
 
 /**
  * The evaluation core: `[C, C′, C″]` to `nDer` at a sanitized pcurve
@@ -231,7 +241,13 @@ function evalAt(
 ): void {
   const { surface: s, pcurve: pc } = cs;
   const f = sc.f;
-  evalCurveSpan(pc, t, spanOf(pc.basis, t, false), nDer, sc);
+  const pb = pc.basis;
+  evalCurveSpan(pc, t, spanOf(pb, t, false), nDer, sc);
+  // At the end of a clamped pcurve there is no right-hand side: the
+  // derivatives are left limits, and the surface side is the one the curve
+  // arrives from.
+  const atEnd = pb.kind === 'clamped' && t >= pb.domain[1];
+  const fromLow = atEnd ? cameFromBelow : movesBack;
   const c = sc.oC;
   const u = strict ? checkParam(s.u, f[c]!, undefined, strict) : sanitizeParam(s.u, f[c]!);
   const v = strict ? checkParam(s.v, f[c + 1]!, undefined, strict) : sanitizeParam(s.v, f[c + 1]!);
@@ -239,8 +255,8 @@ function evalAt(
   const dv = nDer >= 1 ? f[c + 3]! : 0;
   const ddu = nDer >= 2 ? f[c + 4]! : 0;
   const ddv = nDer >= 2 ? f[c + 5]! : 0;
-  const leftU = nDer >= 1 && movesBack(du, ddu) && hasLeft(s.u, u);
-  const leftV = nDer >= 1 && movesBack(dv, ddv) && hasLeft(s.v, v);
+  const leftU = nDer >= 1 && fromLow(du, ddu) && hasLeft(s.u, u);
+  const leftV = nDer >= 1 && fromLow(dv, ddv) && hasLeft(s.v, v);
   evalSurfaceSpan(s, u, v, spanOf(s.u, u, leftU), spanOf(s.v, v, leftV), nDer, sc);
   const q = sc.oS;
   for (let k = 0; k < 3; k++) {
@@ -272,7 +288,8 @@ function checkNDer(nDer: number): void {
 /**
  * Evaluates `[C, C′, C″]` to order `nDer` (3 values each) into `out[o …]`.
  * Clamps (clamped) or wraps (periodic) `t` and the surface parameters and never
- * throws on them; right-hand limits in `t`. Checks scratch and output sizes.
+ * throws on them; right-hand limits in `t` (left-hand at the end of a clamped
+ * pcurve). Checks scratch and output sizes.
  */
 export function curveOnSurfaceEvalInto(
   cs: CurveOnSurface,
@@ -307,7 +324,8 @@ export function curveOnSurfacePoint(cs: CurveOnSurface, t: number): Point3 {
 
 /**
  * `[C, C′]` or `[C, C′, C″]` at `t` by the chain rule (right-hand limits in
- * `t`; the surface side the pcurve moves into). Throws for `t` outside a
+ * `t`, left-hand at the end of a clamped pcurve; the surface side the curve
+ * moves into, or arrives from at that end). Throws for `t` outside a
  * clamped pcurve domain.
  */
 export function curveOnSurfaceDerivatives(

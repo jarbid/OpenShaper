@@ -27,9 +27,12 @@
  *    `∇D = (r·Su, r·Sv)` with `r = S − P` and Jacobian
  *    `[[|Su|² + r·Suu, Su·Sv + r·Suv], [·, |Sv|² + r·Svv]]`, safeguarded:
  *    - **descent:** a step that increases the distance is rejected and retried
- *      with Levenberg damping (`J + λ·tr(G)·I`, `G` the Gauss–Newton part
- *      `[[|Su|², ·], [·, |Sv|²]]`, so the damped matrix is positive definite
- *      and the step turns towards steepest descent as `λ` grows); an accepted
+ *      with Levenberg–Marquardt damping (`J + λ·diag(G)`, `G` the Gauss–Newton
+ *      part `[[|Su|², ·], [·, |Sv|²]]`, each diagonal entry floored at
+ *      `LM_DIAG_FLOOR · tr(G)`, so the damped matrix is positive definite and
+ *      the step turns towards scaled steepest descent as `λ` grows). The
+ *      per-row scaling matters at a pole: there `|Su| → 0`, and a uniform
+ *      `λ·tr(G)` damps the u row by `|Sv|²/|Su|²` and freezes it); an accepted
  *      step resets `λ` to 0, so the final iterations are undamped Newton and
  *      converge quadratically. Near a minimum the distance is flat to
  *      rounding over parameter steps of ~√ε (its change is second order in
@@ -49,6 +52,20 @@
  *      restarts in the neighbouring patch and moves on while that lowers the
  *      distance; a result that stays is a kink minimum. A seed starts in the
  *      patch of the cell it was sampled in;
+ *    - **second order:** the zero-cosine test holds at any stationary point,
+ *      and trivially where a partial vanishes (`|S′| = 0`: coincident end
+ *      control points, a collapsed edge), whatever the point; a bound whose
+ *      gradient is negligible is not held by it. So where the test holds,
+ *      the Hessian of `D` over the directions with a negligible gradient is
+ *      checked: a direction of negative curvature `κ` (an axis, or the
+ *      eigenvector of a negative eigenvalue) that stays in the patch is
+ *      stepped by `h = √(−2κ / |S_ee|²)`, the minimum of the quartic model
+ *      `D + ½κh² + ⅛|S_ee|²h⁴` (exact for `S′ = 0` on a quadratic; skipped
+ *      when the model's gain is below the rounding of the distance), halved
+ *      until the distance drops or the step reaches `paramRel`, and Newton
+ *      resumes from there. A maximum or saddle is therefore never returned as
+ *      converged (unless the cap cuts the escape short: then `converged` is
+ *      false);
  *    - **stop:** P&T's zero-cosine test `|r·Su| ≤ cosine · |r| · |Su|` in every
  *      free direction, or a parameter step `≤ paramRel ×` the domain length in
  *      every direction (accepted, or rejected because even that step cannot
@@ -162,6 +179,24 @@ export const DEFAULT_PROJECTION_SEEDING: ProjectionSeeding = Object.freeze({
 
 /** Damping growth after a rejected step (Marquardt's factor). */
 const LM_GROWTH = 10;
+
+/**
+ * Floor of a damped diagonal entry, relative to `|Su|² + |Sv|²`. Marquardt's
+ * scaling damps each row by its own `|S_k|²`; where that vanishes (a pole,
+ * a collapsed edge) the row would get no damping at all, so it is floored at
+ * the rounding level of the trace: positive, and below anything that changes
+ * a row whose partial is not rounding noise.
+ */
+const LM_DIAG_FLOOR = Number.EPSILON;
+
+/**
+ * Smallest gain worth a second-order escape, relative to `|r|²`. The
+ * quartic model's minimum lowers `|r|²` by `κ² / |S_ee|²`; below the
+ * rounding of `|r|²` itself the gain cannot be measured (a point at a centre
+ * of curvature, where the distance is flat and `κ` is rounding noise), and
+ * the halving search would only spend iterations.
+ */
+const ESCAPE_GAIN_FLOOR = Number.EPSILON;
 
 // ---------------------------------------------------------------------------
 // Shared internals
@@ -756,12 +791,32 @@ function newtonCurvePatch(
       rc2 += r * cur[2 * dim + k]!;
     }
     active = x <= lo && fr >= 0 ? -1 : x >= hi && fr <= 0 ? 1 : 0;
-    if (d2 === 0 || active !== 0) {
+    if (d2 === 0) {
       converged = true;
       break;
     }
     const cos = cosineOf(fr, d2, g);
     if (cos <= tol.cosine) {
+      // Stationary to first order, also where C′ vanishes (cosine 0 whatever
+      // r is): a minimum only if D″ = |C′|² + r·C″ ≥ 0 (module comment).
+      const D2 = g + rc2;
+      if (D2 < 0) {
+        const e = escapeCurve(pr, x, d2, D2, lo, hi, iters);
+        iters = e.iters;
+        if (e.x !== x) {
+          x = e.x;
+          d2 = curveEvalAt(pr, x, x >= hi);
+          for (let k = 0; k < n3; k++) cur[k] = f[o + k]!;
+          lambda = 0;
+          continue;
+        }
+        if (e.capped) break;
+      }
+      converged = true;
+      break;
+    }
+    if (active !== 0) {
+      // The bound's KKT condition with a gradient pointing out of the patch.
       converged = true;
       break;
     }
@@ -811,6 +866,59 @@ function newtonCurvePatch(
   out.converged = converged || Math.sqrt(d2) <= tol.point;
   out.aU = active;
   out.aV = 0;
+}
+
+/**
+ * The second-order escape from a first-order stationary point with negative
+ * curvature `D2 = D″ < 0` (a maximum, or a zero tangent the point lies
+ * behind). The quartic model `D(x + h) ≈ D + ½D″h² + ⅛|C″|²h⁴` (the
+ * first-order term vanishes, and the cubic one with `C′`) is least at
+ * `h² = −2D″ / |C″|²`; where `C′ = 0` this is Newton in `s = h²/2`, exact for
+ * `C(t) = C + ½C″t²`. Skipped when the model's gain is below rounding
+ * (`ESCAPE_GAIN_FLOOR`). Both feasible directions are tried, each step halved
+ * until it lowers the distance or falls to `paramRel`; every evaluation counts
+ * as an iteration. Returns the lowest point found (`x` itself if none) and
+ * whether the iteration cap cut a search short.
+ */
+function escapeCurve(
+  pr: CurveProblem,
+  x: number,
+  d2: number,
+  D2: number,
+  lo: number,
+  hi: number,
+  iters0: number,
+): { x: number; iters: number; capped: boolean } {
+  const { dim, cur, stepTol, tol } = pr;
+  let c2 = 0;
+  for (let k = 0; k < dim; k++) c2 += cur[2 * dim + k]! ** 2;
+  let iters = iters0;
+  let capped = false;
+  let bx = x;
+  let bd = d2;
+  if (!(c2 > 0 && (D2 * D2) / c2 > ESCAPE_GAIN_FLOOR * d2)) return { x, iters, capped };
+  const h0 = Math.sqrt((-2 * D2) / c2);
+  for (const sgn of [1, -1]) {
+    if (sgn > 0 ? !(x < hi) : !(x > lo)) continue;
+    for (let h = h0; ; h /= 2) {
+      const xn = clamp(x + sgn * h, lo, hi);
+      if (!(Math.abs(xn - x) > stepTol)) break;
+      if (iters >= tol.newtonMaxIter) {
+        capped = true;
+        break;
+      }
+      iters++;
+      const dn = curveEvalAt(pr, xn, xn >= hi);
+      if (dn < d2) {
+        if (dn < bd) {
+          bd = dn;
+          bx = xn;
+        }
+        break;
+      }
+    }
+  }
+  return { x: bx, iters, capped: capped && bd === d2 };
 }
 
 /**
@@ -1223,6 +1331,106 @@ const activeOf = (x: number, lo: number, hi: number, g: number): number =>
   x <= lo && g >= 0 ? -1 : x >= hi && g <= 0 ? 1 : 0;
 
 /**
+ * {@link escapeCurve} for surfaces, over the directions `zu`, `zv` whose
+ * gradient is negligible (the others are held by their bound's KKT
+ * condition). With the undamped Hessian `H = [[a, b], [b, d]]` of `D`
+ * restricted to them, a negative eigenvalue `μ` (unit eigenvector `e`) or a
+ * negative diagonal entry (axis `e`) is a direction of negative curvature
+ * `κ = eᵀHe`; each such direction, both signs that stay in the patch `B`, is
+ * stepped by `h = √(−2κ / |S_ee|²)` (`S_ee = Σ e_i e_j S_ij`) and halved until
+ * the distance drops or the step falls to `paramRel`. Returns the lowest
+ * point found (the start if none) and whether the iteration cap stopped it.
+ */
+function escapeSurface(
+  pr: SurfaceProblem,
+  x: number,
+  y: number,
+  d2: number,
+  B: Float64Array,
+  zu: boolean,
+  zv: boolean,
+  iters0: number,
+): { x: number; y: number; iters: number; capped: boolean } {
+  const { cur, P, tol } = pr;
+  const rx = cur[0]! - P[0]!;
+  const ry = cur[1]! - P[1]!;
+  const rz = cur[2]! - P[2]!;
+  const dot = (i: number, j: number): number =>
+    cur[i]! * cur[j]! + cur[i + 1]! * cur[j + 1]! + cur[i + 2]! * cur[j + 2]!;
+  const rDot = (i: number): number => rx * cur[i]! + ry * cur[i + 1]! + rz * cur[i + 2]!;
+  const a = dot(3, 3) + rDot(9);
+  const b = dot(3, 6) + rDot(12);
+  const d = dot(6, 6) + rDot(15);
+  // Candidate directions (unit in parameter space), at most three.
+  const m = (a + d) / 2;
+  const mu = m - Math.sqrt(((a - d) / 2) ** 2 + b * b);
+  if (!((zu && a < 0) || (zv && d < 0) || (zu && zv && mu < 0))) {
+    return { x, y, iters: iters0, capped: false };
+  }
+  const dirs: [number, number][] = [];
+  if (zu && a < 0) dirs.push([1, 0]);
+  if (zv && d < 0) dirs.push([0, 1]);
+  if (zu && zv && mu < 0 && b !== 0) {
+    // Each is orthogonal to one row of H − μI, so both span the eigenvector
+    // (b ≠ 0; b = 0 makes it an axis, covered above); the longer is better
+    // conditioned.
+    const e1: [number, number] = [b, mu - a];
+    const e2: [number, number] = [mu - d, b];
+    const [ex, ey] = Math.hypot(...e1) >= Math.hypot(...e2) ? e1 : e2;
+    const n = Math.hypot(ex, ey);
+    dirs.push([ex / n, ey / n]);
+  }
+  let iters = iters0;
+  let capped = false;
+  let bx = x;
+  let by = y;
+  let bd = d2;
+  const [ulo, uhi, vlo, vhi] = [B[0]!, B[1]!, B[2]!, B[3]!];
+  for (const [ex, ey] of dirs) {
+    let sx = 0;
+    let sy = 0;
+    let sz = 0;
+    for (let k = 0; k < 3; k++) {
+      const s = cur[9 + k]! * ex * ex + 2 * cur[12 + k]! * ex * ey + cur[15 + k]! * ey * ey;
+      if (k === 0) sx = s;
+      else if (k === 1) sy = s;
+      else sz = s;
+    }
+    const kappa = a * ex * ex + 2 * b * ex * ey + d * ey * ey;
+    const see = sx * sx + sy * sy + sz * sz;
+    if (!(kappa < 0 && see > 0 && (kappa * kappa) / see > ESCAPE_GAIN_FLOOR * d2)) continue;
+    const h0 = Math.sqrt((-2 * kappa) / see);
+    for (const sgn of [1, -1]) {
+      const mx = sgn * ex;
+      const my = sgn * ey;
+      // Stay in the patch: no component leaving it at a bound.
+      if ((mx < 0 && !(x > ulo)) || (mx > 0 && !(x < uhi))) continue;
+      if ((my < 0 && !(y > vlo)) || (my > 0 && !(y < vhi))) continue;
+      for (let h = h0; ; h /= 2) {
+        const xn = clamp(x + mx * h, ulo, uhi);
+        const yn = clamp(y + my * h, vlo, vhi);
+        if (!(Math.abs(xn - x) > pr.stepU || Math.abs(yn - y) > pr.stepV)) break;
+        if (iters >= tol.newtonMaxIter) {
+          capped = true;
+          break;
+        }
+        iters++;
+        const dn = surfaceEvalAt(pr, xn, yn, xn >= uhi, yn >= vhi);
+        if (dn < d2) {
+          if (dn < bd) {
+            bd = dn;
+            bx = xn;
+            by = yn;
+          }
+          break;
+        }
+      }
+    }
+  }
+  return { x: bx, y: by, iters, capped: capped && bd === d2 };
+}
+
+/**
  * Safeguarded Newton (P&T eqs. 6.4–6.8) from `(x0, y0)` inside the patch
  * `B = [ulo, uhi, vlo, vhi]` (±Infinity where unbounded), with the
  * active-set treatment of its bounds; see the module comment. Sets
@@ -1271,6 +1479,29 @@ function newtonSurfacePatch(
     const cosV = aV !== 0 ? 0 : cosineOf(fv, d2, gvv);
     const cos = cosU > cosV ? cosU : cosV;
     if (cos <= tol.cosine) {
+      // Stationary to first order in the free directions. A direction whose
+      // gradient is negligible (also where its partial vanishes: cosine 0
+      // whatever r is) may still descend at second order (module comment).
+      const e = escapeSurface(
+        pr,
+        x,
+        y,
+        d2,
+        B,
+        cosineOf(fu, d2, guu) <= tol.cosine,
+        cosineOf(fv, d2, gvv) <= tol.cosine,
+        iters,
+      );
+      iters = e.iters;
+      if (e.x !== x || e.y !== y) {
+        x = e.x;
+        y = e.y;
+        d2 = surfaceEvalAt(pr, x, y, x >= uhi, y >= vhi);
+        for (let k = 0; k < 18; k++) cur[k] = f[o + k]!;
+        lambda = 0;
+        continue;
+      }
+      if (e.capped) break;
       converged = true;
       break;
     }
@@ -1297,10 +1528,15 @@ function newtonSurfacePatch(
       }
     } else {
       const guv = sux * svx + suy * svy + suz * svz;
-      const damp = lambda * (guu + gvv);
-      const a = guu + rx * cur[9]! + ry * cur[10]! + rz * cur[11]! + damp;
+      // Marquardt's diagonal scaling: each row damped by its own `|S_k|²`
+      // (floored at `LM_DIAG_FLOOR` of the trace where a partial vanishes, as
+      // at a pole), so a short `Su` does not freeze the u step behind `|Sv|²`.
+      const floor = LM_DIAG_FLOOR * (guu + gvv);
+      const a =
+        guu + rx * cur[9]! + ry * cur[10]! + rz * cur[11]! + lambda * (guu > floor ? guu : floor);
       const b = guv + rx * cur[12]! + ry * cur[13]! + rz * cur[14]!;
-      const d = gvv + rx * cur[15]! + ry * cur[16]! + rz * cur[17]! + damp;
+      const d =
+        gvv + rx * cur[15]! + ry * cur[16]! + rz * cur[17]! + lambda * (gvv > floor ? gvv : floor);
       const det = a * d - b * b;
       if (!(a > 0 && det > 0)) {
         lambda = lambda === 0 ? 1 : lambda * LM_GROWTH;

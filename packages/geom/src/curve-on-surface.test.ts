@@ -14,7 +14,9 @@
  *   difference quotients see no knot.
  * - **Sides.** Where a pcurve crosses a C⁰ knot line of the surface, the
  *   derivative is the curve's own right-hand derivative (a one-sided
- *   difference), which differs from the other side's.
+ *   difference), which differs from the other side's; at the end of a
+ *   clamped pcurve on such a line it is the left-hand one, from the face the
+ *   curve arrives on (also when only the second derivative says which).
  * - **Projection to pcurve samples** recovers known pcurves (iso-curves),
  *   unwraps periodic directions, and reports distances honestly.
  *
@@ -28,6 +30,9 @@
  * - one-sided differences `1e-6` relative: forward differences with one
  *   Richardson step at `h = 2⁻¹²` leave ~h² ≈ 6e-8 times the third derivative;
  *   the two sides differ by O(1) on the test patch;
+ * - one-sided differences on a roof `1e-10` absolute: there `C` is a
+ *   polynomial of degree ≤ 2 on each face, so the three-point formulas at
+ *   `h = 2⁻⁶` have no truncation and only the cancellation ~4ε/h² ≈ 4e-12;
  * - projected samples: parameters `1e-12` of the domain and distances
  *   `64 ε · scale`, as for point inversion (project.test.ts).
  */
@@ -284,6 +289,78 @@ describe('curveOnSurface: chain rule', () => {
       const dv = to.y - from.y;
       const wrong = comb(du, other.Su, dv, other.Sv);
       expect(vec.distance(wrong, F)).toBeGreaterThan(1e-3 * scale);
+    }
+  });
+
+  it('takes the side the curve arrives from at the end of a clamped pcurve', () => {
+    // A roof in u (degree 1, ridge at u = 0.5) and the same roof in v:
+    // S = (u, v, 2·min(w, 1 − w)) with w the roofed parameter, so each
+    // face's partials are exact constants. At t = 1 only the left-hand
+    // limit exists, so the side is the one the pcurve arrives from: by its
+    // first derivative, or by its second where the first vanishes (u′ = 0,
+    // u″ < 0 arrives from below). Closed forms from the face it arrives on;
+    // a backward difference (exact: C is a polynomial of degree ≤ 2 on one
+    // face) is the independent check.
+    const roofU = makeSurface({
+      u: clampedBasis(1, [0, 0, 0.5, 1, 1]),
+      v: clampedBasis(1, [0, 0, 1, 1]),
+      points: [0, 0, 0, 0, 1, 0, 0.5, 0, 1, 0.5, 1, 1, 1, 0, 0, 1, 1, 0],
+    });
+    const roofV = makeSurface({
+      u: clampedBasis(1, [0, 0, 1, 1]),
+      v: clampedBasis(1, [0, 0, 0.5, 1, 1]),
+      points: [0, 0, 0, 0, 0.5, 1, 0, 1, 0, 1, 0, 0, 1, 0.5, 1, 1, 1, 0],
+    });
+    const h = 2 ** -6;
+    // [pcurve control values of the roofed parameter (the other is 0.3), t, C′ or C″ index].
+    const cases: readonly [readonly number[], number, 1 | 2][] = [
+      [[0, 0.5], 1, 1], // arrives from below
+      [[1, 0.5], 1, 1], // arrives from above
+      [[0.5, 0], 0, 1], // leaves downwards (right-hand, for contrast)
+      [[0, 0.5, 0.5], 1, 2], // u′ = 0, u″ = −1 < 0: from below
+      [[1, 0.5, 0.5], 1, 2], // u′ = 0, u″ = +1 > 0: from above
+    ];
+    for (const roofed of ['u', 'v'] as const) {
+      const s = roofed === 'u' ? roofU : roofV;
+      for (const [w, t, k] of cases) {
+        const pts = w.flatMap((x) => (roofed === 'u' ? [x, 0.3] : [0.3, x]));
+        const pc = makeCurve({
+          dim: 2,
+          basis: clampedBasis(w.length - 1, [
+            ...Array<number>(w.length).fill(0),
+            ...Array<number>(w.length).fill(1),
+          ]),
+          points: pts,
+        });
+        const cs = curveOnSurface(s, pc);
+        const D = curveOnSurfaceDerivatives(cs, t, 2);
+        const [x0, x1, x2] = curveDerivatives(pc, t, 2).map((p) => (roofed === 'u' ? p.x : p.y));
+        // The face the curve is on next to t, read off the pcurve itself.
+        const before = t === 1;
+        const sg = before ? -1 : 1;
+        const near = curvePoint(pc, t + sg * h);
+        const below = (roofed === 'u' ? near.x : near.y) < 0.5;
+        expect(x0).toBe(0.5);
+        const slope = below ? 2 : -2;
+        const expected = { x: 0, y: 0, z: slope * x2! };
+        if (k === 1) Object.assign(expected, { z: slope * x1! });
+        if (roofed === 'u') expected.x = k === 1 ? x1! : x2!;
+        else expected.y = k === 1 ? x1! : x2!;
+        expect(vec.distance(D[k]!, expected)).toBeLessThanOrEqual(64 * EPS);
+        // Independent: one-sided differences from the side the curve is on.
+        const C = at(cs, t);
+        const C1 = at(cs, t + sg * h);
+        const C2 = at(cs, t + 2 * sg * h);
+        const fd =
+          k === 1
+            ? // Second-order one-sided first derivative (exact on quadratics).
+              vec.scale(
+                vec.add(vec.add(vec.scale(C, -1.5), vec.scale(C1, 2)), vec.scale(C2, -0.5)),
+                sg / h,
+              )
+            : vec.scale(vec.add(vec.sub(C, vec.scale(C1, 2)), C2), 1 / (h * h));
+        expect(vec.distance(D[k]!, fd)).toBeLessThanOrEqual(1e-10);
+      }
     }
   });
 
