@@ -7,7 +7,14 @@
  *   independent algorithm) on random curves (1D–3D) and surfaces, clamped
  *   and periodic, polynomial and rational, with random DOF rules, every
  *   constraint kind, data and per-point stiffness: control points,
- *   multipliers, energy and the dependent/inconsistent classification.
+ *   multipliers, energy, the dependent/inconsistent classification, and the
+ *   KKT stationarity residual.
+ * - **Independent of the assembly.** The reference shares the Gram matrices,
+ *   data and constraint rows and `T` with the solver, so rational curves of
+ *   degree 1–3 are also checked against an objective built from
+ *   `curvePoint` / `curveDerivatives` only: `report.energy` equals it, the
+ *   solution is its constrained minimiser (zero first-order change along
+ *   feasible directions), and the handles hold by evaluation of the result.
  * - **Holladay.** Bending on the shape with knots at the data sites and
  *   point constraints there is the natural cubic spline, solved here by its
  *   own tridiagonal system (also exercises the singular-`K` path).
@@ -34,10 +41,12 @@ import { describe, expect, it } from 'vitest';
 import {
   clampedBasis,
   clampedUniformKnots,
+  curveDerivatives,
   curvePoint,
   DEFAULT_TOLERANCES,
   fairInfluenceInto,
   fairnessEnergy,
+  gaussLegendre,
   isGeomError,
   knotsFromBreaks,
   makeCurve,
@@ -53,6 +62,7 @@ import {
 } from '../index';
 import type {
   Affine3,
+  Basis,
   DofRule,
   FairProblem,
   FairSolver,
@@ -65,6 +75,8 @@ import type {
 import { mulberry32, randomCurve, randomSurface, solveFairReference } from '../testing';
 
 const REF = 1e-9;
+/** KKT stationarity residual relative to the force scale (see `compare`). */
+const STAT = 1e-10;
 const DERIVED = 1e-7;
 const TOL = DEFAULT_TOLERANCES;
 
@@ -182,6 +194,14 @@ function compare(
       `${name}: multiplier ${k}`,
     ).toBeLessThanOrEqual(DERIVED * ms);
   }
+  // KKT stationarity (design §16): ‖Tᵀ(∇E + Cᵀλ)‖∞ against the size of the
+  // forces at the solution, the multipliers' or 2E/‖δ‖ (E ~ ½|H|δ², force
+  // ~ |H|δ). Measured ≤ 6e-15 of that on these problems; STAT leaves room
+  // for condition numbers up to ~1e4 above them.
+  let dmax = 1;
+  for (let i = 0; i < a.cw.length; i++) dmax = Math.max(dmax, Math.abs(a.cw[i]! - p.target.cw[i]!));
+  const force = Math.max(1, maxAbs(a.report.multipliers), (2 * Math.abs(a.report.energy)) / dmax);
+  expect(a.report.stationarityResidual, `${name}: stationarity`).toBeLessThanOrEqual(STAT * force);
   expect(Math.abs(a.report.energy - b.report.energy), `${name}: energy`).toBeLessThanOrEqual(
     REF * (Math.abs(b.report.energy) || 1),
   );
@@ -314,6 +334,254 @@ describe('range space ↔ dense null-space reference', () => {
       expect(Math.abs(b.a.cw[i]! - a.a.cw[i]!)).toBeLessThanOrEqual(REF * 240);
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// Independent oracles: nothing below goes through the solver's assembly
+// (Gram matrices, data rows, constraint rows, T), which `solveFairReference`
+// shares.
+// ---------------------------------------------------------------------------
+
+/** Gauss–Legendre points per span of the direct quadrature (self-checked against fewer below). */
+const ORACLE_ORDER = 40;
+/**
+ * Energy vs direct quadrature: rational spans are integrated to `quadRel`
+ * (1e-10) per block by the solver and the oracle is converged far below
+ * that, so `1e-9` relative, as in fairness.test.ts.
+ */
+const ENERGY_REL = 1e-9;
+/**
+ * Optimality: the first-order change of the objective along a feasible `v`
+ * against its second-order change `½ vᵀHv` (both from the independent
+ * objective). Zero at the minimiser up to the objective's quadrature error
+ * (~1e-10 of E; measured ≤ 8e-13 of `½ vᵀHv`); a fairness term missing
+ * from the solver's matrix shifts it by O(1) of `½ vᵀHv` (measured
+ * 0.013–1.2 on the rational degree-1 and -2 curves below when the Gram
+ * matrix dropped bend and jerk above the degree).
+ */
+const OPT_REL = 1e-7;
+
+/** Non-empty spans of a clamped basis. */
+function clampedSpans(b: Basis): [number, number][] {
+  const out: [number, number][] = [];
+  for (let k = b.degree; k < b.count; k++) {
+    if (b.knots[k + 1]! > b.knots[k]!) out.push([b.knots[k]!, b.knots[k + 1]!]);
+  }
+  return out;
+}
+
+/** Euclidean control coordinates (interleaved) and weights of a homogeneous net. */
+function split(cw: ArrayLike<number>, dim: number): { x: Float64Array; w: Float64Array } {
+  const h = dim + 1;
+  const n = cw.length / h;
+  const x = new Float64Array(n * dim);
+  const w = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    w[i] = cw[i * h + dim]!;
+    for (let c = 0; c < dim; c++) x[i * dim + c] = cw[i * h + c]! / w[i]!;
+  }
+  return { x, w };
+}
+
+interface Objective {
+  /** The FairProblem objective (module comment of solver.ts, with its ½ factors) at Euclidean `x`. */
+  readonly E: (x: Float64Array) => number;
+  /** Constraint functionals on one coordinate axis: row `k` holds the coefficient of each control point. */
+  readonly rows: Float64Array[];
+}
+
+/**
+ * The objective of a curve problem with the parametric metric, fairness on
+ * the displacement: data by `curvePoint`, fairness by Gauss–Legendre of
+ * `curveDerivatives` of the displacement curve (the target's weights,
+ * control points `x − x_ref`), stiffness by hand. Constraint rows from
+ * indicator nets (control point `j` at 1, the rest 0, same weights).
+ */
+function curveObjective(
+  t: NurbsCurve<3>,
+  coef: readonly [number, number, number],
+  mu: Float64Array,
+  data: { params: Float64Array; points: Float64Array; weights: Float64Array },
+  cons: readonly { t: number; order: 0 | 1 | 2 }[],
+  order = ORACLE_ORDER,
+): Objective {
+  const { x: xRef, w } = split(t.cw, 3);
+  const n = w.length;
+  const gl = gaussLegendre(order);
+  const sp = clampedSpans(t.basis);
+  const E = (x: Float64Array): number => {
+    const c = makeCurve({ dim: 3, basis: t.basis, points: x, weights: w });
+    const y = makeCurve({
+      dim: 3,
+      basis: t.basis,
+      points: x.map((v, i) => v - xRef[i]!),
+      weights: w,
+    });
+    let e = 0;
+    for (let k = 0; k < data.weights.length; k++) {
+      const p = curvePoint(c, data.params[k]!);
+      const dx = p.x - data.points[3 * k]!;
+      const dy = p.y - data.points[3 * k + 1]!;
+      const dz = p.z - data.points[3 * k + 2]!;
+      e += 0.5 * data.weights[k]! * (dx * dx + dy * dy + dz * dz);
+    }
+    for (const [a, b] of sp) {
+      const hh = (b - a) / 2;
+      for (let g = 0; g < order; g++) {
+        const d = curveDerivatives(y, a + hh * (gl.nodes[g]! + 1), 3);
+        for (let o = 1; o <= 3; o++) {
+          const v = d[o]!;
+          e += 0.5 * hh * gl.weights[g]! * coef[o - 1]! * (v.x * v.x + v.y * v.y + v.z * v.z);
+        }
+      }
+    }
+    for (let i = 0; i < 3 * n; i++) e += 0.5 * mu[Math.floor(i / 3)]! * (x[i]! - xRef[i]!) ** 2;
+    return e;
+  };
+  const rows = cons.map(({ t: at, order: o }) =>
+    Float64Array.from({ length: n }, (_, j) => {
+      const ind = makeCurve({
+        dim: 1,
+        basis: t.basis,
+        points: Float64Array.from({ length: n }, (_, i) => (i === j ? 1 : 0)),
+        weights: w,
+      });
+      return o === 0 ? curvePoint(ind, at) : curveDerivatives(ind, at, o)[o]!;
+    }),
+  );
+  return { E, rows };
+}
+
+/** `v` with its component along the span of `rows` removed, per axis (normal equations, Gaussian elimination). */
+function projectOut(v: Float64Array, rows: readonly Float64Array[], dim: number): void {
+  const m = rows.length;
+  const n = v.length / dim;
+  for (let c = 0; c < dim; c++) {
+    const A = rows.map((r) => rows.map((q) => r.reduce((s, x, j) => s + x * q[j]!, 0)));
+    const b = rows.map((r) => r.reduce((s, x, j) => s + x * v[j * dim + c]!, 0));
+    for (let k = 0; k < m; k++) {
+      for (let i = k + 1; i < m; i++) {
+        const f = A[i]![k]! / A[k]![k]!;
+        for (let j = k; j < m; j++) A[i]![j] = A[i]![j]! - f * A[k]![j]!;
+        b[i] = b[i]! - f * b[k]!;
+      }
+    }
+    const lam = new Array<number>(m).fill(0);
+    for (let k = m - 1; k >= 0; k--) {
+      let s = b[k]!;
+      for (let j = k + 1; j < m; j++) s -= A[k]![j]! * lam[j]!;
+      lam[k] = s / A[k]![k]!;
+    }
+    for (let j = 0; j < n; j++) {
+      let s = 0;
+      for (let k = 0; k < m; k++) s += lam[k]! * rows[k]![j]!;
+      v[j * dim + c] = v[j * dim + c]! - s;
+    }
+  }
+}
+
+/**
+ * Checks `report.energy` against the independent objective and that the
+ * solution is its constrained minimiser: along feasible directions `v`
+ * (orthogonal to every constraint row) the central difference
+ * `(E(x+v) − E(x−v))/2` (exact for a quadratic) vanishes against
+ * `(E(x+v) + E(x−v))/2 − E(x) = ½ vᵀHv`.
+ */
+function checkIndependent(
+  name: string,
+  obj: Objective,
+  x: Float64Array,
+  energy: number,
+  rng: () => number,
+  directions: number,
+  dim: number,
+): void {
+  const e0 = obj.E(x);
+  expect(Math.abs(energy - e0), `${name}: energy ${energy} vs ${e0}`).toBeLessThanOrEqual(
+    ENERGY_REL * Math.abs(e0),
+  );
+  for (let d = 0; d < directions; d++) {
+    const v = Float64Array.from(x, () => 2 * rng() - 1);
+    projectOut(v, obj.rows, dim);
+    for (const r of obj.rows) {
+      for (let c = 0; c < dim; c++) {
+        let s = 0;
+        for (let j = 0; j < r.length; j++) s += r[j]! * v[j * dim + c]!;
+        // Feasible: the projection leaves rounding of an O(n)-term dot product.
+        expect(Math.abs(s)).toBeLessThanOrEqual(1e-12 * maxAbs(r) * r.length);
+      }
+    }
+    const ep = obj.E(x.map((xi, i) => xi + v[i]!));
+    const em = obj.E(x.map((xi, i) => xi - v[i]!));
+    const first = (ep - em) / 2;
+    const second = (ep + em) / 2 - e0;
+    expect(second, `${name}: curvature`).toBeGreaterThan(0);
+    expect(Math.abs(first), `${name}: first-order change along v ${d}`).toBeLessThanOrEqual(
+      OPT_REL * second,
+    );
+  }
+}
+
+describe('independent oracles: energy, optimality and handles without the solver’s assembly', () => {
+  for (const degree of [1, 2, 3]) {
+    it(`rational clamped curve of degree ${degree}: stretch, bend and jerk, data, falloff, handles`, () => {
+      const rng = mulberry32(700 + degree);
+      const t = randomCurve(rng, {
+        dim: 3,
+        degree,
+        count: 9,
+        weightRange: [0.6, 1.7],
+        extent: 10,
+      }) as NurbsCurve<3>;
+      const n = 9;
+      const coef = [0.2, 1, 0.5] as const;
+      const mu = Float64Array.from({ length: n }, () => 0.02 + 0.1 * rng());
+      const data = {
+        params: Float64Array.from({ length: 6 }, () => rng()),
+        points: Float64Array.from({ length: 18 }, () => 20 * rng() - 10),
+        weights: Float64Array.from({ length: 6 }, () => 0.2 + rng()),
+      };
+      const zero = { x: 0, y: 0, z: 0 };
+      const cons: LinearConstraint[] = [
+        { kind: 'point', t: 0.3, value: zero },
+        { kind: 'derivative', t: 0.75, order: 1, value: zero },
+      ];
+      const s = ok({
+        target: t,
+        dof: makeDofMap(t, []),
+        fairness: { stretch: coef[0], bend: coef[1], jerk: coef[2], metric: 'parametric' },
+        stiffness: mu,
+        data,
+        constraints: cons,
+      });
+      const values = Float64Array.from({ length: 6 }, () => 6 * rng() - 3);
+      const { result, report } = solveFair<NurbsCurve<3>>(s, values);
+      // Handles, by evaluation of the result.
+      const p = curvePoint(result, 0.3);
+      const d1 = curveDerivatives(result, 0.75, 1)[1]!;
+      [p.x, p.y, p.z, d1.x, d1.y, d1.z].forEach((v, k) =>
+        expect(Math.abs(v - values[k]!), `handle ${k}`).toBeLessThanOrEqual(TOL.constraint),
+      );
+      const objOf = (order: number): Objective =>
+        curveObjective(
+          t,
+          coef,
+          mu,
+          data,
+          [
+            { t: 0.3, order: 0 },
+            { t: 0.75, order: 1 },
+          ],
+          order,
+        );
+      const obj = objOf(ORACLE_ORDER);
+      const { x } = split(result.cw, 3);
+      // The oracle is converged: 32 and 40 points agree far below ENERGY_REL.
+      const e32 = objOf(32).E(x);
+      expect(Math.abs(e32 - obj.E(x))).toBeLessThanOrEqual((ENERGY_REL / 10) * Math.abs(e32));
+      checkIndependent(`degree ${degree}`, obj, x, report.energy, rng, 6, 3);
+    });
+  }
 });
 
 describe('Holladay: bending on the shape through the data is the natural cubic spline', () => {
@@ -540,6 +808,89 @@ describe('structure', () => {
       }
       expect(P(2, 1)).not.toEqual(R(2, 1)); // something moved
     }
+  });
+
+  it('rational net: `===` at unit weight, copied coordinates at equal weights, else to rounding', () => {
+    // The stored net is homogeneous, so a point reads back as `(w·v)/w`,
+    // which need not be `v` (measured on these 20 drags: 1–7 weighted
+    // reflections per drag, and the unequal-weight copy in 3, are off by an
+    // ulp). The contract (dof.ts, design §10.3): the solver's Euclidean
+    // values hold with `===`; read back, a copied coordinate is bitwise when
+    // the two weights are equal (the same `(w·v)/w` on both sides), a
+    // reflected one when both weights are 1; otherwise each side is off by
+    // the rounding of `w·v` and `/w` (≤ ε relative) plus the test's own
+    // subtraction: ≤ 4ε·(2|d| + |y|).
+    const d = 3.3;
+    const t0 = transformSurface(board(8, 7), [1, 0, 0, 0, 0, 1, 0, d, 0, 0, 1, 0]);
+    const nv = 7;
+    const cp = (i: number, j: number): number => i * nv + j;
+    const wOf = (i: number, j: number): number => 1 + 0.37 * ((i + Math.abs(j - 3)) % 3);
+    const pts: number[] = [];
+    const ws: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      for (let j = 0; j < nv; j++) {
+        const p = surfaceControlPoint(t0, i, j);
+        pts.push(p.x, p.y, p.z);
+        ws.push(wOf(i, j));
+      }
+    }
+    const t = makeSurface({ u: t0.u, v: t0.v, points: pts, weights: ws });
+    expect(t.rational).toBe(true);
+    const rules: DofRule[] = [
+      { kind: 'copy', cp: cp(4, 3), master: cp(1, 3) }, // both weight 1.37
+      { kind: 'copy', cp: cp(5, 3), master: cp(3, 3) }, // weights 1.74 and 1
+      ...Array.from({ length: 8 }, (_, i) =>
+        [0, 1, 2].map(
+          (j) =>
+            ({
+              kind: 'mirror',
+              cp: cp(i, 6 - j),
+              master: cp(i, j),
+              plane: { normal: { x: 0, y: 1, z: 0 }, d },
+            }) as DofRule,
+        ),
+      ).flat(),
+    ];
+    const s = ok({
+      target: t,
+      dof: makeDofMap(t, rules),
+      fairness: { bend: 1 },
+      stiffness: 0.01,
+      constraints: [{ kind: 'point', uv: { u: 0.3, v: 0.2 }, value: { x: 0, y: 0, z: 0 } }],
+    });
+    const v0 = surfacePoint(t, 0.3, 0.2);
+    let weighted = 0;
+    for (let drag = 0; drag < 20; drag++) {
+      const { result } = solveFair<NurbsSurface>(s, [
+        v0.x + 0.3 * drag,
+        v0.y - 0.17 * drag,
+        v0.z + 0.61 * drag,
+      ]);
+      const P = (i: number, j: number): Point3 => surfaceControlPoint(result, i, j);
+      expect(P(4, 3)).toEqual(P(1, 3));
+      const [a53, a33] = [P(5, 3), P(3, 3)];
+      for (const c of ['x', 'y', 'z'] as const) {
+        expect(Math.abs(a53[c] - a33[c])).toBeLessThanOrEqual(
+          4 * Number.EPSILON * Math.abs(a33[c]),
+        );
+      }
+      for (let i = 0; i < 8; i++) {
+        for (const j of [0, 1, 2]) {
+          const a = P(i, 6 - j);
+          const b = P(i, j);
+          expect(a.x).toBe(b.x);
+          expect(a.z).toBe(b.z);
+          if (wOf(i, j) === 1) expect(a.y).toBe(2 * d - b.y);
+          else {
+            weighted++;
+            expect(Math.abs(a.y - (2 * d - b.y))).toBeLessThanOrEqual(
+              4 * Number.EPSILON * (2 * Math.abs(d) + Math.abs(b.y)),
+            );
+          }
+        }
+      }
+    }
+    expect(weighted).toBeGreaterThan(0);
   });
 
   it('offsetFrom neighbours keep the apex normal horizontal (within `angle`)', () => {

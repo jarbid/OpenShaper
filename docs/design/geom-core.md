@@ -1573,8 +1573,11 @@ Notes (A3, as built):
   `z −= Y Δλ`), which is what keeps `‖Cx − d‖∞ ≤ constraint` at board scale; the
   stationarity residual is reported, not refined.
 - **Exact rules** (`copy`, coordinate-plane `mirror`) are re-applied from their
-  masters' final coordinates after the scatter, so they hold with `===` for any plane
-  offset; `fix` and `fixAxes` coordinates are never written.
+  masters' final coordinates after the scatter, so they hold with `===` on the
+  Euclidean solution for any plane offset; `fix` and `fixAxes` coordinates are never
+  written. On a rational net the stored point is `w·v` and reads back as `(w·v)/w`,
+  so read-back exactness needs equal weights for a copied coordinate and unit
+  weights for a reflected one (§10.3).
 - **Separable problems** are not split into three factorisations: their `K` is
   block-diagonal by axis, and RCM numbers the blocks one after the other, so the one
   envelope factor costs what three per-axis factors cost. Sharing one numeric factor
@@ -2224,6 +2227,11 @@ R_vv R_vvᵀ)` (thin plate); for curves `∫ R′R′ᵀ`, `∫ R″R″ᵀ`, `�
 
 Bit-exactness: `fix`, `fixAxes`, `copy` and `mirror` across a coordinate plane hold
 with `===`; `slide`, `offsetFrom` and general mirrors hold to rounding of `T z`.
+On rational geometry the `===` of `copy` and `mirror` is on the solver's Euclidean
+values; the stored net is homogeneous and a point reads back as `(w·v)/w`, which is
+bitwise for a copied coordinate when the two weights are equal and for a reflected
+coordinate when both are 1 (always on polynomial geometry), and otherwise within the
+rounding of `w·v` and `/w` (≤ ε relative). `fix` and `fixAxes` keep the target's stored values.
 Conflicting rules (one control point coordinate claimed twice) throw
 `conflicting-dof-rules`.
 

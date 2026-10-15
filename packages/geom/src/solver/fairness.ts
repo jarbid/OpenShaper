@@ -249,7 +249,10 @@ function curveSpanBlocks(
   const P2 = p1 * p1;
   const sp = spans(b);
   const ns = sp.index.length;
-  const nDer = Math.min(Math.max(maxOrder, 1), p);
+  // Polynomial: N^(k) ≡ 0 for k > p, so stop at p. Rational: R^(k) ≠ 0 for
+  // every k (P&T eq. 4.8: a weighted line bends, a conic arc has jerk), so
+  // the quotient rule needs the full order; dersBasisFuns zeroes N^(k > p).
+  const nDer = rational ? Math.max(maxOrder, 1) : Math.min(Math.max(maxOrder, 1), p);
   const s = makeScratch(p, 3);
   const R = new Float64Array(4 * p1);
   const li = new Int32Array(p1);

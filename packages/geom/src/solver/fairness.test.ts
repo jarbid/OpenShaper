@@ -373,6 +373,46 @@ describe('fairness energy: quadratic form ↔ direct quadrature of the derivativ
     });
   }
 
+  // A rational basis has R^(k) ≠ 0 for k > p (P&T eq. 4.8): a weighted line
+  // bends and a conic arc has jerk, so the Gram matrix must not stop at order p.
+  it('rational curves of degree ≤ 2: a 90° arc has jerk, a weighted line has bend', () => {
+    const arc = bezierCurve(3, [1, 0, 0, 1, 1, 0, 0, 1, 0], [1, Math.SQRT1_2, 1]);
+    const line = bezierCurve(3, [0, 0, 0, 1, 0, 0], [1, 3]);
+    for (const [c, coef] of [
+      [arc, [0, 0, 1]],
+      [arc, [0.3, 0.8, 0.05]],
+      [line, [0, 1, 0]],
+      [line, [0.2, 1, 0.4]],
+    ] as const) {
+      const direct = directCurve(c, coef);
+      expect(direct).toBeGreaterThan(1); // non-trivial: the energy the bug dropped
+      relClose(directCurve(c, coef, 40), direct, RATIONAL / 10, 'oracle');
+      relClose(
+        fairnessEnergy(c, { stretch: coef[0], bend: coef[1], jerk: coef[2], metric: 'parametric' }),
+        direct,
+        RATIONAL,
+        `degree ${c.basis.degree}, coef ${coef.join(',')}`,
+      );
+    }
+    for (const degree of [1, 2]) {
+      const rng = mulberry32(300 + degree);
+      const c = randomCurve(rng, { dim: 3, degree, count: 6, weightRange: [0.5, 2] });
+      const coef = [0.4, 1.1, 0.02];
+      relClose(directCurve(c, coef, 40), directCurve(c, coef), RATIONAL / 10, 'oracle');
+      relClose(
+        fairnessEnergy(c, {
+          stretch: coef[0],
+          bend: coef[1]!,
+          jerk: coef[2],
+          metric: 'parametric',
+        }),
+        directCurve(c, coef),
+        RATIONAL,
+        `random rational degree ${degree}`,
+      );
+    }
+  });
+
   it('the Kronecker (polynomial) assembly equals the point-wise (rational) one on unit weights', () => {
     const rng = mulberry32(17);
     const s = randomSurface(rng, {

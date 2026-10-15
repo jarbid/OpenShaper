@@ -33,7 +33,13 @@
  * a coordinate plane hold with `===` on the solver's Euclidean output (the
  * solver applies those rules last, from the master's final coordinates);
  * `slide`, `offsetFrom`, offset copies and general mirrors hold to the
- * rounding of `T z`.
+ * rounding of `T z`. The returned net is homogeneous, so a control point
+ * reads back as `(w·v)/w`: `fix` and `fixAxes` coordinates keep the
+ * target's stored values and stay bitwise; a copied coordinate (a copy, or
+ * the in-plane coordinates of a coordinate-plane mirror) reads back `===`
+ * when the two points' weights are equal, the reflected coordinate when both
+ * weights are 1 (always, on polynomial geometry); otherwise each read-back
+ * is within the rounding of `w·v` and `/w` (≤ ε relative).
  */
 import { fail } from '../errors';
 import type { NurbsCurve, NurbsSurface, Point3, ReadonlyF64, ReadonlyI32 } from '../types';
@@ -75,7 +81,7 @@ export interface DofMap {
   readonly val: ReadonlyF64;
   /** `x` at `z = 0`, interleaved. */
   readonly fixed: ReadonlyF64;
-  /** The validated rules (frozen copies), in the caller's order. */
+  /** The validated rules (deep, frozen copies), in the caller's order. */
   readonly rules: readonly DofRule[];
 }
 
@@ -247,17 +253,46 @@ function dependencyOrder(rules: readonly Rule[], n: number): Rule[] {
   return out;
 }
 
+/** A frozen copy of a flat object (a point), or the value itself when it is not one (validation reports it). */
+function freezePoint<T>(p: T): T {
+  return typeof p === 'object' && p !== null ? (Object.freeze({ ...p }) as T) : p;
+}
+
+/**
+ * A deep, frozen copy of a rule: `plane`, its `normal`, `dirs` and `offset`
+ * are copied too, so a caller mutating its own objects after `makeDofMap`
+ * cannot change the rules a later solve re-reads (`derivedOps`). Malformed
+ * input is passed through for `validate` to report.
+ */
+function freezeRule(r: DofRule): DofRule {
+  if (typeof r !== 'object' || r === null) return r;
+  const c: Record<string, unknown> = { ...r };
+  if ('dirs' in r) c.dirs = Array.isArray(r.dirs) ? Object.freeze(r.dirs.map(freezePoint)) : r.dirs;
+  if ('offset' in r) c.offset = freezePoint(r.offset);
+  if ('plane' in r) {
+    const pl = r.plane as unknown;
+    c.plane =
+      typeof pl === 'object' && pl !== null
+        ? Object.freeze({ ...pl, normal: freezePoint(r.plane.normal) })
+        : pl;
+  }
+  return Object.freeze(c) as unknown as DofRule;
+}
+
 /**
  * Builds the DOF map of `rules` on `target`'s control net (see the module
  * comment). Throws `conflicting-dof-rules` when a coordinate is claimed twice
- * or masters form a cycle.
+ * or masters form a cycle. The map keeps deep, frozen copies of the rules.
  */
 export function makeDofMap(target: NurbsCurve | NurbsSurface, rules: readonly DofRule[]): DofMap {
   const surf = isSurface(target);
   const dim = surf ? 3 : (target as NurbsCurve).dim;
   const n = surf ? target.u.count * target.v.count : (target as NurbsCurve).basis.count;
   const ref = euclidean(target.cw, n, dim);
-  const rs = validate(rules, n, dim);
+  const owned: readonly DofRule[] = Array.isArray(rules)
+    ? Object.freeze(rules.map(freezeRule))
+    : rules;
+  const rs = validate(owned, n, dim);
   // Claims: one rule per coordinate.
   const claimed = new Int32Array(n * dim).fill(-1);
   for (const r of rs) {
@@ -402,7 +437,7 @@ export function makeDofMap(target: NurbsCurve | NurbsSurface, rules: readonly Do
     col,
     val,
     fixed,
-    rules: Object.freeze(rules.map((r) => Object.freeze({ ...r }) as DofRule)),
+    rules: owned,
   });
 }
 

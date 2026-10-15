@@ -953,3 +953,54 @@ describe('every public operation', () => {
     expect(c.inputs.map((x) => checksum(x))).not.toEqual(before);
   });
 });
+
+describe('makeDofMap keeps its own copy of every rule parameter', () => {
+  it('mutating the caller’s plane, normal, dirs or offset afterwards changes nothing', () => {
+    // A cubic whose cp 4 mirrors cp 1 in x = 3, cp 2 slides along a
+    // direction, cp 5 is an offset copy of cp 0: the solver re-reads the
+    // rules, so a shallow copy would let these writes reach a later solve.
+    const pts = [0, 0, 0, 1, 1, 0, 2, 0, 1, 3, 1, 0, 5, 1, 0, 6, 0.5, 0.2];
+    const c = bezierCurve(3, pts);
+    const plane = { normal: { x: 1, y: 0, z: 0 }, d: 3 };
+    const dir = { x: 0, y: 1, z: 0 };
+    const offset = { x: 6, y: 0.5, z: 0.2 };
+    const rules = [
+      { kind: 'mirror', cp: 4, master: 1, plane },
+      { kind: 'slide', cp: 2, dirs: [dir] },
+      { kind: 'copy', cp: 5, master: 0, offset },
+    ] as const;
+    const dof = makeDofMap(c, rules);
+    const solve = (): number[] => {
+      const r = prepareFairSolver({
+        target: c,
+        dof,
+        fairness: { bend: 1 },
+        stiffness: 1,
+        constraints: [],
+      });
+      if (!r.ok) throw new Error(JSON.stringify(r.issues));
+      return [...solveFair<NurbsCurve>(r.value, []).result.cw];
+    };
+    const before = solve();
+    expect(controlPoint(c as NurbsCurve<3>, 4).x).toBe(5); // the target breaks the rule…
+    expect(before[4 * 4]).toBe(2 * 3 - before[1 * 4]!); // …and the solve enforces it
+    for (const r of dof.rules) {
+      expect(Object.isFrozen(r)).toBe(true);
+      if (r.kind === 'mirror') {
+        expect(r.plane).not.toBe(plane);
+        expect(Object.isFrozen(r.plane) && Object.isFrozen(r.plane.normal)).toBe(true);
+      } else if (r.kind === 'slide') {
+        expect(r.dirs[0]).not.toBe(dir);
+        expect(Object.isFrozen(r.dirs) && Object.isFrozen(r.dirs[0])).toBe(true);
+      } else if (r.kind === 'copy') {
+        expect(r.offset).not.toBe(offset);
+        expect(Object.isFrozen(r.offset)).toBe(true);
+      }
+    }
+    (plane as { d: number }).d = 10;
+    (plane.normal as { x: number }).x = 2;
+    (dir as { z: number }).z = 1;
+    (offset as { x: number }).x = -4;
+    expect(solve()).toEqual(before);
+  });
+});
