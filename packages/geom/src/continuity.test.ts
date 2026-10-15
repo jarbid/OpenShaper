@@ -738,3 +738,149 @@ describe('validation', () => {
     expect(Math.abs(p.max.gap - 0.5)).toBeLessThan(64 * EPS);
   });
 });
+
+describe('review of B3: where the samples go', () => {
+  /** A bicubic plane over the unit square (x = u, y = v) with a z-bump at u = 0.8 on the v = 0 row. */
+  const bumpy = (): NurbsSurface => {
+    const uk = [0, 0, 0, 0, 0.76, 0.78, 0.8, 0.82, 0.84, 1, 1, 1, 1];
+    const nu = uk.length - 4;
+    const pts: number[] = [];
+    for (let i = 0; i < nu; i++) {
+      const gx = (uk[i + 1]! + uk[i + 2]! + uk[i + 3]!) / 3; // Greville: x(u) = u exactly
+      for (let j = 0; j < 4; j++) pts.push(gx, j / 3, i === 5 && j === 0 ? 0.01 : 0);
+    }
+    return makeSurface({
+      u: clampedBasis(3, uk),
+      v: clampedBasis(3, [0, 0, 0, 0, 1, 1, 1, 1]),
+      points: pts,
+    });
+  };
+  const flat = planeSurface({ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 });
+  const xAxis = line({ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 });
+  const pcx = line2({ x: 0, y: 0 }, { x: 1, y: 0 });
+
+  it('a pcurve crossing the surface’s knot lines is sampled between them: a narrow bump is not missed', () => {
+    const B = bumpy();
+    const p = edgeContinuity(
+      xAxis,
+      { surface: flat, pcurve: pcx, sameSense: true },
+      { surface: B, pcurve: pcx, sameSense: true },
+    );
+    // Independent oracle: the bump height by ternary search on B's own evaluation
+    // (the bump z(u) is unimodal on [0.78, 0.9]).
+    const zAt = (u: number): number => surfacePoint(B, u, 0).z;
+    let [lo, hi] = [0.78, 0.9];
+    for (let i = 0; i < 200; i++) {
+      const [m1, m2] = [lo + (hi - lo) / 3, hi - (hi - lo) / 3];
+      if (zAt(m1) < zAt(m2)) lo = m1;
+      else hi = m2;
+    }
+    const zmax = zAt(0.5 * (lo + hi));
+    expect(zmax).toBeGreaterThan(6e-3);
+    // Tolerance 1e-9 relative: the golden-section maximum of a smooth peak.
+    expect(Math.abs(p.max.gap - zmax)).toBeLessThan(1e-9 * zmax);
+    // The samples include B's knot parameters as span ends: 0.76 … 0.84 split the edge into 6 spans.
+    const inBump = Array.from(p.t).filter((t) => t > 0.76 && t < 0.84).length;
+    expect(inBump).toBe(4 * Math.min(2 * 3 + 1, 64)); // 4 knot spans × the default 7 points
+    // |z|² is piecewise degree 6 and the edge has unit speed: the default rule is exact on each
+    // span, so the RMS matches an independent adaptive integral with B's knots as breaks.
+    const ref = Math.sqrt(
+      integrate1d((t) => surfacePoint(B, t, 0).z ** 2, 0, 1, {
+        breaks: [0, 0.76, 0.78, 0.8, 0.82, 0.84, 1],
+        tol: { quadRel: 1e-14 },
+      }).value,
+    );
+    expect(Math.abs(p.rms.gap - ref)).toBeLessThan(1e-12 * ref);
+    // The same geometry through the boundary route agrees (it maps B's knots).
+    const q = boundaryContinuity(
+      { surface: flat, edge: 'v0', sameSense: true },
+      { surface: B, edge: 'v0', sameSense: true },
+    );
+    expect(Math.abs(q.max.gap - p.max.gap)).toBeLessThan(1e-9 * zmax);
+  });
+
+  it('the default rule follows the composed degree: RMS gap √(1/7) exactly for gap = u(t)³', () => {
+    // B: z = u³ (a cubic Bézier in u, linear x, y); A: z = 0. The edge is A's pcurve image
+    // with u(t) = 0.4t + 0.6t² (quadratic, increasing): gap = u³, speed = u′ (v is constant),
+    // so RMS² = ∫u⁶u′dt / ∫u′dt = 1/7. The integrand has degree 13: the default
+    // D + 1 = (3 + 3)·2 + 1 = 13 points are exact; the old max-degree rule (4 points) is not.
+    const B = makeSurface({
+      u: clampedBasis(3, [0, 0, 0, 0, 1, 1, 1, 1]),
+      v: clampedBasis(3, [0, 0, 0, 0, 1, 1, 1, 1]),
+      points: Array.from({ length: 16 }, (_, k) => {
+        const [i, j] = [Math.floor(k / 4), k % 4];
+        return [i / 3, j / 3, i === 3 ? 1 : 0];
+      }).flat(),
+    });
+    const pc = makeCurve({
+      dim: 2,
+      basis: clampedBasis(2, [0, 0, 0, 1, 1, 1]),
+      points: [0, 0.5, 0.2, 0.5, 1, 0.5],
+    });
+    const edge = makeCurve({
+      dim: 3,
+      basis: clampedBasis(2, [0, 0, 0, 1, 1, 1]),
+      points: [0, 0.5, 0, 0.2, 0.5, 0, 1, 0.5, 0],
+    });
+    const A = { surface: flat, pcurve: pc, sameSense: true };
+    const Bs = { surface: B, pcurve: pc, sameSense: true };
+    const exact = Math.sqrt(1 / 7);
+    // Tolerance 1e-13 relative: 13-point rule, sums of ≤ 13 terms.
+    expect(Math.abs(edgeContinuity(edge, A, Bs).rms.gap - exact)).toBeLessThan(1e-13 * exact);
+    // 4 points: error of ~1e-2 relative (the test could fail).
+    const coarse = edgeContinuity(edge, A, Bs, { samplesPerSpan: 4 }).rms.gap;
+    expect(Math.abs(coarse - exact)).toBeGreaterThan(1e-6 * exact);
+  });
+
+  it('a collapsed edge has gap RMS = the measured gap (weighted by parameter), not 0', () => {
+    const pt = { x: 0.5, y: 0.5, z: 0 };
+    const hi = planeSurface({ x: 0, y: 0, z: 0.1 }, { x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 });
+    const pc = line2({ x: 0.5, y: 0.5 }, { x: 0.5, y: 0.5 });
+    const p = edgeContinuity(
+      line(pt, pt),
+      { surface: flat, pcurve: pc, sameSense: true },
+      { surface: hi, pcurve: pc, sameSense: true },
+    );
+    expect(p.degenerate).toBe(p.t.length);
+    expect(Math.abs(p.max.gap - 0.1)).toBeLessThan(64 * EPS);
+    expect(Math.abs(p.rms.gap - 0.1)).toBeLessThan(64 * EPS);
+    expect(p.rms.normalAngle).toBe(0);
+  });
+});
+
+describe('review of B3: boundaries of unequal extent', () => {
+  it('max gap is symmetric: an overhanging B does not read G0 in one order', () => {
+    const along = (len: number): NurbsSurface =>
+      planeSurface({ x: 0, y: 0, z: 0 }, { x: 0, y: len, z: 0 }, { x: 1, y: 0, z: 0 });
+    const short = { surface: along(1), edge: 'v0', sameSense: true } as const;
+    const long = { surface: along(2), edge: 'v0', sameSense: true } as const;
+    // Edge v0 of each is the y axis, over [0, 1] and [0, 2]: B's far half is 1 away from A's end.
+    const ab = boundaryContinuity(short, long);
+    const ba = boundaryContinuity(long, short);
+    expect(Math.abs(ab.max.gap - 1)).toBeLessThan(64 * EPS);
+    expect(Math.abs(ba.max.gap - 1)).toBeLessThan(64 * EPS);
+    // The reverse distance is reached at the far end of the long boundary: A's parameter 1 (its end).
+    expect(Math.abs(ab.argmax.gap - 1)).toBeLessThan(1e-9);
+    // Per-sample gaps stay measured from A: zero for the short A, the overhang for the long A.
+    expect(maxOf(ab.gap)).toBeLessThan(64 * EPS);
+    expect(maxOf(ba.gap)).toBeGreaterThan(0.4);
+    // Equal boundaries are still exactly G0.
+    expect(boundaryContinuity(short, short).max.gap).toBeLessThan(64 * EPS);
+  });
+});
+
+describe('review of B3: G1 is not stricter than C1 far from the origin', () => {
+  it('a periodic circle centred at 1e7 is G2 at its seam when C1 holds within rounding', () => {
+    const c = periodicCircle({ x: 1e7, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }, 1);
+    for (const t of [0, 0.25, 0.5, 0.75]) {
+      const k = knotContinuity(c, t * c.basis.domain[1]);
+      if (k.parametric >= 1) expect(k.geometric).toBeGreaterThanOrEqual(1);
+    }
+    const k0 = knotContinuity(c, 0);
+    expect(k0.parametric).toBeGreaterThanOrEqual(1);
+    expect(k0.geometric).toBe(2);
+    // A real corner far from the origin is still a corner.
+    const corner = polyline([1e7, 0, 1e7 + 1, 0, 1e7 + 1, 1], 2);
+    expect(knotContinuity(corner, 0.5).geometric).toBe(0);
+  });
+});

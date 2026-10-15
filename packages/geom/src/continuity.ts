@@ -33,15 +33,23 @@
  *
  * **Sampling.** `samplesPerSpan` Gauss–Legendre points on every span of the
  * union of the curves' breakpoints (edge and both pcurves; for boundaries, A's
- * and B's mapped onto the edge by projection). The arrays hold these samples
- * in ascending `t`. The **RMS** of each measure is weighted by arc length,
+ * and B's mapped onto the edge by projection) and, for pcurves, of the
+ * parameters where a pcurve crosses an interior knot line of its surface
+ * (found on the pcurve's Bézier pieces, as trimming does): `S(p(t))` is only
+ * piecewise smooth across such a crossing, so one Gauss rule must not span
+ * it. A periodic pcurve contributes its own knots only. The arrays hold these
+ * samples in ascending `t`. The **RMS** of each measure is weighted by arc length,
  * `√(Σ wᵢ |C′(tᵢ)| mᵢ² / Σ wᵢ |C′(tᵢ)|)` with the Gauss weights `wᵢ`: the
  * quadrature of `√(∫ m² ds / ∫ ds)`, so it does not depend on the edge's
- * parameterisation and converges as the samples increase. With `refineMax`
+ * parameterisation and converges as the samples increase (on a collapsed edge,
+ * where the arc length is 0, the gap RMS is weighted by parameter instead).
+ * With `refineMax`
  * the **maximum** is also taken at both ends of the edge (its vertices) and
  * refined by golden-section search round the worst sample, between its
  * neighbours; it is then ≥ every array entry, and still a lower bound of the
- * true supremum (a search, not a certificate).
+ * true supremum (a search, not a certificate). For {@link boundaryContinuity}
+ * the maximum **gap** is also taken from B's boundary to A's (see there), so
+ * it does not depend on the order of the sides.
  *
  * **Along a curve.** {@link knotContinuity} compares one-sided derivatives at a
  * parameter of one curve (parametric C^k and geometric G^k);
@@ -58,6 +66,7 @@ import { curveOnSurface } from './curve-on-surface';
 import { speedFloor } from './curve-measure';
 import { fail } from './errors';
 import { closestPointOnCurve, projectPointsToCurveInto } from './project';
+import { bezierPieces, crossings, ctrl } from './pieces';
 import { gaussLegendre, GL_MAX_ORDER } from './quadrature';
 import { boundaryCurve, checkSurfaceShape, evalSurfaceSpan, localMagnitude } from './surface';
 import { MEASURE_FORMS, MEASURE_N, SAMPLE_DEGENERATE, surfaceMeasureAt } from './surface-measure';
@@ -65,6 +74,7 @@ import { resolveTolerances } from './tolerance';
 import type { Tolerances } from './tolerance';
 import type {
   Basis,
+  ClampedCurve,
   NurbsCurve,
   NurbsSurface,
   ReadonlyF64,
@@ -107,10 +117,17 @@ export interface BoundarySide {
 /** Sampling options of the edge measures (§11.4). */
 export interface ContinuitySampling {
   /**
-   * Gauss–Legendre points per span, 1 … `GL_MAX_ORDER`. Default: the highest
-   * degree involved (edge, pcurves and both surfaces' directions) + 1, the
-   * rule that integrates the squared difference of two degree-p polynomials
-   * exactly, so the RMS of a polynomial gap is exact on a polynomial edge.
+   * Gauss–Legendre points per span, 1 … `GL_MAX_ORDER`. Default for
+   * {@link edgeContinuity}: `D + 1` (capped at `GL_MAX_ORDER`), `D` the highest
+   * degree of the polynomial curves the gap is made of: the edge and
+   * `S_X(p_X(t))`, of degree `(deg_u + deg_v) · deg p_X` for a polynomial surface
+   * (a tensor product of degrees `deg_u`, `deg_v` composed with a pcurve of
+   * degree `deg p_X`). `n = D + 1` points integrate the square of such a
+   * degree-`D` polynomial exactly, so the RMS gap of polynomial sides is exact
+   * (when the speed is also polynomial, i.e. the edge runs straight in a
+   * coordinate); for rational sides, `√` and the normal-dependent measures it
+   * converges as `n` grows, it is not exact. Default for
+   * {@link boundaryContinuity}: the highest surface degree + 1.
    */
   readonly samplesPerSpan?: number;
   /** Refine the maxima (ends and golden-section search). Default `true`. */
@@ -122,7 +139,7 @@ export interface ContinuitySampling {
 
 /**
  * Defaults of {@link ContinuitySampling} that are not derived from the input
- * (`samplesPerSpan` is: highest degree + 1).
+ * (`samplesPerSpan` is: composed degree + 1, see {@link ContinuitySampling}).
  *
  * - `refineMax: true`: a maximum between samples is the number a caller
  *   compares with a threshold; refining it costs ~3 · 40 evaluations.
@@ -237,7 +254,7 @@ function checkSampling(
   o: ContinuitySampling | undefined,
   maxDeg: number,
 ): { n: number; refine: boolean; steps: number; tol: Tolerances } {
-  const n = o?.samplesPerSpan ?? maxDeg + 1;
+  const n = o?.samplesPerSpan ?? Math.min(maxDeg + 1, GL_MAX_ORDER);
   if (!Number.isInteger(n) || n < 1 || n > GL_MAX_ORDER) {
     fail('unsupported', `samplesPerSpan must be an integer in [1, ${GL_MAX_ORDER}]; got ${n}`, {
       value: n,
@@ -558,6 +575,7 @@ function profileOf(
   refine: boolean,
   steps: number,
   boundaryParams: ((ts: Float64Array) => Float64Array) | null,
+  reverseGap: (() => { readonly value: number; readonly t: number }) | null = null,
 ): ContinuityProfile {
   const rule = gaussLegendre(n);
   const spans = breaks.length - 1;
@@ -590,18 +608,23 @@ function profileOf(
     if (flags[i]) degenerate++;
   }
 
-  // Arc-length-weighted RMS (the gap over every sample, the others over regular ones).
+  // Arc-length-weighted RMS (the gap over every sample, the others over regular
+  // ones). On a collapsed edge (no arc length at all) the gap, which is still
+  // measured, is weighted by parameter instead; the others have no samples.
   const rms = MEASURES.map((k) => {
-    let num = 0;
-    let den = 0;
-    for (let i = 0; i < N; i++) {
-      if (k !== M_GAP && flags[i]) continue;
-      const w = wq[i]! * m[i * M_LEN + M_SPEED]!;
-      const x = m[i * M_LEN + k]!;
-      num += w * x * x;
-      den += w;
+    for (const byArc of k === M_GAP ? [true, false] : [true]) {
+      let num = 0;
+      let den = 0;
+      for (let i = 0; i < N; i++) {
+        if (k !== M_GAP && flags[i]) continue;
+        const w = byArc ? wq[i]! * m[i * M_LEN + M_SPEED]! : wq[i]!;
+        const x = m[i * M_LEN + k]!;
+        num += w * x * x;
+        den += w;
+      }
+      if (den > 0) return Math.sqrt(num / den);
     }
-    return den > 0 ? Math.sqrt(num / den) : 0;
+    return 0;
   });
 
   // Maxima over the samples, then the ends and golden-section refinement.
@@ -644,6 +667,13 @@ function profileOf(
           best = r.value;
           bt = r.t;
         }
+      }
+    }
+    if (k === M_GAP && reverseGap) {
+      const r = reverseGap();
+      if (r.value > best) {
+        best = r.value;
+        bt = r.t;
       }
     }
     max[q] = best > 0 ? best : 0;
@@ -754,6 +784,47 @@ function checkSameDomain(edge: NurbsCurve, c: NurbsCurve, what: string, tol: Tol
 }
 
 /**
+ * The parameters where a clamped pcurve crosses an interior knot line of its
+ * surface (the surface is only piecewise smooth across it, so these are span
+ * breaks of the sampling). Found on the pcurve's Bézier pieces by the
+ * certified search of trimming (`crossings`, `minWidth` in `t`). In a periodic
+ * surface direction the knot lines repeat every period. A periodic pcurve
+ * yields none (its own knots are breaks already).
+ */
+function surfaceKnotCrossings(side: EdgeSide, minWidth: number): number[] {
+  const out: number[] = [];
+  const pc = side.pcurve;
+  if (pc.basis.kind !== 'clamped') return out;
+  const dirs = [side.surface.u, side.surface.v];
+  for (const piece of bezierPieces(pc as ClampedCurve<2>)) {
+    for (let k = 0; k < 2; k++) {
+      const b = dirs[k]!;
+      const br = Array.from(breakpoints(b));
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (let j = 0; j <= piece.p; j++) {
+        lo = Math.min(lo, ctrl(piece, j, k));
+        hi = Math.max(hi, ctrl(piece, j, k));
+      }
+      if (b.kind === 'clamped') {
+        for (const x of br)
+          if (x > b.domain[0] && x < b.domain[1]) crossings(piece, k, x, minWidth, out);
+      } else {
+        // The lines x + m·period of one period's breakpoints that the piece's box reaches.
+        const T = b.period;
+        for (const x of br) {
+          if (x >= b.domain[0] + T) continue;
+          for (let m = Math.floor((lo - x) / T); x + m * T <= hi; m++) {
+            if (x + m * T > lo) crossings(piece, k, x + m * T, minWidth, out);
+          }
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Continuity across an edge `C(t)` between two faces given by same-parameter
  * pcurves (module comment): gap, normal angle, cross-edge curvature mismatch
  * and curvature, per sample and summarised (max with its parameter, RMS).
@@ -772,6 +843,8 @@ export function edgeContinuity(
   const B = pcurveSide(b, 'edgeContinuity side b', tol);
   checkSameDomain(edge, a.pcurve, 'side a pcurve', tol);
   checkSameDomain(edge, b.pcurve, 'side b pcurve', tol);
+  // Scratch order: the highest basis degree. Default Gauss order: the composed
+  // degree D of the gap (see ContinuitySampling.samplesPerSpan).
   const P = Math.max(
     edge.basis.degree,
     a.pcurve.basis.degree,
@@ -781,13 +854,22 @@ export function edgeContinuity(
     b.surface.u.degree,
     b.surface.v.degree,
   );
-  const o = checkSampling(opts, P);
+  const composed = (s: EdgeSide): number =>
+    (s.surface.u.degree + s.surface.v.degree) * s.pcurve.basis.degree;
+  const o = checkSampling(opts, Math.max(edge.basis.degree, composed(a), composed(b)));
   const [t0, t1] = edge.basis.domain;
+  const minGap = o.tol.paramRel * (t1 - t0);
   const breaks = spanBreaks(
-    [...breakpoints(edge.basis), ...breakpoints(a.pcurve.basis), ...breakpoints(b.pcurve.basis)],
+    [
+      ...breakpoints(edge.basis),
+      ...breakpoints(a.pcurve.basis),
+      ...breakpoints(b.pcurve.basis),
+      ...surfaceKnotCrossings(a, minGap),
+      ...surfaceKnotCrossings(b, minGap),
+    ],
     t0,
     t1,
-    o.tol.paramRel * (t1 - t0),
+    minGap,
   );
   const ctx: EdgeCtx = {
     edge,
@@ -828,9 +910,17 @@ function boundarySetup(
  * `a.surface` against `b.edge` of `b.surface` (in either direction, with any
  * parameterisation). The edge is A's boundary curve (exact); side B's point
  * for each sample is the closest point on B's boundary curve (globally
- * seeded projection), so the
- * gap is the distance from A's boundary to B's, measured from A. Breaks are
- * A's boundary knots and B's mapped onto A by the same projection.
+ * seeded projection), so the per-sample `gap` is the distance from A's
+ * boundary to B's, measured from A. Breaks are A's boundary knots and B's
+ * mapped onto A by the same projection.
+ *
+ * `max.gap` is the **symmetric** distance between the boundaries (the larger of
+ * the two directed Hausdorff estimates): it also covers the distance from B's
+ * boundary, sampled at its ends, breakpoints and `samplesPerSpan` Gauss points
+ * per span, to A's, so a B that overhangs A (or only partly shares the edge)
+ * does not read G0 just because A was passed first. `argmax.gap` is then the
+ * parameter of A's closest point; `gap` arrays and `rms.gap` stay measured
+ * from A.
  */
 export function boundaryContinuity(
   a: BoundarySide,
@@ -907,7 +997,28 @@ export function boundaryContinuity(
     projectPointsToCurveInto(sb.curve, pts, xb, new Float64Array(ts.length), { tol: o.tol });
     return xb;
   };
-  return profileOf(ctx, breaks, o.n, o.refine, o.steps, project);
+  // The reverse direction: B's boundary onto A's (ends, breakpoints, Gauss points).
+  const reverse = (): { readonly value: number; readonly t: number } => {
+    const bb = sb.curve.basis;
+    const rule = gaussLegendre(o.n);
+    const br = Array.from(breakpoints(bb));
+    const xs: number[] = [...br];
+    for (let i = 0; i + 1 < br.length; i++) {
+      const [lo, hi] = [br[i]!, br[i + 1]!];
+      for (let j = 0; j < o.n; j++) xs.push(0.5 * (lo + hi) + 0.5 * (hi - lo) * rule.nodes[j]!);
+    }
+    let value = 0;
+    let at = t0;
+    for (const x of xs) {
+      const r = closestPointOnCurve(edge, curvePoint(sb.curve, x), { tol: o.tol });
+      if (r.distance > value) {
+        value = r.distance;
+        at = r.t;
+      }
+    }
+    return { value, t: at };
+  };
+  return profileOf(ctx, breaks, o.n, o.refine, o.steps, project, reverse);
 }
 
 // ---------------------------------------------------------------------------
@@ -1006,8 +1117,9 @@ const dist = (a: readonly number[], b: readonly number[]): number =>
  * curve, whose seam is `t_0`). A derivative "agrees" when its jump is within
  * the rounding floor of the two sides' derivatives (`evalSide`), so a designed
  * C^k join reads C^k exactly and any real jump does not. Geometric: G1 when
- * the unit tangents agree within `angle` (a G1 join whose speed changes is
- * G1, not C1), G2 when the curvature vectors also agree within the floor
+ * the unit tangents agree within `angle` or within the rounding floor of the
+ * tangent, `max floor(C′) / min |C′|` (a G1 join whose speed changes is G1,
+ * not C1; a C1 join is always G1), G2 when the curvature vectors also agree within the floor
  * propagated from the derivatives' (`(f₂ + 2|C″| f₁/|C′|)/|C′|²`).
  */
 export function knotContinuity(
@@ -1050,7 +1162,10 @@ export function knotContinuity(
       const acc = Math.hypot(...Array.from(s.d.subarray(2 * dim, 3 * dim)));
       return (s.floor[2]! + (2 * acc * s.floor[1]!) / f.speed) / (f.speed * f.speed);
     };
-    if (tangentAngle <= T.angle) {
+    // G1 within `angle` or the rounding of the tangents: a C1 join (jump within
+    // the derivatives' floor) is G1 however far from the origin the curve is.
+    const angleFloor = Math.max(L.floor[1]!, R.floor[1]!) / Math.min(fl.speed, fr.speed);
+    if (tangentAngle <= Math.max(T.angle, angleFloor)) {
       geometric = curvature <= Math.max(kFloor(L, fl), kFloor(R, fr)) ? 2 : 1;
     }
   }
