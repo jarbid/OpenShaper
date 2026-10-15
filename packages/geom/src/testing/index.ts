@@ -8,7 +8,13 @@ export { checksum } from './checksum';
 export { mulberry32 } from './prng';
 export { randomClampedBasis, randomCurve, randomPeriodicBasis, randomSurface } from './random';
 export type { RandomBasisOptions, RandomCurveOptions, RandomSurfaceOptions } from './random';
-export { boxSolid, cylinderSolid, sphericalZoneSolid, torusSolid } from './solids';
+export {
+  boxSolid,
+  cylinderSolid,
+  plateWithHoleSolid,
+  sphericalZoneSolid,
+  torusSolid,
+} from './solids';
 export { readStepSubset, writeStepUnchecked } from './step';
 export { MUTATIONS } from './mutations';
 export type { Mutation } from './mutations';

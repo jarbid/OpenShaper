@@ -23,8 +23,16 @@ import {
   DEFAULT_TOLERANCES,
 } from '../index';
 import type { Affine3, Brep, BrepSpec } from '../index';
-import { boxSolid, cylinderSolid, MUTATIONS, sphericalZoneSolid, torusSolid } from '../testing';
+import {
+  boxSolid,
+  cylinderSolid,
+  MUTATIONS,
+  plateWithHoleSolid,
+  sphericalZoneSolid,
+  torusSolid,
+} from '../testing';
 import { checksum } from '../testing';
+import { trimFace } from './faces';
 
 const PI = Math.PI;
 const zoneVolume = (r: number, phi: number): number => {
@@ -42,6 +50,7 @@ const SOLIDS: readonly (readonly [string, () => Brep, number, number])[] = [
   ['zone', () => sphericalZoneSolid(2, 1), zoneVolume(2, 1), 1e-9],
   ['split zone', () => sphericalZoneSolid(2, 1, { split: true }), zoneVolume(2, 1), 1e-9],
   ['torus', () => torusSolid(3, 1), 2 * PI * PI * 3 * 1, 1e-9],
+  ['plate with a hole', () => plateWithHoleSolid(6, 5, 2, 1), 60 - 2 * PI, 1e-9],
 ];
 
 describe('checkBrep on valid solids', () => {
@@ -210,5 +219,81 @@ describe('outward orientation by measurement', () => {
     expect(r.ok).toBe(false);
     expect(Math.abs(r.signedVolume / (PI * 1.5 * 1.5 * 4) + 1)).toBeLessThan(1e-9);
     expect(r.issues.some((i) => i.message.includes('inside-out'))).toBe(true);
+  });
+});
+
+describe('faces with holes (plateWithHoleSolid)', () => {
+  const plate = plateWithHoleSolid(6, 5, 2, 1);
+  const reverseHole = (f: Brep['faces'][number]): Brep['faces'][number] => ({
+    ...f,
+    holes: f.holes.map((h) => ({
+      coedges: h.coedges.map((c) => ({ ...c, sense: !c.sense })),
+    })),
+  });
+
+  it('the hole sense convention: clockwise about the outward normal, for either sameSense', () => {
+    // Face 0 is the bottom plane (own normal into the solid: sameSense false), face 1 the top.
+    expect(plate.faces.map((f) => [f.sameSense, f.holes.length])).toEqual([
+      [false, 1],
+      [true, 1],
+      [true, 0],
+      [true, 0],
+      [true, 0],
+      [true, 0],
+      [false, 0],
+    ]);
+    for (const fi of [0, 1]) {
+      const { ts, issues } = trimFace(plate.faces[fi]!);
+      expect(issues).toEqual([]);
+      expect(ts).not.toBeNull();
+      // Closed form: the outer loop 6 × 5 counter-clockwise, the hole π r² clockwise in (u, v).
+      expect(ts!.outer!.signedArea).toBeCloseTo(30, 12);
+      expect(ts!.holes[0]!.signedArea).toBeCloseTo(-PI, 9);
+    }
+  });
+
+  it('a hole running the outer loop’s way is reported as trim-orientation, naming the hole', () => {
+    for (const fi of [0, 1]) {
+      const { ts, issues } = trimFace(reverseHole(plate.faces[fi]!));
+      expect(ts).toBeNull();
+      const hit = issues.find((i) => i.code === 'trim-orientation');
+      expect(hit, JSON.stringify(issues)).toBeDefined();
+      expect(hit!.message).toContain('hole 0');
+      expect(hit!.value!).toBeGreaterThan(0);
+    }
+  });
+
+  it('the hole mutations: a reversed hole loop breaks coherence, a reversed hole pcurve breaks the same-parameter gap', () => {
+    const loop = MUTATIONS.find((m) => m.name === 'reverse a hole loop')!;
+    const pc = MUTATIONS.find((m) => m.name === 'reverse a hole pcurve')!;
+    expect(loop.caughtBy(plate)).toBe('makeBrep');
+    expect(pc.caughtBy(plate)).toBe('checkBrep');
+    // They do not apply to a solid without a hole.
+    expect(loop.caughtBy(boxSolid(1, 1, 1))).toBe('n/a');
+    expect(pc.caughtBy(boxSolid(1, 1, 1))).toBe('n/a');
+    const made = makeBrep(loop.apply(plate));
+    expect(made.ok).toBe(false);
+    expect(made.issues.some((i) => i.message.includes('same direction'))).toBe(true);
+    const built = makeBrep(pc.apply(plate));
+    expect(built.ok, JSON.stringify(built.issues)).toBe(true);
+    if (!built.ok) return;
+    const r = checkBrep(built.value);
+    expect(r.ok).toBe(false);
+    // The reversed circle pcurve meets its edge only at two points: the gap is of the order of the radius.
+    expect(r.maxEdgeGap).toBeGreaterThan(0.5);
+  });
+
+  it('genus 1 is derived from the holes: L > F in Euler–Poincaré', () => {
+    const c = makeBrep({
+      vertices: plate.vertices,
+      edges: plate.edges,
+      faces: plate.faces,
+      shells: plate.shells,
+      solids: [{ outer: 0 }],
+    });
+    expect(c.ok).toBe(true);
+    if (!c.ok) return;
+    const e = checkBrep(c.value).euler;
+    expect(e).toMatchObject({ V: 10, E: 15, F: 7, L: 9, S: 1, G: 1, holds: true });
   });
 });

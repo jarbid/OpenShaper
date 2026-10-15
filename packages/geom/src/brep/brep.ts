@@ -7,7 +7,7 @@
  * **Scope.** One solid bounded by one closed shell of manifold faces; faces
  * with an outer loop and holes; closed edges (`start === end`); seam edges (an
  * edge used twice by one face). Out of scope: collapsed edges and poles, voids,
- * open shells, non-manifold topology.
+ * open shells, non-manifold topology, disconnected shells.
  *
  * **Conventions** (`faces.ts` states the loop and pcurve ones). An edge is the
  * whole of its curve, from `start` (parameter `a`) to `end` (parameter `b`). A
@@ -116,7 +116,8 @@ export function loopsOf(f: BrepFace): readonly BrepLoop[] {
  * range, non-empty loops, each loop closing in vertex order respecting `sense`,
  * pcurves on the edge's parameter domain, every edge used exactly twice and in
  * opposite directions (a seam twice by one face), every vertex used, one solid
- * with one closed shell holding every face. Returns every problem found as an
+ * with one closed shell holding every face, the faces connected through shared
+ * edges (one piece). Returns every problem found as an
  * issue (`brep-reference` for ids, `brep-invalid` for topology, `unsupported`
  * outside the scope above). Contract violations (not a B-rep spec at all)
  * throw. Geometric consistency is {@link checkBrep}'s job, not this function's.
@@ -300,6 +301,36 @@ export function makeBrep(spec: BrepSpec): Result<Brep> {
       );
     }
   });
+
+  // One connected shell: faces joined through shared edges. A disconnected "shell" (a torus
+  // beside an inside-out box, say) passes every per-edge test and Euler–Poincaré with a
+  // compensating genus, and its summed signed volume hides a flipped smaller component, so
+  // `checkBrep`'s single-sign orientation test would be fooled. Refused here, not guessed at.
+  if (facesOk && nF > 1) {
+    const parent = Array.from({ length: nF }, (_, i) => i);
+    const find = (x: number): number => {
+      while (parent[x] !== x) {
+        parent[x] = parent[parent[x]!]!;
+        x = parent[x]!;
+      }
+      return x;
+    };
+    for (const u of uses) {
+      if (u.length === 2) parent[find(u[0]!.face)] = find(u[1]!.face);
+    }
+    const roots = new Set<number>();
+    for (let f = 0; f < nF; f++) roots.add(find(f));
+    if (roots.size > 1) {
+      issues.push(
+        issue(
+          'unsupported',
+          `the faces form ${roots.size} edge-connected components; a Phase 1 shell is one connected piece (separate components cannot share one orientation measurement)`,
+          undefined,
+          roots.size,
+        ),
+      );
+    }
+  }
 
   // Every vertex belongs to an edge.
   if (edgesOk) {

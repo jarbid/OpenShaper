@@ -241,6 +241,7 @@ describe('@openshaper/geom public API', () => {
       'formatKnots',
       'boxSolid',
       'cylinderSolid',
+      'plateWithHoleSolid',
       'sphericalZoneSolid',
       'torusSolid',
       'MUTATIONS',

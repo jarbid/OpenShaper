@@ -1903,7 +1903,12 @@ maxVertexGap), Tolerances.point)` in file units, so the floor is 10 nm in model 
 than the tolerance the checks themselves use would be a claim nothing measured. `precision`
 applies to coordinates, knots and weights alike; `formatKnots` derives multiplicities from
 the formatted text and refuses (`step-unsupported`) a precision that merges knots into an
-invalid multiplicity. `splitPeriodicFaces` is **not implemented**: it needs B-rep surgery
+invalid multiplicity. The `tol` option and the defaults are in **model units** (the cm
+defaults are scaled by `scaleTolerances` for `modelUnit: 'mm'`), so the same solid is judged
+alike in either unit. With a numeric `precision` the rounding opens gaps of its own, so the
+writer reads the rounded text back with the subset reader, runs `checkBrep` on it, and
+declares the uncertainty (and `stats.maxEdgeGap`) from those gaps; a rounded file whose gaps
+exceed `Tolerances.fit` is refused (`step-unsupported`). `splitPeriodicFaces` is **not implemented**: it needs B-rep surgery
 (a new edge and two half faces per periodic face), and OCCT 5.3.5 imports the seamed faces
 as valid solids (§15.5), so there is no importer to serve yet; the manual matrix
 (`step-export.md`) is where a need would show up.
@@ -1938,7 +1943,7 @@ export function cylinderSolid(r: number, h: number, opts?: { trimmedCaps?: boole
 export function torusSolid(R: number, r: number): Brep; // V3
 export function sphericalZoneSolid(r: number, latitude: number): Brep; // V4
 export function lensSolid(a: number, b: number, h: number): Brep;
-export function plateWithHoleSolid(L: number, t: number, r: number): Brep;
+export function plateWithHoleSolid(x: number, y: number, z: number, r: number): Brep; // as built: box with a cylindrical through-hole, genus 1
 export function ellipticPuckSolid(
   a: number,
   b: number,
@@ -2479,11 +2484,12 @@ merging) and classification.
 
 **Scope:** manifold solids with one closed outer shell; faces with an outer loop and
 holes; closed edges (start = end); seam edges (used twice by one face). **Out of
-scope:** collapsed edges and poles, voids, open shells, non-manifold topology.
+scope:** collapsed edges and poles, voids, open shells, non-manifold topology,
+disconnected shells.
 
 `makeBrep` (cheap, structural): ids in range, non-empty loops, edge endpoint
 consistency, loop closure in vertex order (respecting `sense`), every edge used
-exactly twice (a seam twice by one face).
+exactly twice (a seam twice by one face), and the faces edge-connected (one piece).
 
 `checkBrep` (expensive, geometric) adds:
 
@@ -2496,15 +2502,18 @@ exactly twice (a seam twice by one face).
 5. Euler–Poincaré `V − E + F − (L − F) = 2(S − G)`, with `G` checked against the
    declared genus or reported as derived (must be a non-negative integer);
 6. outward orientation: `signedVolume > 0` (for a connected, coherently oriented
-   closed shell the sign decides the global orientation).
+   closed shell the sign decides the global orientation; `makeBrep` guarantees the
+   connectivity, because a torus beside an inside-out box passes Euler–Poincaré with a
+   compensating genus and its summed volume hides the flipped part).
 
 Checks 4 and 6 catch every orientation error that OCCT's STEP reader heals (§15). A
 defect-injection catalogue mutates valid B-reps (flip a face sense, flip a coedge,
 reverse a loop, drop a face, move a vertex, corrupt a weight) and asserts each is
 detected.
 
-**As built (B4):** `testing/mutations.ts` holds nine mutations (the six above plus offset
-an edge curve, reverse a pcurve, declare a wrong genus), each tagged with the layer that
+**As built (B4):** `testing/mutations.ts` holds eleven mutations (the six above plus offset
+an edge curve, reverse a pcurve, declare a wrong genus, reverse a hole loop, reverse a hole
+pcurve; the two hole ones are `'n/a'` on a solid without a hole), each tagged with the layer that
 must reject it (`makeBrep` for the structural ones, `checkBrep` for the geometric ones;
 reversing "one loop" of a one-face solid reverses the whole shell, so only the measured
 volume catches it) and run against every solid of the corpus. A weight inside the net moves
@@ -2551,7 +2560,8 @@ import them from geom).
 - `master_representation` is `.CURVE_3D.` where the 3D curve defines the edge (iso
   and boundary rows) and `.PCURVE_S1.` / `.PCURVE_S2.` where a parameter-space trim
   does.
-- **Uncertainty is measured:** `2 × max(maxEdgeGap, maxVertexGap)` from `checkBrep`,
+- **Uncertainty is measured:** `2 × max(maxEdgeGap, maxVertexGap)` from `checkBrep`
+  (of the B-rep as written, when `precision` rounds),
   floored at `Tolerances.point` (as built, B4; the first draft said 1e-7 mm), in file units. OCCT then has no gap to heal, and the validator
   can tell real tolerance growth from declared uncertainty.
 - **Refusal:** `writeStep` runs `checkBrep` and throws `brep-invalid` (carrying the
@@ -2679,11 +2689,11 @@ init ≈ 0.13–0.2 s, small solids import in 0.01–0.2 s. STEP files go to
 
 The WASM runs here without workaround (init 0.14 s; a corpus solid imports in 5 to 180 ms),
 so the validator is real, not the stopgap of §15.4: `pnpm --filter @openshaper/geom
-test:occt` is 33 tests, all passing, in about 7 s.
+test:occt` is 37 tests, all passing, in about 7 s.
 
-**What runs** (`src/step/step.occt.test.ts`). For each of ten corpus solids (V1 box and
-trimmed box, V2 cylinder, V3 torus, V4 zone and split zone, a mirrored cylinder and zone, a
-rotated cylinder and trimmed box) written with the file unit mm and again with cm: B1 type,
+**What runs** (`src/step/step.occt.test.ts`). For each of twelve corpus solids (V1 box and
+trimmed box, V2 cylinder, V3 torus, V4 zone and split zone, a plate with a cylindrical hole
+and its mirror, a mirrored cylinder and zone, a rotated cylinder and trimmed box) written with the file unit mm and again with cm: B1 type,
 B2 `isValid`, B3 counts (1 solid, 1 shell, faces / edges / vertices = `StepStats`), B4 tolerance
 growth (the largest `Ve` / `Ed` tolerance in OCCT's BREP text is at most twice the declared
 uncertainty, itself at least `Tolerances.point` = 1e-5 mm), B5 edge curves (each of ours equals
@@ -2694,9 +2704,10 @@ and outside probes. Writer options are exercised on box, cylinder and split zone
 pinned. **B7** and Path A (`toOcctBrepText`, the unhealed native BREP) are **not built**: B7
 compares two OCCT volumes of one solid through different paths; the mesh-volume oracle
 below carries the accuracy claim in the meantime. V5 (fitted pcurve, integration) and V6
-(poles) wait for their milestones; the polynomial prism, lens and plate-with-hole of the
-corpus table are not built (the box covers the polynomial case, and no builder makes a
-holed face yet, so `FACE_BOUND` is untested against OCCT).
+(poles) wait for their milestones; the polynomial prism and lens of the corpus table are not
+built (the box covers the polynomial case). The plate with a hole (`FACE_BOUND` loops on two
+planar faces, the hole wall a seamed cylinder with `sameSense = false`) is built and passes
+every OCCT check, in the file and mirrored.
 
 **Measured** (model cm, file mm, exact volume = closed form):
 

@@ -9,6 +9,7 @@
  * | cylinder `r, h` (base at 0)   | `π r² h`            | `2π r h + 2π r²`            | `(0, 0, h/2)`   |
  * | sphere zone `r, φ`            | `π (r² h − h³/12)`  | `2π r h + 2π (r cos φ)²`    | origin          |
  * | torus `R, r`                  | `2π² R r²`          | `4π² R r`                   | origin          |
+ * | plate `a × b × c`, hole `r`   | `abc − π r² c`      | `2(ab + bc + ca) + 2π r (c − r)` | `(a, b, c)/2` |
  *
  * Tolerances: polynomial faces integrate with exact Gauss rules, so only
  * rounding remains (`1e-13` relative; the centroid divides two such sums);
@@ -19,7 +20,13 @@
 import { describe, expect, it } from 'vitest';
 import { makeBrep, massProperties, transformBrep } from '../index';
 import type { Affine3, Brep } from '../index';
-import { boxSolid, cylinderSolid, sphericalZoneSolid, torusSolid } from '../testing';
+import {
+  boxSolid,
+  cylinderSolid,
+  plateWithHoleSolid,
+  sphericalZoneSolid,
+  torusSolid,
+} from '../testing';
 import { checksum } from '../testing';
 
 const PI = Math.PI;
@@ -50,6 +57,16 @@ const CASES: readonly Case[] = [
     area: 62,
     centroid: [1, 1.5, 2.5],
     tol: 1e-13,
+  },
+  {
+    // Faces with hole loops: the closed form subtracts the hole's volume and area
+    // (two discs of area π r², the wall adds 2π r c).
+    name: 'plate with a hole',
+    brep: () => plateWithHoleSolid(6, 5, 2, 1),
+    volume: 60 - 2 * PI,
+    area: 104 + 2 * PI,
+    centroid: [3, 2.5, 1],
+    tol: 1e-9,
   },
   {
     name: 'cylinder',

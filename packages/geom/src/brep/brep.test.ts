@@ -29,8 +29,16 @@ import {
   surfaceArea,
   transformBrep,
 } from '../index';
-import type { Affine3, Brep, BrepSpec, GeomErrorCode } from '../index';
-import { boxSolid, cylinderSolid, MUTATIONS, sphericalZoneSolid, torusSolid } from '../testing';
+import type { Affine3, Brep, BrepLoop, BrepSpec, GeomErrorCode } from '../index';
+import { flipBrep } from './brep';
+import {
+  boxSolid,
+  cylinderSolid,
+  MUTATIONS,
+  plateWithHoleSolid,
+  sphericalZoneSolid,
+  torusSolid,
+} from '../testing';
 import { checksum } from '../testing';
 
 const SOLIDS: readonly (readonly [string, () => Brep])[] = [
@@ -40,6 +48,7 @@ const SOLIDS: readonly (readonly [string, () => Brep])[] = [
   ['zone', () => sphericalZoneSolid(2, 1)],
   ['split zone', () => sphericalZoneSolid(2, 1, { split: true })],
   ['torus', () => torusSolid(3, 1)],
+  ['plate with a hole', () => plateWithHoleSolid(6, 5, 2, 1)],
 ];
 
 function expectCode(f: () => unknown, code: GeomErrorCode): void {
@@ -51,6 +60,26 @@ function expectCode(f: () => unknown, code: GeomErrorCode): void {
     return;
   }
   expect.unreachable(`expected GeomError '${code}'`);
+}
+
+/** One spec holding both B-reps (ids of `b` shifted), in one shell and one solid. */
+function merge(a: Brep, b: Brep): BrepSpec {
+  const dv = a.vertices.length;
+  const de = a.edges.length;
+  const shift = (l: BrepLoop): BrepLoop => ({
+    coedges: l.coedges.map((c) => ({ ...c, edge: c.edge + de })),
+  });
+  const faces = [
+    ...a.faces,
+    ...b.faces.map((f) => ({ ...f, outer: shift(f.outer), holes: f.holes.map(shift) })),
+  ];
+  return {
+    vertices: [...a.vertices, ...b.vertices],
+    edges: [...a.edges, ...b.edges.map((e) => ({ ...e, start: e.start + dv, end: e.end + dv }))],
+    faces,
+    shells: [{ faces: faces.map((_, i) => i), closed: true }],
+    solids: [{ outer: 0 }],
+  };
 }
 
 const spec = (b: Brep): { -readonly [K in keyof BrepSpec]: BrepSpec[K] } => ({
@@ -69,6 +98,7 @@ describe('valid solids', () => {
     zone: [2, 3, 3],
     'split zone': [3, 5, 4],
     torus: [1, 2, 1],
+    'plate with a hole': [10, 15, 7],
   };
   for (const [name, build] of SOLIDS) {
     it(`${name}: vertices, edges, faces as the topology says; frozen; Euler holds`, () => {
@@ -201,6 +231,30 @@ describe('makeBrep: structural defects, with their codes and places', () => {
     const r = makeBrep(s);
     expect(r.ok).toBe(false);
     expect(r.issues.some((x) => x.message.includes('same-parameter'))).toBe(true);
+  });
+
+  it('a disconnected shell is refused: a torus beside an inside-out box (genus compensates, volumes sum)', () => {
+    // Euler–Poincaré passes with G = 0 (torus χ 0 + box χ 2 = 2(1 − 0)), every edge is used
+    // twice in opposite directions, and the summed signed volume 59.2 − 1 > 0 hides the
+    // inside-out box: a single orientation measurement cannot settle two components.
+    const torus = torusSolid(3, 1);
+    const box1 = flipBrep(transformBrep(boxSolid(1, 1, 1), [1, 0, 0, 10, 0, 1, 0, 0, 0, 0, 1, 0]));
+    const merged = merge(torus, box1);
+    const r = makeBrep(merged);
+    expect(r.ok).toBe(false);
+    const hit = r.issues.find((x) => x.code === 'unsupported');
+    expect(hit, JSON.stringify(r.issues)).toBeDefined();
+    expect(hit!.message).toContain('2 edge-connected components');
+    // Nothing else is wrong with it: the connectivity is the only reason.
+    expect(r.issues.every((x) => x.code === 'unsupported')).toBe(true);
+    // The same with the box outward: still two pieces, still refused.
+    const outward = makeBrep(
+      merge(torus, transformBrep(boxSolid(1, 1, 1), [1, 0, 0, 10, 0, 1, 0, 0, 0, 0, 1, 0])),
+    );
+    expect(outward.ok).toBe(false);
+    // Each piece alone is fine.
+    expect(makeBrep(spec(torus)).ok).toBe(true);
+    expect(makeBrep(spec(box1)).ok).toBe(true);
   });
 
   it('a vertex that belongs to no edge: brep-invalid', () => {

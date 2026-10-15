@@ -10,6 +10,7 @@
  * | `cylinderSolid`        | periodic rational band, two caps trimmed by circles          | `π r² h`                  |
  * | `sphericalZoneSolid`   | `|latitude| ≤ φ` zone of a sphere (one or two bands), caps   | `π (r² h − h³/12)`, `h = 2 r sin φ` |
  * | `torusSolid`           | one doubly periodic face, two seams, one vertex              | `2 π² R r²`               |
+ * | `plateWithHoleSolid`   | box with a cylindrical through-hole: two holed planar faces  | `x·y·z − π r² z`          |
  *
  * Orientation follows `faces.ts`: loops in face orientation (counter-clockwise
  * seen from outside), a coedge's pcurve parameterised like its edge curve.
@@ -73,10 +74,37 @@ export function boxSolid(
   z: number,
   opts?: { readonly trimmed?: boolean },
 ): Brep {
-  const trimmed = opts?.trimmed === true;
+  return buildBox(x, y, z, opts?.trimmed === true, undefined);
+}
+
+/**
+ * Box `[0, x] × [0, y] × [0, z]` with a cylindrical through-hole of radius `r`
+ * along z through the centre `(x/2, y/2)` (`0 < r < min(x, y)/2`), genus 1: the
+ * corpus solid with **holes** in its faces. The top and bottom planes are
+ * oversize trimmed faces, each with a rectangular outer loop and the hole's
+ * circle as a `FACE_BOUND` hole loop; the bottom plane's own normal points into
+ * the solid (`sameSense = false`), so the hole sense is tested both ways. The
+ * hole's wall is the cylinder band of `cylinderSolid` with its material on the
+ * outside: `sameSense = false` and its loop reversed. Ten vertices, fifteen
+ * edges (twelve box lines, two hole circles, the hole's seam), seven faces and
+ * nine loops. Volume `x·y·z − π r² z`.
+ */
+export function plateWithHoleSolid(x: number, y: number, z: number, r: number): Brep {
+  return buildBox(x, y, z, true, r);
+}
+
+function buildBox(
+  x: number,
+  y: number,
+  z: number,
+  trimmed: boolean,
+  holeRadius: number | undefined,
+): Brep {
   const P = (i: number, j: number, k: number): Point3 => ({ x: i * x, y: j * y, z: k * z });
   const corner = (id: number): Point3 => P(id & 1, (id >> 1) & 1, (id >> 2) & 1);
-  const vertices = Array.from({ length: 8 }, (_, id) => ({ point: corner(id) }));
+  const vertices: { point: Point3 }[] = Array.from({ length: 8 }, (_, id) => ({
+    point: corner(id),
+  }));
   // Edge (a, b), a < b: a line from a to b.
   const edgeId = new Map<string, number>();
   const edges: BrepEdge[] = [];
@@ -140,13 +168,48 @@ export function boxSolid(
   faces.push(natural([2, 6, 7, 3])); // y = y, normal +y
   faces.push(natural([0, 4, 6, 2])); // x = 0, normal −x
   faces.push(natural([1, 3, 7, 5])); // x = x, normal +x
+  if (holeRadius !== undefined) {
+    // The through-hole: circles about the axis (x/2, y/2), vertices at (cx + r, cy), and
+    // the wall band, the `cylinderSolid` band reversed (material outside it).
+    const cx = x / 2;
+    const cy = y / 2;
+    const eBottom = circle({ x: cx, y: cy, z: 0 }, X, Y, holeRadius);
+    const eTop = circle({ x: cx, y: cy, z }, X, Y, holeRadius);
+    const vb = vertices.length;
+    vertices.push({ point: startPoint(eBottom) }, { point: startPoint(eTop) });
+    const ebId = edges.length;
+    edges.push({ curve: eBottom, start: vb, end: vb });
+    const etId = edges.length;
+    edges.push({ curve: eTop, start: vb + 1, end: vb + 1 });
+    const esId = edges.length;
+    edges.push({ curve: line(startPoint(eBottom), startPoint(eTop)), start: vb, end: vb + 1 });
+    // The circle edges run counter-clockwise seen from above. A hole runs clockwise seen from
+    // outside: from above on the top face (sense false), from below on the bottom face (true).
+    const ring = circle2({ x: cx, y: cy }, holeRadius);
+    faces[0] = { ...faces[0]!, holes: [{ coedges: [coedge(ebId, true, ring)] }] };
+    faces[1] = { ...faces[1]!, holes: [{ coedges: [coedge(etId, false, ring)] }] };
+    const wall = cylinder({ x: cx, y: cy, z: 0 }, Z, holeRadius, z);
+    faces.push({
+      surface: wall,
+      sameSense: false,
+      outer: {
+        coedges: [
+          coedge(esId, true, line2({ x: 0, y: 0 }, { x: 0, y: 1 })),
+          coedge(etId, true, line2({ x: 0, y: 1 }, { x: 1, y: 1 })),
+          coedge(esId, false, line2({ x: 1, y: 0 }, { x: 1, y: 1 })),
+          coedge(ebId, false, line2({ x: 0, y: 0 }, { x: 1, y: 0 })),
+        ],
+      },
+      holes: [],
+    });
+  }
   return unwrapBrep(
     makeBrep({
       vertices,
       edges,
       faces,
       shells: [{ faces: faces.map((_, i) => i), closed: true }],
-      solids: [{ outer: 0, genus: 0 }],
+      solids: [{ outer: 0, genus: holeRadius === undefined ? 0 : 1 }],
     }),
   );
 }

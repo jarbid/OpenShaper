@@ -21,7 +21,14 @@
 import { describe, expect, it } from 'vitest';
 import { isGeomError, makeBrep, tessellateBrep, transformBrep } from '../index';
 import type { Affine3, Brep, BrepMesh, GeomErrorCode, TessellationOptions } from '../index';
-import { boxSolid, cylinderSolid, MUTATIONS, sphericalZoneSolid, torusSolid } from '../testing';
+import {
+  boxSolid,
+  cylinderSolid,
+  MUTATIONS,
+  plateWithHoleSolid,
+  sphericalZoneSolid,
+  torusSolid,
+} from '../testing';
 import { checksum } from '../testing';
 
 const PI = Math.PI;
@@ -75,6 +82,15 @@ const SOLIDS: readonly {
     brep: () => torusSolid(3, 1),
     volume: 2 * PI * PI * 3,
     area: 4 * PI * PI * 3,
+    euler: 0,
+  },
+  {
+    // Genus 1, faces with hole loops: V − E + F = 0 and the closed forms
+    // volume 60 − 2π, area 104 − 2π + 4π.
+    name: 'plate with a hole',
+    brep: () => plateWithHoleSolid(6, 5, 2, 1),
+    volume: 60 - 2 * PI,
+    area: 104 + 2 * PI,
     euler: 0,
   },
   {

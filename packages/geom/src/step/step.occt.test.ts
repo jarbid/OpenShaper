@@ -51,6 +51,7 @@ import type { Affine3, Brep, StepWriteOptions } from '../index';
 import {
   boxSolid,
   cylinderSolid,
+  plateWithHoleSolid,
   readStepSubset,
   sphericalZoneSolid,
   torusSolid,
@@ -130,6 +131,12 @@ const cylinder: Pick<Solid, 'volume' | 'area' | 'curved'> = {
   curved: 2 * PI * CYL.r * CYL.h,
 };
 const BOX = { volume: 30, area: 62, curved: 0 } as const;
+/** `plateWithHoleSolid(6, 5, 2, 1)`: the box 6 × 5 × 2 minus a through-hole of radius 1 (holes in faces). */
+const PLATE = {
+  volume: 60 - 2 * PI,
+  area: 104 + 2 * PI,
+  curved: 2 * PI * 1 * 2,
+} as const;
 const TOR = { R: 3, r: 1 };
 const rot = rotation([1, 2, 3], 0.6, [5, -3, 2]);
 const place = (p: readonly [number, number, number], m: Affine3): [number, number, number] => [
@@ -178,6 +185,18 @@ const CORPUS: readonly Solid[] = [
     brep: () => transformBrep(sphericalZoneSolid(2, 1), MIRROR_X),
     ...zone(2, 1),
     inside: [-0.1, 0.2, 0.3],
+  },
+  {
+    name: 'V5-plate-with-hole',
+    brep: () => plateWithHoleSolid(6, 5, 2, 1),
+    ...PLATE,
+    inside: [0.5, 0.5, 1],
+  },
+  {
+    name: 'mirrored-plate-with-hole',
+    brep: () => transformBrep(plateWithHoleSolid(6, 5, 2, 1), MIRROR_X),
+    ...PLATE,
+    inside: [-0.5, 0.5, 1],
   },
   {
     name: 'rotated-cylinder',

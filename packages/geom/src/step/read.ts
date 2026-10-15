@@ -4,6 +4,9 @@
  * for round-trip tests. Exported through `@openshaper/geom/testing` only: STEP
  * reading is not a product feature in Phase 1.
  *
+ * (`writeStep` also uses it, at a reduced `precision`, to measure the gaps of
+ * the rounded text it just wrote.)
+ *
  * It is independent of the writer's code (a tokenizer and a recursive-descent
  * value parser over the text), and strict: every instance's attribute count is
  * checked against `schema.ts` (OCCT only warns), every `#id` must resolve, and

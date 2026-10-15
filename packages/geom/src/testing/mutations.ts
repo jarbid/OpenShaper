@@ -7,7 +7,8 @@
  * `checkBrep`. Test-only.
  *
  * Every mutation applies to any solid of the corpus (face 0, its first outer
- * coedge, vertex 0, edge 0 are always there). Sizes are chosen two orders above
+ * coedge, vertex 0, edge 0 are always there), except the two hole mutations,
+ * which report `caughtBy` = `'n/a'` for a solid without a hole loop. Sizes are chosen two orders above
  * the `fit` tolerance where a geometric size matters, so a detected defect is
  * not a matter of tolerance luck.
  */
@@ -20,7 +21,7 @@ import type { Affine3, Brep, BrepFace, BrepLoop, BrepSpec } from '../types';
 export interface Mutation {
   readonly name: string;
   /** Which layer must reject the result of applying it to `b`. */
-  readonly caughtBy: (b: Brep) => 'makeBrep' | 'checkBrep';
+  readonly caughtBy: (b: Brep) => 'makeBrep' | 'checkBrep' | 'n/a';
   readonly apply: (b: Brep) => BrepSpec;
 }
 
@@ -43,6 +44,9 @@ const reverseLoop = (l: BrepLoop): BrepLoop => ({
     .reverse()
     .map((c) => ({ ...c, sense: !c.sense })),
 });
+
+/** The first face with a hole loop, or -1. */
+const firstHole = (b: Brep): number => b.faces.findIndex((f) => f.holes.length > 0);
 
 /** Two orders above `fit` (cm). */
 const BIG = 100 * DEFAULT_TOLERANCES.fit;
@@ -129,6 +133,42 @@ export const MUTATIONS: readonly Mutation[] = [
           ),
         },
       })),
+  },
+  {
+    // The hole now runs the same way as its neighbour across the edge: structurally incoherent.
+    name: 'reverse a hole loop',
+    caughtBy: (b) => (firstHole(b) < 0 ? 'n/a' : 'makeBrep'),
+    apply: (b) => {
+      const i = firstHole(b);
+      return i < 0
+        ? spec(b)
+        : withFace(b, i, (f) => ({
+            ...f,
+            holes: f.holes.map((h, k) => (k === 0 ? reverseLoop(h) : h)),
+          }));
+    },
+  },
+  {
+    // The hole's pcurve is run backwards against its edge curve: the same-parameter check fails.
+    name: 'reverse a hole pcurve',
+    caughtBy: (b) => (firstHole(b) < 0 ? 'n/a' : 'checkBrep'),
+    apply: (b) => {
+      const i = firstHole(b);
+      return i < 0
+        ? spec(b)
+        : withFace(b, i, (f) => ({
+            ...f,
+            holes: f.holes.map((h, k) =>
+              k === 0
+                ? {
+                    coedges: h.coedges.map((c, j) =>
+                      j === 0 ? { ...c, pcurve: reverseCurve2(c.pcurve) } : c,
+                    ),
+                  }
+                : h,
+            ),
+          }));
+    },
   },
   {
     name: 'declare a wrong genus',

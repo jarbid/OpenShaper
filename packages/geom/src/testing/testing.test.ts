@@ -16,6 +16,7 @@ describe('@openshaper/geom/testing', () => {
         'checksum',
         'cylinderSolid',
         'mulberry32',
+        'plateWithHoleSolid',
         'randomClampedBasis',
         'randomCurve',
         'randomPeriodicBasis',

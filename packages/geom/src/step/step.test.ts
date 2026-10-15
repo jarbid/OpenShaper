@@ -41,6 +41,7 @@ import {
   boxSolid,
   cylinderSolid,
   MUTATIONS,
+  plateWithHoleSolid,
   readStepSubset,
   sphericalZoneSolid,
   torusSolid,
@@ -70,6 +71,7 @@ const SOLIDS: readonly (readonly [string, () => Brep])[] = [
   ['zone', () => sphericalZoneSolid(2, 1)],
   ['split zone', () => sphericalZoneSolid(2, 1, { split: true })],
   ['torus', () => torusSolid(3, 1)],
+  ['plate with a hole', () => plateWithHoleSolid(6, 5, 2, 1)],
 ];
 
 // ---------------------------------------------------------------------------
@@ -291,7 +293,14 @@ const count = (text: string, type: string): number =>
 describe('entity structure', () => {
   const EXPECT: Record<
     string,
-    { seam: number; surfaceCurve: number; pcurve: number; faces: number; bounds: number }
+    {
+      seam: number;
+      surfaceCurve: number;
+      pcurve: number;
+      faces: number;
+      bounds: number;
+      holes?: number;
+    }
   > = {
     box: { seam: 0, surfaceCurve: 12, pcurve: 24, faces: 6, bounds: 6 },
     'trimmed box': { seam: 0, surfaceCurve: 12, pcurve: 24, faces: 6, bounds: 6 },
@@ -299,6 +308,9 @@ describe('entity structure', () => {
     zone: { seam: 1, surfaceCurve: 2, pcurve: 6, faces: 3, bounds: 3 },
     'split zone': { seam: 2, surfaceCurve: 3, pcurve: 10, faces: 4, bounds: 4 },
     torus: { seam: 2, surfaceCurve: 0, pcurve: 4, faces: 1, bounds: 1 },
+    // 12 box lines and 2 hole circles are surface curves with 2 pcurves each, the hole's seam
+    // is a seam curve with 2: 14 × 2 + 2. Seven faces, two of them with a FACE_BOUND hole.
+    'plate with a hole': { seam: 1, surfaceCurve: 14, pcurve: 30, faces: 7, bounds: 7, holes: 2 },
   };
   for (const [name, build] of SOLIDS) {
     it(`${name}: a seam is a SEAM_CURVE with two pcurves, every other edge a SURFACE_CURVE with two`, () => {
@@ -311,13 +323,16 @@ describe('entity structure', () => {
       expect(count(text, 'DEFINITIONAL_REPRESENTATION')).toBe(e.pcurve);
       expect(count(text, 'ADVANCED_FACE')).toBe(e.faces);
       expect(count(text, 'FACE_OUTER_BOUND')).toBe(e.bounds);
-      expect(count(text, 'FACE_BOUND')).toBe(0);
+      expect(count(text, 'FACE_BOUND')).toBe(e.holes ?? 0);
       expect(count(text, 'EDGE_CURVE')).toBe(stats.edges);
       expect(count(text, 'VERTEX_POINT')).toBe(stats.vertices);
       expect(count(text, 'CLOSED_SHELL')).toBe(1);
       expect(count(text, 'MANIFOLD_SOLID_BREP')).toBe(1);
       expect(count(text, 'ORIENTED_EDGE')).toBe(
-        b.faces.reduce((n, f) => n + f.outer.coedges.length, 0),
+        b.faces.reduce(
+          (n, f) => n + [f.outer, ...f.holes].reduce((m, l) => m + l.coedges.length, 0),
+          0,
+        ),
       );
     });
   }
@@ -470,12 +485,17 @@ describe('round trip: readStepSubset(writeStep(b)) is b', () => {
         expect(Array.from(g.surface.u.knots)).toEqual(Array.from(s.u.knots));
         expect(Array.from(g.surface.v.knots)).toEqual(Array.from(s.v.knots));
         near(g.surface.cw, s.cw, s.rational, `face ${fi} net`);
-        f.outer.coedges.forEach((c, ci) => {
-          const q = g.outer.coedges[ci]!.pcurve;
-          expect(Array.from(q.basis.knots)).toEqual(Array.from(c.pcurve.basis.knots));
-          // Pcurves are parameters: never scaled, so even the rational ones agree to rounding.
-          near(q.cw, c.pcurve.cw, c.pcurve.rational, `face ${fi} pcurve ${ci}`);
-          expect(g.outer.coedges[ci]!.master).toBe(c.master);
+        expect(g.holes.length, `face ${fi} holes`).toBe(f.holes.length);
+        [f.outer, ...f.holes].forEach((loop, li) => {
+          const gl = [g.outer, ...g.holes][li]!;
+          expect(gl.coedges.length).toBe(loop.coedges.length);
+          loop.coedges.forEach((c, ci) => {
+            const q = gl.coedges[ci]!.pcurve;
+            expect(Array.from(q.basis.knots)).toEqual(Array.from(c.pcurve.basis.knots));
+            // Pcurves are parameters: never scaled, so even the rational ones agree to rounding.
+            near(q.cw, c.pcurve.cw, c.pcurve.rational, `face ${fi} loop ${li} pcurve ${ci}`);
+            expect(gl.coedges[ci]!.master).toBe(c.master);
+          });
         });
       });
       // The read-back B-rep is itself a valid solid.
@@ -575,6 +595,59 @@ describe('units', () => {
     expect(Math.abs(r.stats.maxEdgeGap - D * 10)).toBeLessThan(1e-12);
   });
 
+  it('the tolerances follow the model unit: the same solid is judged alike in cm and in mm', () => {
+    // The defaults are centimetres. A 10× larger coordinate list (mm) with a gap of 5e-4 mm
+    // (= 5e-5 cm, below fit = 1e-4 cm) is the same physical solid: it must be accepted, with the
+    // same declared uncertainty (2 × gap = 1e-3 mm), and the undisturbed solid has the same floor.
+    const shiftEdge0 = (b: Brep, d: number): Brep => {
+      const made = makeBrep({
+        vertices: b.vertices,
+        edges: b.edges.map((e, i) =>
+          i === 0
+            ? {
+                ...e,
+                curve: transformCurve(e.curve, [1, 0, 0, 0, 0, 1, 0, d, 0, 0, 1, 0] as Affine3),
+              }
+            : e,
+        ),
+        faces: b.faces,
+        shells: b.shells,
+        solids: b.solids,
+      });
+      if (!made.ok) throw new Error(JSON.stringify(made.issues));
+      return made.value;
+    };
+    const cm = writeStep(boxSolid(1, 2, 3), { modelUnit: 'cm', fileUnit: 'mm' });
+    const mm = writeStep(boxSolid(10, 20, 30), { modelUnit: 'mm', fileUnit: 'mm' });
+    expect(mm.stats.uncertainty).toBeCloseTo(cm.stats.uncertainty, 15);
+    expect(Math.abs(mm.stats.uncertainty - 1e-5)).toBeLessThan(1e-18);
+    const cmShifted = writeStep(shiftEdge0(boxSolid(1, 2, 3), 5e-5), {
+      modelUnit: 'cm',
+      fileUnit: 'mm',
+    });
+    const mmShifted = writeStep(shiftEdge0(boxSolid(10, 20, 30), 5e-4), {
+      modelUnit: 'mm',
+      fileUnit: 'mm',
+    });
+    expect(Math.abs(mmShifted.stats.uncertainty - cmShifted.stats.uncertainty)).toBeLessThan(1e-12);
+    expect(Math.abs(mmShifted.stats.uncertainty - 1e-3)).toBeLessThan(1e-12);
+    // The gate scales too: above fit (1e-3 mm) is refused in either unit.
+    expectCode(
+      () => writeStep(shiftEdge0(boxSolid(10, 20, 30), 5e-3), { modelUnit: 'mm', fileUnit: 'mm' }),
+      'brep-invalid',
+    );
+    // Overrides are in model units: fit = 1e-4 mm refuses the 5e-4 mm gap.
+    expectCode(
+      () =>
+        writeStep(shiftEdge0(boxSolid(10, 20, 30), 5e-4), {
+          modelUnit: 'mm',
+          fileUnit: 'mm',
+          tol: { fit: 1e-4 },
+        }),
+      'brep-invalid',
+    );
+  });
+
   it('options are validated', () => {
     expectCode(() => writeStep(box, { fileUnit: 'ft' as never }), 'unsupported');
     expectCode(() => writeStep(box, { modelUnit: 'in' as never }), 'unsupported');
@@ -607,6 +680,49 @@ describe('precision', () => {
     // |error| ≤ 0.5e-8 relative per coordinate (half a unit in the 9th digit), coordinates ≤ 4.
     back.vertices.forEach((v, i) => {
       expect(Math.abs(v.point.z - b.vertices[i]!.point.z)).toBeLessThan(4 * 5e-9);
+    });
+  });
+
+  describe('the declared uncertainty bounds the gaps of the file as written', () => {
+    // Rounding to d digits moves every coordinate by up to 0.5 × 10^(1−d) × its magnitude, and a
+    // rotated solid has no coordinate that rounds exactly, so the rounded B-rep has gaps of its own.
+    const rotated = (): Brep =>
+      transformBrep(
+        cylinderSolid(1.2345678, 3.14159),
+        [0.8, -0.6, 0, 5, 0.6, 0.8, 0, -3, 0, 0, 1, 2],
+      );
+    for (const d of [5, 6, 7, 9]) {
+      it(`${d} significant digits: read-back gaps ≤ the declared uncertainty (mm file)`, () => {
+        const out = writeStep(rotated(), { precision: d, fileUnit: 'mm' });
+        const back = checkBrep(readStepSubset(out.text));
+        const gap = Math.max(back.maxEdgeGap, back.maxVertexGap);
+        // Declared = 2 × measured (floored at 1e-5 mm): half of it is headroom, never less than the gap.
+        expect(out.stats.uncertainty, `gap ${gap}`).toBeGreaterThanOrEqual(gap);
+        // stats report the gap of the written file, not the exact B-rep's ~1e-14: they agree with
+        // the independent read-back to the sampling noise of the check (1e-9 mm, 40 golden steps).
+        expect(Math.abs(out.stats.maxEdgeGap - back.maxEdgeGap)).toBeLessThan(1e-9);
+        if (d <= 6) expect(gap, 'the rounding really made gaps').toBeGreaterThan(1e-5);
+      });
+    }
+
+    it('round-trip precision keeps the floor (no rounding, no gap)', () => {
+      const out = writeStep(rotated(), { fileUnit: 'mm' });
+      expect(Math.abs(out.stats.uncertainty - 1e-5)).toBeLessThan(1e-18);
+    });
+
+    it('a precision whose rounding opens gaps above fit is refused, not written with a false uncertainty', () => {
+      // 4 digits: ~1.5e-3 mm gaps against fit = 1e-4 cm = 1e-3 mm.
+      expectCode(() => writeStep(rotated(), { precision: 4, fileUnit: 'mm' }), 'step-unsupported');
+      try {
+        writeStep(rotated(), { precision: 4, fileUnit: 'mm' });
+      } catch (e) {
+        expect((e as Error).message).toContain('precision 4');
+      }
+    });
+
+    it("works together with pcurves: 'trimmedOnly' (measured through the full pcurve set)", () => {
+      const out = writeStep(rotated(), { precision: 6, pcurves: 'trimmedOnly', fileUnit: 'mm' });
+      expect(out.stats.uncertainty).toBeGreaterThan(1e-5);
     });
   });
 
@@ -647,6 +763,11 @@ const insideZone =
   (r: number, phi: number): Inside =>
   (p) =>
     p.x * p.x + p.y * p.y + p.z * p.z < r * r && Math.abs(p.z) < r * Math.sin(phi);
+/** The plate of `plateWithHoleSolid(x, y, z, r)`: the box minus the cylinder about (x/2, y/2). */
+const insidePlate =
+  (x: number, y: number, z: number, r: number): Inside =>
+  (p) =>
+    insideBox(x, y, z)(p) && Math.hypot(p.x - x / 2, p.y - y / 2) > r;
 const insideTorus =
   (R: number, r: number): Inside =>
   (p) =>
@@ -708,6 +829,23 @@ describe('orientation re-derived from the emitted text', () => {
       inside: insideZone(2, 1),
     },
     { name: 'torus', brep: () => torusSolid(3, 1), inside: insideTorus(3, 1) },
+    // Holes: the hole wall's outward normal points into the hole, the planar faces' holes
+    // run clockwise about their normals (one plane with sameSense = false).
+    {
+      name: 'plate with a hole',
+      brep: () => plateWithHoleSolid(6, 5, 2, 1),
+      inside: insidePlate(6, 5, 2, 1),
+    },
+    {
+      name: 'mirrored plate with a hole',
+      brep: () => transformBrep(plateWithHoleSolid(6, 5, 2, 1), MIRROR_X),
+      inside: through(insidePlate(6, 5, 2, 1), MIRROR_X),
+    },
+    {
+      name: 'rotated mirrored plate with a hole',
+      brep: () => transformBrep(plateWithHoleSolid(6, 5, 2, 1), MIRROR_ROT),
+      inside: through(insidePlate(6, 5, 2, 1), MIRROR_ROT),
+    },
     {
       name: 'mirrored cylinder',
       brep: () => transformBrep(cylinderSolid(1.5, 4), MIRROR_X),
@@ -819,24 +957,27 @@ describe('orientation re-derived from the emitted text', () => {
 
 describe('the writer refuses what is not a valid solid', () => {
   it('every geometric mutation of the catalogue: writeStep throws brep-invalid with the report', () => {
-    const b = cylinderSolid(1.5, 4);
-    for (const m of MUTATIONS.filter((x) => x.caughtBy(b) === 'checkBrep')) {
-      const made = makeBrep(m.apply(b));
-      expect(made.ok, m.name).toBe(true);
-      if (!made.ok) continue;
-      try {
-        writeStep(made.value);
-        expect.unreachable(`${m.name}: writeStep must refuse`);
-      } catch (e) {
-        expect(isGeomError(e, 'brep-invalid'), `${m.name}: ${String(e)}`).toBe(true);
-        const report = (e as { details: { report: { ok: boolean } } }).details.report;
-        expect(report.ok).toBe(false);
+    for (const b of [cylinderSolid(1.5, 4), plateWithHoleSolid(6, 5, 2, 1)]) {
+      const geometric = MUTATIONS.filter((x) => x.caughtBy(b) === 'checkBrep');
+      // The plate adds the hole mutation to the catalogue's reach.
+      expect(geometric.length).toBeGreaterThanOrEqual(6);
+      for (const m of geometric) {
+        const made = makeBrep(m.apply(b));
+        expect(made.ok, m.name).toBe(true);
+        if (!made.ok) continue;
+        try {
+          writeStep(made.value);
+          expect.unreachable(`${m.name}: writeStep must refuse`);
+        } catch (e) {
+          expect(isGeomError(e, 'brep-invalid'), `${m.name}: ${String(e)}`).toBe(true);
+          const report = (e as { details: { report: { ok: boolean } } }).details.report;
+          expect(report.ok).toBe(false);
+        }
       }
     }
   });
 
   it('the unchecked writer writes them anyway (for the mutation suite), and we reject the files', () => {
-    const b = cylinderSolid(1.5, 4);
     const weReject = (text: string): boolean => {
       try {
         return !checkBrep(readStepSubset(text)).ok;
@@ -844,16 +985,18 @@ describe('the writer refuses what is not a valid solid', () => {
         return true;
       }
     };
-    for (const m of MUTATIONS.filter((x) => x.caughtBy(b) === 'checkBrep')) {
-      const made = makeBrep(m.apply(b));
-      if (!made.ok) continue;
-      const text = writeStepUnchecked(made.value);
-      expect(text.length).toBeGreaterThan(1000);
-      // A wrong genus is topology metadata (not in the file), so the file is a valid solid.
-      if (m.name === 'declare a wrong genus') continue;
-      expect(weReject(text), `${m.name}: the written file must be rejected on read-back`).toBe(
-        true,
-      );
+    for (const b of [cylinderSolid(1.5, 4), plateWithHoleSolid(6, 5, 2, 1)]) {
+      for (const m of MUTATIONS.filter((x) => x.caughtBy(b) === 'checkBrep')) {
+        const made = makeBrep(m.apply(b));
+        if (!made.ok) continue;
+        const text = writeStepUnchecked(made.value);
+        expect(text.length).toBeGreaterThan(1000);
+        // A wrong genus is topology metadata (not in the file), so the file is a valid solid.
+        if (m.name === 'declare a wrong genus') continue;
+        expect(weReject(text), `${m.name}: the written file must be rejected on read-back`).toBe(
+          true,
+        );
+      }
     }
   });
 

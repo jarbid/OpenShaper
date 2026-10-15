@@ -34,7 +34,18 @@
  * the gate. The declared uncertainty is `2 × max(maxEdgeGap, maxVertexGap)`,
  * floored at `Tolerances.point`, in file units: OCCT then has no undeclared gap
  * to heal, and a validator can tell real tolerance growth from declared
- * uncertainty.
+ * uncertainty. With a reduced `precision` the rounding adds gaps of its own, so
+ * the gaps are measured on the B-rep **as written**: the text is read back with
+ * the subset reader and checked again, the uncertainty and `stats` come from
+ * that, and a file whose rounded gaps exceed `Tolerances.fit` is refused
+ * (`step-unsupported`) instead of declaring an uncertainty it does not meet.
+ *
+ * ## Units of the tolerances
+ *
+ * The defaults of `Tolerances` are centimetres. The writer scales the length
+ * entries (`point`, `fit`, `constraint`) to `modelUnit` (`scaleTolerances`), so
+ * the same solid is judged by the same physical tolerances whether its
+ * coordinates are in cm or mm; `tol` overrides are in model units.
  *
  * ## Determinism
  *
@@ -55,10 +66,11 @@ import { isNaturalFace } from '../brep/faces';
 import { checkBrep } from '../brep/check';
 import type { BrepReport } from '../brep/check';
 import { fail } from '../errors';
-import { resolveTolerances } from '../tolerance';
+import { DEFAULT_TOLERANCES, resolveTolerances, scaleTolerances } from '../tolerance';
 import type { Tolerances } from '../tolerance';
 import type { Brep, ClampedCurve, NurbsSurface, Point3 } from '../types';
 import { bool, createEmitter, real, ref, refs, str } from './part21';
+import { readStepSubset } from './read';
 import type { Emitter, StepPrecision } from './part21';
 
 export interface StepWriteOptions {
@@ -75,7 +87,7 @@ export interface StepWriteOptions {
   readonly precision?: StepPrecision;
   /** `'always'` (default): a pcurve on every edge use. `'trimmedOnly'`: see the module comment. */
   readonly pcurves?: 'always' | 'trimmedOnly';
-  /** Overrides for the tolerances used by the check (`point`, `fit`, `paramRel`). */
+  /** Overrides for the tolerances used by the check (`point`, `fit`, `paramRel`), lengths in `modelUnit`. */
   readonly tol?: Partial<Tolerances>;
 }
 
@@ -86,6 +98,10 @@ export interface StepStats {
   readonly edges: number;
   readonly vertices: number;
   readonly uncertainty: number;
+  /**
+   * The largest same-parameter gap of the B-rep as written (file units): for a
+   * reduced `precision`, measured after rounding (module comment).
+   */
   readonly maxEdgeGap: number;
 }
 
@@ -93,6 +109,7 @@ export interface StepStats {
 export interface StepResult {
   readonly text: string;
   readonly stats: StepStats;
+  /** The `checkBrep` report of the input B-rep (unrounded; indexed like it). */
   readonly report: BrepReport;
 }
 
@@ -271,6 +288,24 @@ function unitContext(ctx: Ctx, unit: 'mm' | 'cm' | 'in', uncertainty: number): n
   );
 }
 
+/**
+ * The tolerances of a write: the cm defaults scaled to `modelUnit`, the caller's
+ * overrides (validated, in model units) over them.
+ */
+function writerTolerances(
+  modelUnit: 'mm' | 'cm',
+  overrides: Partial<Tolerances> | undefined,
+): Tolerances {
+  const base = scaleTolerances(DEFAULT_TOLERANCES, MM.cm / MM[modelUnit]);
+  if (overrides === undefined) return base;
+  const given = resolveTolerances(overrides);
+  const out: Record<string, number> = { ...base };
+  for (const key of Object.keys(overrides) as (keyof Tolerances)[]) {
+    if (overrides[key] !== undefined) out[key] = given[key];
+  }
+  return Object.freeze(out) as unknown as Tolerances;
+}
+
 function checkOptions(opts: StepWriteOptions | undefined): {
   fileUnit: 'mm' | 'cm' | 'in';
   modelUnit: 'mm' | 'cm';
@@ -324,7 +359,7 @@ export function writeStepCore(
   report: BrepReport,
 ): StepResult {
   const { fileUnit, modelUnit, precision, pcurves } = checkOptions(opts);
-  const tol = resolveTolerances(opts?.tol);
+  const tol = writerTolerances(modelUnit, opts?.tol);
   const factor = MM[modelUnit] / MM[fileUnit];
   const name = opts?.name ?? 'part';
   const timestamp = opts?.timestamp ?? DEFAULT_TIMESTAMP;
@@ -503,11 +538,14 @@ export function writeStepCore(
 /**
  * The B-rep as a STEP file (module comment). Throws `brep-invalid` (with the
  * `BrepReport` in `details.report`) when `checkBrep` finds a problem, and
- * `step-unsupported` for collapsed edges or when a reduced `precision` merges
- * knots into an invalid multiplicity.
+ * `step-unsupported` for collapsed edges, when a reduced `precision` merges
+ * knots into an invalid multiplicity, or when the rounded file no longer
+ * satisfies the check (`details.report` is then the report of the file as
+ * written).
  */
 export function writeStep(b: Brep, opts?: StepWriteOptions): StepResult {
-  const tol = resolveTolerances(opts?.tol);
+  const { modelUnit, precision } = checkOptions(opts);
+  const tol = writerTolerances(modelUnit, opts?.tol);
   const report = checkBrep(b, tol);
   if (!report.ok) {
     const first = report.issues[0]!;
@@ -516,5 +554,37 @@ export function writeStep(b: Brep, opts?: StepWriteOptions): StepResult {
       value: first.value,
     });
   }
-  return writeStepCore(b, opts, report);
+  const initial = writeStepCore(b, opts, report);
+  if (precision === 'roundTrip') return initial;
+  // Rounded output: measure the gaps of what was written, declare those (module comment).
+  // The reader needs a pcurve on every edge; a file written without some (`trimmedOnly`) is
+  // measured through the full one, whose rounding is the same and which checks a superset.
+  const probe =
+    opts?.pcurves === 'trimmedOnly'
+      ? writeStepCore(b, { ...opts, pcurves: 'always' }, report)
+      : initial;
+  let back: Brep;
+  try {
+    back = readStepSubset(probe.text, { unit: modelUnit });
+  } catch (e) {
+    return fail(
+      'step-unsupported',
+      `at precision ${precision} the rounded file cannot be read back as a B-rep: ${(e as Error).message}`,
+    );
+  }
+  const written = checkBrep(back, tol);
+  if (!written.ok) {
+    const issue = written.issues[0]!;
+    fail(
+      'step-unsupported',
+      `at precision ${precision} the rounded file is no longer a valid solid within tolerance: ${issue.message}`,
+      { report: written, value: issue.value },
+    );
+  }
+  const measured: BrepReport = {
+    ...report,
+    maxEdgeGap: written.maxEdgeGap,
+    maxVertexGap: written.maxVertexGap,
+  };
+  return Object.freeze({ ...writeStepCore(b, opts, measured), report });
 }
