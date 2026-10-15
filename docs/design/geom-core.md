@@ -199,7 +199,8 @@ packages/geom/
       part21.ts           lexical rules (copied from export/src/step.ts, not imported)
       schema.ts           arity table of every emitted entity type
       write.ts            AP214 writer
-      read.ts             subset reader for round-trip tests (exported via ./testing)
+      read.ts             subset reader: re-exported via ./testing for round-trip tests AND imported by
+                          write.ts (the `precision` path measures the rounded text; §6.20, §14)
     testing/              subpath `@openshaper/geom/testing` (test-only helpers)
       index.ts  prng.ts  checksum.ts  solids.ts  reference-solver.ts  occt-brep.ts
 ```
@@ -1915,6 +1916,15 @@ as valid solids (§15.5), so there is no importer to serve yet; the manual matri
 
 ### 6.21 `@openshaper/geom/testing` [from F1, grows per step]
 
+**As built (B4)** the subpath exports `mulberry32`, `checksum`, the random generators,
+`boxSolid(x, y, z, { trimmed? })`, `cylinderSolid(r, h)` (plane caps trimmed by circles),
+`torusSolid`, `sphericalZoneSolid(r, latitude, { split? })`, `plateWithHoleSolid`,
+`writeStepUnchecked`, `readStepSubset` and `MUTATIONS`. **Not built:** `prismSolid`,
+`lensSolid`, `ellipticPuckSolid`, `sphereSolid`, `cylinderSolid`'s `trimmedCaps` option (the
+cylinder always has trimmed caps), `toOcctBrepText` and `testing/occt-brep.ts` (Path A),
+and `solveFairReference` (solver step). The signatures below are the design, not the
+current surface.
+
 ```ts
 export function mulberry32(seed: number): () => number;
 // Seeded random geometry for property tests (F1): knots at least `minSpacing × domain` apart.
@@ -1950,7 +1960,7 @@ export function ellipticPuckSolid(
   h: number,
   opts?: { bicubicDeck?: boolean },
 ): Brep; // V5 (integration)
-export function sphereSolid(r: number): Brep; // in memory only; poles outside STEP scope
+export function sphereSolid(r: number): Brep; // NOT BUILT: in memory only; poles outside STEP scope (§15.5)
 export function writeStepUnchecked(b: Brep, opts?: StepWriteOptions): string; // mutation suite only
 export function readStepSubset(text: string): Brep; // reads exactly what writeStep emits; arity-checked
 export function toOcctBrepText(b: Brep): string; // OCCT native BREP format (Path A)
@@ -2583,7 +2593,13 @@ import them from geom).
 - `step/schema.ts` records every emitted entity's attribute count and kinds;
   `readStepSubset` enforces it (OCCT only warns on malformed entities).
 - **Not in Phase 1:** colours and names (`STYLED_ITEM`), assemblies, AP242/PMI,
-  `BREP_WITH_VOIDS`, collapsed edges, STEP reading in the product.
+  `BREP_WITH_VOIDS`, collapsed edges, and a STEP reader as a product feature (no
+  import path, no public export). **As built (B4):** `step/read.ts` is nevertheless part of
+  the production bundle, because `writeStep` imports it: with a numeric `precision` the
+  writer reads its own rounded text back to measure the gaps the rounding opened (§6.20).
+  It is exported to callers only through `./testing`, reads exactly what `writeStep` emits,
+  and is not a general STEP importer. Splitting a smaller internal parser out of it is
+  possible if bundle size ever matters; nothing imports geom yet.
 
 ---
 
@@ -2706,8 +2722,22 @@ uncertainty, itself at least `Tolerances.point` = 1e-5 mm), B5 edge curves (each
 an OCCT edge parameter by parameter at 9 samples, 1e-6 mm), B6 surfaces (each OCCT face equals one
 of ours at a 5 × 5 grid over its `uvBounds`, 1e-6 mm), B8 volume, plus `containsPoint` inside
 and outside probes. Writer options are exercised on box, cylinder and split zone
-(`trimmedOnly` pcurves, inch file unit, 9 digits). Four mutations of a good file are
-pinned. **B7** and Path A (`toOcctBrepText`, the unhealed native BREP) are **not built**: B7
+(`trimmedOnly` pcurves, inch file unit, 9 digits) with B1, B2, B3 (counts) and B4 (tolerance
+growth against the uncertainty declared for _that_ write, converted from its file unit; with
+`precision` it is the one measured on the rounded text, with `trimmedOnly` OCCT computes
+the missing pcurves itself) as well as the volume bound. Four mutations of a good file are
+pinned; each must be refused by our own pipeline for the stated reason (the subset reader's
+structural validation or `checkBrep`), not by a lexical error, and a mutated file is built
+with the writer's own REAL formatter so it is well formed.
+
+**The task's "sphere from rational patches" is the zone.** A closed pole-free sphere needs
+either the six-patch rational biquartic cube-sphere (Cobb) or collapsed pole edges. The
+first is a derivation of its own and the second is `step-unsupported` in the writer (§14:
+no collapsed edges), so a full `sphereSolid` is not built and the sphere case of the brief is
+served by `sphericalZoneSolid` (V4, `|z| ≤ r sin φ`): its curved face is a patch of the sphere
+of radius `r`, written as rational quadratic patches, closed by planar caps, and with
+`split: true` as two patches. What remains unexercised is the pole-free closed sphere
+itself (V6, with the poles, waits for its milestone). **B7** and Path A (`toOcctBrepText`, the unhealed native BREP) are **not built**: B7
 compares two OCCT volumes of one solid through different paths; the mesh-volume oracle
 below carries the accuracy claim in the meantime. V5 (fitted pcurve, integration) and V6
 (poles) wait for their milestones; the polynomial prism and lens of the corpus table are not

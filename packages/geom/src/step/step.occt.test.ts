@@ -42,12 +42,14 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   checkBrep,
   curvePoint,
+  GeomError,
   massProperties,
   surfacePoint,
   transformBrep,
   writeStep,
 } from '../index';
-import type { Affine3, Brep, StepWriteOptions } from '../index';
+import type { Affine3, Brep, StepStats, StepWriteOptions } from '../index';
+import { real } from './part21';
 import {
   boxSolid,
   cylinderSolid,
@@ -252,6 +254,32 @@ function meshVolume(positions: Float32Array, indices: Uint32Array): number {
   return v;
 }
 
+/** Millimetres per file unit. */
+const MM_PER_FILE_UNIT = { mm: 1, cm: 10, in: 25.4 } as const;
+
+/**
+ * B3 and B4 on an imported shape: one shell, and face / edge / vertex counts
+ * equal to `StepStats`; the largest shape tolerance in OCCT's own BREP text is at
+ * most twice the uncertainty the file declares (converted to mm from `fileUnit`).
+ * The factor 2 is the headroom OCCT's own rounding of a tolerance needs; a healed
+ * gap or a dropped weight grows the tolerance by orders of magnitude.
+ */
+function expectTopologyAndTolerance(
+  shape: ShapeHandle,
+  stats: StepStats,
+  fileUnit: keyof typeof MM_PER_FILE_UNIT,
+): void {
+  expect(kernel.subShapeCount(shape, 'shell')).toBe(1);
+  expect(kernel.subShapeCount(shape, 'face')).toBe(stats.faces);
+  expect(kernel.subShapeCount(shape, 'edge')).toBe(stats.edges);
+  expect(kernel.subShapeCount(shape, 'vertex')).toBe(stats.vertices);
+  const declaredMm = stats.uncertainty * MM_PER_FILE_UNIT[fileUnit];
+  const grown = maxShapeTolerance(kernel.toBREP(shape));
+  expect(grown, `tolerance grown to ${grown} mm; declared ${declaredMm}`).toBeLessThanOrEqual(
+    2 * declaredMm,
+  );
+}
+
 function solidOf(shape: ShapeHandle): ShapeHandle {
   const type = kernel.getShapeType(shape);
   if (type === 'solid') return shape;
@@ -288,17 +316,7 @@ for (const fileUnit of ['mm', 'cm'] as const) {
         expect(kernel.getShapeType(body)).toBe('solid');
         expect(kernel.isValid(shape), 'BRepCheck_Analyzer').toBe(true);
         expect(kernel.subShapeCount(shape, 'solid')).toBe(1);
-        expect(kernel.subShapeCount(shape, 'shell')).toBe(1);
-        expect(kernel.subShapeCount(shape, 'face')).toBe(out.stats.faces);
-        expect(kernel.subShapeCount(shape, 'edge')).toBe(out.stats.edges);
-        expect(kernel.subShapeCount(shape, 'vertex')).toBe(out.stats.vertices);
-
-        // B4: tolerance growth against the declared uncertainty (in mm).
-        const declaredMm = out.stats.uncertainty * (fileUnit === 'mm' ? 1 : 10);
-        const grown = maxShapeTolerance(kernel.toBREP(shape));
-        expect(grown, `tolerance grown to ${grown} mm; declared ${declaredMm}`).toBeLessThanOrEqual(
-          2 * declaredMm,
-        );
+        expectTopologyAndTolerance(shape, out.stats, fileUnit);
 
         // B5: edge curves, in our parameterisation, in mm. Every one of our edges
         // is found among OCCT's, with the same parameter range and points.
@@ -394,14 +412,14 @@ describe('OCCT imports other writer options', () => {
     for (const solid of CORPUS.filter((s) =>
       ['V1-box', 'V2-cylinder', 'V4-zone-split'].includes(s.name),
     )) {
-      it(`${solid.name}, ${label}: one valid solid, volume within the bound`, () => {
+      it(`${solid.name}, ${label}: one valid solid, counts, tolerance, volume within the bound`, () => {
         const out = writeStep(solid.brep(), opts);
         writeFileSync(`${corpusDir}${solid.name}.${label.replace(/\W+/g, '-')}.step`, out.text);
         const m0 = kernel.checkpoint();
         const shape = kernel.importStep(out.text);
         expect(kernel.isValid(shape)).toBe(true);
         expect(kernel.subShapeCount(shape, 'solid')).toBe(1);
-        expect(kernel.subShapeCount(shape, 'face')).toBe(out.stats.faces);
+        expectTopologyAndTolerance(shape, out.stats, opts.fileUnit ?? 'mm');
         const exactMm3 = solid.volume * 1000;
         const mesh = kernel.tessellate(shape, {
           linearDeflection: DEFLECTION_MM,
@@ -438,13 +456,21 @@ describe('what OCCT does with wrong files (pinned, so an upstream change is noti
     lines[i] = edit(lines[i]!);
     return lines.join('\n');
   }
-  /** True if our own pipeline rejects the file: the reader throws or `checkBrep` reports a problem. */
-  function weReject(text: string): boolean {
+  /**
+   * How our own pipeline judges a file: `'rejected'` if the subset reader's
+   * structural validation (`makeBrep`, code `brep-invalid`) or `checkBrep` refuses
+   * it; `'read-error'` if the file is malformed (lexical, arity or any other
+   * reader failure); else `'accepted'`. A mutation must be `'rejected'`: a lexer
+   * error would pass a bare "it throws" test while saying nothing about the checks.
+   */
+  function ourVerdict(text: string): 'read-error' | 'accepted' | 'rejected' {
+    let b: Brep;
     try {
-      return !checkBrep(readStepSubset(text)).ok;
-    } catch {
-      return true;
+      b = readStepSubset(text);
+    } catch (e) {
+      return e instanceof GeomError && e.code === 'brep-invalid' ? 'rejected' : 'read-error';
     }
+    return checkBrep(b).ok ? 'accepted' : 'rejected';
   }
 
   it('a flipped same_sense on one face is healed: a valid solid, same volume; we reject it', () => {
@@ -459,8 +485,8 @@ describe('what OCCT does with wrong files (pinned, so an upstream change is noti
     expect(r.valid).toBe(true);
     expect(r.volume).toBeCloseTo(ref.volume, 6);
     kernel.releaseSince(m0);
-    expect(weReject(good.text)).toBe(false);
-    expect(weReject(bad)).toBe(true);
+    expect(ourVerdict(good.text)).toBe('accepted');
+    expect(ourVerdict(bad)).toBe('rejected');
   });
 
   it('a flipped ORIENTED_EDGE is healed: a valid solid, same volume; we reject it', () => {
@@ -474,7 +500,7 @@ describe('what OCCT does with wrong files (pinned, so an upstream change is noti
     expect(r.valid).toBe(true);
     expect(r.volume).toBeCloseTo(ref.volume, 6);
     kernel.releaseSince(m0);
-    expect(weReject(bad)).toBe(true);
+    expect(ourVerdict(bad)).toBe('rejected');
   });
 
   it('a vertex moved 0.5 mm off its edges is healed by growing the tolerance; we reject it', () => {
@@ -488,17 +514,18 @@ describe('what OCCT does with wrong files (pinned, so an upstream change is noti
     const [x, y, z] = /\(([^()]*)\)\);$/.exec(lines[pi]!)![1]!.split(',').map(Number);
     const fresh = Number(/#(\d+)=/.exec(lines[lines.length - 4]!)![1]) + 1000;
     lines[vi] = lines[vi]!.replace(`#${pointId}`, `#${fresh}`);
+    // Part 21 REALs through the writer's own formatter (a bare `0` or `0.5.` is not one).
     lines.splice(
       vi,
       0,
-      `#${fresh}=CARTESIAN_POINT('',(${x! + 0.5}.,${y!},${z!}));`.replace('..', '.'),
+      `#${fresh}=CARTESIAN_POINT('',(${real(x! + 0.5)},${real(y!)},${real(z!)}));`,
     );
     const bad = lines.join('\n');
     const r = oracle(bad);
     expect(r.tol).toBeGreaterThan(2 * good.stats.uncertainty * 1);
     expect(oracle(good.text).tol).toBeLessThanOrEqual(2 * good.stats.uncertainty);
     kernel.releaseSince(m0);
-    expect(weReject(bad)).toBe(true);
+    expect(ourVerdict(bad)).toBe('rejected');
   });
 
   it('a wrong rational weight on an edge is healed by growing the tolerance; we reject it', () => {
@@ -512,6 +539,6 @@ describe('what OCCT does with wrong files (pinned, so an upstream change is noti
     expect(oracle(bad).tol).toBeGreaterThan(2 * good.stats.uncertainty);
     expect(oracle(good.text).tol).toBeLessThanOrEqual(2 * good.stats.uncertainty);
     kernel.releaseSince(m0);
-    expect(weReject(bad)).toBe(true);
+    expect(ourVerdict(bad)).toBe('rejected');
   });
 });
