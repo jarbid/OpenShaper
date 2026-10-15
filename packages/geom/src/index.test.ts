@@ -8,7 +8,8 @@
  * added tolerances, errors, scratch, `vec`, bases, curves, curve measures,
  * quadrature and the exact curve primitives; F2 surfaces, surface measures,
  * sample plans and the exact surface primitives; B1 projection and curves on
- * surfaces.
+ * surfaces; B2 trimmed surfaces, integration, exact predicates, constrained
+ * Delaunay triangulation and tessellation.
  *
  * The type-level checks run under `tsc` (`pnpm typecheck` type-checks tests):
  * they pin the conventions the core types encode, so loosening one of them
@@ -32,6 +33,7 @@ import type {
 /** Every runtime (value) export of `@openshaper/geom`, sorted. */
 const PUBLIC_VALUES: readonly string[] = [
   'DEFAULT_PROJECTION_SEEDING',
+  'DEFAULT_TESSELLATION',
   'DEFAULT_TOLERANCES',
   'GL_MAX_ORDER',
   'GeomError',
@@ -47,15 +49,20 @@ const PUBLIC_VALUES: readonly string[] = [
   'boundaryCurve',
   'breakpoints',
   'changedControlPoints',
+  'checkTriangulation',
+  'checkTrimLoops',
   'circle',
   'circle2',
   'circleArc',
   'clampUnclamped',
   'clampedBasis',
   'clampedUniformKnots',
+  'classifyUV',
   'closestPointOnCurve',
   'closestPointOnSurface',
+  'closestPointOnTrimmed',
   'conicArc',
+  'constrainedDelaunay',
   'controlPoint',
   'controlPointsInto',
   'controlWeight',
@@ -79,6 +86,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'curveTangent',
   'curveToJSON',
   'cylinder',
+  'enclosedVolume',
   'evalCurvePlan',
   'evalCurvePlanDirty',
   'evalSurfacePlan',
@@ -88,7 +96,9 @@ const PUBLIC_VALUES: readonly string[] = [
   'fundamentalForms',
   'fundamentalFormsInto',
   'gaussLegendre',
+  'incircle',
   'integrate1d',
+  'integrateTrimmed',
   'isClosed',
   'isGeomError',
   'isoCurve',
@@ -102,8 +112,12 @@ const PUBLIC_VALUES: readonly string[] = [
   'line2',
   'makeCurve',
   'makeSurface',
+  'makeTrimLoop',
+  'makeTrimmedSurface',
   'mergeNearKnots',
+  'naturalBoundaryLoop',
   'normalCurvature',
+  'orient2d',
   'paramAtLength',
   'periodicBasis',
   'periodicCircle',
@@ -118,11 +132,13 @@ const PUBLIC_VALUES: readonly string[] = [
   'projectPointsToCurveInto',
   'projectPointsToSurfaceInto',
   'resolveTolerances',
+  'retargetTessellation',
   'reviveCurve',
   'reviveSurface',
   'revolve',
   'scaleTolerances',
   'sphere',
+  'surfaceArea',
   'surfaceBounds',
   'surfaceControlPoint',
   'surfaceControlWeight',
@@ -134,6 +150,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'surfaceNormal',
   'surfacePoint',
   'surfaceToJSON',
+  'tessellateTrimmedSurface',
   'torus',
   'transformCurve',
   'transformCurve2',
@@ -189,6 +206,12 @@ describe('@openshaper/geom public API', () => {
       'projectSurfaceBatch',
       'newtonSurface',
       'directionCells',
+      'bezierPieces',
+      'makePredicates',
+      'buildCdt',
+      'insertSteiner',
+      'rectangleLoop',
+      'loopsOf',
     ]) {
       expect(name in geom).toBe(false);
     }

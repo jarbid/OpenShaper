@@ -37,42 +37,61 @@ const LAYERS = {
     pkgs: ['kernel', 'io', 'units', 'store', 'render2d', 'render3d', 'export', 'ui'],
     ui: true,
     node: true,
-  },
-};
-
-const layerConfigs = Object.entries(LAYERS).map(([name, { pkgs, ui, node = false }]) => ({
-  files: [`packages/${name}/src/**/*.{ts,tsx}`],
-  ignores: ['**/*.test.{ts,tsx}', '**/*.bench.ts'],
-  rules: {
-    'no-restricted-imports': [
-      'error',
+    // Test-only oracles (geom-core.md §2): devDependencies, never shipped.
+    extra: [
       {
-        patterns: [
-          {
-            group: pkgs.map((p) => `@openshaper/${p}`),
-            message: `@openshaper/${name} may not depend on this package (see the layering in .claude/CLAUDE.md).`,
-          },
-          ...(ui
-            ? [
-                {
-                  group: UI,
-                  message: `@openshaper/${name} is a pure layer: no React, DOM or three.js.`,
-                },
-              ]
-            : []),
-          ...(node
-            ? [
-                {
-                  group: ['node:*'],
-                  message: `@openshaper/${name} is a pure layer: no Node built-ins outside tests.`,
-                },
-              ]
-            : []),
+        group: [
+          'delaunator',
+          '@kninnug/constrainautor',
+          './testing',
+          './testing/*',
+          '../testing',
+          '../testing/*',
+          '@openshaper/geom/testing',
         ],
+        message:
+          'Test-only oracle or helper: import it from tests and benches only, never from src.',
       },
     ],
   },
-}));
+};
+
+const layerConfigs = Object.entries(LAYERS).map(
+  ([name, { pkgs, ui, node = false, extra = [] }]) => ({
+    files: [`packages/${name}/src/**/*.{ts,tsx}`],
+    ignores: ['**/*.test.{ts,tsx}', '**/*.bench.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: pkgs.map((p) => `@openshaper/${p}`),
+              message: `@openshaper/${name} may not depend on this package (see the layering in .claude/CLAUDE.md).`,
+            },
+            ...(ui
+              ? [
+                  {
+                    group: UI,
+                    message: `@openshaper/${name} is a pure layer: no React, DOM or three.js.`,
+                  },
+                ]
+              : []),
+            ...(node
+              ? [
+                  {
+                    group: ['node:*'],
+                    message: `@openshaper/${name} is a pure layer: no Node built-ins outside tests.`,
+                  },
+                ]
+              : []),
+            ...extra,
+          ],
+        },
+      ],
+    },
+  }),
+);
 
 /**
  * The apps are not in LAYERS (they may use every package above), except the

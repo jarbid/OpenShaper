@@ -131,8 +131,24 @@ import {
   projectCurveSamplesToSurface,
   projectPointsToCurveInto,
   projectPointsToSurfaceInto,
+  checkTriangulation,
+  checkTrimLoops,
+  classifyUV,
+  closestPointOnTrimmed,
+  constrainedDelaunay,
+  DEFAULT_TESSELLATION,
+  enclosedVolume,
+  incircle,
+  integrateTrimmed,
+  makeTrimLoop,
+  makeTrimmedSurface,
+  naturalBoundaryLoop,
+  orient2d,
+  retargetTessellation,
+  surfaceArea,
+  tessellateTrimmedSurface,
 } from './index';
-import type { Affine2, Affine3, NurbsCurve } from './index';
+import type { Affine2, Affine3, NurbsCurve, Result, TrimLoop } from './index';
 import { checksum, mulberry32, randomCurve, randomSurface } from './testing';
 
 /** Every number reachable from `v` (typed arrays included). */
@@ -141,7 +157,9 @@ function numbers(v: unknown, out: number[] = [], seen = new Set<object>()): numb
   else if (typeof v === 'object' && v !== null && !seen.has(v)) {
     seen.add(v);
     if (ArrayBuffer.isView(v) && !(v instanceof DataView)) {
-      out.push(...Array.from(v as unknown as ArrayLike<number>, Number));
+      // A loop, not a spread: a mesh's arrays exceed the call-stack argument limit.
+      const a = v as unknown as ArrayLike<number>;
+      for (let i = 0; i < a.length; i++) out.push(Number(a[i]));
     } else for (const x of Object.values(v)) numbers(x, out, seen);
   }
   return out;
@@ -159,6 +177,11 @@ interface Case {
 }
 
 const same = (r: unknown): readonly unknown[] => [r];
+
+function valueOf<T>(r: Result<T>): T {
+  if (!r.ok) throw new Error(JSON.stringify(r.issues));
+  return r.value;
+}
 
 /** The operation table for one random geometry seed. */
 function cases(seed: number): Case[] {
@@ -265,6 +288,35 @@ function cases(seed: number): Case[] {
     curvature: new Float64Array(16),
     flags: new Uint8Array(16),
   });
+  // Trimmed surfaces, integration and tessellation (B2), on the clamped surface:
+  // a circle (rational) outer loop and a clockwise triangle (polynomial) hole.
+  const [cu0, cu1] = clampedS.u.domain;
+  const [cv0, cv1] = clampedS.v.domain;
+  const at = (x: number, y: number): { x: number; y: number } => ({
+    x: cu0 + x * (cu1 - cu0),
+    y: cv0 + y * (cv1 - cv0),
+  });
+  const circ = geom.transformCurve2(geom.circle2({ x: 0, y: 0 }, 1), [
+    0.4 * (cu1 - cu0),
+    0,
+    at(0.5, 0.5).x,
+    0,
+    0.4 * (cv1 - cv0),
+    at(0.5, 0.5).y,
+  ]);
+  const tri = [at(0.45, 0.45), at(0.5, 0.6), at(0.6, 0.45)];
+  const triCurves = [0, 1, 2].map((k) => geom.line2(tri[k]!, tri[(k + 1) % 3]!));
+  const outerLoop: TrimLoop = valueOf(makeTrimLoop([circ]));
+  const holeLoop: TrimLoop = valueOf(makeTrimLoop(triCurves));
+  const trimmed = valueOf(makeTrimmedSurface(clampedS, outerLoop, [holeLoop]));
+  const natural = valueOf(makeTrimmedSurface(S, null));
+  const meshOpts = { chordTol: 0.05, angleTol: 0.5 };
+  const faceMesh = valueOf(tessellateTrimmedSurface(trimmed, meshOpts));
+  const cdtIn = {
+    points: Float64Array.from([0, 0, 4, 0, 4, 3, 0, 3, 1, 1, 2, 2, 3, 1]),
+    segments: Uint32Array.from([0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 4]), // outer CCW, hole CW
+  };
+  const cdt = valueOf(constrainedDelaunay(cdtIn));
 
   return [
     {
@@ -749,6 +801,103 @@ function cases(seed: number): Case[] {
       name: 'projectCurveSamplesToSurface',
       inputs: [iso, S, us, tol],
       run: () => projectCurveSamplesToSurface(iso as NurbsCurve<3>, S, us, { tol }),
+      frozen: same,
+    },
+    // Trimmed surfaces, integration, triangulation and tessellation (B2)
+    {
+      name: 'makeTrimLoop',
+      inputs: [circ, ...triCurves, tol],
+      run: () => [valueOf(makeTrimLoop([circ], { tol })), valueOf(makeTrimLoop(triCurves))],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'naturalBoundaryLoop',
+      inputs: [clampedS],
+      run: () => naturalBoundaryLoop(clampedS),
+      frozen: same,
+    },
+    {
+      name: 'makeTrimmedSurface',
+      inputs: [clampedS, outerLoop, holeLoop, tol],
+      run: () => valueOf(makeTrimmedSurface(clampedS, outerLoop, [holeLoop], tol)),
+      frozen: same,
+    },
+    {
+      name: 'checkTrimLoops',
+      inputs: [trimmed],
+      run: () => checkTrimLoops(trimmed),
+    },
+    {
+      name: 'classifyUV',
+      inputs: [trimmed, natural],
+      run: () => [
+        classifyUV(trimmed, { u: at(0.2, 0.5).x, v: at(0.2, 0.5).y }),
+        classifyUV(trimmed, { u: at(0.5, 0.5).x, v: at(0.5, 0.5).y }),
+        classifyUV(natural, { u, v }),
+      ],
+    },
+    {
+      name: 'closestPointOnTrimmed',
+      inputs: [trimmed, P, seeding],
+      run: () => [
+        closestPointOnTrimmed(trimmed, P, { seeding }),
+        closestPointOnTrimmed(trimmed, Q),
+      ],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'integrateTrimmed',
+      inputs: [trimmed, natural],
+      run: () => [
+        integrateTrimmed(trimmed, (_u, _v, d) => d[2]!, { tol }),
+        integrateTrimmed(natural, (x, y) => x * y, { polynomialDegree: [1, 1], nDer: 0 }),
+      ],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'surfaceArea',
+      inputs: [trimmed, clampedS],
+      run: () => [surfaceArea(trimmed, tol), surfaceArea(clampedS, tol)],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'enclosedVolume',
+      inputs: [trimmed, clampedS],
+      run: () => enclosedVolume([{ face: trimmed }, { face: clampedS, sameSense: false }], tol),
+      frozen: same,
+    },
+    {
+      name: 'orient2d',
+      inputs: [],
+      run: () => [orient2d(0, 0, 1, 0, 0, 1), orient2d(0, 0, 1, 1, 2, 2)],
+    },
+    {
+      name: 'incircle',
+      inputs: [],
+      run: () => [incircle(0, 0, 1, 0, 0, 1, 0.2, 0.2), incircle(0, 0, 1, 0, 1, 1, 0, 1)],
+    },
+    {
+      name: 'constrainedDelaunay',
+      inputs: [cdtIn],
+      run: () => valueOf(constrainedDelaunay(cdtIn, { removeExterior: true })),
+      frozen: same,
+    },
+    {
+      name: 'checkTriangulation',
+      inputs: [cdt, cdtIn],
+      run: () => checkTriangulation(cdt, cdtIn.segments),
+    },
+    { name: 'DEFAULT_TESSELLATION', inputs: [], run: () => DEFAULT_TESSELLATION, frozen: same },
+    {
+      name: 'tessellateTrimmedSurface',
+      inputs: [trimmed, meshOpts],
+      run: () => valueOf(tessellateTrimmedSurface(trimmed, meshOpts)),
+      frozen: same,
+    },
+    {
+      name: 'retargetTessellation',
+      inputs: [faceMesh, trimmed],
+      run: () => retargetTessellation(faceMesh, trimmed),
       frozen: same,
     },
   ];

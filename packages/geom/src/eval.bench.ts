@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * Evaluation and projection benchmarks P1–P9 and P17 (docs/design/geom-core.md §17), run with
+ * Evaluation, projection and meshing benchmarks P1–P9, P17 and P19–P21
+ * (docs/design/geom-core.md §17), run with
  * `pnpm --filter @openshaper/geom bench` (not part of `pnpm test`).
  *
  * Each case prints its measured rate or time next to the design's target. A
@@ -11,6 +12,13 @@
  */
 import { test } from 'vitest';
 import {
+  circle2,
+  constrainedDelaunay,
+  makeTrimLoop,
+  makeTrimmedSurface,
+  retargetTessellation,
+  tessellateTrimmedSurface,
+  transformCurve2,
   clampedBasis,
   clampedUniformKnots,
   closestPointOnSurface,
@@ -30,7 +38,7 @@ import {
   surfacePoint,
   withSurfaceControlPoints,
 } from './index';
-import type { NurbsSurface } from './index';
+import type { NurbsSurface, Result, TrimmedSurface } from './index';
 import { mulberry32 } from './testing';
 
 interface BenchRun {
@@ -296,6 +304,110 @@ test('projection: P17', async ({ bench }) => {
       target: { kind: 'rate', value: 50_000 }, // ≤ 20 µs mean
       fn: () => {
         for (const p of scattered) sink += closestPointOnSurface(s, p).distance;
+      },
+    },
+  ]);
+  if (Number.isNaN(sink)) process.stdout.write('unreachable\n');
+});
+
+function value<T>(r: Result<T>): T {
+  if (!r.ok) throw new Error(JSON.stringify(r.issues));
+  return r.value;
+}
+
+/** `n` random points in the unit disc and a counter-clockwise `m`-gon round them (radius 1.01). */
+function discInput(
+  n: number,
+  m: number,
+  seed: number,
+): { points: Float64Array; segments: Uint32Array } {
+  const rng = mulberry32(seed);
+  const points = new Float64Array(2 * (n + m));
+  for (let k = 0; k < m; k++) {
+    const a = (2 * Math.PI * k) / m;
+    points[2 * k] = 1.01 * Math.cos(a);
+    points[2 * k + 1] = 1.01 * Math.sin(a);
+  }
+  for (let k = m; k < n + m; ) {
+    const x = 2 * rng() - 1;
+    const y = 2 * rng() - 1;
+    if (x * x + y * y >= 1) continue;
+    points[2 * k] = x;
+    points[2 * k + 1] = y;
+    k++;
+  }
+  const segments = new Uint32Array(2 * m);
+  for (let k = 0; k < m; k++) {
+    segments[2 * k] = k;
+    segments[2 * k + 1] = (k + 1) % m;
+  }
+  return { points, segments };
+}
+
+/**
+ * A board-size deck: 300 × 60 cm, bicubic 40 × 20 on the smooth rocker-and-crown
+ * height `z = 8 (x/150 − 1)² + 3 (y/30)²`, trimmed by an elliptical outline
+ * (half-axes 0.45 and 0.4 of the domain) centred at `cx`.
+ */
+function deck(cx: number): TrimmedSurface {
+  const nu = 40;
+  const nv = 20;
+  const pts: number[] = [];
+  for (let i = 0; i < nu; i++) {
+    for (let j = 0; j < nv; j++) {
+      const x = (300 * i) / (nu - 1);
+      const y = -30 + (60 * j) / (nv - 1);
+      pts.push(x, y, 8 * (x / 150 - 1) ** 2 + 3 * (y / 30) ** 2);
+    }
+  }
+  const s = makeSurface({
+    u: clampedBasis(3, clampedUniformKnots(3, nu)),
+    v: clampedBasis(3, clampedUniformKnots(3, nv)),
+    points: pts,
+  });
+  const outline = transformCurve2(circle2({ x: 0, y: 0 }, 1), [0.45, 0, cx, 0, 0.4, 0.5]);
+  return value(makeTrimmedSurface(s, value(makeTrimLoop([outline]))));
+}
+
+test('triangulation and tessellation: P19–P21', async ({ bench }) => {
+  const small = discInput(5000, 400, 7);
+  const large = discInput(20_000, 1000, 8);
+  const board = deck(0.5);
+  const moved = deck(0.5005);
+  // The deck at the design's 0.005 cm is also P20's "≈ 3k triangles" size.
+  const opts = { chordTol: 0.005, angleTol: 0.1 };
+  const mesh = value(tessellateTrimmedSurface(board, opts));
+  const nTri = mesh.triangles.length / 3;
+  let sink = 0;
+  await runGroup(bench, 'triangulation and tessellation (B2)', [
+    {
+      id: 'P19',
+      name: 'constrainedDelaunay, 5k points + 400 segments, exterior removed',
+      units: 0,
+      target: { kind: 'time', value: 5 },
+      fn: () => void constrainedDelaunay(small, { removeExterior: true }),
+    },
+    {
+      id: 'P19',
+      name: 'constrainedDelaunay, 20k points + 1k segments, exterior removed',
+      units: 0,
+      target: { kind: 'time', value: 40 },
+      fn: () => void constrainedDelaunay(large, { removeExterior: true }),
+    },
+    {
+      id: 'P20',
+      name: `tessellateTrimmedSurface, 300 × 60 cm deck at 0.005 cm, ${nTri} triangles`,
+      units: 0,
+      target: { kind: 'time', value: 15 },
+      fn: () => void tessellateTrimmedSurface(board, opts),
+    },
+    {
+      id: 'P21',
+      name: `retargetTessellation, no flip, ${nTri} triangles`,
+      units: 0,
+      target: { kind: 'time', value: 0.5 },
+      fn: () => {
+        sink += retargetTessellation(mesh, moved)?.triangles.length ?? 0;
       },
     },
   ]);

@@ -152,7 +152,7 @@ export {
   torus,
 } from './primitives';
 
-// Projection (§6.14)
+// Projection (§6.14; `closestPointOnTrimmed` B2)
 export {
   closestPointOnCurve,
   closestPointOnSurface,
@@ -161,6 +161,7 @@ export {
   projectPointsToSurfaceInto,
 } from './project';
 export type { CurveProjection, ProjectionSeeding, SurfaceProjection } from './project';
+export { closestPointOnTrimmed } from './trim';
 
 // Curves on surfaces (§6.15)
 export {
@@ -172,6 +173,28 @@ export {
   projectCurveSamplesToSurface,
 } from './curve-on-surface';
 export type { PcurveSamples } from './curve-on-surface';
+
+// Trimmed surfaces and integration (§6.16)
+export {
+  checkTrimLoops,
+  classifyUV,
+  makeTrimLoop,
+  makeTrimmedSurface,
+  naturalBoundaryLoop,
+} from './trim';
+export { enclosedVolume, integrateTrimmed, surfaceArea } from './integrate';
+export type { SurfaceIntegrand, VolumeFace } from './integrate';
+
+// Triangulation and tessellation (§6.17)
+export { incircle, orient2d } from './mesh/predicates';
+export { checkTriangulation, constrainedDelaunay } from './mesh/cdt';
+export type { CdtInput, Triangulation } from './mesh/cdt';
+export {
+  DEFAULT_TESSELLATION,
+  retargetTessellation,
+  tessellateTrimmedSurface,
+} from './mesh/tessellate';
+export type { BoundarySamples, FaceMesh, TessellationOptions } from './mesh/tessellate';
 
 // Shared value types (§5)
 export type {

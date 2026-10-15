@@ -31,3 +31,14 @@ in this repository.
 OpenShaper's web app bundles open-source libraries including React, Three.js,
 @react-three/fiber + drei, Zustand, and Tailwind CSS, each under their own
 (permissive) licenses. See the respective packages in `node_modules` for details.
+
+## Vendored code
+
+- **robust-predicates** 3.0.3 by Vladimir Agafonkin, released into the public
+  domain under the [Unlicense](https://unlicense.org/), itself a port of
+  Jonathan Richard Shewchuk's public-domain adaptive exact predicates
+  ("Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric
+  Predicates", 1997). Its `orient2d` and `incircle` are vendored, with their
+  work buffers moved into factories, in
+  `packages/geom/src/mesh/vendor/robust-predicates.ts`.
+  Upstream: https://github.com/mourner/robust-predicates

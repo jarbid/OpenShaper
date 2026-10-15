@@ -10,9 +10,11 @@
  * - a plain decimal with four or more leading zeros after the point
  *   (`0.00001`), which the first pattern would miss.
  *
- * Exempt: `tolerance.ts` (the one place they belong) and test files (each
- * test states its own tolerance and why). Vendored files will be listed here
- * by name when they arrive (B2), never by pattern.
+ * Exempt: `tolerance.ts` (the one place they belong), test files (each
+ * test states its own tolerance and why) and vendored files, listed by name,
+ * never by pattern: `mesh/vendor/robust-predicates.ts` (B2) holds Shewchuk's
+ * unit roundoff `2⁻⁵³`, the exact-arithmetic constant its error bounds are
+ * derived from, not a tolerance.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
@@ -20,7 +22,10 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const SRC = dirname(fileURLToPath(import.meta.url));
-const EXEMPT: ReadonlySet<string> = new Set(['tolerance.ts']);
+const EXEMPT: ReadonlySet<string> = new Set([
+  'tolerance.ts',
+  join('mesh', 'vendor', 'robust-predicates.ts'),
+]);
 const PATTERNS: readonly RegExp[] = [/\b\d+(\.\d+)?e-\d+\b/gi, /\b0\.0{4,}\d/g];
 
 function sources(dir: string): string[] {
@@ -50,6 +55,8 @@ describe('no magic tolerances', () => {
     expect(files).toContain('curve.ts');
     expect(files).toContain(join('book', 'basis.ts'));
     expect(files).toContain('tolerance.ts');
+    // Every exemption names a file that exists (no stale exemptions).
+    for (const name of EXEMPT) expect(files).toContain(name);
   });
 
   it('detects both literal shapes (so the scan can fail)', () => {

@@ -182,10 +182,12 @@ packages/geom/
                           pcurve fitting and 3D edge fitting (integration milestone)
     trim.ts               trim loops, trimmed surfaces, validation, classification
     integrate.ts          Green's-theorem integration over trimmed domains, area
+    pieces.ts             internal: rational Bézier pieces of 2D curves, subdivision certificates
     mesh/
-      predicates.ts       vendored orient2d / incircle (Unlicense), Shewchuk's sign
+      predicates.ts       orient2d / incircle wrappers, Shewchuk's sign (B2: arithmetic in vendor/)
+      vendor/robust-predicates.ts  vendored adaptive stages (Unlicense), buffers per instance
       cdt.ts              constrained Delaunay triangulation
-      refine.ts           Steiner refinement
+      refine.ts           Steiner refinement (B2: `insertSteiner` lives in cdt.ts, ~40 lines)
       tessellate.ts       trimmed surface → mesh; retargeting during a drag
     continuity.ts         gap, normal angle, curvature mismatch; knot and join continuity
     brep/
@@ -1547,6 +1549,7 @@ export function integrateTrimmed(
   f: (u: number, v: number, skl: ReadonlyF64) => number,
   opts?: {
     readonly polynomialDegree?: readonly [number, number];
+    readonly nDer?: 0 | 1 | 2; // SKL order passed to f (B2; default 1)
     readonly tol?: Partial<Tolerances>;
   },
 ): QuadratureResult;
@@ -1554,7 +1557,24 @@ export function surfaceArea(
   ts: TrimmedSurface | NurbsSurface,
   tol?: Partial<Tolerances>,
 ): QuadratureResult;
+/** B2: V = ⅓ Σ σ_f ∫∫ (S − c)·(S_u × S_v) (§11.3) for a closed set the caller vouches for; B4's massProperties adds the closure check. */
+export interface VolumeFace {
+  readonly face: TrimmedSurface | NurbsSurface;
+  readonly sameSense?: boolean; // false: outward normal is −n
+}
+export function enclosedVolume(
+  faces: readonly VolumeFace[],
+  tol?: Partial<Tolerances>,
+): QuadratureResult;
 ```
+
+As built (B2): trim validation and `classifyUV` are certified by subdivision of the
+loops' rational Bézier pieces (convex-hull boxes; `pieces.ts`) at the resolution
+`paramRel · max(L_u, L_v)`; points within `√2` of that of a loop are `'boundary'`,
+every other point is classified exactly by a certified ray-crossing winding number.
+Trim curves are split for integration where they cross surface knot lines (sign
+isolation on the pieces), as §11.3 specifies, without waiting for A1's
+`decomposeBezier` (`pieces.ts` decomposes by A5.1 insertion).
 
 ### 6.17 Triangulation and tessellation [B2]
 
@@ -1604,19 +1624,34 @@ export interface TessellationOptions {
   readonly chordTol: number;
   readonly angleTol: number;
   readonly maxEdge?: number;
+  readonly minEdge?: number; // B2: no split for angleTol below this 3D length (default chordTol)
   readonly nDer?: 0 | 1 | 2;
 }
 export const DEFAULT_TESSELLATION: TessellationOptions; // chordTol 0.01 cm, angleTol 0.1 rad (provisional; Phase 3 tunes)
+export interface BoundarySamples {
+  readonly uv: ArrayLike<number>;
+  readonly loopStarts: ArrayLike<number>;
+  readonly edges?: ArrayLike<number>; // per sample: B-rep edge id (B4)
+}
 export interface FaceMesh {
   readonly uv: ReadonlyF64;
   readonly triangles: ReadonlyU32;
-  readonly boundaryEdge: ReadonlyI32; // per vertex: B-rep edge id, or −1
+  readonly boundaryEdge: ReadonlyI32; // per vertex: B-rep edge id (or trim curve index), or −1
+  readonly boundaryParam: ReadonlyF64; // B2: per vertex, parameter on that trim curve (retarget)
+  readonly loopVertices: ReadonlyU32; // B2: boundary samples' vertices in loop order
+  readonly loopStarts: ReadonlyU32;
+  readonly boundarySource: 'trim' | 'caller';
   readonly plan: SurfaceSamplePlan; // all later evaluation, including drags, goes through it
+  readonly position: ReadonlyF64; // B2: the plan's outputs over uv: positions,
+  readonly normal: ReadonlyF64; //     exact normals (nDer ≥ 1),
+  readonly curvature: ReadonlyF64; //  k1 ≥ k2 (nDer = 2),
+  readonly flags: ReadonlyU8; //       SAMPLE_DEGENERATE | SAMPLE_UMBILIC
+  readonly maxChordError: number; // B2: largest measured |linear − S(uv)|
 }
 export function tessellateTrimmedSurface(
   ts: TrimmedSurface,
   opts: TessellationOptions,
-  boundary?: { readonly uv: ArrayLike<number>; readonly loopStarts: ArrayLike<number> },
+  boundary?: BoundarySamples,
 ): Result<FaceMesh>;
 /** Keeps topology while a trim moves; null when a triangle would flip (exact orient2d) ⇒ re-tessellate. */
 export function retargetTessellation(mesh: FaceMesh, ts: TrimmedSurface): FaceMesh | null;
@@ -2236,6 +2271,22 @@ For an edge with 3D curve `C(t)` and sides `(S_A, p_A)`, `(S_B, p_B)`:
 6. **Retarget during a drag:** boundary samples keep their trim parameters, triangles
    are checked with exact `orient2d`, and only a flip forces a re-tessellation.
 
+As built (B2), for a single face (B4 adds the edge-first B-rep pass; until then a
+caller shares an edge by passing the same `BoundarySamples` to both faces):
+
+- Trim curves are sampled adaptively before the CDT (chord to the curve's image and
+  to the surface along the straight (u, v) chord, angle, `maxEdge`, local seed
+  spacing), so constrained edges already meet the tolerances and refinement splits
+  only unconstrained edges (at the knot line an edge crosses nearest its midpoint,
+  else at the midpoint) and inserts centroids.
+- **Normal discontinuities.** The angle test compares one-sided normals: a vertex
+  on a knot line is evaluated from the side the edge leaves it, so a crease at a C0
+  knot is seen only by edges that straddle it, and those are split on the line.
+  Folds and singular points cannot meet any angle test, so edges shorter than
+  `minEdge` (default `chordTol`) are not split for the angle; without the floor a
+  random bi-quadratic grew to 1.8 × 10⁵ triangles and a C0 roof to 2.2 × 10⁴
+  (now ~3 × 10³ and 96).
+
 ---
 
 ## 12. Constrained Delaunay triangulation: implement
@@ -2562,6 +2613,18 @@ the control boxes of the ~9–16 neighbouring cells, each sampled at 49 points
 (separable bases). Tier-2 options if the desktop misses too: a caller-owned prepared
 projector (boxes built once per surface), or a coarse first pass of fewer samples per
 cell.
+
+**P19–P21 (B2, same container, `vitest bench`):** P19 18.8 ms (5k points + 400
+segments, exterior removed; target 5 ms) and 84.6 ms (20k + 1k; target 40 ms); P20
+99 ms for a 300 × 60 cm bicubic 40 × 20 deck trimmed by an elliptical outline at
+`chordTol` 0.005 cm (3,280 triangles: both P20 sizes; target 15 ms); P21 5.7 ms for
+that mesh (target 0.5 ms). As a plain Node script: P19 22.6 ms, P20 80 ms. P20's
+profile is evaluation (basis functions and derivatives ~35%, the seed grid's
+second-derivative sweep and the refinement's edge-midpoint checks), not the CDT.
+P21 re-plans every vertex (`planSurfaceSamples` + `evalSurfacePlan`, P6 + P7 at this
+size). Tier-2 options if the desktop misses: a partial re-plan of the boundary
+vertices only in `retargetTessellation`; caching edge-midpoint evaluations across
+refinement passes.
 
 **First measurements (F2, `src/eval.bench.ts`).** On the session's 4-vCPU cloud
 container (Node 22.22; a plain loop runs ~1.4 ns per multiply-add and a small typed

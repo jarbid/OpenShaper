@@ -1,0 +1,293 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+/**
+ * Integration over trimmed domains (design §11.3, §16 "integrate, mass").
+ *
+ * Oracles (analytic, independent of the code):
+ * - plane trimmed by a circle: area `|u × v| · πr²`; annulus
+ *   `|u × v| · π(R² − r²)`; square with a circular hole `|u × v|(1 − πr²)`;
+ * - sphere from rational patches: area `4πr²`, volume `4/3 πr³`;
+ * - torus: area `4π²Rr`, volume `2π²Rr²`;
+ * - cylinder closed by two trimmed planar caps: volume `πr²h`;
+ * - polynomial prism (bicubic top over the unit square, ruled walls): volume
+ *   `Σ z_ij / 16` exactly (each cubic Bernstein integrates to ¼);
+ * - polynomial integrands over polygonal loops: Green's rule is exact.
+ *
+ * Tolerances and why:
+ * - rational geometry or the area element (adaptive): `10 · quadRel` relative,
+ *   the design's bound (§16): the adaptive rule stops when its pessimistic
+ *   estimate meets `quadRel`, and the true error is below it; 10× covers
+ *   the summation of the nested levels;
+ * - exact (polynomial) rules: `1e-12` relative (rounding of ~10³–10⁴ summed
+ *   terms of mixed sign; the rules are exact in exact arithmetic);
+ * - translation by 100 cm: `1e-12` relative (polynomial: exact rules; the
+ *   centring of `c` keeps cancellation at the rounding level).
+ */
+import { describe, expect, it } from 'vitest';
+import { bezierSurface, circle2, cylinder, line2, planeSurface, sphere, torus } from './primitives';
+import { transformCurve2 } from './curve';
+import { DEFAULT_TOLERANCES } from './tolerance';
+import { enclosedVolume, integrateTrimmed, surfaceArea } from './integrate';
+import { makeTrimLoop, makeTrimmedSurface } from './trim';
+import { transformSurface } from './surface';
+import type { ClampedCurve, NurbsSurface, Result, TrimLoop, TrimmedSurface } from './types';
+
+const QREL = 10 * DEFAULT_TOLERANCES.quadRel;
+const EXACT = 1e-12;
+
+function ok<T>(r: Result<T>): T {
+  if (!r.ok) throw new Error(JSON.stringify(r.issues));
+  return r.value;
+}
+
+const loop = (curves: ClampedCurve<2>[]): TrimLoop => ok(makeTrimLoop(curves));
+/** The circle about (cu, cv) of radius r, clockwise (mirrored in v about cv). */
+const cwCircle = (cu: number, cv: number, r: number): ClampedCurve<2> =>
+  transformCurve2(circle2({ x: cu, y: cv }, r), [1, 0, 0, 0, -1, 2 * cv]);
+
+function relErr(a: number, b: number): number {
+  return Math.abs(a - b) / Math.abs(b);
+}
+
+/** Plane S = (2u, 3v, 0) on [0, 1]²: area element 6. */
+const plane = planeSurface({ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }, { x: 0, y: 3, z: 0 });
+
+describe('surfaceArea of trimmed planes', () => {
+  it('plane trimmed by a circle: 6πr²', () => {
+    const ts = ok(makeTrimmedSurface(plane, loop([circle2({ x: 0.5, y: 0.45 }, 0.3)])));
+    const r = surfaceArea(ts);
+    expect(r.converged).toBe(true);
+    expect(relErr(r.value, 6 * Math.PI * 0.09)).toBeLessThanOrEqual(QREL);
+    expect(r.errorEstimate).toBeGreaterThanOrEqual(0);
+  });
+
+  it('annulus: 6π(R² − r²); a hole given counter-clockwise is reversed with a warning', () => {
+    const outer = loop([circle2({ x: 0.5, y: 0.5 }, 0.4)]);
+    const want = 6 * Math.PI * (0.16 - 0.04);
+    const ts = ok(makeTrimmedSurface(plane, outer, [loop([cwCircle(0.5, 0.5, 0.2)])]));
+    expect(relErr(surfaceArea(ts).value, want)).toBeLessThanOrEqual(QREL);
+    const r = makeTrimmedSurface(plane, outer, [loop([circle2({ x: 0.5, y: 0.5 }, 0.2)])]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.issues.map((i) => [i.code, i.severity])).toEqual([['trim-orientation', 'warning']]);
+    expect(relErr(surfaceArea(r.value).value, want)).toBeLessThanOrEqual(QREL);
+  });
+
+  it('square with a circular hole (natural outer): 6(1 − πr²)', () => {
+    const ts = ok(makeTrimmedSurface(plane, null, [loop([cwCircle(0.3, 0.6, 0.25)])]));
+    expect(relErr(surfaceArea(ts).value, 6 * (1 - Math.PI * 0.0625))).toBeLessThanOrEqual(QREL);
+    expect(relErr(surfaceArea(plane).value, 6)).toBeLessThanOrEqual(EXACT);
+  });
+
+  it('converges as quadRel tightens, and the estimate bounds the error', () => {
+    const ts = ok(makeTrimmedSurface(plane, loop([circle2({ x: 0.5, y: 0.45 }, 0.3)])));
+    const want = 6 * Math.PI * 0.09;
+    let prev = Infinity;
+    for (const q of [1e-4, 1e-7, 1e-10]) {
+      const r = surfaceArea(ts, { quadRel: q });
+      const e = Math.abs(r.value - want);
+      expect(e).toBeLessThanOrEqual(10 * q * want);
+      expect(r.errorEstimate).toBeGreaterThanOrEqual(e * 0.999);
+      expect(e).toBeLessThanOrEqual(prev);
+      prev = e;
+    }
+  });
+});
+
+describe('integrateTrimmed: exact rules', () => {
+  it('integrates polynomials over polygonal loops exactly (Green’s theorem)', () => {
+    // The triangle (0.1, 0.1), (0.9, 0.2), (0.3, 0.8).
+    const P = [
+      { x: 0.1, y: 0.1 },
+      { x: 0.9, y: 0.2 },
+      { x: 0.3, y: 0.8 },
+    ];
+    const tri = loop([line2(P[0]!, P[1]!), line2(P[1]!, P[2]!), line2(P[2]!, P[0]!)]);
+    const ts = ok(makeTrimmedSurface(plane, tri));
+    const area =
+      0.5 * ((P[1]!.x - P[0]!.x) * (P[2]!.y - P[0]!.y) - (P[1]!.y - P[0]!.y) * (P[2]!.x - P[0]!.x));
+    const one = integrateTrimmed(ts, () => 1, { polynomialDegree: [0, 0] });
+    expect(relErr(one.value, area)).toBeLessThanOrEqual(EXACT);
+    expect(relErr(one.value, tri.signedArea)).toBeLessThanOrEqual(EXACT);
+    // ∫∫ u² v over the triangle: the 7-point Radon rule is exact to degree 5.
+    const f = (u: number, v: number): number => u * u * v;
+    const exact = radon7(P, f);
+    const r = integrateTrimmed(ts, (u, v) => f(u, v), { polynomialDegree: [2, 1] });
+    expect(relErr(r.value, exact)).toBeLessThanOrEqual(EXACT);
+    // A much higher-degree promise changes nothing (the rule is already exact).
+    const r5 = integrateTrimmed(ts, (u, v) => f(u, v), { polynomialDegree: [12, 11] });
+    expect(relErr(r5.value, r.value)).toBeLessThanOrEqual(EXACT);
+  });
+
+  it('a rule that is too low is detectably wrong (the exactness test can fail)', () => {
+    const P = [
+      { x: 0.1, y: 0.1 },
+      { x: 0.9, y: 0.2 },
+      { x: 0.3, y: 0.8 },
+    ];
+    const ts = ok(
+      makeTrimmedSurface(
+        plane,
+        loop([line2(P[0]!, P[1]!), line2(P[1]!, P[2]!), line2(P[2]!, P[0]!)]),
+      ),
+    );
+    const f = (u: number, v: number): number => u ** 6 * v;
+    const low = integrateTrimmed(ts, (u, v) => f(u, v), { polynomialDegree: [1, 1] });
+    expect(relErr(low.value, radon7Refined(P, f))).toBeGreaterThan(1e-6);
+  });
+});
+
+/** Radon's 7-point rule on a triangle (exact for degree ≤ 5; Strang & Fix, table 4.1), closed form. */
+function radon7(
+  P: readonly { x: number; y: number }[],
+  f: (u: number, v: number) => number,
+): number {
+  const r = Math.sqrt(15);
+  const a = (9 - 2 * r) / 21;
+  const b = (6 + r) / 21;
+  const c = (9 + 2 * r) / 21;
+  const d = (6 - r) / 21;
+  const wc = 9 / 40;
+  const wb = (155 + r) / 1200;
+  const wd = (155 - r) / 1200;
+  const bary: [number, number, number, number][] = [
+    [1 / 3, 1 / 3, 1 / 3, wc],
+    [a, b, b, wb],
+    [b, a, b, wb],
+    [b, b, a, wb],
+    [c, d, d, wd],
+    [d, c, d, wd],
+    [d, d, c, wd],
+  ];
+  const area =
+    0.5 * ((P[1]!.x - P[0]!.x) * (P[2]!.y - P[0]!.y) - (P[1]!.y - P[0]!.y) * (P[2]!.x - P[0]!.x));
+  let s = 0;
+  for (const [l0, l1, l2, w] of bary) {
+    s +=
+      w * f(l0 * P[0]!.x + l1 * P[1]!.x + l2 * P[2]!.x, l0 * P[0]!.y + l1 * P[1]!.y + l2 * P[2]!.y);
+  }
+  return s * area;
+}
+
+/**
+ * A reference for a degree-7 integrand: the degree-5 rule on 4 levels of
+ * midpoint subdivision (256 triangles; its error, O(h⁶) relative, is far below
+ * the 1e-6 the test asserts).
+ */
+function radon7Refined(
+  P: readonly { x: number; y: number }[],
+  f: (u: number, v: number) => number,
+): number {
+  let tris = [P];
+  for (let k = 0; k < 4; k++) {
+    const next: { x: number; y: number }[][] = [];
+    for (const [A, B, C] of tris as [
+      { x: number; y: number },
+      { x: number; y: number },
+      { x: number; y: number },
+    ][]) {
+      const m = (p: { x: number; y: number }, q: { x: number; y: number }) => ({
+        x: 0.5 * (p.x + q.x),
+        y: 0.5 * (p.y + q.y),
+      });
+      const ab = m(A, B);
+      const bc = m(B, C);
+      const ca = m(C, A);
+      next.push([A, ab, ca], [ab, B, bc], [ca, bc, C], [ab, bc, ca]);
+    }
+    tris = next;
+  }
+  return tris.reduce((s, t) => s + radon7(t, f), 0);
+}
+
+describe('closed solids', () => {
+  it('sphere from rational patches: area 4πr², volume 4/3 πr³', () => {
+    const r = 1.7;
+    const s = sphere({ x: 3, y: -2, z: 1 }, r);
+    const A = surfaceArea(s);
+    expect(A.converged).toBe(true);
+    expect(relErr(A.value, 4 * Math.PI * r * r)).toBeLessThanOrEqual(QREL);
+    const V = enclosedVolume([{ face: s }]);
+    expect(V.converged).toBe(true);
+    expect(relErr(V.value, (4 / 3) * Math.PI * r ** 3)).toBeLessThanOrEqual(QREL);
+    // Flipped orientation negates it.
+    expect(enclosedVolume([{ face: s, sameSense: false }]).value).toBe(-V.value);
+  });
+
+  it('torus: area 4π²Rr, volume 2π²Rr²', () => {
+    const R = 3;
+    const r = 0.8;
+    const s = torus({ x: 0, y: 1, z: 0 }, { x: 1, y: 1, z: 0.5 }, R, r);
+    expect(relErr(surfaceArea(s).value, 4 * Math.PI ** 2 * R * r)).toBeLessThanOrEqual(QREL);
+    expect(
+      relErr(enclosedVolume([{ face: s }]).value, 2 * Math.PI ** 2 * R * r * r),
+    ).toBeLessThanOrEqual(QREL);
+  });
+
+  it('cylinder closed by trimmed planar caps: πr²h', () => {
+    const r = 1.2;
+    const h = 2.5;
+    const side = cylinder({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }, r, h);
+    const dom = { u: [-1.5, 1.5] as const, v: [-1.5, 1.5] as const };
+    const cap = (z: number): TrimmedSurface =>
+      ok(
+        makeTrimmedSurface(
+          planeSurface({ x: 0, y: 0, z }, { x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }, dom),
+          loop([circle2({ x: 0, y: 0 }, r)]),
+        ),
+      );
+    const V = enclosedVolume([
+      { face: side },
+      { face: cap(0), sameSense: false },
+      { face: cap(h) },
+    ]);
+    expect(V.converged).toBe(true);
+    expect(relErr(V.value, Math.PI * r * r * h)).toBeLessThanOrEqual(QREL);
+  });
+
+  it('polynomial prism: Σ z_ij / 16 exactly; unchanged by translation; negated when flipped', () => {
+    const z = [
+      [1.0, 1.3, 0.9, 1.1],
+      [1.2, 2.0, 1.7, 0.8],
+      [0.7, 1.5, 2.2, 1.0],
+      [1.1, 0.9, 1.4, 1.6],
+    ];
+    const faces = prism(z);
+    const want = z.flat().reduce((a, b) => a + b, 0) / 16;
+    const V = enclosedVolume(faces);
+    expect(V.converged).toBe(true);
+    expect(relErr(V.value, want)).toBeLessThanOrEqual(EXACT);
+    const moved = faces.map((f) => ({
+      ...f,
+      face: transformSurface(f.face as NurbsSurface, [1, 0, 0, 100, 0, 1, 0, -100, 0, 0, 1, 100]),
+    }));
+    expect(relErr(enclosedVolume(moved).value, want)).toBeLessThanOrEqual(EXACT);
+    const flipped = faces.map((f) => ({ ...f, sameSense: f.sameSense === false }));
+    expect(relErr(enclosedVolume(flipped).value, -want)).toBeLessThanOrEqual(EXACT);
+    // Dropping a wall breaks closure: the result is wrong (the oracle can fail).
+    expect(relErr(enclosedVolume(faces.slice(0, 5)).value, want)).toBeGreaterThan(1e-3);
+  });
+});
+
+/** Bicubic graph z(u, v) over [0, 1]² with x = u, y = v, the plane z = 0 below and four ruled walls. */
+function prism(z: number[][]): { face: NurbsSurface; sameSense?: boolean }[] {
+  const top: number[] = [];
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) top.push(i / 3, j / 3, z[i]![j]!);
+  /** Wall over a cubic edge `(x(t), y(t), h(t))` down to z = 0, (t, w) ↦ (x, y, w·h). */
+  const wall = (pts: [number, number, number][]): NurbsSurface => {
+    const cp: number[] = [];
+    for (const [x, y, hz] of pts) cp.push(x, y, 0, x, y, hz);
+    return bezierSurface(cp, 4, 2);
+  };
+  const edge = (f: (k: number) => [number, number, number]) => [0, 1, 2, 3].map(f);
+  return [
+    { face: bezierSurface(top, 4, 4) },
+    {
+      face: planeSurface({ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }),
+      sameSense: false,
+    },
+    { face: wall(edge((k) => [k / 3, 0, z[k]![0]!])) }, // y = 0: normal −y
+    { face: wall(edge((k) => [k / 3, 1, z[k]![3]!])), sameSense: false }, // y = 1
+    { face: wall(edge((k) => [0, k / 3, z[0]![k]!])), sameSense: false }, // x = 0
+    { face: wall(edge((k) => [1, k / 3, z[3]![k]!])) }, // x = 1
+  ];
+}
