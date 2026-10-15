@@ -11,7 +11,12 @@
  *     minimise ½ Σ_k ω_k |A_k x − q_k|²   subject to   C x = d
  *
  * `H = Aᵀ W A` is the same band matrix for every coordinate; its Cholesky
- * factor is computed once. Constraints are solved in range space through the
+ * factor is computed once. `H` is accepted only when its estimated reciprocal
+ * condition (1-norm, diagonally scaled: `bandCholRcond`) exceeds `pivotRel`:
+ * a pivot test alone passes matrices whose condition reaches 1e17 (a knot
+ * vector that crowds a knot onto an end parameter), and the normal equations
+ * then return control points with no correct digit while the fit at the data
+ * still looks plausible. Constraints are solved in range space through the
  * Schur complement (§10.4 steps 2–4): `Y = H⁻¹ Cᵀ`, `S = C Y` factored by
  * pivoted Cholesky (rows with pivots ≤ `pivotRel` are dependent and dropped),
  * `λ = S⁻¹ (C x₀ − d)`, `x = x₀ − Y λ`, then one step of iterative refinement on
@@ -24,6 +29,7 @@
  */
 import {
   bandCholFactor,
+  bandCholRcond,
   bandCholSolve,
   bandSym,
   bandSymAdd,
@@ -56,8 +62,13 @@ export interface LsqProblem {
 export type LsqOutcome =
   | {
       readonly ok: false;
-      /** The control point whose Cholesky pivot failed: `H` is not positive definite. */
+      /**
+       * The control point whose Cholesky pivot failed (`H` is not positive
+       * definite), or −1 when the factorisation succeeded but `rcond` is too small.
+       */
       readonly column: number;
+      /** The estimated reciprocal condition of the scaled `H`; 0 when a pivot failed. */
+      readonly rcond: number;
     }
   | {
       readonly ok: true;
@@ -101,7 +112,9 @@ export function solveLsq(prob: LsqProblem, pivotRel: number): LsqOutcome {
   }
   const H0 = bandSymCopy(H);
   const failed = bandCholFactor(H, pivotRel);
-  if (failed >= 0) return { ok: false, column: failed };
+  if (failed >= 0) return { ok: false, column: failed, rcond: 0 };
+  const rcond = bandCholRcond(H0, H);
+  if (!(rcond > pivotRel)) return { ok: false, column: -1, rcond };
   const solveAll = (v: Float64Array): void => {
     for (let c = 0; c < dim; c++) bandCholSolve(H, v, c * N);
   };

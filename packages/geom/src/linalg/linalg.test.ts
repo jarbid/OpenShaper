@@ -10,6 +10,10 @@
  *   and exact recovery of a consistent overdetermined system;
  * - pivoted Cholesky reveals the exact rank of `G Gᵀ` (G random `m × r`) and
  *   solves the independent rows;
+ * - the band Cholesky condition estimate ↔ the exact 1-norm condition from a
+ *   dense inverse: never above it (Hager's estimate is a lower bound of
+ *   `‖S⁻¹‖₁`), exact when the inverse has no negative entry, and invariant
+ *   under diagonal scaling;
  * - singular and indefinite inputs are reported, not divided through.
  *
  * Tolerances: solutions `1e-12` relative to the solution's size (condition
@@ -20,6 +24,7 @@ import { describe, expect, it } from 'vitest';
 import { mulberry32 } from '../testing';
 import {
   bandCholFactor,
+  bandCholRcond,
   bandCholSolve,
   bandLu,
   bandLuFactor,
@@ -239,6 +244,86 @@ describe('dense least squares and rank', () => {
       let s = 0;
       for (let j = 0; j < m; j++) s += S[i * m + j]! * y[j]!;
       expect(Math.abs(s - rhs[i]!)).toBeLessThanOrEqual(1e-10 * Math.max(1, maxAbs(rhs)));
+    }
+  });
+});
+
+describe('band Cholesky condition estimate', () => {
+  /** A dense symmetric matrix as a band (`bw`), its factor, and the exact scaled rcond. */
+  function setup(n: number, bw: number, dense: Float64Array) {
+    const A = bandSym(n, bw);
+    for (let i = 0; i < n; i++)
+      for (let j = Math.max(0, i - bw); j <= i; j++) bandSymAdd(A, i, j, dense[i * n + j]!);
+    const F = bandSymCopy(A);
+    expect(bandCholFactor(F, PIV)).toBe(-1);
+    // S = D A D, D = diag(A)^{-1/2}; exact ‖S‖₁ ‖S⁻¹‖₁ from n dense solves.
+    const d = Float64Array.from({ length: n }, (_, i) => 1 / Math.sqrt(dense[i * n + i]!));
+    const S = Float64Array.from(dense, (v, k) => v * d[Math.floor(k / n)]! * d[k % n]!);
+    let normS = 0;
+    let normInv = 0;
+    for (let j = 0; j < n; j++) {
+      let c = 0;
+      for (let i = 0; i < n; i++) c += Math.abs(S[i * n + j]!);
+      normS = Math.max(normS, c);
+      const e = new Float64Array(n);
+      e[j] = 1;
+      normInv = Math.max(
+        normInv,
+        luSolve(n, S, e, PIV)!.reduce((a, v) => a + Math.abs(v), 0),
+      );
+    }
+    return { A, F, exact: 1 / (normS * normInv) };
+  }
+
+  it('is exact for an inverse with no negative entry (second differences)', () => {
+    for (const n of [1, 2, 12, 40]) {
+      const dense = new Float64Array(n * n);
+      for (let i = 0; i < n; i++) {
+        dense[i * n + i] = 2;
+        if (i > 0) dense[i * n + i - 1] = dense[(i - 1) * n + i] = -1;
+      }
+      const { A, F, exact } = setup(n, 1, dense);
+      // Both sides are sums of n positive terms from well-conditioned solves.
+      expect(Math.abs(bandCholRcond(A, F) / exact - 1), `n ${n}`).toBeLessThanOrEqual(1e-12);
+    }
+  });
+
+  it('never exceeds the true condition, stays close to it, and ignores diagonal scaling', () => {
+    const rng = mulberry32(91);
+    for (let trial = 0; trial < 30; trial++) {
+      const n = 5 + Math.floor(rng() * 30);
+      const hb = 1 + Math.floor(rng() * 2);
+      const bw = 2 * hb;
+      const shift = 10 ** (-6 * rng());
+      // Gram matrix G Gᵀ of a random upper band G (half-width hb), plus a
+      // diagonal shift of 1e-6 … 1: SPD, measured condition 1 … ~1e7.
+      const G = new Float64Array(n * n);
+      for (let i = 0; i < n; i++)
+        for (let j = i; j <= Math.min(n - 1, i + hb); j++) G[i * n + j] = 2 * rng() - 1;
+      const dense = new Float64Array(n * n);
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          let s = 0;
+          for (let k = 0; k < n; k++) s += G[i * n + k]! * G[j * n + k]!;
+          dense[i * n + j] = s;
+        }
+        dense[i * n + i] = dense[i * n + i]! + shift;
+      }
+      const { A, F, exact } = setup(n, bw, dense);
+      const est = bandCholRcond(A, F);
+      // A lower bound of ‖S⁻¹‖₁ gives rcond ≥ the exact value, to the exact
+      // value's own rounding (dense LU: κ·ε ≤ ~1e-9 here). Higham reports the
+      // estimate rarely more than 3× off; measured here within 1 + 1e-10.
+      expect(est, `trial ${trial}`).toBeGreaterThanOrEqual(exact * (1 - 1e-9));
+      expect(est, `trial ${trial}`).toBeLessThanOrEqual(3 * exact);
+      // Scaling rows and columns by 10^±1 leaves S, hence the estimate, unchanged
+      // (a wider range trips bandCholFactor's pivot test, relative to the largest diagonal).
+      const sc = Float64Array.from({ length: n }, () => 10 ** (2 * rng() - 1));
+      const scaled = Float64Array.from(dense, (v, k) => v * sc[Math.floor(k / n)]! * sc[k % n]!);
+      const T = setup(n, bw, scaled);
+      expect(Math.abs(bandCholRcond(T.A, T.F) / est - 1), `trial ${trial}`).toBeLessThanOrEqual(
+        1e-9,
+      );
     }
   });
 });

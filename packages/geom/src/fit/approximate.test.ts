@@ -41,9 +41,11 @@ import {
   curvePoint,
   DEFAULT_TOLERANCES,
   findSpan,
+  interpolatePeriodic,
   isGeomError,
   makeCurve,
   makeSurface,
+  parameterize,
   periodicBasis,
   periodicUniformKnots,
   surfaceDerivatives,
@@ -164,6 +166,29 @@ function kktMultipliers(
     );
   }
   return mu;
+}
+
+/** The dense least-squares oracle: Householder QR on A2.4 basis rows (unit weights). */
+function qrFit(b: Basis, ts: ArrayLike<number>, pts: ArrayLike<number>, dim: number): Float64Array {
+  const m = ts.length;
+  const N = b.count;
+  const A = new Float64Array(m * N);
+  for (let k = 0; k < m; k++) A.set(basisRow(b, ts[k]!, 0), k * N);
+  return householderLsq(m, N, A, pts, dim, DEFAULT_TOLERANCES.pivotRel)!;
+}
+
+/**
+ * 40 points on r = 1 + 0.3·cos 5a, a ∈ [0, 2π], the first equal to the last
+ * (the review's case that the book's eq. 9.69 knots made near-singular).
+ */
+function rose(m = 40): Float64Array {
+  const pts = new Float64Array(2 * m);
+  for (let k = 0; k < m; k++) {
+    const a = (2 * Math.PI * k) / (m - 1);
+    const r = 1 + 0.3 * Math.cos(5 * a);
+    pts.set([r * Math.cos(a), r * Math.sin(a)], 2 * k);
+  }
+  return pts;
 }
 
 function slope(hs: readonly number[], errs: readonly number[]): number {
@@ -485,6 +510,208 @@ describe('approximateCurve', () => {
       rms.push(fit.rmsError);
     }
     // Alternating projection and refit converges linearly; measured 0.57 after 4 passes.
+    expect(rms[4]!).toBeLessThan(0.7 * rms[0]!);
+  });
+
+  it('stays well conditioned and QR-exact up to count = number of points', () => {
+    // Centred least-squares knots: the collocation condition stays below ~11 for
+    // every count here (with eq. 9.69's knots it reaches 1e7 at 37 and 1e18 at
+    // 40), so the normal equations agree with QR to the reproduction tolerance.
+    const pts = rose();
+    const m = 40;
+    const scale = scaleOf(pts, 2);
+    for (const p of [2, 3, 4]) {
+      for (const count of [p + 1, 10, 20, 30, 35, 36, 37, 38, 39, 40]) {
+        const r = approximateCurve(pts, 2, { degree: p, count, params: 'centripetal' });
+        const fit = value(r);
+        expect(r.issues).toEqual([]);
+        const x = qrFit(fit.curve.basis, fit.params, pts, 2);
+        let qrMax = 0;
+        const N = fit.curve.basis.count;
+        for (let k = 0; k < m; k++) {
+          const row = basisRow(fit.curve.basis, fit.params[k]!, 0);
+          let ex = -pts[2 * k]!;
+          let ey = -pts[2 * k + 1]!;
+          for (let i = 0; i < N; i++) {
+            ex += row[i]! * x[2 * i]!;
+            ey += row[i]! * x[2 * i + 1]!;
+          }
+          qrMax = Math.max(qrMax, Math.hypot(ex, ey));
+        }
+        for (let i = 0; i < N; i++) {
+          const got = cp(fit.curve, i);
+          expect(
+            Math.hypot(got[0]! - x[2 * i]!, got[1]! - x[2 * i + 1]!),
+            `p ${p} count ${count} control point ${i}`,
+          ).toBeLessThanOrEqual(REPRO * scale);
+        }
+        expect(Math.abs(fit.maxError - qrMax), `p ${p} count ${count}`).toBeLessThanOrEqual(
+          REPRO * scale,
+        );
+        // count = points is interpolation.
+        if (count === m) expect(fit.maxError).toBeLessThanOrEqual(REPRO * scale);
+      }
+    }
+  });
+
+  it('rejects knots that leave the normal equations numerically singular', () => {
+    // Eq. 9.69 as printed, for 40 parameters and 39 cubic control points, puts
+    // the first interior knot 0.11 of a parameter spacing from ū_0. Every pivot
+    // passes, but the estimated reciprocal condition is ~2e-18: an error, not a
+    // fit with meaningless control points (it used to return one 6% off the
+    // least-squares optimum at the data).
+    const pts = rose();
+    const ub = parameterize(pts, 2, 'centripetal');
+    const book969 = (p: number, count: number): Float64Array => {
+      const mm = ub.length - 1;
+      const n = count - 1;
+      const U = new Float64Array(count + p + 1);
+      for (let i = 0; i <= p; i++) U[n + p + 1 - i] = 1;
+      const d = (mm + 1) / (n - p + 1);
+      for (let j = 1; j <= n - p; j++) {
+        const i = Math.floor(j * d);
+        const a = j * d - i;
+        U[p + j] = (1 - a) * ub[i - 1]! + a * ub[i]!;
+      }
+      return U;
+    };
+    const bad = approximateCurve(pts, 2, { degree: 3, knots: book969(3, 39), params: ub });
+    expect(bad.ok).toBe(false);
+    expect(bad.issues[0]!.code).toBe('schoenberg-whitney');
+    expect(bad.issues[0]!.value).toBeLessThanOrEqual(DEFAULT_TOLERANCES.pivotRel);
+    // The same rule at a modest count is well conditioned and accepted.
+    const fine = value(approximateCurve(pts, 2, { degree: 3, knots: book969(3, 10), params: ub }));
+    const x = qrFit(fine.curve.basis, fine.params, pts, 2);
+    for (let i = 0; i < 10; i++) {
+      const got = cp(fine.curve, i);
+      expect(Math.hypot(got[0]! - x[2 * i]!, got[1]! - x[2 * i + 1]!)).toBeLessThanOrEqual(
+        REPRO * scaleOf(pts, 2),
+      );
+    }
+  });
+
+  it('fits a periodic curve with count = number of points, any degree (interpolation)', () => {
+    // Even degrees once put every knot on a data site here, a singular cyclic
+    // system; the centred rule gives the interpolation knots instead, so the
+    // fit is interpolatePeriodic's, knots and shifted parameters included.
+    for (const n of [7, 8, 10]) {
+      const pts = new Float64Array(2 * n);
+      for (let k = 0; k < n; k++)
+        pts.set([Math.cos((2 * Math.PI * k) / n), Math.sin((2 * Math.PI * k) / n)], 2 * k);
+      for (const p of [2, 3, 4]) {
+        const r = approximateCurve(pts, 2, {
+          degree: p,
+          periodic: true,
+          count: n,
+          params: 'uniform',
+        });
+        const fit = value(r);
+        expect(r.issues).toEqual([]);
+        const ref = interpolatePeriodic(pts, 2, { degree: p, params: 'uniform' });
+        const tag = `n ${n} p ${p}`;
+        // Knots and parameters: (1 − α)a + αb against a mean of p values, a few ε apart.
+        for (let j = 0; j < n; j++) {
+          expect(
+            Math.abs(fit.curve.basis.knots[j]! - ref.curve.basis.knots[j]!),
+            tag,
+          ).toBeLessThanOrEqual(8 * Number.EPSILON);
+          expect(Math.abs(fit.params[j]! - ref.params[j]!), tag).toBeLessThanOrEqual(
+            8 * Number.EPSILON,
+          );
+        }
+        for (let i = 0; i < n; i++) {
+          const a = cp(fit.curve, i);
+          const b = cp(ref.curve, i);
+          expect(Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!), tag).toBeLessThanOrEqual(REPRO * 2);
+        }
+        expect(fit.maxError, tag).toBeLessThanOrEqual(REPRO * 2);
+      }
+    }
+  });
+
+  it('holds constraints at a KKT point on a periodic fit, across the seam', () => {
+    const rng = mulberry32(47);
+    const m = 60;
+    const pts = new Float64Array(m * 2);
+    for (let k = 0; k < m; k++) {
+      const a = (2 * Math.PI * k) / m;
+      pts.set([2 * Math.cos(a) + 0.05 * rng(), Math.sin(a) + 0.05 * rng()], 2 * k);
+    }
+    const weights = Float64Array.from({ length: m }, () => 0.5 + rng());
+    const constraints: CurveConstraint<2>[] = [
+      { kind: 'point', t: 0, value: { x: 2.1, y: 0 } },
+      { kind: 'derivative', t: 0, order: 2, value: { x: -70, y: 1 } },
+      { kind: 'point', t: 0.45, value: { x: -1.9, y: 0.4 } },
+      { kind: 'derivative', t: 0.7, order: 1, value: { x: -5, y: -1 } },
+    ];
+    for (const p of [2, 3]) {
+      const r = approximateCurve(pts, 2, {
+        degree: p,
+        periodic: true,
+        count: 12,
+        dataWeights: weights,
+        constraints,
+      });
+      const fit = value(r);
+      expect(r.issues).toEqual([]);
+      const c = fit.curve as NurbsCurve<2>;
+      expect(c.basis.kind).toBe('periodic');
+      const near = (q: { x: number; y: number }, x: number, y: number): number =>
+        Math.max(Math.abs(q.x - x), Math.abs(q.y - y));
+      expect(near(curvePoint(c, 0), 2.1, 0)).toBeLessThanOrEqual(CONSTRAINT);
+      expect(near(curveDerivatives(c, 0, 2)[2]!, -70, 1)).toBeLessThanOrEqual(CONSTRAINT);
+      expect(near(curvePoint(c, 0.45), -1.9, 0.4)).toBeLessThanOrEqual(CONSTRAINT);
+      expect(near(curveDerivatives(c, 0.7, 1)[1]!, -5, -1)).toBeLessThanOrEqual(CONSTRAINT);
+      const N = c.basis.count;
+      const rows: Float64Array[] = [];
+      for (const [t, order] of [
+        [0, 0],
+        [0, 2],
+        [0.45, 0],
+        [0.7, 1],
+      ] as const) {
+        const a = basisRow(c.basis, t, order);
+        for (let d = 0; d < 2; d++) {
+          const row = new Float64Array(2 * N);
+          row.set(a, d * N);
+          rows.push(row);
+        }
+      }
+      const mu = kktMultipliers(fit, pts, weights, rows);
+      for (let j = 0; j < 8; j++) {
+        expect(Math.abs(fit.multipliers[j]! - mu[j]!), `p ${p} row ${j}`).toBeLessThanOrEqual(
+          1e-8 * Math.max(1, Math.abs(mu[j]!)),
+        );
+      }
+    }
+  });
+
+  it('never increases the residual by parameter correction on a periodic fit', () => {
+    // An ellipse sampled unevenly in angle: uniform parameters are poor foot points.
+    const n = 90;
+    const pts = new Float64Array(2 * n);
+    for (let k = 0; k < n; k++) {
+      const s = k / n;
+      const a = 2 * Math.PI * (s + 0.12 * Math.sin(2 * Math.PI * s));
+      pts.set([2 * Math.cos(a), Math.sin(a)], 2 * k);
+    }
+    let prev = Infinity;
+    const rms: number[] = [];
+    for (let passes = 0; passes <= 4; passes++) {
+      const r = approximateCurve(pts, 2, {
+        periodic: true,
+        count: 10,
+        params: 'uniform',
+        parameterCorrection: passes,
+      });
+      const fit = value(r);
+      expect(r.issues).toEqual([]);
+      expect(fit.rmsError).toBeLessThanOrEqual(prev);
+      // Corrected parameters stay in the periodic domain [0, 1).
+      for (const t of fit.params) expect(t >= 0 && t < 1).toBe(true);
+      prev = fit.rmsError;
+      rms.push(fit.rmsError);
+    }
     expect(rms[4]!).toBeLessThan(0.7 * rms[0]!);
   });
 

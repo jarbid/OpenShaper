@@ -59,7 +59,12 @@ export interface Tolerances {
   readonly degenerateRel: number;
   /** `H² − K ≤ umbilicRel · H²` ⇒ umbilic: principal directions are `null` (see also `degenerateRel`). */
   readonly umbilicRel: number;
-  /** Rank decisions in pivoted factorisations, relative to the largest pivot after scaling. */
+  /**
+   * Rank decisions in pivoted factorisations, relative to the largest pivot
+   * after scaling; also the least estimated reciprocal condition accepted for
+   * least-squares normal equations (diagonally scaled, so control points keep
+   * about four of sixteen digits at the limit).
+   */
   readonly pivotRel: number;
   /**
    * Adaptive quadrature relative target: 3e-6 cm³ on a 30 L board; cheap because

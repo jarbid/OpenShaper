@@ -161,7 +161,7 @@ packages/geom/
       surface.ts          A3.5 / A4.3 point, A3.6 derivatives, A4.4 rational derivatives
       periodic.ts         periodic span windows; unroll to / extract from a clamped window
       refine.ts           A5.1, A5.3, A5.4, A5.5, A5.6, A5.8, A5.9 (+ row/column form), eq. 5.36
-      fit.ts              eqs. 9.4–9.6, 9.8, 9.68–9.69; A9.1, §9.2.2, A9.4, A9.6 structure
+      fit.ts              eqs. 9.4–9.6, 9.8, 9.68 and 9.69 centred; A9.1, §9.2.2, A9.4, A9.6 structure
       primitives.ts       A7.1 circle, A7.3 open conic, A8.1 revolve
     basis.ts              Basis factories, validation, knot generators, multiplicities, spans
     curve.ts              curve factories, accessors, copy-on-write edits, evaluation
@@ -1242,7 +1242,7 @@ export function parameterize(
   closed?: boolean,
 ): Float64Array; // eqs. 9.3–9.6 (exponent 0, 1, ½ reproduce the named methods bit for bit)
 export function averagedKnots(params: ArrayLike<number>, degree: number): Float64Array; // eq. 9.8
-export function lsqKnots(params: ArrayLike<number>, degree: number, count: number): Float64Array; // eqs. 9.68–9.69
+export function lsqKnots(params: ArrayLike<number>, degree: number, count: number): Float64Array; // eqs. 9.68–9.69, centred (below)
 
 export interface CurveInterpolation<C extends NurbsCurve = NurbsCurve> {
   readonly curve: C;
@@ -1323,7 +1323,7 @@ export function approximateCurve<D extends Dim>(
     readonly degree?: number;
     readonly periodic?: boolean;
     readonly knots?: ArrayLike<number>; // fixed knots, or …
-    readonly count?: number; // … a fixed count (eqs. 9.68–9.69), or …
+    readonly count?: number; // … a fixed count (eqs. 9.68–9.69 centred; periodic: cyclic analogue, params shifted with the knots), or …
     readonly tolerance?: number;
     readonly maxCount?: number; // … adaptive insertion until maxError ≤ tolerance (default tol.fit; maxCount default: data count)
     readonly params?: ArrayLike<number> | Parameterization;
@@ -1381,9 +1381,26 @@ Notes (A2, as built):
   assembles `H = AᵀWA` as a symmetric band (one factor for every coordinate) and
   holds constraints in range space through the Schur complement with one step of
   iterative refinement (§10.4 steps 2–4, `fit/lsq.ts`); A9.6's dense inverse is not
-  used. The data are centred first (§7).
+  used. The data are centred first (§7). `H` is accepted only when its estimated
+  reciprocal condition (Hager–Higham 1-norm estimate of the diagonally scaled
+  matrix, `bandCholRcond`) exceeds `pivotRel`: Cholesky pivots alone pass
+  matrices of condition 1e17, whose control points have no correct digit.
+- **Least-squares knots** for a fixed `count` are eqs. 9.68–9.69 centred: with
+  `h = m/n`, `u_{p+j} = ū(h·(j + (p − 1)/2))` (parameters joined linearly in
+  index, as the book does), not the book's `ū(j·d − 1)`. The book's rule lags
+  towards the start; as `count` nears the number of points its first interior
+  knot closes on `ū_0` and the basis turns singular (40 centripetal points,
+  cubic: collocation condition 1e7 at count 37, 1e18 at 40). The centred rule is
+  mirror-symmetric, keeps every span holding a parameter (spans of at least one
+  index), matches the book's conditioning below `count ≈ m/2` and stays below
+  ~10 on that example up to one control point per point, where it gives the
+  interpolation knots.
+  The periodic analogue `τ_j = ū(h·(j + (p − 1)/2))` is shifted by `τ_0` with the
+  parameters (as `interpolatePeriodic`); the `(p − 1)/2` offset is what keeps an
+  even degree's knots off the data sites when `count` equals the number of points.
 - **Data-dependent failures** are `Result` errors: a control point the data do not
-  determine (`schoenberg-whitney`, with its index), computed knots that crowd
+  determine (`schoenberg-whitney`, with its index, or with the condition estimate
+  when the normal equations are only numerically singular), computed knots that crowd
   closer than `knotRel`, dependent constraints that disagree
   (`inconsistent-constraints`). Dependent but consistent rows
   (`dependent-constraints`) and residuals above `constraint`
@@ -1917,7 +1934,7 @@ make a test pass (golden-data rule 2).
 | `cosine`         | 1e-12           | Zero-cosine stop in point inversion (P&T §6.1, ε₂).                                                                                                                                                                                                                                                                                                                          | Orthogonality to rounding at unit vectors.                                                                                          |
 | `degenerateRel`  | 1e-12           | `\|Su × Sv\| ≤ degenerateRel · \|Su\| · \|Sv\|` ⇒ degenerate normal. Curves: `\|C′\| ≤ degenerateRel · M / L` ⇒ degenerate tangent (`M` largest Euclidean coordinate of the point's span's control points, `L` domain length). Surfaces apply the same floor to each partial and to `√(H² − K)` (÷ `L_u L_v \|Su\| \|Sv\|`: umbilic), `M` from the point's span pair (§4.7). | Su × Sv\                                                                                                                            | < degenerateRel · \  | Su\  | · \  | Sv\  | `⇒ degenerate normal. Curves:`\  | C′\  | ≤ degenerateRel · M / L` ⇒ degenerate tangent (`M`largest control coordinate,`L` domain length). | Scale-free; catches poles, collapsed tips and cusps from coincident control points. |
 | `umbilicRel`     | 1e-10           | `H² − K ≤ umbilicRel · H²` ⇒ umbilic: principal directions are `null` (also below the `degenerateRel` floor).                                                                                                                                                                                                                                                                | Directions are noise below this.                                                                                                    |
-| `pivotRel`       | 1e-12           | Rank decisions in pivoted Cholesky / LDLᵀ / QR, relative to the largest pivot after scaling.                                                                                                                                                                                                                                                                                 | Dependent constraint rows have pivots at rounding level; genuine ones are O(1) after scaling.                                       |
+| `pivotRel`       | 1e-12           | Rank decisions in pivoted Cholesky / LDLᵀ / QR, relative to the largest pivot after scaling; also the least estimated reciprocal condition (1-norm, diagonally scaled) accepted for least-squares normal equations.                                                                                                                                                          | Dependent constraint rows have pivots at rounding level; genuine ones are O(1) after scaling.                                       |
 | `quadRel`        | 1e-10           | Adaptive quadrature relative target.                                                                                                                                                                                                                                                                                                                                         | 3e-6 cm³ on a 30 L board; cheap because polynomial cases are exact.                                                                 |
 | `weightRatioMax` | 1e6             | Max/min weight ratio above which a warning is issued.                                                                                                                                                                                                                                                                                                                        | Rational evaluation loses about six digits beyond it.                                                                               |
 | `newtonMaxIter`  | 32              | Cap for projection, inverse arc length and other Newton loops.                                                                                                                                                                                                                                                                                                               | Quadratic convergence needs < 8 from the sampled seed; the cap only bounds pathological cases (`converged: false`).                 |

@@ -5,8 +5,9 @@
  * linear constraints and parameter correction.
  *
  * - Curves follow P&T §9.4.1 (eqs. 9.63–9.69: the normal equations on knots
- *   from eqs. 9.68–9.69) and A9.6 WCLeastSquaresCurve (weighted data, point and
- *   derivative constraints held exactly through Lagrange multipliers). The
+ *   from eqs. 9.68–9.69, centred: see `approxKnots`) and A9.6
+ *   WCLeastSquaresCurve (weighted data, point and derivative constraints held
+ *   exactly through Lagrange multipliers). The
  *   KKT system is solved in range space through the Schur complement
  *   (`lsq.ts`, design §10.4) rather than A9.6's dense inverse; the solution
  *   is the same. Tangent-direction constraints are the linear rows
@@ -59,6 +60,7 @@ import {
   parameterize,
   periodicLsq,
   pointCount,
+  shiftParams,
   snappedClamped,
   snappedPeriodic,
 } from './param';
@@ -201,13 +203,22 @@ function issue(
   };
 }
 
-/** The issue for a failed normal-equation factorisation. */
-function undetermined(column: number): GeomIssue {
+/** The issue for normal equations that are singular or numerically so. */
+function undetermined(out: LsqOutcome & { ok: false }): GeomIssue {
+  if (out.column < 0) {
+    return issue(
+      'schoenberg-whitney',
+      'error',
+      `the data barely determine the control points on these knots (estimated reciprocal condition ${out.rcond} ≤ pivotRel): the solve would be unreliable; use fewer control points, other knots, or more data`,
+      undefined,
+      out.rcond,
+    );
+  }
   return issue(
     'schoenberg-whitney',
     'error',
-    `control point ${column} is not determined by the data (too few data parameters in its support): use fewer control points, other knots, or more data`,
-    column,
+    `control point ${out.column} is not determined by the data (too few data parameters in its support): use fewer control points, other knots, or more data`,
+    out.column,
   );
 }
 
@@ -516,7 +527,7 @@ function solveCurve(P: CurveProblem, basis: Basis, ts: Float64Array): CurveSolve
     { N: basis.count, dim: P.dim, data, weights: P.weights, targets: P.targets, constraints: rows },
     P.tol.pivotRel,
   );
-  if (!out.ok) return undetermined(out.column);
+  if (!out.ok) return undetermined(out);
   const curve = makeCurve({
     dim: P.dim,
     basis,
@@ -680,8 +691,9 @@ function correctCurveParams(
  *
  * The basis is one of: the given `knots` (clamped: a full clamped knot
  * vector; `periodic`: one period of a period-1 basis); `count` control points
- * on knots from eqs. 9.68–9.69 (periodic: their cyclic analogue); or, by
- * default, adaptive: starting from `degree + 1` control points, knots are
+ * on knots from eqs. 9.68–9.69, centred (periodic: their cyclic analogue,
+ * whose shift moves the data parameters with it, as in `interpolatePeriodic`);
+ * or, by default, adaptive: starting from `degree + 1` control points, knots are
  * inserted where the error exceeds `tolerance` (default `tol.fit`) until it
  * holds, `maxCount` (default: the number of points) is reached, no span can
  * be split, or the data stop determining the control points (the last good
@@ -751,12 +763,16 @@ export function approximateCurve<D extends Dim>(
         value: count,
       });
     }
+    let shift = 0;
     const built = tryBasis(() => {
       if (!periodic) return snappedClamped(p, lsqKnots(ts, p, count), tol);
-      return snappedPeriodic(p, periodicLsq(ts, count).T, tol);
+      const knots = periodicLsq(ts, count, p);
+      shift = knots.shift;
+      return snappedPeriodic(p, knots.T, tol);
     });
     if ('code' in built) return errResult([built]);
     basis = built;
+    ts = shiftParams(ts, shift);
   }
   const first = solveCurve(P, basis, ts);
   if ('code' in first) return errResult([first]);
@@ -1116,7 +1132,7 @@ export function approximateSurface(
     }
     const data = surfaceRows(collocate(bu, us, 0), collocate(bv, vs, 0), bv.count, 0, 0);
     const out = solveLsq({ N, dim: 3, data, weights, targets, constraints: crows }, tol.pivotRel);
-    if (!out.ok) return undetermined(out.column);
+    if (!out.ok) return undetermined(out);
     const surface = makeSurface({ u: bu, v: bv, points: toPoints(out.x, N, 3, centre) });
     return { surface, out, ...measureSurface(surface, params, points, weights) };
   };

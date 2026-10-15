@@ -221,3 +221,81 @@ export function bandCholSolve(m: BandSym, b: Float64Array, o = 0, stride = 1): v
     b[o + i * stride] = s / a[i * w + bw]!;
   }
 }
+
+/**
+ * Iteration cap of the 1-norm estimator in {@link bandCholRcond}: LAPACK
+ * `xLACN2`'s `ITMAX = 5`. Higham reports the estimate settling in two or three
+ * steps; the cap only bounds cycling.
+ */
+const RCOND_MAX_ITER = 5;
+
+/**
+ * Estimated reciprocal condition number, in the 1-norm, of the diagonally
+ * scaled matrix `S = D A D` (`D = diag(A)^{−½}`, so `S` has a unit diagonal),
+ * given `A` and its factor `F` from {@link bandCholFactor}. Scaling first
+ * makes the figure the one that governs Cholesky's accuracy (van der Sluis:
+ * the factorisation is invariant to diagonal scaling) and independent of the
+ * units of the data weights.
+ *
+ * `‖S‖₁` is exact; `‖S⁻¹‖₁` is estimated by Hager's method as refined by
+ * Higham (Accuracy and Stability of Numerical Algorithms, 2nd ed., Alg. 15.4,
+ * LAPACK `xLACN2`; `S⁻¹` is symmetric, so its transpose solves are the same
+ * solves), with Higham's alternating-sign extra vector. The estimate never
+ * exceeds `‖S⁻¹‖₁`, so the returned value is never below the true reciprocal
+ * condition; it is exact when `S⁻¹` has no negative entry.
+ */
+export function bandCholRcond(A: BandSym, F: BandSym): number {
+  const { n, bw, a } = A;
+  const w = bw + 1;
+  const dinv = new Float64Array(n); // D⁻¹ = diag(A)^{½}
+  for (let i = 0; i < n; i++) dinv[i] = Math.sqrt(a[i * w + bw]!);
+  const col = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    for (let j = Math.max(0, i - bw); j <= i; j++) {
+      const v = Math.abs(a[i * w + (j - i + bw)]!) / (dinv[i]! * dinv[j]!);
+      col[j] = col[j]! + v;
+      if (j !== i) col[i] = col[i]! + v;
+    }
+  }
+  let norm = 0;
+  for (let i = 0; i < n; i++) norm = Math.max(norm, col[i]!);
+  // S⁻¹ x = D⁻¹ A⁻¹ D⁻¹ x, in place.
+  const solve = (x: Float64Array): void => {
+    for (let i = 0; i < n; i++) x[i] = x[i]! * dinv[i]!;
+    bandCholSolve(F, x);
+    for (let i = 0; i < n; i++) x[i] = x[i]! * dinv[i]!;
+  };
+  const norm1 = (x: Float64Array): number => {
+    let s = 0;
+    for (let i = 0; i < n; i++) s += Math.abs(x[i]!);
+    return s;
+  };
+  // Hager (Higham Alg. 15.4): x = e/n; repeat y = S⁻¹x, z = S⁻¹ sign(y);
+  // stop when ‖z‖∞ ≤ zᵀx, else x = e_j at j = argmax |z_j|. Every ‖y‖₁ is
+  // ‖S⁻¹x‖₁ with ‖x‖₁ = 1, a lower bound of ‖S⁻¹‖₁; the largest is kept.
+  const x = new Float64Array(n).fill(1 / n);
+  const y = new Float64Array(n);
+  const z = new Float64Array(n);
+  let est = 0;
+  for (let iter = 0; iter < RCOND_MAX_ITER; iter++) {
+    y.set(x);
+    solve(y);
+    est = Math.max(est, norm1(y));
+    for (let i = 0; i < n; i++) z[i] = y[i]! >= 0 ? 1 : -1;
+    solve(z);
+    let ztx = 0;
+    let j = 0;
+    for (let i = 0; i < n; i++) {
+      ztx += z[i]! * x[i]!;
+      if (Math.abs(z[i]!) > Math.abs(z[j]!)) j = i;
+    }
+    if (Math.abs(z[j]!) <= ztx) break;
+    x.fill(0);
+    x[j] = 1;
+  }
+  // Higham's extra vector b_i = (−1)^i (1 + i/(n − 1)), ‖b‖₁ = 3n/2.
+  for (let i = 0; i < n; i++) y[i] = (i % 2 === 0 ? 1 : -1) * (1 + (n > 1 ? i / (n - 1) : 0));
+  solve(y);
+  est = Math.max(est, (2 * norm1(y)) / (3 * n));
+  return 1 / (norm * est);
+}

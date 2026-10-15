@@ -155,9 +155,11 @@ export function averagedKnots(params: ArrayLike<number>, degree: number): Float6
 }
 
 /**
- * Eqs. 9.68–9.69, knots for least squares with `count` control points
- * (`degree + 1 ≤ count ≤ params.length`): every knot span holds at least one
- * parameter. Raw formula: no snapping.
+ * Knots for least squares with `count` control points
+ * (`degree + 1 ≤ count ≤ params.length`): eqs. 9.68–9.69 with the knots
+ * centred (`approxKnots` in `book/fit.ts` says why), so every knot span holds
+ * at least one parameter and the basis stays well conditioned up to
+ * `count = params.length`. Raw formula: no snapping.
  */
 export function lsqKnots(params: ArrayLike<number>, degree: number, count: number): Float64Array {
   checkDegree(degree);
@@ -215,13 +217,19 @@ export function periodicAveraged(ub: Float64Array, p: number): { T: Float64Array
   return { T, shift };
 }
 
-/** Periodic least-squares knots ({@link approxKnotsPeriodic}) for sorted parameters in `[0, 1)`, shifted to start at 0. */
+/**
+ * Periodic least-squares knots ({@link approxKnotsPeriodic}) of degree `p` for
+ * sorted parameters in `[0, 1)`, shifted by `τ_0` to start at 0. Returns the
+ * knots and the shift; parameters move by the same shift
+ * ({@link shiftParams}).
+ */
 export function periodicLsq(
   sorted: Float64Array,
   count: number,
+  p: number,
 ): { T: Float64Array; shift: number } {
   const T = new Float64Array(count);
-  approxKnotsPeriodic(sorted, sorted.length, count, T);
+  approxKnotsPeriodic(sorted, sorted.length, count, p, T);
   const shift = T[0]!;
   for (let j = 0; j < count; j++) T[j] = T[j]! - shift;
   T[0] = 0;
