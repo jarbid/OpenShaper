@@ -9,7 +9,7 @@
  * quadrature and the exact curve primitives; F2 surfaces, surface measures,
  * sample plans and the exact surface primitives; B1 projection and curves on
  * surfaces; B2 trimmed surfaces, integration, exact predicates, constrained
- * Delaunay triangulation and tessellation.
+ * Delaunay triangulation and tessellation; B3 continuity measures.
  *
  * The type-level checks run under `tsc` (`pnpm typecheck` type-checks tests):
  * they pin the conventions the core types encode, so loosening one of them
@@ -32,6 +32,7 @@ import type {
 
 /** Every runtime (value) export of `@openshaper/geom`, sorted. */
 const PUBLIC_VALUES: readonly string[] = [
+  'DEFAULT_CONTINUITY_SAMPLING',
   'DEFAULT_PROJECTION_SEEDING',
   'DEFAULT_TESSELLATION',
   'DEFAULT_TOLERANCES',
@@ -46,6 +47,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'bezierCurve',
   'bezierSurface',
   'bilinearPatch',
+  'boundaryContinuity',
   'boundaryCurve',
   'breakpoints',
   'changedControlPoints',
@@ -57,6 +59,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'clampUnclamped',
   'clampedBasis',
   'clampedUniformKnots',
+  'classifyContinuity',
   'classifyUV',
   'closestPointOnCurve',
   'closestPointOnSurface',
@@ -76,6 +79,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'curveEvalInto',
   'curveFrame',
   'curveFromHomogeneous',
+  'curveJoinContinuity',
   'curveLength',
   'curveOnSurface',
   'curveOnSurfaceDerivatives',
@@ -86,6 +90,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'curveTangent',
   'curveToJSON',
   'cylinder',
+  'edgeContinuity',
   'enclosedVolume',
   'evalCurvePlan',
   'evalCurvePlanDirty',
@@ -104,6 +109,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'isoCurve',
   'isoLinePcurve',
   'issueOf',
+  'knotContinuity',
   'knotMultiplicities',
   'knotsFromBreaks',
   'lengthAtParam',

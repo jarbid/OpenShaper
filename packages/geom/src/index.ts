@@ -196,6 +196,26 @@ export {
 } from './mesh/tessellate';
 export type { BoundarySamples, FaceMesh, TessellationOptions } from './mesh/tessellate';
 
+// Continuity (§6.18)
+export {
+  boundaryContinuity,
+  classifyContinuity,
+  curveJoinContinuity,
+  DEFAULT_CONTINUITY_SAMPLING,
+  edgeContinuity,
+  knotContinuity,
+} from './continuity';
+export type {
+  BoundarySide,
+  ContinuityMeasures,
+  ContinuityProfile,
+  ContinuitySampling,
+  ContinuityThresholds,
+  EdgeSide,
+  JoinContinuity,
+  KnotContinuity,
+} from './continuity';
+
 // Shared value types (§5)
 export type {
   Affine2,

@@ -147,6 +147,12 @@ import {
   retargetTessellation,
   surfaceArea,
   tessellateTrimmedSurface,
+  boundaryContinuity,
+  classifyContinuity,
+  curveJoinContinuity,
+  DEFAULT_CONTINUITY_SAMPLING,
+  edgeContinuity,
+  knotContinuity,
 } from './index';
 import type { Affine2, Affine3, NurbsCurve, Result, TrimLoop } from './index';
 import { checksum, mulberry32, randomCurve, randomSurface } from './testing';
@@ -317,6 +323,20 @@ function cases(seed: number): Case[] {
     segments: Uint32Array.from([0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 4]), // outer CCW, hole CW
   };
   const cdt = valueOf(constrainedDelaunay(cdtIn));
+  // Continuity (B3): a crease along an interior iso-line of the clamped surface
+  // (the two sides of the same line), and a boundary against itself.
+  const cMid = cv0 + 0.4 * (cv1 - cv0);
+  const isoEdge = isoCurve(clampedS, 'v', cMid) as NurbsCurve<3>;
+  const sideL = {
+    surface: clampedS,
+    pcurve: isoLinePcurve(clampedS, 'v', cMid),
+    sameSense: true,
+    interior: 'left' as const,
+  };
+  const sideR = { ...sideL, sameSense: false, interior: 'right' as const };
+  const contOpts = { samplesPerSpan: 2, refineSteps: 6 };
+  const bSide = { surface: clampedS, edge: 'u1' as const, sameSense: true };
+  const thresholds = { gap: 1e-3, angle: 1e-2, curvatureRel: 0.1, curvatureAbs: 1e-3 };
 
   return [
     {
@@ -893,6 +913,45 @@ function cases(seed: number): Case[] {
       inputs: [trimmed, meshOpts],
       run: () => valueOf(tessellateTrimmedSurface(trimmed, meshOpts)),
       frozen: same,
+    },
+    {
+      name: 'DEFAULT_CONTINUITY_SAMPLING',
+      inputs: [],
+      run: () => DEFAULT_CONTINUITY_SAMPLING,
+      frozen: same,
+    },
+    {
+      name: 'edgeContinuity',
+      inputs: [isoEdge, sideL, sideR, contOpts],
+      run: () => edgeContinuity(isoEdge, sideL, sideR, contOpts),
+      frozen: (r) => [r, (r as { max: unknown }).max],
+    },
+    {
+      name: 'boundaryContinuity',
+      inputs: [bSide, contOpts],
+      run: () => boundaryContinuity(bSide, bSide, contOpts),
+      frozen: same,
+    },
+    {
+      name: 'knotContinuity',
+      inputs: [c3, c2],
+      run: () => [
+        knotContinuity(c3, t),
+        knotContinuity(c2, 0.5 * (curveDomain(c2)[0] + curveDomain(c2)[1])),
+      ],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'curveJoinContinuity',
+      inputs: [c3, c2],
+      run: () => [curveJoinContinuity(c3, c3), curveJoinContinuity(c2, c2)],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'classifyContinuity',
+      inputs: [thresholds],
+      run: () =>
+        classifyContinuity({ gap: 0, angle: 0.1, curvatureMismatch: 0, curvature: 1 }, thresholds),
     },
     {
       name: 'retargetTessellation',
