@@ -43,9 +43,11 @@ import {
   fairnessEnergy,
   gaussLegendre,
   makeCurve,
+  makeDofMap,
   makeSurface,
   periodicBasis,
   periodicUniformKnots,
+  prepareFairSolver,
   refineKnots,
   refineKnotsSurface,
   reparameterize,
@@ -55,7 +57,7 @@ import {
 import type { Basis, NurbsCurve, NurbsSurface } from '../index';
 import { DEFAULT_TOLERANCES } from '../tolerance';
 import { mulberry32, randomCurve, randomSurface } from '../testing';
-import { surfaceFairnessMatrix } from './fairness';
+import { curveFairnessMatrix, surfaceFairnessMatrix } from './fairness';
 import { csrToDense } from '../linalg/sparse';
 
 const EXACT = 1e-12;
@@ -132,18 +134,55 @@ function directSurface(
   return e;
 }
 
-/** Parametric curve energy `Σ_k c_k ∫|C^(k)|²` by Gauss–Legendre of `curveDerivatives`. */
-function directCurve(c: NurbsCurve, coef: readonly number[], order = ORACLE_ORDER): number {
+/**
+ * Parametric curve energy `Σ_k c_k ∫|C^(k)|²` by Gauss–Legendre of
+ * `curveDerivatives`, each span cut into `sub` equal pieces.
+ */
+function directCurve(
+  c: NurbsCurve,
+  coef: readonly number[],
+  order = ORACLE_ORDER,
+  sub = 1,
+): number {
   const g = gaussLegendre(order);
   let e = 0;
-  for (const [a, b] of spanList(c.basis)) {
-    const h = (b - a) / 2;
-    for (let i = 0; i < order; i++) {
-      const t = a + h * (g.nodes[i]! + 1);
-      const d = curveDerivatives(c as NurbsCurve<3>, t, 3);
-      for (let k = 1; k <= 3; k++) {
-        const v = d[k]!;
-        e += h * g.weights[i]! * coef[k - 1]! * dot(v);
+  for (const [a0, b0] of spanList(c.basis)) {
+    for (let piece = 0; piece < sub; piece++) {
+      const a = a0 + ((b0 - a0) * piece) / sub;
+      const h = (b0 - a0) / sub / 2;
+      for (let i = 0; i < order; i++) {
+        const t = a + h * (g.nodes[i]! + 1);
+        const d = curveDerivatives(c as NurbsCurve<3>, t, 3);
+        for (let k = 1; k <= 3; k++) {
+          const v = d[k]!;
+          e += h * g.weights[i]! * coef[k - 1]! * dot(v);
+        }
+      }
+    }
+  }
+  return e;
+}
+
+/**
+ * Parametric thin-plate energy of a single Bézier patch whose weights depend
+ * on the v-row only: then `W = W(v)`, the u-factor of every integrand is a
+ * polynomial of degree ≤ 2p in u (exact with `p + 1` points; 16 used), and v
+ * is cut into `sub` pieces of `order` points each.
+ */
+function directPatchRows(s: NurbsSurface, sub: number, order: number): number {
+  const gu = gaussLegendre(16);
+  const gv = gaussLegendre(order);
+  let e = 0;
+  for (let piece = 0; piece < sub; piece++) {
+    const v0 = piece / sub;
+    const hv = 0.5 / sub;
+    for (let i = 0; i < 16; i++) {
+      for (let j = 0; j < order; j++) {
+        const u = 0.5 * (gu.nodes[i]! + 1);
+        const v = v0 + hv * (gv.nodes[j]! + 1);
+        const d = surfaceDerivatives(s, u, v, 2);
+        e +=
+          0.5 * hv * gu.weights[i]! * gv.weights[j]! * (dot(d.Suu) + 2 * dot(d.Suv) + dot(d.Svv));
       }
     }
   }
@@ -431,6 +470,113 @@ describe('fairness energy: quadratic form ↔ direct quadrature of the derivativ
     const B = csrToDense(surfaceFairnessMatrix(s.u, s.v, s.cw, true, fw, sp, DEFAULT_TOLERANCES));
     let m = 0;
     for (const x of A) m = Math.max(m, Math.abs(x));
+    for (let i = 0; i < A.length; i++)
+      expect(Math.abs(A[i]! - B[i]!)).toBeLessThanOrEqual(RATIONAL * m);
+  });
+});
+
+// Large weight ratios give the rational integrands narrow peaks that a single
+// Gauss–Legendre rule, however high its order, misses (a 64-point rule was
+// 0.4 % off at ratio 100 and 82 % at 1000): the spans are bisected. Oracles
+// cut each span into 256 pieces of 48 (curves) or 20 (surfaces) points and
+// check their own convergence against 128 pieces, to a tenth of RATIONAL.
+describe('fairness energy: large weight ratios (adaptive rational quadrature)', () => {
+  it('a rational cubic with weights (1, w, 1, 1), w up to 1000: bend and jerk', () => {
+    for (const w of [10, 100, 1000]) {
+      const c = bezierCurve(3, [0, 0, 0, 1, 2, 0, 2, 0, 0, 3, 1, 0], [1, w, 1, 1]);
+      for (const coef of [
+        [0, 1, 0],
+        [0.3, 1, 0.01],
+      ]) {
+        const direct = directCurve(c, coef, ORACLE_ORDER, 256);
+        relClose(directCurve(c, coef, ORACLE_ORDER, 128), direct, RATIONAL / 10, 'oracle');
+        relClose(
+          fairnessEnergy(c, {
+            stretch: coef[0],
+            bend: coef[1]!,
+            jerk: coef[2],
+            metric: 'parametric',
+          }),
+          direct,
+          RATIONAL,
+          `w = ${w}, coef ${coef.join(',')}`,
+        );
+      }
+    }
+  });
+
+  it('a bicubic patch with v-rows weighted w / 1 / w / 1, w up to 50: thin plate', () => {
+    // (At w = 500 the oracle itself needs more than 256 pieces.)
+    for (const w of [5, 50]) {
+      const pts: number[] = [];
+      const ws: number[] = [];
+      for (let i = 0; i < 4; i++) {
+        for (let j = 0; j < 4; j++) {
+          pts.push(10 * i, 2 * j, 3 * Math.sin(0.3 * i) * Math.cos(0.2 * j));
+          ws.push(j % 2 === 0 ? w : 1);
+        }
+      }
+      const s = bezierSurface(pts, 4, 4, ws);
+      const direct = directPatchRows(s, 256, 20);
+      relClose(directPatchRows(s, 128, 20), direct, RATIONAL / 10, 'oracle');
+      relClose(fairnessEnergy(s, { bend: 1, metric: 'parametric' }), direct, RATIONAL, `w = ${w}`);
+    }
+  });
+
+  it('reports non-convergence: the matrix flag, and a not-converged warning from the solver', () => {
+    const fw = { stretch: 0, bend: 1, jerk: 0, metric: 'parametric', on: 'shape' } as const;
+    const uniform = { kind: 'uniform', u: 1, v: 1 } as const;
+    const c = bezierCurve(3, [0, 0, 0, 1, 2, 0, 2, 0, 0, 3, 1, 0], [1, 1000, 1, 1]);
+    const capped = { ...DEFAULT_TOLERANCES, quadMaxSplits: 1 };
+    expect(
+      curveFairnessMatrix(c.basis, c.cw, 3, true, fw, uniform, DEFAULT_TOLERANCES).converged,
+    ).toBe(true);
+    expect(curveFairnessMatrix(c.basis, c.cw, 3, true, fw, uniform, capped).converged).toBe(false);
+    const pts: number[] = [];
+    const ws: number[] = [];
+    for (let i = 0; i < 16; i++) {
+      pts.push(i >> 2, i & 3, 0);
+      ws.push((i & 3) % 2 === 0 ? 50 : 1);
+    }
+    const s = bezierSurface(pts, 4, 4, ws);
+    expect(surfaceFairnessMatrix(s.u, s.v, s.cw, true, fw, uniform, capped).converged).toBe(false);
+    const problem = {
+      target: s,
+      dof: makeDofMap(s, []),
+      constraints: [],
+      fairness: { bend: 1 },
+      stiffness: 0.01,
+    };
+    const warned = prepareFairSolver(problem, { quadMaxSplits: 1 });
+    expect(warned.ok).toBe(true);
+    expect(warned.issues.map((i) => [i.code, i.severity])).toEqual([['not-converged', 'warning']]);
+    expect(prepareFairSolver(problem).issues).toEqual([]);
+    // Polynomial geometry is integrated exactly: always converged.
+    const poly = bezierSurface(pts, 4, 4);
+    expect(
+      surfaceFairnessMatrix(poly.u, poly.v, poly.cw, false, fw, uniform, capped).converged,
+    ).toBe(true);
+  });
+
+  it('nearly equal weights: blocks that are zero up to rounding converge to the polynomial matrix', () => {
+    // Weights 1 and 1 + 1e-12 alternate: every rational span is adaptive, its
+    // orders above the degree (curve jerk at degree 2) are rounding noise,
+    // and the rounding floor must stop the bisection. The polynomial matrix
+    // differs by O(1e-12) relative.
+    const rng = mulberry32(23);
+    const c = randomCurve(rng, { dim: 3, degree: 2, count: 7 });
+    const cw = Float64Array.from(c.cw, (x, i) =>
+      i % 4 === 3 && (i >> 2) % 2 === 1 ? 1 + 1e-12 : x,
+    );
+    const fw = { stretch: 0.2, bend: 1, jerk: 0.5, metric: 'parametric', on: 'shape' } as const;
+    const uniform = { kind: 'uniform', u: 1, v: 1 } as const;
+    const R = curveFairnessMatrix(c.basis, cw, 3, true, fw, uniform, DEFAULT_TOLERANCES);
+    const P = curveFairnessMatrix(c.basis, c.cw, 3, false, fw, uniform, DEFAULT_TOLERANCES);
+    expect(R.converged).toBe(true);
+    const A = csrToDense(R);
+    const B = csrToDense(P);
+    let m = 0;
+    for (const x of B) m = Math.max(m, Math.abs(x));
     for (let i = 0; i < A.length; i++)
       expect(Math.abs(A[i]! - B[i]!)).toBeLessThanOrEqual(RATIONAL * m);
   });

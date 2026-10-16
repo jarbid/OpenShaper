@@ -40,15 +40,35 @@
  * points per direction and span, exact (each factor has degree at most `2p`).
  * Surfaces are assembled from one-dimensional span Gram matrices by Kronecker
  * products, which is the same exact integral at a fraction of the cost (P12).
- * Rational bases are not polynomial: the rule starts at `p + `{@link
- * RATIONAL_GL_EXTRA} points and grows per span (pair) until two successive
- * rules agree to `quadRel` relative (the largest entry of each block, and the
- * speed), up to `GL_MAX_ORDER`.
+ * A rational span (pair) whose weights are all equal has the polynomial
+ * basis there (`R_i = w N_i / (w Σ N_j) = N_i`) and takes the same exact
+ * rule. Otherwise the integrand is not polynomial, and with a large weight
+ * ratio it has narrow peaks that no single rule resolves, so the span (pair)
+ * is integrated by adaptive bisection ({@link adaptiveSpan}, P&T have no
+ * algorithm for this; it is the classic local-error bisection): a box is
+ * integrated with `p + 1 + `{@link RATIONAL_GL_EXTRA} Gauss–Legendre points
+ * per direction and compared with the same rule over its two halves along
+ * each direction. It is accepted when every entry of every block differs by
+ * at most `quadRel` times the box's share (by area) of the block's scale,
+ * summed over the directions, and the finer sum is kept; otherwise it is
+ * split along the direction that differs more. The block scale is its
+ * largest diagonal entry (Cauchy–Schwarz bounds every entry by it) over
+ * what has been integrated so far, so the accepted errors add up to at most
+ * `quadRel` times the span's block scale; speeds likewise. A rounding floor
+ * keeps a block that is zero up to rounding (an order above `p` when the
+ * weights nearly agree) from chasing noise: `degenerateRel` times the
+ * block's natural size (the first-order scale carried to order `(k, l)` by
+ * `h_u^(2 − 2k)`-type span-length factors), and for speeds the
+ * `degenerateRel` speed floor below. At most `quadMaxSplits` boxes are
+ * refined per span (pair); a span that reaches the cap, or a box too small
+ * to bisect, keeps its best estimate and is reported:
+ * {@link FairnessMatrix}`.converged` is false, and `prepareFairSolver` warns
+ * `not-converged`.
  */
 import { makeScratch } from '../array';
 import { checkCurveShape } from '../curve';
 import { fail } from '../errors';
-import { GL_MAX_ORDER, gaussLegendre } from '../quadrature';
+import { gaussLegendre } from '../quadrature';
 import { checkSurfaceShape } from '../surface';
 import { resolveTolerances } from '../tolerance';
 import type { Tolerances } from '../tolerance';
@@ -81,12 +101,26 @@ export interface ResolvedFairness {
 }
 
 /**
- * Extra Gauss–Legendre points beyond `p + 1` that a rational span starts
- * with: the rational integrand is smooth but not polynomial (design §10.2:
- * `p + 3`). Only a starting point: the rule then grows until it converges to
- * `quadRel`.
+ * Extra Gauss–Legendre points beyond `p + 1` per direction in the rule each
+ * adaptive rational box is integrated with (`p + 5`). Accuracy comes from
+ * bisection to `quadRel`, not from this order; it sets the cost. Measured on
+ * bicubic 8 × 8 nets: with `p + 3` (design §10.2's starting rule) random
+ * weights in [0.5, 2] took 31 boxes per span pair against 8.6 here, and a
+ * checkerboard 50/1 net stopped 10⁻⁸ (relative) short of the converged
+ * energy; `p + 7` was 20 % faster on the random weights and 1.2–1.7×
+ * slower on large weight ratios and on nearly equal weights.
  */
-export const RATIONAL_GL_EXTRA = 2;
+export const RATIONAL_GL_EXTRA = 4;
+
+/**
+ * A fairness Gram matrix, and whether its quadrature converged: always on
+ * polynomial bases (exact rule); on rational ones, false when a span (pair)
+ * reached `quadMaxSplits` refined boxes or a box too small to bisect before
+ * meeting `quadRel` (the best estimate is kept).
+ */
+export interface FairnessMatrix extends Csr {
+  readonly converged: boolean;
+}
 
 function weight(x: number | undefined, name: string, fallback: number): number {
   const v = x ?? fallback;
@@ -150,31 +184,6 @@ function spans(b: Basis): { index: Int32Array; a: Float64Array; e: Float64Array 
   };
 }
 
-function maxAbs(a: Float64Array, o: number, n: number): number {
-  let m = 0;
-  for (let i = 0; i < n; i++) {
-    const x = Math.abs(a[o + i]!);
-    if (x > m) m = x;
-  }
-  return m;
-}
-
-/** Two successive quadratures agree: each block and the speeds to `rel`. */
-function agree(
-  x: Float64Array,
-  y: Float64Array,
-  blocks: number,
-  size: number,
-  rel: number,
-): boolean {
-  for (let b = 0; b < blocks; b++) {
-    const o = b * size;
-    const s = maxAbs(y, o, size);
-    for (let i = 0; i < size; i++) if (Math.abs(x[o + i]! - y[o + i]!) > rel * s) return false;
-  }
-  return true;
-}
-
 /**
  * Speeds per span (pair) `√(sq/area)` with the degenerate fallback of the
  * module comment: a speed at most `floor[k]` (`degenerateRel · M / L`, the
@@ -219,6 +228,178 @@ function domainLength(b: Basis): number {
   return b.domain[1] - b.domain[0];
 }
 
+/**
+ * The integrand of a rational span (pair): `blocks` square Gram blocks of
+ * side `side` (row-major, one after the other), then `extra` scalars that are
+ * integrals of non-negative functions (the speeds). `rule` writes the fixed
+ * Gauss–Legendre estimate over `[u0, u1]` (× `[v0, v1]` when `dims` is 2).
+ */
+interface SpanIntegrand {
+  readonly dims: 1 | 2;
+  readonly blocks: number;
+  readonly side: number;
+  readonly extra: number;
+  readonly rule: (u0: number, u1: number, v0: number, v1: number, out: Float64Array) => void;
+}
+
+/**
+ * Adaptive bisection of one rational span (pair) (module comment). `root`
+ * is `rule` over the whole box; `floor` the rounding floor of each block and
+ * each extra over the whole box (a box gets its area's share). A box is
+ * compared with the sum of its halves along each direction; it is accepted
+ * when the two differences together are within tolerance, else split in two
+ * along the direction that differs more (a surface's weights often vary in
+ * one direction only, where splitting both ways would square the cost).
+ * Accumulates each accepted box's halves along its worse direction into `out`
+ * (zeroed first), depth first in a fixed order, so the result is
+ * deterministic. Returns false when the box cap or a box too small to bisect
+ * stopped a refinement.
+ */
+function adaptiveSpan(
+  q: SpanIntegrand,
+  u0: number,
+  u1: number,
+  v0: number,
+  v1: number,
+  root: Float64Array,
+  floor: Float64Array,
+  rel: number,
+  maxBoxes: number,
+  out: Float64Array,
+): boolean {
+  const S2 = q.side * q.side;
+  const nb = q.blocks * S2;
+  const size = nb + q.extra;
+  const area0 = (u1 - u0) * (q.dims === 1 ? 1 : v1 - v0);
+  // Per depth, per direction: the two halves and their sum. A child reads
+  // its half at its parent's depth as its own coarse estimate, so depths
+  // never share buffers.
+  const levels: Float64Array[][] = [];
+  let boxes = 0;
+  let converged = true;
+  out.fill(0);
+  // Scales: the largest diagonal entry (Cauchy–Schwarz bounds every entry
+  // of a Gram block by it) of what the accepted boxes have accumulated plus
+  // the current box, never below the floor. Diagonals are integrals of
+  // squares, so the scale only grows towards the span's.
+  const scale = new Float64Array(q.blocks + q.extra);
+  const raise = (F: Float64Array): void => {
+    for (let b = 0; b < q.blocks; b++) {
+      let m = scale[b]!;
+      for (let i = 0; i < q.side; i++) {
+        const k = b * S2 + i * q.side + i;
+        m = Math.max(m, Math.abs(out[k]! + F[k]!));
+      }
+      scale[b] = m;
+    }
+    for (let x = 0; x < q.extra; x++) {
+      scale[q.blocks + x] = Math.max(scale[q.blocks + x]!, Math.abs(out[nb + x]! + F[nb + x]!));
+    }
+  };
+  // The largest |Q − F| relative to the box's share of the tolerance.
+  const misfit = (Q: Float64Array, F: Float64Array, frac: number): number => {
+    let r = 0;
+    for (let b = 0; b < q.blocks; b++) {
+      const t = rel * frac * Math.max(scale[b]!, floor[b]!);
+      for (let e = b * S2; e < (b + 1) * S2; e++) {
+        const d = Math.abs(Q[e]! - F[e]!);
+        if (d > r * t) r = d / t;
+      }
+    }
+    for (let x = 0; x < q.extra; x++) {
+      const t = rel * frac * Math.max(scale[q.blocks + x]!, floor[q.blocks + x]!);
+      const d = Math.abs(Q[nb + x]! - F[nb + x]!);
+      if (d > r * t) r = d / t;
+    }
+    return r;
+  };
+  const lo = [0, 0];
+  const hi = [0, 0];
+  const visit = (a0: number, a1: number, b0: number, b1: number, Q: Float64Array, d: number) => {
+    boxes++;
+    let buf = levels[d];
+    if (buf === undefined) {
+      buf = Array.from({ length: 3 * q.dims }, () => new Float64Array(size));
+      levels[d] = buf;
+    }
+    const frac = ((a1 - a0) * (q.dims === 1 ? 1 : b1 - b0)) / area0;
+    let worst = 0;
+    let worstMis = -1;
+    let total = 0;
+    for (let dir = 0; dir < q.dims; dir++) {
+      const h0 = buf[3 * dir]!;
+      const h1 = buf[3 * dir + 1]!;
+      const F = buf[3 * dir + 2]!;
+      lo[0] = a0;
+      hi[0] = a1;
+      lo[1] = b0;
+      hi[1] = b1;
+      const m = 0.5 * (lo[dir]! + hi[dir]!);
+      hi[dir] = m;
+      q.rule(lo[0]!, hi[0]!, lo[1]!, hi[1]!, h0);
+      hi[dir] = dir === 0 ? a1 : b1;
+      lo[dir] = m;
+      q.rule(lo[0]!, hi[0]!, lo[1]!, hi[1]!, h1);
+      for (let i = 0; i < size; i++) F[i] = h0[i]! + h1[i]!;
+      if (dir === 0) raise(F);
+      const mis = misfit(Q, F, frac);
+      total += mis;
+      if (mis > worstMis) {
+        worstMis = mis;
+        worst = dir;
+      }
+    }
+    const ok = total <= 1;
+    const am = 0.5 * (a0 + a1);
+    const bm = 0.5 * (b0 + b1);
+    const splittable = worst === 0 ? am > a0 && am < a1 : bm > b0 && bm < b1;
+    if (ok || !splittable || boxes >= maxBoxes) {
+      if (!ok) converged = false;
+      const F = buf[3 * worst + 2]!;
+      for (let i = 0; i < size; i++) out[i] = out[i]! + F[i]!;
+      return;
+    }
+    if (worst === 0) {
+      visit(a0, am, b0, b1, buf[0]!, d + 1);
+      visit(am, a1, b0, b1, buf[1]!, d + 1);
+    } else {
+      visit(a0, a1, b0, bm, buf[3]!, d + 1);
+      visit(a0, a1, bm, b1, buf[4]!, d + 1);
+    }
+  };
+  visit(u0, u1, v0, v1, root, 0);
+  return converged;
+}
+
+/** Copies the upper triangle of each of `count` consecutive `side × side` blocks to the lower. */
+function mirrorBlocks(a: Float64Array, count: number, side: number): void {
+  for (let b = 0; b < count; b++) {
+    const o = b * side * side;
+    for (let i = 1; i < side; i++)
+      for (let j = 0; j < i; j++) a[o + i * side + j] = a[o + j * side + i]!;
+  }
+}
+
+/** The `count` control points at flat indices `idx[o..]` (stride `h`, weight last) share one weight. */
+function sameWeights(
+  cw: ArrayLike<number>,
+  h: number,
+  idx: ArrayLike<number>,
+  o: number,
+  count: number,
+): boolean {
+  const w = cw[idx[o]! * h + h - 1];
+  for (let e = 1; e < count; e++) if (cw[idx[o + e]! * h + h - 1] !== w) return false;
+  return true;
+}
+
+/** Largest absolute diagonal entry of the `side × side` block at `o`. */
+function maxDiag(a: Float64Array, o: number, side: number): number {
+  let m = 0;
+  for (let i = 0; i < side; i++) m = Math.max(m, Math.abs(a[o + i * side + i]!));
+  return m;
+}
+
 // ---------------------------------------------------------------------------
 // Curves
 // ---------------------------------------------------------------------------
@@ -243,6 +424,7 @@ function curveSpanBlocks(
   blocks: Float64Array;
   idx: Int32Array;
   speedSq: Float64Array;
+  converged: boolean;
 } {
   const p = b.degree;
   const p1 = p + 1;
@@ -259,24 +441,27 @@ function curveSpanBlocks(
   const blocks = new Float64Array(ns * 3 * P2);
   const idx = new Int32Array(ns * p1);
   const speedSq = new Float64Array(ns);
-  // Work: 3 blocks + speed, for the current and the previous rule.
-  const cur = new Float64Array(3 * P2 + 1);
-  const prev = new Float64Array(3 * P2 + 1);
-  const integrate = (k: number, ng: number, out: Float64Array): void => {
+  const glPoly = gaussLegendre(p1);
+  const glRat = gaussLegendre(p1 + RATIONAL_GL_EXTRA);
+  let k = 0; // the span being integrated
+  let rat = rational; // span k's basis is rational (its weights differ)
+  // Writes 3 blocks + the speed integral over [t0, t1] ⊆ span k. Rational
+  // spans fill the upper triangles only (mirrored once integrated).
+  const rule = (t0: number, t1: number, _v0: number, _v1: number, out: Float64Array): void => {
     out.fill(0);
-    const { nodes, weights } = gaussLegendre(ng);
-    const a = sp.a[k]!;
-    const half = (sp.e[k]! - a) / 2;
-    for (let g = 0; g < ng; g++) {
-      const t = a + half * (nodes[g]! + 1);
+    const { nodes, weights } = rat ? glRat : glPoly;
+    const half = (t1 - t0) / 2;
+    const top = Math.min(maxOrder, rat ? nDer : p);
+    for (let g = 0; g < nodes.length; g++) {
+      const t = t0 + half * (nodes[g]! + 1);
       const wt = half * weights[g]!;
-      curveLocal(b, cw, h, rational, t, sp.index[k]!, nDer, s, li, R);
-      for (let o = 1; o <= Math.min(maxOrder, nDer); o++) {
+      curveLocal(b, cw, h, rat, t, sp.index[k]!, rat ? nDer : Math.min(nDer, p), s, li, R);
+      for (let o = 1; o <= top; o++) {
         const ob = (o - 1) * P2;
         for (let i = 0; i < p1; i++) {
           const ri = wt * R[o * p1 + i]!;
           if (ri === 0) continue;
-          for (let j = 0; j < p1; j++)
+          for (let j = rat ? i : 0; j < p1; j++)
             out[ob + i * p1 + j] = out[ob + i * p1 + j]! + ri * R[o * p1 + j]!;
         }
       }
@@ -290,28 +475,37 @@ function curveSpanBlocks(
         out[3 * P2] = out[3 * P2]! + wt * sq;
       }
     }
-    for (let j = 0; j < p1; j++) idx[k * p1 + j] = li[j]!;
   };
-  for (let k = 0; k < ns; k++) {
-    let ng = rational ? p1 + RATIONAL_GL_EXTRA : p1;
-    integrate(k, ng, cur);
-    if (rational) {
-      for (;;) {
-        prev.set(cur);
-        if (ng + 1 > GL_MAX_ORDER) break;
-        ng++;
-        integrate(k, ng, cur);
-        const a = prev[3 * P2]!;
-        const c = cur[3 * P2]!;
-        if (agree(prev, cur, 3, P2, tol.quadRel) && Math.abs(a - c) <= tol.quadRel * Math.abs(c)) {
-          break;
-        }
+  const q: SpanIntegrand = { dims: 1, blocks: 3, side: p1, extra: 1, rule };
+  const root = new Float64Array(3 * P2 + 1);
+  const cur = new Float64Array(3 * P2 + 1);
+  const floor = new Float64Array(4);
+  let converged = true;
+  for (k = 0; k < ns; k++) {
+    const t0 = sp.a[k]!;
+    const t1 = sp.e[k]!;
+    // Equal weights on a span make its rational basis the polynomial one
+    // there (R_i = w N_i / (w Σ N_j) = N_i), integrated exactly.
+    for (let j = 0; j < p1; j++) idx[k * p1 + j] = localIndexOf(b, sp.index[k]!, j);
+    rat = rational && !sameWeights(cw, h, idx, k * p1, p1);
+    rule(t0, t1, 0, 0, root);
+    if (rat) {
+      // Rounding floors (module comment): order o's natural size is the
+      // first-order scale carried by h^(2 − 2o); the speed's, its floor² · h.
+      const len = t1 - t0;
+      const s1 = maxDiag(root, 0, p1);
+      for (let o = 1; o <= 3; o++) floor[o - 1] = tol.degenerateRel * s1 * len ** (2 - 2 * o);
+      const fs = pts === null ? 0 : speedFloor(pts, dim, idx, k, p1, domainLength(b), tol);
+      floor[3] = fs * fs * len;
+      if (!adaptiveSpan(q, t0, t1, 0, 0, root, floor, tol.quadRel, tol.quadMaxSplits, cur)) {
+        converged = false;
       }
-    }
+      mirrorBlocks(cur, 3, p1);
+    } else cur.set(root);
     blocks.set(cur.subarray(0, 3 * P2), k * 3 * P2);
     speedSq[k] = cur[3 * P2]!;
   }
-  return { sp, blocks, idx, speedSq };
+  return { sp, blocks, idx, speedSq, converged };
 }
 
 /** The scalar fairness matrix `F` of a curve basis (with the curve's weights). */
@@ -323,11 +517,11 @@ export function curveFairnessMatrix(
   fw: ResolvedFairness,
   speed: SpeedSource,
   tol: Tolerances,
-): Csr {
+): FairnessMatrix {
   const c = [fw.stretch, fw.bend, fw.jerk];
   const maxOrder = fw.jerk > 0 ? 3 : fw.bend > 0 ? 2 : 1;
   const geom = fw.metric === 'scaled' && speed.kind === 'geometry' ? speed : null;
-  const { sp, blocks, idx, speedSq } = curveSpanBlocks(
+  const { sp, blocks, idx, speedSq, converged } = curveSpanBlocks(
     b,
     cw,
     dim + 1,
@@ -367,7 +561,7 @@ export function curveFairnessMatrix(
       }
     }
   }
-  return cooToCsr(out);
+  return { ...cooToCsr(out), converged };
 }
 
 // ---------------------------------------------------------------------------
@@ -430,7 +624,7 @@ export function surfaceFairnessMatrix(
   fw: ResolvedFairness,
   speed: SpeedSource,
   tol: Tolerances,
-): Csr {
+): FairnessMatrix {
   const p1 = bu.degree + 1;
   const q1 = bv.degree + 1;
   const K = p1 * q1;
@@ -457,6 +651,7 @@ export function surfaceFairnessMatrix(
   const lenU = new Float64Array(npair);
   const lenV = new Float64Array(npair);
 
+  let converged = true;
   const U = rational ? null : polySpanBlocks1d(bu);
   const V = rational ? null : polySpanBlocks1d(bv);
   if (U !== null && V !== null) {
@@ -514,37 +709,45 @@ export function surfaceFairnessMatrix(
     const R = new Float64Array(9 * K);
     const li = new Int32Array(K);
     const size = SB_COUNT * K2 + 2;
+    const root = new Float64Array(size);
     const cur = new Float64Array(size);
-    const prev = new Float64Array(size);
-    const integrate = (a: number, b: number, nu: number, nvq: number, out: Float64Array): void => {
+    const floor = new Float64Array(SB_COUNT + 2);
+    const guPoly = gaussLegendre(p1);
+    const gvPoly = gaussLegendre(q1);
+    const guRat = gaussLegendre(p1 + RATIONAL_GL_EXTRA);
+    const gvRat = gaussLegendre(q1 + RATIONAL_GL_EXTRA);
+    const slots: readonly (readonly [number, number])[] = [
+      [SB_U, 1 * L + 0],
+      [SB_V, 0 * L + 1],
+      [SB_UU, 2 * L + 0],
+      [SB_UV, 1 * L + 1],
+      [SB_VV, 0 * L + 2],
+    ];
+    const nslots = needBend ? SB_COUNT : SB_UU; // slots are in block order
+    let a = 0; // the span pair being integrated
+    let b = 0;
+    let rat = true; // its basis is rational (its weights differ)
+    // Writes the 5 blocks (upper triangles; mirrored once integrated) + the
+    // two speed integrals over a box ⊆ span pair (a, b).
+    const rule = (u0: number, u1: number, v0: number, v1: number, out: Float64Array): void => {
       out.fill(0);
-      const gu = gaussLegendre(nu);
-      const gv = gaussLegendre(nvq);
-      const ua = su.a[a]!;
-      const hu = (su.e[a]! - ua) / 2;
-      const va = sv.a[b]!;
-      const hv = (sv.e[b]! - va) / 2;
-      for (let g = 0; g < nu; g++) {
-        const u = ua + hu * (gu.nodes[g]! + 1);
-        for (let r = 0; r < nvq; r++) {
-          const v = va + hv * (gv.nodes[r]! + 1);
+      const gu = rat ? guRat : guPoly;
+      const gv = rat ? gvRat : gvPoly;
+      const hu = (u1 - u0) / 2;
+      const hv = (v1 - v0) / 2;
+      for (let g = 0; g < gu.nodes.length; g++) {
+        const u = u0 + hu * (gu.nodes[g]! + 1);
+        for (let r = 0; r < gv.nodes.length; r++) {
+          const v = v0 + hv * (gv.nodes[r]! + 1);
           const wt = hu * hv * gu.weights[g]! * gv.weights[r]!;
-          surfaceLocal(bu, bv, cw, true, u, v, su.index[a]!, sv.index[b]!, 2, 2, s, li, R);
-          const slots: readonly [number, number][] = [
-            [SB_U, 1 * L + 0],
-            [SB_V, 0 * L + 1],
-            [SB_UU, 2 * L + 0],
-            [SB_UV, 1 * L + 1],
-            [SB_VV, 0 * L + 2],
-          ];
-          for (const [slot, rs] of slots) {
-            if (!needBend && slot >= SB_UU) continue;
-            const ob = slot * K2;
-            const orr = rs * K;
+          surfaceLocal(bu, bv, cw, rat, u, v, su.index[a]!, sv.index[b]!, 2, 2, s, li, R, 2);
+          for (let t = 0; t < nslots; t++) {
+            const ob = slots[t]![0] * K2;
+            const orr = slots[t]![1] * K;
             for (let i = 0; i < K; i++) {
               const ri = wt * R[orr + i]!;
               if (ri === 0) continue;
-              for (let j = 0; j < K; j++)
+              for (let j = i; j < K; j++)
                 out[ob + i * K + j] = out[ob + i * K + j]! + ri * R[orr + j]!;
             }
           }
@@ -568,51 +771,61 @@ export function surfaceFairnessMatrix(
         }
       }
     };
-    for (let a = 0; a < nsu; a++) {
-      for (let b = 0; b < nsv; b++) {
+    const q: SpanIntegrand = { dims: 2, blocks: SB_COUNT, side: K, extra: 2, rule };
+    // Derivative orders (in u, in v) of each block, for its natural size.
+    const orders: readonly (readonly [number, number])[] = [
+      [1, 0],
+      [0, 1],
+      [2, 0],
+      [1, 1],
+      [0, 2],
+    ];
+    for (a = 0; a < nsu; a++) {
+      for (b = 0; b < nsv; b++) {
         const o = a * nsv + b;
-        let nu = p1 + RATIONAL_GL_EXTRA;
-        let nq = q1 + RATIONAL_GL_EXTRA;
-        integrate(a, b, nu, nq, cur);
-        for (;;) {
-          prev.set(cur);
-          if (nu + 1 > GL_MAX_ORDER || nq + 1 > GL_MAX_ORDER) break;
-          nu++;
-          nq++;
-          integrate(a, b, nu, nq, cur);
-          if (agree(prev, cur, SB_COUNT, K2, tol.quadRel)) {
-            const okU =
-              Math.abs(prev[SB_COUNT * K2]! - cur[SB_COUNT * K2]!) <=
-              tol.quadRel * Math.abs(cur[SB_COUNT * K2]!);
-            const okV =
-              Math.abs(prev[SB_COUNT * K2 + 1]! - cur[SB_COUNT * K2 + 1]!) <=
-              tol.quadRel * Math.abs(cur[SB_COUNT * K2 + 1]!);
-            if (okU && okV) break;
-          }
+        const u0 = su.a[a]!;
+        const u1 = su.e[a]!;
+        const v0 = sv.a[b]!;
+        const v1 = sv.e[b]!;
+        for (let i = 0; i < p1; i++) {
+          const iu = localIndexOf(bu, su.index[a]!, i) * nv;
+          for (let j = 0; j < q1; j++)
+            idx[o * K + i * q1 + j] = iu + localIndexOf(bv, sv.index[b]!, j);
         }
-        blocks.set(cur.subarray(0, SB_COUNT * K2), o * SB_COUNT * K2);
-        // The control indices do not depend on the point; take them from one evaluation.
-        surfaceLocal(
-          bu,
-          bv,
-          cw,
-          true,
-          su.a[a]!,
-          sv.a[b]!,
-          su.index[a]!,
-          sv.index[b]!,
-          0,
-          0,
-          s,
-          li,
-          R,
+        // Equal weights on a span pair make its basis polynomial there
+        // (exact with p + 1, q + 1 points; no adaptivity needed).
+        rat = !sameWeights(cw, 4, idx, o * K, K);
+        rule(u0, u1, v0, v1, root);
+        lenU[o] = u1 - u0;
+        lenV[o] = v1 - v0;
+        area[o] = lenU[o]! * lenV[o]!;
+        // Rounding floors (module comment): block (k, l)'s natural size is
+        // h_u^(1 − 2k) h_v^(1 − 2l); its scale is the larger first-order one.
+        const nat = (k: number, l: number): number =>
+          lenU[o]! ** (1 - 2 * k) * lenV[o]! ** (1 - 2 * l);
+        const s1 = Math.max(
+          maxDiag(root, SB_U * K2, K) / nat(1, 0),
+          maxDiag(root, SB_V * K2, K) / nat(0, 1),
         );
-        for (let e = 0; e < K; e++) idx[o * K + e] = li[e]!;
+        for (let t = 0; t < SB_COUNT; t++) {
+          floor[t] = tol.degenerateRel * s1 * nat(orders[t]![0], orders[t]![1]);
+        }
+        if (pts !== null) {
+          const fu = speedFloor(pts, 3, idx, o, K, domainLength(bu), tol);
+          const fv = speedFloor(pts, 3, idx, o, K, domainLength(bv), tol);
+          floor[SB_COUNT] = fu * fu * area[o]!;
+          floor[SB_COUNT + 1] = fv * fv * area[o]!;
+        }
+        if (!rat) cur.set(root);
+        else if (
+          !adaptiveSpan(q, u0, u1, v0, v1, root, floor, tol.quadRel, tol.quadMaxSplits, cur)
+        ) {
+          converged = false;
+        }
+        mirrorBlocks(cur, SB_COUNT, K);
+        blocks.set(cur.subarray(0, SB_COUNT * K2), o * SB_COUNT * K2);
         sqU[o] = cur[SB_COUNT * K2]!;
         sqV[o] = cur[SB_COUNT * K2 + 1]!;
-        lenU[o] = su.e[a]! - su.a[a]!;
-        lenV[o] = sv.e[b]! - sv.a[b]!;
-        area[o] = lenU[o]! * lenV[o]!;
       }
     }
   }
@@ -724,7 +937,7 @@ export function surfaceFairnessMatrix(
       }
     }
   }
-  return out;
+  return { ...out, converged };
 }
 
 /**
@@ -835,7 +1048,7 @@ export function fairnessMatrixOf(
   fw: ResolvedFairness,
   ref: NurbsCurve | NurbsSurface,
   tol: Tolerances,
-): Csr {
+): FairnessMatrix {
   if (isSurface(g)) {
     const r = ref as NurbsSurface;
     const pts = euclidean(r.cw, r.u.count * r.v.count, 3);
@@ -867,7 +1080,11 @@ export function fairnessMatrixOf(
  * a `reference` on the same bases and weights, of the displacement
  * `g − reference` (the speeds of the scaled metric then come from the
  * reference, as in an edit). `w.on` is not read: the presence of
- * `reference` decides.
+ * `reference` decides. Limit: on rational geometry whose quadrature reaches
+ * `quadMaxSplits` boxes in a span (pair) (weight ratios far beyond
+ * `weightRatioMax`, or a span too short to bisect) the value is the best
+ * estimate, not converged to `quadRel`; `prepareFairSolver` reports that case
+ * as a `not-converged` warning.
  */
 export function fairnessEnergy(
   g: NurbsCurve | NurbsSurface,

@@ -77,7 +77,10 @@ export function curveLocal(
  * (each ≤ 2). Function `e = a·(q+1) + b` multiplies control point
  * `idx[e]` (u-major flat index); slot `(k, l)` is
  * `R[(k·(dv+1) + l)·K + e]`, `K = (p+1)(q+1)`. `cw` has stride 4. The
- * scratch needs `maxDerivs ≥ 2` (its `oH` region holds the `W_kl`).
+ * scratch needs `maxDerivs ≥ 2` (its `oH` region holds the `W_kl`). Slots
+ * with `k + l > total` (default `du + dv`) are left unwritten: the quotient
+ * rule for a slot reads only lower ones, so the fairness Gram matrices,
+ * which need total order ≤ 2, skip `(2, 1)`, `(1, 2)` and `(2, 2)`.
  */
 export function surfaceLocal(
   bu: Basis,
@@ -93,6 +96,7 @@ export function surfaceLocal(
   s: ScratchImpl,
   idx: Int32Array,
   R: Float64Array,
+  total = du + dv,
 ): void {
   const p1 = bu.degree + 1;
   const q1 = bv.degree + 1;
@@ -107,7 +111,7 @@ export function surfaceLocal(
   }
   const L = dv + 1;
   for (let k = 0; k <= du; k++) {
-    for (let l = 0; l <= dv; l++) {
+    for (let l = 0; l <= Math.min(dv, total - k); l++) {
       const o = (k * L + l) * K;
       for (let a = 0; a < p1; a++) {
         const na = f[s.oN + k * p1 + a]!;
@@ -119,7 +123,7 @@ export function surfaceLocal(
   // A_kl = w N^(k) M^(l), W_kl = Σ A_kl; then R_kl in increasing (k, l).
   const W = s.oH; // scratch: W_kl at f[W + 3k + l] (the region holds 4(D + 1) ≥ 12 doubles for D ≥ 2)
   for (let k = 0; k <= du; k++) {
-    for (let l = 0; l <= dv; l++) {
+    for (let l = 0; l <= Math.min(dv, total - k); l++) {
       const o = (k * L + l) * K;
       let sum = 0;
       for (let e = 0; e < K; e++) {
@@ -132,19 +136,19 @@ export function surfaceLocal(
   }
   const w0 = f[W]!;
   for (let k = 0; k <= du; k++) {
-    for (let l = 0; l <= dv; l++) {
+    for (let l = 0; l <= Math.min(dv, total - k); l++) {
       const o = (k * L + l) * K;
-      for (let e = 0; e < K; e++) {
-        let x = R[o + e]!;
-        for (let i = 0; i <= k; i++) {
-          for (let j = 0; j <= l; j++) {
-            if (i === 0 && j === 0) continue;
-            x -=
-              BIN[k]![i]! * BIN[l]![j]! * f[W + i * 3 + j]! * R[((k - i) * L + (l - j)) * K + e]!;
-          }
+      // Term by term over all functions: each R[o + e] sees the same
+      // subtractions in the same order as a per-function loop would.
+      for (let i = 0; i <= k; i++) {
+        for (let j = 0; j <= l; j++) {
+          if (i === 0 && j === 0) continue;
+          const c = BIN[k]![i]! * BIN[l]![j]! * f[W + i * 3 + j]!;
+          const src = ((k - i) * L + (l - j)) * K;
+          for (let e = 0; e < K; e++) R[o + e] = R[o + e]! - c * R[src + e]!;
         }
-        R[o + e] = x / w0;
       }
+      for (let e = 0; e < K; e++) R[o + e] = R[o + e]! / w0;
     }
   }
 }

@@ -84,15 +84,18 @@ export function pivotedCholesky(
 /**
  * Solves `S_II y = rhs_I` on the independent rows `I = perm[0..rank)` of a
  * {@link pivotedCholesky} factor; `out[perm[k]] = y_k` for `k < rank`, and the
- * dependent rows get 0. `rhs` is indexed by original row.
+ * dependent rows get 0. `rhs` is indexed by original row. `work` (at least
+ * `rank` long, overwritten) holds the triangular solves; without it they
+ * use a new array, so a caller solving per frame passes one.
  */
 export function pivotedCholeskySolve(
   f: PivotedCholesky,
   rhs: ArrayLike<number>,
   out: Float64Array,
+  work?: Float64Array,
 ): void {
   const { m, l, perm, rank } = f;
-  const y = new Float64Array(rank);
+  const y = work ?? new Float64Array(rank);
   for (let k = 0; k < rank; k++) {
     let s = rhs[perm[k]!]!;
     for (let j = 0; j < k; j++) s -= l[k * m + j]! * y[j]!;

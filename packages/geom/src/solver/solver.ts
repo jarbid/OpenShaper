@@ -203,6 +203,8 @@ interface SolverImpl extends FairSolver {
   readonly wm2: Float64Array;
   readonly wm3: Float64Array;
   readonly wm4: Float64Array;
+  /** Work of `pivotedCholeskySolve` (rank ≤ m), so a move allocates only its report. */
+  readonly wy: Float64Array;
 }
 
 function isSurface(g: NurbsCurve | NurbsSurface): g is NurbsSurface {
@@ -569,6 +571,8 @@ export interface FairAssembly {
   /** `values[...]` index of each row's right-hand side, or −1 for 0. */
   readonly rowValue: readonly number[];
   readonly ncons: number;
+  /** False when a rational span's fairness quadrature stopped at `quadMaxSplits` (fairness.ts). */
+  readonly fairnessConverged: boolean;
 }
 
 /** Validates a {@link FairProblem} and assembles it (internal; module comment). */
@@ -648,8 +652,10 @@ export function assembleFair(p: FairProblem, tol: Tolerances): FairAssembly {
       }
     }
   }
+  let fairnessConverged = true;
   if (fw.stretch > 0 || fw.bend > 0 || fw.jerk > 0) {
     const Fm = fairnessMatrixOf(target, fw, target, tol);
+    fairnessConverged = Fm.converged;
     for (let i = 0; i < n; i++) {
       for (let q = Fm.rowPtr[i]!; q < Fm.rowPtr[i + 1]!; q++) cooAdd(H, i, Fm.col[q]!, Fm.val[q]!);
     }
@@ -728,6 +734,7 @@ export function assembleFair(p: FairProblem, tol: Tolerances): FairAssembly {
     rowComp: rows.comp,
     rowValue: rows.value,
     ncons: cons.length,
+    fairnessConverged,
   };
 }
 
@@ -737,7 +744,8 @@ export function assembleFair(p: FairProblem, tol: Tolerances): FairAssembly {
  * violations throw; a system the data, stiffness and constraints do not
  * determine is an error result (`not-positive-definite`, or
  * `singular-system` with the condition estimate); dependent rows are a
- * `dependent-constraints` warning.
+ * `dependent-constraints` warning, and a rational fairness quadrature that
+ * reached `quadMaxSplits` (fairness.ts) a `not-converged` warning.
  */
 export function prepareFairSolver(p: FairProblem, tolIn?: Partial<Tolerances>): Result<FairSolver> {
   const tol = resolveTolerances(tolIn);
@@ -907,6 +915,15 @@ export function prepareFairSolver(p: FairProblem, tolIn?: Partial<Tolerances>): 
   }
 
   const issues: GeomIssue[] = [];
+  if (!A.fairnessConverged) {
+    issues.push(
+      issue(
+        'not-converged',
+        'warning',
+        `the fairness quadrature of a rational span did not reach quadRel within quadMaxSplits boxes (extreme weight ratio); its best estimate is used`,
+      ),
+    );
+  }
   if (PF.rank < m) {
     const dep: number[] = [];
     for (let k = PF.rank; k < m; k++) dep.push(PF.perm[k]!);
@@ -963,6 +980,7 @@ export function prepareFairSolver(p: FairProblem, tolIn?: Partial<Tolerances>): 
     wm2: new Float64Array(m),
     wm3: new Float64Array(m),
     wm4: new Float64Array(m),
+    wy: new Float64Array(m),
   };
   return okResult(Object.freeze(impl) as FairSolver, issues);
 }
@@ -1038,7 +1056,7 @@ export function solveFairInto(
     // augmented factor this is the same point (the added term is constant on
     // the constraint set); its multipliers are recovered below.
     for (let k = 0; k < m; k++) w[k] = s.independent[k] ? s.cz0[k]! - e[k]! : 0;
-    pivotedCholeskySolve(s.F, w, lam);
+    pivotedCholeskySolve(s.F, w, lam, s.wy);
     subY(s, lam, z);
     // Refinement on the constraint residual: Δλ = S⁻¹ (C′_I z − e′_I), z −= Y Δλ.
     for (let k = 0; k < m; k++) {
@@ -1053,7 +1071,7 @@ export function solveFairInto(
       w[k] = c - e[k]!;
     }
     const dl = e; // e′ is no longer needed
-    pivotedCholeskySolve(s.F, w, dl);
+    pivotedCholeskySolve(s.F, w, dl, s.wy);
     subY(s, dl, z);
     for (let k = 0; k < m; k++) lam[k] = lam[k]! + dl[k]!;
     if (s.rho > 0) {
@@ -1075,7 +1093,7 @@ export function solveFairInto(
         }
         w[i] = v;
       }
-      pivotedCholeskySolve(s.F, w, dl);
+      pivotedCholeskySolve(s.F, w, dl, s.wy);
       for (let k = 0; k < m; k++) {
         if (s.independent[k]) lam[k] = lam[k]! + s.rho * (cz[k]! + dl[k]!);
       }

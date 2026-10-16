@@ -1585,13 +1585,20 @@ Notes (A3, as built):
   most 3× on the factor and the Schur columns (see the A3 measurements, §17).
 - **Fairness matrices.** Polynomial surfaces assemble `F` from one-dimensional span
   Gram matrices by Kronecker products, accumulated directly into the tensor-product
-  sparsity pattern; rational ones integrate each span pair point-wise with a
-  Gauss–Legendre rule that starts at `p + 3` points per direction and grows until two
-  successive rules agree to `quadRel` (the adaptive form of the `p + 4` test of
-  §10.2). The scaled metric's speed of a span (pair) is the root-mean-square
-  `|S_u|`, `|S_v|` over it, integrated exactly with the same Gram matrices; a span
-  whose speed is at the rounding level (`degenerateRel` test) takes the RMS speed of
-  the others.
+  sparsity pattern. A rational span (pair) with equal weights has the polynomial basis
+  there and takes the same exact rule; any other is integrated point-wise by adaptive
+  bisection: a box's `p + 5`-point-per-direction Gauss–Legendre value is compared
+  with the sum over its halves along each direction, accepted when every entry is
+  within `quadRel` × the box's area share of its block's scale (largest diagonal),
+  else split along the worse direction, with a `degenerateRel` rounding floor per
+  block, and capped at `quadMaxSplits` boxes per span (pair). This replaces raising
+  one rule's order (the adaptive form of §10.2's `p + 3` / `p + 4` test), which
+  stopped silently at `GL_MAX_ORDER` and was 0.4 % off at a weight ratio of 100 and
+  82 % at 1,000; a span that reaches the cap now sets `FairnessMatrix.converged`
+  false, and `prepareFairSolver` warns `not-converged`. The scaled metric's speed of
+  a span (pair) is the root-mean-square `|S_u|`, `|S_v|` over it, integrated exactly
+  with the same Gram matrices; a span whose speed is at the rounding level
+  (`degenerateRel` test) takes the RMS speed of the others.
 - **Fits with fairness** have no reference shape, so the scaled metric uses one
   constant speed per direction: the data's bounding-box diagonal over the domain
   length. It is the parametric energy times fixed factors, which makes the weight
@@ -1599,7 +1606,9 @@ Notes (A3, as built):
   fairness is `on: 'shape'`; `'displacement'` throws (`unsupported`).
 - **`fairnessEnergy`** has no factor ½ (the solver's objective carries it) and, with a
   `reference`, measures the displacement with the reference's speeds; `w.on` is not
-  read.
+  read. Limit: on rational geometry whose quadrature reaches `quadMaxSplits` in a
+  span (weight ratios far beyond `weightRatioMax`) it returns the best estimate
+  without a flag; `prepareFairSolver` reports that case.
 
 ### 6.14 Projection [B1]
 
@@ -2738,6 +2747,21 @@ m = 20 solver, 0.29 ms per frame; the only allocation is the frame's report (two
 `Float64Array(m)`, two short `Int32Array`). Missed targets are reported (§17); the
 first candidates are a shared per-axis factor on the separable path (§6.13 notes)
 and a cheaper P16 correction pass.
+
+Rational targets (A3 review; the same band and fairness, P12r / P13r, a few samples
+each): the Gram assembly with weights in [0.7, 1.3] takes 1.01 s, and with weights
+alternating 50 / 1 by v-row 2.19 s; `prepareFairSolver` measures the same (1.01 s,
+2.12 s: the rest of it is within the noise). P12 / P13's 2 ms / 3 ms are missed by
+about 500×: the adaptive quadrature (§6.13 notes) costs about 4 ms per span pair; by
+operation count most of it is the `K²` Gram products at each of the 256 points a
+box's two-direction error test evaluates. Against the order-raising rule it replaced
+(measured on a 16 × 8 net) it is as fast on weights in [0.7, 1.3] and [0.95, 1.05],
+1.9× slower on weights 1 / 1 + 10⁻⁷ (78 against 41 ms), and 20× faster at 50 / 1
+(0.41 against 8.0 s); against a `quadRel = 10⁻¹²` run (6 × 8 nets) it agrees to
+7e-13 relative or better. Polynomial targets are unaffected. The first candidates
+are an error test on a cheaper proxy (the block diagonals) with the full products
+only at accepted boxes, and reusing a box's values across the solver's
+pointer-downs, since the weights do not change during an edit.
 
 ---
 

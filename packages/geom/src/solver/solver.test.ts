@@ -271,7 +271,10 @@ describe('range space ↔ dense null-space reference', () => {
           : {}),
       };
       const { a } = compare(`surface ${seed}`, p, values);
-      expect(a.report.constraintResidual).toBeLessThanOrEqual(TOL.constraint * 100);
+      // ≤ constraint, as at board scale (no slack): measured ≤ 1.5e-14 on
+      // these seeds, so a regression in the refinement step shows long
+      // before it reaches the bound.
+      expect(a.report.constraintResidual).toBeLessThanOrEqual(TOL.constraint);
     });
 
     it(`random curves of dimension 1–3 with tangent and derivative rows (seed ${seed})`, () => {
@@ -1165,6 +1168,53 @@ describe('influence and contract', () => {
       ],
     });
     expect(r2.ok).toBe(false);
+  });
+
+  // Design §6.13 / P24: a move allocates only its report (two Float64Array(m)
+  // and two short Int32Array). Counted by wrapping the global constructor,
+  // on the plain path and on the singular-K (ρ) path, which solves with the
+  // Schur factor three times instead of two.
+  it('solveFairInto allocates only the report (P24), with and without the ρ path', () => {
+    const counted = (fn: () => void): number => {
+      const Orig = globalThis.Float64Array;
+      let n = 0;
+      globalThis.Float64Array = new Proxy(Orig, {
+        construct(target, args, nt) {
+          n++;
+          return Reflect.construct(target, args, nt) as object;
+        },
+      });
+      try {
+        fn();
+      } finally {
+        globalThis.Float64Array = Orig;
+      }
+      return n;
+    };
+    const t = board(8, 6);
+    const cons: LinearConstraint[] = [
+      { kind: 'point', uv: { u: 0.2, v: 0.2 }, value: { x: 0, y: 0, z: 0 } },
+      { kind: 'point', uv: { u: 0.8, v: 0.3 }, value: { x: 0, y: 0, z: 0 } },
+      { kind: 'point', uv: { u: 0.5, v: 0.9 }, value: { x: 0, y: 0, z: 0 } },
+    ];
+    const values = currentValues(t, cons);
+    values[2] = values[2]! + 3;
+    const out = new Float64Array(t.cw.length);
+    for (const stiffness of [0.1, 0]) {
+      const s = ok({
+        target: t,
+        dof: makeDofMap(t, []),
+        fairness: { bend: 1 },
+        stiffness,
+        constraints: cons,
+      });
+      expect((s as unknown as { rho: number }).rho > 0).toBe(stiffness === 0);
+      solveFairInto(s, values, out); // warm
+      expect(
+        counted(() => solveFairInto(s, values, out)),
+        `stiffness ${stiffness}`,
+      ).toBe(2);
+    }
   });
 
   it('solveFair equals solveFairInto bitwise; contract violations throw', () => {

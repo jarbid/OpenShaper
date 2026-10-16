@@ -46,7 +46,14 @@ interface BenchRun {
   latency: { mean: number; p50: number; p99: number; rme: number };
   throughput: { mean: number };
 }
-type Bench = (name: string, fn: () => void) => { run: () => Promise<BenchRun> };
+/** tinybench run options (a few iterations for cases that take seconds). */
+interface RunOptions {
+  readonly iterations: number;
+  readonly time: number;
+  readonly warmupIterations: number;
+  readonly warmupTime: number;
+}
+type Bench = (name: string, fn: () => void) => { run: (opts?: RunOptions) => Promise<BenchRun> };
 
 /** A case: its function, how many units one call does, and the target. */
 interface Case {
@@ -57,7 +64,12 @@ interface Case {
   readonly units: number;
   /** `rate`: at least this many units per second; `time`: at most this many ms per call. */
   readonly target: { readonly kind: 'rate' | 'time'; readonly value: number };
+  /** Run options, for cases too slow for the default sample count. */
+  readonly run?: RunOptions;
 }
+
+/** Few samples, for cases that take on the order of a second. */
+const SLOW: RunOptions = { iterations: 5, time: 0, warmupIterations: 1, warmupTime: 0 };
 
 const fmtRate = (r: number): string =>
   r >= 1e6 ? `${(r / 1e6).toFixed(2)} M/s` : `${(r / 1e3).toFixed(1)} k/s`;
@@ -71,7 +83,7 @@ const fmtRate = (r: number): string =>
 async function runGroup(bench: Bench, title: string, cases: readonly Case[]): Promise<void> {
   const rows: string[][] = [['', 'mean ms', 'p99 ms', '±%', 'measured', 'target', '']];
   for (const c of cases) {
-    const r = await bench(c.name, c.fn).run();
+    const r = await bench(c.name, c.fn).run(c.run);
     const l = r.latency;
     const rate = c.units * r.throughput.mean;
     const met = c.target.kind === 'rate' ? rate >= c.target.value : l.mean <= c.target.value;
@@ -337,6 +349,15 @@ test('interpolation: P11', async ({ bench }) => {
   if (count < 0) process.stdout.write('unreachable\n');
 });
 
+/** The Euclidean control points of a surface, interleaved. */
+function euclideanPoints(S: NurbsSurface): Float64Array {
+  const n = S.cw.length / 4;
+  const out = new Float64Array(3 * n);
+  for (let i = 0; i < n; i++)
+    for (let c = 0; c < 3; c++) out[3 * i + c] = S.cw[4 * i + c]! / S.cw[4 * i + 3]!;
+  return out;
+}
+
 /** A 64 × 8 bicubic board-sized band (512 control points), polynomial. */
 function band(): NurbsSurface {
   return bicubic(64, 8, false, 6);
@@ -406,6 +427,20 @@ test('fair solver and fitting with fairness: P12–P16, P24', async ({ bench }) 
     dof: makeDofMap(S, [...fixed, ...slides.filter((r) => !fixed.some((f) => f.cp === r.cp))]),
     constraints: handles(50, 7),
   };
+  // Rational targets: the same band with weights in [0.7, 1.3], and one whose
+  // weights alternate 50 / 1 by v-row (a large ratio: the adaptive rational
+  // quadrature, fairness.ts, refines towards the peaks of its integrands).
+  const SR = bicubic(64, 8, true, 6);
+  const SR50 = makeSurface({
+    u: S.u,
+    v: S.v,
+    points: euclideanPoints(S),
+    weights: Float64Array.from({ length: n }, (_, i) => ((i % 8) % 2 === 0 ? 50 : 1)),
+  });
+  const xRefR = euclideanPoints(SR);
+  const xRefR50 = euclideanPoints(SR50);
+  const pSepR: FairProblem = { ...pSep, target: SR, dof: makeDofMap(SR, []) };
+  const pSepR50: FairProblem = { ...pSep, target: SR50, dof: makeDofMap(SR50, []) };
   const sSep = prepare(pSep);
   const sCoupled = prepare(pCoupled);
   const sMany = prepare(pMany);
@@ -471,12 +506,54 @@ test('fair solver and fitting with fairness: P12–P16, P24', async ({ bench }) 
       },
     },
     {
+      id: 'P12r',
+      name: 'the same, rational: weights in [0.7, 1.3]',
+      units: 0,
+      target: { kind: 'time', value: 2 },
+      run: SLOW,
+      fn: () => {
+        const sp = { kind: 'geometry', points: xRefR, dim: 3 } as const;
+        count += surfaceFairnessMatrix(SR.u, SR.v, SR.cw, true, fwScaled, sp, tol).rows;
+      },
+    },
+    {
+      id: 'P12r50',
+      name: 'the same, rational: weights 50 / 1 by v-row',
+      units: 0,
+      target: { kind: 'time', value: 2 },
+      run: SLOW,
+      fn: () => {
+        const sp = { kind: 'geometry', points: xRefR50, dim: 3 } as const;
+        count += surfaceFairnessMatrix(SR50.u, SR50.v, SR50.cw, true, fwScaled, sp, tol).rows;
+      },
+    },
+    {
       id: 'P13a',
       name: `prepareFairSolver, ${shape(sSep)}`,
       units: 0,
       target: { kind: 'time', value: 3 },
       fn: () => {
         count += prepare(pSep).rank;
+      },
+    },
+    {
+      id: 'P13r',
+      name: 'prepareFairSolver, the same, rational: weights in [0.7, 1.3]',
+      units: 0,
+      target: { kind: 'time', value: 3 },
+      run: SLOW,
+      fn: () => {
+        count += prepare(pSepR).rank;
+      },
+    },
+    {
+      id: 'P13r50',
+      name: 'prepareFairSolver, the same, rational: weights 50 / 1 by v-row',
+      units: 0,
+      target: { kind: 'time', value: 3 },
+      run: SLOW,
+      fn: () => {
+        count += prepare(pSepR50).rank;
       },
     },
     {
@@ -571,4 +648,5 @@ test('fair solver and fitting with fairness: P12–P16, P24', async ({ bench }) 
       `${((t1 - t0) / frames).toFixed(4)} ms/frame, heap ${((heap1 - heap0) / 1024).toFixed(0)} KiB net\n`,
   );
   if (count < 0) process.stdout.write('unreachable\n');
-});
+  // The rational cases (P12r, P13r) take seconds each: past the 60 s default.
+}, 300_000);
