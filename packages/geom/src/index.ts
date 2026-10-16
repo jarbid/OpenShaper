@@ -79,6 +79,22 @@ export {
 } from './curve-measure';
 export type { ArcLengthTable } from './curve-measure';
 
+// Curve operations (§6.5)
+export {
+  decomposeBezier,
+  elevateDegree,
+  insertKnot,
+  makeCompatible,
+  normalizeDomain,
+  refineKnots,
+  removeKnot,
+  reparameterize,
+  reverseCurve,
+  splitCurve,
+  subCurve,
+  toClamped,
+} from './curve-ops';
+
 // Surfaces (§6.6)
 export {
   boundaryCurve,
@@ -116,6 +132,19 @@ export {
 } from './surface-measure';
 export type { Curvatures, FundamentalForms, NormalResult } from './surface-measure';
 
+// Surface operations (§6.8)
+export {
+  elevateDegreeSurface,
+  insertKnotSurface,
+  normalizeSurfaceDomain,
+  refineKnotsSurface,
+  reparameterizeSurface,
+  reverseSurface,
+  splitSurface,
+  swapUV,
+  toClampedSurface,
+} from './surface-ops';
+
 // Sample plans: incremental evaluation (§6.9)
 export {
   changedControlPoints,
@@ -148,9 +177,28 @@ export {
   planeSurface,
   polyline,
   revolve,
+  ruled,
   sphere,
   torus,
 } from './primitives';
+
+// Fitting (§6.12)
+export { averagedKnots, lsqKnots, parameterize } from './fit/param';
+export type { Parameterization } from './fit/param';
+export { interpolateCurve, interpolatePeriodic, interpolateSurface } from './fit/interpolate';
+export type { CurveInterpolation, SurfaceInterpolation } from './fit/interpolate';
+export { approximateCurve, approximateSurface } from './fit/approximate';
+export type { CurveConstraint, CurveFit, SurfaceConstraint, SurfaceFit } from './fit/approximate';
+export { skinCurves } from './fit/skin';
+export type { SkinResult } from './fit/skin';
+
+// Constrained fair solver (§6.13)
+export { fairnessEnergy } from './solver/fairness';
+export type { FairnessWeights } from './solver/fairness';
+export { makeDofMap } from './solver/dof';
+export type { DofMap, DofRule } from './solver/dof';
+export { fairInfluenceInto, prepareFairSolver, solveFair, solveFairInto } from './solver/solver';
+export type { FairProblem, FairSolver, LinearConstraint, SolveReport } from './solver/solver';
 
 // Shared value types (§5)
 export type {

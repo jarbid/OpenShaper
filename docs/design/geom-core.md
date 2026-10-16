@@ -78,8 +78,9 @@ benchmarks.
 
 **Not in Phase 1:** board concepts (tail at x = 0 is board2's rule; geom has no frame
 convention); surface/surface and plane/surface intersection (Phase 2 adds
-`intersectSurfacePlane` for cross-sections as cuts); knot removal and degree
-reduction; offsets and booleans; rotation-minimising frames; T-splines and
+`intersectSurfacePlane` for cross-sections as cuts); degree reduction (knot
+removal with a certified tolerance, P&T A5.8, joined Phase 1 with step A1: it
+undoes insertion when cleaning up nets, and its bound is checked, not assumed); offsets and booleans; rotation-minimising frames; T-splines and
 hierarchical splines; non-manifold or multi-shell B-reps; collapsed edges and poles in
 STEP; trims on periodic surfaces; STEP reading in the product.
 
@@ -159,8 +160,8 @@ packages/geom/
       curve.ts            A3.1 / A4.1 point, A3.2 derivatives, A4.2 rational derivatives
       surface.ts          A3.5 / A4.3 point, A3.6 derivatives, A4.4 rational derivatives
       periodic.ts         periodic span windows; unroll to / extract from a clamped window
-      refine.ts           A5.1, A5.3, A5.4, A5.5, A5.6, A5.9 (+ row/column form), eq. 5.36
-      fit.ts              eqs. 9.4–9.6, 9.8, 9.68–9.69; A9.1, §9.2.2, A9.4, A9.6 structure
+      refine.ts           A5.1, A5.3, A5.4, A5.5, A5.6, A5.8, A5.9 (+ row/column form), eq. 5.36
+      fit.ts              eqs. 9.4–9.6, 9.8, 9.68 and 9.69 centred; A9.1, §9.2.2, A9.4, A9.6 structure
       primitives.ts       A7.1 circle, A7.3 open conic, A8.1 revolve
     basis.ts              Basis factories, validation, knot generators, multiplicities, spans
     curve.ts              curve factories, accessors, copy-on-write edits, evaluation
@@ -278,12 +279,15 @@ exact equality.
   wraps. Seam coedges use the lines `u = t_0` and `u = t_0 + T`.
 - Periodic geometry leaves geom only through exact conversion: `toClamped` (inserts
   the seam to multiplicity `p` and unrolls) for STEP and B-rep edges.
-- **Periodic operations** (insert, refine, elevate, reverse): unroll to a clamped
+- **Periodic operations** (insert, refine, elevate, sub-curves, `toClamped`): unroll to a clamped
   window covering `[t_0 − T, t_0 + 2T]` (exact, by insertion at the window ends), run
   the clamped book algorithm, and extract the middle period. With `n ≥ p + 1`, every
   basis function of the middle period has support inside the window away from the
   clamped ends, so the extracted net is the periodic result; a test checks that the
-  middle period equals its neighbours shifted by `T` within `point`.
+  middle period equals its neighbours shifted by `T` within `point`. **Reversal** maps
+  the one-period list directly (an exact index mirror that keeps the run of `t_0` at
+  the start): mirroring the window would compute `t_0` as
+  `(t_0 − T) + ((t_0 + 2T) − (t_0 + T))`, which rounding can move off `t_0`.
 
 ### 4.5 Rational representation
 
@@ -756,26 +760,74 @@ export function curveBounds(c: NurbsCurve): Box3; // control-hull bound
 
 ### 6.5 Curve operations [A1]
 
-Generic signatures keep the input's kind and dimension (`C extends NurbsCurve`).
+Generic signatures keep the input's kind and dimension (`C extends NurbsCurve`). Every
+operation takes `tol?` last: parameters are validated with `paramRel`, a parameter that
+becomes a knot snaps to an existing knot within `knotRel × domain` (§4.3), and the
+result's basis is validated with the caller's `knotRel`. A polynomial input keeps its
+weights exactly 1 (A5.8 and A5.9 can round them by an ulp). Per-direction kernels
+(`insertDir`, `refineDir`, … in `curve-ops.ts`, internal) act on a basis and a net of
+`h`-double points, so `surface-ops.ts` runs the same code on whole rows (§6.8).
 
 ```ts
-export function insertKnot<C extends NurbsCurve>(c: C, t: number, times?: number): C; // A5.1
-export function refineKnots<C extends NurbsCurve>(c: C, x: ArrayLike<number>): C; // A5.4
-export function elevateDegree<C extends NurbsCurve>(c: C, by: number): C; // A5.9
+export function insertKnot<C extends NurbsCurve>(
+  c: C,
+  t: number,
+  times?: number,
+  tol?: Partial<Tolerances>,
+): C; // A5.1
+export function refineKnots<C extends NurbsCurve>(
+  c: C,
+  x: ArrayLike<number>,
+  tol?: Partial<Tolerances>,
+): C; // A5.4
+export function elevateDegree<C extends NurbsCurve>(c: C, by: number, tol?: Partial<Tolerances>): C; // A5.9
+/**
+ * A5.8, clamped only. Removes `t` up to `times` times while the curve moves by at most
+ * `tol.point`: A5.8's homogeneous check (`point`, or P&T eq. 5.30's
+ * `point · w_min / (1 + |P|_max)` when rational) proposes, a rigorous bound certifies
+ * (Chebyshev nodes per span × the Lebesgue constant; rational: the eq. 5.30 quotient
+ * bound), and fewer removals are tried if it fails. `removed` may be 0.
+ */
+export function removeKnot<D extends Dim>(
+  c: ClampedCurve<D>,
+  t: number,
+  times?: number,
+  tol?: Partial<Tolerances>,
+): { readonly curve: ClampedCurve<D>; readonly removed: number; readonly maxDeviation: number };
 export function splitCurve<D extends Dim>(
   c: ClampedCurve<D>,
   t: number,
+  tol?: Partial<Tolerances>,
 ): readonly [ClampedCurve<D>, ClampedCurve<D>];
-/** Periodic: t1 < t0 means across the seam. */
-export function subCurve<D extends Dim>(c: NurbsCurve<D>, t0: number, t1: number): ClampedCurve<D>;
-export function reverseCurve<C extends NurbsCurve>(c: C): C;
-export function reparameterize<C extends NurbsCurve>(c: C, domain: Interval): C; // affine
-export function normalizeDomain<C extends NurbsCurve>(c: C): C; // [0, 1] or period 1
-export function toClamped<D extends Dim>(c: PeriodicCurve<D>, seam?: number): ClampedCurve<D>; // exact
+/** Periodic: t1 ≤ t0 means across the seam (domain [t0, t1 + T]); t1 = t0 is the whole loop. */
+export function subCurve<D extends Dim>(
+  c: NurbsCurve<D>,
+  t0: number,
+  t1: number,
+  tol?: Partial<Tolerances>,
+): ClampedCurve<D>;
+export function reverseCurve<C extends NurbsCurve>(c: C, tol?: Partial<Tolerances>): C;
+export function reparameterize<C extends NurbsCurve>(
+  c: C,
+  domain: Interval,
+  tol?: Partial<Tolerances>,
+): C; // affine
+export function normalizeDomain<C extends NurbsCurve>(c: C, tol?: Partial<Tolerances>): C; // [0, 1] or period 1
+export function toClamped<D extends Dim>(
+  c: PeriodicCurve<D>,
+  seam?: number,
+  tol?: Partial<Tolerances>,
+): ClampedCurve<D>; // exact
 export function decomposeBezier<D extends Dim>(c: ClampedCurve<D>): readonly ClampedCurve<D>[]; // A5.6
-/** All clamped or all periodic with equal domains; common degree and knots, shapes unchanged. */
+/**
+ * All clamped or all periodic with equal domains; common degree and knots, shapes
+ * unchanged. Near-coincident knots of different curves are unified without chaining
+ * (most-used values kept, others snap to the nearest kept value within knotRel × domain);
+ * maxDeviation is the certified bound of removeKnot for that move, 0 when none moved.
+ */
 export function makeCompatible<C extends NurbsCurve>(
   cs: readonly C[],
+  tol?: Partial<Tolerances>,
 ): { readonly curves: readonly C[]; readonly maxKnotShift: number; readonly maxDeviation: number };
 ```
 
@@ -934,33 +986,55 @@ export function normalCurvature(
 
 ### 6.8 Surface operations [A1]
 
+The curve kernels of §6.5 on rows: a u row of the u-major net is contiguous; the v
+direction transposes, runs the kernel and transposes back. The other direction's basis
+is kept by reference. Every function takes `tol?` last, as §6.5.
+
 ```ts
 export function insertKnotSurface(
   s: NurbsSurface,
   dir: ParamDir,
   t: number,
   times?: number,
+  tol?: Partial<Tolerances>,
 ): NurbsSurface; // A5.3
 export function refineKnotsSurface(
   s: NurbsSurface,
   dir: ParamDir,
   x: ArrayLike<number>,
+  tol?: Partial<Tolerances>,
 ): NurbsSurface; // A5.5
-export function elevateDegreeSurface(s: NurbsSurface, dir: ParamDir, by: number): NurbsSurface; // A5.9 row-wise
-export function splitSurface(
+export function elevateDegreeSurface(
   s: NurbsSurface,
   dir: ParamDir,
+  by: number,
+  tol?: Partial<Tolerances>,
+): NurbsSurface; // A5.9 row-wise
+export function splitSurface(
+  s: NurbsSurface,
+  dir: ParamDir, // clamped direction only
   t: number,
+  tol?: Partial<Tolerances>,
 ): readonly [NurbsSurface, NurbsSurface];
-export function reverseSurface(s: NurbsSurface, dir: ParamDir): NurbsSurface;
-export function swapUV(s: NurbsSurface): NurbsSurface;
+export function reverseSurface(
+  s: NurbsSurface,
+  dir: ParamDir,
+  tol?: Partial<Tolerances>,
+): NurbsSurface;
+export function swapUV(s: NurbsSurface): NurbsSurface; // the normal flips
 export function reparameterizeSurface(
   s: NurbsSurface,
   dir: ParamDir,
   domain: Interval,
+  tol?: Partial<Tolerances>,
 ): NurbsSurface;
-export function normalizeSurfaceDomain(s: NurbsSurface): NurbsSurface;
-export function toClampedSurface(s: NurbsSurface, dir: ParamDir, seam?: number): NurbsSurface;
+export function normalizeSurfaceDomain(s: NurbsSurface, tol?: Partial<Tolerances>): NurbsSurface;
+export function toClampedSurface(
+  s: NurbsSurface,
+  dir: ParamDir,
+  seam?: number,
+  tol?: Partial<Tolerances>,
+): NurbsSurface;
 ```
 
 ### 6.9 Sample plans: incremental evaluation [F2]
@@ -1149,10 +1223,15 @@ export function torus(center: Point3, axis: Point3, R: number, r: number): Nurbs
 // extrude(periodicCircle, h·axis): periodic u, v from base (0) to top (1); outward n.
 export function cylinder(base: Point3, axis: Point3, r: number, h: number): NurbsSurface;
 export function extrude(c: NurbsCurve<3>, dir: Point3): NurbsSurface;
-export function ruled(a: NurbsCurve<3>, b: NurbsCurve<3>): NurbsSurface; // via makeCompatible [A1]
+// via makeCompatible; throws knots-near-coincident if unifying knots moves a boundary > tol.point [A1]
+export function ruled(a: NurbsCurve<3>, b: NurbsCurve<3>, tol?: Partial<Tolerances>): NurbsSurface;
 ```
 
 ### 6.12 Fitting [A2; `fairness` options from A3]
+
+Every fitter returns what it achieved, measured on its result (§7): interpolants
+their `maxError` at the data, approximations `maxError` and `rmsError` over the data
+of positive weight. Fitted domains are `[0, 1]` (period 1, decision 10).
 
 ```ts
 export type Parameterization = 'uniform' | 'chord' | 'centripetal' | { readonly exponent: number };
@@ -1161,10 +1240,15 @@ export function parameterize(
   dim: Dim,
   method: Parameterization,
   closed?: boolean,
-): Float64Array; // eqs. 9.4–9.6
+): Float64Array; // eqs. 9.3–9.6 (exponent 0, 1, ½ reproduce the named methods bit for bit)
 export function averagedKnots(params: ArrayLike<number>, degree: number): Float64Array; // eq. 9.8
-export function lsqKnots(params: ArrayLike<number>, degree: number, count: number): Float64Array; // eqs. 9.68–9.69
+export function lsqKnots(params: ArrayLike<number>, degree: number, count: number): Float64Array; // eqs. 9.68–9.69, centred (below)
 
+export interface CurveInterpolation<C extends NurbsCurve = NurbsCurve> {
+  readonly curve: C;
+  readonly params: ReadonlyF64; // curve parameter of each data point
+  readonly maxError: number;
+}
 export function interpolateCurve<D extends Dim>(
   points: ArrayLike<number>,
   dim: D,
@@ -1172,16 +1256,24 @@ export function interpolateCurve<D extends Dim>(
     readonly degree?: number; // default 3
     readonly params?: ArrayLike<number> | Parameterization; // default 'centripetal'
     readonly endDerivatives?: readonly [PointOf<D> | null, PointOf<D> | null];
+    readonly tol?: Partial<Tolerances>;
   },
-): ClampedCurve<D>; // A9.1, §9.2.2
+): CurveInterpolation<ClampedCurve<D>>; // A9.1, §9.2.2 (eq. 9.22 knots)
 export function interpolatePeriodic<D extends Dim>(
   points: ArrayLike<number>,
   dim: D,
   opts?: {
     readonly degree?: number;
     readonly params?: ArrayLike<number> | Parameterization;
+    readonly tol?: Partial<Tolerances>;
   },
-): PeriodicCurve<D>; // cyclic system
+): CurveInterpolation<PeriodicCurve<D>>; // cyclic system; knots by periodic averaging, shifted with the params
+export interface SurfaceInterpolation {
+  readonly surface: NurbsSurface;
+  readonly paramsU: ReadonlyF64;
+  readonly paramsV: ReadonlyF64;
+  readonly maxError: number;
+}
 export function interpolateSurface(
   grid: ArrayLike<number>,
   rows: number,
@@ -1193,8 +1285,9 @@ export function interpolateSurface(
     readonly paramV?: Parameterization;
     readonly periodicU?: boolean;
     readonly periodicV?: boolean;
+    readonly tol?: Partial<Tolerances>;
   },
-): NurbsSurface; // A9.4
+): SurfaceInterpolation; // A9.4 with A9.3's parameters
 
 export type CurveConstraint<D extends Dim = Dim> =
   | { readonly kind: 'point'; readonly t: number; readonly value: PointOf<D> }
@@ -1204,7 +1297,7 @@ export type CurveConstraint<D extends Dim = Dim> =
       readonly order: 1 | 2;
       readonly value: PointOf<D>;
     }
-  | { readonly kind: 'tangentDirection'; readonly t: number; readonly direction: PointOf<D> }; // C′ ∥ d, linear
+  | { readonly kind: 'tangentDirection'; readonly t: number; readonly direction: PointOf<D> }; // n·C′ = 0 for n ⟂ d (either sense)
 export type SurfaceConstraint =
   | { readonly kind: 'point'; readonly uv: UV; readonly value: Point3; readonly axes?: number } // bitmask x=1,y=2,z=4
   | {
@@ -1217,7 +1310,7 @@ export type SurfaceConstraint =
     };
 export interface CurveFit<D extends Dim = Dim> {
   readonly curve: NurbsCurve<D>;
-  readonly params: ReadonlyF64;
+  readonly params: ReadonlyF64; // after parameter correction
   readonly maxError: number;
   readonly rmsError: number;
   readonly withinTolerance: boolean;
@@ -1226,26 +1319,28 @@ export interface CurveFit<D extends Dim = Dim> {
 export function approximateCurve<D extends Dim>(
   points: ArrayLike<number>,
   dim: D,
-  opts: {
+  opts?: {
     readonly degree?: number;
     readonly periodic?: boolean;
     readonly knots?: ArrayLike<number>; // fixed knots, or …
-    readonly count?: number; // … a fixed count (eqs. 9.68–9.69), or …
+    readonly count?: number; // … a fixed count (eqs. 9.68–9.69 centred; periodic: cyclic analogue, params shifted with the knots), or …
     readonly tolerance?: number;
     readonly maxCount?: number; // … adaptive insertion until maxError ≤ tolerance (default tol.fit; maxCount default: data count)
     readonly params?: ArrayLike<number> | Parameterization;
     readonly dataWeights?: ArrayLike<number>;
     readonly constraints?: readonly CurveConstraint<D>[];
-    readonly fairness?: FairnessWeights; // [A3]
     readonly parameterCorrection?: number; // passes; default 0
     readonly tol?: Partial<Tolerances>;
+    readonly fairness?: FairnessWeights; // on the shape (A3); 'displacement' throws
   },
-): Result<CurveFit<D>>; // A9.6, generalised
+): Result<CurveFit<D>>; // §9.4.1 + A9.6, generalised
 export interface SurfaceFit {
   readonly surface: NurbsSurface;
+  readonly params: ReadonlyF64; // (u, v) per point, after parameter correction
   readonly maxError: number;
   readonly rmsError: number;
-  readonly withinTolerance: boolean;
+  readonly withinTolerance: boolean; // against tol.fit
+  readonly multipliers: ReadonlyF64;
 }
 export function approximateSurface(
   points: ArrayLike<number>,
@@ -1253,23 +1348,103 @@ export function approximateSurface(
   opts: {
     readonly u: Basis;
     readonly v: Basis; // fixed bases (lsqKnots or caller's)
+    readonly params?: Parameterization; // grid layout: A9.3 by this method (default 'centripetal')
     readonly dataWeights?: ArrayLike<number>;
     readonly constraints?: readonly SurfaceConstraint[];
-    readonly fairness?: FairnessWeights; // [A3]
     readonly parameterCorrection?: number;
     readonly tol?: Partial<Tolerances>;
+    readonly fairness?: FairnessWeights; // on the shape (A3); 'displacement' throws
   },
-): Result<SurfaceFit>;
+): Result<SurfaceFit>; // A9.7 generalised: one tensor LSQ over all data
 /** Sections made compatible, then interpolated across (clamped or periodic). */
+export interface SkinResult {
+  readonly surface: NurbsSurface;
+  readonly params: ReadonlyF64; // v of each section
+  readonly maxError: number; // control-point gap to each section's iso-curve + makeCompatible's maxDeviation
+}
 export function skinCurves(
   sections: readonly NurbsCurve<3>[],
   opts?: {
-    readonly degree?: number;
+    readonly degree?: number; // default min(3, sections − 1)
     readonly params?: ArrayLike<number> | Parameterization;
     readonly periodic?: boolean;
+    readonly tol?: Partial<Tolerances>;
   },
-): NurbsSurface;
+): SkinResult;
 ```
+
+Notes (A2, as built):
+
+- **Solves.** Interpolation factors the square collocation system once per
+  direction with a pivoted band LU (`linalg/banded.ts`; rows equilibrated, band
+  measured from the entries, so a periodic wrap simply widens it). Least squares
+  assembles `H = AᵀWA` as a symmetric band (one factor for every coordinate) and
+  holds constraints in range space through the Schur complement with one step of
+  iterative refinement (§10.4 steps 2–4, `fit/lsq.ts`); A9.6's dense inverse is not
+  used. The data are centred first (§7). `H` is accepted only when its estimated
+  reciprocal condition (Hager–Higham 1-norm estimate of the diagonally scaled
+  matrix, `bandCholRcond`) exceeds `pivotRel`: Cholesky pivots alone pass
+  matrices of condition 1e17, whose control points have no correct digit.
+- **Least-squares knots** for a fixed `count` are eqs. 9.68–9.69 centred: with
+  `h = m/n`, `u_{p+j} = ū(h·(j + (p − 1)/2))` (parameters joined linearly in
+  index, as the book does), not the book's `ū(j·d − 1)`. The book's rule lags
+  towards the start; as `count` nears the number of points its first interior
+  knot closes on `ū_0` and the basis turns singular (40 centripetal points,
+  cubic: collocation condition 1e7 at count 37, 1e18 at 40). The centred rule is
+  mirror-symmetric, keeps every span holding a parameter (spans of at least one
+  index), matches the book's conditioning below `count ≈ m/2` and stays below
+  ~10 on that example up to one control point per point, where it gives the
+  interpolation knots.
+  The periodic analogue `τ_j = ū(h·(j + (p − 1)/2))` is shifted by `τ_0` with the
+  parameters (as `interpolatePeriodic`); the `(p − 1)/2` offset is what keeps an
+  even degree's knots off the data sites when `count` equals the number of points.
+- **End points.** §9.4.1 fixes `P_0 = Q_0` and `P_n = Q_m` and fits only the
+  interior control points. `approximateCurve` fits every control point, so a
+  clamped result need not pass through the first and last data points (it is the
+  closer fit: a noisy sine, 50 points, 8 control points, ends off by 3e-3 to
+  1.4e-2 in probes with ±0.005 noise).
+  The book's curve is the fit with `point` constraints `C(0) = Q_0`, `C(1) = Q_m`
+  (tested against eqs. 9.63–9.67 solved directly); callers that need the ends,
+  such as an edge meeting a vertex, add them.
+- **Weight 0** removes a point entirely: parameters by a method, least-squares
+  knots, adaptive splits and the centring box use only the points of positive
+  weight, so the result is the fit of the other points (the same numbers). A
+  0-weight point's reported parameter is interpolated in index between its
+  neighbours'. On a grid layout, `approximateSurface`'s A9.3 parameters use every
+  grid point (whole lines are needed); pass `uv` to choose them.
+- **Constraint residuals** are judged per row as `|C_r x − d_r| / max(1, ‖C_r‖₂)`
+  against `constraint`. Rounding leaves `≈ ε‖C_r‖‖x‖`, and a derivative row of
+  order `k` has norm `≈ (p/h)^k`: at board scale (300 cm, 300 control points) a
+  C″ row has norm ~5e5 and rounding alone left raw residuals of 4e-9, which the
+  absolute test called a contradiction. Point rows (norm ≤ 1, partition of unity)
+  are judged on the raw residual, as before. The §7 scaling by the box extent is
+  not applied: `H` does not depend on coordinates, so it would scale `x` and every
+  residual alike and change nothing else; the per-row measure is what makes the
+  test scale-free. Issues report the raw residual.
+- **Parameter exponents** other than 0, ½ and 1 divide each chord by the longest
+  before raising it to the power (same ratios), so a large exponent neither
+  overflows to `NaN` nor underflows short distinct chords into "coincident".
+- **Data-dependent failures** are `Result` errors: a control point the data do not
+  determine (`schoenberg-whitney`, with its index, or with the condition estimate
+  when the normal equations are only numerically singular), computed knots that crowd
+  closer than `knotRel`, dependent constraints that disagree
+  (`inconsistent-constraints`). Dependent but consistent rows
+  (`dependent-constraints`) and residuals above `constraint`
+  (`constraint-residual`) are warnings. Interpolation throws for coincident
+  consecutive data (`schoenberg-whitney`): no valid knots exist.
+- **Adaptive knots** start from `degree + 1` control points and add, per pass, one
+  knot in each span whose data error exceeds the tolerance (worst first), midway
+  between the span's two middle distinct parameters, so both halves keep data.
+  They stop when the tolerance holds, at `maxCount`, when no span can be split, or
+  when the data stop determining the control points (the last good fit is kept
+  and `withinTolerance` says so).
+- **Parameter correction** moves each parameter to its foot point on the current
+  result by Newton's iteration (P&T §6.1, eqs. 6.3 and 6.5–6.7; `newtonMaxIter`,
+  `paramRel`), keeps a move only if it brings the point closer, and refits on the
+  same basis, so the weighted sum of squares never grows.
+- **Rational sections** in `skinCurves` interpolate homogeneous points (P&T §10.3);
+  very different weights can overshoot to a weight ≤ 0, which throws
+  `weight-not-positive` from the surface factory.
 
 ### 6.13 Constrained fair solver [A3] — formulation in §10
 
@@ -1305,12 +1480,14 @@ export type DofRule =
     };
 export interface DofMap {
   readonly cpCount: number;
+  readonly dim: number; // coordinates per control point (3 for surfaces)
   readonly dofCount: number;
   readonly separable: boolean;
   readonly rowPtr: ReadonlyI32;
   readonly col: ReadonlyI32;
   readonly val: ReadonlyF64; // T, CSR, 3·cpCount rows
   readonly fixed: ReadonlyF64; // x_fixed
+  readonly rules: readonly DofRule[]; // validated, frozen copies
 }
 export function makeDofMap(target: NurbsCurve | NurbsSurface, rules: readonly DofRule[]): DofMap; // throws conflicting-dof-rules
 export type LinearConstraint =
@@ -1350,6 +1527,7 @@ export interface SolveReport {
   readonly dependent: ReadonlyI32; // consistent, redundant rows (dropped)
   readonly inconsistent: ReadonlyI32; // rows that could not be met (dropped; residual reported)
   readonly multipliers: ReadonlyF64; // constraint forces, one per row
+  readonly residuals: ReadonlyF64; // |C_r x − d_r| per row
 }
 export function prepareFairSolver(p: FairProblem, tol?: Partial<Tolerances>): Result<FairSolver>; // once per drag
 /** values: per constraint, stride 3 (raw constraints use the first). Allocates only the report. */
@@ -1375,6 +1553,62 @@ export function fairnessEnergy(
   reference?: NurbsCurve | NurbsSurface,
 ): number;
 ```
+
+Notes (A3, as built):
+
+- **Unknowns are displacements.** The solver assembles everything for
+  `δ = x − x_ref = T z + (x_fixed − x_ref)`, so a zero move gives `z = 0` and returns
+  the target bit for bit, and right-hand sides are small numbers with no cancellation
+  against board coordinates. This replaces the centring and scaling of §7 for the
+  solver (the fitters still centre their data).
+- **Singular `K`.** When stiffness and data leave `K` singular (fairness alone has the
+  affine motions as its null space) the factor is of `K + ρ C′ᵀC′`, which has the same
+  KKT solution on the constraint set and is positive definite exactly when the
+  constrained problem has a unique solution; `ρ` balances the largest diagonals. This
+  is not regularisation (decision 24): the solution is unchanged, and the multipliers
+  are corrected by the term it adds. A system the constraints do not determine either
+  is still `not-positive-definite`; a numerically singular one (estimated reciprocal
+  condition of the diagonally scaled `K` below `pivotRel`) is `singular-system`.
+- **Refinement** is one step on the constraint residual (`Δλ = S⁻¹(C′z − e′)`,
+  `z −= Y Δλ`), which is what keeps `‖Cx − d‖∞ ≤ constraint` at board scale; the
+  stationarity residual is reported, not refined.
+- **Exact rules** (`copy`, coordinate-plane `mirror`) are re-applied from their
+  masters' final coordinates after the scatter, so they hold with `===` on the
+  Euclidean solution for any plane offset; `fix` and `fixAxes` coordinates are never
+  written. On a rational net the stored point is `w·v` and reads back as `(w·v)/w`,
+  so read-back exactness needs equal weights for a copied coordinate and unit
+  weights for a reflected one (§10.3).
+- **Separable problems** are not split into three factorisations: their `K` is
+  block-diagonal by axis, and RCM numbers the blocks one after the other, so the one
+  envelope factor costs what three per-axis factors cost. Sharing one numeric factor
+  between axes whose locks agree (§10.4 step 5) is not implemented; it would save at
+  most 3× on the factor and the Schur columns (see the A3 measurements, §17).
+- **Fairness matrices.** Polynomial surfaces assemble `F` from one-dimensional span
+  Gram matrices by Kronecker products, accumulated directly into the tensor-product
+  sparsity pattern. A rational span (pair) with equal weights has the polynomial basis
+  there and takes the same exact rule; any other is integrated point-wise by adaptive
+  bisection: a box's `p + 5`-point-per-direction Gauss–Legendre value is compared
+  with the sum over its halves along each direction, accepted when every entry is
+  within `quadRel` × the box's area share of its block's scale (largest diagonal),
+  else split along the worse direction, with a `degenerateRel` rounding floor per
+  block, and capped at `quadMaxSplits` boxes per span (pair). This replaces raising
+  one rule's order (the adaptive form of §10.2's `p + 3` / `p + 4` test), which
+  stopped silently at `GL_MAX_ORDER` and was 0.4 % off at a weight ratio of 100 and
+  82 % at 1,000; a span that reaches the cap now sets `FairnessMatrix.converged`
+  false, and `prepareFairSolver` warns `not-converged`. The scaled metric's speed of
+  a span (pair) is the root-mean-square `|S_u|`, `|S_v|` over it, integrated exactly
+  with the same Gram matrices; a span whose speed is at the rounding level
+  (`degenerateRel` test) takes the RMS speed of the others.
+- **Fits with fairness** have no reference shape, so the scaled metric uses one
+  constant speed per direction: the data's bounding-box diagonal over the domain
+  length. It is the parametric energy times fixed factors, which makes the weight
+  independent of the domain length and comparable across data scales. A fit's
+  fairness is `on: 'shape'`; `'displacement'` throws (`unsupported`).
+- **`fairnessEnergy`** has no factor ½ (the solver's objective carries it) and, with a
+  `reference`, measures the displacement with the reference's speeds; `w.on` is not
+  read. Limit: on rational geometry whose quadrature reaches `quadMaxSplits` in a
+  span (weight ratios far beyond `weightRatioMax`) it returns the best estimate
+  without a flag; `prepareFairSolver` reports that case.
 
 ### 6.14 Projection [B1]
 
@@ -1785,7 +2019,7 @@ make a test pass (golden-data rule 2).
 | `cosine`         | 1e-12           | Zero-cosine stop in point inversion (P&T §6.1, ε₂).                                                                                                                                                                                                                                                                                                                          | Orthogonality to rounding at unit vectors.                                                                                          |
 | `degenerateRel`  | 1e-12           | `\|Su × Sv\| ≤ degenerateRel · \|Su\| · \|Sv\|` ⇒ degenerate normal. Curves: `\|C′\| ≤ degenerateRel · M / L` ⇒ degenerate tangent (`M` largest Euclidean coordinate of the point's span's control points, `L` domain length). Surfaces apply the same floor to each partial and to `√(H² − K)` (÷ `L_u L_v \|Su\| \|Sv\|`: umbilic), `M` from the point's span pair (§4.7). | Su × Sv\                                                                                                                            | < degenerateRel · \  | Su\  | · \  | Sv\  | `⇒ degenerate normal. Curves:`\  | C′\  | ≤ degenerateRel · M / L` ⇒ degenerate tangent (`M`largest control coordinate,`L` domain length). | Scale-free; catches poles, collapsed tips and cusps from coincident control points. |
 | `umbilicRel`     | 1e-10           | `H² − K ≤ umbilicRel · H²` ⇒ umbilic: principal directions are `null` (also below the `degenerateRel` floor).                                                                                                                                                                                                                                                                | Directions are noise below this.                                                                                                    |
-| `pivotRel`       | 1e-12           | Rank decisions in pivoted Cholesky / LDLᵀ / QR, relative to the largest pivot after scaling.                                                                                                                                                                                                                                                                                 | Dependent constraint rows have pivots at rounding level; genuine ones are O(1) after scaling.                                       |
+| `pivotRel`       | 1e-12           | Rank decisions in pivoted Cholesky / LDLᵀ / QR, relative to the largest pivot after scaling; also the least estimated reciprocal condition (1-norm, diagonally scaled) accepted for least-squares normal equations.                                                                                                                                                          | Dependent constraint rows have pivots at rounding level; genuine ones are O(1) after scaling.                                       |
 | `quadRel`        | 1e-10           | Adaptive quadrature relative target.                                                                                                                                                                                                                                                                                                                                         | 3e-6 cm³ on a 30 L board; cheap because polynomial cases are exact.                                                                 |
 | `weightRatioMax` | 1e6             | Max/min weight ratio above which a warning is issued.                                                                                                                                                                                                                                                                                                                        | Rational evaluation loses about six digits beyond it.                                                                               |
 | `newtonMaxIter`  | 32              | Cap for projection, inverse arc length and other Newton loops.                                                                                                                                                                                                                                                                                                               | Quadratic convergence needs < 8 from the sampled seed; the cap only bounds pathological cases (`converged: false`).                 |
@@ -2002,6 +2236,11 @@ R_vv R_vvᵀ)` (thin plate); for curves `∫ R′R′ᵀ`, `∫ R″R″ᵀ`, `�
 
 Bit-exactness: `fix`, `fixAxes`, `copy` and `mirror` across a coordinate plane hold
 with `===`; `slide`, `offsetFrom` and general mirrors hold to rounding of `T z`.
+On rational geometry the `===` of `copy` and `mirror` is on the solver's Euclidean
+values; the stored net is homogeneous and a point reads back as `(w·v)/w`, which is
+bitwise for a copied coordinate when the two weights are equal and for a reflected
+coordinate when both are 1 (always on polynomial geometry), and otherwise within the
+rounding of `w·v` and `/w` (≤ ε relative). `fix` and `fixAxes` keep the target's stored values.
 Conflicting rules (one control point coordinate claimed twice) throw
 `conflicting-dof-rules`.
 
@@ -2416,7 +2655,7 @@ their wrappers bit for bit.
 | `book/curve`, `curve` | Bézier vs closed-form Bernstein sum and its exact derivatives; rational circle (A7.1, 9-point and periodic 8-point): `\|C(t) − c\| = r`; ellipse as affine image; affine invariance                                                                                                                                                                                                                                                                                                                                                                                           | Radius `64 ε r`: ~10 flops and one division per coordinate; a wrong weight errs ≥ 1e-3 r. Bernstein `64 ε · scale · p!` for derivatives.                                                                                                                |
 | `curve` (derivatives) | Central differences with Richardson extrapolation inside spans; one-sided derivatives at C⁰ knots equal the split halves' end derivatives; multi-span rational: A7.1 arcs of 1–4 segments against the half-angle closed form to C‴, both sides of every knot                                                                                                                                                                                                                                                                                                                  | 1e-8 rel for C′, C″ and C‴ (truncation ~h⁴ ≈ 1e-12, cancellation ~ε/h² ≈ 2e-10 at h = 2⁻¹⁰ of the span), relative to the local `max(\|C⁽ᵏ⁾(t)\|, \|C⁽ᵏ⁻¹⁾(t)\|/span)`; one-sided: `1e-13 · scale`; closed form: `64 ε · M · ρ^(k+1) · p!/(p−k)! / h^k`. |
 | `curve-measure`       | Circle curvature `1/r`, length `2πr`; parabola curvature `2/(1+4x²)^{3/2}`, length `x√(1+4x²)/2 + asinh(2x)/4`; ellipse curvature; `paramAtLength(lengthAtParam(t)) = t`                                                                                                                                                                                                                                                                                                                                                                                                      | Curvature `1e-12` rel (two derivative evaluations, one division); length `10 · quadRel` rel (GK estimate is not a bound: 10× margin); inverse `paramRel`.                                                                                               |
-| `curve-ops`           | Shape invariance under insert, refine, elevate, split, reverse∘reverse, reparameterise, `toClamped`, Bézier decomposition, at 1,000 params and every knot; counts `m = n + p + 1`; P&T Ex. 5.1 (insertion) fixtures; eq. 5.36 Bézier elevation closed form; `makeCompatible` keeps shapes; periodic middle-period consistency                                                                                                                                                                                                                                                 | `1e-13 · scale`: each op is convex combinations (~ε per step) chained ≤ 100 times; book fixtures bitwise where exact in binary.                                                                                                                         |
+| `curve-ops`           | Shape invariance under insert, refine, elevate, split, reverse∘reverse, reparameterise, `toClamped`, Bézier decomposition, at 1,000 params and every knot; counts `m = n + p + 1`; P&T Ex. 5.1 (insertion) fixtures; eq. 5.36 Bézier elevation closed form; `makeCompatible` keeps shapes; periodic middle-period consistency; removal of an inserted knot recovers the curve; a lossy removal's bound ≥ dense-sampled deviation                                                                                                                                              | `1e-13 · scale`: each op is convex combinations (~ε per step) chained ≤ 100 times; book fixtures bitwise where exact in binary.                                                                                                                         |
 | `surface`             | Rational sphere (A8.1): radius `r`; torus: points on the torus; cylinder; plane; `z = xy` bilinear; cone from a revolved line; Bézier patches vs the closed-form Bernstein double sum with the quotient rule written out (to second order); linear precision (Greville nets reproduce `(u, v, uv)` on random knots); vs A2.4 summed over the net; partials vs Richardson differences; one-sided partials at a C⁰ knot line vs the Bézier halves; invariance under A5.1 per row/column; iso-curve equals the surface at the fixed parameter; boundary curve equals the net row | `64 ε r` for radii; Bézier `64 ε · M · ρ^(k+l+1) · (2p)^k (2q)^l`; iso (`u` fixed) bitwise, (`v` fixed) and boundary `1e-14 · scale` (same arithmetic re-associated); FD `1e-8` of the local scale; insertion `1e-13 · scale`.                          |
 | `surface-measure`     | Sphere `k₁ = k₂ = −1/r`, `K = 1/r²`; torus `k = −1/r` and `−cos v/(R + r cos v)`, `K = cos v/(r(R + r cos v))`, directions along meridian and parallel; cylinder `(0, −1/r)`, zero direction along the axis; plane 0; `z = xy`: every form coefficient, `K = −1/(1+x²+y²)²`; paraboloid, saddle and elliptic paraboloid (graph formulas); Weingarten `L = −Su·n_u` … vs differences of the normal; Euler's theorem; `limitNormal` at sphere poles = ±axis                                                                                                                     | `1e-12` rel: second derivatives of rational patches lose ~3 digits to the quotient rule. Normals `1e-13`; directions `1e-10` (eigenvector error ~ rounding/gap); FD `1e-8` of the local scale, step resolving `κ·                                       | Su  | `.  |
 | `plan`                | `evalSurfacePlan` = `surfaceEvalInto` bitwise; dirty update after random edits = full re-evaluation bitwise; touched set = brute-force support; `planMatches` false after insertion                                                                                                                                                                                                                                                                                                                                                                                           | Exact: same arithmetic in the same order.                                                                                                                                                                                                               |
@@ -2480,6 +2719,49 @@ missed, under `vitest bench`: P1 0.31 M/s, P2 0.31 M/s, P3 9.1 ms, P4 0.27 M/s, 
 run as a plain Node script: P3 5.1–6.9 ms, P7 4.4 ms, P6 4.7–5.3 ms. P1/P2/P4/P5 call
 allocating wrappers, which create a scratch per call: on this machine that allocation
 dominates. Re-measure on the reference desktop before acting on tier-2 options (§9).
+
+**A1 (`src/eval.bench.ts`, same container).** P10 met: refining a rational bicubic
+40 × 20 with 40 u-knots 0.105 ms (target 2 ms); elevating a rational cubic with 100
+control points to degree 5 0.046 ms (target 1 ms).
+
+**A2 (`src/eval.bench.ts`, same container).** P11 met: `interpolateCurve`, 200
+points, cubic, centripetal 0.36 ms (target 2 ms); `interpolateSurface`, 60 × 30 grid,
+bicubic 1.46 ms (target 20 ms).
+
+**A3 (`src/eval.bench.ts`, same container, under `vitest bench`).** A 64 × 8
+bicubic band (512 control points), fairness `bend 1, stretch 0.01`, stiffness 0.01.
+P12 thin-plate + membrane Gram, scaled metric 2.49 ms (target 2 ms; 12.5 ms before
+the Kronecker terms were formed on the fly and accumulated straight into the tensor
+pattern). P13 `prepareFairSolver`: separable, 1,536 DOF, m = 20 13.3 ms (target 3);
+coupled (every 8th point slides in a turned frame), 1,536 DOF, m = 20 34.2 ms
+(target 15); coupled, 1,500 DOF, m = 150 86.1 ms (target 100, met). P14
+`solveFairInto` per move: m = 20 0.30 ms (target 0.1; about half is the report's
+stationarity residual, one product with `Hs` and one with `Tᵀ`); m = 150 0.98 ms
+(target 2, met). P15 `approximateCurve`, 2k points → 80 control points, three
+constraints and fairness 4.45 ms (target 3). P16 `approximateSurface`, 8k points →
+64 × 8 with fairness and two correction passes 379 ms (target 30): as a plain Node
+script 126 ms, of which the fit without correction is 21 ms and the two
+parameter-correction passes (A2's Newton foot points, 16k per pass) the rest; the
+fairness term adds about 13 ms. P24: 10,000 simulated drag frames on the coupled
+m = 20 solver, 0.29 ms per frame; the only allocation is the frame's report (two
+`Float64Array(m)`, two short `Int32Array`). Missed targets are reported (§17); the
+first candidates are a shared per-axis factor on the separable path (§6.13 notes)
+and a cheaper P16 correction pass.
+
+Rational targets (A3 review; the same band and fairness, P12r / P13r, a few samples
+each): the Gram assembly with weights in [0.7, 1.3] takes 1.01 s, and with weights
+alternating 50 / 1 by v-row 2.19 s; `prepareFairSolver` measures the same (1.01 s,
+2.12 s: the rest of it is within the noise). P12 / P13's 2 ms / 3 ms are missed by
+about 500×: the adaptive quadrature (§6.13 notes) costs about 4 ms per span pair; by
+operation count most of it is the `K²` Gram products at each of the 256 points a
+box's two-direction error test evaluates. Against the order-raising rule it replaced
+(measured on a 16 × 8 net) it is as fast on weights in [0.7, 1.3] and [0.95, 1.05],
+1.9× slower on weights 1 / 1 + 10⁻⁷ (78 against 41 ms), and 20× faster at 50 / 1
+(0.41 against 8.0 s); against a `quadRel = 10⁻¹²` run (6 × 8 nets) it agrees to
+7e-13 relative or better. Polynomial targets are unaffected. The first candidates
+are an error test on a cheaper proxy (the block diagonals) with the full products
+only at accepted boxes, and reusing a box's values across the solver's
+pointer-downs, since the weights do not change during an edit.
 
 ---
 

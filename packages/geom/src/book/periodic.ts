@@ -17,6 +17,7 @@
  * `n ≥ p + 1` keeps every window index within one period of the stored list.
  */
 import type { ReadonlyF64 } from '../types';
+import { clampKnots } from './refine';
 
 /**
  * Wraps `t` into `[t0, t0 + T)`: `t0 + ((t − t0) mod T)`. A parameter already in
@@ -102,4 +103,79 @@ export function gatherPoints(
     const dst = po + j * h;
     for (let c = 0; c < h; c++) P[dst + c] = cw[src + c]!;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Unroll to a clamped window and extract one period (design §4.4, decision 8)
+// ---------------------------------------------------------------------------
+
+/**
+ * Knot `t_j` of the bi-infinite sequence `t_{i + k·n} = t_i + k·T`, for
+ * `−3n < j < 3n`. The copies one period up are `t_i + T`, exactly the
+ * expression an operation uses for the copy of a new knot `x` (`x + T`), so a
+ * knot and its copies stay bitwise consistent.
+ */
+export function periodicKnot(U: ReadonlyF64, n: number, T: number, j: number): number {
+  if (j < -n) return U[j + 2 * n]! - 2 * T;
+  if (j < 0) return U[j + n]! - T;
+  if (j < n) return U[j]!;
+  if (j < 2 * n) return U[j - n]! + T;
+  return U[j - 2 * n]! + 2 * T;
+}
+
+/**
+ * Unrolls a periodic curve (degree `p`, one period of knots `U`, period `T`,
+ * `n ≥ p + 1` points of stride `h`) to the identical clamped curve on the
+ * window `[t_0 − T, t_0 + 2T]` (three periods), exactly: the bi-infinite knots
+ * `t_{−n−p} … t_{2n+p}` with points `(j mod n)` form an unclamped curve on
+ * that window, which {@link clampKnots} clamps by insertion at both ends.
+ * Points away from the window ends are copies of the periodic points.
+ */
+export function unrollPeriodic(
+  p: number,
+  U: ReadonlyF64,
+  T: number,
+  n: number,
+  Pw: ReadonlyF64,
+  h: number,
+): { readonly U: Float64Array; readonly Pw: Float64Array } {
+  const lo = -n - p;
+  const hi = 2 * n + p;
+  const V = new Float64Array(hi - lo + 1);
+  for (let j = lo; j <= hi; j++) V[j - lo] = periodicKnot(U, n, T, j);
+  const count = hi - lo - p; // functions lo … 2n − 1
+  const Q = new Float64Array(count * h);
+  for (let k = 0; k < count; k++) {
+    let idx = (k + lo) % n;
+    if (idx < 0) idx += n;
+    for (let c = 0; c < h; c++) Q[k * h + c] = Pw[idx * h + c]!;
+  }
+  return clampKnots(p, V, Q, h);
+}
+
+/**
+ * Reads the middle period back from a clamped window curve `(V, Q)` that a
+ * clamped algorithm produced from {@link unrollPeriodic}'s output with every
+ * change made to all copies of a period: the knots in `[t0, t0 + T)` and the
+ * points of the basis functions that start there (window function `f + i` is
+ * periodic function `i`). `V` must contain `t0` exactly (operations keep the
+ * domain start). With `n ≥ p + 1`, those functions' knots lie inside the
+ * window away from its clamped ends, so their points are the periodic result.
+ */
+export function extractPeriod(
+  V: ReadonlyF64,
+  Q: ReadonlyF64,
+  h: number,
+  t0: number,
+  T: number,
+): { readonly U: Float64Array; readonly Pw: Float64Array } {
+  let f = 0;
+  while (V[f]! < t0) f++;
+  const end = t0 + T;
+  let g = f;
+  while (g < V.length && V[g]! < end) g++;
+  return {
+    U: (V as Float64Array).slice(f, g),
+    Pw: (Q as Float64Array).slice(f * h, g * h),
+  };
 }

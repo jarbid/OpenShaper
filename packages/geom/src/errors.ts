@@ -81,12 +81,12 @@ export function fail(
   throw new GeomError(code, message, details);
 }
 
-/** A successful result, possibly carrying warnings. */
+/** A successful result, possibly carrying warnings. Frozen, with its issue list. */
 export function okResult<T>(value: T, issues: readonly GeomIssue[] = []): Result<T> {
-  return { ok: true, value, issues };
+  return Object.freeze({ ok: true, value, issues: Object.freeze([...issues]) });
 }
 
-/** A failed result; `issues` holds at least one error. */
+/** A failed result; `issues` holds at least one error. Frozen, with its issue list. */
 export function errResult<T>(issues: readonly GeomIssue[]): Result<T> {
-  return { ok: false, issues };
+  return Object.freeze({ ok: false, issues: Object.freeze([...issues]) });
 }

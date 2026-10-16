@@ -120,8 +120,45 @@ import {
   withSurfaceControlNet,
   withSurfaceControlPoints,
   withSurfaceWeights,
+  decomposeBezier,
+  elevateDegree,
+  elevateDegreeSurface,
+  insertKnot,
+  insertKnotSurface,
+  makeCompatible,
+  normalizeDomain,
+  normalizeSurfaceDomain,
+  refineKnots,
+  refineKnotsSurface,
+  removeKnot,
+  reparameterize,
+  reparameterizeSurface,
+  reverseCurve,
+  reverseSurface,
+  ruled,
+  splitCurve,
+  splitSurface,
+  subCurve,
+  swapUV,
+  toClamped,
+  toClampedSurface,
+  approximateCurve,
+  approximateSurface,
+  averagedKnots,
+  interpolateCurve,
+  interpolatePeriodic,
+  interpolateSurface,
+  lsqKnots,
+  parameterize,
+  skinCurves,
+  fairInfluenceInto,
+  fairnessEnergy,
+  makeDofMap,
+  prepareFairSolver,
+  solveFair,
+  solveFairInto,
 } from './index';
-import type { Affine2, Affine3, NurbsCurve } from './index';
+import type { Affine2, Affine3, ClampedCurve, NurbsCurve, PeriodicCurve } from './index';
 import { checksum, mulberry32, randomCurve, randomSurface } from './testing';
 
 /** Every number reachable from `v` (typed arrays included). */
@@ -231,6 +268,24 @@ function cases(seed: number): Case[] {
   const changed = changedControlPoints(S, S2);
   const touched = new Int32Array(64);
   const dir = { x: 0.3, y: -1, z: 2 };
+  // Curve and surface operations (A1).
+  const cc =
+    c3.basis.kind === 'clamped'
+      ? (c3 as ClampedCurve<3>)
+      : toClamped(c3 as PeriodicCurve<3>, c3.basis.domain[0]);
+  const [ca, cb] = cc.basis.domain;
+  const tm = ca + 0.43 * (cb - ca);
+  const ins = insertKnot(cc, tm, 2);
+  const xs = Float64Array.of(a + 0.31 * (e - a), a + 0.62 * (e - a), a + 0.62 * (e - a));
+  const pc = randomCurve(rng, {
+    dim: 2,
+    degree: 3,
+    count: 7,
+    kind: 'periodic',
+    weightRange,
+  }) as PeriodicCurve<2>;
+  const c3b = randomCurve(rng, { dim: 3, degree: 2, count: 6, kind, weightRange }) as NurbsCurve<3>;
+  const tor = torus(P, dir, 3, 1);
   const sOut = (): Record<string, Float64Array | Uint8Array> => ({
     position: new Float64Array(36),
     normal: new Float64Array(36),
@@ -245,6 +300,44 @@ function cases(seed: number): Case[] {
     flags: new Uint8Array(16),
   });
 
+  // Fitting (A2).
+  const fitPts = Float64Array.from({ length: 30 }, (_, k) =>
+    k % 3 === 0 ? k / 3 + 0.2 * rng() : k % 3 === 1 ? Math.sin(k) + 0.1 * rng() : 0.3 * rng(),
+  );
+  const ringPts = Float64Array.from({ length: 24 }, (_, k) => {
+    const a = (2 * Math.PI * Math.floor(k / 3)) / 8;
+    return k % 3 === 0 ? Math.cos(a) : k % 3 === 1 ? Math.sin(a) : 0.1 * rng();
+  });
+  const fitParams = Float64Array.from({ length: 10 }, (_, k) => k / 9);
+  const fitW = Float64Array.from({ length: 10 }, () => 0.5 + rng());
+  const fitCons = [{ kind: 'point', t: 0.5, value: { x: 4, y: 0, z: 0 } }] as const;
+  const fitGrid = Float64Array.from({ length: 5 * 4 * 3 }, (_, k) => {
+    const i = Math.floor(k / 12);
+    const j = Math.floor(k / 3) % 4;
+    return k % 3 === 0 ? i : k % 3 === 1 ? j : Math.sin(i + j) + 0.1 * rng();
+  });
+  const fitBu = clampedBasis(2, clampedUniformKnots(2, 4));
+  const fitBv = clampedBasis(2, clampedUniformKnots(2, 3));
+  const fitUV = Float64Array.from({ length: 40 }, () => rng());
+  const fitScattered = Float64Array.from({ length: 60 }, () => rng());
+  const sec = [0, 1, 2].map((z) => circle({ x: 0, y: 0, z }, X, Y, 1 + z)) as NurbsCurve<3>[];
+  // Constrained fair solver (A3).
+  const rules = [
+    { kind: 'fix', cp: 0 },
+    { kind: 'fixAxes', cp: 1, axes: 4 },
+  ] as const;
+  const dof = makeDofMap(S, rules);
+  const solverCons = [{ kind: 'point', uv: { u, v }, value: P }] as const;
+  const stiff = Float64Array.from({ length: S.u.count * S.v.count }, () => 0.5 + rng());
+  const fairness = { bend: 1, stretch: 0.1 } as const;
+  const problem = { target: S, dof, fairness, stiffness: stiff, constraints: solverCons };
+  const solverOf = () => {
+    const r = prepareFairSolver(problem);
+    if (!r.ok) throw new Error(JSON.stringify(r.issues));
+    return r.value;
+  };
+  const solver = solverOf();
+  const moved = Float64Array.of(P.x + 0.1, P.y - 0.2, P.z + 0.3);
   return [
     {
       name: 'DEFAULT_TOLERANCES',
@@ -649,6 +742,184 @@ function cases(seed: number): Case[] {
     { name: 'torus', inputs: [P, dir], run: () => torus(P, dir, 3, 1), frozen: same },
     { name: 'cylinder', inputs: [P, dir], run: () => cylinder(P, dir, 1, 2), frozen: same },
     { name: 'extrude', inputs: [c3, dir], run: () => extrude(c3, dir), frozen: same },
+    // Curve operations (A1)
+    { name: 'insertKnot', inputs: [c3], run: () => insertKnot(c3, t, 1), frozen: same },
+    { name: 'refineKnots', inputs: [c3, xs], run: () => refineKnots(c3, xs), frozen: same },
+    {
+      name: 'removeKnot',
+      inputs: [ins],
+      run: () => removeKnot(ins, tm, 2),
+      frozen: (r) => [r, (r as { curve: unknown }).curve],
+    },
+    { name: 'elevateDegree', inputs: [c2], run: () => elevateDegree(c2, 2), frozen: same },
+    {
+      name: 'splitCurve',
+      inputs: [cc],
+      run: () => splitCurve(cc, tm),
+      frozen: (r) => [r, ...(r as unknown[])],
+    },
+    {
+      name: 'subCurve',
+      inputs: [c3],
+      // Periodic: from 0.7 across the seam to 0.2; clamped: [0.2, 0.7].
+      run: () =>
+        kind === 'clamped'
+          ? subCurve(c3, a + 0.2 * (e - a), a + 0.7 * (e - a))
+          : subCurve(c3, a + 0.7 * (e - a), a + 0.2 * (e - a)),
+      frozen: same,
+    },
+    { name: 'reverseCurve', inputs: [c3], run: () => reverseCurve(c3), frozen: same },
+    {
+      name: 'reparameterize',
+      inputs: [c3],
+      run: () => reparameterize(c3, [2, 5]),
+      frozen: same,
+    },
+    { name: 'normalizeDomain', inputs: [c1], run: () => normalizeDomain(c1), frozen: same },
+    { name: 'toClamped', inputs: [pc], run: () => toClamped(pc, 0.3), frozen: same },
+    {
+      name: 'decomposeBezier',
+      inputs: [cc],
+      run: () => decomposeBezier(cc),
+      frozen: (r) => [r, ...(r as unknown[])],
+    },
+    {
+      name: 'makeCompatible',
+      inputs: [c3, c3b],
+      run: () => makeCompatible([c3, c3b]),
+      frozen: (r) => {
+        const x = r as { curves: readonly unknown[] };
+        return [x, x.curves, ...x.curves];
+      },
+    },
+    { name: 'ruled', inputs: [c3, c3b], run: () => ruled(c3, c3b), frozen: same },
+    // Surface operations (A1)
+    {
+      name: 'insertKnotSurface',
+      inputs: [S],
+      run: () => insertKnotSurface(S, 'u', u),
+      frozen: same,
+    },
+    {
+      name: 'refineKnotsSurface',
+      inputs: [S, vs],
+      run: () => refineKnotsSurface(S, 'v', vs),
+      frozen: same,
+    },
+    {
+      name: 'elevateDegreeSurface',
+      inputs: [S],
+      run: () => elevateDegreeSurface(S, 'v', 1),
+      frozen: same,
+    },
+    {
+      name: 'splitSurface',
+      inputs: [clampedS],
+      run: () => splitSurface(clampedS, 'v', 0.55),
+      frozen: (r) => [r, ...(r as unknown[])],
+    },
+    { name: 'reverseSurface', inputs: [S], run: () => reverseSurface(S, 'u'), frozen: same },
+    { name: 'swapUV', inputs: [S], run: () => swapUV(S), frozen: same },
+    {
+      name: 'reparameterizeSurface',
+      inputs: [S],
+      run: () => reparameterizeSurface(S, 'v', [-1, 1]),
+      frozen: same,
+    },
+    {
+      name: 'normalizeSurfaceDomain',
+      inputs: [S],
+      run: () => normalizeSurfaceDomain(S),
+      frozen: same,
+    },
+    {
+      name: 'toClampedSurface',
+      inputs: [tor],
+      run: () => toClampedSurface(tor, 'v', 0.2),
+      frozen: same,
+    },
+    // Fitting (A2)
+    { name: 'parameterize', inputs: [fitPts], run: () => parameterize(fitPts, 3, 'centripetal') },
+    { name: 'averagedKnots', inputs: [fitParams], run: () => averagedKnots(fitParams, 3) },
+    { name: 'lsqKnots', inputs: [fitParams], run: () => lsqKnots(fitParams, 2, 6) },
+    {
+      name: 'interpolateCurve',
+      inputs: [fitPts, P],
+      run: () => interpolateCurve(fitPts, 3, { endDerivatives: [P, null] }),
+      frozen: same,
+    },
+    {
+      name: 'interpolatePeriodic',
+      inputs: [ringPts],
+      run: () => interpolatePeriodic(ringPts, 3),
+      frozen: same,
+    },
+    {
+      name: 'interpolateSurface',
+      inputs: [fitGrid],
+      run: () => interpolateSurface(fitGrid, 5, 4, { degreeV: 2, periodicU: rational }),
+      frozen: same,
+    },
+    {
+      name: 'approximateCurve',
+      inputs: [fitPts, fitParams, fitW, fitCons],
+      run: () =>
+        approximateCurve(fitPts, 3, {
+          count: 6,
+          params: fitParams,
+          dataWeights: fitW,
+          constraints: fitCons,
+          parameterCorrection: 1,
+        }),
+      frozen: (r) => [r, (r as { ok: true; value: unknown }).value],
+    },
+    {
+      name: 'approximateSurface',
+      inputs: [fitScattered, fitUV, fitBu, fitBv],
+      run: () => approximateSurface(fitScattered, { uv: fitUV }, { u: fitBu, v: fitBv }),
+      frozen: (r) => [(r as { ok: true; value: unknown }).value],
+    },
+    {
+      name: 'skinCurves',
+      inputs: [sec],
+      run: () => skinCurves(sec),
+      frozen: same,
+    },
+    // Constrained fair solver (A3). The solver keeps drag-session work buffers,
+    // so it is not checksummed as an input of the solves.
+    {
+      name: 'fairnessEnergy',
+      inputs: [S, S2, fairness],
+      run: () => fairnessEnergy(S2, fairness, S),
+    },
+    { name: 'makeDofMap', inputs: [S, rules], run: () => makeDofMap(S, rules), frozen: same },
+    {
+      name: 'prepareFairSolver',
+      inputs: [S, dof, stiff, solverCons, fairness],
+      run: () => prepareFairSolver(problem),
+      frozen: (r) => [r, (r as { ok: true; value: unknown }).value],
+    },
+    {
+      name: 'solveFairInto',
+      inputs: [S, moved],
+      run: () => solveFairInto(solver, moved, new Float64Array(S.cw.length)),
+      frozen: same,
+    },
+    {
+      name: 'solveFair',
+      inputs: [S, moved],
+      run: () => solveFair(solver, moved),
+      frozen: (r) => [r, (r as { result: unknown }).result],
+    },
+    {
+      name: 'fairInfluenceInto',
+      inputs: [S],
+      run: () => {
+        const o = new Float64Array(S.u.count * S.v.count * 3);
+        fairInfluenceInto(solver, 0, 2, o);
+        return o;
+      },
+    },
   ];
 }
 
@@ -680,5 +951,56 @@ describe('every public operation', () => {
     const before = c.inputs.map((x) => checksum(x));
     (c.inputs[1] as Float64Array)[0]! += 1e-15;
     expect(c.inputs.map((x) => checksum(x))).not.toEqual(before);
+  });
+});
+
+describe('makeDofMap keeps its own copy of every rule parameter', () => {
+  it('mutating the caller’s plane, normal, dirs or offset afterwards changes nothing', () => {
+    // A cubic whose cp 4 mirrors cp 1 in x = 3, cp 2 slides along a
+    // direction, cp 5 is an offset copy of cp 0: the solver re-reads the
+    // rules, so a shallow copy would let these writes reach a later solve.
+    const pts = [0, 0, 0, 1, 1, 0, 2, 0, 1, 3, 1, 0, 5, 1, 0, 6, 0.5, 0.2];
+    const c = bezierCurve(3, pts);
+    const plane = { normal: { x: 1, y: 0, z: 0 }, d: 3 };
+    const dir = { x: 0, y: 1, z: 0 };
+    const offset = { x: 6, y: 0.5, z: 0.2 };
+    const rules = [
+      { kind: 'mirror', cp: 4, master: 1, plane },
+      { kind: 'slide', cp: 2, dirs: [dir] },
+      { kind: 'copy', cp: 5, master: 0, offset },
+    ] as const;
+    const dof = makeDofMap(c, rules);
+    const solve = (): number[] => {
+      const r = prepareFairSolver({
+        target: c,
+        dof,
+        fairness: { bend: 1 },
+        stiffness: 1,
+        constraints: [],
+      });
+      if (!r.ok) throw new Error(JSON.stringify(r.issues));
+      return [...solveFair<NurbsCurve>(r.value, []).result.cw];
+    };
+    const before = solve();
+    expect(controlPoint(c as NurbsCurve<3>, 4).x).toBe(5); // the target breaks the rule…
+    expect(before[4 * 4]).toBe(2 * 3 - before[1 * 4]!); // …and the solve enforces it
+    for (const r of dof.rules) {
+      expect(Object.isFrozen(r)).toBe(true);
+      if (r.kind === 'mirror') {
+        expect(r.plane).not.toBe(plane);
+        expect(Object.isFrozen(r.plane) && Object.isFrozen(r.plane.normal)).toBe(true);
+      } else if (r.kind === 'slide') {
+        expect(r.dirs[0]).not.toBe(dir);
+        expect(Object.isFrozen(r.dirs) && Object.isFrozen(r.dirs[0])).toBe(true);
+      } else if (r.kind === 'copy') {
+        expect(r.offset).not.toBe(offset);
+        expect(Object.isFrozen(r.offset)).toBe(true);
+      }
+    }
+    (plane as { d: number }).d = 10;
+    (plane.normal as { x: number }).x = 2;
+    (dir as { z: number }).z = 1;
+    (offset as { x: number }).x = -4;
+    expect(solve()).toEqual(before);
   });
 });

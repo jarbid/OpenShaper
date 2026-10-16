@@ -3,7 +3,7 @@
  * Exact primitives (design §6.11). Curves: lines, polylines, circles and arcs
  * as rational quadratics (P&T A7.1), the periodic circle, and one conic
  * segment. Surfaces: planes, bilinear and Bézier patches, revolutions (A8.1)
- * with the sphere and torus, extrusions with the cylinder. Every primitive is
+ * with the sphere and torus, extrusions with the cylinder, ruled surfaces. Every primitive is
  * on `[0, 1]` (period 1) per direction, except a plane with an explicit domain.
  *
  * A circle frame is given by two axes: `xAxis` is normalised, `yAxis` is made
@@ -11,10 +11,12 @@
  * plane they span and turns from `xAxis` towards `yAxis`.
  */
 import { clampedBasis, clampedUniformKnots, periodicBasis } from './basis';
-import { bezierCurve, makeCurve } from './curve';
+import { bezierCurve, checkCurveShape, makeCurve } from './curve';
+import { makeCompatible } from './curve-ops';
 import { fail } from './errors';
 import { makeSurface, surfaceFromHomogeneous } from './surface';
 import { resolveTolerances } from './tolerance';
+import type { Tolerances } from './tolerance';
 import type {
   Basis,
   ClampedCurve,
@@ -622,4 +624,46 @@ export function cylinder(base: Point3, axis: Point3, r: number, h: number): Nurb
   const X = perpendicular(a);
   const c = periodicCircle(base, X, cross3(a, X), r);
   return extrude(c, { x: h * a.x, y: h * a.y, z: h * a.z });
+}
+
+/**
+ * The ruled surface (P&T §8.4) between two 3D curves: `S(u, 0) = a(u)`,
+ * `S(u, 1) = b(u)`, and every v line a straight segment between them. The
+ * curves are first made compatible ({@link makeCompatible}: one degree, one
+ * knot vector), so they must have one kind and equal domains; u is their
+ * parameter, v is linear on `[0, 1]`. Row j = 0 holds `a`'s homogeneous points
+ * and j = 1 `b`'s, so with unequal weights the segment is a rational line
+ * (straight, non-uniform in v). Polynomial curves give
+ * `S(u, v) = (1 − v)·a(u) + v·b(u)` exactly.
+ *
+ * Unifying near-coincident knots of `a` and `b` (closer than
+ * `knotRel × domain`) moves the boundary rows by up to `makeCompatible`'s
+ * certified `maxDeviation`; above `tol.point` that would break
+ * `S(u, 0) = a(u)`, so it throws `knots-near-coincident` instead.
+ */
+export function ruled(a: NurbsCurve<3>, b: NurbsCurve<3>, tol?: Partial<Tolerances>): NurbsSurface {
+  checkCurveShape(a);
+  checkCurveShape(b);
+  if (a.dim !== 3 || b.dim !== 3) {
+    fail('dimension-mismatch', `ruled needs 3D curves; got dimensions ${a.dim} and ${b.dim}`);
+  }
+  const tl = resolveTolerances(tol);
+  const m = makeCompatible([a, b], tl);
+  if (m.maxDeviation > tl.point) {
+    fail(
+      'knots-near-coincident',
+      `unifying the curves' near-coincident knots moves them by up to ${m.maxDeviation} > point ${tl.point}`,
+      { value: m.maxDeviation },
+    );
+  }
+  const [ca, cb] = m.curves as readonly [NurbsCurve<3>, NurbsCurve<3>];
+  const n = ca.basis.count;
+  const cw = new Float64Array(n * 8);
+  for (let i = 0; i < n; i++) {
+    for (let k = 0; k < 4; k++) {
+      cw[8 * i + k] = ca.cw[4 * i + k]!;
+      cw[8 * i + 4 + k] = cb.cw[4 * i + k]!;
+    }
+  }
+  return surfaceFromHomogeneous({ u: ca.basis, v: clampedBasis(1, [0, 0, 1, 1]), cw });
 }

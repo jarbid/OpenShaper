@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * Evaluation benchmarks P1–P9 (docs/design/geom-core.md §17), run with
+ * Evaluation, knot-operation, interpolation and solver benchmarks P1–P16 and
+ * P24 (docs/design/geom-core.md §17), run with
  * `pnpm --filter @openshaper/geom bench` (not part of `pnpm test`).
  *
  * Each case prints its measured rate or time next to the design's target. A
@@ -11,30 +12,48 @@
  */
 import { test } from 'vitest';
 import {
+  approximateCurve,
+  approximateSurface,
   clampedBasis,
   clampedUniformKnots,
   createScratch,
   curveEvalBatchInto,
   curvePoint,
+  elevateDegree,
   evalSurfacePlan,
   evalSurfacePlanDirty,
+  interpolateCurve,
+  interpolateSurface,
   makeCurve,
+  makeDofMap,
   makeSurface,
   periodicCircle,
   planSurfaceSamples,
+  prepareFairSolver,
   principalCurvatures,
+  refineKnotsSurface,
+  solveFairInto,
   surfaceEvalGridInto,
   surfacePoint,
   withSurfaceControlPoints,
 } from './index';
-import type { NurbsSurface } from './index';
+import type { DofRule, FairProblem, FairSolver, LinearConstraint, NurbsSurface } from './index';
+import { checkFairness, surfaceFairnessMatrix } from './solver/fairness';
+import { resolveTolerances } from './tolerance';
 import { mulberry32 } from './testing';
 
 interface BenchRun {
   latency: { mean: number; p50: number; p99: number; rme: number };
   throughput: { mean: number };
 }
-type Bench = (name: string, fn: () => void) => { run: () => Promise<BenchRun> };
+/** tinybench run options (a few iterations for cases that take seconds). */
+interface RunOptions {
+  readonly iterations: number;
+  readonly time: number;
+  readonly warmupIterations: number;
+  readonly warmupTime: number;
+}
+type Bench = (name: string, fn: () => void) => { run: (opts?: RunOptions) => Promise<BenchRun> };
 
 /** A case: its function, how many units one call does, and the target. */
 interface Case {
@@ -45,7 +64,12 @@ interface Case {
   readonly units: number;
   /** `rate`: at least this many units per second; `time`: at most this many ms per call. */
   readonly target: { readonly kind: 'rate' | 'time'; readonly value: number };
+  /** Run options, for cases too slow for the default sample count. */
+  readonly run?: RunOptions;
 }
+
+/** Few samples, for cases that take on the order of a second. */
+const SLOW: RunOptions = { iterations: 5, time: 0, warmupIterations: 1, warmupTime: 0 };
 
 const fmtRate = (r: number): string =>
   r >= 1e6 ? `${(r / 1e6).toFixed(2)} M/s` : `${(r / 1e3).toFixed(1)} k/s`;
@@ -59,7 +83,7 @@ const fmtRate = (r: number): string =>
 async function runGroup(bench: Bench, title: string, cases: readonly Case[]): Promise<void> {
   const rows: string[][] = [['', 'mean ms', 'p99 ms', '±%', 'measured', 'target', '']];
   for (const c of cases) {
-    const r = await bench(c.name, c.fn).run();
+    const r = await bench(c.name, c.fn).run(c.run);
     const l = r.latency;
     const rate = c.units * r.throughput.mean;
     const met = c.target.kind === 'rate' ? rate >= c.target.value : l.mean <= c.target.value;
@@ -252,3 +276,377 @@ test('sample plans: P6–P8', async ({ bench }) => {
     `P8 touched ${touchedCount} of ${count} samples (${((100 * touchedCount) / count).toFixed(1)}%)\n`,
   );
 });
+
+test('knot operations: P10', async ({ bench }) => {
+  const rng = mulberry32(4);
+  const s = bicubic(40, 20, true, 5);
+  // 40 new u-knots (k + ½)/40: never equal to the uniform knots i/37 (odd vs even numerators).
+  const xs = Float64Array.from({ length: 40 }, (_, k) => (k + 0.5) / 40);
+  const curve = makeCurve({
+    dim: 3,
+    basis: clampedBasis(3, clampedUniformKnots(3, 100)),
+    points: Array.from({ length: 300 }, () => rng()),
+    weights: Array.from({ length: 100 }, () => 0.5 + rng()),
+  });
+  let count = 0;
+  await runGroup(bench, 'knot operations (A1)', [
+    {
+      id: 'P10a',
+      name: 'refineKnotsSurface, 40 u-knots, rational bicubic 40 × 20',
+      units: 0,
+      target: { kind: 'time', value: 2 },
+      fn: () => {
+        count += refineKnotsSurface(s, 'u', xs).u.count;
+      },
+    },
+    {
+      id: 'P10b',
+      name: 'elevateDegree 3 → 5, rational, 100 control points',
+      units: 0,
+      target: { kind: 'time', value: 1 },
+      fn: () => {
+        count += elevateDegree(curve, 2).basis.count;
+      },
+    },
+  ]);
+  if (count < 0) process.stdout.write('unreachable\n');
+});
+
+test('interpolation: P11', async ({ bench }) => {
+  const rng = mulberry32(5);
+  // 200 points along a noisy helix; a 60 × 30 grid on a wavy sheet.
+  const pts = Float64Array.from({ length: 600 }, (_, i) => {
+    const k = Math.floor(i / 3);
+    const a = k * 0.2;
+    return i % 3 === 0 ? Math.cos(a) : i % 3 === 1 ? Math.sin(a) + 0.01 * rng() : 0.05 * k;
+  });
+  const grid = Float64Array.from({ length: 60 * 30 * 3 }, (_, i) => {
+    const k = Math.floor(i / 90);
+    const l = Math.floor(i / 3) % 30;
+    return i % 3 === 0 ? k : i % 3 === 1 ? l : Math.sin(0.2 * k) * Math.cos(0.3 * l) + 0.01 * rng();
+  });
+  let count = 0;
+  await runGroup(bench, 'interpolation (A2)', [
+    {
+      id: 'P11a',
+      name: 'interpolateCurve, 200 points, cubic, centripetal',
+      units: 0,
+      target: { kind: 'time', value: 2 },
+      fn: () => {
+        count += interpolateCurve(pts, 3).curve.basis.count;
+      },
+    },
+    {
+      id: 'P11b',
+      name: 'interpolateSurface, 60 × 30 grid, bicubic',
+      units: 0,
+      target: { kind: 'time', value: 20 },
+      fn: () => {
+        count += interpolateSurface(grid, 60, 30).surface.u.count;
+      },
+    },
+  ]);
+  if (count < 0) process.stdout.write('unreachable\n');
+});
+
+/** The Euclidean control points of a surface, interleaved. */
+function euclideanPoints(S: NurbsSurface): Float64Array {
+  const n = S.cw.length / 4;
+  const out = new Float64Array(3 * n);
+  for (let i = 0; i < n; i++)
+    for (let c = 0; c < 3; c++) out[3 * i + c] = S.cw[4 * i + c]! / S.cw[4 * i + 3]!;
+  return out;
+}
+
+/** A 64 × 8 bicubic board-sized band (512 control points), polynomial. */
+function band(): NurbsSurface {
+  return bicubic(64, 8, false, 6);
+}
+
+/** `count` point handles spread over the domain, on the axes in `axes`. */
+function handles(count: number, axes: number): LinearConstraint[] {
+  return Array.from({ length: count }, (_, k) => ({
+    kind: 'point' as const,
+    uv: { u: (k + 0.5) / count, v: 0.25 + (0.5 * ((k * 7) % count)) / count },
+    value: { x: 0, y: 0, z: 0 },
+    axes,
+  }));
+}
+
+/** Three orthonormal directions of a frame turned about z by `a` and about x by `b`. */
+function frame(a: number, b: number): { x: number; y: number; z: number }[] {
+  const ca = Math.cos(a);
+  const sa = Math.sin(a);
+  const cb = Math.cos(b);
+  const sb = Math.sin(b);
+  return [
+    { x: ca, y: sa, z: 0 },
+    { x: -sa * cb, y: ca * cb, z: sb },
+    { x: sa * sb, y: -ca * sb, z: cb },
+  ];
+}
+
+/** Values moving every handle by a fixed small step from 0 (the solve is affine in them). */
+function moves(m: number, step: number): Float64Array {
+  return Float64Array.from({ length: 3 * m }, (_, i) => step * Math.sin(i + 1));
+}
+
+function prepare(p: FairProblem): FairSolver {
+  const r = prepareFairSolver(p);
+  if (!r.ok) throw new Error(JSON.stringify(r.issues));
+  return r.value;
+}
+
+test('fair solver and fitting with fairness: P12–P16, P24', async ({ bench }) => {
+  const S = band();
+  const n = 64 * 8;
+  const tol = resolveTolerances();
+  const fwScaled = checkFairness({ bend: 1, stretch: 0.01 }, 'surface', 'displacement');
+  const xRef = new Float64Array(3 * n); // polynomial: the Euclidean points
+  for (let i = 0; i < n; i++) for (let c = 0; c < 3; c++) xRef[3 * i + c] = S.cw[4 * i + c]!;
+  // The end rows u = 0 and u = 1 partly fixed in the coupled many-row case (12 points).
+  const fixed: DofRule[] = Array.from({ length: 12 }, (_, k) => ({
+    kind: 'fix' as const,
+    cp: k < 6 ? k : n - 1 - (k - 6),
+  }));
+  // Rail-frame handle axes: every 8th control point slides in a turned frame (coupled, no DOF lost).
+  const slides: DofRule[] = Array.from({ length: n / 8 }, (_, k) => ({
+    kind: 'slide' as const,
+    cp: 8 * k + 3,
+    dirs: frame(0.3 + 0.01 * k, 0.2),
+  }));
+  const base = { target: S, fairness: { bend: 1, stretch: 0.01 }, stiffness: 0.01 };
+  const pSep: FairProblem = { ...base, dof: makeDofMap(S, []), constraints: handles(20, 4) };
+  const pCoupled: FairProblem = {
+    ...base,
+    dof: makeDofMap(S, slides),
+    constraints: handles(20, 4),
+  };
+  const pMany: FairProblem = {
+    ...base,
+    dof: makeDofMap(S, [...fixed, ...slides.filter((r) => !fixed.some((f) => f.cp === r.cp))]),
+    constraints: handles(50, 7),
+  };
+  // Rational targets: the same band with weights in [0.7, 1.3], and one whose
+  // weights alternate 50 / 1 by v-row (a large ratio: the adaptive rational
+  // quadrature, fairness.ts, refines towards the peaks of its integrands).
+  const SR = bicubic(64, 8, true, 6);
+  const SR50 = makeSurface({
+    u: S.u,
+    v: S.v,
+    points: euclideanPoints(S),
+    weights: Float64Array.from({ length: n }, (_, i) => ((i % 8) % 2 === 0 ? 50 : 1)),
+  });
+  const xRefR = euclideanPoints(SR);
+  const xRefR50 = euclideanPoints(SR50);
+  const pSepR: FairProblem = { ...pSep, target: SR, dof: makeDofMap(SR, []) };
+  const pSepR50: FairProblem = { ...pSep, target: SR50, dof: makeDofMap(SR50, []) };
+  const sSep = prepare(pSep);
+  const sCoupled = prepare(pCoupled);
+  const sMany = prepare(pMany);
+  const shape = (s: FairSolver): string =>
+    `${s.dofCount} DOF, m = ${s.constraintCount}, ${s.separable ? 'separable' : 'coupled'}`;
+  process.stdout.write(`\nP13 problems: ${shape(sSep)}; ${shape(sCoupled)}; ${shape(sMany)}\n`);
+  const out = new Float64Array(S.cw.length);
+  const v20 = moves(20, 0.5);
+  const v150 = moves(50, 0.5);
+
+  // P15: 2k noisy points along a rocker-like curve → 80 control points, ends pinned.
+  const rng = mulberry32(8);
+  const m = 2000;
+  const ts = Float64Array.from({ length: m }, (_, k) => k / (m - 1));
+  const cpts = Float64Array.from({ length: 2 * m }, (_, i) => {
+    const t = ts[i >> 1]!;
+    return i % 2 ? 8 * t * t * t + 2 * (1 - t) ** 2 + 0.01 * rng() : 240 * t;
+  });
+  const cknots = clampedBasis(3, clampedUniformKnots(3, 80)).knots;
+  const ccons = [
+    { kind: 'point' as const, t: 0, value: { x: cpts[0]!, y: cpts[1]! } },
+    { kind: 'point' as const, t: 1, value: { x: cpts[2 * m - 2]!, y: cpts[2 * m - 1]! } },
+    { kind: 'tangentDirection' as const, t: 0, direction: { x: 1, y: -0.5 } },
+  ];
+  // P16: 8k scattered samples of a deck-like sheet → 64 × 8 bicubic, 2 correction passes.
+  const ns = 8000;
+  const uv = Float64Array.from({ length: 2 * ns }, () => rng());
+  const spts = Float64Array.from({ length: 3 * ns }, (_, i) => {
+    const k = Math.floor(i / 3);
+    const u = uv[2 * k]!;
+    const v = uv[2 * k + 1]!;
+    return i % 3 === 0
+      ? 240 * u
+      : i % 3 === 1
+        ? 55 * (v - 0.5)
+        : 6 * Math.sin(Math.PI * u) - 3 * (v - 0.5) ** 2;
+  });
+  const bu = clampedBasis(3, clampedUniformKnots(3, 64));
+  const bv = clampedBasis(3, clampedUniformKnots(3, 8));
+
+  let count = 0;
+  await runGroup(bench, 'fair solver and fitting with fairness (A3)', [
+    {
+      id: 'P12',
+      name: 'thin-plate + membrane Gram, scaled metric, bicubic 64 × 8',
+      units: 0,
+      target: { kind: 'time', value: 2 },
+      fn: () => {
+        const F = surfaceFairnessMatrix(
+          S.u,
+          S.v,
+          S.cw,
+          false,
+          fwScaled,
+          {
+            kind: 'geometry',
+            points: xRef,
+            dim: 3,
+          },
+          tol,
+        );
+        count += F.rows;
+      },
+    },
+    {
+      id: 'P12r',
+      name: 'the same, rational: weights in [0.7, 1.3]',
+      units: 0,
+      target: { kind: 'time', value: 2 },
+      run: SLOW,
+      fn: () => {
+        const sp = { kind: 'geometry', points: xRefR, dim: 3 } as const;
+        count += surfaceFairnessMatrix(SR.u, SR.v, SR.cw, true, fwScaled, sp, tol).rows;
+      },
+    },
+    {
+      id: 'P12r50',
+      name: 'the same, rational: weights 50 / 1 by v-row',
+      units: 0,
+      target: { kind: 'time', value: 2 },
+      run: SLOW,
+      fn: () => {
+        const sp = { kind: 'geometry', points: xRefR50, dim: 3 } as const;
+        count += surfaceFairnessMatrix(SR50.u, SR50.v, SR50.cw, true, fwScaled, sp, tol).rows;
+      },
+    },
+    {
+      id: 'P13a',
+      name: `prepareFairSolver, ${shape(sSep)}`,
+      units: 0,
+      target: { kind: 'time', value: 3 },
+      fn: () => {
+        count += prepare(pSep).rank;
+      },
+    },
+    {
+      id: 'P13r',
+      name: 'prepareFairSolver, the same, rational: weights in [0.7, 1.3]',
+      units: 0,
+      target: { kind: 'time', value: 3 },
+      run: SLOW,
+      fn: () => {
+        count += prepare(pSepR).rank;
+      },
+    },
+    {
+      id: 'P13r50',
+      name: 'prepareFairSolver, the same, rational: weights 50 / 1 by v-row',
+      units: 0,
+      target: { kind: 'time', value: 3 },
+      run: SLOW,
+      fn: () => {
+        count += prepare(pSepR50).rank;
+      },
+    },
+    {
+      id: 'P13b',
+      name: `prepareFairSolver, ${shape(sCoupled)}`,
+      units: 0,
+      target: { kind: 'time', value: 15 },
+      fn: () => {
+        count += prepare(pCoupled).rank;
+      },
+    },
+    {
+      id: 'P13c',
+      name: `prepareFairSolver, ${shape(sMany)}`,
+      units: 0,
+      target: { kind: 'time', value: 100 },
+      fn: () => {
+        count += prepare(pMany).rank;
+      },
+    },
+    {
+      id: 'P14a',
+      name: 'solveFairInto per move, coupled, m = 20',
+      units: 0,
+      target: { kind: 'time', value: 0.1 },
+      fn: () => {
+        count += solveFairInto(sCoupled, v20, out).dependent.length;
+      },
+    },
+    {
+      id: 'P14b',
+      name: 'solveFairInto per move, coupled, m = 150',
+      units: 0,
+      target: { kind: 'time', value: 2 },
+      fn: () => {
+        count += solveFairInto(sMany, v150, out).dependent.length;
+      },
+    },
+    {
+      id: 'P15',
+      name: 'approximateCurve, 2k points → 80 cps, 3 constraints, fairness',
+      units: 0,
+      target: { kind: 'time', value: 3 },
+      fn: () => {
+        const r = approximateCurve(cpts, 2, {
+          knots: cknots,
+          params: ts,
+          constraints: ccons,
+          fairness: { bend: 1 },
+        });
+        if (!r.ok) throw new Error(JSON.stringify(r.issues));
+        count += 1;
+      },
+    },
+    {
+      id: 'P16',
+      name: 'approximateSurface, 8k points → 64 × 8, fairness, 2 corrections',
+      units: 0,
+      target: { kind: 'time', value: 30 },
+      fn: () => {
+        const r = approximateSurface(
+          spts,
+          { uv },
+          {
+            u: bu,
+            v: bv,
+            fairness: { bend: 1 },
+            parameterCorrection: 2,
+          },
+        );
+        if (!r.ok) throw new Error(JSON.stringify(r.issues));
+        count += 1;
+      },
+    },
+  ]);
+
+  // P24: 10k simulated drag frames on the coupled m = 20 solver. Allocation
+  // is the per-frame report only (two Float64Array(m), two small Int32Array);
+  // printed as heap growth, which a GC may hide (measure with --expose-gc).
+  const frames = 10_000;
+  const vals = new Float64Array(v20.length);
+  const heap0 = process.memoryUsage().heapUsed;
+  const t0 = performance.now();
+  for (let f = 0; f < frames; f++) {
+    for (let k = 0; k < vals.length; k++) vals[k] = v20[k]! * Math.sin(f * 0.001);
+    count += solveFairInto(sCoupled, vals, out).dependent.length;
+  }
+  const t1 = performance.now();
+  const heap1 = process.memoryUsage().heapUsed;
+  process.stdout.write(
+    `P24 ${frames} drag frames (coupled, m = 20): ${(t1 - t0).toFixed(1)} ms total, ` +
+      `${((t1 - t0) / frames).toFixed(4)} ms/frame, heap ${((heap1 - heap0) / 1024).toFixed(0)} KiB net\n`,
+  );
+  if (count < 0) process.stdout.write('unreachable\n');
+  // The rational cases (P12r, P13r) take seconds each: past the 60 s default.
+}, 300_000);
