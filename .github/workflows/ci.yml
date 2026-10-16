@@ -29,6 +29,17 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
+      # The OCCT validator (docs/design/geom-core.md §15): our STEP output through
+      # occt-wasm, a devDependency of packages/geom only. Its files are kept for the
+      # manual Rhino / Fusion / FreeCAD / SolidWorks import matrix
+      # (docs/design/step-export.md).
+      - run: pnpm --filter @openshaper/geom test:occt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: occt-corpus
+          path: packages/geom/.occt-corpus/*.step
+          if-no-files-found: ignore
       - run: pnpm build
 
   # Browser tests (P35). Separate from `verify` so a slow or flaky browser run

@@ -200,6 +200,84 @@ export type { DofMap, DofRule } from './solver/dof';
 export { fairInfluenceInto, prepareFairSolver, solveFair, solveFairInto } from './solver/solver';
 export type { FairProblem, FairSolver, LinearConstraint, SolveReport } from './solver/solver';
 
+// Projection (§6.14; `closestPointOnTrimmed` B2)
+export {
+  closestPointOnCurve,
+  closestPointOnSurface,
+  DEFAULT_PROJECTION_SEEDING,
+  projectPointsToCurveInto,
+  projectPointsToSurfaceInto,
+} from './project';
+export type { CurveProjection, ProjectionSeeding, SurfaceProjection } from './project';
+export { closestPointOnTrimmed } from './trim';
+
+// Curves on surfaces (§6.15)
+export {
+  curveOnSurface,
+  curveOnSurfaceDerivatives,
+  curveOnSurfaceEvalInto,
+  curveOnSurfacePoint,
+  isoLinePcurve,
+  projectCurveSamplesToSurface,
+} from './curve-on-surface';
+export type { PcurveSamples } from './curve-on-surface';
+
+// Trimmed surfaces and integration (§6.16)
+export {
+  checkTrimLoops,
+  classifyUV,
+  makeTrimLoop,
+  makeTrimmedSurface,
+  naturalBoundaryLoop,
+} from './trim';
+export { enclosedVolume, integrateTrimmed, surfaceArea } from './integrate';
+export type { SurfaceIntegrand, VolumeFace } from './integrate';
+
+// Triangulation and tessellation (§6.17)
+export { incircle, orient2d } from './mesh/predicates';
+export { checkTriangulation, constrainedDelaunay } from './mesh/cdt';
+export type { CdtInput, Triangulation } from './mesh/cdt';
+export {
+  DEFAULT_TESSELLATION,
+  retargetTessellation,
+  tessellateTrimmedSurface,
+} from './mesh/tessellate';
+export type { BoundarySamples, FaceMesh, TessellationOptions } from './mesh/tessellate';
+
+// Continuity (§6.18)
+export {
+  boundaryContinuity,
+  classifyContinuity,
+  curveJoinContinuity,
+  DEFAULT_CONTINUITY_SAMPLING,
+  edgeContinuity,
+  knotContinuity,
+} from './continuity';
+export type {
+  BoundarySide,
+  ContinuityMeasures,
+  ContinuityProfile,
+  ContinuitySampling,
+  ContinuityThresholds,
+  EdgeSide,
+  JoinContinuity,
+  KnotContinuity,
+} from './continuity';
+
+// B-rep (§6.19)
+export { makeBrep, transformBrep } from './brep/brep';
+export { checkBrep, DEFAULT_BREP_CHECK_SAMPLING, orientBrep } from './brep/check';
+export type { BrepCheckSampling, BrepEuler, BrepReport } from './brep/check';
+export { faceTrimmedSurface } from './brep/faces';
+export { massProperties } from './brep/mass';
+export { brepEdgeContinuity } from './brep/continuity';
+export { tessellateBrep } from './brep/mesh';
+export type { BrepMesh } from './brep/mesh';
+
+// STEP (§6.20)
+export { writeStep } from './step/write';
+export type { StepResult, StepStats, StepWriteOptions } from './step/write';
+
 // Shared value types (§5)
 export type {
   Affine2,

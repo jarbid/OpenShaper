@@ -183,10 +183,12 @@ packages/geom/
                           pcurve fitting and 3D edge fitting (integration milestone)
     trim.ts               trim loops, trimmed surfaces, validation, classification
     integrate.ts          Green's-theorem integration over trimmed domains, area
+    pieces.ts             internal: rational Bézier pieces of 2D curves, subdivision certificates
     mesh/
-      predicates.ts       vendored orient2d / incircle (Unlicense), Shewchuk's sign
+      predicates.ts       orient2d / incircle wrappers, Shewchuk's sign (B2: arithmetic in vendor/)
+      vendor/robust-predicates.ts  vendored adaptive stages (Unlicense), buffers per instance
       cdt.ts              constrained Delaunay triangulation
-      refine.ts           Steiner refinement
+      refine.ts           Steiner refinement (B2: `insertSteiner` lives in cdt.ts, ~40 lines)
       tessellate.ts       trimmed surface → mesh; retargeting during a drag
     continuity.ts         gap, normal angle, curvature mismatch; knot and join continuity
     brep/
@@ -198,7 +200,8 @@ packages/geom/
       part21.ts           lexical rules (copied from export/src/step.ts, not imported)
       schema.ts           arity table of every emitted entity type
       write.ts            AP214 writer
-      read.ts             subset reader for round-trip tests (exported via ./testing)
+      read.ts             subset reader: re-exported via ./testing for round-trip tests AND imported by
+                          write.ts (the `precision` path measures the rounded text; §6.20, §14)
     testing/              subpath `@openshaper/geom/testing` (test-only helpers)
       index.ts  prng.ts  checksum.ts  solids.ts  reference-solver.ts  occt-brep.ts
 ```
@@ -1610,9 +1613,15 @@ Notes (A3, as built):
   span (weight ratios far beyond `weightRatioMax`) it returns the best estimate
   without a flag; `prepareFairSolver` reports that case.
 
-### 6.14 Projection [B1]
+### 6.14 Projection [B1; `closestPointOnTrimmed` B2]
 
 ```ts
+/** Global seeding density (§11.2); every query takes `seeding?: Partial<ProjectionSeeding>`. */
+export interface ProjectionSeeding {
+  readonly oversample: number; // samples per span and direction: oversample · degree + 1
+  readonly starts: number; // Newton runs from the best cells
+}
+export const DEFAULT_PROJECTION_SEEDING: ProjectionSeeding; // { oversample: 2, starts: 3 }
 export interface CurveProjection<D extends Dim> {
   readonly t: number;
   readonly point: PointOf<D>;
@@ -1628,6 +1637,7 @@ export interface SurfaceProjection {
   readonly iterations: number;
   readonly onBoundary: false | SurfaceEdge | 'trim';
 }
+/** `seed`: a local projection (Newton from it; global seeding only if it does not converge). */
 export function closestPointOnCurve<D extends 2 | 3>(
   c: NurbsCurve<D>,
   p: PointOf<D>,
@@ -1638,12 +1648,16 @@ export function closestPointOnSurface(
   p: Point3,
   opts?: { readonly seed?: UV; readonly tol?: Partial<Tolerances> },
 ): SurfaceProjection;
+/** B2: needs trim-loop classification (§11.2 "Trimmed"). */
 export function closestPointOnTrimmed(
   ts: TrimmedSurface,
   p: Point3,
   opts?: { readonly tol?: Partial<Tolerances> },
 ): SurfaceProjection;
-/** pts stride dim; warmStart seeds each point from the previous result. Returns the count not converged. */
+/**
+ * pts stride dim; warmStart starts each point from the previous result and keeps it within the
+ * continuity bound (§11.2), `seeds` are local starts. Returns the count not converged.
+ */
 export function projectPointsToCurveInto(
   c: NurbsCurve<2> | NurbsCurve<3>,
   pts: ReadonlyF64,
@@ -1687,6 +1701,24 @@ export function curveOnSurfaceEvalInto(
   sc: Scratch,
 ): void;
 export function isoLinePcurve(s: NurbsSurface, fixed: ParamDir, value: number): ClampedCurve<2>; // exact, degree 1
+/**
+ * B1: C(ts[i]) projected onto s (warm-started batch), periodic directions unwrapped so the
+ * samples are continuous; the input of the pcurve fit below.
+ */
+export interface PcurveSamples {
+  readonly t: ReadonlyF64;
+  readonly uv: ReadonlyF64; // stride 2, unwrapped
+  readonly distance: ReadonlyF64;
+  readonly maxDistance: number;
+  readonly notConverged: number;
+  readonly withinTolerance: boolean; // all converged and maxDistance ≤ fit
+}
+export function projectCurveSamplesToSurface(
+  c: NurbsCurve<3>,
+  s: NurbsSurface,
+  ts: ArrayLike<number>, // finite, non-decreasing
+  opts?: { readonly tol?: Partial<Tolerances>; readonly seeding?: Partial<ProjectionSeeding> },
+): PcurveSamples;
 /** Same-parameter pcurve of a 3D curve lying on s (sample, warm-started projection, 2D LSQ, refine). */
 export function projectCurveToSurface(
   c: NurbsCurve<3>,
@@ -1708,13 +1740,31 @@ export function curveOnSurfaceTo3d(
 }>;
 ```
 
+`curveOnSurface` validates once that the pcurve stays inside every clamped direction of the
+surface's domain within `paramRel` (control hull first, exact by the convex-hull property;
+a span whose hull pokes out is searched for its extreme coordinate) and throws
+`param-out-of-domain` naming the parameter; periodic directions accept any value and wrap.
+Derivatives are right-hand limits in `t` (left-hand at the end of a clamped pcurve, where
+no right-hand side exists); at a surface knot line the surface side is the one the pcurve
+moves into (left when `u′ < 0`, or `u′ = 0` and `u″ < 0`), or at that end the one it arrives
+from (left when `u′ > 0`, or `u′ = 0` and `u″ < 0`).
+
+**TODO(integration): pcurve and 3D edge fitting.** `projectCurveToSurface` and
+`curveOnSurfaceTo3d` are not implemented in B1: both fit a curve to samples, which needs
+Track A's constrained least squares (A2). At integration, `projectCurveToSurface` fits a
+`ClampedCurve<2>` to `projectCurveSamplesToSurface`'s unwrapped `(t, uv)` samples (same
+parameter), refining knots until the 3D deviation, measured on 4× denser samples, is
+within `fit`; `curveOnSurfaceTo3d` fits a `ClampedCurve<3>` to `curveOnSurfacePoint`
+samples the same way. Their oracles are in §16 (`curve-on-surface`: honesty against 4×
+denser sampling) and benchmark P18 (§17).
+
 ### 6.16 Trimmed surfaces and integration [B2]
 
 ```ts
 export function makeTrimLoop(
   curves: readonly ClampedCurve<2>[],
   opts?: { readonly snap?: boolean; readonly tol?: Partial<Tolerances> },
-): Result<TrimLoop>; // snap: make joins bitwise
+): Result<TrimLoop>; // snap: make joins within paramRel × loop extent ((u, v) units) bitwise
 export function naturalBoundaryLoop(s: NurbsSurface): TrimLoop; // clamped surfaces only
 export function makeTrimmedSurface(
   surface: NurbsSurface,
@@ -1734,6 +1784,7 @@ export function integrateTrimmed(
   f: (u: number, v: number, skl: ReadonlyF64) => number,
   opts?: {
     readonly polynomialDegree?: readonly [number, number];
+    readonly nDer?: 0 | 1 | 2; // SKL order passed to f (B2; default 1)
     readonly tol?: Partial<Tolerances>;
   },
 ): QuadratureResult;
@@ -1741,7 +1792,30 @@ export function surfaceArea(
   ts: TrimmedSurface | NurbsSurface,
   tol?: Partial<Tolerances>,
 ): QuadratureResult;
+/** B2: V = ⅓ Σ σ_f ∫∫ (S − c)·(S_u × S_v) (§11.3) for a closed set the caller vouches for; B4's massProperties adds the closure check. */
+export interface VolumeFace {
+  readonly face: TrimmedSurface | NurbsSurface;
+  readonly sameSense?: boolean; // false: outward normal is −n
+}
+export function enclosedVolume(
+  faces: readonly VolumeFace[],
+  tol?: Partial<Tolerances>,
+): QuadratureResult;
 ```
+
+As built (B2): trim-loop closure is a parameter-space question, so a join gap is
+measured in (u, v) units against `paramRel × max(width, height)` of the loop's
+control-point box (never above `uvTol`, as the loop lies in the domain), not
+against the 3D `point`. `closestPointOnTrimmed` takes, when the surface's minimum
+classifies outside, the nearer of the best local minimum inside the trim (seeding
+and Newton results restricted to inside samples) and the trim loops' images.
+Trim validation and `classifyUV` are certified by subdivision of the
+loops' rational Bézier pieces (convex-hull boxes; `pieces.ts`) at the resolution
+`paramRel · max(L_u, L_v)`; points within `√2` of that of a loop are `'boundary'`,
+every other point is classified exactly by a certified ray-crossing winding number.
+Trim curves are split for integration where they cross surface knot lines (sign
+isolation on the pieces), as §11.3 specifies, without waiting for A1's
+`decomposeBezier` (`pieces.ts` decomposes by A5.1 insertion).
 
 ### 6.17 Triangulation and tessellation [B2]
 
@@ -1791,81 +1865,127 @@ export interface TessellationOptions {
   readonly chordTol: number;
   readonly angleTol: number;
   readonly maxEdge?: number;
+  readonly minEdge?: number; // B2: no split for angleTol below this 3D length (default chordTol)
   readonly nDer?: 0 | 1 | 2;
 }
 export const DEFAULT_TESSELLATION: TessellationOptions; // chordTol 0.01 cm, angleTol 0.1 rad (provisional; Phase 3 tunes)
+export interface BoundarySamples {
+  readonly uv: ArrayLike<number>;
+  readonly loopStarts: ArrayLike<number>;
+  readonly edges?: ArrayLike<number>; // per sample: B-rep edge id (B4)
+}
 export interface FaceMesh {
   readonly uv: ReadonlyF64;
   readonly triangles: ReadonlyU32;
-  readonly boundaryEdge: ReadonlyI32; // per vertex: B-rep edge id, or −1
+  readonly boundaryEdge: ReadonlyI32; // per vertex: B-rep edge id (or trim curve index), or −1
+  readonly boundaryParam: ReadonlyF64; // B2: per vertex, parameter on that trim curve (retarget)
+  readonly loopVertices: ReadonlyU32; // B2: boundary samples' vertices in loop order
+  readonly loopStarts: ReadonlyU32;
+  readonly boundarySource: 'trim' | 'caller';
+  readonly naturalOuter: boolean; // B2: outer = null (retarget checks it)
+  readonly loopCurves: ReadonlyU32; // B2: trim curves per loop (retarget checks it); empty for caller samples
   readonly plan: SurfaceSamplePlan; // all later evaluation, including drags, goes through it
+  readonly position: ReadonlyF64; // B2: the plan's outputs over uv: positions,
+  readonly normal: ReadonlyF64; //     exact normals (nDer ≥ 1),
+  readonly curvature: ReadonlyF64; //  k1 ≥ k2 (nDer = 2),
+  readonly flags: ReadonlyU8; //       SAMPLE_DEGENERATE | SAMPLE_UMBILIC
+  readonly maxChordError: number; // B2: largest measured |linear − S(uv)|
 }
 export function tessellateTrimmedSurface(
   ts: TrimmedSurface,
   opts: TessellationOptions,
-  boundary?: { readonly uv: ArrayLike<number>; readonly loopStarts: ArrayLike<number> },
+  boundary?: BoundarySamples,
 ): Result<FaceMesh>;
-/** Keeps topology while a trim moves; null when a triangle would flip (exact orient2d) ⇒ re-tessellate. */
+/** Keeps topology while a trim moves; null when a triangle would flip (exact orient2d) or the loop structure (naturalOuter, loopCurves) changed ⇒ re-tessellate. */
 export function retargetTessellation(mesh: FaceMesh, ts: TrimmedSurface): FaceMesh | null;
 ```
 
-### 6.18 Continuity [B3] — definitions in §11.4
+### 6.18 Continuity [B3; `brepEdgeContinuity` B4] — definitions in §11.4
 
 ```ts
 export interface EdgeSide {
   readonly surface: NurbsSurface;
-  readonly pcurve: NurbsCurve<2>;
+  readonly pcurve: NurbsCurve<2>; // same parameter domain as the edge curve
   readonly sameSense: boolean;
+  /** Side of the pcurve the face lies on; picks the one-sided limit on a surface knot line. */
+  readonly interior?: Side;
+}
+export interface BoundarySide {
+  readonly surface: NurbsSurface;
+  readonly edge: SurfaceEdge;
+  readonly sameSense: boolean;
+}
+export interface ContinuitySampling {
+  readonly samplesPerSpan?: number; // default: composed degree (deg_u + deg_v)·deg p of the gap, or the edge's degree, + 1
+  readonly refineMax?: boolean; // default true
+  readonly refineSteps?: number; // default 40
+  readonly tol?: Partial<Tolerances>;
+}
+export const DEFAULT_CONTINUITY_SAMPLING: { readonly refineMax: true; readonly refineSteps: 40 };
+export interface ContinuityMeasures {
+  readonly gap: number;
+  readonly normalAngle: number;
+  readonly curvatureMismatch: number;
+  readonly curvature: number; // max(|κ_A|, |κ_B|): the scale of a relative threshold
 }
 export interface ContinuityProfile {
   readonly t: ReadonlyF64;
   readonly gap: ReadonlyF64;
   readonly normalAngle: ReadonlyF64;
   readonly curvatureMismatch: ReadonlyF64;
-  readonly max: {
-    readonly gap: number;
-    readonly normalAngle: number;
-    readonly curvatureMismatch: number;
-  };
-  readonly argmax: {
-    readonly gap: number;
-    readonly normalAngle: number;
-    readonly curvatureMismatch: number;
-  };
+  readonly curvature: ReadonlyF64;
+  readonly flags: ReadonlyU8; // SAMPLE_DEGENERATE: angle and curvatures undefined (read 0)
+  readonly degenerate: number;
+  readonly max: ContinuityMeasures;
+  readonly argmax: ContinuityMeasures; // edge parameters
+  readonly rms: ContinuityMeasures; // arc-length weighted
 }
 export function edgeContinuity(
   edge: NurbsCurve<3>,
   a: EdgeSide,
   b: EdgeSide,
-  opts?: { readonly samplesPerSpan?: number; readonly refineMax?: boolean },
+  opts?: ContinuitySampling,
 ): ContinuityProfile;
+/** Two natural boundaries; B's point is the closest point on its boundary curve. */
+export function boundaryContinuity(
+  a: BoundarySide,
+  b: BoundarySide,
+  opts?: ContinuitySampling,
+): ContinuityProfile;
+/** B4: the edge's two coedges (`interior` from the coedge sense, `sameSense` from the face). */
 export function brepEdgeContinuity(
   b: Brep,
   edge: number,
-  opts?: { readonly samplesPerSpan?: number; readonly refineMax?: boolean },
+  opts?: ContinuitySampling,
 ): ContinuityProfile;
 export interface JoinContinuity {
   readonly gap: number;
   readonly tangentAngle: number;
-  readonly curvatureMismatch: number;
+  readonly curvatureMismatch: number; // |K_b − K_a| of the curvature vectors
+  readonly degenerate: boolean;
 }
 export function curveJoinContinuity(
   a: NurbsCurve<2> | NurbsCurve<3>,
   b: NurbsCurve<2> | NurbsCurve<3>,
+  tol?: Partial<Tolerances>,
 ): JoinContinuity;
-export function knotContinuity(
-  c: NurbsCurve<2> | NurbsCurve<3>,
-  t: number,
-): {
+export interface KnotContinuity {
   readonly parametric: 0 | 1 | 2 | 3; // order of matching one-sided derivatives
   readonly geometric: 0 | 1 | 2;
   readonly jumps: {
     readonly d1: number;
     readonly d2: number;
+    readonly d3: number;
     readonly tangentAngle: number;
     readonly curvature: number;
   };
-};
+  readonly degenerate: boolean;
+}
+export function knotContinuity(
+  c: NurbsCurve<2> | NurbsCurve<3>,
+  t: number,
+  tol?: Partial<Tolerances>,
+): KnotContinuity;
 export interface ContinuityThresholds {
   readonly gap: number;
   readonly angle: number;
@@ -1880,7 +2000,7 @@ export function classifyContinuity(
     readonly curvature: number;
   },
   th: ContinuityThresholds,
-): 'none' | 'G0' | 'G1' | 'G2';
+): 'none' | 'G0' | 'G1' | 'G2'; // G2 iff mismatch ≤ max(curvatureAbs, curvatureRel · curvature)
 ```
 
 ### 6.19 B-rep [B4]
@@ -1904,7 +2024,11 @@ export interface BrepReport {
   };
   readonly signedVolume: number;
 }
-export function checkBrep(b: Brep, tol?: Partial<Tolerances>): BrepReport; // geometric, expensive
+export function checkBrep(
+  b: Brep,
+  tol?: Partial<Tolerances>,
+  sampling?: BrepCheckSampling,
+): BrepReport; // geometric, expensive
 export function orientBrep(b: Brep, tol?: Partial<Tolerances>): Brep; // outward by signed volume
 export function transformBrep(b: Brep, m: Affine3): Brep; // det < 0 flips senses
 export function faceTrimmedSurface(b: Brep, face: number): TrimmedSurface;
@@ -1918,13 +2042,60 @@ export function massProperties(
 };
 export interface BrepMesh {
   readonly faces: readonly FaceMesh[];
-  readonly positions: Float64Array;
+  readonly positions: Float64Array; // per-face blocks; boundary vertices at the shared edge positions
   readonly normals: Float64Array; // render3d converts to Float32 about the centre
   readonly indices: Uint32Array;
-  readonly faceRanges: Uint32Array; // triangle ranges per face
+  readonly faceRanges: Uint32Array; // faces + 1 entries: triangle ranges per face
+  readonly vertexRanges: Uint32Array; // faces + 1 entries (added in B4)
+  readonly weld: Uint32Array; // vertex -> welded id; the welded mesh is a closed 2-manifold (added in B4)
+  readonly maxChordError: number; // added in B4
 }
 export function tessellateBrep(b: Brep, opts: TessellationOptions): Result<BrepMesh>; // edge-first, watertight
 ```
+
+**As built (B4, 2026-10-15)** — what the code settled, with the decisions it needed:
+
+- **Loop and pcurve conventions** (the types left them open; `brep/faces.ts` states them
+  once). A loop's coedges are in _face orientation_: seen from outside, the outer loop runs
+  counter-clockwise and a hole clockwise. A coedge's `pcurve` is parameterised like the
+  edge curve whatever its `sense` (so reversing a loop touches no pcurve). With `sameSense`
+  the loop is also counter-clockwise in (u, v); without it, clockwise: a face's (u, v)
+  trim loop is its face-orientation loop traversed backwards when `sameSense` is false.
+  `interior` for `brepEdgeContinuity` is `'left'` exactly when `sense === sameSense`.
+- **`makeBrep`** also checks that a coedge's pcurve runs over its edge's parameter range
+  (`paramRel`), that the two uses of an edge run in opposite directions, that every vertex
+  belongs to an edge, and the Phase 1 scope (one solid, one closed shell, all faces in it:
+  `unsupported` otherwise). It returns every problem found, located; it throws only for a
+  spec that is not a B-rep spec at all.
+- **`checkBrep`** takes a third argument, `BrepCheckSampling` (`samplesPerSpan`, default the
+  composed degree of the gap function plus one; `refineSteps`, default
+  `DEFAULT_BREP_CHECK_SAMPLING.refineSteps = 40`). A gap above `Tolerances.fit` (an edge
+  against its pcurve images, a vertex against an edge or pcurve end) is an error; below it
+  the number is reported in `edgeGaps` and flows into the STEP uncertainty. A wrong
+  `sameSense` is caught as a trim-loop orientation error; a face flipped _with_ its loop
+  by `makeBrep`'s coherence rule; the whole shell flipped by the sign of `signedVolume`.
+- **`orientBrep`** flips every `sameSense` and reverses every loop when the measured volume
+  is negative (same object back when outward). **`transformBrep`** with a negative
+  determinant does the same flip, because the mirror image of an outward B-rep is
+  inside-out under unchanged flags (the naive mirror is built in `brep.test.ts` to show it).
+- **`massProperties`** integrates the volume by the divergence theorem with the bounding-box
+  centre as reference, and the first moments with the bounding box's **minimum corner**: from
+  the centre a symmetric face's moment integral is zero, its inner integral is rounding noise,
+  and the integrators' stopping rule (relative to `∫|f|`) never converges on noise (measured:
+  22 million evaluations on a cylinder band before the change, 31 ms after).
+- **Periodic faces.** Untrimmed faces keep their periodic surface (decision 29: `outer =
+null`). A trimmed face (and every face written to STEP) is converted to the exactly equal
+  surface clamped in both directions on the same domain, `[t_0, t_0 + T]`, by
+  `brep/clamp.ts` (unroll, A5.1 at the domain ends, trim). That is the surface form of
+  A1's `toClamped`, written on the same book code because A1 is not on this branch yet;
+  when the tracks merge it should call `toClamped` and the module shrinks to the net
+  reshuffling. Pcurves are unchanged by the conversion. Pcurves must stay inside one period.
+- **`tessellateBrep`** samples every edge once (3D chord, angle, `maxEdge`), meshes each
+  face against pcurve images of those samples (`BoundarySamples`, edge ids = welded ids), and
+  overwrites the boundary vertices with the shared 3D positions (edge curve interiors, B-rep
+  vertex points at the ends), so equal welded ids have bitwise equal positions. Faces with
+  `sameSense = false` have their triangles reversed and normals negated. Vertices are kept
+  per face so creases keep two normals; `weld` closes the mesh topologically.
 
 ### 6.20 STEP [B4]
 
@@ -1937,7 +2108,8 @@ export interface StepWriteOptions {
   readonly originatingSystem?: string;
   readonly precision?: 'roundTrip' | number; // default 'roundTrip'; a number = significant digits
   readonly pcurves?: 'always' | 'trimmedOnly'; // default 'always'
-  readonly splitPeriodicFaces?: boolean; // default false
+  readonly tol?: Partial<Tolerances>; // for the gate's checkBrep (B4)
+  // splitPeriodicFaces: deferred (see the as-built note)
 }
 export interface StepStats {
   readonly entities: number;
@@ -1948,13 +2120,44 @@ export interface StepStats {
   readonly maxEdgeGap: number;
 } // file units
 /** Throws brep-invalid (with the report) or step-unsupported. */
-export function writeStep(
-  b: Brep,
-  opts?: StepWriteOptions,
-): { readonly text: string; readonly stats: StepStats; readonly report: BrepReport };
+export interface StepResult {
+  readonly text: string;
+  readonly stats: StepStats;
+  readonly report: BrepReport;
+}
+export function writeStep(b: Brep, opts?: StepWriteOptions): StepResult;
 ```
 
+**As built (B4):** `pcurves: 'trimmedOnly'` leaves a plain 3D curve on an edge that is not a
+seam and whose faces are all untrimmed (natural boundary: four straight pcurves on the four
+sides of the domain); a seam always carries its pcurves. A file written that way cannot be
+read back by `readStepSubset`. `timestamp` defaults to a constant instant (geom has no
+clock; callers pass the real one). The declared uncertainty is `max(2 × max(maxEdgeGap,
+maxVertexGap), Tolerances.point)` in file units, so the floor is 10 nm in model units
+(0.01 µm = `1e-5` mm), not the `1e-7` mm of §14's first draft: a declared accuracy tighter
+than the tolerance the checks themselves use would be a claim nothing measured. `precision`
+applies to coordinates, knots and weights alike; `formatKnots` derives multiplicities from
+the formatted text and refuses (`step-unsupported`) a precision that merges knots into an
+invalid multiplicity. The `tol` option and the defaults are in **model units** (the cm
+defaults are scaled by `scaleTolerances` for `modelUnit: 'mm'`), so the same solid is judged
+alike in either unit. With a numeric `precision` the rounding opens gaps of its own, so the
+writer reads the rounded text back with the subset reader, runs `checkBrep` on it, and
+declares the uncertainty (and `stats.maxEdgeGap`) from those gaps; a rounded file whose gaps
+exceed `Tolerances.fit` is refused (`step-unsupported`). `splitPeriodicFaces` is **not implemented**: it needs B-rep surgery
+(a new edge and two half faces per periodic face), and OCCT 5.3.5 imports the seamed faces
+as valid solids (§15.5), so there is no importer to serve yet; the manual matrix
+(`step-export.md`) is where a need would show up.
+
 ### 6.21 `@openshaper/geom/testing` [from F1, grows per step]
+
+**As built (B4)** the subpath exports `mulberry32`, `checksum`, the random generators,
+`boxSolid(x, y, z, { trimmed? })`, `cylinderSolid(r, h)` (plane caps trimmed by circles),
+`torusSolid`, `sphericalZoneSolid(r, latitude, { split? })`, `plateWithHoleSolid`,
+`writeStepUnchecked`, `readStepSubset` and `MUTATIONS`. **Not built:** `prismSolid`,
+`lensSolid`, `ellipticPuckSolid`, `sphereSolid`, `cylinderSolid`'s `trimmedCaps` option (the
+cylinder always has trimmed caps), `toOcctBrepText` and `testing/occt-brep.ts` (Path A),
+and `solveFairReference` (solver step). The signatures below are the design, not the
+current surface.
 
 ```ts
 export function mulberry32(seed: number): () => number;
@@ -1984,14 +2187,14 @@ export function cylinderSolid(r: number, h: number, opts?: { trimmedCaps?: boole
 export function torusSolid(R: number, r: number): Brep; // V3
 export function sphericalZoneSolid(r: number, latitude: number): Brep; // V4
 export function lensSolid(a: number, b: number, h: number): Brep;
-export function plateWithHoleSolid(L: number, t: number, r: number): Brep;
+export function plateWithHoleSolid(x: number, y: number, z: number, r: number): Brep; // as built: box with a cylindrical through-hole, genus 1
 export function ellipticPuckSolid(
   a: number,
   b: number,
   h: number,
   opts?: { bicubicDeck?: boolean },
 ): Brep; // V5 (integration)
-export function sphereSolid(r: number): Brep; // in memory only; poles outside STEP scope
+export function sphereSolid(r: number): Brep; // NOT BUILT: in memory only; poles outside STEP scope (§15.5)
 export function writeStepUnchecked(b: Brep, opts?: StepWriteOptions): string; // mutation suite only
 export function readStepSubset(text: string): Brep; // reads exactly what writeStep emits; arity-checked
 export function toOcctBrepText(b: Brep): string; // OCCT native BREP format (Path A)
@@ -2316,16 +2519,55 @@ control indices, so per-frame evaluation has no modular arithmetic.
 - **Seeds:** each non-empty span sampled at `2p + 1` parameters (a `(2p + 1)²` grid per
   surface span pair); the three best start Newton. The derivative of the squared
   distance has at most `2p − 1` roots per polynomial span, so this is dense enough in
-  practice; brute-force tests (§16) are the check.
+  practice; brute-force tests (§16) are the check. Cells are visited in order of the
+  distance to their control-point box (a lower bound, convex hull) and the visit stops
+  at the first box farther than the third-best sample, which loses nothing full sampling
+  would find. The density is the option `seeding` (`DEFAULT_PROJECTION_SEEDING`,
+  `{ oversample: 2, starts: 3 }`). **Measured (B1):** sampling is not a proof. On
+  graph- and tube-like nets (control points at their Greville abscissae plus offsets)
+  2 of 2,720 points measured landed on a near-tie, another local minimum within 1% of
+  the global distance; on fully random, self-folding nets (sheets a few hundredths
+  apart) ~2% of points (23 of 1,200) miss, and `{ oversample: 4 }` still misses 8. The
+  brute-force tests hold the default to at most one near-tie per 40 points and
+  `{ oversample: 4, starts: 10 }` to the global minimum.
 - **Newton:** P&T §6.1 for curves, the 2 × 2 system for surfaces; stop on
-  `distance ≤ point`, cosine `≤ cosine`, or a parameter step `≤ paramRel`; damped
-  (Levenberg–Marquardt) when a step increases the distance; clamp on clamped
-  directions and wrap on periodic ones. An iterate leaving the domain switches to 1D
-  Newton on the boundary iso-curve; the better of the two wins.
-- **Trimmed:** if the unconstrained minimum classifies outside, project onto each trim
-  loop's image as a curve on the surface (`onBoundary: 'trim'`).
+  cosine `≤ cosine` or a parameter step `≤ paramRel` (`distance ≤ point` only decides
+  `converged` at the iteration cap: stopping there would leave the parameters off by up
+  to `point/|Su|`); damped (Levenberg–Marquardt, diagonal scaling `λ·diag(G)` so a
+  vanishing `|Su|` at a pole does not freeze the u step) when a step increases the distance;
+  clamp on clamped directions and wrap on periodic ones. A parameter on a bound whose
+  gradient points out is active, and Newton continues as 1D Newton on the bounding
+  iso-curve. Near a minimum the distance is flat to rounding over steps of ~√ε, so a
+  step that raises the distance by at most `point` is accepted when it lowers the
+  zero-cosine measure (decided by the gradient, accurate to ε); without this the
+  parameters stop ~√ε short (measured 2e-9 on a cylinder). **Second order (B1
+  review):** the cosine test also holds at a maximum or saddle, and trivially where a
+  partial vanishes (coincident end control points: a nose or tail), so where it holds
+  the Hessian of the squared distance over the directions with a negligible gradient
+  is checked; a feasible direction of negative curvature `κ` is stepped by
+  `√(−2κ/|S_ee|²)` (the minimum of the quartic model, exact for a zero tangent on a
+  quadratic), halved until the distance drops, and Newton resumes.
+- **C⁰ breaks (B1).** A knot of multiplicity `≥ p` is a crease where the derivative
+  jumps and Newton oscillates. Newton runs inside one C¹ patch (the domain cut at those
+  knots, repeating every period in a periodic direction), its bounds treated like domain
+  bounds; a result held at a break by an outward gradient restarts in the neighbouring
+  patch and moves on while that lowers the distance, so a result that stays is a kink
+  minimum. A seed sampled on its cell's upper end starts in that cell's patch.
+- **Trimmed:** if the unconstrained minimum classifies outside, the trimmed minimum is
+  a local minimum inside the trim or on a trim loop's image: take the nearer of the
+  best inside minimum (seeds from inside samples only, Newton results kept only
+  inside) and the projection onto each trim loop's image as a curve on the surface
+  (`onBoundary: 'trim'`). (B2.)
 - **Batches:** warm start from the previous point's result, falling back to seeding
-  when Newton fails.
+  when Newton fails: a warm result is kept if it converged within the continuity bound
+  `d_i ≤ d_{i−1} + |P_i − P_{i−1}| + point`, which the global minimum always satisfies.
+  A warm batch follows one branch (what a pcurve or a tracked point wants) and can keep
+  it where another becomes closer without breaking the bound; a cold batch is the global
+  answer. A warm result within `point` of the geometry is global, so the samples of a
+  curve lying on a surface are exact. Caller seeds (`seed`, `seeds`) are local
+  projections. (B1 tried using the warm result as the incumbent of a pruned global
+  search instead: every near-surface point then samples all neighbouring cells, whose
+  boxes contain it, and P17 cost 170× the target.)
 - Always returns the best point found, with `converged` and `iterations`.
 
 ### 11.3 Integration over trimmed domains
@@ -2363,14 +2605,43 @@ For an edge with 3D curve `C(t)` and sides `(S_A, p_A)`, `(S_B, p_B)`:
   `|C(t) − S_B(p_B(t))|`.
 - **Normal angle** between the two faces' outward normals (`sameSense` applied),
   via `atan2(|a × b|, a · b)`.
-- **Curvature mismatch** = `|κ_A(b) − κ_B(b)|` where `b = n_A × t̂` is the
-  cross-boundary direction and `κ(b) = II(b, b) / I(b, b)`. For a G1 join the tangent
-  planes coincide, so G2 holds iff the normal curvatures agree across the edge (they
-  already agree along it); the sign of `b` is irrelevant.
-- **Sampling:** `samplesPerSpan` Gauss points (default `degree + 1` of the highest
-  degree involved) on each span of the union of the edge's and both pcurves' knots,
-  plus golden-section refinement round the worst sample (`refineMax`, default true).
-  The full arrays are returned for the Phase 3 join readout.
+- **Curvature mismatch** = `|κ_A(b_A) − κ_B(b_B)|` where `b_X = n_X × t̂` is face X's
+  cross-boundary direction and `κ(b) = σ · II(b, b) / I(b, b)` (`σ` from `sameSense`,
+  so both are against outward normals). For a G1 join the tangent planes coincide
+  (`b_A = ±b_B`), so G2 holds iff the normal curvatures agree across the edge (they
+  already agree along it); the sign of `b` is irrelevant. Taking each face's own
+  `b_X` equals `n_A × t̂` projected into B's tangent plane, and stays defined at a
+  90° crease.
+- **Degenerate samples** (a normal undefined, the edge tangent at its rounding
+  floor, or `t̂` within `angle` of a normal) are flagged; their angle and
+  curvatures read 0 and are left out of maxima and RMS values.
+- **Sampling:** `samplesPerSpan` Gauss points (default the composed degree of the gap,
+  `(deg_u + deg_v) · deg p`, or the edge's degree, if larger, + 1: exact for polynomial sides
+  with polynomial speed, convergent otherwise) on each span of the union of the edge's and
+  both pcurves' knots and of the parameters where a pcurve crosses an interior knot line of
+  its surface (the gap, angle and curvature are only piecewise smooth there; found on the
+  pcurve's Bézier pieces as trimming does) (for `boundaryContinuity`, A's boundary knots and
+  B's mapped onto A by projection).
+  The **RMS** is arc-length weighted, `√(Σ wᵢ |C′(tᵢ)| mᵢ² / Σ wᵢ |C′(tᵢ)|)`: the
+  quadrature of `√(∫ m² ds / ∫ ds)`, independent of the edge's parameterisation.
+  With `refineMax` (default true) the **maximum** also includes both ends (the
+  vertices) and a golden-section search (`refineSteps`, default 40) between the
+  neighbours of the worst sample. The full arrays are returned for the Phase 3 join
+  readout.
+- **Boundaries.** `boundaryContinuity` uses A's boundary curve as the edge and finds
+  B's point by globally seeded projection onto B's boundary curve (a warm start's
+  continuity bound does not exclude a wrong local foot at Gauss-point spacing), so
+  the boundaries may run in opposite directions with different parameterisations;
+  the gap is measured from A.
+- **Along curves.** `knotContinuity` compares one-sided derivatives: `C^(k)` agrees
+  when its jump is within `degenerateRel · M · ρ · Σⱼ |N_j^(k)(t)|` (the rounding
+  scale of that derivative: span magnitude `M`, weight ratio `ρ`; for a rational span at
+  least the floor propagated through the quotient rule from the homogeneous derivatives,
+  since `Σ|N_j^(k)| = 0` for `k > p` while the rational `C^(k)` is not zero), so a designed
+  C^k join reads C^k exactly. Geometric: G1 when the unit tangents agree within
+  `angle`, G2 when the curvature vectors `K = (C″ − (C″·T)T)/|C′|²` also agree within
+  the propagated floor. `curveJoinContinuity` measures gap, tangent angle and
+  `|K_b − K_a|` where one curve's end meets the next one's start.
 
 ### 11.5 Tessellation
 
@@ -2391,6 +2662,25 @@ For an edge with 3D curve `C(t)` and sides `(S_A, p_A)`, `(S_B, p_B)`:
 5. **Plan:** a `SurfaceSamplePlan` over the final uv, ordered span-major.
 6. **Retarget during a drag:** boundary samples keep their trim parameters, triangles
    are checked with exact `orient2d`, and only a flip forces a re-tessellation.
+
+As built (B2), for a single face (B4 adds the edge-first B-rep pass; until then a
+caller shares an edge by passing the same `BoundarySamples` to both faces, which is
+bitwise watertight only for faces on the same surface: faces on different surfaces
+evaluate their own surfaces at the shared (u, v), so their shared vertices agree only
+to the surfaces' gap along the edge):
+
+- Trim curves are sampled adaptively before the CDT (chord to the curve's image and
+  to the surface along the straight (u, v) chord, angle, `maxEdge`, local seed
+  spacing), so constrained edges already meet the tolerances and refinement splits
+  only unconstrained edges (at the knot line an edge crosses nearest its midpoint,
+  else at the midpoint) and inserts centroids.
+- **Normal discontinuities.** The angle test compares one-sided normals: a vertex
+  on a knot line is evaluated from the side the edge leaves it, so a crease at a C0
+  knot is seen only by edges that straddle it, and those are split on the line.
+  Folds and singular points cannot meet any angle test, so edges shorter than
+  `minEdge` (default `chordTol`) are not split for the angle; without the floor a
+  random bi-quadratic grew to 1.8 × 10⁵ triangles and a C0 roof to 2.2 × 10⁴
+  (now ~3 × 10³ and 96).
 
 ---
 
@@ -2449,11 +2739,12 @@ merging) and classification.
 
 **Scope:** manifold solids with one closed outer shell; faces with an outer loop and
 holes; closed edges (start = end); seam edges (used twice by one face). **Out of
-scope:** collapsed edges and poles, voids, open shells, non-manifold topology.
+scope:** collapsed edges and poles, voids, open shells, non-manifold topology,
+disconnected shells.
 
 `makeBrep` (cheap, structural): ids in range, non-empty loops, edge endpoint
 consistency, loop closure in vertex order (respecting `sense`), every edge used
-exactly twice (a seam twice by one face).
+exactly twice (a seam twice by one face), and the faces edge-connected (one piece).
 
 `checkBrep` (expensive, geometric) adds:
 
@@ -2466,12 +2757,25 @@ exactly twice (a seam twice by one face).
 5. Euler–Poincaré `V − E + F − (L − F) = 2(S − G)`, with `G` checked against the
    declared genus or reported as derived (must be a non-negative integer);
 6. outward orientation: `signedVolume > 0` (for a connected, coherently oriented
-   closed shell the sign decides the global orientation).
+   closed shell the sign decides the global orientation; `makeBrep` guarantees the
+   connectivity, because a torus beside an inside-out box passes Euler–Poincaré with a
+   compensating genus and its summed volume hides the flipped part).
 
 Checks 4 and 6 catch every orientation error that OCCT's STEP reader heals (§15). A
 defect-injection catalogue mutates valid B-reps (flip a face sense, flip a coedge,
 reverse a loop, drop a face, move a vertex, corrupt a weight) and asserts each is
 detected.
+
+**As built (B4):** `testing/mutations.ts` holds eleven mutations (the six above plus offset
+an edge curve, reverse a pcurve, declare a wrong genus, reverse a hole loop, reverse a hole
+pcurve; the two hole ones are `'n/a'` on a solid without a hole), each tagged with the layer that
+must reject it (`makeBrep` for the structural ones, `checkBrep` for the geometric ones;
+reversing "one loop" of a one-face solid reverses the whole shell, so only the measured
+volume catches it) and run against every solid of the corpus. A weight inside the net moves
+no edge and cannot be seen by any edge check; the weight mutation therefore scales the last
+control point in both directions, which lies on two edges whatever the bases. Check 3's
+trim-loop validity reports a wrong loop orientation as `trim-orientation`; items 1 and 2 use
+`Tolerances.fit` as the error limit.
 
 ---
 
@@ -2506,13 +2810,14 @@ import them from geom).
 
 - Periodic curves and surfaces are written clamped through the exact `toClamped` at a
   seam, closed by a `SEAM_CURVE` edge with exact degree-1 pcurves; `closed_curve`,
-  `u_closed`, `v_closed` state the geometric truth. `splitPeriodicFaces: true` emits
-  two faces per periodic surface instead, for importers that dislike seams.
+  `u_closed`, `v_closed` state the geometric truth. `splitPeriodicFaces: true` (two
+  faces per periodic surface, for importers that dislike seams) is deferred, see §6.20.
 - `master_representation` is `.CURVE_3D.` where the 3D curve defines the edge (iso
   and boundary rows) and `.PCURVE_S1.` / `.PCURVE_S2.` where a parameter-space trim
   does.
-- **Uncertainty is measured:** `2 × max(maxEdgeGap, maxVertexGap)` from `checkBrep`,
-  floored at 1e-7 mm, in file units. OCCT then has no gap to heal, and the validator
+- **Uncertainty is measured:** `2 × max(maxEdgeGap, maxVertexGap)` from `checkBrep`
+  (of the B-rep as written, when `precision` rounds),
+  floored at `Tolerances.point` (as built, B4; the first draft said 1e-7 mm), in file units. OCCT then has no gap to heal, and the validator
   can tell real tolerance growth from declared uncertainty.
 - **Refusal:** `writeStep` runs `checkBrep` and throws `brep-invalid` (carrying the
   report); `step-unsupported` for collapsed edges or open shells.
@@ -2527,7 +2832,13 @@ import them from geom).
 - `step/schema.ts` records every emitted entity's attribute count and kinds;
   `readStepSubset` enforces it (OCCT only warns on malformed entities).
 - **Not in Phase 1:** colours and names (`STYLED_ITEM`), assemblies, AP242/PMI,
-  `BREP_WITH_VOIDS`, collapsed edges, STEP reading in the product.
+  `BREP_WITH_VOIDS`, collapsed edges, and a STEP reader as a product feature (no
+  import path, no public export). **As built (B4):** `step/read.ts` is nevertheless part of
+  the production bundle, because `writeStep` imports it: with a numeric `precision` the
+  writer reads its own rounded text back to measure the gaps the rounding opened (§6.20).
+  It is exported to callers only through `./testing`, reads exactly what `writeStep` emits,
+  and is not a general STEP importer. Splitting a smaller internal parser out of it is
+  possible if bundle size ever matters; nothing imports geom yet.
 
 ---
 
@@ -2635,6 +2946,82 @@ init ≈ 0.13–0.2 s, small solids import in 0.01–0.2 s. STEP files go to
    bitwise round trip.
 5. Never vendor the WASM into git. Worth upstreaming: exposing GProp's epsilon.
 
+### 15.5 Results (B4, 2026-10-15, `occt-wasm` 5.3.5 on Node 22.22)
+
+The WASM runs here without workaround (init 0.14 s; a corpus solid imports in 5 to 180 ms),
+so the validator is real, not the stopgap of §15.4: `pnpm --filter @openshaper/geom
+test:occt` is 37 tests, all passing, in about 7 s.
+
+**What runs** (`src/step/step.occt.test.ts`). For each of twelve corpus solids (V1 box and
+trimmed box, V2 cylinder, V3 torus, V4 zone and split zone, a plate with a cylindrical hole
+and its mirror, a mirrored cylinder and zone, a rotated cylinder and trimmed box) written with the file unit mm and again with cm: B1 type,
+B2 `isValid`, B3 counts (1 solid, 1 shell, faces / edges / vertices = `StepStats`), B4 tolerance
+growth (the largest `Ve` / `Ed` tolerance in OCCT's BREP text is at most twice the declared
+uncertainty, itself at least `Tolerances.point` = 1e-5 mm), B5 edge curves (each of ours equals
+an OCCT edge parameter by parameter at 9 samples, 1e-6 mm), B6 surfaces (each OCCT face equals one
+of ours at a 5 × 5 grid over its `uvBounds`, 1e-6 mm), B8 volume, plus `containsPoint` inside
+and outside probes. Writer options are exercised on box, cylinder and split zone
+(`trimmedOnly` pcurves, inch file unit, 9 digits) with B1, B2, B3 (counts) and B4 (tolerance
+growth against the uncertainty declared for _that_ write, converted from its file unit; with
+`precision` it is the one measured on the rounded text, with `trimmedOnly` OCCT computes
+the missing pcurves itself) as well as the volume bound. Four mutations of a good file are
+pinned; each must be refused by our own pipeline for the stated reason (the subset reader's
+structural validation or `checkBrep`), not by a lexical error, and a mutated file is built
+with the writer's own REAL formatter so it is well formed.
+
+**The task's "sphere from rational patches" is the zone.** A closed pole-free sphere needs
+either the six-patch rational biquartic cube-sphere (Cobb) or collapsed pole edges. The
+first is a derivation of its own and the second is `step-unsupported` in the writer (§14:
+no collapsed edges), so a full `sphereSolid` is not built and the sphere case of the brief is
+served by `sphericalZoneSolid` (V4, `|z| ≤ r sin φ`): its curved face is a patch of the sphere
+of radius `r`, written as rational quadratic patches, closed by planar caps, and with
+`split: true` as two patches. What remains unexercised is the pole-free closed sphere
+itself (V6, with the poles, waits for its milestone). **B7** and Path A (`toOcctBrepText`, the unhealed native BREP) are **not built**: B7
+compares two OCCT volumes of one solid through different paths; the mesh-volume oracle
+below carries the accuracy claim in the meantime. V5 (fitted pcurve, integration) and V6
+(poles) wait for their milestones; the polynomial prism and lens of the corpus table are not
+built (the box covers the polynomial case). The plate with a hole (`FACE_BOUND` loops on two
+planar faces, the hole wall a seamed cylinder with `sameSense = false`) is built and passes
+every OCCT check, in the file and mirrored.
+
+**Measured** (model cm, file mm, exact volume = closed form):
+
+| solid      | `getVolume` vs exact | OCCT mesh volume vs exact (0.01 mm deflection) | our `massProperties` |
+| ---------- | -------------------- | ---------------------------------------------- | -------------------- |
+| box        | 0.000 %              | 0.0000 %                                       | exact to 1e-13       |
+| cylinder   | +0.792 %             | −0.0074 %                                      | 1e-9 (31 ms)         |
+| zone       | +0.823 %             | −0.0483 %                                      | 1e-9 (0.5 s)         |
+| split zone | +0.555 %             | −0.0418 %                                      | 1e-9 (0.4 s)         |
+| torus      | +0.194 %             | −0.0257 %                                      | 1e-9 (0.17 s)        |
+
+So §15.2's finding stands on the rational solids: GProp's default volume is 0.2 to 0.8 %
+off, and the mesh volume is the usable oracle. Its bound in the test is `curved area ×
+deflection` plus the Float32 rounding of the returned positions (`2⁻²³` of the extent over the
+area): every point of an inscribed mesh is within the deflection of the surface, and planar
+faces mesh exactly. The measured errors are well inside it.
+
+**Observed behaviour worth knowing.**
+
+- Every corpus solid imports as **one valid solid at the tolerance 1e-7 mm** (OCCT's
+  floor), including the doubly periodic torus (one face, two seams, one vertex), the
+  seamed bands with `u_closed`, and the mirrored copies with opposite `same_sense`.
+- OCCT converts a closed clamped circle edge into a **periodic** B-spline (knots
+  0, ¼, ½, ¾, 1, multiplicity 2) on the same parameter range `[0, 1]` and the same
+  points; encodings are therefore compared by evaluation (B5), not by knot lists.
+- `uvBounds` is the face's _trimmed_ extent (a cap trimmed by a circle of radius 1.5 on a
+  plane with domain ±3 reports ±1.5), and parameters are not unit-scaled by the importer
+  (lengths are: cm model → mm file), which is what the writer relies on.
+- The mutation verdicts of §15.2 reproduce: a flipped `same_sense` or a flipped
+  `ORIENTED_EDGE` imports as a valid solid with the same volume (the writer's gate and
+  `readStepSubset` + `checkBrep` reject both), a vertex moved 0.5 mm off its edges and a
+  rational weight changed from 0.7071 to 0.6 import valid but with the shape tolerance grown past
+  the declared uncertainty (B4 sees them). Each assertion is pinned, so an `occt-wasm`
+  change shows as a failing test.
+- `getVolume` aside, nothing needed a workaround, and no file was rejected. The OCCT
+  mutations are text edits of a good file (`writeStepUnchecked` writes the catalogue's
+  Brep-level mutations in `step.test.ts`, where `readStepSubset` + `checkBrep` must reject
+  each file).
+
 ---
 
 ## 16. Oracle catalogue
@@ -2648,31 +3035,31 @@ seeded `mulberry32` and print the failing seed. Cross-cutting tests: public-API 
 and after every public operation), finiteness of every output, `*Into` kernels equal
 their wrappers bit for bit.
 
-| Module                | Oracle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Tolerance and why                                                                                                                                                                                                                                       |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | --- |
-| `basis`               | P&T Ex. 2.3 (`U = {0,0,0,1,2,3,4,4,5,5,5}`, p = 2, u = 5/2 → 1/8, 6/8, 1/8) and Ex. 2.4 derivatives; Bézier knots give Bernstein polynomials in closed form; A2.4 vs A2.2                                                                                                                                                                                                                                                                                                                                                                                                     | `4(p+1)ε` absolute: A2.2 sums p + 1 terms of O(1) relative error. Book examples exact in binary fractions: bitwise.                                                                                                                                     |
-| `basis` (properties)  | Partition of unity, non-negativity, derivative sums 0; `findSpan` vs linear scan incl. `u = b` and every multiplicity, both sides                                                                                                                                                                                                                                                                                                                                                                                                                                             | `4(p+1)ε`; spans exact.                                                                                                                                                                                                                                 |
-| `book/curve`, `curve` | Bézier vs closed-form Bernstein sum and its exact derivatives; rational circle (A7.1, 9-point and periodic 8-point): `\|C(t) − c\| = r`; ellipse as affine image; affine invariance                                                                                                                                                                                                                                                                                                                                                                                           | Radius `64 ε r`: ~10 flops and one division per coordinate; a wrong weight errs ≥ 1e-3 r. Bernstein `64 ε · scale · p!` for derivatives.                                                                                                                |
-| `curve` (derivatives) | Central differences with Richardson extrapolation inside spans; one-sided derivatives at C⁰ knots equal the split halves' end derivatives; multi-span rational: A7.1 arcs of 1–4 segments against the half-angle closed form to C‴, both sides of every knot                                                                                                                                                                                                                                                                                                                  | 1e-8 rel for C′, C″ and C‴ (truncation ~h⁴ ≈ 1e-12, cancellation ~ε/h² ≈ 2e-10 at h = 2⁻¹⁰ of the span), relative to the local `max(\|C⁽ᵏ⁾(t)\|, \|C⁽ᵏ⁻¹⁾(t)\|/span)`; one-sided: `1e-13 · scale`; closed form: `64 ε · M · ρ^(k+1) · p!/(p−k)! / h^k`. |
-| `curve-measure`       | Circle curvature `1/r`, length `2πr`; parabola curvature `2/(1+4x²)^{3/2}`, length `x√(1+4x²)/2 + asinh(2x)/4`; ellipse curvature; `paramAtLength(lengthAtParam(t)) = t`                                                                                                                                                                                                                                                                                                                                                                                                      | Curvature `1e-12` rel (two derivative evaluations, one division); length `10 · quadRel` rel (GK estimate is not a bound: 10× margin); inverse `paramRel`.                                                                                               |
-| `curve-ops`           | Shape invariance under insert, refine, elevate, split, reverse∘reverse, reparameterise, `toClamped`, Bézier decomposition, at 1,000 params and every knot; counts `m = n + p + 1`; P&T Ex. 5.1 (insertion) fixtures; eq. 5.36 Bézier elevation closed form; `makeCompatible` keeps shapes; periodic middle-period consistency; removal of an inserted knot recovers the curve; a lossy removal's bound ≥ dense-sampled deviation                                                                                                                                              | `1e-13 · scale`: each op is convex combinations (~ε per step) chained ≤ 100 times; book fixtures bitwise where exact in binary.                                                                                                                         |
-| `surface`             | Rational sphere (A8.1): radius `r`; torus: points on the torus; cylinder; plane; `z = xy` bilinear; cone from a revolved line; Bézier patches vs the closed-form Bernstein double sum with the quotient rule written out (to second order); linear precision (Greville nets reproduce `(u, v, uv)` on random knots); vs A2.4 summed over the net; partials vs Richardson differences; one-sided partials at a C⁰ knot line vs the Bézier halves; invariance under A5.1 per row/column; iso-curve equals the surface at the fixed parameter; boundary curve equals the net row | `64 ε r` for radii; Bézier `64 ε · M · ρ^(k+l+1) · (2p)^k (2q)^l`; iso (`u` fixed) bitwise, (`v` fixed) and boundary `1e-14 · scale` (same arithmetic re-associated); FD `1e-8` of the local scale; insertion `1e-13 · scale`.                          |
-| `surface-measure`     | Sphere `k₁ = k₂ = −1/r`, `K = 1/r²`; torus `k = −1/r` and `−cos v/(R + r cos v)`, `K = cos v/(r(R + r cos v))`, directions along meridian and parallel; cylinder `(0, −1/r)`, zero direction along the axis; plane 0; `z = xy`: every form coefficient, `K = −1/(1+x²+y²)²`; paraboloid, saddle and elliptic paraboloid (graph formulas); Weingarten `L = −Su·n_u` … vs differences of the normal; Euler's theorem; `limitNormal` at sphere poles = ±axis                                                                                                                     | `1e-12` rel: second derivatives of rational patches lose ~3 digits to the quotient rule. Normals `1e-13`; directions `1e-10` (eigenvector error ~ rounding/gap); FD `1e-8` of the local scale, step resolving `κ·                                       | Su  | `.  |
-| `plan`                | `evalSurfacePlan` = `surfaceEvalInto` bitwise; dirty update after random edits = full re-evaluation bitwise; touched set = brute-force support; `planMatches` false after insertion                                                                                                                                                                                                                                                                                                                                                                                           | Exact: same arithmetic in the same order.                                                                                                                                                                                                               |
-| `quadrature`          | GL nodes vs Abramowitz–Stegun tables; exact on monomials to degree `2n − 1`; adaptive vs closed forms (∫ rational, ∫ √, ∫ with a kink at a break)                                                                                                                                                                                                                                                                                                                                                                                                                             | Nodes `4ε`; monomials `4nε` rel; adaptive `10 · quadRel` rel.                                                                                                                                                                                           |
-| `primitives`          | Exactness above; `conicArc` ρ = 0.5 is a parabola; ρ vs eccentricity; `revolve` of a line is a cone with the right half-angle                                                                                                                                                                                                                                                                                                                                                                                                                                                 | `64 ε · scale`.                                                                                                                                                                                                                                         |
-| `fit`                 | Interpolation passes through the data; **polynomial reproduction** (data from a degree-≤ p polynomial gives that polynomial); end derivatives exact; periodic interpolation C^(p−1) at the seam; LSQ optimality (normal-equation residual) and agreement with dense QR; constraints exact; **convergence** of error ∝ h^(p+1) fitting sin and circle data                                                                                                                                                                                                                     | Data `1e-12 · scale` (collocation condition ~10–100); reproduction `1e-10 · scale` (normal equations square it); constraints `constraint`; convergence slope within ±0.3 of p + 1.                                                                      |
-| `solver`              | **Holladay:** knots at the data sites, `bend` only on shape ⇒ the natural cubic spline (reference path); planar data ⇒ plane with zero energy; DOF rules bitwise (`===`) where §10.3 says so; `offsetFrom` neighbours keep the apex normal within `angle`; target = current ⇒ x unchanged; range-space vs `solveFairReference`; KKT stationarity; rigid-motion equivariance; mirror-symmetric input ⇒ symmetric output; separable and coupled paths agree; dependent and inconsistent rows reported with the right indices                                                    | Range-space vs reference `1e-9` rel (Schur path error ~cond·ε ≈ 2e-10 at cond 10⁶ after scaling); residual `constraint`; bitwise where stated.                                                                                                          |
-| `project`             | Points built as `S(u*, v*) + d·n` with `\|d\| < 1/κ_max` on sphere, cylinder, torus project to `(u*, v*)` at distance `\|d\|`; circle: radial foot; random points vs dense sampling + Newton brute force; `converged` honest                                                                                                                                                                                                                                                                                                                                                  | Parameter `1e-12` rel of the domain; distance `point`; brute force agreement `1e-9 · scale`.                                                                                                                                                            |
-| `curve-on-surface`    | `v = const` on a cylinder is an exact circle; chain-rule derivatives vs finite differences; `isoLinePcurve` exact; fitted pcurve and 3D edge: reported `maxDeviation` / `maxError` honest against 4× denser sampling                                                                                                                                                                                                                                                                                                                                                          | Exact cases `64 ε · scale`; FD `1e-8` rel; honesty: dense max ≤ reported × 1.01 and reported ≤ `fit` when `withinTolerance`.                                                                                                                            |
-| `trim`                | Trimmed disc area `πr²`; square with circular hole `a² − πr²`; rejects CW outer (re-oriented with warning), self-intersection, open loops, holes outside; `classifyUV` vs winding number                                                                                                                                                                                                                                                                                                                                                                                      | Areas `10 · quadRel` rel (rational pcurves) or `1e-13` rel (polynomial: exact rule); classification exact (exact predicates).                                                                                                                           |
-| `predicates`          | Exact BigInt determinant sign on random, 1-ulp-perturbed, cocircular and large-offset inputs; fixed CCW triples give > 0                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Exact sign.                                                                                                                                                                                                                                             |
-| `cdt`                 | Every constraint present; every triangle strictly CCW; local Delaunay on unconstrained edges (exact incircle); symmetric half-edges; Euler `T = 2V − B − 2 + 2H`; area sum = shoelace; differential vs `delaunator` (general position: same triangle sets) and `constrainautor` (unique CDT: same edge sets) on 10⁴ seeded cases; adversarial: points on segments, collinear chains, 1-ulp near-duplicates, cocircular grids, slivers                                                                                                                                         | Exact; area `1e-12` rel (summation).                                                                                                                                                                                                                    |
-| `tessellate`          | Chord error ≤ `chordTol` at centroids and edge midpoints (by projection); shared edge vertices bitwise identical across faces; Euler characteristic 2 (lens, cylinder) and 0 (torus); mesh volume converges at O(h²)                                                                                                                                                                                                                                                                                                                                                          | Chord as stated; watertight exact; convergence ratio 3.5–4.5 per halving.                                                                                                                                                                               |
-| `integrate`, `mass`   | Polynomial prism (exact rational volume), lens `πabh`, sphere `4/3 πr³`, torus `2π²Rr²`, cylinder with trimmed caps `πr²h`, plate with hole `(4L² − πr²)t`, spherical cap area `2πrh`; polynomial volume unchanged from n to n + 5 GL points; translation by 100 cm leaves volume unchanged; flipped orientation negates it                                                                                                                                                                                                                                                   | Polynomial `1e-12` rel (exact rule, ~10³ summed terms); rational `10 · quadRel` rel; translation `1e-12` rel.                                                                                                                                           |
-| `continuity`          | Two planes hinged at θ: angle θ; plane tangent to a cylinder: G1 with mismatch exactly `1/r`; a patch split by knot insertion: zeros; a deliberate gap δ reads δ; lens rail dihedral `cos φ = (4h²/a² − 1)/(4h²/a² + 1)`; `knotContinuity` on designed C⁰/C¹/C²/G1 joins (G1 with speed ratio ≠ 1 is G1, not C1)                                                                                                                                                                                                                                                              | Angles `1e-12` rad; gaps `point`; mismatch `1e-12` rel.                                                                                                                                                                                                 |
-| `brep`                | Euler on the corpus; defect-injection catalogue (§13) all detected; `edgeGaps` equal independently sampled deviations                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Exact; gaps `1e-12 · scale`.                                                                                                                                                                                                                            |
-| `step`                | `readStepSubset(writeStep(b))` bitwise equals `b`; byte-identical output for the same timestamp; Part 21 lexical rules (reals contain `.`; strings escaped); no dangling or unused ids; complex sub-entity order; arity table; **OCCT protocol (§15) on the corpus**                                                                                                                                                                                                                                                                                                          | Bitwise; OCCT checks as in §15.3.                                                                                                                                                                                                                       |
+| Module                | Oracle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Tolerance and why                                                                                                                                                                                                                                       |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | --- |
+| `basis`               | P&T Ex. 2.3 (`U = {0,0,0,1,2,3,4,4,5,5,5}`, p = 2, u = 5/2 → 1/8, 6/8, 1/8) and Ex. 2.4 derivatives; Bézier knots give Bernstein polynomials in closed form; A2.4 vs A2.2                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | `4(p+1)ε` absolute: A2.2 sums p + 1 terms of O(1) relative error. Book examples exact in binary fractions: bitwise.                                                                                                                                     |
+| `basis` (properties)  | Partition of unity, non-negativity, derivative sums 0; `findSpan` vs linear scan incl. `u = b` and every multiplicity, both sides                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | `4(p+1)ε`; spans exact.                                                                                                                                                                                                                                 |
+| `book/curve`, `curve` | Bézier vs closed-form Bernstein sum and its exact derivatives; rational circle (A7.1, 9-point and periodic 8-point): `\|C(t) − c\| = r`; ellipse as affine image; affine invariance                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Radius `64 ε r`: ~10 flops and one division per coordinate; a wrong weight errs ≥ 1e-3 r. Bernstein `64 ε · scale · p!` for derivatives.                                                                                                                |
+| `curve` (derivatives) | Central differences with Richardson extrapolation inside spans; one-sided derivatives at C⁰ knots equal the split halves' end derivatives; multi-span rational: A7.1 arcs of 1–4 segments against the half-angle closed form to C‴, both sides of every knot                                                                                                                                                                                                                                                                                                                                                                                 | 1e-8 rel for C′, C″ and C‴ (truncation ~h⁴ ≈ 1e-12, cancellation ~ε/h² ≈ 2e-10 at h = 2⁻¹⁰ of the span), relative to the local `max(\|C⁽ᵏ⁾(t)\|, \|C⁽ᵏ⁻¹⁾(t)\|/span)`; one-sided: `1e-13 · scale`; closed form: `64 ε · M · ρ^(k+1) · p!/(p−k)! / h^k`. |
+| `curve-measure`       | Circle curvature `1/r`, length `2πr`; parabola curvature `2/(1+4x²)^{3/2}`, length `x√(1+4x²)/2 + asinh(2x)/4`; ellipse curvature; `paramAtLength(lengthAtParam(t)) = t`                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Curvature `1e-12` rel (two derivative evaluations, one division); length `10 · quadRel` rel (GK estimate is not a bound: 10× margin); inverse `paramRel`.                                                                                               |
+| `curve-ops`           | Shape invariance under insert, refine, elevate, split, reverse∘reverse, reparameterise, `toClamped`, Bézier decomposition, at 1,000 params and every knot; counts `m = n + p + 1`; P&T Ex. 5.1 (insertion) fixtures; eq. 5.36 Bézier elevation closed form; `makeCompatible` keeps shapes; periodic middle-period consistency                                                                                                                                                                                                                                                                                                                | `1e-13 · scale`: each op is convex combinations (~ε per step) chained ≤ 100 times; book fixtures bitwise where exact in binary.                                                                                                                         |
+| `surface`             | Rational sphere (A8.1): radius `r`; torus: points on the torus; cylinder; plane; `z = xy` bilinear; cone from a revolved line; Bézier patches vs the closed-form Bernstein double sum with the quotient rule written out (to second order); linear precision (Greville nets reproduce `(u, v, uv)` on random knots); vs A2.4 summed over the net; partials vs Richardson differences; one-sided partials at a C⁰ knot line vs the Bézier halves; invariance under A5.1 per row/column; iso-curve equals the surface at the fixed parameter; boundary curve equals the net row                                                                | `64 ε r` for radii; Bézier `64 ε · M · ρ^(k+l+1) · (2p)^k (2q)^l`; iso (`u` fixed) bitwise, (`v` fixed) and boundary `1e-14 · scale` (same arithmetic re-associated); FD `1e-8` of the local scale; insertion `1e-13 · scale`.                          |
+| `surface-measure`     | Sphere `k₁ = k₂ = −1/r`, `K = 1/r²`; torus `k = −1/r` and `−cos v/(R + r cos v)`, `K = cos v/(r(R + r cos v))`, directions along meridian and parallel; cylinder `(0, −1/r)`, zero direction along the axis; plane 0; `z = xy`: every form coefficient, `K = −1/(1+x²+y²)²`; paraboloid, saddle and elliptic paraboloid (graph formulas); Weingarten `L = −Su·n_u` … vs differences of the normal; Euler's theorem; `limitNormal` at sphere poles = ±axis                                                                                                                                                                                    | `1e-12` rel: second derivatives of rational patches lose ~3 digits to the quotient rule. Normals `1e-13`; directions `1e-10` (eigenvector error ~ rounding/gap); FD `1e-8` of the local scale, step resolving `κ·                                       | Su  | `.  |
+| `plan`                | `evalSurfacePlan` = `surfaceEvalInto` bitwise; dirty update after random edits = full re-evaluation bitwise; touched set = brute-force support; `planMatches` false after insertion                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Exact: same arithmetic in the same order.                                                                                                                                                                                                               |
+| `quadrature`          | GL nodes vs Abramowitz–Stegun tables; exact on monomials to degree `2n − 1`; adaptive vs closed forms (∫ rational, ∫ √, ∫ with a kink at a break)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Nodes `4ε`; monomials `4nε` rel; adaptive `10 · quadRel` rel.                                                                                                                                                                                           |
+| `primitives`          | Exactness above; `conicArc` ρ = 0.5 is a parabola; ρ vs eccentricity; `revolve` of a line is a cone with the right half-angle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | `64 ε · scale`.                                                                                                                                                                                                                                         |
+| `fit`                 | Interpolation passes through the data; **polynomial reproduction** (data from a degree-≤ p polynomial gives that polynomial); end derivatives exact; periodic interpolation C^(p−1) at the seam; LSQ optimality (normal-equation residual) and agreement with dense QR; constraints exact; **convergence** of error ∝ h^(p+1) fitting sin and circle data                                                                                                                                                                                                                                                                                    | Data `1e-12 · scale` (collocation condition ~10–100); reproduction `1e-10 · scale` (normal equations square it); constraints `constraint`; convergence slope within ±0.3 of p + 1.                                                                      |
+| `solver`              | **Holladay:** knots at the data sites, `bend` only on shape ⇒ the natural cubic spline (reference path); planar data ⇒ plane with zero energy; DOF rules bitwise (`===`) where §10.3 says so; `offsetFrom` neighbours keep the apex normal within `angle`; target = current ⇒ x unchanged; range-space vs `solveFairReference`; KKT stationarity; rigid-motion equivariance; mirror-symmetric input ⇒ symmetric output; separable and coupled paths agree; dependent and inconsistent rows reported with the right indices                                                                                                                   | Range-space vs reference `1e-9` rel (Schur path error ~cond·ε ≈ 2e-10 at cond 10⁶ after scaling); residual `constraint`; bitwise where stated.                                                                                                          |
+| `project`             | Points built as `S(u*, v*) + d·n` with `\|d\| < 1/κ_max` on sphere, cylinder, torus project to `(u*, v*)` at distance `\|d\|`; circle: radial foot; random points vs dense sampling + Newton brute force; `converged` honest                                                                                                                                                                                                                                                                                                                                                                                                                 | Parameter `1e-12` rel of the domain; distance `point`; brute force agreement `1e-9 · scale`.                                                                                                                                                            |
+| `curve-on-surface`    | `v = const` on a cylinder is an exact circle; chain-rule derivatives vs finite differences; `isoLinePcurve` exact; fitted pcurve and 3D edge: reported `maxDeviation` / `maxError` honest against 4× denser sampling                                                                                                                                                                                                                                                                                                                                                                                                                         | Exact cases `64 ε · scale`; FD `1e-8` rel; honesty: dense max ≤ reported × 1.01 and reported ≤ `fit` when `withinTolerance`.                                                                                                                            |
+| `trim`                | Trimmed disc area `πr²`; square with circular hole `a² − πr²`; rejects CW outer (re-oriented with warning), self-intersection, open loops, holes outside; `classifyUV` vs winding number                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Areas `10 · quadRel` rel (rational pcurves) or `1e-13` rel (polynomial: exact rule); classification exact (exact predicates).                                                                                                                           |
+| `predicates`          | Exact BigInt determinant sign on random, 1-ulp-perturbed, cocircular and large-offset inputs; fixed CCW triples give > 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Exact sign.                                                                                                                                                                                                                                             |
+| `cdt`                 | Every constraint present; every triangle strictly CCW; local Delaunay on unconstrained edges (exact incircle); symmetric half-edges; Euler `T = 2V − B − 2 + 2H`; area sum = shoelace; differential vs `delaunator` (general position: same triangle sets) and `constrainautor` (unique CDT: same edge sets) on 10⁴ seeded cases; adversarial: points on segments, collinear chains, 1-ulp near-duplicates, cocircular grids, slivers                                                                                                                                                                                                        | Exact; area `1e-12` rel (summation).                                                                                                                                                                                                                    |
+| `tessellate`          | Chord error ≤ `chordTol` at centroids and edge midpoints (by projection); shared edge vertices bitwise identical across faces; Euler characteristic 2 (lens, cylinder) and 0 (torus); mesh volume converges at O(h²)                                                                                                                                                                                                                                                                                                                                                                                                                         | Chord as stated; watertight exact; convergence ratio 3.5–4.5 per halving.                                                                                                                                                                               |
+| `integrate`, `mass`   | Polynomial prism (exact rational volume), lens `πabh`, sphere `4/3 πr³`, torus `2π²Rr²`, cylinder with trimmed caps `πr²h`, plate with hole `(4L² − πr²)t`, spherical cap area `2πrh`; polynomial volume unchanged from n to n + 5 GL points; translation by 100 cm leaves volume unchanged; flipped orientation negates it                                                                                                                                                                                                                                                                                                                  | Polynomial `1e-12` rel (exact rule, ~10³ summed terms); rational `10 · quadRel` rel; translation `1e-12` rel.                                                                                                                                           |
+| `continuity`          | Two planes hinged at θ: angle θ; plane tangent to a cylinder: G1 with mismatch exactly `1/r`; a patch split by knot insertion: zeros; a deliberate gap δ reads δ; lens rail (half-chord `c`, sagitta `h`): outward normals at the tip differ by `π − 4·atan(h/c)` (corrected: the earlier `cos φ = (4h²/a² − 1)/(4h²/a² + 1)` is not that angle, e.g. it gives 90° for two semicircles, which are smooth); a linearly growing gap on a non-uniform edge: arc-length RMS `δ/√3`; RMS convergence vs an adaptive reference; a refined interior maximum; `knotContinuity` on designed C⁰/C¹/C²/G1 joins (G1 with speed ratio ≠ 1 is G1, not C1) | Angles `1e-12` rad; gaps of exact constructions `64 ε · scale` (tighter than `point`; measured ≤ 0.75 ε · scale); mismatch `1e-12` rel (measured ≤ 2e-14).                                                                                              |
+| `brep`                | Euler on the corpus; defect-injection catalogue (§13) all detected; `edgeGaps` equal independently sampled deviations                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Exact; gaps `1e-12 · scale`.                                                                                                                                                                                                                            |
+| `step`                | `readStepSubset(writeStep(b))` bitwise equals `b`; byte-identical output for the same timestamp; Part 21 lexical rules (reals contain `.`; strings escaped); no dangling or unused ids; complex sub-entity order; arity table; **OCCT protocol (§15) on the corpus**                                                                                                                                                                                                                                                                                                                                                                         | Bitwise; OCCT checks as in §15.3.                                                                                                                                                                                                                       |
 
 ---
 
@@ -2710,6 +3097,26 @@ may fail a regression of more than 2×.
 | P22 | `massProperties`                                                | 3 trimmed faces, `quadRel`                          | ≤ 50 ms                                | A 20 / B 100                       |
 | P23 | `writeStep`                                                     | board-size 3-face B-rep                             | ≤ 100 ms, file size at both precisions | existing writer ≈ 0.5 s incl. fit  |
 | P24 | Allocation                                                      | 10k simulated drag frames                           | no GC beyond `cw` copies               | —                                  |
+
+**P17 (B1, same container, `vitest bench`):** warm batch 8.7 ms per 1k points (target
+2 ms); cold `closestPointOnSurface` ~300 µs mean (target 20 µs): ~100 µs build the
+40 × 20 net's 629 cell boxes on every call, and a point near the surface lies inside
+the control boxes of the ~9–16 neighbouring cells, each sampled at 49 points
+(separable bases). Tier-2 options if the desktop misses too: a caller-owned prepared
+projector (boxes built once per surface), or a coarse first pass of fewer samples per
+cell.
+
+**P19–P21 (B2, same container, `vitest bench`):** P19 18.8 ms (5k points + 400
+segments, exterior removed; target 5 ms) and 84.6 ms (20k + 1k; target 40 ms); P20
+99 ms for a 300 × 60 cm bicubic 40 × 20 deck trimmed by an elliptical outline at
+`chordTol` 0.005 cm (3,280 triangles: both P20 sizes; target 15 ms); P21 5.7 ms for
+that mesh (target 0.5 ms). As a plain Node script: P19 22.6 ms, P20 80 ms. P20's
+profile is evaluation (basis functions and derivatives ~35%, the seed grid's
+second-derivative sweep and the refinement's edge-midpoint checks), not the CDT.
+P21 re-plans every vertex (`planSurfaceSamples` + `evalSurfacePlan`, P6 + P7 at this
+size). Tier-2 options if the desktop misses: a partial re-plan of the boundary
+vertices only in `retargetTessellation`; caching edge-midpoint evaluations across
+refinement passes.
 
 **First measurements (F2, `src/eval.bench.ts`).** On the session's 4-vCPU cloud
 container (Node 22.22; a plain loop runs ~1.4 ns per multiply-add and a small typed
@@ -2810,13 +3217,16 @@ API test, ESLint layer, lockfile entry, this document.
 
 - **B1 Projection and curves on surfaces.** `project.ts` (curve, surface, batches with
   warm start); `curve-on-surface.ts` evaluation and chain-rule derivatives;
-  `isoLinePcurve`; P17. Pcurve **fitting** is not here (see integration).
+  `isoLinePcurve`; `projectCurveSamplesToSurface` (the fit's input); P17. Pcurve
+  **fitting** is not here (see integration and the TODO in §6.15);
+  `closestPointOnTrimmed` moves to B2 with trim classification.
 - **B2 Trimmed surfaces, CDT and quadrature.** `mesh/predicates.ts` (vendored,
   `NOTICE.md`), `mesh/cdt.ts`, `mesh/refine.ts` (5-day timebox, §12); `trim.ts`;
   `mesh/tessellate.ts` (incl. retarget); `integrate.ts` (Green's theorem, area);
   devDependencies `delaunator` and `@kninnug/constrainautor`; P19–P21.
 - **B3 Continuity.** `continuity.ts`.
-- **B4 B-rep, STEP and the OCCT validator.** `brep/` (make, check, orient, transform,
+- **B4 B-rep, STEP and the OCCT validator.** _Done 2026-10-15 apart from what §15.5 lists
+  as not built (Path A, B7, V5, V6, prism, lens, plate with a hole)._ `brep/` (make, check, orient, transform,
   mass, watertight mesh); `step/` (writer, schema, subset reader in `testing`);
   analytic solids V1–V4 and the extra corpus in `testing/solids.ts`; devDependency
   `occt-wasm@5.3.5`, `vitest.occt.config.ts`, `test:occt`, the branch's `ci.yml` step;

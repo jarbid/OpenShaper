@@ -11,13 +11,22 @@ describe('@openshaper/geom/testing', () => {
   it('exports exactly the pinned runtime values', () => {
     expect(Object.keys(testing).sort()).toEqual(
       [
+        'MUTATIONS',
+        'boxSolid',
         'checksum',
+        'cylinderSolid',
         'mulberry32',
+        'plateWithHoleSolid',
         'randomClampedBasis',
         'randomCurve',
         'randomPeriodicBasis',
         'randomSurface',
         'solveFairReference',
+
+        'readStepSubset',
+        'sphericalZoneSolid',
+        'torusSolid',
+        'writeStepUnchecked',
       ].sort(),
     );
   });

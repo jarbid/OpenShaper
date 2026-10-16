@@ -157,9 +157,68 @@ import {
   prepareFairSolver,
   solveFair,
   solveFairInto,
+  closestPointOnCurve,
+  closestPointOnSurface,
+  curveOnSurface,
+  curveOnSurfaceDerivatives,
+  curveOnSurfaceEvalInto,
+  curveOnSurfacePoint,
+  DEFAULT_PROJECTION_SEEDING,
+  isoLinePcurve,
+  projectCurveSamplesToSurface,
+  projectPointsToCurveInto,
+  projectPointsToSurfaceInto,
+  checkTriangulation,
+  checkTrimLoops,
+  classifyUV,
+  closestPointOnTrimmed,
+  constrainedDelaunay,
+  DEFAULT_TESSELLATION,
+  enclosedVolume,
+  incircle,
+  integrateTrimmed,
+  makeTrimLoop,
+  makeTrimmedSurface,
+  naturalBoundaryLoop,
+  orient2d,
+  retargetTessellation,
+  surfaceArea,
+  tessellateTrimmedSurface,
+  boundaryContinuity,
+  classifyContinuity,
+  curveJoinContinuity,
+  DEFAULT_CONTINUITY_SAMPLING,
+  edgeContinuity,
+  knotContinuity,
+  brepEdgeContinuity,
+  checkBrep,
+  DEFAULT_BREP_CHECK_SAMPLING,
+  faceTrimmedSurface,
+  makeBrep,
+  massProperties,
+  orientBrep,
+  tessellateBrep,
+  transformBrep,
+  writeStep,
 } from './index';
-import type { Affine2, Affine3, ClampedCurve, NurbsCurve, PeriodicCurve } from './index';
-import { checksum, mulberry32, randomCurve, randomSurface } from './testing';
+import type {
+  Affine2,
+  Affine3,
+  ClampedCurve,
+  NurbsCurve,
+  PeriodicCurve,
+  Result,
+  TrimLoop,
+} from './index';
+import {
+  boxSolid,
+  checksum,
+  cylinderSolid,
+  mulberry32,
+  randomCurve,
+  randomSurface,
+  sphericalZoneSolid,
+} from './testing';
 
 /** Every number reachable from `v` (typed arrays included). */
 function numbers(v: unknown, out: number[] = [], seen = new Set<object>()): number[] {
@@ -167,7 +226,9 @@ function numbers(v: unknown, out: number[] = [], seen = new Set<object>()): numb
   else if (typeof v === 'object' && v !== null && !seen.has(v)) {
     seen.add(v);
     if (ArrayBuffer.isView(v) && !(v instanceof DataView)) {
-      out.push(...Array.from(v as unknown as ArrayLike<number>, Number));
+      // A loop, not a spread: a mesh's arrays exceed the call-stack argument limit.
+      const a = v as unknown as ArrayLike<number>;
+      for (let i = 0; i < a.length; i++) out.push(Number(a[i]));
     } else for (const x of Object.values(v)) numbers(x, out, seen);
   }
   return out;
@@ -185,6 +246,11 @@ interface Case {
 }
 
 const same = (r: unknown): readonly unknown[] => [r];
+
+function valueOf<T>(r: Result<T>): T {
+  if (!r.ok) throw new Error(JSON.stringify(r.issues));
+  return r.value;
+}
 
 /** The operation table for one random geometry seed. */
 function cases(seed: number): Case[] {
@@ -286,6 +352,17 @@ function cases(seed: number): Case[] {
   }) as PeriodicCurve<2>;
   const c3b = randomCurve(rng, { dim: 3, degree: 2, count: 6, kind, weightRange }) as NurbsCurve<3>;
   const tor = torus(P, dir, 3, 1);
+
+  // Projection and curves on surfaces (B1).
+  const pcurve = geom.line2(
+    { x: su0 + 0.2 * (su1 - su0), y: sv0 + 0.7 * (sv1 - sv0) },
+    { x: su0 + 0.9 * (su1 - su0), y: sv0 + 0.1 * (sv1 - sv0) },
+  );
+  const cos = curveOnSurface(S, pcurve);
+  const seeding = { oversample: 3 };
+  const pts2 = Float64Array.from({ length: 8 }, () => 2 * rng() - 1);
+  const uvSeeds = Float64Array.from({ length: 16 }, (_, k) => (k % 2 ? v : u));
+  const iso = isoCurve(S, 'v', v);
   const sOut = (): Record<string, Float64Array | Uint8Array> => ({
     position: new Float64Array(36),
     normal: new Float64Array(36),
@@ -299,6 +376,64 @@ function cases(seed: number): Case[] {
     curvature: new Float64Array(16),
     flags: new Uint8Array(16),
   });
+  // Trimmed surfaces, integration and tessellation (B2), on the clamped surface:
+  // a circle (rational) outer loop and a clockwise triangle (polynomial) hole.
+  const [cu0, cu1] = clampedS.u.domain;
+  const [cv0, cv1] = clampedS.v.domain;
+  const at = (x: number, y: number): { x: number; y: number } => ({
+    x: cu0 + x * (cu1 - cu0),
+    y: cv0 + y * (cv1 - cv0),
+  });
+  const circ = geom.transformCurve2(geom.circle2({ x: 0, y: 0 }, 1), [
+    0.4 * (cu1 - cu0),
+    0,
+    at(0.5, 0.5).x,
+    0,
+    0.4 * (cv1 - cv0),
+    at(0.5, 0.5).y,
+  ]);
+  const tri = [at(0.45, 0.45), at(0.5, 0.6), at(0.6, 0.45)];
+  const triCurves = [0, 1, 2].map((k) => geom.line2(tri[k]!, tri[(k + 1) % 3]!));
+  const outerLoop: TrimLoop = valueOf(makeTrimLoop([circ]));
+  const holeLoop: TrimLoop = valueOf(makeTrimLoop(triCurves));
+  const trimmed = valueOf(makeTrimmedSurface(clampedS, outerLoop, [holeLoop]));
+  const natural = valueOf(makeTrimmedSurface(S, null));
+  const meshOpts = { chordTol: 0.05, angleTol: 0.5 };
+  const faceMesh = valueOf(tessellateTrimmedSurface(trimmed, meshOpts));
+  const cdtIn = {
+    points: Float64Array.from([0, 0, 4, 0, 4, 3, 0, 3, 1, 1, 2, 2, 3, 1]),
+    segments: Uint32Array.from([0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 4]), // outer CCW, hole CW
+  };
+  const cdt = valueOf(constrainedDelaunay(cdtIn));
+  // Continuity (B3): a crease along an interior iso-line of the clamped surface
+  // (the two sides of the same line), and a boundary against itself.
+  const cMid = cv0 + 0.4 * (cv1 - cv0);
+  const isoEdge = isoCurve(clampedS, 'v', cMid) as NurbsCurve<3>;
+  const sideL = {
+    surface: clampedS,
+    pcurve: isoLinePcurve(clampedS, 'v', cMid),
+    sameSense: true,
+    interior: 'left' as const,
+  };
+  const sideR = { ...sideL, sameSense: false, interior: 'right' as const };
+  const contOpts = { samplesPerSpan: 2, refineSteps: 6 };
+  const bSide = { surface: clampedS, edge: 'u1' as const, sameSense: true };
+  const thresholds = { gap: 1e-3, angle: 1e-2, curvatureRel: 0.1, curvatureAbs: 1e-3 };
+  // B-rep and STEP (B4): a trimmed box (polynomial) and a cylinder (rational, periodic, seam).
+  const brepBox = boxSolid(2, 3, 5, { trimmed: true });
+  const brepCyl = cylinderSolid(1.5, 4);
+  const brepZone = sphericalZoneSolid(2, 1, { split: true });
+  const brepSpec = {
+    vertices: brepBox.vertices,
+    edges: brepBox.edges,
+    faces: brepBox.faces,
+    shells: brepBox.shells,
+    solids: brepBox.solids,
+  };
+  const mirrorX: Affine3 = [-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
+  const brepSampling = { samplesPerSpan: 3, refineSteps: 8 };
+  const stepOpts = { timestamp: '2026-01-01T00:00:00', fileUnit: 'mm' as const };
+  const fin = (r: { value: unknown }): readonly unknown[] => [r.value];
 
   // Fitting (A2).
   const fitPts = Float64Array.from({ length: 30 }, (_, k) =>
@@ -919,6 +1054,284 @@ function cases(seed: number): Case[] {
         fairInfluenceInto(solver, 0, 2, o);
         return o;
       },
+    },
+
+    // Projection and curves on surfaces (B1)
+    { name: 'DEFAULT_PROJECTION_SEEDING', inputs: [], run: () => DEFAULT_PROJECTION_SEEDING },
+    {
+      name: 'closestPointOnCurve',
+      inputs: [c3, P, c2, P2, tol, seeding],
+      run: () => [
+        closestPointOnCurve(c3, P, { tol, seeding }),
+        closestPointOnCurve(c3, P, { seed: t }),
+        closestPointOnCurve(c2, P2, { range: curveDomain(c2) }),
+      ],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'closestPointOnSurface',
+      inputs: [S, P, tol, seeding],
+      run: () => [
+        closestPointOnSurface(S, P, { tol, seeding }),
+        closestPointOnSurface(S, Q, { seed: { u, v } }),
+      ],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'projectPointsToCurveInto',
+      inputs: [c3, pts3, c2, pts2],
+      run: () => {
+        const ot = new Float64Array(8);
+        const od = new Float64Array(8);
+        const n = projectPointsToCurveInto(c3, pts3, ot, od, { warmStart: true });
+        const n2 = projectPointsToCurveInto(c2, pts2, ot, od);
+        return [n, n2, ot, od];
+      },
+    },
+    {
+      name: 'projectPointsToSurfaceInto',
+      inputs: [S, pts3, uvSeeds],
+      run: () => {
+        const ouv = new Float64Array(16);
+        const od = new Float64Array(8);
+        const n = projectPointsToSurfaceInto(S, pts3, ouv, od, { warmStart: true });
+        const n2 = projectPointsToSurfaceInto(S, pts3, ouv, od, { seeds: uvSeeds });
+        return [n, n2, ouv, od];
+      },
+    },
+    {
+      name: 'curveOnSurface',
+      inputs: [S, pcurve],
+      run: () => curveOnSurface(S, pcurve),
+      frozen: same,
+    },
+    {
+      name: 'curveOnSurfacePoint',
+      inputs: [cos],
+      run: () => curveOnSurfacePoint(cos, 0.3),
+      frozen: same,
+    },
+    {
+      name: 'curveOnSurfaceDerivatives',
+      inputs: [cos],
+      run: () => curveOnSurfaceDerivatives(cos, 0.6, 2),
+      frozen: same,
+    },
+    {
+      name: 'curveOnSurfaceEvalInto',
+      inputs: [cos],
+      run: () => {
+        curveOnSurfaceEvalInto(cos, 0.4, 2, out, 5, s);
+        return out.slice(5, 14);
+      },
+    },
+    {
+      name: 'isoLinePcurve',
+      inputs: [S],
+      run: () => [isoLinePcurve(S, 'u', u), isoLinePcurve(S, 'v', v)],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'projectCurveSamplesToSurface',
+      inputs: [iso, S, us, tol],
+      run: () => projectCurveSamplesToSurface(iso as NurbsCurve<3>, S, us, { tol }),
+      frozen: same,
+    },
+    // Trimmed surfaces, integration, triangulation and tessellation (B2)
+    {
+      name: 'makeTrimLoop',
+      inputs: [circ, ...triCurves, tol],
+      run: () => [valueOf(makeTrimLoop([circ], { tol })), valueOf(makeTrimLoop(triCurves))],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'naturalBoundaryLoop',
+      inputs: [clampedS],
+      run: () => naturalBoundaryLoop(clampedS),
+      frozen: same,
+    },
+    {
+      name: 'makeTrimmedSurface',
+      inputs: [clampedS, outerLoop, holeLoop, tol],
+      run: () => valueOf(makeTrimmedSurface(clampedS, outerLoop, [holeLoop], tol)),
+      frozen: same,
+    },
+    {
+      name: 'checkTrimLoops',
+      inputs: [trimmed],
+      run: () => checkTrimLoops(trimmed),
+    },
+    {
+      name: 'classifyUV',
+      inputs: [trimmed, natural],
+      run: () => [
+        classifyUV(trimmed, { u: at(0.2, 0.5).x, v: at(0.2, 0.5).y }),
+        classifyUV(trimmed, { u: at(0.5, 0.5).x, v: at(0.5, 0.5).y }),
+        classifyUV(natural, { u, v }),
+      ],
+    },
+    {
+      name: 'closestPointOnTrimmed',
+      inputs: [trimmed, P, seeding],
+      run: () => [
+        closestPointOnTrimmed(trimmed, P, { seeding }),
+        closestPointOnTrimmed(trimmed, Q),
+      ],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'integrateTrimmed',
+      inputs: [trimmed, natural],
+      run: () => [
+        integrateTrimmed(trimmed, (_u, _v, d) => d[2]!, { tol }),
+        integrateTrimmed(natural, (x, y) => x * y, { polynomialDegree: [1, 1], nDer: 0 }),
+      ],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'surfaceArea',
+      inputs: [trimmed, clampedS],
+      run: () => [surfaceArea(trimmed, tol), surfaceArea(clampedS, tol)],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'enclosedVolume',
+      inputs: [trimmed, clampedS],
+      run: () => enclosedVolume([{ face: trimmed }, { face: clampedS, sameSense: false }], tol),
+      frozen: same,
+    },
+    {
+      name: 'orient2d',
+      inputs: [],
+      run: () => [orient2d(0, 0, 1, 0, 0, 1), orient2d(0, 0, 1, 1, 2, 2)],
+    },
+    {
+      name: 'incircle',
+      inputs: [],
+      run: () => [incircle(0, 0, 1, 0, 0, 1, 0.2, 0.2), incircle(0, 0, 1, 0, 1, 1, 0, 1)],
+    },
+    {
+      name: 'constrainedDelaunay',
+      inputs: [cdtIn],
+      run: () => valueOf(constrainedDelaunay(cdtIn, { removeExterior: true })),
+      frozen: same,
+    },
+    {
+      name: 'checkTriangulation',
+      inputs: [cdt, cdtIn],
+      run: () => checkTriangulation(cdt, cdtIn.segments),
+    },
+    { name: 'DEFAULT_TESSELLATION', inputs: [], run: () => DEFAULT_TESSELLATION, frozen: same },
+    {
+      name: 'tessellateTrimmedSurface',
+      inputs: [trimmed, meshOpts],
+      run: () => valueOf(tessellateTrimmedSurface(trimmed, meshOpts)),
+      frozen: same,
+    },
+    {
+      name: 'DEFAULT_CONTINUITY_SAMPLING',
+      inputs: [],
+      run: () => DEFAULT_CONTINUITY_SAMPLING,
+      frozen: same,
+    },
+    {
+      name: 'edgeContinuity',
+      inputs: [isoEdge, sideL, sideR, contOpts],
+      run: () => edgeContinuity(isoEdge, sideL, sideR, contOpts),
+      frozen: (r) => [r, (r as { max: unknown }).max],
+    },
+    {
+      name: 'boundaryContinuity',
+      inputs: [bSide, contOpts],
+      run: () => boundaryContinuity(bSide, bSide, contOpts),
+      frozen: same,
+    },
+    {
+      name: 'knotContinuity',
+      inputs: [c3, c2],
+      run: () => [
+        knotContinuity(c3, t),
+        knotContinuity(c2, 0.5 * (curveDomain(c2)[0] + curveDomain(c2)[1])),
+      ],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'curveJoinContinuity',
+      inputs: [c3, c2],
+      run: () => [curveJoinContinuity(c3, c3), curveJoinContinuity(c2, c2)],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'classifyContinuity',
+      inputs: [thresholds],
+      run: () =>
+        classifyContinuity({ gap: 0, angle: 0.1, curvatureMismatch: 0, curvature: 1 }, thresholds),
+    },
+    {
+      name: 'retargetTessellation',
+      inputs: [faceMesh, trimmed],
+      run: () => retargetTessellation(faceMesh, trimmed),
+      frozen: same,
+    },
+    {
+      name: 'makeBrep',
+      inputs: [brepSpec],
+      run: () => makeBrep(brepSpec),
+      frozen: (r) => fin(r as { value: unknown }),
+    },
+    {
+      name: 'DEFAULT_BREP_CHECK_SAMPLING',
+      inputs: [],
+      run: () => DEFAULT_BREP_CHECK_SAMPLING,
+      frozen: same,
+    },
+    {
+      name: 'checkBrep',
+      inputs: [brepCyl, brepSampling],
+      run: () => checkBrep(brepCyl, undefined, brepSampling),
+      frozen: (r) => [r, (r as { euler: unknown }).euler],
+    },
+    {
+      name: 'orientBrep',
+      inputs: [brepZone],
+      run: () => orientBrep(brepZone),
+      frozen: same,
+    },
+    {
+      name: 'transformBrep',
+      inputs: [brepCyl, mirrorX],
+      run: () => transformBrep(brepCyl, mirrorX),
+      frozen: same,
+    },
+    {
+      name: 'faceTrimmedSurface',
+      inputs: [brepBox, brepCyl],
+      run: () => [faceTrimmedSurface(brepBox, 0), faceTrimmedSurface(brepCyl, 1)],
+      frozen: (r) => r as unknown[],
+    },
+    {
+      name: 'massProperties',
+      inputs: [brepBox],
+      run: () => massProperties(brepBox),
+      frozen: (r) => [r, (r as { volume: unknown }).volume],
+    },
+    {
+      name: 'brepEdgeContinuity',
+      inputs: [brepZone, contOpts],
+      run: () => brepEdgeContinuity(brepZone, 2, contOpts),
+      frozen: same,
+    },
+    {
+      name: 'tessellateBrep',
+      inputs: [brepCyl, meshOpts],
+      run: () => valueOf(tessellateBrep(brepCyl, meshOpts)),
+      frozen: same,
+    },
+    {
+      name: 'writeStep',
+      inputs: [brepCyl, stepOpts],
+      run: () => writeStep(brepCyl, stepOpts),
+      frozen: (r) => [r, (r as { stats: unknown }).stats],
     },
   ];
 }
