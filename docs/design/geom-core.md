@@ -2226,8 +2226,9 @@ as valid solids (§15.5), so there is no importer to serve yet; the manual matri
 forms `ellipticPuckExact(a, b, h, tilt?)` (integration), `writeStepUnchecked`,
 `readStepSubset` and `MUTATIONS`. **Not built:** `prismSolid`,
 `lensSolid`, `sphereSolid`, `cylinderSolid`'s `trimmedCaps` option (the
-cylinder always has trimmed caps), `toOcctBrepText` and `testing/occt-brep.ts` (Path A),
-and `solveFairReference` (solver step). The signatures below are the design, not the
+cylinder always has trimmed caps) and `solveFairReference` (solver step).
+`toOcctBrepText` and `toOcctBrepTextUnchecked` (`testing/occt-brep.ts`, Path A) were built
+in Phase 2 step G1 (§15.6). The signatures below are the design, not the
 current surface.
 
 ```ts
@@ -2284,7 +2285,8 @@ export function ellipticPuckExact(
 export function sphereSolid(r: number): Brep; // NOT BUILT: in memory only; poles outside STEP scope (§15.5)
 export function writeStepUnchecked(b: Brep, opts?: StepWriteOptions): string; // mutation suite only
 export function readStepSubset(text: string): Brep; // reads exactly what writeStep emits; arity-checked
-export function toOcctBrepText(b: Brep): string; // OCCT native BREP format (Path A)
+export function toOcctBrepText(b: Brep, opts?: OcctBrepOptions): OcctBrepResult; // OCCT native BREP (Path A); built in G1 as { text, tolerance }
+export function toOcctBrepTextUnchecked(b: Brep, opts?: OcctBrepUncheckedOptions): OcctBrepResult; // negative controls only
 ```
 
 ---
@@ -3068,7 +3070,7 @@ no collapsed edges), so a full `sphereSolid` is not built and the sphere case of
 served by `sphericalZoneSolid` (V4, `|z| ≤ r sin φ`): its curved face is a patch of the sphere
 of radius `r`, written as rational quadratic patches, closed by planar caps, and with
 `split: true` as two patches. What remains unexercised is the pole-free closed sphere
-itself (V6, with the poles, waits for its milestone). **B7** and Path A (`toOcctBrepText`, the unhealed native BREP) are **not built**: B7
+itself (V6, with the poles, waits for its milestone). **B7** and Path A (`toOcctBrepText`, the unhealed native BREP) were **not built** at B4 (they followed in Phase 2 step G1, §15.6): B7
 compares two OCCT volumes of one solid through different paths; the mesh-volume oracle
 below carries the accuracy claim in the meantime. V6 (poles) waits for its milestone (V5
 was built at integration, see its paragraph below); the polynomial prism and lens of the corpus table are not
@@ -3129,6 +3131,57 @@ faces mesh exactly. The measured errors are well inside it.
   each file).
 
 ---
+
+### 15.6 Path A and B7 (Phase 2 step G1, 2026-10-21)
+
+**Why.** OCCT's STEP reader repairs a flipped `ADVANCED_FACE` sense and a flipped
+`ORIENTED_EDGE` silently (§15.2), so B2 and the volume could not see an orientation error;
+only our own subset reader and `checkBrep` did. Path A gives orientation an independent judge.
+
+**The writer** (`testing/occt-brep.ts`, test-only, exported from `./testing`):
+`toOcctBrepText(b, { unit?, modelUnit?, tol? })` returns `{ text, tolerance }`, OCCT's native
+"CASCADE Topology V3" text for `fromBREP` (`BRepTools::Read`, no healing). B-spline curves
+(type 7) and surfaces (type 9, periodic ones through `clampSurface` as in `writeStep`), one
+surface per face, pcurves per use (representation 2) or as a seam pair (representation 3:
+the first for the use that runs forward in the surface-oriented wire). A face's wires are
+its loops in surface orientation (reversed when `sameSense` is false) and the face enters
+the shell `+` or `-` by `sameSense`, so composing the two gives each edge its face-orientation
+direction. Every shape carries the uncertainty `writeStep` declares (`declaredUncertainty`,
+now shared with the STEP writer). It runs `checkBrep` first and refuses an invalid B-rep;
+`toOcctBrepTextUnchecked(b, { tolerance? })` writes anything, for negative controls. The
+record layout copies what `toBREP` emits for our own STEP imports.
+
+**What runs** (`step.occt.test.ts`, now 77 tests, about 50 s). The corpus gained a
+board-sized three-face solid: the V5 puck at 180 × 54 × 6 cm (`ellipticPuckSolid(90, 27, 6)`)
+with the fitted bicubic deck tilted 0.04 along x (not symmetric front to back; the edge gap
+is a real fit residual, 6.5e-5 cm), plus its rotated and mirrored copies; all three pass
+Path B (B1 to B8, mm and cm) like the rest.
+
+- **Path A**, every corpus solid: one solid, `isValid` with nothing healed, counts equal to
+  ours, every tolerance exactly the one written, B5 and B6 (edges and surfaces equal ours
+  parameter by parameter), inside/outside probes, `getVolume > 0` and within 1 %, and the
+  mesh-volume bound of B8.
+- **B7**: GProp's volume of the Path A shape against GProp's volume of our STEP file read
+  in mm and in cm, to 1e-9 relative (the design's bound). Measured: equal to the last bit
+  on every solid, the boards included (GProp's own error, −0.48 % on the board, cancels).
+- **Negative controls** on the board, the mirrored board, the plate with a hole and the
+  torus. Each face flipped in the shell and each edge use of the first wire flipped are
+  refused (`isValid` false, or, for the torus's single face, a valid solid of negative
+  volume). The solid turned inside out (`flipBrep`) is a pinned case: `BRepCheck` accepts a
+  coherent inside-out shell, and only `getVolume`'s sign (exactly `−V`) refuses it, while
+  the STEP reader re-orients it outward. Every `MUTATIONS` entry that `checkBrep` refuses
+  (except the genus declaration, which OCCT has no notion of) is refused by Path A too:
+  the two checks agree independently. On the board, the STEP mutations side by side: the
+  flipped face sense imports valid at the same volume (only Path A sees it); the flipped
+  `ORIENTED_EDGE` on the band's closed bottom edge imports **valid with a volume 46 % off**
+  (`isValid` misses it; B7 against Path A would not).
+- **Test can fail** (checked by hand, then reverted): writing every loop as given instead
+  of in surface orientation fails all fifteen Path A solids with a reversed face and
+  eight of the negative-control tests; swapping a seam's two pcurves fails every seamed
+  solid.
+- A unit suite (`testing/occt-brep.test.ts`, in `pnpm test`) pins the structure without
+  OCCT: section counts, shell signs, the reversed wire of a reversed face, the declared
+  tolerance equal to `writeStep`'s, unit scaling, determinism, the gate.
 
 ## 16. Oracle catalogue
 

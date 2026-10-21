@@ -27,6 +27,8 @@ describe('@openshaper/geom/testing', () => {
 
         'readStepSubset',
         'sphericalZoneSolid',
+        'toOcctBrepText',
+        'toOcctBrepTextUnchecked',
         'torusSolid',
         'writeStepUnchecked',
       ].sort(),

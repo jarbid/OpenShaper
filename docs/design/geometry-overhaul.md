@@ -389,7 +389,8 @@ package's tests and snapshots.
       manual practice (mutation spot checks in step reports), not tool-enforced
 - [x] CI runs on pushes to the branch
 - [ ] Not in Phase 1: V6 (sphere with poles), OCCT Path A and B7, skinned or fitted
-      surfaces through the B-rep and STEP (Phase 2's board is their test)
+      surfaces through the B-rep and STEP (Phase 2's board is their test). Path A and
+      B7 followed in Phase 2 step G1 (geom-core.md §15.6)
 - [ ] OPEN, blocks tier-2 optimisation work: re-measure the benchmarks on the
       reference desktop before acting on any tier-2 option (`pnpm --filter
 @openshaper/geom bench:check -- --update` then records its baseline)

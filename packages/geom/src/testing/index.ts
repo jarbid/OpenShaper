@@ -20,5 +20,7 @@ export {
   torusSolid,
 } from './solids';
 export { readStepSubset, writeStepUnchecked } from './step';
+export { toOcctBrepText, toOcctBrepTextUnchecked } from './occt-brep';
+export type { OcctBrepOptions, OcctBrepResult, OcctBrepUncheckedOptions } from './occt-brep';
 export { MUTATIONS } from './mutations';
 export type { Mutation } from './mutations';

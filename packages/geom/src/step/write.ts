@@ -290,9 +290,10 @@ function unitContext(ctx: Ctx, unit: 'mm' | 'cm' | 'in', uncertainty: number): n
 
 /**
  * The tolerances of a write: the cm defaults scaled to `modelUnit`, the caller's
- * overrides (validated, in model units) over them.
+ * overrides (validated, in model units) over them. Internal; the test-only native
+ * BREP writer (`testing/occt-brep.ts`) shares it.
  */
-function writerTolerances(
+export function writerTolerances(
   modelUnit: 'mm' | 'cm',
   overrides: Partial<Tolerances> | undefined,
 ): Tolerances {
@@ -335,6 +336,15 @@ function checkOptions(opts: StepWriteOptions | undefined): {
     fail('unsupported', `pcurves must be 'always' or 'trimmedOnly'; got ${String(pcurves)}`);
   }
   return { fileUnit, modelUnit, precision, pcurves };
+}
+
+/**
+ * The uncertainty a writer declares (module comment), in model units:
+ * `2 × max(maxEdgeGap, maxVertexGap)`, floored at `tol.point`. Internal; the
+ * test-only native BREP writer declares the same.
+ */
+export function declaredUncertainty(report: BrepReport, tol: Tolerances): number {
+  return Math.max(2 * Math.max(report.maxEdgeGap, report.maxVertexGap), tol.point);
 }
 
 /** True when every control point of the curve lies within `tol` of the first: a collapsed edge. */
@@ -397,8 +407,7 @@ export function writeStepCore(
   em.emit(`PRODUCT_RELATED_PRODUCT_CATEGORY(${str('part')},'',(${ref(product)}))`);
 
   // Declared uncertainty: measured, floored (module comment), in file units.
-  const uncertainty =
-    Math.max(2 * Math.max(report.maxEdgeGap, report.maxVertexGap), tol.point) * factor;
+  const uncertainty = declaredUncertainty(report, tol) * factor;
   const context = unitContext(ctx, fileUnit, uncertainty);
 
   // --- topology bookkeeping ---
