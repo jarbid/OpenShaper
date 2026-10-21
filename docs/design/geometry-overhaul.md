@@ -429,6 +429,12 @@ order §14).
 - [x] Decisions proposed in board2.md: D5 rational rails deferred (polynomial
       profiles in Phase 2, §5.6); D7 the rail as laws plus layers, deck and bottom as
       free height-field nets (§0, decision 2); D8 laws plus direct offsets (§6.1)
+- [x] G1: OCCT Path A (unhealed native BREP) and B7 (geom-core.md §15.6)
+- [x] G2: V5b, a curved trimmed deck and bottom (degree 6 × 4 and bicubic, interior
+      knots, `approximateSurface`) with a skinned band, through the B-rep, mass
+      properties, STEP and OCCT against an independent oracle (geom-core.md §15.7). One
+      geom bug found and fixed (nested adaptive quadrature hung on a noise integrand);
+      P22 on that solid 1.75 s (target 50 ms), reported
 - [ ] S1 document, laws and validation · S2 plan loop, height fields, symmetry ·
       S3 rail band · S4 features, B-rep, STEP, OCCT · S5 specs and volume
       convergence · S6 converter I · S7 converter II · S8 deviation report ·

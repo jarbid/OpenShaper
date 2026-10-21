@@ -222,7 +222,8 @@ function compensatedSum(xs: ArrayLike<number>): number {
 /**
  * Adaptive GK15 on `[a, b]` (a < b), first split at `breaks` strictly inside.
  * Returns the sorted partition; `integrate1d` and the arc-length table share it,
- * so their totals agree bitwise.
+ * so their totals agree bitwise. Converged when `Σ error ≤ max(quadRel · ∫|f|,
+ * absTol)` (`absTol` default 0: relative only).
  */
 export function adaptivePartition(
   f: (x: number) => number,
@@ -230,6 +231,7 @@ export function adaptivePartition(
   b: number,
   breaks: ArrayLike<number>,
   t: Tolerances,
+  absTol = 0,
 ): Partition {
   const inner: number[] = [];
   for (let i = 0; i < breaks.length; i++) {
@@ -303,7 +305,7 @@ export function adaptivePartition(
 
   let converged = false;
   for (;;) {
-    if (sumErr <= t.quadRel * sumAbs) {
+    if (sumErr <= Math.max(t.quadRel * sumAbs, absTol)) {
       converged = true;
       break;
     }
@@ -344,27 +346,48 @@ export function adaptivePartition(
 }
 
 /**
+ * Checks an absolute quadrature target: finite and `≥ 0` (`undefined` is 0).
+ * Throws `non-finite` or `unsupported`.
+ */
+export function checkAbsTol(absTol: number | undefined): number {
+  if (absTol === undefined) return 0;
+  if (!Number.isFinite(absTol)) {
+    fail('non-finite', `absTol must be finite; got ${absTol}`, { value: absTol });
+  }
+  if (absTol < 0) fail('unsupported', `absTol must be ≥ 0; got ${absTol}`, { value: absTol });
+  return absTol;
+}
+
+/**
  * `∫_a^b f(x) dx` by adaptive Gauss–Kronrod 7–15. `breaks` are points where `f`
  * or a derivative jumps (knots); the integration first splits there. Converged
- * when `Σ|K15 − G7| ≤ quadRel · ∫|f|`; otherwise the best value is returned with
- * `converged: false` (`quadMaxSplits` reached, or rounding exhausted an
- * interval). `a > b` gives the negated integral. Throws `non-finite` if `f`
- * returns a non-finite value.
+ * when `Σ|K15 − G7| ≤ max(quadRel · ∫|f|, absTol)`; otherwise the best value is
+ * returned with `converged: false` (`quadMaxSplits` reached, or rounding
+ * exhausted an interval). `absTol` (default 0) is the caller's absolute target:
+ * an integrand that is zero up to rounding (cancellation in the caller's
+ * formula) has no relative accuracy to reach, and without it refines to
+ * `quadMaxSplits` on noise. `a > b` gives the negated integral. Throws
+ * `non-finite` if `f` returns a non-finite value.
  */
 export function integrate1d(
   f: (x: number) => number,
   a: number,
   b: number,
-  opts?: { readonly breaks?: ArrayLike<number>; readonly tol?: Partial<Tolerances> },
+  opts?: {
+    readonly breaks?: ArrayLike<number>;
+    readonly tol?: Partial<Tolerances>;
+    readonly absTol?: number;
+  },
 ): QuadratureResult {
   if (!Number.isFinite(a) || !Number.isFinite(b)) {
     fail('non-finite', `integration limits must be finite; got [${a}, ${b}]`, { a, b });
   }
   const t = resolveTolerances(opts?.tol);
+  const absTol = checkAbsTol(opts?.absTol);
   if (a === b)
     return Object.freeze({ value: 0, errorEstimate: 0, evaluations: 0, converged: true });
   const breaks = opts?.breaks ?? [];
-  if (a < b) return adaptivePartition(f, a, b, breaks, t).result;
-  const r = adaptivePartition(f, b, a, breaks, t).result;
+  if (a < b) return adaptivePartition(f, a, b, breaks, t, absTol).result;
+  const r = adaptivePartition(f, b, a, breaks, t, absTol).result;
   return Object.freeze({ ...r, value: -r.value });
 }

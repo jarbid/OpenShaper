@@ -67,7 +67,7 @@ import type {
 } from './index';
 import { checkFairness, surfaceFairnessMatrix } from './solver/fairness';
 import { resolveTolerances } from './tolerance';
-import { ellipticPuckSolid, mulberry32 } from './testing';
+import { CURVED_PUCK_BOARD, curvedPuckSolid, ellipticPuckSolid, mulberry32 } from './testing';
 
 interface BenchRun {
   latency: { mean: number; p50: number; p99: number; rme: number };
@@ -845,7 +845,7 @@ function wavyPcurve(): NurbsCurve<2> {
   return makeCurve({ dim: 2, basis: clampedBasis(3, clampedUniformKnots(3, n)), points: pts });
 }
 
-test('edge fitting, mass properties and STEP: P18, P22, P23', async ({ bench }) => {
+test('edge fitting, mass properties and STEP: P18, P22, P22b, P23', async ({ bench }) => {
   const surface = deck(0.5).surface;
   const onSurface = curveOnSurface(surface, wavyPcurve());
   // The 3D image of that pcurve, fitted to 0.3 × the default fit (about 70 spans): it lies on the
@@ -856,6 +856,8 @@ test('edge fitting, mass properties and STEP: P18, P22, P23', async ({ bench }) 
   const board = ellipticPuckSolid(150, 30, 10, { bicubicDeck: true, tilt: 0.02 });
   const buildMs = performance.now() - t0;
   const gap = checkBrep(board).maxEdgeGap;
+  // V5b (Phase 2 step G2): the same topology with every face curved, 180 × 54 cm.
+  const curved = curvedPuckSolid(CURVED_PUCK_BOARD);
   const roundTrip = writeStep(board);
   const digits9 = writeStep(board, { precision: 9 });
   const fitted = value(projectCurveToSurface(edge, surface));
@@ -903,6 +905,15 @@ test('edge fitting, mass properties and STEP: P18, P22, P23', async ({ bench }) 
       target: { kind: 'time', value: 50 },
       fn: () => {
         sink += massProperties(board).volume.value;
+      },
+    },
+    {
+      id: 'P22b',
+      name: 'massProperties, V5b curved puck (skinned rational band, trimmed degree 6 × 4 deck and bicubic bottom)',
+      units: 0,
+      target: { kind: 'time', value: 50 },
+      fn: () => {
+        sink += massProperties(curved).volume.value;
       },
     },
     {

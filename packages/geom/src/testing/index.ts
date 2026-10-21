@@ -19,6 +19,19 @@ export {
   sphericalZoneSolid,
   torusSolid,
 } from './solids';
+export {
+  CURVED_PUCK_BOARD,
+  curvedPuckOracle,
+  curvedPuckParts,
+  curvedPuckSolid,
+  heightField,
+} from './curved-puck';
+export type {
+  CurvedPuckOptions,
+  CurvedPuckParts,
+  CurvedPuckSpec,
+  HeightQuadratic,
+} from './curved-puck';
 export { readStepSubset, writeStepUnchecked } from './step';
 export { toOcctBrepText, toOcctBrepTextUnchecked } from './occt-brep';
 export type { OcctBrepOptions, OcctBrepResult, OcctBrepUncheckedOptions } from './occt-brep';

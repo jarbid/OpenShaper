@@ -11,12 +11,17 @@ describe('@openshaper/geom/testing', () => {
   it('exports exactly the pinned runtime values', () => {
     expect(Object.keys(testing).sort()).toEqual(
       [
+        'CURVED_PUCK_BOARD',
         'MUTATIONS',
         'boxSolid',
         'checksum',
+        'curvedPuckOracle',
+        'curvedPuckParts',
+        'curvedPuckSolid',
         'cylinderSolid',
         'ellipticPuckExact',
         'ellipticPuckSolid',
+        'heightField',
         'mulberry32',
         'plateWithHoleSolid',
         'randomClampedBasis',

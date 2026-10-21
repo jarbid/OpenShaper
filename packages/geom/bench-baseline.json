@@ -39,6 +39,7 @@
     "P18b curveOnSurfaceTo3d, 63-control-point pcurve, default fit": 21.38828546874811,
     "P18c ellipticPuckSolid, board size, fitted bicubic deck (build + deck pcurve fit)": 44.00784031250078,
     "P22 massProperties, 3 faces (band, planar bottom, trimmed bicubic deck), quadRel": 194.73273606250135,
+    "P22b massProperties, V5b curved puck (skinned rational band, trimmed degree 6 × 4 deck and bicubic bottom)": 1749.8392992499998,
     "P23 writeStep, board-size 3-face B-rep, precision roundTrip": 56.41179509375025,
     "P23 writeStep, board-size 3-face B-rep, precision 9 digits (re-reads and re-checks)": 124.61465685937262,
     "P20b tessellateBrep, board-size 3-face B-rep, chord 0.05 cm": 47.46920484375005

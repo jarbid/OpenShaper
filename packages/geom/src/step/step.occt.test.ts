@@ -60,6 +60,9 @@ import { writeStepCore } from './write';
 import { flipBrep, unwrapBrep } from '../brep/brep';
 import {
   boxSolid,
+  CURVED_PUCK_BOARD,
+  curvedPuckOracle,
+  curvedPuckSolid,
   cylinderSolid,
   plateWithHoleSolid,
   ellipticPuckExact,
@@ -134,6 +137,8 @@ interface Solid {
   readonly fitted?: { readonly perimeter: number; readonly reach: number };
   /** The largest |coordinate| of the solid (cm), for the Float32 term of the mesh bound. */
   readonly extent?: number;
+  /** Deflection of the oracle mesh (mm), default {@link DEFLECTION_MM}: a coarser one for a large curved solid. */
+  readonly deflectionMm?: number;
 }
 
 /** Default {@link Solid.extent}: beyond every coordinate of the small corpus solids (cm). */
@@ -204,7 +209,64 @@ const boardForms = (): Pick<Solid, 'volume' | 'area' | 'curved' | 'fitted' | 'ex
   };
 };
 
+/**
+ * V5b (Phase 2 step G2, `testing/curved-puck.ts`): the board's three faces all curved: a
+ * degree 6 × 4 trimmed deck and a bicubic trimmed bottom (both `approximateSurface`, interior
+ * knots, fitted pcurves) and a `skinCurves` band (rational, clamped or periodic in u). Its
+ * "exact" volume and area are the independent oracle's (divergence theorem over the exact
+ * ellipse, no trims, no `integrate.ts`; error estimates below 1e-12 relative).
+ */
+const curvedBoard = (periodicBand: boolean): Brep =>
+  curvedPuckSolid(CURVED_PUCK_BOARD, { periodicBand });
+const curvedForms = (
+  periodicBand: boolean,
+): Pick<Solid, 'volume' | 'area' | 'curved' | 'fitted' | 'extent' | 'deflectionMm'> => {
+  const b = curvedBoard(periodicBand);
+  const o = curvedPuckOracle(CURVED_PUCK_BOARD, b.faces[0]!.surface);
+  // Every point of the solid lies in its control box; the moments' reference is that box's
+  // corner, so the reach is at most its diagonal, and for any rigid motion at most √3 × it
+  // (the diagonal of an axis box of a set is at most √3 × the set's diameter).
+  let lo = [Infinity, Infinity, Infinity];
+  let hi = [-Infinity, -Infinity, -Infinity];
+  for (const f of b.faces) {
+    for (let i = 0; i < f.surface.cw.length; i += 4) {
+      const p = [0, 1, 2].map((k) => f.surface.cw[i + k]! / f.surface.cw[i + 3]!);
+      lo = lo.map((x, k) => Math.min(x, p[k]!));
+      hi = hi.map((x, k) => Math.max(x, p[k]!));
+    }
+  }
+  const diagonal = Math.hypot(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!);
+  return {
+    volume: o.volume.value,
+    area: o.area.value,
+    curved: o.area.value,
+    fitted: { perimeter: o.fittedEdgeLength, reach: Math.sqrt(3) * diagonal },
+    extent: diagonal + Math.hypot(5, 3, 2),
+    // 0.01 mm meshes the 380 cm band into 391k triangles (19 s); 0.03 mm keeps the bound
+    // at 1.2e-3 of the volume (the bound's own test: < 5e-3) in 4 s.
+    deflectionMm: 0.03,
+  };
+};
+
 const CORPUS: readonly Solid[] = [
+  {
+    name: 'V5b-curved-puck',
+    brep: () => curvedBoard(false),
+    ...curvedForms(false),
+    inside: [40, 5, 3],
+  },
+  {
+    name: 'V5b-curved-puck-periodic-band',
+    brep: () => curvedBoard(true),
+    ...curvedForms(true),
+    inside: [40, 5, 3],
+  },
+  {
+    name: 'mirrored-V5b',
+    brep: () => transformBrep(curvedBoard(false), MIRROR_X),
+    ...curvedForms(false),
+    inside: [-40, 5, 3],
+  },
   { name: 'board-three-face', brep: board, ...boardForms(), inside: [40, 5, 3] },
   {
     name: 'rotated-board',
@@ -447,14 +509,15 @@ function expectSurfacesMatch(shape: ShapeHandle, b: Brep): void {
  */
 function expectMeshVolume(shape: ShapeHandle, solid: Solid, gapMm: number): void {
   const exactMm3 = solid.volume * 1000;
+  const deflection = solid.deflectionMm ?? DEFLECTION_MM;
   const mesh = kernel.tessellate(shape, {
-    linearDeflection: DEFLECTION_MM,
+    linearDeflection: deflection,
     angularDeflection: ANGULAR,
   });
   const vMesh = meshVolume(mesh.positions, mesh.indices);
   const extentMm = 10 * (solid.extent ?? SMALL_EXTENT);
   const bound =
-    solid.curved * 100 * DEFLECTION_MM +
+    solid.curved * 100 * deflection +
     solid.area * 100 * extentMm * FLOAT32_EPS +
     (solid.fitted === undefined ? 0 : gapMm * solid.area * 100);
   expect(vMesh, 'a negative mesh volume means an inside-out solid').toBeGreaterThan(0);
@@ -604,6 +667,8 @@ describe('Path A sees the orientation errors the STEP reader heals', () => {
   const refused = (v: { valid: boolean; volume: number }): boolean => !v.valid || !(v.volume > 0);
 
   const SOLIDS: readonly (readonly [string, () => Brep])[] = [
+    ['V5b-curved-puck', () => curvedBoard(false)],
+    ['V5b-curved-puck-periodic-band', () => curvedBoard(true)],
     ['board-three-face', board],
     ['mirrored-board', () => transformBrep(board(), MIRROR_X)],
     ['V5-plate-with-hole', () => plateWithHoleSolid(6, 5, 2, 1)],

@@ -36,6 +36,16 @@
  * v-length for tensor faces; the total variation of `v` along the loops,
  * bounded by the control polygons, for Green). `converged` is true only if
  * every inner and outer integral met `quadRel`.
+ *
+ * **Absolute target.** `absTol` (default 0) lets an adaptive integral also
+ * converge when its estimated error is at most that, split between the levels so
+ * the reported total stays within it: half to the outer integrals (shared
+ * equally between the trim curves), half to the inner ones (divided by the
+ * outer measure they are multiplied with). A caller whose integrand can cancel
+ * to rounding noise (a moment component over a wall, a volume integrand over a
+ * face through the reference point) passes the accuracy it needs on the scale of
+ * the whole result; relative accuracy of a zero is unattainable, and nested
+ * adaptive rules on noise refine to `quadMaxSplits` at both levels.
  */
 import { makeScratch } from './array';
 import type { ScratchImpl } from './array';
@@ -43,7 +53,7 @@ import { breakpoints, sanitizeParam, spanOf } from './basis';
 import { curveEvalInto } from './curve';
 import { fail } from './errors';
 import { bezierPieces, crossings, ctrl } from './pieces';
-import { GL_MAX_ORDER, gaussLegendre, integrate1d } from './quadrature';
+import { checkAbsTol, GL_MAX_ORDER, gaussLegendre, integrate1d } from './quadrature';
 import { checkSurfaceShape, evalSurfaceSpan } from './surface';
 import { resolveTolerances } from './tolerance';
 import type { Tolerances } from './tolerance';
@@ -128,6 +138,7 @@ function integrateTensor(
   nDer: number,
   deg: readonly [number, number] | undefined,
   t: Tolerances,
+  absTol: number,
 ): QuadratureResult {
   const ev = evaluator(s, nDer);
   const ub = spanBreaks(s.u);
@@ -165,17 +176,23 @@ function integrateTensor(
     });
   }
   const acc: Acc = { evaluations: 0, converged: true, innerErrMax: 0 };
+  const vLength = vb[vb.length - 1]! - vb[0]!;
   const inner = (v: number): number => {
     const r = integrate1d((u) => finite(f(u, v, ev(u, v)), u, v), ub[0]!, ub[ub.length - 1]!, {
       breaks: ub,
       tol: t,
+      absTol: (0.5 * absTol) / vLength,
     });
     acc.evaluations += r.evaluations;
     acc.converged &&= r.converged;
     if (r.errorEstimate > acc.innerErrMax) acc.innerErrMax = r.errorEstimate;
     return r.value;
   };
-  const outer = integrate1d(inner, vb[0]!, vb[vb.length - 1]!, { breaks: vb, tol: t });
+  const outer = integrate1d(inner, vb[0]!, vb[vb.length - 1]!, {
+    breaks: vb,
+    tol: t,
+    absTol: 0.5 * absTol,
+  });
   return Object.freeze({
     value: outer.value,
     errorEstimate: outer.errorEstimate + acc.innerErrMax * (vb[vb.length - 1]! - vb[0]!),
@@ -221,12 +238,20 @@ function integrateGreen(
   nDer: number,
   deg: readonly [number, number] | undefined,
   t: Tolerances,
+  absTol: number,
 ): QuadratureResult {
   const s = ts.surface;
   const ev = evaluator(s, nDer);
   const ub = spanBreaks(s.u);
   const vb = spanBreaks(s.v);
   const loops = loopsOf(ts);
+  // Each trim curve's pieces and v-variation up front: the inner integrals' share of `absTol`
+  // is divided by the total variation they are multiplied with in the error estimate.
+  const curves = loops.flatMap((l) => l.curves);
+  const pieces = curves.map((c) => curveBreaks(c, ub, vb, t));
+  const variationV = pieces.reduce((sum, x) => sum + x.variationV, 0);
+  const innerAbs = variationV > 0 ? (0.5 * absTol) / variationV : 0.5 * absTol;
+  const outerAbs = (0.5 * absTol) / Math.max(1, curves.length);
   let uRef = Infinity;
   for (const l of loops) {
     for (const c of l.curves) {
@@ -271,6 +296,7 @@ function integrateGreen(
     const r = integrate1d((uu) => finite(f(uu, v, ev(uu, v)), uu, v), lo, hi, {
       breaks: ub,
       tol: t,
+      absTol: innerAbs,
     });
     acc.evaluations += r.evaluations;
     acc.converged &&= r.converged;
@@ -279,40 +305,40 @@ function integrateGreen(
   };
   let value = 0;
   let outerErr = 0;
-  let variationV = 0;
-  for (const loop of loops) {
-    for (const c of loop.curves) {
-      const sc = makeScratch(c.basis.degree, 1);
-      const cv = new Float64Array(4);
-      const g = (x: number): number => {
-        curveEvalInto(c, x, 1, cv, 0, sc);
-        return F(cv[0]!, cv[1]!) * cv[3]!;
-      };
-      const { breaks, variationV: tv } = curveBreaks(c, ub, vb, t);
-      variationV += tv;
-      const q = c.basis.degree;
-      const nT = deg !== undefined && !c.rational ? Math.ceil((q * (deg[0] + deg[1] + 2)) / 2) : 0;
-      if (nT >= 1 && nT <= GL_MAX_ORDER) {
-        const rt = gaussLegendre(nT);
-        for (let k = 0; k + 1 < breaks.length; k++) {
-          const m = 0.5 * (breaks[k]! + breaks[k + 1]!);
-          const h = 0.5 * (breaks[k + 1]! - breaks[k]!);
-          for (let i = 0; i < nT; i++) {
-            const term = h * rt.weights[i]! * g(m + h * rt.nodes[i]!);
-            value += term;
-            exactAbs += Math.abs(term);
-            exactTerms++;
-          }
+  curves.forEach((c, ci) => {
+    const sc = makeScratch(c.basis.degree, 1);
+    const cv = new Float64Array(4);
+    const g = (x: number): number => {
+      curveEvalInto(c, x, 1, cv, 0, sc);
+      return F(cv[0]!, cv[1]!) * cv[3]!;
+    };
+    const { breaks } = pieces[ci]!;
+    const q = c.basis.degree;
+    const nT = deg !== undefined && !c.rational ? Math.ceil((q * (deg[0] + deg[1] + 2)) / 2) : 0;
+    if (nT >= 1 && nT <= GL_MAX_ORDER) {
+      const rt = gaussLegendre(nT);
+      for (let k = 0; k + 1 < breaks.length; k++) {
+        const m = 0.5 * (breaks[k]! + breaks[k + 1]!);
+        const h = 0.5 * (breaks[k + 1]! - breaks[k]!);
+        for (let i = 0; i < nT; i++) {
+          const term = h * rt.weights[i]! * g(m + h * rt.nodes[i]!);
+          value += term;
+          exactAbs += Math.abs(term);
+          exactTerms++;
         }
-      } else {
-        const r = integrate1d(g, breaks[0]!, breaks[breaks.length - 1]!, { breaks, tol: t });
-        value += r.value;
-        outerErr += r.errorEstimate;
-        acc.converged &&= r.converged;
-        acc.evaluations += r.evaluations;
       }
+    } else {
+      const r = integrate1d(g, breaks[0]!, breaks[breaks.length - 1]!, {
+        breaks,
+        tol: t,
+        absTol: outerAbs,
+      });
+      value += r.value;
+      outerErr += r.errorEstimate;
+      acc.converged &&= r.converged;
+      acc.evaluations += r.evaluations;
     }
-  }
+  });
   return Object.freeze({
     value,
     errorEstimate: outerErr + acc.innerErrMax * variationV + exactTerms * Number.EPSILON * exactAbs,
@@ -331,7 +357,9 @@ function checkNDerOpt(nDer: unknown): 0 | 1 | 2 {
  * `∫∫_D f(u, v) du dv` over the trimmed domain (module comment). `f` receives
  * the SKL derivatives to `nDer` (default 1: `[S, Su, Sv]`) in a scratch view
  * that it must not retain. `polynomialDegree` promises a polynomial integrand
- * of that bidegree per span pair (then exact rules are used).
+ * of that bidegree per span pair (then exact rules are used). `absTol`
+ * (default 0) is an absolute error target for the adaptive rules, met as well
+ * as or instead of `quadRel` (module comment); exact rules ignore it.
  */
 export function integrateTrimmed(
   ts: TrimmedSurface,
@@ -340,6 +368,7 @@ export function integrateTrimmed(
     readonly polynomialDegree?: readonly [number, number];
     readonly nDer?: 0 | 1 | 2;
     readonly tol?: Partial<Tolerances>;
+    readonly absTol?: number;
   },
 ): QuadratureResult {
   checkSurfaceShape(ts.surface);
@@ -348,9 +377,10 @@ export function integrateTrimmed(
   const deg = opts?.polynomialDegree;
   checkDegrees(deg);
   const nDer = checkNDerOpt(opts?.nDer);
+  const absTol = checkAbsTol(opts?.absTol);
   if (ts.outer === null && ts.holes.length === 0)
-    return integrateTensor(ts.surface, f, nDer, deg, t);
-  return integrateGreen(ts, f, nDer, deg, t);
+    return integrateTensor(ts.surface, f, nDer, deg, t, absTol);
+  return integrateGreen(ts, f, nDer, deg, t, absTol);
 }
 
 const natural = (s: NurbsSurface): TrimmedSurface =>
@@ -379,9 +409,13 @@ export function surfaceArea(
  * `sameSense` is false (the face's outward normal is `−n`) and `c` the centre
  * of the faces' control-point bounding box (subtracted to limit cancellation;
  * any `c` is exact for a closed set). Polynomial faces use the exact rules of
- * bidegree `(3p − 1, 3q − 1)`; rational ones adaptive integration. Closure is
- * the caller's (B-rep checks it, step B4): for an open set the result depends
- * on `c`.
+ * bidegree `(3p − 1, 3q − 1)`; rational ones adaptive integration, to
+ * `quadRel` relative to each face's integral or, for a face whose integral is
+ * small against the solid (down to rounding noise: a face through `c`), to
+ * `quadRel` of the bounding box's volume shared among the faces (the `absTol` of
+ * {@link integrateTrimmed}), so the total is within `quadRel` of that scale.
+ * Closure is the caller's (B-rep checks it, step B4): for an open set the result
+ * depends on `c`.
  */
 export function enclosedVolume(
   faces: readonly VolumeFace[],
@@ -417,6 +451,8 @@ export function enclosedVolume(
   const cx = 0.5 * (x0 + x1);
   const cy = 0.5 * (y0 + y1);
   const cz = 0.5 * (z0 + z1);
+  // Each face integral is 3 × its volume share: the faces' absolute targets sum to quadRel × box.
+  const absTol = (3 * t.quadRel * (x1 - x0) * (y1 - y0) * (z1 - z0)) / faces.length;
   const integrand: SurfaceIntegrand = (_u, _v, d) => {
     const nx = d[4]! * d[8]! - d[5]! * d[7]!;
     const ny = d[5]! * d[6]! - d[3]! * d[8]!;
@@ -433,7 +469,7 @@ export function enclosedVolume(
     const deg: readonly [number, number] | undefined = s.rational
       ? undefined
       : [3 * s.u.degree - 1, 3 * s.v.degree - 1];
-    const r = integrateTrimmed(ts, integrand, { polynomialDegree: deg, tol: t });
+    const r = integrateTrimmed(ts, integrand, { polynomialDegree: deg, tol: t, absTol });
     const sigma = fc.sameSense === false ? -1 : 1;
     value += sigma * r.value;
     errorEstimate += r.errorEstimate;

@@ -203,6 +203,27 @@ describe('integrate1d', () => {
     expect(r.value).toBeGreaterThan(1.5); // ∫ = 2, approached from below
   });
 
+  it('meets an absolute target on rounding noise, which no relative target can (G2 regression)', () => {
+    // A deterministic, non-smooth integrand of size ε: what a cancelling formula leaves
+    // (e.g. a moment component over a wall). Its "relative accuracy" is unattainable.
+    const noise = (x: number): number => (((Math.sin(7919 * x) * 1e5) % 1) - 0.5) * EPS;
+    const rel = integrate1d(noise, 0, 1);
+    expect(rel.converged).toBe(false);
+    expect(rel.evaluations).toBe(15 * (2 * DEFAULT_TOLERANCES.quadMaxSplits - 1));
+    // An absolute target far above the noise: met by the first panel.
+    const abs = integrate1d(noise, 0, 1, { absTol: 1e-12 });
+    expect(abs.converged).toBe(true);
+    expect(abs.evaluations).toBe(15);
+    expect(abs.errorEstimate).toBeLessThanOrEqual(1e-12);
+    expect(Math.abs(abs.value)).toBeLessThanOrEqual(EPS);
+    // On a real integrand the relative target still governs: an absolute one far below
+    // it changes nothing, bit for bit.
+    const f = (x: number): number => 1 / (1 + x * x);
+    expect(integrate1d(f, 0, 1, { absTol: 1e-300 })).toEqual(integrate1d(f, 0, 1));
+    expect(() => integrate1d(f, 0, 1, { absTol: -1 })).toThrow();
+    expect(() => integrate1d(f, 0, 1, { absTol: NaN })).toThrow();
+  });
+
   it('is deterministic', () => {
     const f = (x: number): number => Math.sin(10 * x) / (1 + x);
     expect(integrate1d(f, 0, 3)).toEqual(integrate1d(f, 0, 3));

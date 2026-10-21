@@ -50,17 +50,22 @@ export function signedVolume(b: Brep, tol?: Partial<Tolerances>): QuadratureResu
 }
 
 /**
- * The minimum corner of the faces' control-point bounding box: the reference point `c`
- * of the first moments. Not the centre: for a solid symmetric about the centre a
+ * The faces' control-point bounding box. Its minimum corner is the reference point
+ * `c` of the first moments. Not the centre: for a solid symmetric about the centre a
  * moment integral over a symmetric face is zero, its inner integral is rounding noise,
  * and the adaptive integrators (whose stopping rule is relative to `∫|f|`) never
  * converge on noise. From the minimum corner `x − c_x ≥ 0` on the whole solid, so
- * no symmetry puts a face's integral at zero.
+ * no symmetry puts a face's integral at zero. A face can still contribute nothing
+ * to a component (a wall whose normal has no `z` component), so the moments also
+ * carry an absolute target on the solid's scale (see {@link massProperties}).
  */
-function referencePoint(tss: readonly TrimmedSurface[]): Point3 {
+function controlBox(tss: readonly TrimmedSurface[]): { lo: Point3; hi: Point3 } {
   let x0 = Infinity;
   let y0 = Infinity;
   let z0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  let z1 = -Infinity;
   for (const ts of tss) {
     const s = ts.surface;
     for (let i = 0; i < s.cw.length; i += 4) {
@@ -71,9 +76,12 @@ function referencePoint(tss: readonly TrimmedSurface[]): Point3 {
       if (X < x0) x0 = X;
       if (Y < y0) y0 = Y;
       if (Z < z0) z0 = Z;
+      if (X > x1) x1 = X;
+      if (Y > y1) y1 = Y;
+      if (Z > z1) z1 = Z;
     }
   }
-  return { x: x0, y: y0, z: z0 };
+  return { lo: { x: x0, y: y0, z: z0 }, hi: { x: x1, y: y1, z: z1 } };
 }
 
 /**
@@ -81,7 +89,12 @@ function referencePoint(tss: readonly TrimmedSurface[]): Point3 {
  * face's loops do not form a valid trimmed surface. The volume is the signed
  * one: negative for an inside-out B-rep (use `orientBrep`). `QuadratureResult`s
  * carry the integrators' error estimates and convergence flags; the centroid
- * is exact when both moments and volume are (polynomial faces).
+ * is exact when both moments and volume are (polynomial faces). Adaptive
+ * moments meet `quadRel` relative to each face's integral, or absolutely
+ * `quadRel · |V| · extent` shared among the faces (`extent` the control box's
+ * along that axis, the scale of the moment `∫ (x − c_x) dV ≤ V · extent`), so a
+ * face that contributes nothing (rounding noise) to a component converges, and
+ * each centroid coordinate is within about `quadRel · extent`.
  */
 export function massProperties(
   b: Brep,
@@ -101,7 +114,10 @@ export function massProperties(
   let areaErr = 0;
   let areaEvals = 0;
   let areaConverged = true;
-  const c = referencePoint(tss);
+  const box = controlBox(tss);
+  const c = box.lo;
+  const extent = [box.hi.x - c.x, box.hi.y - c.y, box.hi.z - c.z];
+  const momentAbs = extent.map((e) => (t.quadRel * Math.abs(volume.value) * e) / tss.length);
   const moment = [0, 0, 0];
   tss.forEach((ts, i) => {
     const a = surfaceArea(ts, t);
@@ -125,7 +141,12 @@ export function massProperties(
         return 0.5 * r * r * n;
       };
       moment[axis]! +=
-        sigma * integrateTrimmed(ts, integrand, { polynomialDegree: deg, tol: t }).value;
+        sigma *
+        integrateTrimmed(ts, integrand, {
+          polynomialDegree: deg,
+          tol: t,
+          absTol: momentAbs[axis]!,
+        }).value;
     }
   });
   const v = volume.value;

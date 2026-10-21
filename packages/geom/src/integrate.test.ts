@@ -33,6 +33,7 @@ import { clampedBasis } from './basis';
 import { mulberry32 } from './testing';
 import { DEFAULT_TOLERANCES } from './tolerance';
 import { enclosedVolume, integrateTrimmed, surfaceArea } from './integrate';
+import type { SurfaceIntegrand } from './integrate';
 import { makeTrimLoop, makeTrimmedSurface, naturalBoundaryLoop } from './trim';
 import { makeSurface, transformSurface } from './surface';
 import type { ClampedCurve, NurbsSurface, Result, TrimLoop, TrimmedSurface } from './types';
@@ -343,6 +344,46 @@ describe('closed solids', () => {
     expect(
       relErr(enclosedVolume([{ face: s }]).value, 2 * Math.PI ** 2 * R * r * r),
     ).toBeLessThanOrEqual(QREL);
+  });
+
+  it('a rational face whose integrand is rounding noise converges on an absolute target (G2 regression)', () => {
+    // Nested adaptive rules on noise used to refine to quadMaxSplits at both levels
+    // (61k inner evaluations per outer node: a hang at the defaults). massProperties hit it
+    // on a skinned wall whose normal has no z component (V5b with no bulge).
+    const side = cylinder({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }, 1.2, 2.5);
+    const noise: SurfaceIntegrand = (_u, _v, d) =>
+      (((d[0]! * 1e5 + d[2]! * 3e4) % 1) - 0.5) * Number.EPSILON;
+    const natural = ok(makeTrimmedSurface(side, null));
+    // With a small cap the relative-only run shows the failure quickly.
+    const capped = integrateTrimmed(natural, noise, { tol: { quadMaxSplits: 16 } });
+    expect(capped.converged).toBe(false);
+    // The runs with absTol keep a modest cap too, so a regression fails here instead of hanging.
+    const bounded = { quadMaxSplits: 64 };
+    const abs = integrateTrimmed(natural, noise, { absTol: 1e-12, tol: bounded });
+    expect(abs.converged).toBe(true);
+    expect(abs.errorEstimate).toBeLessThanOrEqual(1e-12);
+    expect(Math.abs(abs.value)).toBeLessThanOrEqual(1e-12);
+    // Cheap: well under one capped inner integral per outer node.
+    expect(abs.evaluations).toBeLessThan(capped.evaluations);
+    // The same through Green's theorem (a trimmed face).
+    const cap = ok(
+      makeTrimmedSurface(
+        planeSurface(
+          { x: 0, y: 0, z: 0 },
+          { x: 1, y: 0, z: 0 },
+          { x: 0, y: 1, z: 0 },
+          {
+            u: [-1.5, 1.5] as const,
+            v: [-1.5, 1.5] as const,
+          },
+        ),
+        loop([circle2({ x: 0, y: 0 }, 1.2)]),
+      ),
+    );
+    const green = integrateTrimmed(cap, noise, { absTol: 1e-12, tol: bounded });
+    expect(green.converged).toBe(true);
+    expect(green.errorEstimate).toBeLessThanOrEqual(1e-12);
+    expect(() => integrateTrimmed(natural, noise, { absTol: -1 })).toThrow();
   });
 
   it('cylinder closed by trimmed planar caps: πr²h', () => {

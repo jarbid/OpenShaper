@@ -1175,7 +1175,11 @@ export function integrate1d(
   f: (x: number) => number,
   a: number,
   b: number,
-  opts?: { readonly breaks?: ArrayLike<number>; readonly tol?: Partial<Tolerances> },
+  opts?: {
+    readonly breaks?: ArrayLike<number>;
+    readonly tol?: Partial<Tolerances>;
+    readonly absTol?: number; // G2: also converged when the error estimate ≤ absTol (default 0)
+  },
 ): QuadratureResult; // adaptive GK 7–15
 ```
 
@@ -1855,6 +1859,7 @@ export function integrateTrimmed(
     readonly polynomialDegree?: readonly [number, number];
     readonly nDer?: 0 | 1 | 2; // SKL order passed to f (B2; default 1)
     readonly tol?: Partial<Tolerances>;
+    readonly absTol?: number; // G2: absolute target of the adaptive rules (§11.3)
   },
 ): QuadratureResult;
 export function surfaceArea(
@@ -2682,7 +2687,16 @@ holes CW):
   `(3p_u − 1, 3p_v − 1)`, and fixed GL orders chosen from these degrees make the
   result exact to rounding (cubic: 5 points per direction).
 - **Otherwise** (rational geometry, the area integrand `|S_u × S_v|`): Gauss–Kronrod
-  7–15 with adaptive bisection on both levels until `quadRel`.
+  7–15 with adaptive bisection on both levels until `quadRel`, or until an optional
+  absolute target `absTol` (half to the outer integrals, half to the inner ones divided
+  by the outer measure). **Found by V5b (G2):** a face integral that is rounding noise
+  (the z-moment of a skinned vertical wall: the skin's `S_v` has x, y components of
+  order ε) has no relative accuracy to reach, and the nested adaptive rules refined to
+  `quadMaxSplits` at both levels (≈ 4·10⁹ evaluations: `massProperties` hung). The
+  fix: `enclosedVolume` passes `3 · quadRel · (box volume) / faces` per face and
+  `massProperties` `quadRel · |V| · extent_k / faces` per moment, so a face that
+  contributes nothing converges at once and the totals stay within `quadRel` of the
+  solid's scale.
 - **Natural-boundary faces** use the tensor-product GL rule per span pair (exact under
   the same conditions, cheaper).
 - **Volume:** `V = ⅓ Σ_f σ_f ∫∫_{D_f} (S − c)·(S_u × S_v) du dv`, `σ_f = ±1` from
@@ -3183,6 +3197,95 @@ Path B (B1 to B8, mm and cm) like the rest.
   OCCT: section counts, shell signs, the reversed wire of a reversed face, the declared
   tolerance equal to `writeStep`'s, unit scaling, determinism, the gate.
 
+### 15.7 V5b, the curved puck (Phase 2 step G2, 2026-10-21)
+
+**Why.** V5's deck is a tilted plane, so its volume `π a b h` stayed exact while only the
+pcurve was a real fit: the hardest Phase 2 geometry (curved trimmed deck and bottom, a
+skinned band, high degree, interior knots) had no independent oracle. V5b
+(`testing/curved-puck.ts`, exported from `./testing`) is the board's three-face topology
+with every face curved:
+
+- **Deck** `z = D(x, y)`, a quadratic with slope, rocker and crown, as a degree **6 × 4**
+  B-spline with interior knots in both directions (3 and 2, non-uniform) and a non-affine
+  parameterisation (`x` cubic in `u`, `y` quadratic in `v`), fitted by
+  `approximateSurface` from an over-determined grid. **Bottom** `z = B(x, y)` (rocker, a
+  rise towards +x, a curve across) as a bicubic with interior knots, the same way. The
+  data lie in the spline spaces, so the fits reproduce `D` and `B` to the solve's
+  rounding (3.5e-12 cm on the degree-6 deck, measured densely).
+- **Band**: `skinCurves` (cubic across, one interior knot) through five closed sections
+  over the plan ellipse, each an **exact** rational quartic (the 9-point circle with a
+  quadratic height over the common denominator `W²`, built by the Bernstein product
+  rule) scaled by `1 + 4 · bulge · s(1 − s)` at height `(1 − s) B + s D`. With
+  `periodicBand` the sections are periodic quartics and the band is periodic in `u` (the
+  board's rail-band layout, board2 decision 7).
+- **Trims**: the deck's and the bottom's pcurves are both `projectCurveToSurface` fits of
+  the exact edge sections (73 control points each); the band's are iso-lines, its seam an
+  iso-curve edge.
+
+**The oracle** (`curvedPuckOracle`, independent of the trims and of `integrate.ts`): by
+the divergence theorem every quantity is a flux through the boundary; over the deck and
+the bottom (graphs over the exact ellipse) the fluxes are polynomials, integrated in polar
+coordinates by Gauss–Legendre in the radius and the trapezoid rule in the angle (both
+exact for those degrees), with the volume terms also in closed form; over the band, a
+tensor Gauss–Legendre rule per span pair at two orders. It is itself checked against
+`π a b h` (planar deck and bottom, no bulge) and against its own closed form (1e-13).
+The board-size V5b (180 × 54 cm, 7 cm thick at the centre): volume 43,595.93 cm³, area
+17,212.11 cm².
+
+**What runs.** `brep/curved-puck.test.ts` (in `pnpm test`): construction (degrees,
+knots; sections, deck, bottom and band boundary reproduce their definitions at seeded
+random parameters), honest gaps (4.2e-5 cm bottom, 6.5e-5 cm deck; independent samples
+within 5 %), `massProperties` against the oracle within the gap's leak (`g · L · R / 3`
+for the volume, `L` a bound of the fitted edges' length from the spec, `R` the control
+box's diagonal) for the board, the periodic band, a twisted shape with an 8 % bulge and
+the planar case, convergence in `tol.fit`, a rigid motion, STEP declaration and round
+trip, and the watertight mesh. Measured: `massProperties` is within **2.5e-10** of the
+oracle's volume and area (the bound allows 2.4e-5), the centroid within 1e-7 cm; the
+volume error falls faster than the gap (1e-3 → 1e-5 cm fit: 9.9e-4 → 2.2e-7 cm³).
+`step.occt.test.ts`: V5b, V5b with a periodic band and the mirrored V5b join the corpus
+(Path B B1–B8 in mm and cm, Path A, B7, all passing; the mesh oracle at 0.03 mm, since
+0.01 mm meshes the band into 391k triangles) and the orientation negative controls.
+`step/curved-puck.occt.test.ts` adds the checks below; `test:occt` is now 97 tests
+(77 at G1), about 144 s, of which V5b's meshes and mass properties take about 90 s.
+It adds:
+
+- **The pcurve fit, judged by OCCT.** `BRepCheck` checks each edge's same-parameter
+  deviation at 23 equally spaced parameters (`BRepLib_ValidateEdge`) with its own
+  evaluators. Written unhealed (Path A) with the tolerance 1e-6 relative below our own
+  23-point maximum it is invalid, 1e-6 above it valid, at fits of 1e-3, 1e-4 and 1e-5 cm:
+  OCCT's evaluation of our pcurves on the degree-6 and bicubic surfaces agrees with ours
+  to that. The STEP healer sets the same tolerance itself (3.9224e-4 mm against our
+  3.9224e-4 mm at the default fit, with OCCT's 1e-5 margin). Our own `checkBrep` gap is
+  the dense maximum (6.5e-4 mm), so OCCT's 23 samples see 60 % of it here, which is why
+  the declared uncertainty (twice the dense gap) is the right side to err on.
+- **Volume**: OCCT's triangulation of the Path A shape against the oracle, −8.8e-4 at
+  0.1 mm and −2.6e-4 at 0.03 mm (first order in the deflection, inside `area ×
+deflection`); GProp's `getVolume` +0.11 %.
+- **Area**: GProp per face against the oracle's faces (+2.5e-4 band, +2.9e-5 bottom,
+  +2.8e-5 deck), and OCCT's triangulation area −9.2e-5 → −3.0e-5.
+
+**Bugs found.** One, in geom: `massProperties` **hung** on the planar no-bulge variant
+(the oracle's own check): the skinned vertical band's z-moment integrand is rounding
+noise, and nested adaptive quadrature cannot meet a relative target on noise (§11.3).
+Fixed with the absolute targets of §11.3 (`absTol` on `integrate1d` and
+`integrateTrimmed`); regression tests in `quadrature.test.ts` and `integrate.test.ts` fail
+(rather than hang) without it. Nothing else broke: B-rep construction, `checkBrep`,
+`writeStep` (incl. clamping the periodic band), `readStepSubset`, `toOcctBrepText`,
+`tessellateBrep` and OCCT all took the curved faces as they are. Observed, not a bug: the
+reported volume `errorEstimate` grows as the fit tightens (1.3e-4 → 4.4e-3 cm³ for fits
+1e-3 → 1e-6 cm) while the real error falls to 1e-8 cm³: the Green estimate sums an inner
+estimate times the trims' total v-variation, which grows with the pcurve's control points.
+It is a bound, honest and loose.
+
+**P22 on V5b** (§17, row P22b): **1,750 ms** (target 50 ms; the V5 board P22 is 220 ms in
+the same run). One pass costs 70–120 ms on the deck (area), 130 ms (volume) and 250 ms per
+moment: the deck's exact rules for a degree-6 × 4 surface promise bidegree 23 × 15 for the
+moments, so Green's theorem takes 12 inner points per u-span at each of 60 points per piece
+of a 73-control-point pcurve split at every knot line. The tier-2 options of §17 apply with
+more force: one multi-integrand pass per face (the five passes share their trim samples),
+and lower degree for the board's deck (board2 decides the height-field degree; bicubic
+would cut the moment rule from 60 to 36 outer points).
+
 ## 16. Oracle catalogue
 
 Every public function has an oracle better than "it ran". `ε` = `Number.EPSILON`
@@ -3368,6 +3471,7 @@ deck pcurve is the fit):
 | P18b | `curveOnSurfaceTo3d`, 63-control-point pcurve on the same deck, default | 21.0 ms  | ≤ 30 ms  |
 | P18c | `ellipticPuckSolid` (builds the solid and fits the deck pcurve)         | 46.3 ms  | ≤ 30 ms¹ |
 | P22  | `massProperties`, 3 faces                                               | 204 ms   | ≤ 50 ms  |
+| P22b | `massProperties`, V5b curved puck (step G2, §15.7)                      | 1,750 ms | ≤ 50 ms  |
 | P23  | `writeStep`, `roundTrip` precision (15,122 bytes, 213 entities)         | 57.9 ms  | ≤ 100 ms |
 | P23  | `writeStep`, 9 digits (13,498 bytes; re-reads and re-checks the text)   | 119.7 ms | ≤ 100 ms |
 | P20b | `tessellateBrep`, chord 0.05 cm                                         | 47.8 ms  | ≤ 100 ms |
