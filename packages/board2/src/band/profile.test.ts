@@ -22,8 +22,10 @@
  *   fullnesses and hardness over their ranges on a sloped deck and bottom.
  * - **Structure**: P2, P3, P4 share x and y bitwise (the apex G1 identity of
  *   §3.5), P0 and P6 lie on the samplers exactly, the weights are all 1.
- * - **Issues**: H_u ≤ 0, H_l ≤ 0, rail height below the minimum, a tuck handle
- *   past the apex vertical, each with its code and σ; a good column has none.
+ * - **Issues**: H_u ≤ 0, H_l ≤ 0, rail height below the minimum, a deck or tuck
+ *   handle past the apex vertical, each with its code and σ; a good column has none.
+ * - **apexLower offset**: P5 and the crease bitwise kept; measured hardness is
+ *   `h · φ_law / φ_actual` (closed form, 1e-12).
  * - **Offsets** move only their rows, along their frame vectors, by their
  *   values (1e-12 × scale).
  */
@@ -188,6 +190,32 @@ describe('profileRows: the §5.3 construction', () => {
     }
   });
 
+  it('an apexLower offset keeps P5 and the crease; measured hardness reads the actual P4', () => {
+    // The construction rotates towards the law's P4 (before the offset, deviation 1),
+    // measureColumn towards the surface's actual P4: the crease (geometry) is kept,
+    // and the measured hardness is h · φ_law / φ_actual (closed form).
+    const rng = mulberry32(17);
+    for (let k = 0; k < 50; k++) {
+      const deck = plane(8 + 2 * rng(), 0.1 * rng() - 0.05, 0.1 * rng() - 0.05);
+      const bottom = plane(0.5 * rng(), 0.1 * rng() - 0.05, 0.1 * rng() - 0.05);
+      const s = spec(rng);
+      const a = profileRows(s, deck, bottom, BUILD, AT);
+      const off = { ...ZERO_OFFSETS, apexLowerZ: 0.1 + 0.2 * rng() };
+      const b = profileRows({ ...s, offsets: off }, deck, bottom, BUILD, AT);
+      expect(pt(b.points, 5)).toEqual(pt(a.points, 5));
+      expect(b.crease).toBe(a.crease);
+      expect(b.phiChord).toBe(a.phiChord);
+      const T = pt(b.points, 6);
+      const d4 = sub(pt(b.points, 4), T);
+      const n = s.frame.inward;
+      const phiActual = Math.atan2(d4[2], -(d4[0] * n.x + d4[1] * n.y)) - Math.atan2(b.sb, 1);
+      const m = measureColumn(b.points, s.frame, b.sb);
+      const want = (s.edgeHardness * a.phiChord) / phiActual;
+      expect(Math.abs(m.edgeHardness - want), `case ${k}`).toBeLessThanOrEqual(1e-12);
+      if (s.edgeHardness > 0.05) expect(m.edgeHardness).not.toBeCloseTo(s.edgeHardness, 6);
+    }
+  });
+
   it('every profile on a law grid is convex (one turning sense along P0 … P6)', () => {
     const deck = plane(9, 0.02, 0.06);
     const bottom = plane(0, -0.03, 0.04);
@@ -266,6 +294,17 @@ describe('profileRows: issues', () => {
     const issues = profileRows(base, plane(0.05, 0, 0), flatBottom, BUILD, AT).issues;
     expect(issues.map((i) => i.code)).toContain('rail-height');
     expect(issues.find((i) => i.code === 'rail-height')!.value).toBeCloseTo(0.05, 12);
+  });
+
+  it('a deck handle pushed past the apex vertical is rail-profile-invalid; on the vertical is fine', () => {
+    // Fullness 1 puts P1 on the apex vertical (the corner C_u); a positive deckHandle
+    // offset then slides it outboard along the deck tangent (flat deck: by its value).
+    const boxy = { ...base, upperFullness: 1 };
+    expect(profileRows(boxy, flatDeck, flatBottom, BUILD, AT).issues).toEqual([]);
+    const off = { ...ZERO_OFFSETS, deckHandleL: 1 };
+    const col = profileRows({ ...boxy, offsets: off }, flatDeck, flatBottom, BUILD, AT);
+    expect(col.issues.map((i) => i.code)).toEqual(['rail-profile-invalid']);
+    expect(col.issues[0]!.value).toBeCloseTo(-1, 12);
   });
 
   it('a tuck handle pushed past the apex vertical is rail-profile-invalid', () => {

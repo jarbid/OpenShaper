@@ -18,19 +18,22 @@
  * heights below `minRailHeight` (`rail-height`), profiles with no convex half
  * (`rail-profile-invalid`), and inset loops that are not simple loops strictly
  * inside the plan loop and the height fields (`inset-loop-invalid`, geom's
- * certified trim checks).
+ * certified trim checks). The offset layer's structure is checked before them
+ * (`doc-malformed`). The band checks judge the columns of the station basis
+ * only: a board that passes can still fail at a column `buildBand`'s
+ * refinement inserts (S3 deviation 8).
  *
  * It is pure and total: it never throws on a typed document, including one that
  * has not been through `reviveBoardDoc` (non-finite numbers are reported, not
  * evaluated).
  */
-import { curvePoint, knotMultiplicities, resolveTolerances } from '@openshaper/geom';
+import { curvePoint, knotMultiplicities, periodicBasis, resolveTolerances } from '@openshaper/geom';
 import type { PeriodicCurve, Tolerances } from '@openshaper/geom';
 import { bandChecks } from './band/band';
 import { BOARD2_FORMAT, BOARD2_VERSION } from './doc';
 import { causeOf, hasErrors, makeIssue } from './issues';
 import { certifyLawRange, checkLawKeys } from './law';
-import { laneRange, RAIL_LANES, validateBuildParams } from './params';
+import { laneRange, OFFSET_ROW_COMPONENTS, RAIL_LANES, validateBuildParams } from './params';
 import {
   planCurve,
   planExtent,
@@ -199,9 +202,56 @@ export function validateBoard(doc: BoardDoc): readonly Board2Issue[] {
     out.push(...checkHeightFieldSymmetry(doc.deck, 'deck', tol));
     out.push(...checkHeightFieldSymmetry(doc.bottom, 'bottom', tol));
   }
-  // The band's columns need a sound plan, surfaces, laws and parameters.
+  checkOffsets(doc, tol, out);
+  // The band's columns need a sound plan, surfaces, laws, offsets and parameters.
   if (!hasErrors(out)) out.push(...bandChecks(doc));
   return out;
+}
+
+/**
+ * The offset layer's structure (§6.1, §11 `OffsetField`), as `reviveBoardDoc`
+ * checks it, for a typed document that has not been revived: a basis geom
+ * accepts (or `null` with no rows), each row named once with one value group
+ * per basis function in its component count, every value finite.
+ * `doc-malformed`, located by row; the band checks need all of it.
+ */
+function checkOffsets(doc: BoardDoc, tol: Tolerances, out: Board2Issue[]): void {
+  const layer = doc.offsets;
+  const malformed = (message: string, extras: Parameters<typeof makeIssue>[2] = {}): void => {
+    out.push(makeIssue('doc-malformed', `offsets: ${message}`, extras));
+  };
+  let count: number | null = null;
+  if (layer.basis === null) {
+    if (layer.rows.length > 0) malformed('rows must be empty when basis is null');
+    return;
+  }
+  try {
+    count = periodicBasis(layer.basis.degree, layer.basis.knots, 1, tol).count;
+  } catch (e) {
+    const cause = causeOf(e);
+    malformed(`basis: ${e instanceof Error ? e.message : String(e)}`, {
+      ...(cause === undefined ? {} : { cause }),
+    });
+  }
+  const seen = new Set<string>();
+  for (const f of layer.rows) {
+    if (!Object.hasOwn(OFFSET_ROW_COMPONENTS, f.row)) {
+      malformed(`unknown row '${String(f.row)}'`);
+      continue;
+    }
+    const at = { at: { row: f.row } };
+    if (seen.has(f.row)) malformed(`row '${f.row}' appears twice`, at);
+    seen.add(f.row);
+    const dim = OFFSET_ROW_COMPONENTS[f.row].length;
+    if (count !== null && f.values.length !== count * dim) {
+      malformed(
+        `row '${f.row}' needs ${count} × ${dim} = ${count * dim} values; got ${f.values.length}`,
+        { ...at, value: f.values.length },
+      );
+    }
+    const bad = f.values.findIndex((v) => !finite(v));
+    if (bad >= 0) malformed(`row '${f.row}' value ${bad} is not finite`, at);
+  }
 }
 
 /** The document's geom tolerances, or geom's defaults when the record is unusable (reported elsewhere). */

@@ -618,6 +618,38 @@ describe('validateBoard: the band checks (step S3)', () => {
     expect(issues.filter((x) => x.code === 'inset-loop-invalid')).toHaveLength(1);
   });
 
+  it('a malformed offset layer on an unrevived document is doc-malformed, never a throw', () => {
+    const basis = { degree: 3, knots: [0, 0.25, 0.5, 0.75] };
+    const cases: readonly (readonly [BoardDoc['offsets'], string])[] = [
+      [{ basis, rows: [{ row: 'apexUpper', values: [0, 0] }] }, 'needs 4 × 1 = 4 values'],
+      [{ basis, rows: [{ row: 'apexUpper', values: [0, NaN, 0, 0] }] }, 'not finite'],
+      [
+        {
+          basis,
+          rows: [
+            { row: 'tuck', values: [0, 0, 0, 0] },
+            { row: 'tuck', values: [0, 0, 0, 0] },
+          ],
+        },
+        'appears twice',
+      ],
+      [{ basis: { degree: 3, knots: [0.5, 0.25] }, rows: [] }, 'basis'],
+      [{ basis: null, rows: [{ row: 'tuck', values: [] }] }, 'must be empty'],
+    ];
+    for (const [offsets, what] of cases) {
+      const d = { ...sampleDoc(), offsets };
+      let issues: ReturnType<typeof validateBoard> = [];
+      expect(() => {
+        issues = validateBoard(d);
+      }, what).not.toThrow();
+      expect(
+        issues.map((i) => i.code),
+        what,
+      ).toEqual(['doc-malformed']);
+      expect(issues[0]!.message, what).toContain(what);
+    }
+  });
+
   it('band checks run only on a document without errors (no cascade)', () => {
     const d = stadiumBoard({ thickness: 0.05 }) as Mutable<BoardDoc>;
     d.laws = { ...d.laws, apexHeight: constantLaw(2) };

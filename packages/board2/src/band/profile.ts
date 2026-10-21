@@ -202,6 +202,11 @@ export function profileRows(
     off.tuckHandleN === 0 && off.tuckHandleZ === 0
       ? spec.edgeHardness * phiChord
       : Math.atan2(p5z - tz, wt - p5w) - thetaB;
+  // §5.3: every point inboard of or on the apex vertical (w ≥ 0), so by the
+  // convex-hull property no profile reaches past its apex and the outline stays
+  // the widest line. P0, P6 have w > 0 (insets ≥ minInset), P2–P4 have w = 0,
+  // so only the two offset handles can break it.
+  if (!(p1w >= 0)) invalid('the deck handle reaches past the apex vertical', p1w);
   if (!(p5w >= 0)) invalid('the tuck handle reaches past the apex vertical', p5w);
   const weights = new Float64Array(BAND_ROWS).fill(1);
   return Object.freeze({
@@ -233,6 +238,13 @@ export function profileRows(
  * On a column built by {@link profileRows} with no offsets this returns its
  * inputs (to rounding); on an iso-curve of the band between columns it is
  * "the law the surface actually has" (§5.7).
+ *
+ * Hardness is read against the column's **actual** P4, the only P4 the points
+ * carry. The construction rotates towards the law's P4, before an `apexLower`
+ * offset (S3 deviation 1), so such an offset keeps P5 and the crease but
+ * changes the measured hardness to `h · φ_law / φ_actual`. Fidelity is
+ * unaffected (the design side is measured with this function too); a reader
+ * of {@link measureLaws} sees that shift as the offset's, not a hardness edit.
  */
 export function measureColumn(q: ArrayLike<number>, frame: PlanFrame, sb: number): RailLawValues {
   const n = frame.inward;
@@ -291,6 +303,8 @@ export function measuredLawsAt(
  * station plane of the plan frame at `u`. Exact at the columns of a law-only
  * band where neighbouring columns agree (a straight, constant-law stretch);
  * between columns it is what the fidelity check (§5.4) compares with the laws.
+ * Edge hardness is measured against the surface's own lower apex handle, so
+ * an `apexLower` offset shifts it (see {@link measureColumn}).
  *
  * Takes the parts of a built board it reads (`buildBoard` arrives in step S4;
  * a `BuiltBoard` satisfies the type): the document (symmetry and the bottom's

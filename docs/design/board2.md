@@ -447,7 +447,8 @@ the station plane (horizontal axis ô outward, ẑ up):
    the chord `A − T`, which is not convex above `h = φ′/φ`: S3 deviation 1.)
 
 All seven points lie inboard of or on the apex vertical, so by the convex-hull property no
-profile reaches past its apex. Classic-preset equivalence: with `deckInset = deckBand ×
+profile reaches past its apex. (The construction puts them there; the two handles an offset
+can move, P1 and P5, are refused past it as `rail-profile-invalid`: S3 review fixes.) Classic-preset equivalence: with `deckInset = deckBand ×
 halfWidth` and `tuckInset = bottomBand × halfWidth`, the classic `apex` and board2
 `apexHeight` are the same quantity (both measured between the band marks); `edge` and
 `fullness` map monotonically but not identically, and the converter's preset-recovery test
@@ -946,23 +947,23 @@ geom's tolerances apply unless `build.tolerances` overrides them.
 
 ### 12.1 Build (`DEFAULT_BUILD_PARAMS`)
 
-| Name                     | Default                                                     | Meaning                                           | Why this value                                                                                                                                    |
-| ------------------------ | ----------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `minInset`               | 0.1 cm                                                      | Smallest deck or tuck inset                       | 1 mm: the scale of a CNC finishing feature (accuracy 0.1 mm) and 1,000 × `Tolerances.fit`, so the edge fits never touch the apex.                 |
-| `insetCurvatureFraction` | 0.5                                                         | Effective inset ≤ this × plan radius of curvature | An inward offset by d of radius ρ has radius ρ − d; d ≤ ρ/2 keeps the inset loops at most 2× as tight as the apex and far from the cusp at d = ρ. |
-| `minRailHeight`          | 0.1 cm                                                      | Smallest deck-edge to tuck height at any station  | Same 1 mm scale; below it the band is a knife the B-rep can hold but no blank can.                                                                |
-| `apexHeightRange`        | [0.05, 0.95]                                                | Allowed apex heights                              | Keeps both profile triangles of positive height (H_u, H_l > 0 needs margin from 0 and 1); 5% of a 2 cm rail is 1 mm.                              |
-| `fullnessRange`          | [0.05, 1]                                                   | Allowed fullness                                  | Fullness 0 collapses the apex handles and the apex normal (§3.5); 1 puts the handles at the corner.                                               |
-| `maxFrameTurn`           | 5°                                                          | Plan tangent turn per band span                   | Inset rows then differ from true offsets by ≈ w Δθ²/8 ≤ 0.05 mm at w = 5 cm.                                                                      |
-| `maxStationSpacing`      | 5 cm                                                        | Arc length per band span                          | Phase 3's per-station rail handles at least this often; accuracy is the fidelity check's job, not this cap's.                                     |
-| `lawTolerance`           | insets 0.005 cm, apex 0.002, fullness 0.005, hardness 0.005 | Law fidelity between stations (§5.4)              | Insets 0.05 mm (half the CNC accuracy); apex 0.2% ≈ 0.04 mm on a 2 cm rail; fullness and hardness one step of a 200-step slider.                  |
-| `deckJoinAngleTol`       | 0.1°                                                        | Deck/band normal angle                            | The checkpoint's apex G1 bar (plan §7), applied to the other blended join.                                                                        |
-| `apexJoinAngleTol`       | 0.1°                                                        | Acceptance of the apex join                       | Plan §7; the construction gives rounding (§3.5).                                                                                                  |
-| `maxBandRefinePasses`    | 6                                                           | Refinement passes of §5.4                         | Each pass halves the worst spans; O(h²) errors fall 4× per pass, so 6 passes cover a 4,000× miss.                                                 |
-| `planMargin`             | 2 cm                                                        | Height-field extent beyond the plan loop          | Room for Phase 3 outline edits without re-gridding; the trims never reach the domain edge.                                                        |
-| `featureTol`             | 0.001 cm                                                    | Bottom feature fit error                          | `lineTol`: features are design intent like the lines.                                                                                             |
-| `tolerances`             | `{}`                                                        | geom tolerance overrides                          | geom's defaults (`fit` 1e-4 cm) unless a caller needs otherwise.                                                                                  |
-| `edgeFit`                | `{}`                                                        | geom `EdgeFitSampling` overrides                  | geom's defaults (`DEFAULT_EDGE_FIT`).                                                                                                             |
+| Name                     | Default                                                     | Meaning                                                                                | Why this value                                                                                                                                    |
+| ------------------------ | ----------------------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `minInset`               | 0.1 cm                                                      | Smallest deck or tuck inset                                                            | 1 mm: the scale of a CNC finishing feature (accuracy 0.1 mm) and 1,000 × `Tolerances.fit`, so the edge fits never touch the apex.                 |
+| `insetCurvatureFraction` | 0.5                                                         | Effective inset ≤ this × plan radius of curvature where the loop turns inwards (κ > 0) | An inward offset by d of radius ρ has radius ρ − d; d ≤ ρ/2 keeps the inset loops at most 2× as tight as the apex and far from the cusp at d = ρ. |
+| `minRailHeight`          | 0.1 cm                                                      | Smallest deck-edge to tuck height at any station                                       | Same 1 mm scale; below it the band is a knife the B-rep can hold but no blank can.                                                                |
+| `apexHeightRange`        | [0.05, 0.95]                                                | Allowed apex heights                                                                   | Keeps both profile triangles of positive height (H_u, H_l > 0 needs margin from 0 and 1); 5% of a 2 cm rail is 1 mm.                              |
+| `fullnessRange`          | [0.05, 1]                                                   | Allowed fullness                                                                       | Fullness 0 collapses the apex handles and the apex normal (§3.5); 1 puts the handles at the corner.                                               |
+| `maxFrameTurn`           | 5°                                                          | Plan tangent turn per band span                                                        | Inset rows then differ from true offsets by ≈ w Δθ²/8 ≤ 0.05 mm at w = 5 cm.                                                                      |
+| `maxStationSpacing`      | 5 cm                                                        | Arc length per band span                                                               | Phase 3's per-station rail handles at least this often; accuracy is the fidelity check's job, not this cap's.                                     |
+| `lawTolerance`           | insets 0.005 cm, apex 0.002, fullness 0.005, hardness 0.005 | Law fidelity between stations (§5.4)                                                   | Insets 0.05 mm (half the CNC accuracy); apex 0.2% ≈ 0.04 mm on a 2 cm rail; fullness and hardness one step of a 200-step slider.                  |
+| `deckJoinAngleTol`       | 0.1°                                                        | Deck/band normal angle                                                                 | The checkpoint's apex G1 bar (plan §7), applied to the other blended join.                                                                        |
+| `apexJoinAngleTol`       | 0.1°                                                        | Acceptance of the apex join                                                            | Plan §7; the construction gives rounding (§3.5).                                                                                                  |
+| `maxBandRefinePasses`    | 6                                                           | Refinement passes of §5.4                                                              | Each pass halves the worst spans; O(h²) errors fall 4× per pass, so 6 passes cover a 4,000× miss.                                                 |
+| `planMargin`             | 2 cm                                                        | Height-field extent beyond the plan loop                                               | Room for Phase 3 outline edits without re-gridding; the trims never reach the domain edge.                                                        |
+| `featureTol`             | 0.001 cm                                                    | Bottom feature fit error                                                               | `lineTol`: features are design intent like the lines.                                                                                             |
+| `tolerances`             | `{}`                                                        | geom tolerance overrides                                                               | geom's defaults (`fit` 1e-4 cm) unless a caller needs otherwise.                                                                                  |
+| `edgeFit`                | `{}`                                                        | geom `EdgeFitSampling` overrides                                                       | geom's defaults (`DEFAULT_EDGE_FIT`).                                                                                                             |
 
 ### 12.2 Converter (`DEFAULT_CONVERT_OPTIONS`)
 
@@ -1327,7 +1328,7 @@ span geometry, conditions 1–2, symmetric midpoint insertion, columns), `band/p
 loop check, `bandChecks`), `offsets.ts` (the layer's evaluator), `heightSampler` in
 `height-field.ts`, the band checks in `validate.ts`, the band's row rules in `symmetry.ts`,
 the fixtures `quadraticField` and the stadium's `crown` / `rocker` options and
-`notchedBoard`, and tests for each. 236 tests (47 new). Public value added to the pin:
+`notchedBoard`, and tests for each. 236 tests (47 new; 241 after the review fixes). Public value added to the pin:
 `measureLaws`. Internal (tested through their modules): `buildBand`, `bandContext`,
 `bandPass`, `measurePass`, `columnAt`, `designedLawsAt`, `apexAngleAt`, `tuckCreaseAt`,
 `insetLoopIssues`, `bandChecks`, `BAND_V_KNOTS`, `ROW`; `bandBasis`, `basisSpans`,
@@ -1360,6 +1361,10 @@ kept pass (geom's trim checks, plan loop outer, inset loop a hole).
    law grid), and the crease is still exactly `h · φ_chord`. Hardness 1 now leaves the tuck
    straight towards the lower apex handle (towards the apex as `f_l → 0`). `φ_chord` uses
    the law's P4, before an `apexLower` offset, so that offset moves its own row only.
+   Measuring (`measureColumn`, `measureLaws`) reads hardness against the column's actual
+   P4, the only one the points carry: an `apexLower` offset keeps P5 and the crease but
+   shifts the measured hardness to `h · φ_law / φ_actual` (pinned by a closed-form test).
+   Fidelity is unaffected, as the design side goes through the same measurement.
 2. **Boundary-row z by periodic least squares on the band basis** (§5.5 items 3–4, edited):
    geom's `curveOnSurfaceTo3d` returns a clamped curve over one period whose
    full-multiplicity end knots cannot join the periodic band without a C⁰ seam. x and y are
@@ -1382,23 +1387,42 @@ kept pass (geom's trim checks, plan loop outer, inset loop a hole).
 5. **Offsets on a symmetric board are read on σ ∈ [0, ½] and mirrored**, like a half-domain law
    (the overwrite would discard the other half; reading it would make the measured design on
    the +y half disagree with the built band).
-6. **Effective insets**: `min(law + edge offset, κ ρ(u))`, ρ the local plan radius at the
-   column; `inset-invalid` below `minInset` after the offset. The limit is only C⁰ in σ where
-   it becomes active, so fidelity converges O(h) there rather than O(h²): the sample board
-   needs 6 passes; the notched loop (its 0.75 cm notch bottom) stays 4.4× over
-   `lawTolerance` after 6 passes and reports `not-converged`.
+6. **Effective insets**: `min(law + edge offset, κ ρ(u))`, ρ = 1/κ_plan where the loop turns
+   inwards (κ_plan > 0 on the counter-clockwise loop) and ∞ elsewhere (`insetRadiusAt`);
+   `inset-invalid` below `minInset` after the offset. §12.1's reason (an inward offset by d of
+   radius ρ has radius ρ − d, a cusp at d = ρ) holds only on convex stretches: on a concave
+   one the offset's radius is ρ + d, and global overlap of the inset loop is certified
+   separately (`insetLoopIssues`). As first built the cap used |κ| and cut the notched
+   loop's 5.25 cm deck inset to 0.375 cm at its notch bottom (κ = −4/3), leaving it 4.4×
+   over `lawTolerance` after 6 passes (`not-converged`); the review fix limits only where
+   κ > 0, and the notched loop converges. Plan invariant 3 still bounds |κ| everywhere,
+   which is now conservative on concave stretches (left as designed). The limit is only C⁰
+   in σ where it becomes active, so fidelity converges O(h) there rather than O(h²): the
+   sample board needs 6 passes.
 7. **The tuck crease is measured in the station plane**: the angle between the traces of the
    band (at v = 1) and of the bottom in the plane normal to the plan tangent, compared with
    the virtual column's crease (the angle of its final `P5 − T`; `h · φ_chord` without a
    tuck-handle offset). Where the tuck slopes along t̂ (rocker) the 3D dihedral differs from
-   it; the station-plane angle is what the construction designs.
+   it; the station-plane angle is what the construction designs. The crease is **reported,
+   not gated**: the refinement gate is the lane fidelity. The measured crease is the
+   measured hardness times the measured `φ_chord` (both read off the same iso-curve), so it
+   is held by the hardness lane and the lanes that fix `φ_chord` (tuck inset, apex height,
+   lower fullness). A direct gate in hardness units, `lawTolerance.edgeHardness · |φ_chord|`,
+   has a zero target at `f_l = 1` (P4 at the corner, `φ_chord = 0`, inside `fullnessRange`)
+   and would report `not-converged` on a valid law. The tests bound the reported error by
+   `lawTolerance.edgeHardness · max |φ_chord|` over the columns (the crease change one
+   hardness tolerance step makes at the steepest chord), not a fixed angle.
 8. **validateBoard runs the band checks** (§3.6, §4, §5.3), only on a document with no error
    so far: every column of the station basis (insets, `rail-height`, `rail-profile-invalid`
    for `H_u ≤ 0`, `H_l ≤ 0`, a handle of no length or a tuck handle past the apex vertical)
    and the inset loops (`inset-loop-invalid` with geom's issue as cause). `buildBand` repeats
    the column checks on its finer columns and certifies the loops of the kept pass; an apex
    angle above `apexJoinAngleTol` would be `rail-profile-invalid` (the construction gives
-   rounding). Two earlier tests changed with it: the S1 law-range tests now drop the band
+   rounding). The column checks are pointwise, so **passing `validateBoard` does not imply
+   that `buildBand` succeeds**: a column that refinement inserts between two valid stations
+   can still fail (`rail-height`, `inset-invalid`, `rail-profile-invalid`), and `buildBand`
+   then returns that pass's errors, not an earlier valid pass. Certifying the conditions
+   between stations is left open (S4's `buildBoard` reports it the same way). Two earlier tests changed with it: the S1 law-range tests now drop the band
    codes (a 1000 cm inset is in range for the certificate but not buildable on the sample
    board), and the S2 off-knot loops use 2 and 1 cm insets (seed 13's nose is narrower than
    twice 5.25 cm: its deck edges cross, correctly refused).
@@ -1407,7 +1431,9 @@ kept pass (geom's trim checks, plan loop outer, inset loop a hole).
    row 1 `slide` along `τ̂_d` = row 1 − row 0, rows 2 and 4 `offsetFrom` row 3 along ẑ, row 3
    `fixAxes` x, y, row 5 `slide` along n̂ (the horizontal part of row 0 − row 3) and ẑ. On a
    self-paired column every direction has y exactly 0, replacing S2's y lock. A degenerate
-   direction is `rail-profile-invalid`.
+   direction is `rail-profile-invalid`. Row 1's slide and row 5's moves are not bounded
+   here: Phase 3 needs the same "inboard of the apex vertical" bound the builder now checks
+   (review fixes).
 10. **Self-paired columns sit at exactly u = 0 and ½** (the pairing names them; the Greville
     sum can be one rounding off), so they get the exact tip frames and σ. A partner column's
     issues are not reported (it is overwritten by its master's mirror).
@@ -1417,6 +1443,19 @@ kept pass (geom's trim checks, plan loop outer, inset loop a hole).
     (`quadraticField`, control values by the blossom, symmetric bitwise); defaults leave the
     stadium bitwise as before. `notchedBoard()` puts flat surfaces under the notched loop
     (refused by the validator, built directly).
+13. **Review fixes (S3).**
+    - **`validateBoard` is total again.** It now checks the offset layer's structure (a basis
+      geom accepts or `null` with no rows, each row once, `count × components` values, all
+      finite) as `doc-malformed`, before the band checks; and `buildBand` / `bandChecks` turn
+      any thrown error into an issue (geom's as `geom`, anything else as `doc-malformed`)
+      instead of rethrowing it. A wrongly sized field used to escape as a `RangeError`.
+    - **P1 inboard of the apex vertical.** `profileRows` refused only P5 past it; with
+      `upperFullness = 1` any positive `deckHandle` offset put P1 outboard (1 cm on a flat
+      deck for an offset of 1) with no issue. Now `rail-profile-invalid`.
+    - **The inset cap acts only where κ > 0** (deviation 6).
+    - **Documented**: the crease is gated through the lanes (deviation 7), measured hardness
+      reads the actual P4 (deviation 1), and the validator does not certify refined columns
+      (deviation 8).
 
 **Oracles and tolerances.** Profile closed form (independent 3D construction on planar
 samplers in random frames, 200 cases) 1e-12 × 250 cm; f = 2/3 is the degree-elevated
@@ -1442,7 +1481,7 @@ apex angle ≤ 1e-9 after the solve. Validator: one negative control per band co
 | stadium | 184     | 0      | 1.5e-16    | 1.9e-13°  | 1.5e-4 rad   | 4.0e-3/1.5e-3/2e-16/6e-16/1e-16/2.7e-5         | 1.1e-13 / 1.1e-13          | 0                     | 161 ms  |
 | crowned | 196     | 1      | 1.1e-16    | 7.6e-3°   | 1.1e-4 rad   | 4.0e-3/1.5e-3/1.4e-3/1.9e-3/2.4e-3/5.0e-3      | 9.8e-6 / 3.7e-6            | 0                     | 253 ms  |
 | sample  | 204     | 6      | 1.4e-16    | 6.3e-4°   | 1.4e-4 rad   | 4.2e-3/1.6e-3/5.3e-4/2.7e-4/1.2e-3/1.4e-3      | 2.4e-7 / 4.5e-7            | 58                    | 899 ms  |
-| notched | 362     | 6      | 1.8e-16    | 1.5e-11°  | 1.3e-3 rad   | 2.2e-2/3.2e-3/2e-16/9e-16/1e-16/9.0e-4         | 1.1e-13 / 1.1e-13          | 192                   | 1616 ms |
+| notched | 308     | 6      | 1.8e-16    | 1.5e-11°  | 1.8e-4 rad   | 4.6e-3/1.7e-3/2e-16/7e-16/1e-16/3.0e-5         | 1.1e-13 / 1.1e-13          | 119                   | 1248 ms |
 
 One pass of the stadium costs about 130 ms warm (station basis 13 ms, columns and z-fits
 40 ms, measurement 70 ms, of which most is the two `edgeContinuity` profiles, inset loops
@@ -1453,7 +1492,12 @@ reported, not failed, §13.4).
 vertical (`p[6] = spec.ax + 0.01 · n̂.x`): 21 tests failed, among them the apex-G1 test on
 all four boards, the closed-form profile, the convexity grid and the band row rules through
 the solver; restored. `band/band.ts`: the snap's Δz not applied to the handle rows: two
-tests failed (handle vectors kept; the handle-offset test), restored.
+tests failed (handle vectors kept; the handle-offset test), restored. Review fixes, one
+mutation each, each failing exactly its new test and restored: `geomIssue` rethrowing a
+non-geom error (the wrong-size offset test); the offset-structure check skipped in
+`validate.ts` (its message no longer names the size rule); the P1 check disabled (the
+deck-handle test); the cap on |κ| again (the concave-notch test); `measureColumn`'s
+`φ_chord` shifted by 0.01 rad (the `apexLower` hardness pin).
 
 S5 and S6 can run in parallel after S4 and S3 respectively; S7 needs both S4 (validity through
 the B-rep) and S6.

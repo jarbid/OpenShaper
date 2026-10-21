@@ -19,7 +19,12 @@
  * - **Tuck crease = law**: on the stadium's straight stretch the measured
  *   station-plane crease at each column equals `h · φ_chord` to 1e-12 rad, for
  *   several hardness values; elsewhere the report's `tuckCreaseError` is
- *   bounded and falls O(h²) with refinement.
+ *   within `lawTolerance.edgeHardness · max |φ_chord|` (one hardness tolerance
+ *   step of crease at the steepest chord) and falls with refinement.
+ * - **Inset curvature limit only where the loop turns inwards** (κ > 0): the
+ *   notched loop's concave notch keeps its law inset; limited insets are
+ *   exactly `insetCurvatureFraction / κ` (1e-12 × inset); the notch converges.
+ * - **Totality**: a wrongly sized offset field is an issue, never a throw.
  * - **Deck join**: ≤ `deckJoinAngleTol` after the build, and converging O(h²)
  *   before refinement under uniform halving (crowned stadium; measured ratios
  *   3.06, 3.35, 3.66 → 4, the test needs ≥ 2.9 and the last ≥ 3.5).
@@ -41,6 +46,7 @@
  */
 import {
   controlPointsInto,
+  curveSignedCurvature,
   SAMPLE_DEGENERATE,
   surfaceControlPoint,
   surfaceNormal,
@@ -53,7 +59,15 @@ import { measureLaws } from './profile';
 import { DEFAULT_RAIL_LAWS, RAIL_LANES } from '../params';
 import { constantLaw, notchedBoard, sampleDoc, stadiumBoard, stadiumFacts } from '../testing/index';
 import type { BoardDoc, OffsetLayer, RailLane } from '../types';
-import { apexAngleAt, bandContext, buildBand, tuckCreaseAt } from './band';
+import {
+  apexAngleAt,
+  bandChecks,
+  bandContext,
+  buildBand,
+  designedLawsAt,
+  insetRadiusAt,
+  tuckCreaseAt,
+} from './band';
 import type { BandBuild } from './band';
 import { bandBasis } from './stations';
 
@@ -203,7 +217,15 @@ describe('buildBand: the tuck crease, the deck join, fidelity', () => {
         expect(Math.abs(measured - h * phi), `h ${h} column ${i}`).toBeLessThanOrEqual(1e-12);
       });
       expect(n).toBeGreaterThan(10);
-      expect(b.report.tuckCreaseError).toBeLessThanOrEqual(0.01);
+      // Off the straight stretch: within the crease change one hardness tolerance
+      // step makes at the steepest handle chord (the crease is gated through the
+      // lanes, §5.4; S3 deviation 7).
+      const phiMax = Math.max(
+        ...b.pass.columns.map((c) => Math.abs(designedLawsAt(ctx, c.u).phiChord)),
+      );
+      expect(b.report.tuckCreaseError).toBeLessThanOrEqual(
+        doc.build.lawTolerance.edgeHardness * phiMax,
+      );
     }
   });
 
@@ -244,6 +266,36 @@ describe('buildBand: the tuck crease, the deck join, fidelity', () => {
     // Edge gaps: the z-fits, within Tolerances.fit.
     expect(b.report.edgeGaps.deckEdge).toBeLessThanOrEqual(1e-4);
     expect(b.report.edgeGaps.tuck).toBeLessThanOrEqual(1e-4);
+  });
+
+  it('the inset curvature limit acts only where the loop turns inwards (κ > 0), never in a concave notch', () => {
+    // An inward offset of a concave stretch (κ < 0) has radius ρ + d: no cusp to keep
+    // away from (§12.1). The notched loop's notch bottom has κ(0) = −4/3.
+    const doc = notchedBoard();
+    const b = built(doc);
+    const frac = doc.build.insetCurvatureFraction;
+    const law = DEFAULT_RAIL_LAWS.deckInset;
+    expect(curveSignedCurvature(b.plan, 0)).toBeLessThan(0);
+    expect(insetRadiusAt(b.plan, 0)).toBe(Infinity);
+    let concave = 0;
+    b.stations.forEach((s, i) => {
+      const k = curveSignedCurvature(b.plan, s.u);
+      const limited = b.report.insetLimited.includes(i);
+      if (k <= 0) {
+        concave++;
+        expect(limited, `column ${i} u ${s.u}`).toBe(false);
+        expect(s.laws.deckInset).toBe(law);
+      }
+      // A limited inset is exactly the cap, frac / κ.
+      if (limited) expect(Math.abs(s.laws.deckInset - frac / k)).toBeLessThanOrEqual(1e-12 * law);
+    });
+    expect(concave).toBeGreaterThan(5);
+    expect(b.report.insetLimited.length).toBeGreaterThan(0);
+    // With the notch unlimited, its fidelity converges like everywhere else.
+    expect(b.report.issues).toEqual([]);
+    for (const lane of RAIL_LANES) {
+      expect(b.report.lawFidelity[lane], lane).toBeLessThanOrEqual(doc.build.lawTolerance[lane]);
+    }
   });
 
   it('measureLaws returns the built laws at the columns of the straight stretch', () => {
@@ -342,6 +394,27 @@ describe('buildBand: symmetry, offsets, determinism', () => {
         }
       }
     }
+  });
+
+  it('an offset field of the wrong size is an issue from buildBand and bandChecks, never a throw', () => {
+    const doc: BoardDoc = {
+      ...sampleDoc(),
+      offsets: {
+        basis: { degree: 3, knots: [0, 0.25, 0.5, 0.75] },
+        rows: [{ row: 'apexUpper', values: [0, 0] }],
+      },
+    };
+    let r: ReturnType<typeof buildBand> | undefined;
+    expect(() => {
+      r = buildBand(doc);
+    }).not.toThrow();
+    expect(r!.ok).toBe(false);
+    expect(r!.issues.map((i) => i.code)).toEqual(['doc-malformed']);
+    let c: ReturnType<typeof bandChecks> = [];
+    expect(() => {
+      c = bandChecks(doc);
+    }).not.toThrow();
+    expect(c.map((i) => i.code)).toEqual(['doc-malformed']);
   });
 
   it('the same frozen document builds the same bits twice and is not changed', () => {

@@ -22,7 +22,10 @@
  * 12. measurements: the laws measured back at every span's mid parameter
  *    against the design there (a virtual column at that u), the deck join
  *    angle and both edge gaps (geom `edgeContinuity`), the apex normal angle
- *    and the tuck crease at every knot and span midpoint.
+ *    and the tuck crease at every knot and span midpoint. The crease is
+ *    reported, not gated: it is the measured hardness times the measured
+ *    φ_chord, so the lane fidelity holds it (a gate of its own would have a
+ *    zero target where φ_chord = 0, at lower fullness 1; S3 deviation 7).
  *
  * {@link buildBand} repeats passes (§5.4): a span fails when a lane's
  * fidelity exceeds `lawTolerance`, its deck join exceeds `deckJoinAngleTol`, or
@@ -187,9 +190,17 @@ export interface BuiltColumn {
   readonly issues: readonly Board2Issue[];
 }
 
-/** 1/|κ| of the plan at `u` (`Infinity` where it is straight). */
-function radiusAt(plan: PeriodicCurve<2>, u: number): number {
-  const k = Math.abs(curveSignedCurvature(plan, u));
+/**
+ * The radius that limits an inward offset at `u`: 1/κ where the loop turns
+ * towards its inside (κ > 0 on the counter-clockwise loop, n̂ = ẑ × t̂), else
+ * `Infinity`. An inward offset by d of a convex arc of radius ρ has radius
+ * ρ − d and a cusp at d = ρ (§12.1); where the loop turns away from n̂ (a
+ * concave stretch) the offset's radius is ρ + d and there is no cusp to keep
+ * away from. Global overlap of the inset loop is certified separately
+ * ({@link insetLoopIssues}).
+ */
+export function insetRadiusAt(plan: PeriodicCurve<2>, u: number): number {
+  const k = curveSignedCurvature(plan, u);
   return k > 0 ? 1 / k : Infinity;
 }
 
@@ -211,7 +222,7 @@ export function columnAt(
   // half-domain law: the (½, 1) half of its fields would be overwritten anyway.
   const sOff = ctx.symmetric && sigma > 0.5 ? 1 - sigma : sigma;
   const off = ctx.offsets === null ? ZERO_OFFSETS : ctx.offsets(sOff);
-  const cap = b.insetCurvatureFraction * radiusAt(ctx.plan, u);
+  const cap = b.insetCurvatureFraction * insetRadiusAt(ctx.plan, u);
   const wdRaw = ctx.laws.deckInset(sigma) + off.deckEdgeN;
   const wtRaw = ctx.laws.tuckInset(sigma) + off.tuckN;
   const deckInset = Math.min(wdRaw, cap);
@@ -487,6 +498,8 @@ export function designedLawsAt(
 ): {
   readonly laws: RailLawValues;
   readonly crease: number;
+  /** The column's φ_chord: the crease of hardness 1 (radians). */
+  readonly phiChord: number;
   readonly frame: PlanFrame;
 } {
   const frame = planFrame(ctx.plan, u, ctx.symmetric);
@@ -505,6 +518,7 @@ export function designedLawsAt(
   return {
     laws: measureColumn(col.profile.points, frame, col.profile.sb),
     crease: col.profile.crease,
+    phiChord: col.profile.phiChord,
     frame,
   };
 }
@@ -729,6 +743,14 @@ export interface BuildBandOptions extends PassOptions {
   readonly uniformRefinements?: number;
 }
 
+/**
+ * A thrown error of the band build as an issue, so `buildBand` and
+ * `bandChecks` (hence `validateBoard`) never throw: geom's errors are `geom`
+ * with the cause, a failed pairing `symmetry-broken`, a row outside a height
+ * field `inset-loop-invalid`, and anything else (a document no validator has
+ * seen: an offset field of the wrong size, a plan with no tangent at a column)
+ * `doc-malformed` with its message.
+ */
 function geomIssue(e: unknown, what: string): Board2Issue {
   if (e instanceof PairingError) {
     return makeIssue('symmetry-broken', e.message, e.u === undefined ? {} : { at: { u: e.u } });
@@ -737,7 +759,9 @@ function geomIssue(e: unknown, what: string): Board2Issue {
     return makeIssue('inset-loop-invalid', `${what}: ${e.message}`, {});
   }
   const cause = causeOf(e);
-  if (cause === undefined) throw e;
+  if (cause === undefined) {
+    return makeIssue('doc-malformed', `${what}: ${e instanceof Error ? e.message : String(e)}`);
+  }
   return makeIssue('geom', `${what}: ${cause.message}`, { cause });
 }
 
@@ -839,7 +863,10 @@ export function buildBand(doc: BoardDoc, opts: BuildBandOptions = {}): Board2Res
 /**
  * The checks of stages 4–8 that `validateBoard` runs (§3.6, §4, §5.3): every
  * column of the station basis built, its insets, rail height and profile
- * judged, and the inset loops certified on that basis. Empty when they pass.
+ * judged, and the inset loops certified on that basis. Empty when they pass;
+ * never throws. The column checks are pointwise at the station basis's
+ * columns, so passing them does not imply that {@link buildBand} succeeds: a
+ * column its refinement inserts can still fail them (S3 deviation 8).
  */
 export function bandChecks(doc: BoardDoc): readonly Board2Issue[] {
   try {

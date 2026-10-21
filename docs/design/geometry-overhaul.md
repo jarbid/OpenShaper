@@ -448,7 +448,11 @@ order §14).
       changes, deck join ≤ 0.1° and O(h²) before refinement, fidelity met; band checks in
       `validateBoard`, band row rules in `symmetryRules`, public `measureLaws`. No geom
       change. Deviations recorded (tuck handle towards `P4 − T` for convexity, periodic
-      z-fit instead of `curveOnSurfaceTo3d`, rows rebuilt on refinement)
+      z-fit instead of `curveOnSurfaceTo3d`, rows rebuilt on refinement). Review fixes:
+      `validateBoard` total again (offset-layer structure checked, no error rethrown), the
+      deck handle refused past the apex vertical, the inset curvature cap only where the
+      loop turns inwards (the notched loop now converges), and the crease gate, measured
+      hardness and refined-column gaps documented
 - [ ] S4 features, B-rep, STEP, OCCT · S5 specs and volume
       convergence · S6 converter I · S7 converter II · S8 deviation report ·
       S9 benchmarks and the Phase 2 report
