@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # experiment/nurbs-overhaul is listed on that branch only (docs/design/geometry-overhaul.md §5).
+    branches: [main, experiment/nurbs-overhaul]
   pull_request:
 
 # Cancel superseded runs on the same ref to save minutes.
