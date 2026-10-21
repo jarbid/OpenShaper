@@ -413,6 +413,26 @@ package's tests and snapshots.
 report against the classic engine (surface distance, spec deltas) with each
 difference explained; a volume convergence test.
 
+**Progress (2026-10-21, `experiment/nurbs-overhaul`).** Design:
+`docs/design/board2.md` (decision record §0, exit criteria as checks §13.3, build
+order §14).
+
+- [x] Design written: data model, tips, rail laws, layers, converter, specs,
+      deviation report, API and layering, tests, benchmarks
+- [x] Scaffold: `packages/board2` (types only, smoke test), ESLint layering
+      (core may import `geom` only; the `./classic` entry may import `kernel`;
+      nothing existing may import `board2`), lockfile importer (workspace links only)
+- [x] Tips decided: no tip topology. Rail profiles are perpendicular to the loop, so
+      no poles, caps or collapsed edges; the B-rep is the V5 puck's three faces, and
+      geom needs no collapsed-edge support (board2.md §4)
+- [x] Decisions proposed in board2.md: D5 rational rails deferred (polynomial
+      profiles in Phase 2, §5.6); D7 the rail as laws plus layers, deck and bottom as
+      free height-field nets (§0, decision 2); D8 laws plus direct offsets (§6.1)
+- [ ] S1 document, laws and validation · S2 plan loop, height fields, symmetry ·
+      S3 rail band · S4 features, B-rep, STEP, OCCT · S5 specs and volume
+      convergence · S6 converter I · S7 converter II · S8 deviation report ·
+      S9 benchmarks and the Phase 2 report
+
 ### Phase 3 — editors and analysis (behind the flag)
 
 - Plan view as a closed outline with mirroring; rocker and deck views; sections

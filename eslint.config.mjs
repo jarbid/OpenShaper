@@ -11,30 +11,41 @@ const UI = ['react', 'react-dom', 'react/*', 'react-dom/*', 'three', 'three/*', 
  * The layering in `.claude/CLAUDE.md` ("dependencies point inward"), enforced.
  * Each entry lists the workspace packages a package's *source* may not import.
  * Tests and benches are exempt: they may load fixtures through other packages.
+ * An entry may name its own `files` and extra `ignores` when one package has two
+ * layers (board2's core and its classic converter).
  */
 const LAYERS = {
   kernel: {
-    pkgs: ['io', 'units', 'store', 'render2d', 'render3d', 'export', 'ui', 'geom'],
+    pkgs: ['io', 'units', 'store', 'render2d', 'render3d', 'export', 'ui', 'geom', 'board2'],
     ui: true,
   },
   units: {
-    pkgs: ['kernel', 'io', 'store', 'render2d', 'render3d', 'export', 'ui', 'geom'],
+    pkgs: ['kernel', 'io', 'store', 'render2d', 'render3d', 'export', 'ui', 'geom', 'board2'],
     ui: true,
   },
-  io: { pkgs: ['units', 'store', 'render2d', 'render3d', 'export', 'ui', 'geom'], ui: true },
-  export: { pkgs: ['io', 'units', 'store', 'render2d', 'render3d', 'ui', 'geom'], ui: true },
-  store: { pkgs: ['io', 'units', 'render2d', 'render3d', 'export', 'ui', 'geom'], ui: true },
-  render2d: { pkgs: ['io', 'units', 'render3d', 'export', 'geom'], ui: false },
-  render3d: { pkgs: ['io', 'units', 'render2d', 'export', 'ui', 'geom'], ui: false },
+  io: {
+    pkgs: ['units', 'store', 'render2d', 'render3d', 'export', 'ui', 'geom', 'board2'],
+    ui: true,
+  },
+  export: {
+    pkgs: ['io', 'units', 'store', 'render2d', 'render3d', 'ui', 'geom', 'board2'],
+    ui: true,
+  },
+  store: {
+    pkgs: ['io', 'units', 'render2d', 'render3d', 'export', 'ui', 'geom', 'board2'],
+    ui: true,
+  },
+  render2d: { pkgs: ['io', 'units', 'render3d', 'export', 'geom', 'board2'], ui: false },
+  render3d: { pkgs: ['io', 'units', 'render2d', 'export', 'ui', 'geom', 'board2'], ui: false },
   ui: {
-    pkgs: ['kernel', 'io', 'units', 'store', 'render2d', 'render3d', 'export', 'geom'],
+    pkgs: ['kernel', 'io', 'units', 'store', 'render2d', 'render3d', 'export', 'geom', 'board2'],
     ui: false,
   },
   // The NURBS core of the geometry overhaul (docs/design/geom-core.md §2): pure,
-  // standalone, and no `node:*` either. No other package may import it yet
-  // (`geom` is listed in every entry above); a later phase grants that explicitly.
+  // standalone, and no `node:*` either. Only board2 may import it (granted in
+  // Phase 2, docs/design/board2.md §11.3); `geom` is listed in every other entry.
   geom: {
-    pkgs: ['kernel', 'io', 'units', 'store', 'render2d', 'render3d', 'export', 'ui'],
+    pkgs: ['kernel', 'io', 'units', 'store', 'render2d', 'render3d', 'export', 'ui', 'board2'],
     ui: true,
     node: true,
     // Test-only oracles (geom-core.md §2): devDependencies, never shipped.
@@ -55,12 +66,67 @@ const LAYERS = {
       },
     ],
   },
+  // The v2 board model (docs/design/board2.md §11.3). Its core may import
+  // `@openshaper/geom` and nothing else of the workspace; the classic converter
+  // (`src/classic/`, the entry below) is the only part allowed to reach the
+  // kernel, and the core may not import it. `test-support/` holds test-only
+  // loaders (sample files through io, `node:fs`) and is exempt like tests.
+  board2: {
+    pkgs: ['kernel', 'io', 'units', 'store', 'render2d', 'render3d', 'export', 'ui'],
+    ui: true,
+    node: true,
+    ignores: ['packages/board2/src/classic/**', '**/test-support/**'],
+    extra: [
+      {
+        group: [
+          './classic',
+          './classic/*',
+          '../classic',
+          '../classic/*',
+          '@openshaper/board2/classic',
+        ],
+        message:
+          'The board2 core may not import the classic converter (docs/design/board2.md §11.3).',
+      },
+      {
+        group: [
+          './testing',
+          './testing/*',
+          '../testing',
+          '../testing/*',
+          '@openshaper/board2/testing',
+          '@openshaper/geom/testing',
+          '@openshaper/geom/testing/*',
+        ],
+        message: 'Test-only helper: import it from tests and benches only, never from src.',
+      },
+    ],
+  },
+  'board2/classic': {
+    files: ['packages/board2/src/classic/**/*.{ts,tsx}'],
+    pkgs: ['io', 'units', 'store', 'render2d', 'render3d', 'export', 'ui'],
+    ui: true,
+    node: true,
+    ignores: ['**/test-support/**'],
+    extra: [
+      {
+        group: [
+          '../testing',
+          '../testing/*',
+          '@openshaper/board2/testing',
+          '@openshaper/geom/testing',
+          '@openshaper/geom/testing/*',
+        ],
+        message: 'Test-only helper: import it from tests and benches only, never from src.',
+      },
+    ],
+  },
 };
 
 const layerConfigs = Object.entries(LAYERS).map(
-  ([name, { pkgs, ui, node = false, extra = [] }]) => ({
-    files: [`packages/${name}/src/**/*.{ts,tsx}`],
-    ignores: ['**/*.test.{ts,tsx}', '**/*.bench.ts'],
+  ([name, { pkgs, ui, node = false, extra = [], files, ignores = [] }]) => ({
+    files: files ?? [`packages/${name}/src/**/*.{ts,tsx}`],
+    ignores: ['**/*.test.{ts,tsx}', '**/*.bench.ts', ...ignores],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -96,7 +162,8 @@ const layerConfigs = Object.entries(LAYERS).map(
 
 /**
  * The apps are not in LAYERS (they may use every package above), except the
- * experiment's NURBS core, which nothing outside its own phase plan may reach yet.
+ * experiment's NURBS core and board model, which nothing outside their own phase
+ * plan may reach yet.
  */
 const appConfigs = [
   {
@@ -111,6 +178,11 @@ const appConfigs = [
               group: ['@openshaper/geom', '@openshaper/geom/*'],
               message:
                 '@openshaper/geom is not wired into the apps yet (docs/design/geometry-overhaul.md §5).',
+            },
+            {
+              group: ['@openshaper/board2', '@openshaper/board2/*'],
+              message:
+                '@openshaper/board2 is not wired into the apps yet (docs/design/geometry-overhaul.md §5).',
             },
           ],
         },
