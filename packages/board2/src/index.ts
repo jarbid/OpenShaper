@@ -7,8 +7,9 @@
  *
  * Every export is listed by name (decision 31), and `index.test.ts` pins the
  * runtime export list: each build step adds its values there in the same diff.
- * Step S1 (document, laws, validation) is in; the plan, band, features, B-rep and
- * specs follow (docs/design/board2.md §14).
+ * Steps S1 (document, laws, validation) and S2 (plan loop, height fields,
+ * symmetry) are in; the band, features, B-rep and specs follow
+ * (docs/design/board2.md §14).
  *
  * The classic converter and the deviation report live in the separate entry
  * point `@openshaper/board2/classic`, the only part of this package that may
@@ -16,9 +17,12 @@
  */
 export { reviveBoardDoc, boardDocToJson } from './doc';
 export { BOARD2_ISSUE_CODES, board2Err, board2Ok, hasErrors } from './issues';
+export { stringerLines } from './height-field';
 export { evaluateLaw, lawEvaluator, lawSegments } from './law';
 export type { LawSegment } from './law';
 export { DEFAULT_BUILD_PARAMS, DEFAULT_RAIL_LAWS, RAIL_LANES, validateBuildParams } from './params';
+export { symmetryRules } from './symmetry';
+export type { SymmetryNet } from './symmetry';
 export { validateBoard } from './validate';
 export type {
   BandRow,

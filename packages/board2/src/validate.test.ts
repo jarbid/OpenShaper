@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * `validateBoard`, structural and range part (step S1). Every code it can emit
- * has a negative control and, where a bound is involved, a boundary control on
- * the accepted side; the checks are exact comparisons, so no tolerance applies.
+ * `validateBoard`: the structural and range part (step S1) and the plan-loop,
+ * height-field symmetry and domain checks (step S2). Every code it can emit has
+ * a negative control and, where a bound is involved, a boundary control on the
+ * accepted side. The S1 checks are exact comparisons; the S2 bounds are the
+ * documented ones (`Tolerances.point` for the tail, the plan radius measured to
+ * 1e-10 relative, so its boundary controls sit 1e-9 either side).
  */
 import { checksum } from '@openshaper/geom/testing';
 import { describe, expect, it } from 'vitest';
 import { reviveBoardDoc } from './doc';
 import { RAIL_LANES } from './params';
-import { constantLaw, sampleDoc } from './testing/sample-doc';
+import { constantLaw, notchedLoopFixture, sampleDoc, stadiumBoard } from './testing/index';
 import { validateBoard } from './validate';
 import type { BoardDoc, BottomFeature, LawCurve, RailLane } from './types';
 
@@ -360,5 +363,155 @@ describe('validateBoard: bottom features', () => {
     const issues = validateBoard(d);
     expect(issues.length).toBeGreaterThan(0);
     expect(issues.every((i) => i.severity === 'error')).toBe(true);
+  });
+});
+
+describe('validateBoard: the plan loop (§3.3 invariants 1–4, step S2)', () => {
+  const stadium = (): Mutable<BoardDoc> => stadiumBoard() as Mutable<BoardDoc>;
+  const withPlan = (d: Mutable<BoardDoc>, points: number[], knots?: number[]): BoardDoc => {
+    d.plan = { ...d.plan, points, ...(knots === undefined ? {} : { knots }) };
+    return d;
+  };
+
+  it('the stadium, the sample and the notched-loop board: only the notch is refused', () => {
+    expect(validateBoard(stadiumBoard())).toEqual([]);
+    expect(validateBoard(sampleDoc())).toEqual([]);
+    const d = stadium();
+    d.plan = notchedLoopFixture();
+    const wide = { ...d.deck, x: [-12, 190] as const };
+    d.deck = wide;
+    d.bottom = { ...d.bottom, x: [-12, 190] as const };
+    const issues = validateBoard(d);
+    expect(issues.map((i) => i.code)).toEqual(['tail-not-standard']);
+    expect(issues[0]!.at!.u!).toBeLessThan(1e-12);
+  });
+
+  it('invariant 1: tail at the origin within Tolerances.point (boundary and negative control)', () => {
+    const shift = (dx: number): BoardDoc => {
+      const d = stadium();
+      return withPlan(
+        d,
+        d.plan.points.map((v, i) => (i % 2 === 0 ? v + dx : v)),
+      );
+    };
+    expect(codes(shift(0.5e-6))).toEqual([]);
+    const off = validateBoard(shift(0.01));
+    expect(off.map((i) => i.code)).toEqual(['tail-not-at-origin']);
+    expect(off[0]!.value!).toBeCloseTo(0.01, 12);
+  });
+
+  it('invariant 2: a straight transom is tail-not-standard', () => {
+    const d = stadium();
+    // Collinear vertical control points at the tail: Q_{-1}, Q_0, Q_1 on x = x(Q_0)
+    // with Q_±2 too, so the tail span is a vertical segment.
+    const n = d.plan.knots.length;
+    const pts = [...d.plan.points];
+    const q = (k: number): number => (((k + n) % n) - 2 + n) % n; // Greville index k → stored index
+    for (const k of [-2, -1, 1, 2]) pts[2 * q(k)] = pts[2 * q(0)]!;
+    const issues = validateBoard(withPlan(d, pts));
+    expect(issues.map((i) => i.code)).toContain('tail-not-standard');
+  });
+
+  it('invariant 3: the plan radius against minInset / insetCurvatureFraction', () => {
+    // The stadium's tightest radius is ρ(1 + cos 22.5°)/2 at the arc knots.
+    const rMin = (25 * (1 + Math.cos(Math.PI / 8))) / 2;
+    const at = (limit: number): BoardDoc => {
+      const d = stadium();
+      d.build = { ...d.build, minInset: limit * d.build.insetCurvatureFraction };
+      // Keep the laws inside the (raised) inset range so only the radius speaks.
+      for (const lane of ['deckInset', 'tuckInset'] as const) {
+        (d.laws as Record<RailLane, LawCurve>)[lane] = constantLaw(limit);
+      }
+      return d;
+    };
+    expect(codes(at(rMin * (1 - 1e-9)))).toEqual([]);
+    const issues = validateBoard(at(rMin * (1 + 1e-9)));
+    expect(issues.map((i) => i.code)).toEqual(['plan-radius']);
+    expect(Math.abs(issues[0]!.value! - rMin) / rMin).toBeLessThanOrEqual(1e-10);
+  });
+
+  it('invariant 4: one ulp off a partner, or an asymmetric knot set, is symmetry-broken', () => {
+    const d = stadium();
+    const pts = [...d.plan.points];
+    pts[0] = pts[0]! * (1 + 2 * Number.EPSILON);
+    expect(codes(withPlan(d, pts))).toEqual(['symmetry-broken']);
+    const e = stadium();
+    const knots = [...e.plan.knots];
+    knots[3] = knots[3]! + 1e-4;
+    expect(codes(withPlan(e, [...e.plan.points], knots))).toContain('symmetry-broken');
+  });
+
+  it('corners and repeated knots are plan-corner (decision 4: C² in Phase 2)', () => {
+    const d = sampleDoc() as Mutable<BoardDoc>;
+    const twice = validateBoard(
+      withPlan(d, [...d.plan.points], [0, 0.25, 0.25, 0.375, 0.5, 0.625, 0.75, 0.75]),
+    );
+    const c = twice.filter((i) => i.code === 'plan-corner');
+    expect(c.map((i) => [i.at?.u, i.value])).toEqual([
+      [0.25, 2],
+      [0.75, 2],
+    ]);
+    const e = sampleDoc() as Mutable<BoardDoc>;
+    const corner = validateBoard(
+      withPlan(e, [...e.plan.points], [0, 0.25, 0.25, 0.25, 0.5, 0.75, 0.75, 0.75]),
+    ).filter((i) => i.code === 'plan-corner');
+    expect(corner.map((i) => i.value)).toEqual([3, 3]);
+    expect(corner[0]!.message).toMatch(/corner/);
+  });
+
+  it('a clockwise loop is doc-malformed (decision 3), although its tail is standard', () => {
+    const d = stadium();
+    const flipped = withPlan(
+      d,
+      d.plan.points.map((v, i) => (i % 2 === 1 ? -v : v)),
+    );
+    expect(codes(flipped)).toEqual(['doc-malformed']);
+  });
+
+  it('the plan loop must lie inside both height fields (domain-too-small, located at the face)', () => {
+    const d = stadium();
+    d.deck = { ...d.deck, x: [0.5, d.deck.x[1]] };
+    const issues = validateBoard(d);
+    expect(issues.map((i) => [i.code, i.at?.face])).toEqual([['domain-too-small', 'deck']]);
+    const e = stadium();
+    e.bottom = { ...e.bottom, y: [-24, 24] };
+    expect(validateBoard(e).map((i) => [i.code, i.at?.face])).toEqual([
+      ['domain-too-small', 'bottom'],
+    ]);
+  });
+
+  it('height fields in symmetric mode: a broken pair is symmetry-broken at its face', () => {
+    const d = stadium();
+    const z = [...d.bottom.z];
+    z[0] = 0.25;
+    d.bottom = { ...d.bottom, z };
+    expect(validateBoard(d).map((i) => [i.code, i.at?.face])).toEqual([
+      ['symmetry-broken', 'bottom'],
+    ]);
+  });
+
+  it('a hand-typed plan geom refuses is doc-malformed, never a throw; nothing else cascades', () => {
+    const d = stadium();
+    d.plan = { degree: 3, knots: [0, 0.5], points: [0, 0, 1, 1] };
+    let issues: ReturnType<typeof validateBoard> = [];
+    expect(() => {
+      issues = validateBoard(d);
+    }).not.toThrow();
+    expect(issues.map((i) => i.code)).toEqual(['doc-malformed']);
+    expect(issues[0]!.cause?.code).toBeDefined();
+  });
+
+  it('symmetry "none" and a non-standard tail skip the checks they own (no cascade)', () => {
+    const d = stadium();
+    d.plan = notchedLoopFixture();
+    d.deck = { ...d.deck, x: [-12, 190] };
+    d.bottom = { ...d.bottom, x: [-12, 190] };
+    (d as { tail: unknown }).tail = { kind: 'notched' };
+    expect(codes(d)).toEqual(['tail-not-standard']);
+    const e = stadium();
+    e.symmetry = 'none';
+    const pts = [...e.plan.points];
+    pts[0] = pts[0]! + 1e-3; // asymmetric now, but symmetry is not checked
+    expect(codes(withPlan(e, pts))).toEqual(['asymmetric-unsupported']);
   });
 });

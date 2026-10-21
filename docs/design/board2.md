@@ -1,12 +1,15 @@
 # `@openshaper/board2` — board model v2 (Phase 2 design)
 
-Status: **design and scaffold, step S1 done** for Phase 2 of `docs/design/geometry-overhaul.md` (§6; the
+Status: **design and scaffold, steps S1 and S2 done** for Phase 2 of `docs/design/geometry-overhaul.md` (§6; the
 topology and editing model it implements are §3.2 and §3.3). Written 2026-10-21 on
 `experiment/nurbs-overhaul`, after Phase 1 (`docs/design/geom-core.md`) was integrated. The
 package has its scaffold (`package.json`, the type definitions of §11 in `src/types.ts` and
-`src/classic/types.ts`) and, from step S1, the document layer: issues, parameters, revive and
-canonical JSON, keyed curves (laws) and the structural and range part of `validateBoard`
-(see the S1 notes in §14). Everything geometric is still to come; §14 is the build order.
+`src/classic/types.ts`), from step S1 the document layer (issues, parameters, revive and
+canonical JSON, keyed curves (laws) and the structural and range part of `validateBoard`) and,
+from step S2, the plan loop, the height fields and symmetry (plan invariants in
+`validateBoard`, `stringerLines`, `symmetryRules`, the stadium and notched-loop fixtures; see
+the S1 and S2 notes in §14). The band, features, B-rep and specs are still to come; §14 is the
+build order.
 When this document and the code disagree, this document wins until the step that changes it
 edits this file in the same commit.
 
@@ -1162,6 +1165,108 @@ every object.
 
 **Mutation spot check.** `law.ts`: the limiter `3 · min(|δ_a|, |δ_b|)` changed to `30 ·`:
 four tests failed (both Hermite-reference tests, C¹ across the keys, full-domain C¹), restored.
+
+### S2 as built (2026-10-21)
+
+Files: `plan.ts` (pieces from the tail, the standard-tail certificate, exact extent, Green's
+area, plan radius, frames, σ ↔ u), `height-field.ts` (Greville abscissae, the surface with
+affine x and y, the plan → (u, v) map and exact pcurves, `stringerLines`,
+`stringerConstraints`), `symmetry.ts` (pairing, the document checks, DOF rules per net,
+`symmetryRules`, the mirror overwrite), plan invariants 1–4 and the height-field and domain
+checks in `validate.ts`, `PLAN_RADIUS_SAMPLING` in `params.ts`, the test fixtures
+`testing/stadium.ts` (`stadiumBoard`, `stadiumPlan`, `stadiumFacts`, `flatField`) and
+`testing/notched.ts` (`notchedLoopFixture`) behind a `./testing` subpath, and tests for each.
+181 tests (57 new). Public values added to the pin: `stringerLines`, `symmetryRules` (+ type
+`SymmetryNet`). No geom change.
+
+**Deviations and clarifications:**
+
+1. **Inputs of `stringerLines` and `symmetryRules`.** `buildBoard` arrives in S4, so both take
+   the parts of a built board they read (`Pick<BuiltBoard, 'deck' | 'bottom'>` and
+   `Partial<Pick<BuiltBoard, 'plan' | 'deck' | 'bottom' | 'band'>>`); a `BuiltBoard` satisfies
+   both. `symmetryRules` returns `Board2Result<readonly DofRule[]>` rather than a bare array:
+   the pairing is computed from the net's basis and checked, and a net built outside
+   `buildBoard` can fail that check (`symmetry-broken`), which is reported, never thrown.
+2. **Band rules in S2 are the mirror part.** Partner columns mirror their master column in every
+   row; self-paired columns get `fixAxes` y. S3 adds the §3.5 row rules on master columns and
+   replaces the y lock of self-paired columns with its rules whose directions have y exactly 0.
+   Tested through geom's solver on a synthetic seven-row band over the stadium's plan basis.
+3. **"C(−u) = mirror(C(u)) bitwise" (§13.2 `plan`) is not achievable as stated.** Bitwise holds
+   for the control net (what the solver, the overwrite and Phase 3 act on): partner points
+   `===` mirrors, self-paired y `=== 0`. Point evaluation at mirrored parameters agrees within
+   rounding only, because Cox–de Boor rounds `u − t_k` and `(1 − u) − t'_k` differently: on
+   the stadium and sample loops 55 and 125 of 998 mirrored pairs are bitwise, the worst
+   difference 2.6 ε × 200 cm; the test allows 16 ε × scale. Likewise plan(0).y is
+   3·10⁻¹⁵ cm, not 0 (invariant 1 is judged at `Tolerances.point`). σ is exact where it can
+   be: σ(0) = 0, σ(½) = ½ and σ(w) = 1 − σ(1 − w) bitwise on (½, 1) (`1 − w` is exact there);
+   a partner station's parameter is the rounded `1 − u` of its master, so S3 assigns a partner
+   column `1 − σ_master`.
+4. **C² means simple knots.** Decision 4 makes the Phase 2 plan C², so a repeated knot of
+   multiplicity 2 is refused as well as a full-multiplicity corner (both `plan-corner`, with
+   the multiplicity in `value`; the message names a corner only at full multiplicity).
+5. **Orientation is checked.** The standard-tail certificate does not see a clockwise loop (a
+   reversed loop keeps u = 0 at the tail and runs forward along +y), so `validateBoard` also
+   requires a positive signed area (Green's theorem, exact) and reports a clockwise loop as
+   `doc-malformed`: decision 3 is a frame convention like the format tag, so no new code.
+6. **Domain and height-field checks added.** The plan loop's exact extent (closed-form roots
+   of x′, y′ per piece) must lie inside both height fields' extents (`domain-too-small`,
+   located at the face; `planMargin` is how documents are made, not a validity rule). In
+   symmetric mode each height field needs `y0 === −y1`, v knots symmetric within `paramRel`
+   and `z_ij === z_i,(m−1−j)` (`symmetry-broken` at the face): §3.4's symmetric mode.
+7. **Knot symmetry is judged within `paramRel`, control points bitwise.** Knots are data, but
+   `1 − t` need not round to the stored partner knot; the slack only absorbs that rounding.
+   The pairing likewise matches Greville abscissae within `paramRel × T` and must be an
+   involution.
+8. **Symmetric height-field build.** `heightFieldSurface(hf, 'mirror-y')` writes each partner
+   row's y as the exact negation of its master's and the middle row's y as 0 (the §3.7
+   overwrite applied to the affine y; it changes values by rounding only, ≤ 4 ε × extent,
+   tested). z is the document's, already bitwise paired by the validator.
+9. **Plan radius sampling** (`PLAN_RADIUS_SAMPLING`, `params.ts`): 16 samples of |κ| per Bézier
+   piece (`d|κ|/ds` has at most five roots on a cubic piece) and a 40-step golden-section
+   search (geom's `refineSteps`) round **every** sampled local maximum, not only the worst.
+   It is a measurement setting, so it is not stored in `BuildParams`.
+10. **Fixtures.** `sampleDoc`'s plan (S1) was not a valid loop (plan(0) was not the origin);
+    its tail and nose control points were moved so it passes every S2 invariant, and it stays
+    the small fixture of the document tests. The stadium (`StadiumOptions`: `halfWidth`,
+    `spacing`, `straightPoints`, `arcSteps`, `thickness`, `spansX`, `spansY`) is the geometric
+    fixture: exact straight sides at y = ±ρ, closed-form length and width, congruent ends for
+    the Δ identity. The notched loop has its notch bottom (u = 0) at the origin and swallow
+    tips near x = −7, so only invariant 2 fails. The package gains the `./testing` export
+    (§11.1's subpath; ESLint already kept the core from importing it).
+11. **Internal helpers** (not in the pin): `grevilleAbscissae`, `heightFieldBases`,
+    `heightFieldSurface`, `planToUV`, `uvOfPlanPoint`, `planCurvePcurve`, `stringerParam`,
+    `stringerConstraints`; `planCurve`, `planPieces`, `quadraticRoots`,
+    `standardTailViolation`, `planExtent`, `planSignedArea`, `planMinRadius`, `planFrame`,
+    `planArc`, `sigmaAt`, `paramAtSigma`, `wrapUnit`; `periodicPairing`, `clampedPairing`,
+    `basisPairing`, `periodicKnotsSymmetric`, `checkPlanSymmetry`, `checkHeightFieldSymmetry`,
+    `planSymmetryRules`, `heightFieldSymmetryRules`, `bandSymmetryRules`,
+    `mirrorOverwriteCurve`, `mirrorOverwriteColumns`, `MIRROR_PLANE`.
+
+**Oracles and tolerances.** Affine exactness of x, y on 20 random knot sets, 1e-13 × extent;
+pcurve = affine image, 1e-13 × extent. **Stringer identity**: after `approximateSurface` with
+`stringerConstraints`, the stringer iso-curve's control values equal the target line's within
+`‖A⁻¹‖∞ · constraint` (A the Greville collocation matrix, computed in the test; measured
+‖A⁻¹‖∞ 3.9–5.2) plus rounding; measured 2.7–6.2·10⁻¹⁵ cm on six seeds, while the same fit
+without the constraints misses the line by 2.9–7.4 cm. **Pairing and mirror rules through geom's
+solver**: `makeDofMap` accepts the rule set of each net; random drags on the plan (40 random
+symmetric bases, master and partner drags), the stadium deck and a seven-row band leave every
+partner `===` the mirror of its master and every self-paired y `=== 0`, with something moved.
+Pairing on 200 random symmetric bases: partner abscissae mirror within `paramRel`, involution,
+roles by half. **Standard-tail certificate** against 4,000 samples of geom's x′ on 300 random
+symmetric loops (143 refused, each at or before the first bad sample; none accepted with a bad
+sample); the notched loop refused near u = 0; a straight transom refused. **Extent**: the
+stadium's closed forms within 1e-12 × L. **Area**: the Δ identity (one more straight point adds
+exactly 2ρh) within 1e-11 relative, ×2 scaling bitwise, reversal negates. **Radius**: closed
+forms on regular N-gons (knot `R(1 + cos θ)/2`, mid-span `R(sin 3θ/2 + 5 sin θ/2)² / 16(cos
+θ/2 − cos 3θ/2)`) and the stadium's arc knots within 1e-10 relative; where a transition span is
+tighter (K ≥ 3) a dense geom judge (20,000 samples plus every knot) with an allowance computed
+from the measured r″. **σ**: exact at the tips, mirrored bitwise, inverse within 1e-12, and
+Δσ · total = Δx on the straight side within 1e-9 × total. **Validator**: each new code with a
+negative control, boundary controls for the tail (`point`) and the radius (1e-9 either side).
+
+**Mutation spot check.** `height-field.ts`: the clamped Greville average `s / p` changed to
+`s / (p + 1)`: six tests failed (the Greville closed form, affine exactness, the pcurve image,
+the symmetric build, the stadium stringer lines, the stringer identity), restored.
 
 S5 and S6 can run in parallel after S4 and S3 respectively; S7 needs both S4 (validity through
 the B-rep) and S6.

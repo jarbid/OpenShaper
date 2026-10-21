@@ -436,8 +436,12 @@ order §14).
       geom bug found and fixed (nested adaptive quadrature hung on a noise integrand);
       P22 on that solid 1.75 s (target 50 ms), reported
 - [x] S1 document, laws and validation (board2.md §14, "S1 as built")
-- [ ] S2 plan loop, height fields, symmetry ·
-      S3 rail band · S4 features, B-rep, STEP, OCCT · S5 specs and volume
+- [x] S2 plan loop, height fields, symmetry (board2.md §14, "S2 as built"): plan
+      invariants 1–4 in `validateBoard`, `stringerLines` (stringer identity to
+      rounding after a constrained fit), `symmetryRules` (mirror rules bitwise through
+      geom's solver on the plan, height-field and band nets), stadium and notched-loop
+      fixtures. No geom change
+- [ ] S3 rail band · S4 features, B-rep, STEP, OCCT · S5 specs and volume
       convergence · S6 converter I · S7 converter II · S8 deviation report ·
       S9 benchmarks and the Phase 2 report
 

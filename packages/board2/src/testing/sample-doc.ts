@@ -3,8 +3,10 @@
  * Test-only sample document (docs/design/board2.md §11.1 `testing/`; not exported
  * from the package). A small symmetric board whose parts are shaped right but not
  * meant to be a good board: an eight-point plan loop, bicubic height fields with
- * four control points a side, constant default laws, and one concave. Step S2
- * replaces it by the analytic stadium board.
+ * four control points a side, constant default laws, and one concave. It is a
+ * valid board (it passes `validateBoard`, plan invariants included) and is kept
+ * small for the document tests; the analytic stadium board (`stadium.ts`) is the
+ * geometric fixture from step S2 on.
  */
 import { DEFAULT_BUILD_PARAMS, DEFAULT_RAIL_LAWS, RAIL_LANES } from '../params';
 import type { BoardDoc, LawCurve, RailLaws } from '../types';
@@ -38,7 +40,10 @@ export function sampleDoc(): BoardDoc {
     plan: {
       degree: 3,
       knots: [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875],
-      points: [0, 0, 20, -20, 100, -27, 180, -20, 200, 0, 180, 20, 100, 27, 20, 20],
+      // Point i sits at Greville u = (i + 2)/8: point 6 is the tail (u = 0), point 2
+      // the nose (u = ½); x = −10 and 210 put the curve's tips at x = 0 and 200
+      // (a uniform cubic's knot point is (P₋ + 4P + P₊)/6). A valid loop since S2.
+      points: [100, -27, 180, -20, 210, 0, 180, 20, 100, 27, 20, 20, -10, 0, 20, -20],
     },
     deck: {
       degreeU: 3,

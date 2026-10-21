@@ -8,7 +8,12 @@
  * (`BoardDoc.build`), so a saved board rebuilds identically even if a default
  * changes; the defaults here are what a new document starts from.
  */
-import { DEFAULT_EDGE_FIT, DEFAULT_TOLERANCES, resolveTolerances } from '@openshaper/geom';
+import {
+  DEFAULT_CONTINUITY_SAMPLING,
+  DEFAULT_EDGE_FIT,
+  DEFAULT_TOLERANCES,
+  resolveTolerances,
+} from '@openshaper/geom';
 import { causeOf, makeIssue } from './issues';
 import { deepFreeze } from './freeze';
 import type {
@@ -42,6 +47,31 @@ export const LAW_ROUNDING_REL = 4 * Number.EPSILON;
  * document's unit); it only widens the allowance by a few epsilons.
  */
 export const LAW_VALUE_SCALE_FLOOR = 1;
+
+/**
+ * Sampling of the plan radius check (§3.3 invariant 3), as geom's continuity
+ * sampling (geom §11.4): `samplesPerPiece` equally spaced samples of |κ| on
+ * each Bézier piece of the plan loop (ends included), then a golden-section
+ * search of `refineSteps` steps between the neighbours of every sample that is
+ * a local maximum.
+ *
+ * - `samplesPerPiece: 16`: on a cubic piece `x′y″ − y′x″` has degree 2 and
+ *   `|C′|²` degree 4, so `d|κ|/ds` has at most five roots; sixteen samples (15
+ *   intervals) give each possible extremum three intervals, enough to bracket
+ *   every local maximum of a piece unless two extrema share one interval (a
+ *   sampled check, as the design accepts; the tests judge it against dense
+ *   sampling and closed forms).
+ * - `refineSteps: 40`: geom's `DEFAULT_CONTINUITY_SAMPLING.refineSteps`
+ *   (0.618⁴⁰ ≈ 4·10⁻⁹ of the bracket; round a smooth maximum the value error is
+ *   quadratic in that, i.e. rounding).
+ *
+ * Not stored in the document: it decides how the check measures, not what the
+ * board is.
+ */
+export const PLAN_RADIUS_SAMPLING = Object.freeze({
+  samplesPerPiece: 16,
+  refineSteps: DEFAULT_CONTINUITY_SAMPLING.refineSteps,
+});
 
 /** The §12.1 defaults, frozen. Reasons per entry are in the design table. */
 export const DEFAULT_BUILD_PARAMS: BuildParams = deepFreeze({

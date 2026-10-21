@@ -4,21 +4,35 @@
  * geometry (docs/design/board2.md §3.7, §3.8, §5.1, §5.2, §6.2), returning every
  * issue rather than the first.
  *
- * This is the structural and range part (step S1): the format tag and version,
+ * Step S1 added the structural and range part: the format tag and version,
  * symmetry and tail rules, the build parameters' ranges, the rail laws (keys,
  * tips, handles, symmetric domain, per-lane range certificate) and the bottom
- * features' parameters. The plan-loop invariants (standard-tail certificate,
- * radius, pairing) arrive with the plan geometry in step S2, and the checks that
- * need a built board (insets, rail height, profiles) with the band in S3.
+ * features' parameters. Step S2 added the plan-loop invariants of §3.3 (tail at
+ * the origin, the standard-tail certificate, the plan radius, bitwise pairing;
+ * no corners; counter-clockwise), the height fields' symmetric mode (§3.4) and
+ * the domain check (the plan loop inside both height fields). The checks that
+ * need a built board (insets, rail height, profiles) arrive with the band (S3).
  *
  * It is pure and total: it never throws on a typed document, including one that
  * has not been through `reviveBoardDoc` (non-finite numbers are reported, not
  * evaluated).
  */
+import { curvePoint, knotMultiplicities, resolveTolerances } from '@openshaper/geom';
+import type { PeriodicCurve, Tolerances } from '@openshaper/geom';
 import { BOARD2_FORMAT, BOARD2_VERSION } from './doc';
-import { makeIssue } from './issues';
+import { causeOf, makeIssue } from './issues';
 import { certifyLawRange, checkLawKeys } from './law';
 import { laneRange, RAIL_LANES, validateBuildParams } from './params';
+import {
+  planCurve,
+  planExtent,
+  planMinRadius,
+  planPieces,
+  planSignedArea,
+  standardTailViolation,
+  wrapUnit,
+} from './plan';
+import { checkHeightFieldSymmetry, checkPlanSymmetry } from './symmetry';
 import type { Board2Issue, BoardDoc, BottomFeature, KeyedCurve } from './types';
 
 const finite = (x: number): boolean => Number.isFinite(x);
@@ -169,5 +183,134 @@ export function validateBoard(doc: BoardDoc): readonly Board2Issue[] {
     ids.add(f.id);
     checkFeature(f, out);
   }
+
+  const tol = usableTolerances(doc);
+  checkPlan(doc, tol, out);
+  if (doc.symmetry === 'mirror-y') {
+    out.push(...checkHeightFieldSymmetry(doc.deck, 'deck', tol));
+    out.push(...checkHeightFieldSymmetry(doc.bottom, 'bottom', tol));
+  }
   return out;
+}
+
+/** The document's geom tolerances, or geom's defaults when the record is unusable (reported elsewhere). */
+function usableTolerances(doc: BoardDoc): Tolerances {
+  try {
+    return resolveTolerances(doc.build.tolerances);
+  } catch {
+    return resolveTolerances();
+  }
+}
+
+/**
+ * The plan-loop invariants of §3.3 (1–4), the Phase 2 refusal of corners and
+ * of a clockwise loop (decisions 3, 4), and the domain check.
+ */
+function checkPlan(doc: BoardDoc, tol: Tolerances, out: Board2Issue[]): void {
+  let curve: PeriodicCurve<2>;
+  try {
+    curve = planCurve(doc.plan, tol);
+  } catch (e) {
+    // A revived document always builds; a hand-typed one may not.
+    const cause = causeOf(e);
+    out.push(
+      makeIssue('doc-malformed', `plan: ${e instanceof Error ? e.message : String(e)}`, {
+        ...(cause === undefined ? {} : { cause }),
+      }),
+    );
+    return;
+  }
+
+  // Decision 4: the Phase 2 plan is C² (simple knots); full multiplicity is a corner (Phase 5).
+  const { values, mults } = knotMultiplicities(curve.basis);
+  for (let k = 0; k < values.length; k++) {
+    if (mults[k]! > 1) {
+      const corner = mults[k]! >= curve.basis.degree;
+      out.push(
+        makeIssue(
+          'plan-corner',
+          corner
+            ? `plan: a knot of full multiplicity (a corner) is not supported yet`
+            : `plan: a repeated knot (multiplicity ${mults[k]}) breaks the C² plan loop`,
+          { at: { u: wrapUnit(values[k]!) }, value: mults[k]! },
+        ),
+      );
+    }
+  }
+
+  // Invariant 1: the tail centre is at the origin.
+  const p0 = curvePoint(curve, 0);
+  const off = Math.hypot(p0.x, p0.y);
+  if (!(off <= tol.point)) {
+    out.push(
+      makeIssue(
+        'tail-not-at-origin',
+        `plan(0) must be (0, 0) within ${tol.point}; it is (${p0.x}, ${p0.y})`,
+        { at: { u: 0 }, value: off },
+      ),
+    );
+  }
+
+  const pieces = planPieces(curve, tol);
+  // Decision 3: counter-clockwise seen from +z, so u ∈ (0, ½) is the −y side.
+  const area = planSignedArea(pieces);
+  if (!(area > 0)) {
+    out.push(
+      makeIssue(
+        'doc-malformed',
+        `plan: the loop must run counter-clockwise seen from +z (signed area ${area})`,
+        { value: area },
+      ),
+    );
+  }
+
+  // Invariant 2: each half of the loop is a graph over x (§3.8).
+  if (doc.tail.kind === 'standard') {
+    const u = standardTailViolation(pieces, tol);
+    if (u !== null) {
+      out.push(
+        makeIssue(
+          'tail-not-standard',
+          `plan: x′ must be > 0 on (0, ½) and < 0 on (½, 1); it changes sign at u = ${u}`,
+          { at: { u } },
+        ),
+      );
+    }
+  }
+
+  // Invariant 3: the plan can host the minimum band (§4). Needs usable parameters.
+  const { minInset, insetCurvatureFraction: kappa } = doc.build;
+  if (minInset > 0 && Number.isFinite(minInset) && kappa > 0 && kappa < 1) {
+    const limit = minInset / kappa;
+    const r = planMinRadius(pieces);
+    if (!(r.radius >= limit)) {
+      out.push(
+        makeIssue(
+          'plan-radius',
+          `plan: radius of curvature ${r.radius} at u = ${r.u} is below minInset / insetCurvatureFraction = ${limit}`,
+          { at: { u: r.u }, value: r.radius },
+        ),
+      );
+    }
+  }
+
+  // Invariant 4: symmetric pairing, bitwise.
+  if (doc.symmetry === 'mirror-y') out.push(...checkPlanSymmetry(curve, tol));
+
+  // The loop must lie inside both height fields' domains (§3.4, §3.6).
+  const ext = planExtent(pieces);
+  for (const face of ['deck', 'bottom'] as const) {
+    const hf = doc[face];
+    if (
+      !(ext.xMin >= hf.x[0] && ext.xMax <= hf.x[1] && ext.yMin >= hf.y[0] && ext.yMax <= hf.y[1])
+    ) {
+      out.push(
+        makeIssue(
+          'domain-too-small',
+          `${face}: the extent x [${hf.x[0]}, ${hf.x[1]}], y [${hf.y[0]}, ${hf.y[1]}] does not contain the plan loop (x [${ext.xMin}, ${ext.xMax}], y [${ext.yMin}, ${ext.yMax}])`,
+          { at: { face } },
+        ),
+      );
+    }
+  }
 }

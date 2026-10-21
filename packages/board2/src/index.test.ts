@@ -4,8 +4,8 @@
  *
  * - The runtime export lists of both entry points are pinned exactly, sorted.
  *   Each build step adds its values here in the same diff, so an API change shows
- *   in review. Step S1 (document, laws, validation) is in; `./classic` is still
- *   types only.
+ *   in review. Steps S1 (document, laws, validation) and S2 (`stringerLines`,
+ *   `symmetryRules`) are in; `./classic` is still types only.
  * - A sample document round-trips through JSON unchanged: `BoardDoc` is plain
  *   data (decision 1). The sample (`testing/sample-doc.ts`) is typed `BoardDoc`.
  * - Type-level checks pin the conventions the types encode (lanes, rows that may
@@ -41,6 +41,8 @@ const PUBLIC_VALUES: readonly string[] = [
   'lawEvaluator',
   'lawSegments',
   'reviveBoardDoc',
+  'stringerLines',
+  'symmetryRules',
   'validateBoard',
   'validateBuildParams',
 ];
