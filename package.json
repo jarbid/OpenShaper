@@ -17,7 +17,8 @@
     "coverage": "turbo run coverage",
     "lint": "eslint . && prettier --check .",
     "typecheck": "turbo run typecheck",
-    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\""
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\"",
+    "test:occt": "pnpm --filter @openshaper/geom test:occt"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

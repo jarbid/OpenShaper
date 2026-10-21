@@ -34,7 +34,7 @@ jobs:
       # occt-wasm, a devDependency of packages/geom only. Its files are kept for the
       # manual Rhino / Fusion / FreeCAD / SolidWorks import matrix
       # (docs/design/step-export.md).
-      - run: pnpm --filter @openshaper/geom test:occt
+      - run: pnpm test:occt
       - uses: actions/upload-artifact@v4
         if: always()
         with:

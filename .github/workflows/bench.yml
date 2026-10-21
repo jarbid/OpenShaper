@@ -1,0 +1,22 @@
+# Manual, non-blocking benchmark regression check for @openshaper/geom
+# (docs/design/geom-core.md §17). Shared cloud runners vary too much to gate
+# merges on it; the baseline was recorded on another machine, so treat a failure
+# as a prompt to re-run locally, not as a verdict.
+name: geom-bench
+
+on:
+  workflow_dispatch:
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @openshaper/geom bench:check

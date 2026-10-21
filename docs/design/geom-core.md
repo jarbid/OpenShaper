@@ -99,8 +99,11 @@ rule, §4.8). **No `dependencies`**, ever, in Phase 1 (Checkpoint A: no new runt
 dependency).
 
 Scripts now: `build`, `typecheck`, `test`, `test:watch`, `coverage`. Added later:
-`bench` (`vitest bench src --run`, with the first benchmark, F2) and `test:occt`
-(`vitest run -c vitest.occt.config.ts`, B4).
+`bench` (`vitest bench src --run`, with the first benchmark, F2), `test:occt`
+(`vitest run -c vitest.occt.config.ts`, B4) and `bench:check` (§17). The root
+`package.json` has `test:occt` too (`pnpm --filter @openshaper/geom test:occt`), so
+`pnpm test:occt` from the repository root is the one command, locally and in CI. It is
+not part of `pnpm test`: it needs the `occt-wasm` dev dependency and takes about 20 s.
 
 devDependencies now: `@types/node`, `typescript`, `vitest` (the kernel's). Added in the
 step that first needs them, each pinned exactly and test-only:
@@ -133,7 +136,7 @@ would type-check; its test import goes through a local `.d.ts` shim.
 WASM instance) with `testTimeout: 60_000`.
 
 **CI** (the branch's `ci.yml` only, B4): after `pnpm test`, run
-`pnpm --filter @openshaper/geom test:occt`, and upload `packages/geom/.occt-corpus/*.step`
+`pnpm test:occt` (the root script above), and upload `packages/geom/.occt-corpus/*.step`
 (gitignored) as an artifact for the manual Rhino / Fusion / FreeCAD / SolidWorks import
 matrix (`docs/design/step-export.md`). Turbo needs no change: its generic `test`,
 `typecheck` and `build` tasks pick the package up.
@@ -2663,6 +2666,11 @@ holes CW):
 ∫∫_D f(u, v) du dv = ∮_∂D F(u, v) dv,    F(u, v) = ∫_{u_lo}^{u} f(s, v) ds
 ```
 
+- **Intentional deviation from the plan's wording.** The plan (`geometry-overhaul.md` §6)
+  says "Gauss–Legendre quadrature over trimmed domains". As built, trimmed-domain
+  quadrature is Gauss–Legendre only for polynomial integrands (volume of a polynomial
+  surface, exact at fixed orders) and adaptive Gauss–Kronrod 7–15 otherwise (rational
+  geometry and the area integrand `|S_u × S_v|`, which are not polynomial).
 - **Inner integral:** Gauss–Legendre split at the surface's u-knots.
 - **Outer integral:** along each trim curve, split at the curve's own knots and at
   every `t` where `v(t)` crosses a surface v-knot (found on the Bézier pieces from
@@ -3126,8 +3134,10 @@ faces mesh exactly. The measured errors are well inside it.
 
 Every public function has an oracle better than "it ran". `ε` = `Number.EPSILON`
 (2.2e-16); "scale" = the bounding-box diagonal of the control net; "rel" = relative.
-Each tolerance states why it is that size; each test file includes at least one
-check verified to fail when the code is deliberately broken. Randomised tests use the
+Each tolerance states why it is that size. Whether a check can fail is verified by hand,
+not by tooling: manual mutation spot checks (break the code, watch the test fail, restore)
+are recorded in the step reports, and no mutation-testing tool is run, so "every file has
+a check that fails when the code is broken" is a practice, not an enforced property. Randomised tests use the
 seeded `mulberry32` and print the failing seed. Cross-cutting tests: public-API list
 (`index.test.ts`), no tolerance literals, immutability (checksum of every input before
 and after every public operation), finiteness of every output, `*Into` kernels equal
@@ -3166,8 +3176,21 @@ their wrappers bit for bit.
 `packages/geom/src/*.bench.ts`, run by `pnpm --filter @openshaper/geom bench` (not part
 of `pnpm test`), printing their own table as `packages/store/src/perf.bench.ts` does.
 Numbers, with machine details, go into the Phase 1 report and the branch's
-`QUALITY_REPORT.md`. A missed target is reported, not failed; once numbers exist CI
-may fail a regression of more than 2×.
+`QUALITY_REPORT.md`. A missed target is reported, not failed. Regressions are guarded separately by
+`bench:check` (below).
+
+**Regression guard (`bench:check`).** `pnpm --filter @openshaper/geom bench:check` runs
+the benchmarks and compares each row's mean latency with `packages/geom/bench-baseline.json`;
+a row more than 2× slower (`--factor N` to change), a row missing from the run and a row
+missing from the baseline all fail. Faster rows never fail. `bench:check -- --update`
+rewrites the baseline (do this deliberately, on a quiet machine, after an intended change,
+and say why in the commit). The baseline was recorded on the session's cloud container
+(linux x64, Node 22.22.0, 2026-10-21), the same class of machine as the §17 numbers, not
+on the reference desktop; compare only on comparable hardware and re-record it when the
+reference-desktop re-measurement happens. It is not in the blocking CI job (shared-runner
+variance is high); `.github/workflows/bench.yml` runs it on demand (`workflow_dispatch`,
+non-blocking). The benchmark file writes the means to the file named by `GEOM_BENCH_JSONL`
+when that variable is set; nothing else changes about `bench`.
 
 | #   | Benchmark                                                       | Size                                                | Target (desktop Node 22)               | Grounding                          |
 | --- | --------------------------------------------------------------- | --------------------------------------------------- | -------------------------------------- | ---------------------------------- |
@@ -3223,7 +3246,9 @@ missed, under `vitest bench`: P1 0.31 M/s, P2 0.31 M/s, P3 9.1 ms, P4 0.27 M/s, 
 0.18 M/s, P6 8.5 ms, P7 6.5 ms, P8 0.36 ms (5.5% touched), P9 1.8 ms. The same code
 run as a plain Node script: P3 5.1–6.9 ms, P7 4.4 ms, P6 4.7–5.3 ms. P1/P2/P4/P5 call
 allocating wrappers, which create a scratch per call: on this machine that allocation
-dominates. Re-measure on the reference desktop before acting on tier-2 options (§9).
+dominates. **Still open:** the numbers above are from a 4-vCPU cloud container; they must be
+re-measured on the reference desktop before acting on tier-2 options (§9). That item is
+unticked in the plan (`geometry-overhaul.md` §6) and blocks any tier-2 optimisation work.
 
 **A1 (`src/eval.bench.ts`, same container).** P10 met: refining a rational bicubic
 40 × 20 with 40 u-knots 0.105 ms (target 2 ms); elevating a rational cubic with 100

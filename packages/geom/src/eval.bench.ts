@@ -10,6 +10,7 @@
  * options of §9. Point-rate cases evaluate a fixed batch per call, so the rate
  * is not dominated by the harness's per-call overhead.
  */
+import { appendFileSync } from 'node:fs';
 import { test } from 'vitest';
 import {
   approximateCurve,
@@ -111,6 +112,10 @@ async function runGroup(bench: Bench, title: string, cases: readonly Case[]): Pr
   for (const c of cases) {
     const r = await bench(c.name, c.fn).run(c.run);
     const l = r.latency;
+    // `bench:check` (tools/bench-check.mjs) asks for the raw means through this file.
+    const sink = process.env['GEOM_BENCH_JSONL'];
+    if (sink)
+      appendFileSync(sink, `${JSON.stringify({ id: c.id, name: c.name, meanMs: l.mean })}\n`);
     const rate = c.units * r.throughput.mean;
     const met = c.target.kind === 'rate' ? rate >= c.target.value : l.mean <= c.target.value;
     rows.push([

@@ -344,8 +344,9 @@ The beginning of the overhaul. Pure, dependency-free, no board concepts yet.
 - Curves on surfaces; closest point and projection.
 - Trimmed surfaces: trim loops in parameter space; tessellation by constrained
   Delaunay triangulation (implement, or adopt a vetted MIT/BSD library — decided
-  in this phase); Gauss–Legendre quadrature over trimmed domains for area and
-  volume (divergence theorem).
+  in this phase); quadrature over trimmed domains for area and volume (divergence
+  theorem): Gauss–Legendre for polynomial integrands, adaptive Gauss–Kronrod
+  otherwise (rational geometry, the area integrand), see geom-core.md §11.
 - Continuity measures along shared edges: gap, normal angle, curvature mismatch.
 - A minimal B-rep and STEP writer for trimmed and rational faces, to de-risk
   export early.
@@ -383,12 +384,15 @@ package's tests and snapshots.
       with a fitted bicubic deck), 41 tests
 - [x] Oracles: analytic cases, convergence tests, immutability and
       no-magic-tolerance scans; benchmark numbers recorded (P1 to P24, a 4-vCPU
-      cloud container: 10 of 38 rows met, 28 missed and reported, none tuned)
+      cloud container: 10 of 38 rows met, 28 missed and reported, none tuned);
+      `bench:check` guards against more than 2x regression. Test-can-fail is a
+      manual practice (mutation spot checks in step reports), not tool-enforced
 - [x] CI runs on pushes to the branch
 - [ ] Not in Phase 1: V6 (sphere with poles), OCCT Path A and B7, skinned or fitted
       surfaces through the B-rep and STEP (Phase 2's board is their test)
-- [ ] Re-measure the benchmarks on the reference desktop before acting on any
-      tier-2 option
+- [ ] OPEN, blocks tier-2 optimisation work: re-measure the benchmarks on the
+      reference desktop before acting on any tier-2 option (`pnpm --filter
+@openshaper/geom bench:check -- --update` then records its baseline)
 
 ### Phase 2 — board model v2 (`@openshaper/board2`)
 
