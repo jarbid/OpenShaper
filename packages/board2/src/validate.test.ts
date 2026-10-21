@@ -5,7 +5,9 @@
  * a negative control and, where a bound is involved, a boundary control on the
  * accepted side. The S1 checks are exact comparisons; the S2 bounds are the
  * documented ones (`Tolerances.point` for the tail, the plan radius measured to
- * 1e-10 relative, so its boundary controls sit 1e-9 either side).
+ * 1e-10 relative, so its boundary controls sit 1e-9 either side). The S3 band
+ * checks (insets, rail height, profiles, inset loops) each get a board that
+ * breaks exactly one of them, located at a σ where the code has one.
  */
 import { curvePoint } from '@openshaper/geom';
 import { checksum, mulberry32 } from '@openshaper/geom/testing';
@@ -32,6 +34,22 @@ const edit = (
   return d;
 };
 const codes = (d: BoardDoc): string[] => validateBoard(d).map((i) => i.code);
+
+/**
+ * The codes of the band's geometric checks (step S3, `bandChecks`): whether the
+ * columns of a board can be built. The law tests below judge the law rules
+ * (keys, tips, the range certificate) on their own, so they drop these: a law
+ * at the end of its range is accepted by the certificate even where the sample
+ * board's shape cannot carry it (an inset of 1000 cm, an apex at 95 % on its
+ * sloped deck), which the band checks then report.
+ */
+const BAND_CODES: ReadonlySet<string> = new Set([
+  'inset-invalid',
+  'inset-loop-invalid',
+  'rail-height',
+  'rail-profile-invalid',
+]);
+const lawCodes = (d: BoardDoc): string[] => codes(d).filter((c) => !BAND_CODES.has(c));
 
 describe('validateBoard: a valid document', () => {
   it('has no issues, before and after a JSON revive (also frozen)', () => {
@@ -138,8 +156,8 @@ describe('validateBoard: rail laws', () => {
   for (const [lane, lo, hi] of bounds) {
     it(`${lane}: the range ends are accepted, a step outside is law-out-of-range`, () => {
       const at = (v: number): BoardDoc => edit((d) => void (d.laws[lane] = constantLaw(v)));
-      expect(codes(at(lo)), `${lane} at ${lo}`).toEqual([]);
-      expect(codes(at(hi)), `${lane} at ${hi}`).toEqual([]);
+      expect(lawCodes(at(lo)), `${lane} at ${lo}`).toEqual([]);
+      expect(lawCodes(at(hi)), `${lane} at ${hi}`).toEqual([]);
       const below = validateBoard(at(lo - 0.01));
       expect(below.map((i) => i.code)).toEqual(['law-out-of-range']);
       expect(below[0]!.at).toMatchObject({ lane, key: 0 });
@@ -192,7 +210,7 @@ describe('validateBoard: rail laws', () => {
         ],
       };
     });
-    expect(codes(d)).toEqual([]);
+    expect(lawCodes(d)).toEqual([]);
   });
 
   it('reports every lane at once', () => {
@@ -502,6 +520,10 @@ describe('validateBoard: the plan loop (§3.3 invariants 1–4, step S2)', () =>
     for (let seed = 1; seed <= 20; seed++) {
       const d = stadium();
       d.plan = offKnotLoop(mulberry32(seed));
+      // Insets the loops' narrow tips can carry (S3's band checks): with the default
+      // 5.25 cm deck inset some noses are narrower than twice the inset, and the
+      // two sides' deck edges cross (seed 13, `inset-loop-invalid`).
+      d.laws = { ...d.laws, deckInset: constantLaw(2), tuckInset: constantLaw(1) };
       expect(d.plan.knots.some((t) => t === 0 || t === 0.5)).toBe(false);
       expect(validateBoard(d), `seed ${seed}`).toEqual([]);
     }
@@ -552,5 +574,53 @@ describe('validateBoard: the plan loop (§3.3 invariants 1–4, step S2)', () =>
     const pts = [...e.plan.points];
     pts[0] = pts[0]! + 1e-3; // asymmetric now, but symmetry is not checked
     expect(codes(withPlan(e, pts))).toEqual(['asymmetric-unsupported']);
+  });
+});
+
+describe('validateBoard: the band checks (step S3)', () => {
+  it('an edge offset that takes the deck inset below minInset is inset-invalid, located', () => {
+    const d = stadiumBoard() as Mutable<BoardDoc>;
+    d.offsets = {
+      basis: { degree: 3, knots: [0, 0.25, 0.5, 0.75] },
+      rows: [{ row: 'deckEdge', values: [-5.2, -5.2, -5.2, -5.2] }],
+    };
+    const issues = validateBoard(d);
+    expect(new Set(issues.map((i) => i.code))).toEqual(new Set(['inset-invalid']));
+    expect(issues[0]!.at?.lane).toBe('deckInset');
+    expect(issues[0]!.value).toBeCloseTo(0.05, 9);
+  });
+
+  it('a deck 0.05 cm above the bottom is rail-height', () => {
+    const issues = validateBoard(stadiumBoard({ thickness: 0.05 }));
+    expect(issues.map((i) => i.code)).toContain('rail-height');
+    expect(issues.find((i) => i.code === 'rail-height')!.at?.sigma).toBeTypeOf('number');
+  });
+
+  it('a crowned deck that falls below a high apex is rail-profile-invalid', () => {
+    // Crown 3 cm: at the deck edge the deck falls ~0.19 per cm outwards, more than the
+    // 5 % of the rail left above an apex at 95 %.
+    const d = stadiumBoard({ crown: 3 }) as Mutable<BoardDoc>;
+    expect(validateBoard(d)).toEqual([]);
+    d.laws = { ...d.laws, apexHeight: constantLaw(0.95) };
+    const issues = validateBoard(d);
+    expect(new Set(issues.map((i) => i.code))).toEqual(new Set(['rail-profile-invalid']));
+  });
+
+  it('a deck inset wider than the half-width crosses the stringer: inset-loop-invalid', () => {
+    const d = stadiumBoard() as Mutable<BoardDoc>;
+    d.laws = { ...d.laws, deckInset: constantLaw(26) };
+    const issues = validateBoard(d);
+    expect(issues.map((i) => i.code)).toContain('inset-loop-invalid');
+    const i = issues.find((x) => x.code === 'inset-loop-invalid')!;
+    expect(i.at).toMatchObject({ face: 'deck', row: 'deckEdge' });
+    expect(i.cause?.code).toBeDefined();
+    // The tuck loop at the default 2 cm is fine: only the deck edge is reported.
+    expect(issues.filter((x) => x.code === 'inset-loop-invalid')).toHaveLength(1);
+  });
+
+  it('band checks run only on a document without errors (no cascade)', () => {
+    const d = stadiumBoard({ thickness: 0.05 }) as Mutable<BoardDoc>;
+    d.laws = { ...d.laws, apexHeight: constantLaw(2) };
+    expect(codes(d)).toEqual(['law-out-of-range']);
   });
 });

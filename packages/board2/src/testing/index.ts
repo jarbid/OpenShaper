@@ -4,9 +4,9 @@
  * §11.1, §11.2). Never imported by the package's source (ESLint forbids it);
  * tests and benches only.
  */
-export { flatField, stadiumBoard, stadiumFacts, stadiumPlan } from './stadium';
+export { flatField, quadraticField, stadiumBoard, stadiumFacts, stadiumPlan } from './stadium';
 export type { StadiumFacts, StadiumOptions } from './stadium';
-export { notchedLoopFixture } from './notched';
+export { notchedBoard, notchedLoopFixture } from './notched';
 export { offKnotLoop } from './off-knot';
 export type { OffKnotLoopOptions } from './off-knot';
 export { constantLaw, defaultLaws, sampleDoc } from './sample-doc';

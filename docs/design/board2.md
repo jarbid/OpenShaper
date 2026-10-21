@@ -1,15 +1,16 @@
 # `@openshaper/board2` — board model v2 (Phase 2 design)
 
-Status: **design and scaffold, steps S1 and S2 done** for Phase 2 of `docs/design/geometry-overhaul.md` (§6; the
+Status: **design and scaffold, steps S1, S2 and S3 done** for Phase 2 of `docs/design/geometry-overhaul.md` (§6; the
 topology and editing model it implements are §3.2 and §3.3). Written 2026-10-21 on
 `experiment/nurbs-overhaul`, after Phase 1 (`docs/design/geom-core.md`) was integrated. The
 package has its scaffold (`package.json`, the type definitions of §11 in `src/types.ts` and
 `src/classic/types.ts`), from step S1 the document layer (issues, parameters, revive and
-canonical JSON, keyed curves (laws) and the structural and range part of `validateBoard`) and,
-from step S2, the plan loop, the height fields and symmetry (plan invariants in
-`validateBoard`, `stringerLines`, `symmetryRules`, the stadium and notched-loop fixtures; see
-the S1 and S2 notes in §14). The band, features, B-rep and specs are still to come; §14 is the
-build order.
+canonical JSON, keyed curves (laws) and the structural and range part of `validateBoard`),
+from step S2 the plan loop, the height fields and symmetry (plan invariants in
+`validateBoard`, `stringerLines`, `symmetryRules`, the stadium and notched-loop fixtures) and,
+from step S3, the rail band builder (`band/`, `offsets.ts`, `measureLaws`, the band checks of
+`validateBoard`, the band's row rules in `symmetryRules`); see the S1–S3 notes in §14. The
+features, B-rep and specs are still to come; §14 is the build order.
 When this document and the code disagree, this document wins until the step that changes it
 edits this file in the same commit.
 
@@ -438,10 +439,12 @@ the station plane (horizontal axis ô outward, ẑ up):
    (E, C_u, A): an exact parabola.
 5. **Lower half-profile** (A → T). Soft corner `C_l = T + w_t ô + s_b w_t ẑ`;
    `H_l = A.z − C_l.z > 0` required. `P4 = A − f_l H_l ẑ`. The tuck handle starts along the
-   bottom tangent `(C_l − T)` and is rotated in the station plane towards the chord `A − T`
-   by `h · φ_chord`, where `φ_chord` is the angle from the bottom tangent to the chord;
+   bottom tangent `(C_l − T)` and is rotated in the station plane towards the **handle chord**
+   `P4 − T` by `h · φ_chord`, where `φ_chord` is the angle from the bottom tangent to `P4 − T`;
    `P5 = T + f_l |C_l − T| · rot(û_b, h φ_chord)`, `P6 = T`. Every h ∈ [0, 1] keeps the lower
-   profile convex; the crease angle between bottom and band at the tuck is `h φ_chord`.
+   profile convex (at h = 1, P5 lies on the segment T–P4); the crease angle between bottom and
+   band at the tuck, in the station plane, is `h φ_chord`. (Step S3 changed the target from
+   the chord `A − T`, which is not convex above `h = φ′/φ`: S3 deviation 1.)
 
 All seven points lie inboard of or on the apex vertical, so by the convex-hull property no
 profile reaches past its apex. Classic-preset equivalence: with `deckInset = deckBand ×
@@ -474,13 +477,16 @@ After the rows are built on the law basis, rows 0 and 6 must lie on the deck and
 
 1. Their plan curves are exact (control-point rows on the band basis).
 2. Each has an exact pcurve on its height field (the affine map of §3.4).
-3. `curveOnSurfaceTo3d(curveOnSurface(D, pcurve))` fits the 3D edge with the **same
-   parameter** within `Tolerances.fit` (geom §6.15). It may add knots.
-4. The band basis becomes the union of its knots and both fits' knots, symmetrised (a knot
-   and its mirror); knot insertion leaves every row's shape unchanged.
-5. Rows 0 and 6 take the fitted z (their x, y stay the exact plan rows, which a fit of the
-   same space reproduces to rounding); in symmetric mode partner columns are averaged (a
-   convex combination of curves within `fit` of a symmetric target stays within `fit`).
+3. The edge's height over the **same parameter**, `z(u) = D(x(u), y(u))`, is fitted by
+   periodic least squares on the band basis (x and y are exact, so the foot of every sample is
+   known) and verified at `verifyFactor ×` denser samples (`build.edgeFit`), to within
+   `Tolerances.fit`. (S3 deviation 2: geom's `curveOnSurfaceTo3d` returns a clamped curve,
+   whose end knots cannot join a periodic band basis without a C⁰ seam.)
+4. Where the fit misses, the failing spans are split (with their mirrors) by the band loop of
+   §5.4 and the band is rebuilt on the finer basis, so every row stays on one basis.
+5. Rows 0 and 6 take the fitted z (their x, y stay the exact plan rows); in symmetric mode
+   partner columns are averaged (a convex combination of curves within `fit` of a symmetric
+   target stays within `fit`).
 6. Rows 1 and 5 move by the same Δz as their boundary row, so the handle vectors (and the
    deck join) keep their stage-1 quality.
 
@@ -1311,6 +1317,143 @@ Review fixes: `plan.ts` `planSideViolation`'s interior test `v > 0` changed to `
 tests failed (the on-stringer loop, the dense-sampling side test), restored; with the side
 check disabled in `validate.ts` the figure-8 test fails (`[]` returned); with the grid check
 disabled in `symmetryRules` the asymmetric-extent test fails.
+
+### S3 as built (2026-10-21)
+
+Files: `band/stations.ts` (the band basis as the plan refined by a list of inserted knots,
+span geometry, conditions 1–2, symmetric midpoint insertion, columns), `band/profile.ts`
+(`profileRows`, `measureColumn`, `measureLaws`), `band/snap.ts` (the boundary-row z-fits),
+`band/band.ts` (context, one pass, measurement, the refinement loop `buildBand`, the inset
+loop check, `bandChecks`), `offsets.ts` (the layer's evaluator), `heightSampler` in
+`height-field.ts`, the band checks in `validate.ts`, the band's row rules in `symmetry.ts`,
+the fixtures `quadraticField` and the stadium's `crown` / `rocker` options and
+`notchedBoard`, and tests for each. 236 tests (47 new). Public value added to the pin:
+`measureLaws`. Internal (tested through their modules): `buildBand`, `bandContext`,
+`bandPass`, `measurePass`, `columnAt`, `designedLawsAt`, `apexAngleAt`, `tuckCreaseAt`,
+`insetLoopIssues`, `bandChecks`, `BAND_V_KNOTS`, `ROW`; `bandBasis`, `basisSpans`,
+`spanIndex`, `insertMidpoints`, `spanGeometry`, `stationBasis`, `bandColumns`;
+`profileRows`, `measureColumn`, `isoColumn`, `measuredLawsAt`, `BAND_ROWS`; `snapRow`;
+`offsetEvaluator`, `ZERO_OFFSETS`; `heightSampler`, `OutsideFieldError`; `bandRowRules`. No
+geom change. `buildBoard` (S4) wraps `buildBand`; until then the band build is internal and
+`measureLaws` takes `Pick<BuiltBoard, 'doc' | 'plan' | 'band' | 'bottom'>` (as S2 did for
+`stringerLines`).
+
+**How a build runs.** `buildBand(doc)` builds the station basis (§5.4 conditions 1–2), then
+passes: columns (stage 5 and 7–8, handle offsets included), the boundary-row z-fits (9), the
+mirror overwrite (11), measurement (12): at every span's mid parameter the laws read off the
+band's iso-curve against a **virtual column** built at that u (the design there, offsets and
+the curvature limit included), the deck join and both edge gaps by geom's `edgeContinuity`,
+and the apex angle and tuck crease at every knot and span midpoint. Spans that miss a lane's
+`lawTolerance`, `deckJoinAngleTol` or (when an edge misses `fit`) `safety · fit` are split
+with their mirrors and the band is rebuilt, at most `maxBandRefinePasses` times; the pass
+with the smallest worst ratio (measure / target) is kept, a remaining miss is a
+`not-converged` warning at the worst span. The deck-edge and tuck loops are certified on the
+kept pass (geom's trim checks, plan loop outer, inset loop a hole).
+
+**Deviations and clarifications:**
+
+1. **The tuck handle rotates towards the handle chord `P4 − T`, not the chord `A − T`**
+   (§5.3 item 5, edited). With the chord, P5 lies inside the line `P4 − T` (an inflection,
+   a concave dip above the tuck) for every hardness above `φ′/φ_chord`, φ′ the angle of
+   `P4 − T`: at h = 1 always, since P4 is below A on the apex vertical. The design's claim
+   "every h ∈ [0, 1] keeps the lower profile convex" holds for the handle chord (tested on a
+   law grid), and the crease is still exactly `h · φ_chord`. Hardness 1 now leaves the tuck
+   straight towards the lower apex handle (towards the apex as `f_l → 0`). `φ_chord` uses
+   the law's P4, before an `apexLower` offset, so that offset moves its own row only.
+2. **Boundary-row z by periodic least squares on the band basis** (§5.5 items 3–4, edited):
+   geom's `curveOnSurfaceTo3d` returns a clamped curve over one period whose
+   full-multiplicity end knots cannot join the periodic band without a C⁰ seam. x and y are
+   the exact plan rows, so only z is fitted (`approximateCurve`, periodic, fixed knots,
+   `samplesPerSpan` per span), verified at `verifyFactor ×` the samples, and refined through
+   the band loop (`safety`). `edgeFit.degree`, `maxPasses` and `kinkFraction` are unused (the
+   band's degree is the plan's; passes are `maxBandRefinePasses`; the composition is smooth
+   across the band's own knots).
+3. **Refinement rebuilds the rows on the finer basis** (Schoenberg sampling at the new
+   columns) instead of inserting knots into the old rows. The band is then a pure function
+   of the document and the list of inserted knots, which is what makes outline invariance
+   exact: the apex row's x, y are `refineKnots(plan, inserted)` in one pass, mirror-overwritten,
+   so two builds on the same basis agree bitwise whatever their laws and offsets, and on any
+   basis the row is the plan refined to it (the same curve to rounding). §13.2's "row 3's x, y
+   bitwise equal" is tested in that form: across law and offset changes on one basis, and
+   against `bandBasis` on a refined one.
+4. **Stages 9 and 10 commute.** The handle offsets (rows 1, 2, 4, 5) move along directions the
+   snap does not change, so the column construction applies them and the snap then shifts
+   rows 0–1 and 5–6 by one Δz each.
+5. **Offsets on a symmetric board are read on σ ∈ [0, ½] and mirrored**, like a half-domain law
+   (the overwrite would discard the other half; reading it would make the measured design on
+   the +y half disagree with the built band).
+6. **Effective insets**: `min(law + edge offset, κ ρ(u))`, ρ the local plan radius at the
+   column; `inset-invalid` below `minInset` after the offset. The limit is only C⁰ in σ where
+   it becomes active, so fidelity converges O(h) there rather than O(h²): the sample board
+   needs 6 passes; the notched loop (its 0.75 cm notch bottom) stays 4.4× over
+   `lawTolerance` after 6 passes and reports `not-converged`.
+7. **The tuck crease is measured in the station plane**: the angle between the traces of the
+   band (at v = 1) and of the bottom in the plane normal to the plan tangent, compared with
+   the virtual column's crease (the angle of its final `P5 − T`; `h · φ_chord` without a
+   tuck-handle offset). Where the tuck slopes along t̂ (rocker) the 3D dihedral differs from
+   it; the station-plane angle is what the construction designs.
+8. **validateBoard runs the band checks** (§3.6, §4, §5.3), only on a document with no error
+   so far: every column of the station basis (insets, `rail-height`, `rail-profile-invalid`
+   for `H_u ≤ 0`, `H_l ≤ 0`, a handle of no length or a tuck handle past the apex vertical)
+   and the inset loops (`inset-loop-invalid` with geom's issue as cause). `buildBand` repeats
+   the column checks on its finer columns and certifies the loops of the kept pass; an apex
+   angle above `apexJoinAngleTol` would be `rail-profile-invalid` (the construction gives
+   rounding). Two earlier tests changed with it: the S1 law-range tests now drop the band
+   codes (a 1000 cm inset is in range for the certificate but not buildable on the sample
+   board), and the S2 off-knot loops use 2 and 1 cm insets (seed 13's nose is narrower than
+   twice 5.25 cm: its deck edges cross, correctly refused).
+9. **The band's DOF rules** (`symmetryRules(b, 'band')`, S2 deviation 2 completed): partners
+   mirror their masters in every row; master and self-paired columns get row 0 and 6 `fix`,
+   row 1 `slide` along `τ̂_d` = row 1 − row 0, rows 2 and 4 `offsetFrom` row 3 along ẑ, row 3
+   `fixAxes` x, y, row 5 `slide` along n̂ (the horizontal part of row 0 − row 3) and ẑ. On a
+   self-paired column every direction has y exactly 0, replacing S2's y lock. A degenerate
+   direction is `rail-profile-invalid`.
+10. **Self-paired columns sit at exactly u = 0 and ½** (the pairing names them; the Greville
+    sum can be one rounding off), so they get the exact tip frames and σ. A partner column's
+    issues are not reported (it is overwritten by its master's mirror).
+11. **`heightSampler`** evaluates a height field at plan points and refuses points outside the
+    field (geom's evaluator would clamp them silently); in a build that is `inset-loop-invalid`.
+12. **Fixtures**: `stadiumBoard({ crown, rocker })` builds exact quadratic deck and bottom
+    (`quadraticField`, control values by the blossom, symmetric bitwise); defaults leave the
+    stadium bitwise as before. `notchedBoard()` puts flat surfaces under the notched loop
+    (refused by the validator, built directly).
+
+**Oracles and tolerances.** Profile closed form (independent 3D construction on planar
+samplers in random frames, 200 cases) 1e-12 × 250 cm; f = 2/3 is the degree-elevated
+quadratic, 1e-12 × scale; `measureColumn` inverts `profileRows`, 1e-12 (insets × scale);
+crease `h · φ_chord` 1e-12 rad; convexity on a 4 × 4 × 4 × 5 law grid (≥ 300 valid profiles).
+Station basis judged by geom's direct `curveLength` (1e-9 relative) and 64 tangent samples
+per span (the cone bound holds and is within 2× of the sampled turn). Apex angle at 2,000
+parameters per board (stadium, crowned, sample, notched): ≤ 1e-9 rad, measured ≤ 1.8e-16;
+apex normal horizontal 1e-12. Deck join after the build ≤ 0.1° (crowned 7.6e-3°); before
+refinement under uniform halving of the crowned stadium the angle falls by 3.06, 3.35, 3.66
+(test: each ≥ 2.9, the last ≥ 3.5: O(h²)), the fidelity by 3.1–4.0. Fidelity: the sample
+board starts 30× over and meets every lane after 6 passes. Snap: gaps ≤ `fit` and equal to
+the independently sampled vertical error at every profile sample (1e-12 × scale); a
+`fit` of 1e-7 cm refines the crowned board until both edges meet it. Mirror overwrite
+removes ≤ 1e-12 × scale. Band DOF rules through geom's solver: rows 0, 6 and the apex x, y
+bitwise fixed, rows 2, 4 on the apex vertical, row 1 along its handle, partners mirrored,
+apex angle ≤ 1e-9 after the solve. Validator: one negative control per band code.
+
+**Measured** (Node 22, the cloud container, warm; full `buildBand` including measurement):
+
+| Board   | Columns | Passes | Apex angle | Deck join | Crease error | Fidelity (insets, apex, fullness ×2, hardness) | Edge gaps deck / tuck (cm) | Inset-limited columns | Time    |
+| ------- | ------- | ------ | ---------- | --------- | ------------ | ---------------------------------------------- | -------------------------- | --------------------- | ------- |
+| stadium | 184     | 0      | 1.5e-16    | 1.9e-13°  | 1.5e-4 rad   | 4.0e-3/1.5e-3/2e-16/6e-16/1e-16/2.7e-5         | 1.1e-13 / 1.1e-13          | 0                     | 161 ms  |
+| crowned | 196     | 1      | 1.1e-16    | 7.6e-3°   | 1.1e-4 rad   | 4.0e-3/1.5e-3/1.4e-3/1.9e-3/2.4e-3/5.0e-3      | 9.8e-6 / 3.7e-6            | 0                     | 253 ms  |
+| sample  | 204     | 6      | 1.4e-16    | 6.3e-4°   | 1.4e-4 rad   | 4.2e-3/1.6e-3/5.3e-4/2.7e-4/1.2e-3/1.4e-3      | 2.4e-7 / 4.5e-7            | 58                    | 899 ms  |
+| notched | 362     | 6      | 1.8e-16    | 1.5e-11°  | 1.3e-3 rad   | 2.2e-2/3.2e-3/2e-16/9e-16/1e-16/9.0e-4         | 1.1e-13 / 1.1e-13          | 192                   | 1616 ms |
+
+One pass of the stadium costs about 130 ms warm (station basis 13 ms, columns and z-fits
+40 ms, measurement 70 ms, of which most is the two `edgeContinuity` profiles, inset loops
+13 ms): above Q2's 60 ms target, reported here and left to S9's benchmarks (a miss is
+reported, not failed, §13.4).
+
+**Mutation spot check.** `band/profile.ts`: the upper apex handle's x moved off the apex
+vertical (`p[6] = spec.ax + 0.01 · n̂.x`): 21 tests failed, among them the apex-G1 test on
+all four boards, the closed-form profile, the convexity grid and the band row rules through
+the solver; restored. `band/band.ts`: the snap's Δz not applied to the handle rows: two
+tests failed (handle vectors kept; the handle-offset test), restored.
 
 S5 and S6 can run in parallel after S4 and S3 respectively; S7 needs both S4 (validity through
 the B-rep) and S6.

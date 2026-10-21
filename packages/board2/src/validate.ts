@@ -11,8 +11,14 @@
  * the origin, the standard-tail certificate, the plan radius, bitwise pairing;
  * no corners; counter-clockwise; each half on its own side of the stringer, so
  * the loop is simple), the height fields' symmetric mode (§3.4) and
- * the domain check (the plan loop inside both height fields). The checks that
- * need a built board (insets, rail height, profiles) arrive with the band (S3).
+ * the domain check (the plan loop inside both height fields). Step S3 added
+ * the checks that need the band's columns (§3.6, §4, §5.3; `bandChecks`): run
+ * only on a document with no error so far, they build every column of the
+ * station basis and report insets below `minInset` (`inset-invalid`), rail
+ * heights below `minRailHeight` (`rail-height`), profiles with no convex half
+ * (`rail-profile-invalid`), and inset loops that are not simple loops strictly
+ * inside the plan loop and the height fields (`inset-loop-invalid`, geom's
+ * certified trim checks).
  *
  * It is pure and total: it never throws on a typed document, including one that
  * has not been through `reviveBoardDoc` (non-finite numbers are reported, not
@@ -20,8 +26,9 @@
  */
 import { curvePoint, knotMultiplicities, resolveTolerances } from '@openshaper/geom';
 import type { PeriodicCurve, Tolerances } from '@openshaper/geom';
+import { bandChecks } from './band/band';
 import { BOARD2_FORMAT, BOARD2_VERSION } from './doc';
-import { causeOf, makeIssue } from './issues';
+import { causeOf, hasErrors, makeIssue } from './issues';
 import { certifyLawRange, checkLawKeys } from './law';
 import { laneRange, RAIL_LANES, validateBuildParams } from './params';
 import {
@@ -192,6 +199,8 @@ export function validateBoard(doc: BoardDoc): readonly Board2Issue[] {
     out.push(...checkHeightFieldSymmetry(doc.deck, 'deck', tol));
     out.push(...checkHeightFieldSymmetry(doc.bottom, 'bottom', tol));
   }
+  // The band's columns need a sound plan, surfaces, laws and parameters.
+  if (!hasErrors(out)) out.push(...bandChecks(doc));
   return out;
 }
 

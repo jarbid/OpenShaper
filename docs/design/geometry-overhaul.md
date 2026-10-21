@@ -442,7 +442,14 @@ order §14).
       geom's solver on the plan, height-field and band nets), stadium and notched-loop
       fixtures. No geom change. Review fixes: a simple-loop (side-of-stringer)
       certificate, height-field grid check in `symmetryRules`, off-knot test loops
-- [ ] S3 rail band · S4 features, B-rep, STEP, OCCT · S5 specs and volume
+- [x] S3 rail band builder (board2.md §14, "S3 as built"): station basis, profile rows,
+      boundary-row z-fits, offsets, measurement and the refinement loop; apex G1 to
+      rounding (≤ 1.8e-16 rad), outline and rocker bitwise invariant under law and offset
+      changes, deck join ≤ 0.1° and O(h²) before refinement, fidelity met; band checks in
+      `validateBoard`, band row rules in `symmetryRules`, public `measureLaws`. No geom
+      change. Deviations recorded (tuck handle towards `P4 − T` for convexity, periodic
+      z-fit instead of `curveOnSurfaceTo3d`, rows rebuilt on refinement)
+- [ ] S4 features, B-rep, STEP, OCCT · S5 specs and volume
       convergence · S6 converter I · S7 converter II · S8 deviation report ·
       S9 benchmarks and the Phase 2 report
 

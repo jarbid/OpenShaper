@@ -46,6 +46,7 @@ import type {
 } from '@openshaper/geom';
 import { checksum, mulberry32 } from '@openshaper/geom/testing';
 import { describe, expect, it } from 'vitest';
+import { apexAngleAt, buildBand } from './band/band';
 import { grevilleAbscissae, heightFieldSurface } from './height-field';
 import { planCurve } from './plan';
 import {
@@ -363,6 +364,74 @@ describe('DOF rules through geom’s solver: partners stay exact mirrors', () =>
         }
       }
       expect(checksum(result)).not.toBe(checksum(band));
+    }
+  });
+
+  it("band (step S3): the §3.5 row rules on a built band, through geom's solver", () => {
+    // The crowned stadium: a real band with sloped deck edges and rocker.
+    const r = buildBand(stadiumBoard({ crown: 1.5, rocker: 8 }));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const band = r.value.band;
+    const rules = symmetryRules({ band }, 'band');
+    expect(rules.ok).toBe(true);
+    if (!rules.ok) return;
+    const pu = pairingOf(band.u as PeriodicBasis);
+    const n = band.u.count;
+    const dof = makeDofMap(band, rules.value);
+    // Free per master or self column: row 1 (1), row 2 (1), row 3 z (1), row 4 (1), row 5 (2).
+    const free = pu.role.filter((x) => x !== 'partner').length;
+    expect(dof.dofCount).toBe(6 * free);
+    const rng = mulberry32(21);
+    for (let k = 0; k < 6; k++) {
+      const uv = { u: rng(), v: 0.15 + 0.7 * rng() };
+      const s = prepareFairSolver({
+        target: band,
+        dof,
+        fairness: { bend: 1 },
+        stiffness: 0.01,
+        constraints: [{ kind: 'point', uv, value: { x: 0, y: 0, z: 0 } }],
+      });
+      expect(s.ok).toBe(true);
+      if (!s.ok) continue;
+      const q = surfacePoint(band, uv.u, uv.v);
+      const { result } = solveFair<NurbsSurface>(s.value, [q.x + 0.3, q.y - 0.2, q.z + 0.4]);
+      expect(checksum(result)).not.toBe(checksum(band));
+      for (let i = 0; i < n; i++) {
+        const P = (r: number) => surfaceControlPoint(result, i, r);
+        const R = (r: number) => surfaceControlPoint(band, i, r);
+        if (pu.role[i] === 'partner') {
+          const m = (r: number) => surfaceControlPoint(result, pu.partner[i]!, r);
+          for (let r = 0; r < 7; r++) {
+            expect(P(r).x).toBe(m(r).x);
+            expect(P(r).y === -m(r).y).toBe(true);
+            expect(P(r).z).toBe(m(r).z);
+          }
+          continue;
+        }
+        if (pu.role[i] === 'self') for (let r = 0; r < 7; r++) expect(P(r).y === 0).toBe(true);
+        // Rows 0 and 6 fixed; the apex keeps x, y; rows 2 and 4 stay on its vertical.
+        expect(P(0)).toEqual(R(0));
+        expect(P(6)).toEqual(R(6));
+        expect([P(3).x, P(3).y]).toEqual([R(3).x, R(3).y]);
+        for (const r of [2, 4]) {
+          expect(Math.abs(P(r).x - P(3).x)).toBeLessThanOrEqual(1e-12 * 200);
+          expect(Math.abs(P(r).y - P(3).y)).toBeLessThanOrEqual(1e-12 * 200);
+        }
+        // Row 1 slides along the deck handle (cross product with the old handle ≈ 0).
+        const a = [R(1).x - R(0).x, R(1).y - R(0).y, R(1).z - R(0).z];
+        const b = [P(1).x - P(0).x, P(1).y - P(0).y, P(1).z - P(0).z];
+        const cr = Math.hypot(
+          a[1]! * b[2]! - a[2]! * b[1]!,
+          a[2]! * b[0]! - a[0]! * b[2]!,
+          a[0]! * b[1]! - a[1]! * b[0]!,
+        );
+        expect(cr).toBeLessThanOrEqual(1e-12 * 200 * Math.hypot(a[0]!, a[1]!, a[2]!));
+      }
+      // The apex join stays G1 after the solve.
+      let worst = 0;
+      for (let k2 = 0; k2 < 400; k2++) worst = Math.max(worst, apexAngleAt(result, k2 / 400));
+      expect(worst).toBeLessThanOrEqual(1e-9);
     }
   });
 

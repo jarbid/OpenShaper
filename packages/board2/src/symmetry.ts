@@ -22,7 +22,7 @@
  * | ------------- | ------------------------------- | -------------------- | --------------------- |
  * | Plan loop     | ū ∈ (0, ½), free                | `mirror` in y = 0    | `fixAxes` y           |
  * | Height fields | j < (m − 1)/2, `fixAxes` x, y   | `mirror` in y = 0    | `fixAxes` x, y        |
- * | Band          | ū ∈ (0, ½) (row rules: step S3) | `mirror`, every row  | `fixAxes` y (S3: row rules with ŷ-free directions) |
+ * | Band          | ū ∈ (0, ½), the row rules of §3.5 | `mirror`, every row | the row rules (directions with y = 0) |
  */
 import {
   controlPointsInto,
@@ -325,9 +325,9 @@ export function heightFieldSymmetryRules(nu: number, v: Pairing): readonly DofRu
  * Band (u periodic along the loop, `rows` control rows in v; net `i · rows +
  * r`): every row of a partner column mirrors the same row of its master
  * column; self-paired columns keep y (= 0). Masters carry no rule here: the
- * structural row rules of §3.5 (step S3) are added on master columns and, with
- * directions whose y-component is exactly 0, replace the y lock on self-paired
- * columns.
+ * structural row rules of §3.5 ({@link bandRowRules}) are added on master
+ * columns and, with directions whose y-component is exactly 0, replace the y
+ * lock on self-paired columns ({@link symmetryRules} does both).
  */
 export function bandSymmetryRules(u: Pairing, rows: number): readonly DofRule[] {
   const rules: DofRule[] = [];
@@ -344,6 +344,48 @@ export function bandSymmetryRules(u: Pairing, rows: number): readonly DofRule[] 
   return Object.freeze(rules);
 }
 
+/** Rows of the band (§3.5). */
+const BAND_ROW_COUNT = 7;
+const UP = Object.freeze({ x: 0, y: 0, z: 1 });
+
+/**
+ * The structural rules of §3.5 on one band column `i` (seven rows), read off
+ * the band's own net: row 0 and row 6 fixed (they lie on the deck and bottom;
+ * Phase 3 moves them through the inset laws and offsets), row 1 slides along
+ * the deck handle's direction `τ̂_d` (the deck join stays G1), rows 2 and 4
+ * keep their offset from the apex point plus motion along ẑ (the apex join
+ * stays G1 and the outline stays the widest line), row 3 keeps x, y (the
+ * outline) with z free, row 5 moves in the station plane (`n̂`, ẑ). `τ̂_d` is
+ * row 1 − row 0 and `n̂` the horizontal part of row 0 − row 3, normalised: on a
+ * self-paired column both have y exactly 0, so the rules keep it on y = 0.
+ * Returns `null` where a direction has no length (a degenerate profile).
+ */
+export function bandRowRules(band: NurbsSurface, i: number): readonly DofRule[] | null {
+  const R = BAND_ROW_COUNT;
+  const P = (r: number) => surfaceControlPoint(band, i, r);
+  const p0 = P(0);
+  const p1 = P(1);
+  const p3 = P(3);
+  const tx = p1.x - p0.x;
+  const ty = p1.y - p0.y;
+  const tz = p1.z - p0.z;
+  const tl = Math.hypot(tx, ty, tz);
+  const nx = p0.x - p3.x;
+  const ny = p0.y - p3.y;
+  const nl = Math.hypot(nx, ny);
+  if (!(tl > 0 && nl > 0)) return null;
+  const cp = (r: number): number => i * R + r;
+  return Object.freeze([
+    { kind: 'fix', cp: cp(0) },
+    { kind: 'slide', cp: cp(1), dirs: [{ x: tx / tl, y: ty / tl, z: tz / tl }] },
+    { kind: 'offsetFrom', cp: cp(2), master: cp(3), dirs: [UP] },
+    { kind: 'fixAxes', cp: cp(3), axes: AXES_XY },
+    { kind: 'offsetFrom', cp: cp(4), master: cp(3), dirs: [UP] },
+    { kind: 'slide', cp: cp(5), dirs: [{ x: nx / nl, y: ny / nl, z: 0 }, UP] },
+    { kind: 'fix', cp: cp(6) },
+  ] satisfies DofRule[]);
+}
+
 /** The nets {@link symmetryRules} knows (the §11.2 `net` argument). */
 export type SymmetryNet = 'plan' | 'deck' | 'bottom' | 'band';
 
@@ -355,8 +397,12 @@ export type SymmetryNet = 'plan' | 'deck' | 'bottom' | 'band';
  * bitwise (a symmetric extent, built in `'mirror-y'` mode), since the mirror
  * rules overwrite them; z, and the plan's and band's control points, are what
  * the rules pair (they come from the mirror overwrite; `validateBoard` checks
- * the document's). Feed the rules to geom's `makeDofMap` together with any
- * other rules for points the symmetry leaves free.
+ * the document's). For the band (seven rows) the result also holds the
+ * structural row rules of §3.5 on master and self-paired columns
+ * ({@link bandRowRules}), so it is the band's whole DOF rule set; a column with
+ * a degenerate handle is `rail-profile-invalid`. For the other nets, feed the
+ * rules to geom's `makeDofMap` together with any rules for points the symmetry
+ * leaves free.
  */
 export function symmetryRules(
   b: Partial<Pick<BuiltBoard, 'plan' | 'deck' | 'bottom' | 'band'>>,
@@ -377,8 +423,29 @@ export function symmetryRules(
   if (s === undefined) return fail(`no ${net} surface given`);
   if (net === 'band') {
     if (s.u.kind !== 'periodic') return fail('the band must be periodic in u');
+    if (s.v.count !== BAND_ROW_COUNT)
+      return fail(`the band has ${BAND_ROW_COUNT} rows; got ${s.v.count}`);
     const r = periodicPairing(s.u, tol);
-    return r.ok ? board2Ok(bandSymmetryRules(r.pairing, s.v.count)) : fail(r.message, r.u);
+    if (!r.ok) return fail(r.message, r.u);
+    // Partners mirror their masters (every row); masters and self-paired columns
+    // get the row rules of §3.5, whose directions keep a self-paired column on y = 0.
+    const rules: DofRule[] = bandSymmetryRules(r.pairing, BAND_ROW_COUNT).filter(
+      (x) => x.kind === 'mirror',
+    );
+    for (let i = 0; i < s.u.count; i++) {
+      if (r.pairing.role[i] === 'partner') continue;
+      const rows = bandRowRules(s, i);
+      if (rows === null) {
+        return board2Err([
+          makeIssue(
+            'rail-profile-invalid',
+            `band: column ${i} has a deck handle or inset of zero length (no row directions)`,
+          ),
+        ]);
+      }
+      rules.push(...rows);
+    }
+    return board2Ok(Object.freeze(rules));
   }
   if (s.v.kind !== 'clamped') return fail('a height field is clamped in v');
   const r = clampedPairing(s.v, tol);

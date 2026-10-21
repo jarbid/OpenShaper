@@ -44,6 +44,16 @@ export interface StadiumOptions {
   /** Height-field spans along x and across y. */
   readonly spansX?: number;
   readonly spansY?: number;
+  /**
+   * Deck crown (cm): the deck is `thickness − crown · (y/ρ)²` (a dome across).
+   * Default 0 (flat). Exact on the bicubic field ({@link quadraticField}).
+   */
+  readonly crown?: number;
+  /**
+   * Rocker (cm): deck and bottom both rise by `rocker · ((x − L/2)/(L/2))²`
+   * (the thickness is unchanged). Default 0.
+   */
+  readonly rocker?: number;
 }
 
 const DEFAULTS: Required<StadiumOptions> = {
@@ -54,6 +64,8 @@ const DEFAULTS: Required<StadiumOptions> = {
   thickness: 6,
   spansX: 8,
   spansY: 4,
+  crown: 0,
+  rocker: 0,
 };
 
 /** Closed-form facts about a stadium's plan (for oracles). */
@@ -133,6 +145,37 @@ export function stadiumPlan(opts: StadiumOptions = {}): PlanLoopJSON {
   return { degree: 3, knots: Array.from({ length: n }, (_, i) => i / n), points };
 }
 
+/** The stadium's deck and bottom: flat, or crowned and rockered (exact quadratics). */
+function stadiumFields(
+  o: Required<StadiumOptions>,
+  f: StadiumFacts,
+  x: readonly [number, number],
+  y: readonly [number, number],
+): Pick<BoardDoc, 'deck' | 'bottom'> {
+  if (o.crown === 0 && o.rocker === 0) {
+    return {
+      deck: flatField(x, y, o.thickness, o.spansX, o.spansY),
+      bottom: flatField(x, y, 0, o.spansX, o.spansY),
+    };
+  }
+  // rocker · ((x − c)/c)² = rocker (1 − 2x/c + x²/c²), c = L/2.
+  const c = f.length / 2;
+  const r: [number, number, number] = [o.rocker, (-2 * o.rocker) / c, o.rocker / (c * c)];
+  const rho = o.halfWidth;
+  return {
+    deck: quadraticField(
+      x,
+      y,
+      r,
+      [o.thickness, 0, -o.crown / (rho * rho)],
+      o.spansX,
+      o.spansY,
+      true,
+    ),
+    bottom: quadraticField(x, y, r, [0, 0, 0], o.spansX, o.spansY, true),
+  };
+}
+
 /** A flat clamped bicubic height field at height `z` over the given extent. */
 export function flatField(
   x: readonly [number, number],
@@ -163,6 +206,47 @@ export function flatField(
   };
 }
 
+/**
+ * A clamped bicubic height field (uniform spans) that is **exactly**
+ * `z = gx(x) + gy(y)` for quadratics `g(t) = c0 + c1 t + c2 t²` in board
+ * coordinates: the control value of a cubic B-spline reproducing a polynomial
+ * is its blossom at the function's three interior knots (de Boor–Fix),
+ * `c0 + c1 (t1 + t2 + t3)/3 + c2 (t1 t2 + t1 t3 + t2 t3)/3`, and the sum of a
+ * function of x and one of y has control values `G_i + H_j` (partition of
+ * unity). With `symmetricY`, `gy` must be even and the extent symmetric; the
+ * upper half of H is then copied from the lower, so the field is symmetric
+ * bitwise.
+ */
+export function quadraticField(
+  x: readonly [number, number],
+  y: readonly [number, number],
+  gx: readonly [number, number, number],
+  gy: readonly [number, number, number],
+  spansX: number,
+  spansY: number,
+  symmetricY: boolean,
+): HeightFieldJSON {
+  const base = flatField(x, y, 0, spansX, spansY);
+  const blossom = (
+    knots: readonly number[],
+    i: number,
+    [a, b]: readonly [number, number],
+    g: readonly [number, number, number],
+  ): number => {
+    const t = [1, 2, 3].map((k) => a + knots[i + k]! * (b - a));
+    const [t1, t2, t3] = t as [number, number, number];
+    return g[0] + (g[1] * (t1 + t2 + t3)) / 3 + (g[2] * (t1 * t2 + t1 * t3 + t2 * t3)) / 3;
+  };
+  const nu = spansX + 3;
+  const nv = spansY + 3;
+  const G = Array.from({ length: nu }, (_, i) => blossom(base.knotsU, i, x, gx));
+  const H = Array.from({ length: nv }, (_, j) => blossom(base.knotsV, j, y, gy));
+  if (symmetricY) for (let j = 0; 2 * j < nv - 1; j++) H[nv - 1 - j] = H[j]!;
+  const z: number[] = [];
+  for (let i = 0; i < nu; i++) for (let j = 0; j < nv; j++) z.push(G[i]! + H[j]!);
+  return { ...base, z };
+}
+
 /** The stadium board document (valid: `validateBoard` returns no issue). */
 export function stadiumBoard(opts: StadiumOptions = {}): BoardDoc {
   const o = resolve(opts);
@@ -177,8 +261,7 @@ export function stadiumBoard(opts: StadiumOptions = {}): BoardDoc {
     symmetry: 'mirror-y',
     tail: { kind: 'standard' },
     plan: stadiumPlan(o),
-    deck: flatField(x, y, o.thickness, o.spansX, o.spansY),
-    bottom: flatField(x, y, 0, o.spansX, o.spansY),
+    ...stadiumFields(o, f, x, y),
     laws: defaultLaws(),
     offsets: { basis: null, rows: [] },
     features: [],

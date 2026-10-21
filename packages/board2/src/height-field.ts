@@ -21,10 +21,13 @@
  */
 import {
   clampedBasis,
+  createScratch,
   curvePoint,
   isoCurve,
   makeSurface,
+  resolveTolerances,
   surfaceControlPoint,
+  surfaceEvalInto,
   transformCurve2,
 } from '@openshaper/geom';
 import type {
@@ -166,6 +169,58 @@ export function planCurvePcurve<C extends NurbsCurve<2>>(
   hf: Pick<HeightFieldJSON, 'x' | 'y'>,
 ): C {
   return transformCurve2(curve, planToUV(hf));
+}
+
+/** A plan point outside a height field's (u, v) domain (beyond `paramRel`). */
+export class OutsideFieldError extends RangeError {
+  constructor(
+    message: string,
+    readonly x: number,
+    readonly y: number,
+  ) {
+    super(message);
+  }
+}
+
+/** A height field sampled at a plan point: z and its plan gradient `(∂z/∂x, ∂z/∂y)`. */
+export interface HeightSample {
+  readonly z: number;
+  readonly dzdx: number;
+  readonly dzdy: number;
+}
+
+/**
+ * A sampler of a height-field surface (built by {@link heightFieldSurface} from
+ * `hf`) at plan points: the (u, v) is the affine image ({@link planToUV}), the
+ * gradient `Su.z / Su.x`, `Sv.z / Sv.y` (x and y are affine in u and v, so the
+ * chain rule is exact). A point outside the domain by more than `paramRel` of
+ * it throws {@link OutsideFieldError}: geom would clamp it silently.
+ */
+export function heightSampler(
+  surface: NurbsSurface,
+  hf: Pick<HeightFieldJSON, 'x' | 'y'>,
+  tol?: Partial<Tolerances>,
+): (x: number, y: number) => HeightSample {
+  const m = planToUV(hf);
+  const slack = resolveTolerances(tol).paramRel;
+  const sc = createScratch({
+    maxDegree: Math.max(surface.u.degree, surface.v.degree),
+    maxDerivs: 1,
+  });
+  const f = new Float64Array(9);
+  return (x: number, y: number): HeightSample => {
+    const u = m[0] * x + m[2];
+    const v = m[4] * y + m[5];
+    if (!(u >= -slack && u <= 1 + slack && v >= -slack && v <= 1 + slack)) {
+      throw new OutsideFieldError(
+        `plan point (${x}, ${y}) is outside the height field's extent x [${hf.x[0]}, ${hf.x[1]}], y [${hf.y[0]}, ${hf.y[1]}]`,
+        x,
+        y,
+      );
+    }
+    surfaceEvalInto(surface, u, v, 1, f, 0, sc);
+    return { z: f[2]!, dzdx: f[5]! / f[3]!, dzdy: f[8]! / f[7]! };
+  };
 }
 
 /**
