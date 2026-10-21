@@ -360,6 +360,36 @@ The beginning of the overhaul. Pure, dependency-free, no board concepts yet.
 analytic solids; benchmark numbers recorded; zero diff in every existing
 package's tests and snapshots.
 
+**Progress (2026-10-21, `experiment/nurbs-overhaul`).** Design and numbers:
+`docs/design/geom-core.md` (status line, §15.5, §17, §18).
+
+- [x] Knot vectors, B-spline and NURBS curves (clamped and periodic, rational),
+      derivatives to second order, arc length, curvature
+- [x] Tensor-product surfaces: derivatives, normals, principal curvatures, iso and
+      boundary curves; incremental sample plans
+- [x] Knot insertion and refinement, degree elevation, compatible curves, ruled and
+      skinned surfaces
+- [x] Fitting: interpolation and least squares with point and tangent constraints
+- [x] Constrained least squares with thin-plate fairness, benchmarked at ~500
+      control points (512 control points: 12 to 33 ms to prepare, 0.27 ms per move)
+- [x] Curves on surfaces; closest point and projection; pcurve and 3D edge fitting
+      (`projectCurveToSurface`, `curveOnSurfaceTo3d`)
+- [x] Trimmed surfaces; constrained Delaunay triangulation (implemented, not
+      adopted); Green's-theorem integration for area and volume
+- [x] Continuity measures along shared edges
+- [x] Minimal B-rep and STEP writer for trimmed and rational faces
+- [x] `occt-wasm` validator (CI-only, dev dependency): accepts the analytic solids
+      V1 to V5 (box, cylinder, torus, sphere zone, plate with a hole, elliptic puck
+      with a fitted bicubic deck), 41 tests
+- [x] Oracles: analytic cases, convergence tests, immutability and
+      no-magic-tolerance scans; benchmark numbers recorded (P1 to P24, a 4-vCPU
+      cloud container: 10 of 38 rows met, 28 missed and reported, none tuned)
+- [x] CI runs on pushes to the branch
+- [ ] Not in Phase 1: V6 (sphere with poles), OCCT Path A and B7, skinned or fitted
+      surfaces through the B-rep and STEP (Phase 2's board is their test)
+- [ ] Re-measure the benchmarks on the reference desktop before acting on any
+      tier-2 option
+
 ### Phase 2 — board model v2 (`@openshaper/board2`)
 
 - Full-width board with the symmetry constraint.

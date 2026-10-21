@@ -2,6 +2,10 @@
 
 Status: **binding design** for Phase 1 of `docs/design/geometry-overhaul.md` (§6,
 rationale in §3). Written 2026-10-10 on `experiment/nurbs-overhaul`.
+**Phase 1 is built and integrated (2026-10-21):** every module of §3 and every step of
+§18 is done except what §18 lists as not done; the measured numbers are in §15.5 and §17,
+and the deviations from this design are listed under "Integration" in §18. Sections marked
+"As built" describe what the code does where it differs from the first draft.
 
 It merges two independent proposals: **A** (performance first: data-oriented layout,
 allocation-free kernels, incremental evaluation) and **B** (correctness first: literal
@@ -180,7 +184,9 @@ packages/geom/
     solver/               dof.ts (DOF map), fairness.ts (energies), solver.ts
     project.ts            closest point on curve / surface / trimmed surface, batches
     curve-on-surface.ts   pcurve evaluation, chain-rule derivatives, iso pcurves,
-                          pcurve fitting and 3D edge fitting (integration milestone)
+                          curve-sample projection (`curveSampleProjector`, internal)
+    edge-fit.ts           pcurve fitting (`projectCurveToSurface`) and 3D edge fitting
+                          (`curveOnSurfaceTo3d`), the integration milestone (§6.15)
     trim.ts               trim loops, trimmed surfaces, validation, classification
     integrate.ts          Green's-theorem integration over trimmed domains, area
     pieces.ts             internal: rational Bézier pieces of 2D curves, subdivision certificates
@@ -1678,7 +1684,7 @@ export function projectPointsToSurfaceInto(
 ): number;
 ```
 
-### 6.15 Curves on surfaces [B1; the last two at integration]
+### 6.15 Curves on surfaces [B1; the last two at integration, `src/edge-fit.ts`]
 
 ```ts
 export function curveOnSurface(
@@ -1724,6 +1730,8 @@ export function projectCurveToSurface(
   c: NurbsCurve<3>,
   s: NurbsSurface,
   tol?: Partial<Tolerances>,
+  sampling?: Partial<EdgeFitSampling>,
+  seeding?: Partial<ProjectionSeeding>,
 ): Result<{
   readonly pcurve: ClampedCurve<2>;
   readonly maxDeviation: number;
@@ -1733,11 +1741,21 @@ export function projectCurveToSurface(
 export function curveOnSurfaceTo3d(
   cs: CurveOnSurface,
   tol?: Partial<Tolerances>,
+  sampling?: Partial<EdgeFitSampling>,
 ): Result<{
   readonly curve: ClampedCurve<3>;
   readonly maxError: number;
   readonly withinTolerance: boolean;
 }>;
+/** The one record of sampling and refinement parameters of both fits (principle 3). */
+export interface EdgeFitSampling {
+  readonly degree: number; // 3: C² joins, the degree of the board's rails
+  readonly samplesPerSpan: number; // 8: twice a cubic span's 4 coefficients, stays overdetermined when bisected
+  readonly verifyFactor: number; // 4: deviation measured on 4× denser samples than the fit used
+  readonly maxPasses: number; // 8: bisection passes after the first fit
+  readonly safety: number; // 0.5: a span is bisected above this fraction of `fit`
+}
+export const DEFAULT_EDGE_FIT: EdgeFitSampling; // frozen
 ```
 
 `curveOnSurface` validates once that the pcurve stays inside every clamped direction of the
@@ -1749,14 +1767,62 @@ no right-hand side exists); at a surface knot line the surface side is the one t
 moves into (left when `u′ < 0`, or `u′ = 0` and `u″ < 0`), or at that end the one it arrives
 from (left when `u′ > 0`, or `u′ = 0` and `u″ < 0`).
 
-**TODO(integration): pcurve and 3D edge fitting.** `projectCurveToSurface` and
-`curveOnSurfaceTo3d` are not implemented in B1: both fit a curve to samples, which needs
-Track A's constrained least squares (A2). At integration, `projectCurveToSurface` fits a
-`ClampedCurve<2>` to `projectCurveSamplesToSurface`'s unwrapped `(t, uv)` samples (same
-parameter), refining knots until the 3D deviation, measured on 4× denser samples, is
-within `fit`; `curveOnSurfaceTo3d` fits a `ClampedCurve<3>` to `curveOnSurfacePoint`
-samples the same way. Their oracles are in §16 (`curve-on-surface`: honesty against 4×
-denser sampling) and benchmark P18 (§17).
+**As built (integration).** Both functions are Track B's projection
+(`projectCurveSamplesToSurface`, P&T §6.1) feeding Track A's least squares
+(`approximateCurve`, P&T §9.4.1 and A9.6), sharing one refinement loop:
+
+1. **Knots.** The source's own breakpoints, each at the multiplicity that lets the fit be
+   as non-smooth there as the source is (`min(p, p − q + m)` for a fit of degree `p`,
+   source degree `q`, multiplicity `m`): a rational circle is only C⁰ in its parameter at
+   the quarter points, and a fit with knots elsewhere converges only quadratically across
+   such a kink. The same for each place the pcurve crosses a knot line of the surface,
+   where `S(P(t))` is only as smooth as `S` is across it (a plane parameterised with a
+   speed change at a knot, crossed by a straight line, is smooth in space and kinked in
+   `(u, v)`). Those crossings are located **on the source itself** (sign changes on
+   `ts`, then bisection on the exact projections or the exact pcurve to `paramRel`), not
+   on an earlier fit, which put the kink where the fit crosses the line and converged
+   one digit per pass.
+2. **Fit** on `samplesPerSpan` parameters per span of those knots, on `[0, 1]`, moved back
+   onto the source's domain by `reparameterize` (exact). A pcurve's data are the
+   projections of the curve's points; periodic surface directions are unwrapped, so the
+   pcurve may run past one period.
+3. **Measure** the 3D deviation on `verifyFactor ×` denser samples than the fit used;
+   that number, not the fit's residual at its data, is `maxDeviation` / `maxError`
+   (a fit can interpolate its data and oscillate between it).
+4. **Refine**: while it exceeds `Tolerances.fit`, bisect every fit span whose measured
+   deviation exceeds `safety × fit` and fit again, at most `maxPasses` times; every
+   span keeps `samplesPerSpan` samples. The best pass is kept. A pass that improves by
+   under 10% ends the loop: the source is off the surface, not under-resolved.
+
+The ends of the result are exactly the first and last data points (an edge ends where its
+curve does, so a closed edge's pcurve closes to the rounding of two projections), and a
+pcurve's control points are clamped into the surface's domain in its clamped directions
+(convex hull: the curve then stays inside, which `curveOnSurface` checks), the deviation
+measured after that. A curve that does not lie on the surface within `fit` still returns
+its best pcurve, `withinTolerance: false`, and a warning carrying the largest projection
+distance. `withinTolerance` is `maxDeviation ≤ fit` at the verification samples, not a
+bound between them; the honesty tests in `edge-fit.test.ts` compare it against seeded
+random parameters that no fit or verification sample used (worst measured ratio 1.0018).
+The exact rational edge (a circle) is approximated by `curveOnSurfaceTo3d`, not
+reproduced: use the exact curve when one is known.
+
+`maxPasses` is 8 and not the 5 of the first draft: on a board-size bicubic deck's
+elliptic trim (V5) the default `fit` (1e-4 cm) needs 4 passes, 1e-5 needs 5 and 1e-6 and
+1e-7 need 6, so 5 stopped short (`withinTolerance: false`, honestly) at a target a caller
+may reasonably ask for; the loop stops at the first pass within the target, so the
+headroom costs nothing when it is not needed. Oracles: §16 `curve-on-surface`; P18 in §17.
+
+Two cost decisions, both measured on the P18 input (an edge across a 40 × 20 cubic
+deck): a crossing of a surface knot line gets a fit knot **only where the fit would
+otherwise be smoother than the composition** (`multiplicityFor ≥ 2`, i.e. a C⁰ or C¹
+crossing; a cubic surface's simple knot lines are C², as smooth as the cubic fit's own
+simple knot, and leave only a jump in the third derivative, which refinement handles like
+any local feature), and the crossings that are looked for are located to the parameter
+width at which a misplaced knot costs `kinkFraction` (0.1) of `fit` rather than to
+`paramRel`, each bisection step seeded from its neighbour
+(`curveSampleProjector` prepares the surface's cell boxes once per fit). Locating every
+crossing to `paramRel` with a cold projection per step took 1.4 s for an 800-span edge
+(P18's first measurement) and 0.37 s of a 0.42 s fit for a 120-span one.
 
 ### 6.16 Trimmed surfaces and integration [B2]
 
@@ -2153,8 +2219,10 @@ as valid solids (§15.5), so there is no importer to serve yet; the manual matri
 **As built (B4)** the subpath exports `mulberry32`, `checksum`, the random generators,
 `boxSolid(x, y, z, { trimmed? })`, `cylinderSolid(r, h)` (plane caps trimmed by circles),
 `torusSolid`, `sphericalZoneSolid(r, latitude, { split? })`, `plateWithHoleSolid`,
-`writeStepUnchecked`, `readStepSubset` and `MUTATIONS`. **Not built:** `prismSolid`,
-`lensSolid`, `ellipticPuckSolid`, `sphereSolid`, `cylinderSolid`'s `trimmedCaps` option (the
+`ellipticPuckSolid(a, b, h, { bicubicDeck?, tilt?, tol?, sampling? })` with its closed
+forms `ellipticPuckExact(a, b, h, tilt?)` (integration), `writeStepUnchecked`,
+`readStepSubset` and `MUTATIONS`. **Not built:** `prismSolid`,
+`lensSolid`, `sphereSolid`, `cylinderSolid`'s `trimmedCaps` option (the
 cylinder always has trimmed caps), `toOcctBrepText` and `testing/occt-brep.ts` (Path A),
 and `solveFairReference` (solver step). The signatures below are the design, not the
 current surface.
@@ -2192,8 +2260,24 @@ export function ellipticPuckSolid(
   a: number,
   b: number,
   h: number,
-  opts?: { bicubicDeck?: boolean },
-): Brep; // V5 (integration)
+  opts?: {
+    bicubicDeck?: boolean;
+    tilt?: number;
+    tol?: Partial<Tolerances>;
+    sampling?: Partial<EdgeFitSampling>;
+  },
+): Brep; // V5 (integration), as built: the deck is the plane z = h + tilt·x as a bicubic Bézier patch
+// with a deliberately non-uniform parameterisation, so volume πabh stays exact while its trim is a real fit
+export function ellipticPuckExact(
+  a: number,
+  b: number,
+  h: number,
+  tilt?: number,
+): {
+  volume: number;
+  area: number;
+  centroid: Point3;
+}; // the independent oracle: π a b h; areas by the periodic trapezoid rule; centroid from first moments
 export function sphereSolid(r: number): Brep; // NOT BUILT: in memory only; poles outside STEP scope (§15.5)
 export function writeStepUnchecked(b: Brep, opts?: StepWriteOptions): string; // mutation suite only
 export function readStepSubset(text: string): Brep; // reads exactly what writeStep emits; arity-checked
@@ -2920,15 +3004,15 @@ Path A.
 
 **Corpus** (each written in mm and in cm):
 
-| Id  | Solid                                                                                                                                  | Exercises                                                   | Exact volume             |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------ |
-| V1  | Box from degree-1 B-spline faces                                                                                                       | Tooling smoke test; B4's first deliverable                  | `abc`                    |
-| V2  | Cylinder: rational periodic band with a `SEAM_CURVE`, two trimmed planar caps with rational circle pcurves; with and without pcurves   | Rational, seam, trims                                       | `πr²h`                   |
-| V3  | Torus: one doubly periodic face, two seams, one vertex                                                                                 | Double periodicity                                          | `2π²Rr²`                 |
-| V4  | Spherical zone (±60°) and two trimmed planar caps                                                                                      | Rational, seam, trims, no poles                             | zone formula             |
-| —   | Polynomial prism; lens (two trimmed polynomial faces, rational pcurves); plate with a hole (`FACE_BOUND`); mirrored and rotated copies | Exact polynomial volumes, holes, `det < 0` transforms       | closed forms             |
-| V5  | Elliptic puck: rational elliptic band, planar bottom, **trimmed bicubic deck with a fitted pcurve** (integration)                      | The board's three-patch topology; honest uncertainty        | `πab·h` (planar variant) |
-| V6  | Full sphere with poles                                                                                                                 | Stretch: documents OCCT's handling of degenerate pole edges | `4/3 πr³`                |
+| Id  | Solid                                                                                                                                                            | Exercises                                                   | Exact volume |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ------------ |
+| V1  | Box from degree-1 B-spline faces                                                                                                                                 | Tooling smoke test; B4's first deliverable                  | `abc`        |
+| V2  | Cylinder: rational periodic band with a `SEAM_CURVE`, two trimmed planar caps with rational circle pcurves; with and without pcurves                             | Rational, seam, trims                                       | `πr²h`       |
+| V3  | Torus: one doubly periodic face, two seams, one vertex                                                                                                           | Double periodicity                                          | `2π²Rr²`     |
+| V4  | Spherical zone (±60°) and two trimmed planar caps                                                                                                                | Rational, seam, trims, no poles                             | zone formula |
+| —   | Polynomial prism; lens (two trimmed polynomial faces, rational pcurves); plate with a hole (`FACE_BOUND`); mirrored and rotated copies                           | Exact polynomial volumes, holes, `det < 0` transforms       | closed forms |
+| V5  | Elliptic puck: rational elliptic band, planar bottom, **trimmed bicubic deck with a fitted pcurve** (integration, built; flat and fitted variants, both `πab·h`) | The board's three-patch topology; honest uncertainty        | `πab·h`      |
+| V6  | Full sphere with poles                                                                                                                                           | Stretch: documents OCCT's handling of degenerate pole edges | `4/3 πr³`    |
 
 **Harness.** `src/**/*.occt.test.ts`, run by `vitest.occt.config.ts` (single fork,
 `testTimeout: 60_000`); one kernel per file, freed with `releaseSince(checkpoint())`;
@@ -2950,7 +3034,7 @@ init ≈ 0.13–0.2 s, small solids import in 0.01–0.2 s. STEP files go to
 
 The WASM runs here without workaround (init 0.14 s; a corpus solid imports in 5 to 180 ms),
 so the validator is real, not the stopgap of §15.4: `pnpm --filter @openshaper/geom
-test:occt` is 37 tests, all passing, in about 7 s.
+test:occt` is 41 tests (37 at B4, +4 for V5 at integration), all passing, in about 22 s.
 
 **What runs** (`src/step/step.occt.test.ts`). For each of twelve corpus solids (V1 box and
 trimmed box, V2 cylinder, V3 torus, V4 zone and split zone, a plate with a cylindrical hole
@@ -2978,11 +3062,25 @@ of radius `r`, written as rational quadratic patches, closed by planar caps, and
 `split: true` as two patches. What remains unexercised is the pole-free closed sphere
 itself (V6, with the poles, waits for its milestone). **B7** and Path A (`toOcctBrepText`, the unhealed native BREP) are **not built**: B7
 compares two OCCT volumes of one solid through different paths; the mesh-volume oracle
-below carries the accuracy claim in the meantime. V5 (fitted pcurve, integration) and V6
-(poles) wait for their milestones; the polynomial prism and lens of the corpus table are not
+below carries the accuracy claim in the meantime. V6 (poles) waits for its milestone (V5
+was built at integration, see its paragraph below); the polynomial prism and lens of the corpus table are not
 built (the box covers the polynomial case). The plate with a hole (`FACE_BOUND` loops on two
 planar faces, the hole wall a seamed cylinder with `sameSense = false`) is built and passes
 every OCCT check, in the file and mirrored.
+
+**V5, the elliptic puck (integration, 2026-10-21).** `ellipticPuckSolid(3, 2, 1)` (cm) in
+two variants, both written in mm and in cm and passing B1 to B8 like the rest: the flat deck
+(exact rational pcurve on the planar top) and the **fitted bicubic deck**, `z = h + 0.1 x` as
+a bicubic Bézier patch with a deliberately non-uniform parameterisation whose trim is
+`projectCurveToSurface`'s fit of the exact top ellipse (default `fit`). The fitted solid's
+edge gap is real: `checkBrep` measures 3.6e-4 mm, the writer declares 2 × that
+(7.2e-4 mm, against the 1e-5 mm floor of the exact one), and OCCT's own tolerance growth
+(B4) lands at 3.4e-4 mm: the same number from an independent measurement, inside the
+declared uncertainty. Volume: OCCT `getVolume` is +0.79 % (flat) and +0.16 % (fitted) off
+the closed form, its mesh volume −0.008 % and −0.006 % (0.01 mm deflection), and our
+`massProperties` is exact to 2e-16 (flat) and 2.2e-9 (volume) / 7.4e-9 (area) for the
+fitted one, where the fit's gap, not the quadrature, is the error (bounded by
+`gap · perimeter · reach / 3`, tested in `brep/puck.test.ts`).
 
 **Measured** (model cm, file mm, exact volume = closed form):
 
@@ -3170,6 +3268,49 @@ are an error test on a cheaper proxy (the block diagonals) with the full product
 only at accepted boxes, and reusing a box's values across the solver's
 pointer-downs, since the weights do not change during an edit.
 
+**Integration (2026-10-21; same container and procedure; `pnpm --filter @openshaper/geom
+bench`, 188 to 300 s for the whole file, two runs agreeing to within a few percent, the
+second recorded below).** The machine is a 4-vCPU Intel Xeon @ 2.80 GHz cloud container, Node
+22.22.0, `vitest bench` (mean of the harness's samples; targets are for the reference
+desktop, §9). Every F2, B1 and B2 number above reproduced to within run-to-run noise
+(P1 0.34 M/s, P2 0.35 M/s, P3 8.5 ms, P4 0.24 M/s, P5 0.19 M/s, P6 8.0 ms, P7 6.7 ms, P8
+0.36 ms, P9 1.8 ms; P17 8.9 ms warm and 0.25 ms per cold point; P19 20 and 84 ms; P20
+100 ms; P21 5.6 ms), as did A1 to A3 (P10a 0.089, P10b 0.045, P11a 0.27, P11b 0.91; P12
+2.3 ms, P12r 1.26 s, P12r50 2.63 s, P13a 11.6 ms, P13r 1.34 s, P13r50 2.81 s, P13b 33 ms,
+P13c 79 ms, P14a 0.27 ms, P14b 0.84 ms, P15 4.3 ms, P16 377 ms, P24 0.28 ms per frame).
+Verdicts as before: met P10, P11, P13c, P14b; the rest missed on this machine, not re-tuned
+at integration.
+
+The new group (board-size elliptic puck, 300 × 60 × 10 cm, bicubic deck tilted 0.02, whose
+deck pcurve is the fit):
+
+| #    | Benchmark                                                               | Measured | Target   |
+| ---- | ----------------------------------------------------------------------- | -------- | -------- |
+| P18  | `projectCurveToSurface`, 70-span edge on the 40 × 20 deck, default fit  | 23.6 ms  | ≤ 30 ms  |
+| P18b | `curveOnSurfaceTo3d`, 63-control-point pcurve on the same deck, default | 21.0 ms  | ≤ 30 ms  |
+| P18c | `ellipticPuckSolid` (builds the solid and fits the deck pcurve)         | 46.3 ms  | ≤ 30 ms¹ |
+| P22  | `massProperties`, 3 faces                                               | 204 ms   | ≤ 50 ms  |
+| P23  | `writeStep`, `roundTrip` precision (15,122 bytes, 213 entities)         | 57.9 ms  | ≤ 100 ms |
+| P23  | `writeStep`, 9 digits (13,498 bytes; re-reads and re-checks the text)   | 119.7 ms | ≤ 100 ms |
+| P20b | `tessellateBrep`, chord 0.05 cm                                         | 47.8 ms  | ≤ 100 ms |
+
+¹ P18c has no design target (the build includes one P18 fit and the B-rep check); the 30 ms
+is P18's. P18 met only after two changes found by its first measurement, 1,415 ms for an
+817-span edge (the first input was an over-resolved fit of a wavy pcurve; the 800 spans
+were the input's, so P18 is now a 70-span edge, about the design's 60): crossings of
+surface knot lines were located by bisection to `paramRel` with a cold projection per step
+(0.37 s of a 0.42 s fit for a 120-span edge), and the crossings that cost nothing
+(a cubic surface's C² knot lines) got a fit knot anyway. Both are in §6.15. The declared
+STEP uncertainty of this puck is 9.5e-4 mm (twice its 4.75e-5 cm edge gap), the floor
+1e-5 mm for the exact variant.
+
+P22 missed 4× (132 ms standalone, 204 ms under the harness): the deck's trimmed
+integration is 26 of the 34 ms of one area pass (its 95-span pcurve over a bicubic), and
+`massProperties` runs five such passes (area, volume, three moments) that each re-evaluate
+the same trim samples. Tier-2 options: one multi-integrand pass per face (evaluate the
+trim and the surface once, accumulate five integrands), and a cheaper `quadRel` for the
+moments than for the volume. P23's 9-digit miss is the cost of its read-back and re-check.
+
 ---
 
 ## 18. Build order
@@ -3246,11 +3387,28 @@ API test, ESLint layer, lockfile entry, this document.
   projection. Until then Track B builds only solids with exact edges and pcurves
   (iso-lines, rational circles), which V1–V4 are.
 
-**Integration** (after both tracks): `projectCurveToSurface`, `curveOnSurfaceTo3d`;
-V5 (elliptic puck with a fitted bicubic deck pcurve, honest uncertainty flowing into
-STEP); skinned and fitted surfaces through the B-rep, STEP and OCCT; P18; the full
-benchmark table recorded; the Phase 1 report (numbers, measured OCCT caveats, no
-divergences expected since geom has no classic counterpart).
+**Integration** (after both tracks). _Done 2026-10-21 apart from what is listed as not
+done._ Both tracks were merged with merge commits (`exp/geom-a`, then `exp/geom-b`;
+Track B's merge conflicted in the public-API pin, the immutability table, the testing entry
+point, the benchmark file and this document, and kept both tracks' work). Built:
+`projectCurveToSurface`, `curveOnSurfaceTo3d` (`edge-fit.ts`, §6.15); V5 (the elliptic
+puck, flat and with a fitted bicubic deck, honest uncertainty flowing into STEP and
+confirmed by OCCT's own tolerance growth, §15.5); P18, P22 and P23 and the full benchmark
+table recorded (§17); the branch's `ci.yml` runs on pushes to the branch. **Not done:**
+skinned and fitted _surfaces_ through the B-rep, STEP and OCCT (the puck's band is a
+ruled surface and its deck a bicubic Bézier patch; a `skinCurves` or `approximateSurface`
+face is the first thing Phase 2's board needs and is its test, not Phase 1's); V6 (poles),
+Path A and B7 of §15, the polynomial prism and lens; every missed benchmark target
+(§17) is reported, none tuned. **Deviations from this design**, each with its reason in
+the section named: `maxPasses` 8 not 5, a crossing of a surface knot line gets a fit knot
+only if the fit would otherwise be smoother than the composition, and crossings are
+located to `kinkFraction · fit / speed` not `paramRel` (all §6.15); the V5 deck is a
+tilted plane with a non-uniform bicubic parameterisation rather than a curved deck, so
+its volume `π a b h` stays an exact oracle while its pcurve is a real fit (§6.21);
+`curveSampleProjector` is internal, not in §6.14 (it prepares the surface once per fit).
+The Phase 1 report is `docs/design/geometry-overhaul.md` §6 (Phase 1 status) and this
+file; no divergences from the classic engine are expected or recorded, since geom has no
+classic counterpart.
 
 ---
 
