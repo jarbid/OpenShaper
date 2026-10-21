@@ -214,7 +214,8 @@ const boardForms = (): Pick<Solid, 'volume' | 'area' | 'curved' | 'fitted' | 'ex
  * degree 6 × 4 trimmed deck and a bicubic trimmed bottom (both `approximateSurface`, interior
  * knots, fitted pcurves) and a `skinCurves` band (rational, clamped or periodic in u). Its
  * "exact" volume and area are the independent oracle's (divergence theorem over the exact
- * ellipse, no trims, no `integrate.ts`; error estimates below 1e-12 relative).
+ * ellipse and the band's definition, from the spec alone: no NURBS, no trims, no
+ * `integrate.ts`; error estimates below 1e-12 relative).
  */
 const curvedBoard = (periodicBand: boolean): Brep =>
   curvedPuckSolid(CURVED_PUCK_BOARD, { periodicBand });
@@ -222,7 +223,7 @@ const curvedForms = (
   periodicBand: boolean,
 ): Pick<Solid, 'volume' | 'area' | 'curved' | 'fitted' | 'extent' | 'deflectionMm'> => {
   const b = curvedBoard(periodicBand);
-  const o = curvedPuckOracle(CURVED_PUCK_BOARD, b.faces[0]!.surface);
+  const o = curvedPuckOracle(CURVED_PUCK_BOARD);
   // Every point of the solid lies in its control box; the moments' reference is that box's
   // corner, so the reach is at most its diagonal, and for any rigid motion at most √3 × it
   // (the diagonal of an axis box of a set is at most √3 × the set's diameter).
@@ -689,7 +690,16 @@ describe('Path A sees the orientation errors the STEP reader heals', () => {
       expect(faces).toBe(b.faces.length);
       for (let k = 0; k < faces; k++) {
         const v = verdict(kernel.fromBREP(flipSubShape(good.text, 'Sh', k)));
-        expect(refused(v), `face ${k} flipped: ${JSON.stringify(v)}`).toBe(true);
+        if (faces > 1) {
+          // BRepCheck_Shell's orientation check refuses it, pinned as such: some flips also make
+          // GProp's volume negative, so a sign test alone would not show the check ran.
+          expect(v.valid, `face ${k} flipped: ${JSON.stringify(v)}`).toBe(false);
+        } else {
+          // One face (the torus): flipping it turns the whole shell inside out, coherently; only
+          // the sign tells (as for flipBrep below).
+          expect(v.valid, `the only face flipped: ${JSON.stringify(v)}`).toBe(true);
+          expect(v.volume).toBeLessThan(0);
+        }
         // A flipped face changes GProp's volume: the defect is visible, not just flagged.
         expect(Math.abs(v.volume - ref.volume)).toBeGreaterThan(B7_REL * ref.volume);
       }
@@ -739,7 +749,9 @@ describe('Path A sees the orientation errors the STEP reader heals', () => {
         expect(checkBrep(mutated).ok, m.name).toBe(false);
         const text = toOcctBrepTextUnchecked(mutated, { tolerance: good.tolerance }).text;
         const v = verdict(kernel.fromBREP(text));
-        expect(refused(v), `${m.name}: ${JSON.stringify(v)}`).toBe(true);
+        // Pinned route: BRepCheck refuses every one (measured: none relies on the volume's sign,
+        // which stays positive for all but the torus's reversed loop).
+        expect(v.valid, `${m.name}: ${JSON.stringify(v)}`).toBe(false);
         judged++;
       }
       expect(judged, 'the orientation mutations at least').toBeGreaterThanOrEqual(2);

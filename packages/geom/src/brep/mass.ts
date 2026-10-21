@@ -95,6 +95,11 @@ function controlBox(tss: readonly TrimmedSurface[]): { lo: Point3; hi: Point3 } 
  * along that axis, the scale of the moment `∫ (x − c_x) dV ≤ V · extent`), so a
  * face that contributes nothing (rounding noise) to a component converges, and
  * each centroid coordinate is within about `quadRel · extent`.
+ *
+ * `centroidError` bounds each coordinate's error from the integrators'
+ * estimates (`(δM_k + |M_k| · δV / |V|) / |V|`, `M_k` the first moment about the
+ * reference corner); `centroidConverged` is true only if the volume and every
+ * moment integral converged.
  */
 export function massProperties(
   b: Brep,
@@ -103,6 +108,8 @@ export function massProperties(
   readonly volume: QuadratureResult;
   readonly area: QuadratureResult;
   readonly centroid: Point3;
+  readonly centroidError: Point3;
+  readonly centroidConverged: boolean;
 } {
   const t = resolveTolerances(tol);
   const tss = trimmedFaces(b, t);
@@ -119,6 +126,8 @@ export function massProperties(
   const extent = [box.hi.x - c.x, box.hi.y - c.y, box.hi.z - c.z];
   const momentAbs = extent.map((e) => (t.quadRel * Math.abs(volume.value) * e) / tss.length);
   const moment = [0, 0, 0];
+  const momentErr = [0, 0, 0];
+  let momentsConverged = true;
   tss.forEach((ts, i) => {
     const a = surfaceArea(ts, t);
     area += a.value;
@@ -140,16 +149,20 @@ export function massProperties(
         const r = d[axis]! - c0;
         return 0.5 * r * r * n;
       };
-      moment[axis]! +=
-        sigma *
-        integrateTrimmed(ts, integrand, {
-          polynomialDegree: deg,
-          tol: t,
-          absTol: momentAbs[axis]!,
-        }).value;
+      const r = integrateTrimmed(ts, integrand, {
+        polynomialDegree: deg,
+        tol: t,
+        absTol: momentAbs[axis]!,
+      });
+      moment[axis]! += sigma * r.value;
+      momentErr[axis]! += r.errorEstimate;
+      momentsConverged &&= r.converged;
     }
   });
   const v = volume.value;
+  const av = Math.abs(v);
+  const coordErr = (k: number): number =>
+    (momentErr[k]! + (Math.abs(moment[k]!) * volume.errorEstimate) / av) / av;
   return Object.freeze({
     volume,
     area: Object.freeze({
@@ -163,5 +176,7 @@ export function massProperties(
       y: c.y + moment[1]! / v,
       z: c.z + moment[2]! / v,
     }),
+    centroidError: Object.freeze({ x: coordErr(0), y: coordErr(1), z: coordErr(2) }),
+    centroidConverged: volume.converged && momentsConverged,
   });
 }

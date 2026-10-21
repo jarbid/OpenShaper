@@ -15,7 +15,8 @@
  *   OCCT's STEP healer, which sets an edge tolerance to the deviation it
  *   measures, must land on the same number.
  * - **Volume and area against the independent oracle** (`curvedPuckOracle`:
- *   divergence theorem over the exact ellipse, no trims, no `integrate.ts`):
+ *   divergence theorem over the exact ellipse and the band's definition, from
+ *   the spec alone: no NURBS, no trims, no `integrate.ts`):
  *   OCCT's own triangulation at two deflections (its error bounded by
  *   `area × deflection` and shrinking with it) and GProp face by face.
  */
@@ -152,7 +153,7 @@ describe('V5b: OCCT judges the pcurve fit on the curved deck and bottom', () => 
 
 describe('V5b: OCCT measures the oracle volume and area', () => {
   const b = curvedPuckSolid(CURVED_PUCK_BOARD);
-  const o = curvedPuckOracle(CURVED_PUCK_BOARD, b.faces[0]!.surface);
+  const o = curvedPuckOracle(CURVED_PUCK_BOARD);
   const exactMm3 = 1000 * o.volume.value;
   const areaMm2 = 100 * o.area.value;
   const gapMm = 10 * checkBrep(b).maxEdgeGap;

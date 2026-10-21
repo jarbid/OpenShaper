@@ -13,14 +13,19 @@
  *   parameters: the sections lie on the scaled ellipse at the blended height
  *   (exact rational quartics: rounding), the deck and bottom equal their
  *   quadratics through the parameter maps (the data lie in the spline space:
- *   the least-squares solve's rounding), the band's boundary iso-curves are the
- *   edge sections (the skin interpolates them).
- * - **Volume, area and centroid** from {@link curvedPuckOracle}: the divergence
- *   theorem over the exact ellipse (polar Gauss–Legendre × trapezoid, exact for
- *   the polynomial graph fluxes, and a closed form for the volume) plus a tensor
- *   rule over the band; it never touches the trims or `integrate.ts`. The oracle
- *   is itself checked against a closed form (planar deck and bottom, no bulge:
- *   `π a b h`).
+ *   the least-squares solve's rounding), and the band, boundary and interior,
+ *   is its definition `P(θ, s)` with `v = s` (the skin's parameters are the
+ *   blends, and its control points are polynomial in `s` of degree ≤ 2, inside
+ *   the cubic spline space: the interpolation solve's rounding).
+ * - **Volume, area and centroid** from {@link curvedPuckOracle}, computed from
+ *   the spec alone: the divergence theorem over the exact ellipse and the
+ *   band's definition (Gauss–Legendre × trapezoid with analytic derivatives,
+ *   exact for the polynomial fluxes, and a closed form for the volume's graph
+ *   terms). It evaluates no NURBS, no trims and nothing of `integrate.ts`; the
+ *   only link to the code under test is the construction check above, which
+ *   uses point evaluation (pinned against OCCT, step B6). The oracle is itself
+ *   checked against closed forms (planar deck and bottom, no bulge: `π a b h`,
+ *   and the band's area `h ×` the ellipse's perimeter by the AGM).
  * - **The gap's leak.** A fitted trim's boundary is off the true edge by at most
  *   `g = maxEdgeGap`, so each integral can move by at most `g · L · R / 3`
  *   (volume, `L` the fitted edges' length bound, `R` the reach from the mass
@@ -40,6 +45,7 @@ import {
   DEFAULT_TOLERANCES,
   isoCurve,
   massProperties,
+  skinCurves,
   surfacePoint,
   tessellateBrep,
   transformBrep,
@@ -58,6 +64,34 @@ import {
 import type { CurvedPuckSpec, HeightQuadratic } from '../testing';
 
 const EPS = Number.EPSILON;
+/**
+ * `quadMaxSplits` for the planar regression (G2): enough for every face's real integrals
+ * there (16 suffices, 8 does not: measured), low enough that a moment refining on noise
+ * (without the absolute target) reaches it in seconds (6.5 s measured) and fails
+ * `centroidConverged` instead of timing out (88 s at 256).
+ */
+const QUAD_CAP = 64;
+
+/** The perimeter of an ellipse in closed form (Gauss–Kummer: `2π/AGM(a, b) · (a² − Σ 2ⁿ⁻¹ c_n²)`). */
+function ellipsePerimeter(a: number, b: number): number {
+  let an = Math.max(a, b);
+  let bn = Math.min(a, b);
+  let sum = 0.5 * (an * an - bn * bn);
+  let weight = 0.5;
+  // The c_n fall quadratically: stop when one no longer changes the sum (then a_n has
+  // converged to the AGM to rounding, its error being of order c_n² / a).
+  for (;;) {
+    const cn = 0.5 * (an - bn);
+    const gn = Math.sqrt(an * bn);
+    an = 0.5 * (an + bn);
+    bn = gn;
+    weight *= 2;
+    const term = weight * cn * cn;
+    if (sum + term === sum) break;
+    sum += term;
+  }
+  return (2 * Math.PI * (Math.max(a, b) ** 2 - sum)) / an;
+}
 const SPEC = CURVED_PUCK_BOARD;
 /** The deck's and bottom's control nets reach 1.25 a: the coordinate scale for rounding bounds (cm). */
 const SCALE = 1.25 * SPEC.a;
@@ -104,6 +138,36 @@ function independentGap(b: Brep, fi: number, seed: number, n = 997): number {
   return worst;
 }
 
+/**
+ * `|S(u, v) − P(θ, v)|` for the band `S`, `P` its definition (`curved-puck.ts`) at the
+ * angle of `S`'s own plan position (so only the distance off the definition counts).
+ */
+function bandDeviation(band: NurbsSurface, spec: CurvedPuckSpec, u: number, v: number): number {
+  const p = surfacePoint(band, u, v);
+  const rho = 1 + 4 * spec.bulge * v * (1 - v);
+  const t = Math.atan2(p.y / (rho * spec.b), p.x / (rho * spec.a));
+  const x0 = spec.a * Math.cos(t);
+  const y0 = spec.b * Math.sin(t);
+  const z = (1 - v) * q(spec.bottom, x0, y0) + v * q(spec.deck, x0, y0);
+  return Math.hypot(p.x - rho * x0, p.y - rho * y0, p.z - z);
+}
+
+/**
+ * The band is its definition `P(θ, s)` with `v = s`, at seeded random parameters: the
+ * skin's interpolation solve (5 sections, centred homogeneous coordinates) leaves rounding.
+ * Measured 5.7e-14 cm (2.3 ε × SCALE over 20,000 samples, clamped and periodic); held to
+ * 64 ε × SCALE (1.6e-12 cm), ten orders below what the centripetal skin is off (0.09 cm,
+ * the negative control).
+ */
+function expectBandIsDefinition(band: NurbsSurface, spec: CurvedPuckSpec, seed: number): void {
+  const rng = mulberry32(seed);
+  for (let i = 0; i < 1000; i++) {
+    const u = rng();
+    const v = rng();
+    expect(bandDeviation(band, spec, u, v), `(${u}, ${v})`).toBeLessThan(64 * EPS * SCALE);
+  }
+}
+
 /** Interior knot values (distinct) of a clamped or periodic direction. */
 function interiorBreaks(k: NurbsSurface['u']): number[] {
   const [a, z] = k.domain;
@@ -123,9 +187,11 @@ function expectWithinLeak(
   dV: number;
   vBound: number;
 } {
-  const o = curvedPuckOracle(spec, b.faces[0]!.surface);
+  const o = curvedPuckOracle(spec);
   const m = massProperties(b, tol);
   expect(m.volume.converged && m.area.converged).toBe(true);
+  // Every moment integral converged too (G2: the z-moment of a vertical wall is noise).
+  expect(m.centroidConverged).toBe(true);
   const L = o.fittedEdgeLength;
   const R = controlNetDiagonal(b);
   const V = o.volume.value;
@@ -134,6 +200,8 @@ function expectWithinLeak(
   // Moments carry the same leak with R² / 2; the volume divides through. The quadrature
   // estimates enter as relative errors of the moments, bounded via the volume's.
   const cBound = (g * L * R * R) / (2 * V) + (R * vBound) / V;
+  // The reported centroid error is inside that bound (it carries the quadrature part only).
+  for (const k of ['x', 'y', 'z'] as const) expect(m.centroidError[k]).toBeLessThanOrEqual(cBound);
   const dV = m.volume.value - V;
   expect(Math.abs(dV)).toBeLessThanOrEqual(vBound);
   expect(Math.abs(m.area.value - o.area.value)).toBeLessThanOrEqual(aBound);
@@ -173,7 +241,7 @@ describe('V5b is built from the pieces the board needs', () => {
     expect(checksum(curvedPuckParts(SPEC).brep)).toBe(checksum(b));
   });
 
-  it('reproduces its definition: sections exact, deck and bottom equal their quadratics, band edges = sections', () => {
+  it('reproduces its definition: sections exact, deck and bottom equal their quadratics, band = P(θ, s)', () => {
     const rng = mulberry32(11);
     // Exact constructions: rounding only, 64 ε × the coordinate scale.
     const exact = 64 * EPS * SCALE;
@@ -223,9 +291,10 @@ describe('V5b is built from the pieces the board needs', () => {
         expect(Math.hypot(p.x - r.x, p.y - r.y, p.z - r.z)).toBeLessThan(exact);
       }
     }
+    expectBandIsDefinition(band!, SPEC, 13);
   });
 
-  it('a periodic band: the same sections as periodic quartics, the same boundary', () => {
+  it('a periodic band: the same sections as periodic quartics, the same boundary and interior', () => {
     const per = curvedPuckParts(SPEC, { periodicBand: true });
     const band = per.brep.faces[0]!.surface;
     expect(band.u.kind).toBe('periodic');
@@ -243,7 +312,19 @@ describe('V5b is built from the pieces the board needs', () => {
         expect(Math.hypot(p.x - r.x, p.y - r.y, p.z - r.z)).toBeLessThan(64 * EPS * SCALE);
       }
     }
+    expectBandIsDefinition(band, SPEC, 14);
     expect(checkBrep(per.brep).issues).toEqual([]);
+  });
+
+  it('the band check can fail: a centripetal skin (the default) is a different surface inside', () => {
+    // The same sections skinned at skinCurves' default parameters: the same boundary, but v is
+    // no longer s, so the check (and the oracle, which integrates P) would see the difference.
+    const band = skinCurves(parts.sections, { degree: 3 }).surface;
+    const rng = mulberry32(15);
+    let worst = 0;
+    for (let i = 0; i < 200; i++) worst = Math.max(worst, bandDeviation(band, SPEC, rng(), rng()));
+    // Measured 0.09 cm: 1e-3 cm is far above the check's rounding and far below that.
+    expect(worst).toBeGreaterThan(1e-3);
   });
 
   it('reports the fitted gaps honestly: positive, within the fit, at least what independent samples see', () => {
@@ -280,30 +361,41 @@ describe('the oracle', () => {
     const flat: CurvedPuckSpec = {
       a,
       b: bb,
-      deck: heightField(a, bb, { top: 5, slope: 0.1, rocker: 0, crown: 0 }),
+      deck: heightField(a, bb, { top: 5, slope: 0.05, rocker: 0, crown: 0 }),
       bottom: heightField(a, bb, { top: 1, slope: -0.05, rocker: 0, crown: 0 }),
       bulge: 0,
     };
+    // A valid spec: D − B = 4 + 0.1 x ≥ 1 on the ellipse (the deck above the bottom).
+    expect(4 - 0.1 * a).toBeGreaterThan(0);
     const parts = curvedPuckParts(flat);
-    const o = curvedPuckOracle(flat, parts.brep.faces[0]!.surface);
+    const o = curvedPuckOracle(flat);
     const ab = Math.PI * a * bb;
     // The band is vertical (its sections share x, y): no z-flux, only rounding.
     expect(Math.abs(o.closedForm.band.value)).toBeLessThan(1e-12 * ab);
     // Polynomial rules, exact: rounding of a few thousand terms.
     expect(Math.abs(o.volume.value / (ab * 4) - 1)).toBeLessThan(1e-13);
     expect(Math.abs(o.closedForm.graphs / (ab * 4) - 1)).toBeLessThan(1e-14);
-    expect(Math.abs(o.faces.deckArea.value / (ab * Math.hypot(1, 0.1)) - 1)).toBeLessThan(1e-13);
+    expect(Math.abs(o.faces.deckArea.value / (ab * Math.hypot(1, 0.05)) - 1)).toBeLessThan(1e-13);
     expect(Math.abs(o.faces.bottomArea.value / (ab * Math.hypot(1, 0.05)) - 1)).toBeLessThan(1e-13);
+    // The vertical band's area is ∮ (D − B) ds = 4 · perimeter (the slope term 0.1 x
+    // integrates to zero by symmetry): the trapezoid rule on a smooth periodic integrand
+    // against the AGM closed form, to rounding.
+    expect(Math.abs(ellipsePerimeter(1, 1) / (2 * Math.PI) - 1)).toBeLessThan(4 * EPS);
+    expect(Math.abs(o.faces.bandArea.value / (4 * ellipsePerimeter(a, bb)) - 1)).toBeLessThan(
+      1e-13,
+    );
     // And massProperties agrees within the gap's leak.
     // The vertical band's z-moment is rounding noise: massProperties needs its absolute
-    // target (G2 fix). A cap of 256 splits per integral keeps a regression a failure in
-    // seconds rather than a hang (nested rules on noise reach the cap at both levels).
-    expectWithinLeak(parts.brep, flat, checkBrep(parts.brep).maxEdgeGap, { quadMaxSplits: 256 });
+    // target (G2 fix). A cap of QUAD_CAP splits per integral keeps a regression a failed
+    // centroidConverged in about a second rather than a hang (nested rules on noise reach the
+    // cap at both levels).
+    expectWithinLeak(parts.brep, flat, checkBrep(parts.brep).maxEdgeGap, {
+      quadMaxSplits: QUAD_CAP,
+    });
   });
 
   it('agrees with itself: the polar rule = closed form + band flux; refinement changes nothing that matters', () => {
-    const b = curvedPuckParts(SPEC).brep;
-    const o = curvedPuckOracle(SPEC, b.faces[0]!.surface);
+    const o = curvedPuckOracle(SPEC);
     // Two independent routes to the volume (the graphs' closed form, the polar quadrature).
     const V = o.volume.value;
     expect(Math.abs(o.closedForm.graphs + o.closedForm.band.value - V)).toBeLessThan(1e-13 * V);
@@ -312,8 +404,8 @@ describe('the oracle', () => {
     // The rocker, crown, slope and bulge all count: V is not π a b × (mean thickness at the centre).
     expect(Math.abs(V / (Math.PI * SPEC.a * SPEC.b * 7) - 1)).toBeGreaterThan(0.1);
     // A finer oracle (more radial, angular and band points) agrees to rounding.
-    const fine = curvedPuckOracle(SPEC, b.faces[0]!.surface, {
-      order: 24,
+    const fine = curvedPuckOracle(SPEC, {
+      order: 32,
       radial: 32,
       angular: 256,
     });
@@ -423,7 +515,7 @@ describe('V5b through STEP and the mesh', () => {
   }
 
   it('meshes watertight, and the mesh volume is within area × (chord error + gap) of the oracle', () => {
-    const o = curvedPuckOracle(SPEC, b.faces[0]!.surface);
+    const o = curvedPuckOracle(SPEC);
     const r = tessellateBrep(b, { chordTol: 0.05, angleTol: 0.2 });
     expect(r.ok).toBe(true);
     if (!r.ok) return;

@@ -404,6 +404,22 @@ export function surfaceArea(
 }
 
 /**
+ * Whether `integrateTrimmed(ts, f, { polynomialDegree: deg })` uses exact rules
+ * only (no adaptive level, so no `quadRel` or `absTol` applies): a polynomial
+ * surface over its natural boundary, or trimmed by polynomial curves whose
+ * outer rule fits in `GL_MAX_ORDER` (the conditions of `integrateGreen`).
+ */
+function exactOnly(ts: TrimmedSurface, deg: readonly [number, number] | undefined): boolean {
+  if (deg === undefined) return false;
+  if (ts.outer === null && ts.holes.length === 0) return true;
+  return loopsOf(ts).every((l) =>
+    l.curves.every(
+      (c) => !c.rational && Math.ceil((c.basis.degree * (deg[0] + deg[1] + 2)) / 2) <= GL_MAX_ORDER,
+    ),
+  );
+}
+
+/**
  * Volume enclosed by a closed set of faces by the divergence theorem,
  * `V = ⅓ Σ σ_f ∫∫ (S − c)·(S_u × S_v) du dv` with `σ_f = −1` where
  * `sameSense` is false (the face's outward normal is `−n`) and `c` the centre
@@ -412,8 +428,14 @@ export function surfaceArea(
  * bidegree `(3p − 1, 3q − 1)`; rational ones adaptive integration, to
  * `quadRel` relative to each face's integral or, for a face whose integral is
  * small against the solid (down to rounding noise: a face through `c`), to
- * `quadRel` of the bounding box's volume shared among the faces (the `absTol` of
- * {@link integrateTrimmed}), so the total is within `quadRel` of that scale.
+ * `quadRel · |V|` shared equally among the faces (the `absTol` of
+ * {@link integrateTrimmed}): the total error target is
+ * `quadRel · (Σ_f ∫∫|f_f| / 3 + |V|)`, at most twice the relative one for a
+ * solid star-shaped about `c`, and invariant under rigid motions. `|V|` comes
+ * from a scale pass over the adaptive faces at `√quadRel` (with the bounding
+ * box's volume as its own absolute scale, so noise faces converge there too),
+ * whose evaluations are counted; if that pass cannot resolve `|V|` from zero
+ * (a degenerate or open set), the box's volume stays the scale.
  * Closure is the caller's (B-rep checks it, step B4): for an open set the result
  * depends on `c`.
  */
@@ -451,27 +473,62 @@ export function enclosedVolume(
   const cx = 0.5 * (x0 + x1);
   const cy = 0.5 * (y0 + y1);
   const cz = 0.5 * (z0 + z1);
-  // Each face integral is 3 × its volume share: the faces' absolute targets sum to quadRel × box.
-  const absTol = (3 * t.quadRel * (x1 - x0) * (y1 - y0) * (z1 - z0)) / faces.length;
   const integrand: SurfaceIntegrand = (_u, _v, d) => {
     const nx = d[4]! * d[8]! - d[5]! * d[7]!;
     const ny = d[5]! * d[6]! - d[3]! * d[8]!;
     const nz = d[3]! * d[7]! - d[4]! * d[6]!;
     return (d[0]! - cx) * nx + (d[1]! - cy) * ny + (d[2]! - cz) * nz;
   };
+  const sigmaOf = (i: number): number => (faces[i]!.sameSense === false ? -1 : 1);
+  const degOf = (s: NurbsSurface): readonly [number, number] | undefined =>
+    s.rational ? undefined : [3 * s.u.degree - 1, 3 * s.v.degree - 1];
+  const results: QuadratureResult[] = new Array<QuadratureResult>(faces.length);
+  // Faces integrated by exact rules alone: once (no adaptive target applies to them).
+  const adaptive: number[] = [];
+  let exactSum = 0;
+  tss.forEach((ts, i) => {
+    const deg = degOf(ts.surface);
+    if (!exactOnly(ts, deg)) {
+      adaptive.push(i);
+      return;
+    }
+    results[i] = integrateTrimmed(ts, integrand, { polynomialDegree: deg, tol: t });
+    exactSum += sigmaOf(i) * results[i].value;
+  });
+  let evaluations = 0;
+  if (adaptive.length > 0) {
+    // Each face integral is 3 × its volume share, so absolute targets of 3 · rel · scale / faces
+    // sum to rel × scale in the volume.
+    const share = (rel: number, scale: number): number => (3 * rel * scale) / faces.length;
+    const box = (x1 - x0) * (y1 - y0) * (z1 - z0);
+    const scaleRel = Math.sqrt(t.quadRel);
+    let estimate = exactSum;
+    let estimateErr = 0;
+    for (const i of adaptive) {
+      const r = integrateTrimmed(tss[i]!, integrand, {
+        polynomialDegree: degOf(tss[i]!.surface),
+        tol: { ...t, quadRel: scaleRel },
+        absTol: share(scaleRel, box),
+      });
+      estimate += sigmaOf(i) * r.value;
+      estimateErr += r.errorEstimate;
+      evaluations += r.evaluations;
+    }
+    const scale = Math.abs(estimate) > estimateErr ? Math.abs(estimate) / 3 : box;
+    for (const i of adaptive) {
+      results[i] = integrateTrimmed(tss[i]!, integrand, {
+        polynomialDegree: degOf(tss[i]!.surface),
+        tol: t,
+        absTol: share(t.quadRel, scale),
+      });
+    }
+  }
+  // Summed in face order.
   let value = 0;
   let errorEstimate = 0;
-  let evaluations = 0;
   let converged = true;
-  faces.forEach((fc, i) => {
-    const ts = tss[i]!;
-    const s = ts.surface;
-    const deg: readonly [number, number] | undefined = s.rational
-      ? undefined
-      : [3 * s.u.degree - 1, 3 * s.v.degree - 1];
-    const r = integrateTrimmed(ts, integrand, { polynomialDegree: deg, tol: t, absTol });
-    const sigma = fc.sameSense === false ? -1 : 1;
-    value += sigma * r.value;
+  results.forEach((r, i) => {
+    value += sigmaOf(i) * r.value;
     errorEstimate += r.errorEstimate;
     evaluations += r.evaluations;
     converged &&= r.converged;

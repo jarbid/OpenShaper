@@ -2113,6 +2113,8 @@ export function massProperties(
   readonly volume: QuadratureResult;
   readonly area: QuadratureResult;
   readonly centroid: Point3;
+  readonly centroidError: Point3; // G2 review: bound from the moments' and volume's estimates
+  readonly centroidConverged: boolean; // the volume and every moment integral converged
 };
 export interface BrepMesh {
   readonly faces: readonly FaceMesh[];
@@ -2693,10 +2695,21 @@ holes CW):
   (the z-moment of a skinned vertical wall: the skin's `S_v` has x, y components of
   order ε) has no relative accuracy to reach, and the nested adaptive rules refined to
   `quadMaxSplits` at both levels (≈ 4·10⁹ evaluations: `massProperties` hung). The
-  fix: `enclosedVolume` passes `3 · quadRel · (box volume) / faces` per face and
-  `massProperties` `quadRel · |V| · extent_k / faces` per moment, so a face that
-  contributes nothing converges at once and the totals stay within `quadRel` of the
-  solid's scale.
+  fix: `enclosedVolume` passes `3 · quadRel · |V| / faces` to each face with an adaptive
+  level, and `massProperties` `quadRel · |V| · extent_k / faces` per moment (the moment
+  about the box corner is at most `|V| · extent_k`), so a face that contributes nothing
+  converges at once. The volume's contract is then `quadRel · (Σ_f ∫|f_f| / 3 + |V|)`:
+  at most twice the relative one for a solid star-shaped about `c`, and invariant under
+  rigid motions. `|V|` comes from a scale pass over the adaptive faces at `√quadRel`
+  (faces integrated by exact rules alone run once); if it cannot resolve `|V|` from zero,
+  the box's volume is the scale. **G2 review:** the first version used the control box's
+  volume for every solid; under a rotation the box grows, and the volume's error estimate
+  grew with it (6 to 13 times on the rotated cylinder, zone and torus), although no value
+  moved. With `|V|`, the rational corpus (cylinder, torus, zone, the V5 board, rotated)
+  gives the pre-G2 volumes and centroids bit for bit, and the rotated board's noise face
+  (its bottom through `c`) converges in 14k evaluations instead of 382k
+  (`brep/mass.test.ts`). `massProperties` also returns `centroidError` (the estimates
+  carried through `c + M / V`) and `centroidConverged`.
 - **Natural-boundary faces** use the tensor-product GL rule per span pair (exact under
   the same conditions, cheaper).
 - **Volume:** `V = ⅓ Σ_f σ_f ∫∫_{D_f} (S − c)·(S_u × S_v) du dv`, `σ_f = ±1` from
@@ -3180,12 +3193,15 @@ Path B (B1 to B8, mm and cm) like the rest.
   on every solid, the boards included (GProp's own error, −0.48 % on the board, cancels).
 - **Negative controls** on the board, the mirrored board, the plate with a hole and the
   torus. Each face flipped in the shell and each edge use of the first wire flipped are
-  refused (`isValid` false, or, for the torus's single face, a valid solid of negative
-  volume). The solid turned inside out (`flipBrep`) is a pinned case: `BRepCheck` accepts a
+  refused, by route (pinned after the G2 review, since a flip can also make GProp's volume
+  negative and a sign test alone would not show `BRepCheck` ran): `isValid` false for every
+  face of a multi-face shell; the torus's single face flipped is the whole shell inside
+  out, a valid solid of negative volume. The solid turned inside out (`flipBrep`) is a pinned case: `BRepCheck` accepts a
   coherent inside-out shell, and only `getVolume`'s sign (exactly `−V`) refuses it, while
   the STEP reader re-orients it outward. Every `MUTATIONS` entry that `checkBrep` refuses
-  (except the genus declaration, which OCCT has no notion of) is refused by Path A too:
-  the two checks agree independently. On the board, the STEP mutations side by side: the
+  (except the genus declaration, which OCCT has no notion of) is refused by Path A too,
+  every one by `isValid` (pinned; none relies on the sign): the two checks agree
+  independently. On the board, the STEP mutations side by side: the
   flipped face sense imports valid at the same volume (only Path A sees it); the flipped
   `ORIENTED_EDGE` on the band's closed bottom edge imports **valid with a volume 46 % off**
   (`isValid` misses it; B7 against Path A would not).
@@ -3215,32 +3231,47 @@ with every face curved:
 - **Band**: `skinCurves` (cubic across, one interior knot) through five closed sections
   over the plan ellipse, each an **exact** rational quartic (the 9-point circle with a
   quadratic height over the common denominator `W²`, built by the Bernstein product
-  rule) scaled by `1 + 4 · bulge · s(1 − s)` at height `(1 − s) B + s D`. With
-  `periodicBand` the sections are periodic quartics and the band is periodic in `u` (the
-  board's rail-band layout, board2 decision 7).
+  rule) scaled by `ρ(s) = 1 + 4 · bulge · s(1 − s)` at height `(1 − s) B + s D`. The
+  skin's `v` parameters are the blends `s` themselves (G2 review): its homogeneous
+  control points are then quadratic (`ρ`) or linear (height) in `s`, inside the cubic
+  spline space, so the whole band, not only its boundary, is its definition
+  `P(θ, s) = (ρ a cos θ, ρ b sin θ, (1 − s) B + s D)` with `v = s` (checked to 2.3 ε ×
+  scale; the default centripetal skin is 0.09 cm off it inside). With `periodicBand` the
+  sections are periodic quartics and the band is periodic in `u` (the board's rail-band
+  layout, board2 decision 7).
 - **Trims**: the deck's and the bottom's pcurves are both `projectCurveToSurface` fits of
   the exact edge sections (73 control points each); the band's are iso-lines, its seam an
   iso-curve edge.
 
-**The oracle** (`curvedPuckOracle`, independent of the trims and of `integrate.ts`): by
-the divergence theorem every quantity is a flux through the boundary; over the deck and
-the bottom (graphs over the exact ellipse) the fluxes are polynomials, integrated in polar
-coordinates by Gauss–Legendre in the radius and the trapezoid rule in the angle (both
-exact for those degrees), with the volume terms also in closed form; over the band, a
-tensor Gauss–Legendre rule per span pair at two orders. It is itself checked against
-`π a b h` (planar deck and bottom, no bulge) and against its own closed form (1e-13).
-The board-size V5b (180 × 54 cm, 7 cm thick at the centre): volume 43,595.93 cm³, area
-17,212.11 cm².
+**The oracle** (`curvedPuckOracle`, from the spec alone: no NURBS evaluation, no trims,
+nothing of `integrate.ts`): by the divergence theorem every quantity is a flux through the
+boundary; over the deck and the bottom (graphs over the exact ellipse) the fluxes are
+polynomials, integrated in polar coordinates by Gauss–Legendre in the radius and the
+trapezoid rule in the angle (both exact for those degrees), with the volume terms also in
+closed form; over the band, through its definition `P(θ, s)` with analytic derivatives,
+by the trapezoid rule in `θ` and Gauss–Legendre in `s` (exact for the polynomial fluxes;
+spectral for the area). Its only link to the code under test is the construction check
+that the skinned band is `P`, by point evaluation (pinned against OCCT, B6).
+**Correction (G2 review):** the first version integrated the band over the skinned
+surface with `surfaceDerivatives`, the evaluator `integrate.ts` uses, so the band's share
+(about 11 % of the area, its fluxes and moments) agreed by construction; the definition
+replaced it, and the agreement below is unchanged. The oracle is itself checked against
+closed forms on a planar deck and bottom with no bulge: `π a b h`, the graph areas, and
+the band's area `h ×` the ellipse's perimeter (Gauss–Kummer AGM), to 1e-13; that check's
+spec had the deck below the bottom near `x = −a` (`D − B = 4 + 0.15 x`), harmless for
+the signed volume but not for an area, and now has `D − B ≥ 1`. The board-size V5b
+(180 × 54 cm, 7 cm thick at the centre): volume 43,594.43 cm³, area 17,211.84 cm².
 
 **What runs.** `brep/curved-puck.test.ts` (in `pnpm test`): construction (degrees,
-knots; sections, deck, bottom and band boundary reproduce their definitions at seeded
-random parameters), honest gaps (4.2e-5 cm bottom, 6.5e-5 cm deck; independent samples
+knots; sections, deck, bottom and the whole band reproduce their definitions at seeded
+random parameters, with a centripetal skin as the band check's negative control), honest gaps (4.2e-5 cm bottom, 6.5e-5 cm deck; independent samples
 within 5 %), `massProperties` against the oracle within the gap's leak (`g · L · R / 3`
 for the volume, `L` a bound of the fitted edges' length from the spec, `R` the control
 box's diagonal) for the board, the periodic band, a twisted shape with an 8 % bulge and
 the planar case, convergence in `tol.fit`, a rigid motion, STEP declaration and round
 trip, and the watertight mesh. Measured: `massProperties` is within **2.5e-10** of the
-oracle's volume and area (the bound allows 2.4e-5), the centroid within 1e-7 cm; the
+oracle's volume and area (the bound allows 2.4e-5), the centroid within 1e-7 cm (its
+reported `centroidError`, 5e-6 cm, is the integrators' loose bound); the
 volume error falls faster than the gap (1e-3 → 1e-5 cm fit: 9.9e-4 → 2.2e-7 cm³).
 `step.occt.test.ts`: V5b, V5b with a periodic band and the mirrored V5b join the corpus
 (Path B B1–B8 in mm and cm, Path A, B7, all passing; the mesh oracle at 0.03 mm, since
@@ -3262,7 +3293,7 @@ It adds:
   0.1 mm and −2.6e-4 at 0.03 mm (first order in the deflection, inside `area ×
 deflection`); GProp's `getVolume` +0.11 %.
 - **Area**: GProp per face against the oracle's faces (+2.5e-4 band, +2.9e-5 bottom,
-  +2.8e-5 deck), and OCCT's triangulation area −9.2e-5 → −3.0e-5.
+  +2.8e-5 deck), and OCCT's triangulation area −9.4e-5 → −3.1e-5 (re-measured on the band as its definition, G2 review; the other OCCT numbers did not move at these digits).
 
 **Bugs found.** One, in geom: `massProperties` **hung** on the planar no-bulge variant
 (the oracle's own check): the skinned vertical band's z-moment integrand is rounding
@@ -3300,7 +3331,7 @@ and after every public operation), finiteness of every output, `*Into` kernels e
 their wrappers bit for bit.
 
 | Module                | Oracle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Tolerance and why                                                                                                                                                                                                                                       |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | --- |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | --- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `basis`               | P&T Ex. 2.3 (`U = {0,0,0,1,2,3,4,4,5,5,5}`, p = 2, u = 5/2 → 1/8, 6/8, 1/8) and Ex. 2.4 derivatives; Bézier knots give Bernstein polynomials in closed form; A2.4 vs A2.2                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | `4(p+1)ε` absolute: A2.2 sums p + 1 terms of O(1) relative error. Book examples exact in binary fractions: bitwise.                                                                                                                                     |
 | `basis` (properties)  | Partition of unity, non-negativity, derivative sums 0; `findSpan` vs linear scan incl. `u = b` and every multiplicity, both sides                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | `4(p+1)ε`; spans exact.                                                                                                                                                                                                                                 |
 | `book/curve`, `curve` | Bézier vs closed-form Bernstein sum and its exact derivatives; rational circle (A7.1, 9-point and periodic 8-point): `\|C(t) − c\| = r`; ellipse as affine image; affine invariance                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Radius `64 ε r`: ~10 flops and one division per coordinate; a wrong weight errs ≥ 1e-3 r. Bernstein `64 ε · scale · p!` for derivatives.                                                                                                                |
@@ -3308,7 +3339,7 @@ their wrappers bit for bit.
 | `curve-measure`       | Circle curvature `1/r`, length `2πr`; parabola curvature `2/(1+4x²)^{3/2}`, length `x√(1+4x²)/2 + asinh(2x)/4`; ellipse curvature; `paramAtLength(lengthAtParam(t)) = t`                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Curvature `1e-12` rel (two derivative evaluations, one division); length `10 · quadRel` rel (GK estimate is not a bound: 10× margin); inverse `paramRel`.                                                                                               |
 | `curve-ops`           | Shape invariance under insert, refine, elevate, split, reverse∘reverse, reparameterise, `toClamped`, Bézier decomposition, at 1,000 params and every knot; counts `m = n + p + 1`; P&T Ex. 5.1 (insertion) fixtures; eq. 5.36 Bézier elevation closed form; `makeCompatible` keeps shapes; periodic middle-period consistency                                                                                                                                                                                                                                                                                                                | `1e-13 · scale`: each op is convex combinations (~ε per step) chained ≤ 100 times; book fixtures bitwise where exact in binary.                                                                                                                         |
 | `surface`             | Rational sphere (A8.1): radius `r`; torus: points on the torus; cylinder; plane; `z = xy` bilinear; cone from a revolved line; Bézier patches vs the closed-form Bernstein double sum with the quotient rule written out (to second order); linear precision (Greville nets reproduce `(u, v, uv)` on random knots); vs A2.4 summed over the net; partials vs Richardson differences; one-sided partials at a C⁰ knot line vs the Bézier halves; invariance under A5.1 per row/column; iso-curve equals the surface at the fixed parameter; boundary curve equals the net row                                                                | `64 ε r` for radii; Bézier `64 ε · M · ρ^(k+l+1) · (2p)^k (2q)^l`; iso (`u` fixed) bitwise, (`v` fixed) and boundary `1e-14 · scale` (same arithmetic re-associated); FD `1e-8` of the local scale; insertion `1e-13 · scale`.                          |
-| `surface-measure`     | Sphere `k₁ = k₂ = −1/r`, `K = 1/r²`; torus `k = −1/r` and `−cos v/(R + r cos v)`, `K = cos v/(r(R + r cos v))`, directions along meridian and parallel; cylinder `(0, −1/r)`, zero direction along the axis; plane 0; `z = xy`: every form coefficient, `K = −1/(1+x²+y²)²`; paraboloid, saddle and elliptic paraboloid (graph formulas); Weingarten `L = −Su·n_u` … vs differences of the normal; Euler's theorem; `limitNormal` at sphere poles = ±axis                                                                                                                                                                                    | `1e-12` rel: second derivatives of rational patches lose ~3 digits to the quotient rule. Normals `1e-13`; directions `1e-10` (eigenvector error ~ rounding/gap); FD `1e-8` of the local scale, step resolving `κ·                                       | Su  | `.  |
+| `surface-measure`     | Sphere `k₁ = k₂ = −1/r`, `K = 1/r²`; torus `k = −1/r` and `−cos v/(R + r cos v)`, `K = cos v/(r(R + r cos v))`, directions along meridian and parallel; cylinder `(0, −1/r)`, zero direction along the axis; plane 0; `z = xy`: every form coefficient, `K = −1/(1+x²+y²)²`; paraboloid, saddle and elliptic paraboloid (graph formulas); Weingarten `L = −Su·n_u` … vs differences of the normal; Euler's theorem; `limitNormal` at sphere poles = ±axis                                                                                                                                                                                    | `1e-12` rel: second derivatives of rational patches lose ~3 digits to the quotient rule. Normals `1e-13`; directions `1e-10` (eigenvector error ~ rounding/gap); FD `1e-8` of the local scale, step resolving `κ·                                       | Su   | `.  |
 | `plan`                | `evalSurfacePlan` = `surfaceEvalInto` bitwise; dirty update after random edits = full re-evaluation bitwise; touched set = brute-force support; `planMatches` false after insertion                                                                                                                                                                                                                                                                                                                                                                                                                                                          | Exact: same arithmetic in the same order.                                                                                                                                                                                                               |
 | `quadrature`          | GL nodes vs Abramowitz–Stegun tables; exact on monomials to degree `2n − 1`; adaptive vs closed forms (∫ rational, ∫ √, ∫ with a kink at a break)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            | Nodes `4ε`; monomials `4nε` rel; adaptive `10 · quadRel` rel.                                                                                                                                                                                           |
 | `primitives`          | Exactness above; `conicArc` ρ = 0.5 is a parabola; ρ vs eccentricity; `revolve` of a line is a cone with the right half-angle                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | `64 ε · scale`.                                                                                                                                                                                                                                         |
@@ -3320,7 +3351,7 @@ their wrappers bit for bit.
 | `predicates`          | Exact BigInt determinant sign on random, 1-ulp-perturbed, cocircular and large-offset inputs; fixed CCW triples give > 0                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | Exact sign.                                                                                                                                                                                                                                             |
 | `cdt`                 | Every constraint present; every triangle strictly CCW; local Delaunay on unconstrained edges (exact incircle); symmetric half-edges; Euler `T = 2V − B − 2 + 2H`; area sum = shoelace; differential vs `delaunator` (general position: same triangle sets) and `constrainautor` (unique CDT: same edge sets) on 10⁴ seeded cases; adversarial: points on segments, collinear chains, 1-ulp near-duplicates, cocircular grids, slivers                                                                                                                                                                                                        | Exact; area `1e-12` rel (summation).                                                                                                                                                                                                                    |
 | `tessellate`          | Chord error ≤ `chordTol` at centroids and edge midpoints (by projection); shared edge vertices bitwise identical across faces; Euler characteristic 2 (lens, cylinder) and 0 (torus); mesh volume converges at O(h²)                                                                                                                                                                                                                                                                                                                                                                                                                         | Chord as stated; watertight exact; convergence ratio 3.5–4.5 per halving.                                                                                                                                                                               |
-| `integrate`, `mass`   | Polynomial prism (exact rational volume), lens `πabh`, sphere `4/3 πr³`, torus `2π²Rr²`, cylinder with trimmed caps `πr²h`, plate with hole `(4L² − πr²)t`, spherical cap area `2πrh`; polynomial volume unchanged from n to n + 5 GL points; translation by 100 cm leaves volume unchanged; flipped orientation negates it                                                                                                                                                                                                                                                                                                                  | Polynomial `1e-12` rel (exact rule, ~10³ summed terms); rational `10 · quadRel` rel; translation `1e-12` rel.                                                                                                                                           |
+| `integrate`, `mass`   | Polynomial prism (exact rational volume), lens `πabh`, sphere `4/3 πr³`, torus `2π²Rr²`, cylinder with trimmed caps `πr²h`, plate with hole `(4L² − πr²)t`, spherical cap area `2πrh`; polynomial volume unchanged from n to n + 5 GL points; translation by 100 cm leaves volume unchanged; flipped orientation negates it; G2: a noise integrand converges on `absTol`, the volume's error estimate is unchanged by a rotation (target `quadRel · (Σ∫                                                                                                                                                                                      | f                                                                                                                                                                                                                                                       | /3 + | V   | )`, not the box's), the rational corpus keeps its pre-G2 values bit for bit, V5b against a spec-only oracle | Polynomial `1e-12` rel (exact rule, ~10³ summed terms); rational `10 · quadRel` rel; translation `1e-12` rel. |
 | `continuity`          | Two planes hinged at θ: angle θ; plane tangent to a cylinder: G1 with mismatch exactly `1/r`; a patch split by knot insertion: zeros; a deliberate gap δ reads δ; lens rail (half-chord `c`, sagitta `h`): outward normals at the tip differ by `π − 4·atan(h/c)` (corrected: the earlier `cos φ = (4h²/a² − 1)/(4h²/a² + 1)` is not that angle, e.g. it gives 90° for two semicircles, which are smooth); a linearly growing gap on a non-uniform edge: arc-length RMS `δ/√3`; RMS convergence vs an adaptive reference; a refined interior maximum; `knotContinuity` on designed C⁰/C¹/C²/G1 joins (G1 with speed ratio ≠ 1 is G1, not C1) | Angles `1e-12` rad; gaps of exact constructions `64 ε · scale` (tighter than `point`; measured ≤ 0.75 ε · scale); mismatch `1e-12` rel (measured ≤ 2e-14).                                                                                              |
 | `brep`                | Euler on the corpus; defect-injection catalogue (§13) all detected; `edgeGaps` equal independently sampled deviations                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Exact; gaps `1e-12 · scale`.                                                                                                                                                                                                                            |
 | `step`                | `readStepSubset(writeStep(b))` bitwise equals `b`; byte-identical output for the same timestamp; Part 21 lexical rules (reals contain `.`; strings escaped); no dangling or unused ids; complex sub-entity order; arity table; **OCCT protocol (§15) on the corpus**                                                                                                                                                                                                                                                                                                                                                                         | Bitwise; OCCT checks as in §15.3.                                                                                                                                                                                                                       |

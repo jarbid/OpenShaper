@@ -23,7 +23,11 @@
  *   of the 9-point circle `(c, s) = (C_w, S_w) / W` with quadratic Bernstein
  *   numerators, so a quadratic `z(c, s)` over the common denominator `W²` is a
  *   quartic, built with the Bernstein product rule. Equal weight vectors keep
- *   the skin's weights positive (`skinCurves`). With `periodicBand` the same
+ *   the skin's weights positive (`skinCurves`). The skin's `v` parameters are
+ *   the blends `s_k` themselves, so it reproduces the band's definition between
+ *   the sections too: every homogeneous control point is quadratic (`ρ`) or
+ *   linear (height) in `s`, inside the cubic spline space the skin interpolates
+ *   in, so the band is exactly `P(θ, s)` below with `v = s`. With `periodicBand` the same
  *   sections are written as periodic quartics (one period of knots, the
  *   duplicated closing control point dropped) and the band is periodic in `u`,
  *   the board's rail-band layout (board2 decision 7); the seam stays an edge.
@@ -32,19 +36,24 @@
  *   the **deck's and the bottom's pcurves are fitted** (`projectCurveToSurface`),
  *   so both trimmed faces carry a real, measured edge gap.
  *
- * The independent oracle ({@link curvedPuckOracle}) never touches the trims or
- * `integrate.ts`: the solid's boundary is `D` and `B` over the exact ellipse plus
- * the band, so by the divergence theorem every volume integral is a flux of a
- * polynomial field through two graphs over an ellipse (polar Gauss–Legendre,
- * exact for those polynomials) plus a natural-boundary tensor integral over the
- * band (Gauss–Legendre per span pair, two orders, the difference reported).
+ * The independent oracle ({@link curvedPuckOracle}) is computed from the spec
+ * alone: no NURBS evaluation, no trims, no `integrate.ts`. The solid's boundary
+ * is `D` and `B` over the exact ellipse plus the band
+ * `P(θ, s) = (ρ(s) a cos θ, ρ(s) b sin θ, (1 − s) B + s D)` (heights at
+ * `(a cos θ, b sin θ)`), so by the divergence theorem every volume integral is
+ * a flux of a polynomial field through two graphs over an ellipse (polar
+ * Gauss–Legendre × trapezoid) and through `P` (trapezoid in `θ` × Gauss–Legendre
+ * in `s`), all exact for those polynomials; the areas are spectrally convergent
+ * rules on the same grids. That the skinned band IS `P` is checked separately,
+ * point by point (`curved-puck.test.ts`), which is all the oracle borrows from
+ * the NURBS code: point evaluation (itself pinned by OCCT, step B6).
  */
 import { approximateSurface } from '../fit/approximate';
 import { skinCurves } from '../fit/skin';
 import { clampedBasis, knotsFromBreaks, periodicBasis } from '../basis';
 import { circle, line2 } from '../primitives';
 import { controlPoint, curveFromHomogeneous } from '../curve';
-import { isoCurve, surfaceDerivatives } from '../surface';
+import { isoCurve } from '../surface';
 import { projectCurveToSurface } from '../edge-fit';
 import type { EdgeFitSampling } from '../edge-fit';
 import { gaussLegendre } from '../quadrature';
@@ -138,7 +147,10 @@ const DECK_DEGREES = [6, 4] as const;
 const BOTTOM_DEGREES = [3, 3] as const;
 /** Data samples per control point and direction for the surface fits (over-determined, as a converter fits). */
 const SAMPLES_PER_CONTROL_POINT = 3;
-/** Blends `s` of the band's sections, bottom edge to deck edge (5 sections: a cubic skin with an interior knot). */
+/**
+ * Blends `s` of the band's sections, bottom edge to deck edge (5 sections: a cubic skin with
+ * an interior knot), also the skin's `v` parameters (so `v = s` on the whole band).
+ */
 const SECTION_BLENDS = [0, 0.25, 0.5, 0.75, 1] as const;
 
 const evalQuadratic = (q: HeightQuadratic, x: number, y: number): number =>
@@ -350,6 +362,7 @@ export function curvedPuckParts(spec: CurvedPuckSpec, opts?: CurvedPuckOptions):
   );
   const skin = skinCurves(opts?.periodicBand ? sections.map(periodicSection) : sections, {
     degree: 3,
+    params: SECTION_BLENDS,
     ...(opts?.tol ? { tol: opts.tol } : {}),
   });
   const band = skin.surface;
@@ -467,52 +480,61 @@ function overEllipse(
   return (sum * a * b * 2 * Math.PI) / angular;
 }
 
-/** Tensor Gauss–Legendre over every span pair of a clamped surface: `∬ g(S, S_u, S_v) du dv`. */
-function overSurface(
-  s: NurbsSurface,
-  g: (S: Point3, Su: Point3, Sv: Point3) => number,
+/**
+ * `∬ g(P, N) dθ ds` over the band's definition `P(θ, s)` (module comment) with
+ * `N = P_θ × P_s` (outward: `θ` runs counter-clockwise seen from +z, `s` from the
+ * bottom up), by the trapezoid rule in `θ` (`angular` points: exact for
+ * trigonometric polynomials of degree below `angular`, spectral for smooth periodic
+ * integrands) and Gauss–Legendre in `s` (`order` points: exact for polynomials of
+ * degree below `2 · order`). Analytic derivatives; no NURBS code.
+ */
+function overBand(
+  spec: CurvedPuckSpec,
+  g: (P: Point3, N: Point3) => number,
   order: number,
+  angular: number,
 ): number {
+  const { a, b, deck, bottom, bulge } = spec;
   const gl = gaussLegendre(order);
-  // The distinct knots over the domain, ends included: clamped `t_p … t_n`; periodic, one
-  // period of knots and `t_0 + period`.
-  const breaks = (k: NurbsSurface['u']): number[] => {
-    const knots: number[] = Array.from(k.knots);
-    const all =
-      k.kind === 'periodic' ? [...knots, k.domain[1]] : knots.slice(k.degree, k.count + 1);
-    const out: number[] = [];
-    for (const x of all) if (out.length === 0 || x > out[out.length - 1]!) out.push(x);
-    return out;
-  };
-  const ub = breaks(s.u);
-  const vb = breaks(s.v);
   let sum = 0;
-  for (let i = 0; i + 1 < ub.length; i++) {
-    const u0 = ub[i]!;
-    const hu = 0.5 * (ub[i + 1]! - u0);
-    for (let j = 0; j + 1 < vb.length; j++) {
-      const v0 = vb[j]!;
-      const hv = 0.5 * (vb[j + 1]! - v0);
-      for (let p = 0; p < order; p++) {
-        const u = u0 + hu * (gl.nodes[p]! + 1);
-        for (let q = 0; q < order; q++) {
-          const v = v0 + hv * (gl.nodes[q]! + 1);
-          const d = surfaceDerivatives(s, u, v, 1);
-          sum += gl.weights[p]! * gl.weights[q]! * hu * hv * g(d.S, d.Su, d.Sv);
-        }
-      }
+  for (let k = 0; k < angular; k++) {
+    const t = (2 * Math.PI * k) / angular;
+    const c = Math.cos(t);
+    const sn = Math.sin(t);
+    const x0 = a * c;
+    const y0 = b * sn;
+    // The edge's plan tangent d(x0, y0)/dθ, and the heights and their θ-derivatives there.
+    const tx = -a * sn;
+    const ty = b * c;
+    const zb = evalQuadratic(bottom, x0, y0);
+    const zd = evalQuadratic(deck, x0, y0);
+    const [bx, by] = gradQuadratic(bottom, x0, y0);
+    const [dx, dy] = gradQuadratic(deck, x0, y0);
+    const zbT = bx * tx + by * ty;
+    const zdT = dx * tx + dy * ty;
+    for (let i = 0; i < order; i++) {
+      const s = 0.5 * (gl.nodes[i]! + 1);
+      const rho = 1 + 4 * bulge * s * (1 - s);
+      const rhoS = 4 * bulge * (1 - 2 * s);
+      const P = { x: rho * x0, y: rho * y0, z: (1 - s) * zb + s * zd };
+      const Pt = { x: rho * tx, y: rho * ty, z: (1 - s) * zbT + s * zdT };
+      const Ps = { x: rhoS * x0, y: rhoS * y0, z: zd - zb };
+      const N = {
+        x: Pt.y * Ps.z - Pt.z * Ps.y,
+        y: Pt.z * Ps.x - Pt.x * Ps.z,
+        z: Pt.x * Ps.y - Pt.y * Ps.x,
+      };
+      sum += 0.5 * gl.weights[i]! * g(P, N);
     }
   }
-  return sum;
+  return (sum * 2 * Math.PI) / angular;
 }
 
-const crossAxis = (a: Point3, b: Point3, k: 0 | 1 | 2): number =>
-  k === 0 ? a.y * b.z - a.z * b.y : k === 1 ? a.z * b.x - a.x * b.z : a.x * b.y - a.y * b.x;
 const coord = (p: Point3, k: 0 | 1 | 2): number => (k === 0 ? p.x : k === 1 ? p.y : p.z);
 
 /**
- * Independent oracle of V5b's volume, area and centroid, from the shape's
- * definition and the band surface alone (no trims, no `integrate.ts`):
+ * Independent oracle of V5b's volume, area and centroid, from the spec alone
+ * (no NURBS evaluation, no trims, no `integrate.ts`):
  *
  * - By the divergence theorem every quantity is a flux through the boundary:
  *   volume `∮ z n_z dA`, first moments `∮ x_k²/2 n_k dA`. Over the deck and the
@@ -522,15 +544,19 @@ const coord = (p: Point3, k: 0 | 1 | 2): number => (k === 0 ? p.x : k === 1 ? p.
  *   radial degree) and the trapezoid rule in the angle (exact for trigonometric
  *   polynomials of degree below the sample count). The volume terms also have
  *   the closed form `π a b (c0 + cxx a²/4 + cyy b²/4)`, reported separately.
- * - Over the band (a natural-boundary face) the integrands are rational:
- *   Gauss–Legendre per span pair at `order` and `order + 8` points, the
- *   difference reported as `errorEstimate`.
- * - Areas: deck and bottom `∬_E √(1 + |∇z|²) dx dy` (analytic, spectrally
- *   convergent in both polar directions; two resolutions), band `∬ |S_u × S_v|`.
+ * - Over the band, the same fluxes through its definition `P(θ, s)` (module
+ *   comment): polynomial in `s` and trigonometric polynomials in `θ`, so the
+ *   trapezoid rule in `θ` and Gauss–Legendre in `s` are exact as well.
+ * - Areas: deck and bottom `∬_E √(1 + |∇z|²) dx dy`, band `∬ |P_θ × P_s|`
+ *   (analytic, spectrally convergent in both directions).
+ *
+ * Every quantity is computed at two resolutions (`radial`, `angular`, `order`
+ * and finer), the difference reported as `errorEstimate`. `order` is the band's
+ * Gauss–Legendre count in `s` (default 24: at 16 the board's band area is off
+ * in the eleventh significant digit, at 24 refining moves it in the fourteenth).
  */
 export function curvedPuckOracle(
   spec: CurvedPuckSpec,
-  band: NurbsSurface,
   opts?: { readonly order?: number; readonly radial?: number; readonly angular?: number },
 ): {
   readonly volume: QuadratureResult;
@@ -552,7 +578,7 @@ export function curvedPuckOracle(
   readonly fittedEdgeLength: number;
 } {
   const { a, b, deck, bottom } = spec;
-  const order = opts?.order ?? 16;
+  const order = opts?.order ?? 24;
   const radial = opts?.radial ?? 24;
   const angular = opts?.angular ?? 128;
   // Flux of F through the deck and the bottom over the ellipse (polar rule).
@@ -572,19 +598,21 @@ export function curvedPuckOracle(
       R,
       M,
     );
-  const bandFlux = (F: (p: Point3) => Point3, n: number): number =>
-    overSurface(
-      band,
-      (S, Su, Sv) => {
-        const f = F(S);
-        return f.x * crossAxis(Su, Sv, 0) + f.y * crossAxis(Su, Sv, 1) + f.z * crossAxis(Su, Sv, 2);
+  const bandFlux = (F: (p: Point3) => Point3, n: number, m: number): number =>
+    overBand(
+      spec,
+      (P, N) => {
+        const f = F(P);
+        return f.x * N.x + f.y * N.y + f.z * N.z;
       },
       n,
+      m,
     );
-  const flux = (F: (p: Point3) => Point3): QuadratureResult => {
-    const g = graphFlux(F, radial, angular);
-    return refined(g + bandFlux(F, order), g + bandFlux(F, order + 8));
-  };
+  const flux = (F: (p: Point3) => Point3): QuadratureResult =>
+    refined(
+      graphFlux(F, radial, angular) + bandFlux(F, order, angular),
+      graphFlux(F, radial + 8, 2 * angular) + bandFlux(F, order + 8, 2 * angular),
+    );
   const volume = flux((p) => ({ x: 0, y: 0, z: p.z }));
   const moments = ([0, 1, 2] as const).map((k) =>
     flux((p) => {
@@ -601,13 +629,9 @@ export function curvedPuckOracle(
   };
   const deckArea = graphArea(deck);
   const bottomArea = graphArea(bottom);
-  const bandAreaOf = (n: number): number =>
-    overSurface(
-      band,
-      (_S, Su, Sv) => Math.hypot(crossAxis(Su, Sv, 0), crossAxis(Su, Sv, 1), crossAxis(Su, Sv, 2)),
-      n,
-    );
-  const bandArea = refined(bandAreaOf(order), bandAreaOf(order + 8));
+  const bandAreaOf = (n: number, m: number): number =>
+    overBand(spec, (_P, N) => Math.hypot(N.x, N.y, N.z), n, m);
+  const bandArea = refined(bandAreaOf(order, angular), bandAreaOf(order + 8, 2 * angular));
   const sum = (...r: QuadratureResult[]): QuadratureResult =>
     Object.freeze({
       value: r.reduce((s, x) => s + x.value, 0),
@@ -638,7 +662,7 @@ export function curvedPuckOracle(
     faces: Object.freeze({ deckArea, bottomArea, bandArea }),
     closedForm: Object.freeze({
       graphs: ellipse * (meanOverEllipse(deck) - meanOverEllipse(bottom)),
-      band: refined(bandFlux(zFlux, order), bandFlux(zFlux, order + 8)),
+      band: refined(bandFlux(zFlux, order, angular), bandFlux(zFlux, order + 8, 2 * angular)),
     }),
     fittedEdgeLength:
       planPerimeter * (Math.hypot(1, slopeBound(deck)) + Math.hypot(1, slopeBound(bottom))),
