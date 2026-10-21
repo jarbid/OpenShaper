@@ -1,12 +1,14 @@
 # `@openshaper/board2` — board model v2 (Phase 2 design)
 
-Status: **design and scaffold** for Phase 2 of `docs/design/geometry-overhaul.md` (§6; the
+Status: **design and scaffold, step S1 done** for Phase 2 of `docs/design/geometry-overhaul.md` (§6; the
 topology and editing model it implements are §3.2 and §3.3). Written 2026-10-21 on
 `experiment/nurbs-overhaul`, after Phase 1 (`docs/design/geom-core.md`) was integrated. The
-package exists as a scaffold: `package.json`, the type definitions of §11 in
-`src/types.ts` and `src/classic/types.ts`, and a smoke test. Nothing is implemented yet; §14 is the build
-order. When this document and the code disagree, this document wins until the step that
-changes it edits this file in the same commit.
+package has its scaffold (`package.json`, the type definitions of §11 in `src/types.ts` and
+`src/classic/types.ts`) and, from step S1, the document layer: issues, parameters, revive and
+canonical JSON, keyed curves (laws) and the structural and range part of `validateBoard`
+(see the S1 notes in §14). Everything geometric is still to come; §14 is the build order.
+When this document and the code disagree, this document wins until the step that changes it
+edits this file in the same commit.
 
 "geom §n" refers to `docs/design/geom-core.md`, "plan §n" to `geometry-overhaul.md`, "P&T"
 to Piegl & Tiller, _The NURBS Book_. Every number below with a unit is either measured (and
@@ -1086,6 +1088,73 @@ judgement), **R** = routine (wiring, data, reports against a fixed spec).
 | S7  | Converter II: band, laws, offsets           | G    | S4, S6   | `classic/extract.ts`, the band fit and factorisation (§9.7), `convertClassic` complete                                                                                                     | Exit criterion 1 for all fourteen files; factorisation identity ≤ 1e-9 cm; preset recovery (apex ≤ 0.01, monotone hardness and fullness)                                                   |
 | S8  | Deviation report                            | R    | S5, S7   | `classic/deviation.ts`, `classic/report.ts` (§10); the exit-criteria test over all sample files                                                                                            | Exit criteria 2–3 for every file; the self-comparison and shifted-board oracles                                                                                                            |
 | S9  | Benchmarks and the Phase 2 report           | R    | S8       | `board2.bench.ts` Q1–Q8, `bench:check` baseline like geom's, the reports and numbers in this file and `geometry-overhaul.md` §6, `QUALITY_REPORT.md` entry on the branch                   | Exit criteria 4–7; numbers recorded with machine details                                                                                                                                   |
+
+### S1 as built (2026-10-21)
+
+Files: `issues.ts`, `params.ts`, `freeze.ts`, `doc.ts`, `law.ts`, `validate.ts`, the test
+fixture `testing/sample-doc.ts`, and tests for each plus `no-magic-tolerances.test.ts` (the
+geom scan, over board2's sources; `params.ts` and the `testing/` and `test-support/`
+directories are exempt by name). 124 tests. Public values added to the pin: `reviveBoardDoc`,
+`boardDocToJson`, `validateBoard`, `validateBuildParams`, `evaluateLaw`, `lawEvaluator`,
+`lawSegments` (+ type `LawSegment`), `DEFAULT_BUILD_PARAMS`, `DEFAULT_RAIL_LAWS`, `RAIL_LANES`,
+`BOARD2_ISSUE_CODES`, `board2Ok`, `board2Err`, `hasErrors`. Internal to the package (tested
+through their modules, not in the pin): `checkLawKeys`, `certifyLawRange`, `lawValueRange`,
+`laneRange`, `OFFSET_ROW_COMPONENTS`, `makeIssue`, `causeOf`, `LAW_ROUNDING_REL`.
+
+**Deviations and clarifications** (the design was silent, ambiguous or wrong in these details):
+
+1. **Revive versus validate.** `reviveBoardDoc` checks shape (types, finiteness, enums, no
+   unknown keys, array sizes, and every spline basis through geom's `clampedBasis` /
+   `periodicBasis` under the document's own `build.tolerances`, with the geom issue as
+   `cause`); `validateBoard` judges the board (key order, tips, ranges, parameters). A document
+   that is shaped right but designed badly therefore opens and can be repaired. An unknown
+   `tail.kind` revives to `tail-not-standard`, not `doc-malformed`; `symmetry: 'none'` revives
+   and is refused by `validateBoard`.
+2. **End slopes of auto ease.** §5.2 fixes the half-domain tips at slope zero. The same rule
+   is used at the first and last key of a plain (feature depth) curve, so a depth that starts
+   and ends at zero is C¹ with the zero outside it; a full-domain curve uses its cyclic
+   neighbours. The monotone slope is the three-point finite difference limited to 3 × each
+   adjacent secant (the Fritsch-Carlson box), and the auto handle value is clamped between its
+   two key values so a handle never leaves them even in rounding.
+3. **Plain `KeyedCurve` evaluates to 0 outside its keys** (the §6.2 depth convention);
+   `LawCurve` wraps (full) or mirrors (half) and is never zero.
+4. **Tip-slope check.** The handles that matter for C¹ across the tips of a half-domain law
+   are the ones that lead into a segment (`out` of the key at 0, `in` of the key at ½); the
+   handles on the far side of those keys are unused. Flatness is judged on the Bézier's end
+   tangent (a zero-length handle defers to the next control point), with the rounding
+   allowance `LAW_ROUNDING_REL` (4 ε, named in `params.ts`; also the slack of the range
+   certificate, relative to the segment's largest value).
+5. **No new issue codes.** Handle overlap (`out.ds + in.ds` beyond the segment, within geom's
+   `paramRel`), a negative `ds`, fewer than two keys and a half-domain law without keys at
+   exactly 0 and ½ are all `law-keys-unsorted`; non-finite numbers are `doc-malformed`; a
+   `full`-domain law on a `mirror-y` board is `symmetry-broken`; bottom-feature faults
+   (parameter ranges, duplicate ids, depth key faults) are `feature-invalid`.
+6. **S1 range rules the design left implicit** (all in `validateBoard`): `stringerRadius`,
+   concave `width` in (0, 1]; a single concave has `centre` 0; a double concave has
+   `width ≤ centre` and `centre + width ≤ 1`; channels `count ≥ 1`, `width`, `pitch > 0`,
+   `pitch ≥ width`, `railInset ≥ 0`. Geometry-dependent feature limits (against the tuck
+   half-width) belong to step S4. `validateBuildParams` bounds: `insetCurvatureFraction` in
+   (0, 1), `apexHeightRange` inside the open (0, 1), `fullnessRange` in (0, 1],
+   `maxFrameTurn` in (0, π/2], the two join tolerances in (0, π/2), counts integers ≥ 0.
+7. **Added helpers** beyond the §11.2 sketch: `evaluateLaw` takes an optional third argument
+   `tol` (geom tolerances; `paramRel`, `newtonMaxIter` are used); `lawEvaluator` resolves the
+   segments once for repeated evaluation (the band builder's loop); `lawSegments` exposes the
+   resolved Bézier segments (for the certificate and later the law-graph editor).
+8. **DEFAULT_RAIL_LAWS** values (the design names the record, not its values): deck inset
+   5.25 cm and tuck inset 2 cm (21% and 8% of a 25 cm half width, the medians of §12.2), apex
+   height 0.4, fullness 2/3 (the parabola), hardness 0.5.
+
+**Oracles and tolerances.** Hermite closed form (independent evaluation in the Hermite basis)
+1e-14 absolute; slope continuity 1e-12; de Casteljau round trip through the root solve 1e-10
+(geom `paramRel` 1e-12 times a slope of at most ~10); smoothstep keys converge at O(h³)
+(measured error ratios 8.0001, 8.0003, 8.0012 for h halved; the test requires ≥ 7.9);
+certificate soundness checked on 200 random laws (every law whose dense samples leave the
+range is flagged; 90 of them do). Revive is tested by exhaustive mutation of a known-good
+document: a wrong-type value at every leaf (over 150), every key removed, an unknown key at
+every object.
+
+**Mutation spot check.** `law.ts`: the limiter `3 · min(|δ_a|, |δ_b|)` changed to `30 ·`:
+four tests failed (both Hermite-reference tests, C¹ across the keys, full-domain C¹), restored.
 
 S5 and S6 can run in parallel after S4 and S3 respectively; S7 needs both S4 (validity through
 the B-rep) and S6.

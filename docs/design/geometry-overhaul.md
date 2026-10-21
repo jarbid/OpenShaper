@@ -435,7 +435,8 @@ order §14).
       properties, STEP and OCCT against an independent oracle (geom-core.md §15.7). One
       geom bug found and fixed (nested adaptive quadrature hung on a noise integrand);
       P22 on that solid 1.75 s (target 50 ms), reported
-- [ ] S1 document, laws and validation · S2 plan loop, height fields, symmetry ·
+- [x] S1 document, laws and validation (board2.md §14, "S1 as built")
+- [ ] S2 plan loop, height fields, symmetry ·
       S3 rail band · S4 features, B-rep, STEP, OCCT · S5 specs and volume
       convergence · S6 converter I · S7 converter II · S8 deviation report ·
       S9 benchmarks and the Phase 2 report
