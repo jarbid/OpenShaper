@@ -440,7 +440,8 @@ order §14).
       invariants 1–4 in `validateBoard`, `stringerLines` (stringer identity to
       rounding after a constrained fit), `symmetryRules` (mirror rules bitwise through
       geom's solver on the plan, height-field and band nets), stadium and notched-loop
-      fixtures. No geom change
+      fixtures. No geom change. Review fixes: a simple-loop (side-of-stringer)
+      certificate, height-field grid check in `symmetryRules`, off-knot test loops
 - [ ] S3 rail band · S4 features, B-rep, STEP, OCCT · S5 specs and volume
       convergence · S6 converter I · S7 converter II · S8 deviation report ·
       S9 benchmarks and the Phase 2 report

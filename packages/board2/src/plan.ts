@@ -12,6 +12,8 @@
  *
  * - the standard-tail certificate (invariant 2): the sign of x′ between its
  *   closed-form roots;
+ * - the side certificate (a simple loop): y monotone between the closed-form
+ *   roots of y′, so its sign is read at the interval ends;
  * - the exact x and y extremes (length, width, the domain check): roots of x′, y′;
  * - the area inside the loop by Green's theorem: `x y′ − y x′` has degree 5, so a
  *   three-point Gauss–Legendre rule per piece is exact.
@@ -187,6 +189,66 @@ export function standardTailViolation(
       const v = quad(d, 0.5 * (cuts[k]! + cuts[k + 1]!));
       const mid = 0.5 * (a + b);
       if (mid < 0.5 ? !(v > 0) : !(v < 0)) return a;
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// The halves on their own sides of the stringer (a simple loop)
+// ---------------------------------------------------------------------------
+
+/**
+ * Certifies that the −y half stays on the −y side and the +y half on the +y
+ * side: y(u) < 0 on (0, ½) and y(u) > 0 on (½, 1). With the standard-tail
+ * certificate (each half a graph over x on the same x-range) this proves the
+ * loop **simple**: the halves are the graphs `y = f(x) < 0 < g(x)` and meet only
+ * at the tips. It is what §3.2's "u ∈ (0, ½) is the −y side" asks of the data.
+ *
+ * Exact on the Bézier pieces: the closed-form roots of y′ (a quadratic), the
+ * piece ends and u = ½ cut the loop into intervals on which y is monotone, so y
+ * has its side on an interval exactly when both ends do. An end at a tip
+ * (within `paramRel` of u = 0, ½, 1) sits on the stringer by design, where y
+ * is 0 up to rounding: it may be at most `Tolerances.point` on the wrong side.
+ * An interval with both ends at tips (a half lying on the stringer) fails, and
+ * intervals entirely within `paramRel` of a tip are not judged (as in
+ * {@link standardTailViolation}).
+ *
+ * Returns `null` when the certificate holds, else a loop parameter at which y
+ * is on the wrong side (an end of the first interval that breaks it).
+ */
+export function planSideViolation(
+  pieces: readonly PlanPiece[],
+  tol?: Partial<Tolerances>,
+): number | null {
+  const t = resolveTolerances(tol);
+  const slack = t.paramRel;
+  const atTip = (u: number): boolean => u <= slack || u >= 1 - slack || Math.abs(u - 0.5) <= slack;
+  const nearTip = (a: number, b: number): boolean =>
+    b <= slack || a >= 1 - slack || (a >= 0.5 - slack && b <= 0.5 + slack);
+  for (const piece of pieces) {
+    const h = piece.u1 - piece.u0;
+    const cuts = [0, ...quadraticRoots(hodo(piece.p, 1)), 1];
+    const half = (0.5 - piece.u0) / h;
+    if (half > 0 && half < 1) cuts.push(half);
+    cuts.sort((a, b) => a - b);
+    for (let k = 0; k + 1 < cuts.length; k++) {
+      const a = piece.u0 + cuts[k]! * h;
+      const b = piece.u0 + cuts[k + 1]! * h;
+      if (!(b > a) || nearTip(a, b)) continue;
+      // +1 where y must be positive (the +y half), −1 on the −y half.
+      const side = 0.5 * (a + b) < 0.5 ? -1 : 1;
+      const tipA = atTip(a);
+      const tipB = atTip(b);
+      if (tipA && tipB) return a;
+      const ends: readonly (readonly [number, number, boolean])[] = [
+        [a, cuts[k]!, tipA],
+        [b, cuts[k + 1]!, tipB],
+      ];
+      for (const [u, s, tip] of ends) {
+        const v = side * bez(piece.p, 1, s);
+        if (tip ? !(v >= -t.point) : !(v > 0)) return u;
+      }
     }
   }
   return null;

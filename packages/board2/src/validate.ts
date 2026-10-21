@@ -9,7 +9,8 @@
  * tips, handles, symmetric domain, per-lane range certificate) and the bottom
  * features' parameters. Step S2 added the plan-loop invariants of §3.3 (tail at
  * the origin, the standard-tail certificate, the plan radius, bitwise pairing;
- * no corners; counter-clockwise), the height fields' symmetric mode (§3.4) and
+ * no corners; counter-clockwise; each half on its own side of the stringer, so
+ * the loop is simple), the height fields' symmetric mode (§3.4) and
  * the domain check (the plan loop inside both height fields). The checks that
  * need a built board (insets, rail height, profiles) arrive with the band (S3).
  *
@@ -28,6 +29,7 @@ import {
   planExtent,
   planMinRadius,
   planPieces,
+  planSideViolation,
   planSignedArea,
   standardTailViolation,
   wrapUnit,
@@ -265,13 +267,31 @@ function checkPlan(doc: BoardDoc, tol: Tolerances, out: Board2Issue[]): void {
   }
 
   // Invariant 2: each half of the loop is a graph over x (§3.8).
+  let graphs = false;
   if (doc.tail.kind === 'standard') {
     const u = standardTailViolation(pieces, tol);
+    graphs = u === null;
     if (u !== null) {
       out.push(
         makeIssue(
           'tail-not-standard',
           `plan: x′ must be > 0 on (0, ½) and < 0 on (½, 1); it changes sign at u = ${u}`,
+          { at: { u } },
+        ),
+      );
+    }
+  }
+
+  // §3.2: u ∈ (0, ½) is the −y side. With the halves graphs over x, this makes the
+  // loop simple (no figure 8). Judged only on a counter-clockwise loop of two
+  // graphs, so a clockwise or non-standard loop is not reported twice.
+  if (doc.symmetry === 'mirror-y' && graphs && area > 0) {
+    const u = planSideViolation(pieces, tol);
+    if (u !== null) {
+      out.push(
+        makeIssue(
+          'doc-malformed',
+          `plan: the loop must keep y < 0 on (0, ½) and y > 0 on (½, 1) (a simple outline, §3.2); it crosses the stringer near u = ${u}`,
           { at: { u } },
         ),
       );

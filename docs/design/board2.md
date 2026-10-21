@@ -1176,7 +1176,7 @@ affine x and y, the plan → (u, v) map and exact pcurves, `stringerLines`,
 checks in `validate.ts`, `PLAN_RADIUS_SAMPLING` in `params.ts`, the test fixtures
 `testing/stadium.ts` (`stadiumBoard`, `stadiumPlan`, `stadiumFacts`, `flatField`) and
 `testing/notched.ts` (`notchedLoopFixture`) behind a `./testing` subpath, and tests for each.
-181 tests (57 new). Public values added to the pin: `stringerLines`, `symmetryRules` (+ type
+181 tests (57 new; 189 after the review fixes). Public values added to the pin: `stringerLines`, `symmetryRules` (+ type
 `SymmetryNet`). No geom change.
 
 **Deviations and clarifications:**
@@ -1236,11 +1236,47 @@ checks in `validate.ts`, `PLAN_RADIUS_SAMPLING` in `params.ts`, the test fixture
 11. **Internal helpers** (not in the pin): `grevilleAbscissae`, `heightFieldBases`,
     `heightFieldSurface`, `planToUV`, `uvOfPlanPoint`, `planCurvePcurve`, `stringerParam`,
     `stringerConstraints`; `planCurve`, `planPieces`, `quadraticRoots`,
-    `standardTailViolation`, `planExtent`, `planSignedArea`, `planMinRadius`, `planFrame`,
+    `standardTailViolation`, `planSideViolation`, `planExtent`, `planSignedArea`,
+    `planMinRadius`, `planFrame`,
     `planArc`, `sigmaAt`, `paramAtSigma`, `wrapUnit`; `periodicPairing`, `clampedPairing`,
     `basisPairing`, `periodicKnotsSymmetric`, `checkPlanSymmetry`, `checkHeightFieldSymmetry`,
     `planSymmetryRules`, `heightFieldSymmetryRules`, `bandSymmetryRules`,
     `mirrorOverwriteCurve`, `mirrorOverwriteColumns`, `MIRROR_PLANE`.
+
+12. **Review fixes (S2).**
+    - **A simple loop is certified.** Invariants 1–4 and the orientation check accepted a
+      figure-8 (a −y half bent across the stringer, its +y mirror kept bitwise: the signed
+      area stays positive). §3.2's "u ∈ (0, ½) is the −y side" is now checked in symmetric
+      mode by `planSideViolation`: y < 0 on (0, ½) and y > 0 on (½, 1), exact on the Bézier
+      pieces (y is monotone between the closed-form roots of y′, so the interval ends decide).
+      With invariant 2 (each half a graph over x on the same x-range) this proves the loop
+      simple. An interval end at a tip (within `paramRel` of u = 0, ½) may be at most
+      `Tolerances.point` on the wrong side (y is 0 there up to rounding); intervals inside
+      the `paramRel` tip zone are not judged, as for x′. Reported as `doc-malformed` (like the
+      orientation, a frame convention of decision 3, so no new code), only when the tail
+      certificate and the orientation pass, so a clockwise or non-standard loop is not
+      reported twice.
+    - **`symmetryRules` checks a height field's grid.** Symmetric v knots are not enough: the
+      mirror rules overwrite a partner's x and y from its master, so a grid on an asymmetric
+      extent (y ∈ [−10, 30]) would leave the affine graph after a solve. The rules now also
+      require x, y paired bitwise (partner `(x_m, −y_m)`, middle row y === 0, what
+      `heightFieldSurface(hf, 'mirror-y')` builds), else `symmetry-broken`. z, and the plan's
+      and band's control points, are what the rules pair (they come from the mirror
+      overwrite; `validateBoard` checks the document's).
+    - **Tests on knot sets without knots at the tips.** `testing/off-knot.ts`
+      (`offKnotLoop(rng, opts)`): random symmetric loops on non-uniform symmetric knots with
+      no knot at u = 0 and/or ½, placed from the Greville abscissae on an ellipse-like
+      outline, mirror-overwritten and translated to the origin. They run the non-knot tail
+      (`toClamped` inserting it) and the piece straddling ½ through the dense-sampling
+      certificate test (240 loops, 103 refused, 180 with a straddling piece) and a validator
+      positive control (20 seeds).
+    - **σ and roles against independent oracles.** The σ mirror assertion restated the code;
+      σ on the +y half, on a loop stored from another period start and on an off-knot loop is
+      now compared with geom's direct adaptive arc length from the tail (`curveLength`, not
+      the table) within 1e-9. The random-pairing test no longer re-derives roles with the
+      implementation's formula; it checks roles against the involution (master ↔ partner,
+      self exactly at fixed points), and roles are pinned on a hand-worked off-knot case
+      (knots (i + ½)/8: no self point, masters 6, 7, 0, 1, pairs i ↔ 3 − i mod 8).
 
 **Oracles and tolerances.** Affine exactness of x, y on 20 random knot sets, 1e-13 × extent;
 pcurve = affine image, 1e-13 × extent. **Stringer identity**: after `approximateSurface` with
@@ -1252,21 +1288,29 @@ solver**: `makeDofMap` accepts the rule set of each net; random drags on the pla
 symmetric bases, master and partner drags), the stadium deck and a seven-row band leave every
 partner `===` the mirror of its master and every self-paired y `=== 0`, with something moved.
 Pairing on 200 random symmetric bases: partner abscissae mirror within `paramRel`, involution,
-roles by half. **Standard-tail certificate** against 4,000 samples of geom's x′ on 300 random
+roles consistent with it (hand-worked: the stadium, knots (i + ½)/8). **Standard-tail certificate** against 4,000 samples of geom's x′ on 300 random
 symmetric loops (143 refused, each at or before the first bad sample; none accepted with a bad
-sample); the notched loop refused near u = 0; a straight transom refused. **Extent**: the
+sample) and 240 off-knot loops (103 refused); the notched loop refused near u = 0; a straight
+transom refused. **Side certificate** against 4,000 samples of geom's y on 240 off-knot loops
+(62 refused): no certified loop has a sample beyond `Tolerances.point` on the wrong side, every
+loop with a wrong-side sample is refused, and the reported u is on the wrong side (1e-12 × 200
+cm); the figure-8 stadium refused. **Extent**: the
 stadium's closed forms within 1e-12 × L. **Area**: the Δ identity (one more straight point adds
 exactly 2ρh) within 1e-11 relative, ×2 scaling bitwise, reversal negates. **Radius**: closed
 forms on regular N-gons (knot `R(1 + cos θ)/2`, mid-span `R(sin 3θ/2 + 5 sin θ/2)² / 16(cos
 θ/2 − cos 3θ/2)`) and the stadium's arc knots within 1e-10 relative; where a transition span is
 tighter (K ≥ 3) a dense geom judge (20,000 samples plus every knot) with an allowance computed
-from the measured r″. **σ**: exact at the tips, mirrored bitwise, inverse within 1e-12, and
-Δσ · total = Δx on the straight side within 1e-9 × total. **Validator**: each new code with a
+from the measured r″. **σ**: exact at the tips, equal to geom's direct arc length from the tail within 1e-9 (the +y
+half, a shifted period start, an off-knot loop), inverse within 1e-12, and Δσ · total = Δx on the straight side within 1e-9 × total. **Validator**: each new code with a
 negative control, boundary controls for the tail (`point`) and the radius (1e-9 either side).
 
 **Mutation spot check.** `height-field.ts`: the clamped Greville average `s / p` changed to
 `s / (p + 1)`: six tests failed (the Greville closed form, affine exactness, the pcurve image,
 the symmetric build, the stadium stringer lines, the stringer identity), restored.
+Review fixes: `plan.ts` `planSideViolation`'s interior test `v > 0` changed to `v > −1`: two
+tests failed (the on-stringer loop, the dense-sampling side test), restored; with the side
+check disabled in `validate.ts` the figure-8 test fails (`[]` returned); with the grid check
+disabled in `symmetryRules` the asymmetric-extent test fails.
 
 S5 and S6 can run in parallel after S4 and S3 respectively; S7 needs both S4 (validity through
 the B-rep) and S6.

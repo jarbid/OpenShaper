@@ -7,4 +7,6 @@
 export { flatField, stadiumBoard, stadiumFacts, stadiumPlan } from './stadium';
 export type { StadiumFacts, StadiumOptions } from './stadium';
 export { notchedLoopFixture } from './notched';
+export { offKnotLoop } from './off-knot';
+export type { OffKnotLoopOptions } from './off-knot';
 export { constantLaw, defaultLaws, sampleDoc } from './sample-doc';

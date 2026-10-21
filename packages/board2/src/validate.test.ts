@@ -7,11 +7,19 @@
  * documented ones (`Tolerances.point` for the tail, the plan radius measured to
  * 1e-10 relative, so its boundary controls sit 1e-9 either side).
  */
-import { checksum } from '@openshaper/geom/testing';
+import { curvePoint } from '@openshaper/geom';
+import { checksum, mulberry32 } from '@openshaper/geom/testing';
 import { describe, expect, it } from 'vitest';
 import { reviveBoardDoc } from './doc';
 import { RAIL_LANES } from './params';
-import { constantLaw, notchedLoopFixture, sampleDoc, stadiumBoard } from './testing/index';
+import { planCurve } from './plan';
+import {
+  constantLaw,
+  notchedLoopFixture,
+  offKnotLoop,
+  sampleDoc,
+  stadiumBoard,
+} from './testing/index';
 import { validateBoard } from './validate';
 import type { BoardDoc, BottomFeature, LawCurve, RailLane } from './types';
 
@@ -466,6 +474,37 @@ describe('validateBoard: the plan loop (§3.3 invariants 1–4, step S2)', () =>
       d.plan.points.map((v, i) => (i % 2 === 1 ? -v : v)),
     );
     expect(codes(flipped)).toEqual(['doc-malformed']);
+  });
+
+  it('a figure-8 loop (a half crossing the stringer) is doc-malformed; every other check passes', () => {
+    // Bend the −y straight side (Greville Q_5 … Q_18) across y = 0 and keep the +y
+    // half its exact mirror: x′ keeps its sign, the pairing stays bitwise and the
+    // signed area stays positive, but the −y half reaches y > 0 on (0, ½).
+    const d = stadium();
+    const n = d.plan.knots.length;
+    const pts = [...d.plan.points];
+    const q = (k: number): number => (((k + n) % n) - 2 + n) % n; // Greville index → stored
+    for (let k = 5; k <= 18; k++) {
+      const y = -25 + 33 * Math.sin((Math.PI * (k - 4)) / 15) ** 2;
+      pts[2 * q(k) + 1] = y;
+      pts[2 * q(n - k) + 1] = -y;
+    }
+    const issues = validateBoard(withPlan(d, pts));
+    expect(issues.map((i) => i.code)).toEqual(['doc-malformed']);
+    const u = issues[0]!.at!.u!;
+    expect(u).toBeGreaterThan(0);
+    expect(u).toBeLessThan(0.5);
+    // The reported u is on the wrong side (independent evaluation by geom).
+    expect(curvePoint(planCurve(d.plan), u).y).toBeGreaterThan(0);
+  });
+
+  it('valid loops on non-uniform knot sets without knots at u = 0 or ½ pass', () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const d = stadium();
+      d.plan = offKnotLoop(mulberry32(seed));
+      expect(d.plan.knots.some((t) => t === 0 || t === 0.5)).toBe(false);
+      expect(validateBoard(d), `seed ${seed}`).toEqual([]);
+    }
   });
 
   it('the plan loop must lie inside both height fields (domain-too-small, located at the face)', () => {

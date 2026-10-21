@@ -23,8 +23,18 @@
  *   `R(1 + cos θ)/2`, at mid-span `R (sin(3θ/2) + 5 sin(θ/2))² / (16 (cos(θ/2) −
  *   cos(3θ/2)))`) and the stadium's arcs: `1e-10` relative (the design's bar;
  *   the golden-section search leaves rounding at a smooth maximum).
- * - **σ ↔ u**: σ(0) = 0 and σ(½) = ½ exactly, the +y half the bitwise mirror of
- *   the −y half, u(σ(u)) = u within `1e-12` (geom's `paramRel` stop), and along
+ * - **Side certificate** (each half on its own side of y = 0) against 4,000
+ *   samples of geom's y on 240 random off-knot loops: a certified
+ *   loop has no sample on the wrong side beyond `Tolerances.point`, a sample on
+ *   the wrong side means a refusal, and the reported u is on the wrong side
+ *   (within `1e-12 × 200 cm`, two evaluation orders).
+ * - **Off-knot loops** (`offKnotLoop`: non-uniform symmetric knots without a
+ *   knot at u = 0 and/or ½) run the certificate's straddling-½ and
+ *   non-knot-tail paths against the same dense sampling.
+ * - **σ ↔ u**: σ(0) = 0 and σ(½) = ½ exactly; σ on the +y half, on a loop
+ *   stored from another period start and on an off-knot loop against geom's
+ *   direct adaptive arc length from the tail (`curveLength`, not the table)
+ *   within `1e-9`; u(σ(u)) = u within `1e-12` (geom's `paramRel` stop), and along
  *   the stadium's straight side `Δσ · total = Δx` within `1e-9 × total` (two
  *   adaptive quadratures at geom's `quadRel` 1e-10 each, plus the table).
  */
@@ -32,6 +42,7 @@ import {
   createScratch,
   curveDerivatives,
   curveEvalBatchInto,
+  curveLength,
   curvePoint,
   curveSignedCurvature,
   DEFAULT_TOLERANCES,
@@ -50,6 +61,7 @@ import {
   planFrame,
   planMinRadius,
   planPieces,
+  planSideViolation,
   planSignedArea,
   quadraticRoots,
   sigmaAt,
@@ -57,7 +69,13 @@ import {
   wrapUnit,
 } from './plan';
 import type { PlanPiece } from './plan';
-import { notchedLoopFixture, sampleDoc, stadiumFacts, stadiumPlan } from './testing/index';
+import {
+  notchedLoopFixture,
+  offKnotLoop,
+  sampleDoc,
+  stadiumFacts,
+  stadiumPlan,
+} from './testing/index';
 import type { PlanLoopJSON } from './types';
 
 const EPS = Number.EPSILON;
@@ -183,11 +201,40 @@ describe('standard-tail certificate (invariant 2)', () => {
     expect(planSignedArea(planPieces(r))).toBeLessThan(0);
   });
 
+  /** Judges one loop against 4,000 samples of geom's x′; returns [refused, sampled bad]. */
+  const M = 4000;
+  const ts = Float64Array.from({ length: M }, (_, k) => (k + 0.5) / M);
+  const out = new Float64Array(4 * M);
+  const scratch = createScratch({ maxDegree: 3 });
+  function judgeTail(c: PeriodicCurve<2>, label: string): [boolean, boolean] {
+    const v = standardTailViolation(planPieces(c));
+    curveEvalBatchInto(c, ts, 1, out, scratch);
+    let firstBad = -1;
+    for (let k = 0; k < M; k++) {
+      const u = ts[k]!;
+      const xp = out[4 * k + 2]!;
+      if (u < 0.5 ? !(xp > 0) : !(xp < 0)) {
+        firstBad = u;
+        break;
+      }
+    }
+    if (firstBad >= 0) {
+      expect(v, `${label}: sampling found x′ of the wrong sign`).not.toBeNull();
+      expect(v!, label).toBeLessThanOrEqual(firstBad);
+    } else if (v !== null) {
+      // Refused between samples: x′ has the wrong sign just after v.
+      let seen = false;
+      for (let e = 12; e >= 1 && !seen; e--) {
+        const u = v + 10 ** -e;
+        const xp = curveDerivatives(c, u, 1)[1]!.x;
+        if (u < 0.5 ? !(xp > 0) : !(xp < 0)) seen = true;
+      }
+      expect(seen, `${label}: refused at ${v} without evidence`).toBe(true);
+    }
+    return [v !== null, firstBad >= 0];
+  }
+
   it('agrees with dense sampling of x′ on random symmetric loops', () => {
-    const M = 4000;
-    const ts = Float64Array.from({ length: M }, (_, k) => (k + 0.5) / M);
-    const out = new Float64Array(4 * M);
-    const scratch = createScratch({ maxDegree: 3 });
     let refused = 0;
     let sampledBad = 0;
     for (let seed = 1; seed <= 300; seed++) {
@@ -200,38 +247,94 @@ describe('standard-tail certificate (invariant 2)', () => {
         const y = k === 0 || k === h ? 0 : -(5 + 25 * Math.sin((Math.PI * k) / h) * rng());
         half.push([x, y]);
       }
-      const c = planCurve(loopFromHalf(half));
-      const v = standardTailViolation(planPieces(c));
-      curveEvalBatchInto(c, ts, 1, out, scratch);
-      let firstBad = -1;
-      for (let k = 0; k < M; k++) {
-        const u = ts[k]!;
-        const xp = out[4 * k + 2]!;
-        if (u < 0.5 ? !(xp > 0) : !(xp < 0)) {
-          firstBad = u;
-          break;
-        }
-      }
-      if (v !== null) refused++;
-      if (firstBad >= 0) {
-        sampledBad++;
-        expect(v, `seed ${seed}: sampling found x′ of the wrong sign`).not.toBeNull();
-        expect(v!, `seed ${seed}`).toBeLessThanOrEqual(firstBad);
-      } else if (v !== null) {
-        // Refused between samples: x′ has the wrong sign just after v.
-        let seen = false;
-        for (let e = 12; e >= 1 && !seen; e--) {
-          const u = v + 10 ** -e;
-          const xp = curveDerivatives(c, u, 1)[1]!.x;
-          if (u < 0.5 ? !(xp > 0) : !(xp < 0)) seen = true;
-        }
-        expect(seen, `seed ${seed}: refused at ${v} without evidence`).toBe(true);
-      }
+      const [r, b] = judgeTail(planCurve(loopFromHalf(half)), `seed ${seed}`);
+      if (r) refused++;
+      if (b) sampledBad++;
     }
     // Both outcomes occur, so the comparison has teeth.
     expect(refused).toBeGreaterThan(30);
     expect(300 - refused).toBeGreaterThan(30);
     expect(sampledBad).toBeGreaterThan(0);
+  });
+
+  it('agrees with dense sampling on non-uniform knot sets without knots at u = 0 and/or ½', () => {
+    // The tail need not be a knot (toClamped inserts it) and a piece may straddle ½.
+    let refused = 0;
+    let straddles = 0;
+    for (let seed = 1; seed <= 240; seed++) {
+      const rng = mulberry32(1000 + seed);
+      const json = offKnotLoop(rng, {
+        tailKnot: seed % 4 === 1,
+        noseKnot: seed % 4 === 2,
+        noise: 40 * rng(),
+      });
+      const c = planCurve(json);
+      const pieces = planPieces(c);
+      if (pieces.some((p) => p.u0 < 0.5 && p.u1 > 0.5)) straddles++;
+      expect(pieces[0]!.u0).toBe(0);
+      expect(pieces[pieces.length - 1]!.u1).toBe(1);
+      const [r] = judgeTail(c, `seed ${seed}`);
+      if (r) refused++;
+    }
+    expect(straddles).toBeGreaterThan(100);
+    expect(refused).toBeGreaterThan(30);
+    expect(240 - refused).toBeGreaterThan(30);
+  });
+});
+
+describe('side certificate (the halves on their own sides: a simple loop)', () => {
+  const M = 4000;
+  const POINT = DEFAULT_TOLERANCES.point;
+  const ts = Float64Array.from({ length: M }, (_, k) => (k + 0.5) / M);
+  const ys = new Float64Array(2 * M);
+  const scratch = createScratch({ maxDegree: 3 });
+  it('the stadium and the sample pass; a loop lying on the stringer fails', () => {
+    expect(planSideViolation(planPieces(planCurve(stadiumPlan())))).toBeNull();
+    expect(planSideViolation(planPieces(planCurve(sampleDoc().plan)))).toBeNull();
+    // A loop with y ≡ 0 on both halves (a degenerate outline on the stringer) fails.
+    const flat = loopFromHalf([
+      [-10, 0],
+      [20, 0],
+      [100, 0],
+      [180, 0],
+      [210, 0],
+    ]);
+    expect(planSideViolation(planPieces(planCurve(flat)))).not.toBeNull();
+  });
+
+  it('agrees with dense sampling of y on random loops, with and without knots at the tips', () => {
+    // Sound: a certified loop has no sample on the wrong side (beyond Tolerances.point
+    // where the interval touches a tip). Complete: a sample on the wrong side means a
+    // refusal. A refusal reports a u where y is on the wrong side (geom's evaluation;
+    // 1e-12 × 200 cm for the two evaluation orders).
+    let refused = 0;
+    for (let seed = 1; seed <= 240; seed++) {
+      const rng = mulberry32(5000 + seed);
+      const json = offKnotLoop(rng, {
+        tailKnot: seed % 3 === 0,
+        noseKnot: seed % 5 === 0,
+        crossing: 0.6 + 0.4 * rng(),
+      });
+      const c = planCurve(json);
+      const v = planSideViolation(planPieces(c));
+      curveEvalBatchInto(c, ts, 0, ys, scratch);
+      let bad = false;
+      for (let k = 0; k < M; k++) {
+        const u = ts[k]!;
+        const y = ys[2 * k + 1]!;
+        const side = u < 0.5 ? -1 : 1;
+        if (!(side * y > 0)) bad = true;
+        if (v === null) expect(side * y, `seed ${seed}, u ${u}`).toBeGreaterThanOrEqual(-POINT);
+      }
+      if (bad) expect(v, `seed ${seed}: sampling found y on the wrong side`).not.toBeNull();
+      if (v !== null) {
+        refused++;
+        const side = v < 0.5 ? -1 : 1;
+        expect(side * curvePoint(c, v).y, `seed ${seed}`).toBeLessThanOrEqual(1e-12 * 200);
+      }
+    }
+    expect(refused).toBeGreaterThan(30);
+    expect(240 - refused).toBeGreaterThan(30);
   });
 });
 
@@ -389,7 +492,7 @@ describe('frames and σ', () => {
     expect(Math.abs(fr.inward.y - 1)).toBeLessThanOrEqual(4 * EPS);
   });
 
-  it('σ: exact at the tips, mirrored bitwise, inverse to geom paramRel, arc length on the straight', () => {
+  it('σ: exact at the tips, the +y half against direct arc length, inverse to geom paramRel, arc length on the straight', () => {
     const a = planArc(c, true);
     expect(sigmaAt(a, 0)).toBe(0);
     expect(sigmaAt(a, 0.5)).toBe(0.5);
@@ -402,8 +505,17 @@ describe('frames and σ', () => {
       const s = sigmaAt(a, u);
       expect(s).toBeGreaterThan(last);
       last = s;
-      if (u > 0.5) expect(s).toBe(1 - sigmaAt(a, 1 - u));
       expect(Math.abs(paramAtSigma(a, s) - u)).toBeLessThanOrEqual(1e-12);
+    }
+    // The +y half against an independent oracle: geom's direct adaptive arc length
+    // from the tail (not the table), over the loop's length. By the mirror symmetry
+    // ℓ(u) = total − ℓ(1 − u) and total = 2 ℓ(½), so σ(u) = ℓ(u) / total on (½, 1);
+    // two quadratures at quadRel 1e-10 and the table: 1e-9.
+    const total = curveLength(c).value;
+    for (let k = 1; k < 40; k++) {
+      const u = 0.5 + k / 80;
+      const direct = curveLength(c, [0, u]).value / total;
+      expect(Math.abs(sigmaAt(a, u) - direct), `u ${u}`).toBeLessThanOrEqual(1e-9);
     }
     // Along the straight side arc length is Δx.
     const xs = [f.straight[0] + 1, f.straight[1] - 1];
@@ -420,6 +532,34 @@ describe('frames and σ', () => {
     const ds = (sigmaAt(a, us[1]!) - sigmaAt(a, us[0]!)) * a.total;
     expect(Math.abs(ds - (xs[1]! - xs[0]!))).toBeLessThanOrEqual(1e-9 * a.total);
     expect(Math.abs(a.total - 2 * a.half)).toBeLessThanOrEqual(1e-9 * a.total);
+  });
+
+  it('σ on a loop whose stored period does not start at the tail (and an off-knot loop)', () => {
+    // The stadium with its period stored as [−2/n, 1 − 2/n) (as in the planPieces
+    // test), and a loop with no knot at u = 0 or ½: σ is measured from the tail, so
+    // it equals geom's direct arc length from u = 0 over the total within 1e-9.
+    const json = stadiumPlan();
+    const n = json.knots.length;
+    const knots = json.knots.map((t, i) => (i < n - 2 ? t : t - 1));
+    const order = [...Array(n).keys()].map((i) => (i + n - 2) % n);
+    const shifted = planCurve({
+      degree: 3,
+      knots: order.map((i) => knots[i]!),
+      points: order.flatMap((i) => [json.points[2 * i]!, json.points[2 * i + 1]!]),
+    });
+    expect(shifted.basis.domain[0]).toBeLessThan(0);
+    for (const curve of [shifted, planCurve(offKnotLoop(mulberry32(3)))]) {
+      const a = planArc(curve, true);
+      expect(sigmaAt(a, 0)).toBe(0);
+      expect(sigmaAt(a, 0.5)).toBe(0.5);
+      const total = curveLength(curve).value;
+      for (let k = 1; k < 40; k++) {
+        const u = k / 40;
+        const direct = curveLength(curve, [0, u]).value / total;
+        expect(Math.abs(sigmaAt(a, u) - direct), `u ${u}`).toBeLessThanOrEqual(1e-9);
+        expect(Math.abs(paramAtSigma(a, sigmaAt(a, u)) - u)).toBeLessThanOrEqual(1e-12);
+      }
+    }
   });
 
   it('asymmetric mode: σ is the plain arc fraction', () => {

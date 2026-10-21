@@ -24,7 +24,12 @@
  * | Height fields | j < (m − 1)/2, `fixAxes` x, y   | `mirror` in y = 0    | `fixAxes` x, y        |
  * | Band          | ū ∈ (0, ½) (row rules: step S3) | `mirror`, every row  | `fixAxes` y (S3: row rules with ŷ-free directions) |
  */
-import { controlPointsInto, resolveTolerances, withControlPoints } from '@openshaper/geom';
+import {
+  controlPointsInto,
+  resolveTolerances,
+  surfaceControlPoint,
+  withControlPoints,
+} from '@openshaper/geom';
 import type {
   Basis,
   ClampedBasis,
@@ -346,8 +351,12 @@ export type SymmetryNet = 'plan' | 'deck' | 'bottom' | 'band';
  * The symmetry DOF rules of one net of a (partly) built board (§3.7, §11.2).
  * The pairing is computed from the net's own basis and checked; a net that is
  * absent or has no pairing is an error result (`symmetry-broken`), never a
- * throw. Feed the rules to geom's `makeDofMap` together with any other rules
- * for points the symmetry leaves free.
+ * throw. For a height field the control grid's x and y must also be paired
+ * bitwise (a symmetric extent, built in `'mirror-y'` mode), since the mirror
+ * rules overwrite them; z, and the plan's and band's control points, are what
+ * the rules pair (they come from the mirror overwrite; `validateBoard` checks
+ * the document's). Feed the rules to geom's `makeDofMap` together with any
+ * other rules for points the symmetry leaves free.
  */
 export function symmetryRules(
   b: Partial<Pick<BuiltBoard, 'plan' | 'deck' | 'bottom' | 'band'>>,
@@ -373,7 +382,36 @@ export function symmetryRules(
   }
   if (s.v.kind !== 'clamped') return fail('a height field is clamped in v');
   const r = clampedPairing(s.v, tol);
-  return r.ok ? board2Ok(heightFieldSymmetryRules(s.u.count, r.pairing)) : fail(r.message);
+  if (!r.ok) return fail(r.message);
+  // The mirror rules overwrite a partner's x and y from its master, so the affine
+  // grid must already be paired: otherwise a solve would move partner rows off it
+  // and the surface would stop being a graph z = F(x, y).
+  const bad = heightFieldGridAsymmetry(s, r.pairing);
+  if (bad !== null) return fail(bad);
+  return board2Ok(heightFieldSymmetryRules(s.u.count, r.pairing));
+}
+
+/**
+ * Where a height field's control grid is not mirror-paired bitwise in x and y
+ * (a partner `(x_m, −y_m)` of its master row, the middle row on y = 0), or
+ * `null`. z is not judged: pairing it is what the mirror rules do.
+ */
+function heightFieldGridAsymmetry(s: NurbsSurface, v: Pairing): string | null {
+  for (let i = 0; i < s.u.count; i++) {
+    for (let j = 0; j < v.partner.length; j++) {
+      const p = surfaceControlPoint(s, i, j);
+      if (v.role[j] === 'self' && p.y !== 0) {
+        return `control point (${i}, ${j}) is on the stringer row but y ≠ 0`;
+      }
+      if (v.role[j] === 'partner') {
+        const m = surfaceControlPoint(s, i, v.partner[j]!);
+        if (p.x !== m.x || p.y !== -m.y) {
+          return `control point (${i}, ${j}) is not the mirror in x, y of (${i}, ${v.partner[j]}): the y extent must be [−a, a] and the grid paired bitwise`;
+        }
+      }
+    }
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------

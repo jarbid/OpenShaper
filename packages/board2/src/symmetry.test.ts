@@ -6,9 +6,11 @@
  * Oracles:
  * - **Pairing** on random symmetric periodic bases (seeded): the partner's
  *   Greville abscissa is the mirror `−ū (mod 1)` within geom's `paramRel`, the
- *   map is an involution, masters are exactly the points with ū ∈ (0, ½), and
- *   the self-paired points are exactly those at 0 and ½. Asymmetric knot sets
- *   are refused.
+ *   map is an involution, and the roles agree with it (master ↔ partner, self
+ *   exactly at fixed points). Which points are masters and self-paired is
+ *   pinned on hand-worked cases: the stadium (self at n/2 − 2 and n − 2) and
+ *   the off-knot uniform set (i + ½)/8 (no self point; masters 6, 7, 0, 1).
+ *   Asymmetric knot sets are refused.
  * - **Through geom's solver, bitwise**: `makeDofMap` accepts the rule set of
  *   every net (plan, height field, band), and a random drag solved by
  *   `prepareFairSolver`/`solveFair` leaves every partner the exact mirror of its
@@ -112,10 +114,42 @@ describe('pairing', () => {
         const j = partner[i]!;
         expect(partner[j], `seed ${seed}`).toBe(i);
         expect(circ(g[j]!, 1 - g[i]!), `seed ${seed}`).toBeLessThanOrEqual(PARAM_REL);
-        const tip = circ(g[i]!, 0) <= PARAM_REL || circ(g[i]!, 0.5) <= PARAM_REL;
-        expect(role[i], `seed ${seed}`).toBe(tip ? 'self' : g[i]! < 0.5 ? 'master' : 'partner');
+        // Roles agree with the involution: a master's partner is a partner, and only
+        // fixed points are self-paired.
+        const pair = `${role[i]}/${role[j]}`;
+        expect(['master/partner', 'partner/master', 'self/self'], `seed ${seed}`).toContain(pair);
+        expect(role[i] === 'self', `seed ${seed}`).toBe(i === j);
       }
+      expect(role.filter((x) => x === 'master').length).toBe(
+        role.filter((x) => x === 'partner').length,
+      );
     }
+  });
+
+  it('a hand-worked off-knot case: knots (i + ½)/8 have no self-paired point', () => {
+    // Uniform cubic: control point i has Greville (t_{i+1} + t_{i+2} + t_{i+3})/3 =
+    // t_{i+2} = (i + 2.5)/8 (mod 1). None is at 0 or ½; the mirror 1 − (i + 2.5)/8 =
+    // ((3 − i) + 2.5)/8 pairs i ↔ 3 − i (mod 8): 0↔3, 1↔2, 4↔7, 5↔6. The −y half
+    // (0, ½) holds the abscissae 0.5/8 … 3.5/8, i.e. i = 6, 7, 0, 1.
+    const b = periodicBasis(
+      3,
+      Array.from({ length: 8 }, (_, i) => (i + 0.5) / 8),
+      1,
+    );
+    const r = periodicPairing(b);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(Array.from(r.pairing.partner)).toEqual([3, 2, 1, 0, 7, 6, 5, 4]);
+    expect(r.pairing.role).toEqual([
+      'master',
+      'master',
+      'partner',
+      'partner',
+      'partner',
+      'partner',
+      'master',
+      'master',
+    ]);
   });
 
   it('the stadium and sample plans pair their tail and nose points with themselves', () => {
@@ -240,6 +274,34 @@ describe('DOF rules through geom’s solver: partners stay exact mirrors', () =>
       }
       expect(checksum(result)).not.toBe(checksum(deck));
     }
+  });
+
+  it('height fields: an unpaired x, y grid (asymmetric extent) gets no mirror rules', () => {
+    // With symmetric v knots but y ∈ [−10, 30], mirror rules would overwrite each
+    // partner row's y with −y_master, moving it off the affine grid: refused.
+    const d = stadiumBoard();
+    const asym = { ...d.deck, y: [-10, 30] as const };
+    const r = symmetryRules({ deck: heightFieldSurface(asym, 'none') }, 'deck');
+    expect(r.ok).toBe(false);
+    expect(r.issues.map((i) => i.code)).toEqual(['symmetry-broken']);
+    // A stringer row off y = 0: one ulp on the middle row's y.
+    const deck = heightFieldSurface(d.deck, 'mirror-y');
+    const nv = deck.v.count;
+    const pts = new Float64Array(deck.u.count * nv * 3);
+    for (let i = 0; i < deck.u.count; i++) {
+      for (let j = 0; j < nv; j++) {
+        const p = surfaceControlPoint(deck, i, j);
+        pts.set([p.x, p.y, p.z], (i * nv + j) * 3);
+      }
+    }
+    pts[((nv - 1) / 2) * 3 + 1] = 1e-300;
+    const off = makeSurface({ u: deck.u, v: deck.v, points: pts });
+    expect(symmetryRules({ deck: off }, 'deck').ok).toBe(false);
+    // The symmetric build of the same document is accepted (the positive control).
+    expect(symmetryRules({ deck }, 'deck').ok).toBe(true);
+    expect(symmetryRules({ bottom: heightFieldSurface(d.bottom, 'mirror-y') }, 'bottom').ok).toBe(
+      true,
+    );
   });
 
   it('band: every row of a partner column mirrors its master column; stringer columns keep y = 0', () => {
