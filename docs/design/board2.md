@@ -1143,6 +1143,13 @@ through their modules, not in the pin): `checkLawKeys`, `certifyLawRange`, `lawV
 8. **DEFAULT_RAIL_LAWS** values (the design names the record, not its values): deck inset
    5.25 cm and tuck inset 2 cm (21% and 8% of a 25 cm half width, the medians of §12.2), apex
    height 0.4, fullness 2/3 (the parabola), hardness 0.5.
+9. **Review fixes (S1)**: `checkLawKeys` is total on a `build.tolerances` record geom rejects (it
+   falls back to the defaults; `validateBuildParams` reports the record as `doc-malformed`), so
+   `validateBoard` never throws on a typed document. The flat-tip test judges the tangent
+   slope, `|dv| <= LAW_ROUNDING_REL * scale * ds`, with the value-scale floor named
+   `LAW_VALUE_SCALE_FLOOR` (1). Tests added: a cyclic Hermite reference for full-domain laws
+   (5e-14 absolute: values span up to 3 and the Bezier route adds a root solve, measured ~1e-14)
+   and hand-computed slope pins (half, box clamp, wrap segment).
 
 **Oracles and tolerances.** Hermite closed form (independent evaluation in the Hermite basis)
 1e-14 absolute; slope continuity 1e-12; de Casteljau round trip through the root solve 1e-10

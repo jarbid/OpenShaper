@@ -27,11 +27,21 @@ const DEG = Math.PI / 180;
  * built as `v + m·ds` (one multiply, one add), so it can miss the key value it
  * is meant to reach by about one unit in the last place of the larger operand;
  * four machine epsilons leave a factor of two of margin and no more. It is a
- * rounding allowance on exact decisions (auto handles reach their key value
- * exactly in real arithmetic), not a design tolerance: it is applied relative to
- * the largest value on the segment.
+ * rounding allowance on exact decisions, not a design tolerance, applied
+ * relative to the largest value on the segment. Auto handles are clamped to
+ * their key value exactly, so the allowance matters for explicit handles
+ * (computed by the caller) and for the range hull; the flat-tip test applies it
+ * to the tangent slope, `|dv| ≤ LAW_ROUNDING_REL · scale · ds`.
  */
 export const LAW_ROUNDING_REL = 4 * Number.EPSILON;
+
+/**
+ * Floor of the value scale in the flat-tip test, in value units, so a law whose
+ * values are all near zero is not judged against a vanishing allowance. One unit
+ * is the size of a typical law value (a thickness fraction, a length in the
+ * document's unit); it only widens the allowance by a few epsilons.
+ */
+export const LAW_VALUE_SCALE_FLOOR = 1;
 
 /** The §12.1 defaults, frozen. Reasons per entry are in the design table. */
 export const DEFAULT_BUILD_PARAMS: BuildParams = deepFreeze({

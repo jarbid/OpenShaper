@@ -38,7 +38,7 @@
 import { DEFAULT_TOLERANCES, resolveTolerances } from '@openshaper/geom';
 import type { Tolerances } from '@openshaper/geom';
 import { makeIssue } from './issues';
-import { LAW_ROUNDING_REL } from './params';
+import { LAW_ROUNDING_REL, LAW_VALUE_SCALE_FLOOR } from './params';
 import type { Board2Issue, KeyedCurve, LawCurve, LawKey, RailLane } from './types';
 
 /** One resolved Bézier segment in the `(s, value)` plane. */
@@ -265,6 +265,20 @@ const atKey = (ctx: LawContext, key: number, sigma?: number): Board2Issue['at'] 
 });
 
 /**
+ * Tolerances for a structural check, total: a record geom rejects falls back to
+ * the defaults (the document-level validator reports the bad record itself as
+ * `build-param-invalid`, so this check must not throw on it).
+ */
+function safeTolerances(tol: Partial<Tolerances> | undefined): Tolerances {
+  if (tol === undefined) return DEFAULT_TOLERANCES;
+  try {
+    return resolveTolerances(tol);
+  } catch {
+    return DEFAULT_TOLERANCES;
+  }
+}
+
+/**
  * Structure of a curve's keys: finite numbers (`doc-malformed`), at least two keys,
  * strictly increasing `s`, the domain's end keys (half: exactly 0 and ½; full: in
  * [0, 1)), handles with `ds ≥ 0` that do not overlap (`law-keys-unsorted`), and a
@@ -275,7 +289,7 @@ export function checkLawKeys(
   ctx: LawContext = {},
   tol?: Partial<Tolerances>,
 ): readonly Board2Issue[] {
-  const t = tol === undefined ? DEFAULT_TOLERANCES : resolveTolerances(tol);
+  const t = safeTolerances(tol);
   const kind = kindOf(law);
   const keys = law.keys;
   const out: Board2Issue[] = [];
@@ -413,18 +427,18 @@ export function checkLawKeys(
  * True if the Bézier's end tangent is horizontal in the `(s, value)` plane. The
  * tangent direction at an end is the first non-zero difference towards the interior
  * (a zero-length handle defers to the next control point); a vertical or sloped
- * direction is not flat. The value component is compared with the rounding
- * allowance {@link LAW_ROUNDING_REL}.
+ * direction is not flat. The slope `dv/ds` is compared with the rounding
+ * allowance {@link LAW_ROUNDING_REL} (relative to the segment's value scale).
  */
 function flatTangent(s: readonly number[], v: readonly number[], atEnd: boolean): boolean {
-  const scale = Math.max(...v.map(Math.abs), 1);
+  const scale = Math.max(...v.map(Math.abs), LAW_VALUE_SCALE_FLOOR);
   const order = atEnd ? [2, 1, 0] : [1, 2, 3];
   const base = atEnd ? 3 : 0;
   for (const j of order) {
     const ds = s[j]! - s[base]!;
     const dv = v[j]! - v[base]!;
     if (ds !== 0 || dv !== 0) {
-      return Math.abs(dv) <= LAW_ROUNDING_REL * scale && ds !== 0;
+      return ds !== 0 && Math.abs(dv) <= LAW_ROUNDING_REL * scale * Math.abs(ds);
     }
   }
   return true; // a constant segment

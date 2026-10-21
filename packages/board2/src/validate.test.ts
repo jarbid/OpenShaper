@@ -29,6 +29,17 @@ describe('validateBoard: a valid document', () => {
     expect(r.ok && validateBoard(r.value)).toEqual([]);
   });
 
+  it('never throws on invalid build tolerances; reports them instead', () => {
+    const d = edit((x) => {
+      x.build = { ...x.build, tolerances: { paramRel: -1 } };
+    });
+    let issues: ReturnType<typeof validateBoard> = [];
+    expect(() => {
+      issues = validateBoard(d);
+    }).not.toThrow();
+    expect(issues.map((i) => i.code)).toContain('doc-malformed');
+  });
+
   it('does not mutate the document', () => {
     const d = sampleDoc();
     const before = checksum(d);

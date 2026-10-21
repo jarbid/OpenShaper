@@ -81,6 +81,42 @@ function hermiteReference(keys: readonly LawKey[], flatEnds: boolean): (x: numbe
   };
 }
 
+/**
+ * Independent Hermite reference for a full (periodic) domain: cyclic neighbours,
+ * the wrap segment of length `s0 + 1 - s_last`, evaluated in the Hermite basis.
+ */
+function hermiteCyclic(keys: readonly LawKey[]): (x: number) => number {
+  const n = keys.length;
+  const len = (k: number): number =>
+    k + 1 < n ? keys[k + 1]!.s - keys[k]!.s : keys[0]!.s + 1 - keys[n - 1]!.s;
+  const secant = (k: number): number => (keys[(k + 1) % n]!.value - keys[k]!.value) / len(k);
+  const m = keys.map((_, k) => {
+    const l = (k + n - 1) % n;
+    const a = secant(l);
+    const b = secant(k);
+    if (a * b <= 0) return 0;
+    const three = (len(k) * a + len(l) * b) / (len(l) + len(k));
+    return Math.sign(three) * Math.min(Math.abs(three), 3 * Math.abs(a), 3 * Math.abs(b));
+  });
+  return (x) => {
+    let k = n - 1; // the wrap segment holds x below the first key
+    for (let j = 0; j < n; j++) if (x >= keys[j]!.s) k = j;
+    const s0 = keys[k]!.s;
+    const h = len(k);
+    const t = (x >= s0 ? x - s0 : x + 1 - s0) / h;
+    const h00 = (1 + 2 * t) * (1 - t) * (1 - t);
+    const h10 = t * (1 - t) * (1 - t);
+    const h01 = t * t * (3 - 2 * t);
+    const h11 = t * t * (t - 1);
+    return (
+      h00 * keys[k]!.value +
+      h10 * h * m[k]! +
+      h01 * keys[(k + 1) % n]!.value +
+      h11 * h * m[(k + 1) % n]!
+    );
+  };
+}
+
 describe('auto ease: the monotone cubic Hermite closed form', () => {
   it('matches the Hermite reference on 40 random half-domain laws (1e-14)', () => {
     let worst = 0;
@@ -108,6 +144,71 @@ describe('auto ease: the monotone cubic Hermite closed form', () => {
         expect(Math.abs(f(x) - ref(x))).toBeLessThanOrEqual(1e-14);
       }
     }
+  });
+
+  it('full-domain laws match the cyclic Hermite reference, across the wrap (5e-14)', () => {
+    let worst = 0;
+    for (let trial = 0; trial < 30; trial++) {
+      const n = 3 + (trial % 5);
+      const s = Array.from({ length: n }, (_, i) => (i + between(0.05, 0.9)) / n);
+      const keys = s.map((x) => ({ s: x, value: between(-1, 2) }));
+      const f = lawEvaluator({ domain: 'full', keys });
+      const ref = hermiteCyclic(keys);
+      for (let i = 0; i < 500; i++) {
+        const x = i / 500;
+        worst = Math.max(worst, Math.abs(f(x) - ref(x)));
+      }
+      // the wrap: just either side of sigma = 1 / 0
+      worst = Math.max(worst, Math.abs(f(1 - 1e-9) - ref(1 - 1e-9)));
+    }
+    // Values span up to 3 and the Bezier route adds a root solve plus wrap shifts, so a few
+    // tens of ulps of the value range: 5e-14 (measured worst ~1e-14).
+    expect(worst).toBeLessThanOrEqual(5e-14);
+  });
+
+  it('pins the slope rule by hand-computed handles (exact arithmetic on small cases)', () => {
+    // Half: keys (0,0) (0.1,1) (0.5,3). Interior secants 10 and 5, h = 0.1 and 0.4,
+    // weighted slope (0.4*10 + 0.1*5)/0.5 = 9 (below the 3*5 = 15 box).
+    // Handles reach 1/3 of the segment: v = 1 - 9*0.1/3 = 0.7 and 1 + 9*0.4/3 = 2.2.
+    const half = lawSegments({
+      domain: 'half',
+      keys: [
+        { s: 0, value: 0 },
+        { s: 0.1, value: 1 },
+        { s: 0.5, value: 3 },
+      ],
+    });
+    expect(half[0]!.v[2]).toBeCloseTo(0.7, 14);
+    expect(half[1]!.v[1]).toBeCloseTo(2.2, 14);
+    // Box clamp: secants 10 and 0.05 give 8.01, limited to 3*0.05 = 0.15: v = 1 + 0.15*0.4/3 = 1.02.
+    const boxed = lawSegments({
+      domain: 'half',
+      keys: [
+        { s: 0, value: 0 },
+        { s: 0.1, value: 1 },
+        { s: 0.5, value: 1.02 },
+      ],
+    });
+    expect(boxed[1]!.v[1]).toBeCloseTo(1.02, 14);
+    expect(boxed[0]!.v[2]).toBeCloseTo(1 - (0.15 * 0.1) / 3, 14);
+    // Full: s (0, .2, .5, .7), values (0, 1, 3, 2); wrap length 0.3. Key 3 has secants
+    // -5 (h .2) and -20/3 (wrap, h .3): slope (0.3*-5 + 0.2*-20/3)/0.5 = -17/3; key 0 is an
+    // extremum (slope 0). Wrap segment: v = 2, 2 - (17/3)*0.3/3, 0, 0.
+    const full = lawSegments({
+      domain: 'full',
+      keys: [
+        { s: 0, value: 0 },
+        { s: 0.2, value: 1 },
+        { s: 0.5, value: 3 },
+        { s: 0.7, value: 2 },
+      ],
+    });
+    const wrap = full[3]!;
+    expect(wrap.v[0]).toBe(2);
+    expect(wrap.v[1]).toBeCloseTo(2 - (17 / 3) * 0.1, 14);
+    expect(wrap.v[2]).toBe(0);
+    expect(wrap.v[3]).toBe(0);
+    expect(wrap.s[3]).toBeCloseTo(1, 15);
   });
 
   it('reproduces every key value exactly (===), in all three kinds', () => {
@@ -625,6 +726,25 @@ describe('checkLawKeys: structure', () => {
     };
     // P2 = (0.4, 1.5): the tangent at the start is sloped.
     expect(codes(sloped)).toContain('law-tip-slope');
+  });
+
+  it('judges tip flatness on the slope, not on the handle height', () => {
+    const tip = (ds: number, dv: number): LawCurve => ({
+      domain: 'half',
+      keys: [
+        { s: 0, value: 5, out: { ds, dv } },
+        { s: 0.5, value: 5 },
+      ],
+    });
+    // Slope 4e-3 with a tiny dv: not flat (the old absolute test accepted it).
+    expect(codes(tip(1e-12, 4e-15))).toContain('law-tip-slope');
+    // Rounding-sized slope: flat.
+    expect(codes(tip(0.2, 5 * Number.EPSILON))).toEqual([]);
+  });
+
+  it('is total on tolerances geom rejects (falls back to the defaults)', () => {
+    expect(() => checkLawKeys(good(), {}, { paramRel: -1 })).not.toThrow();
+    expect(checkLawKeys(good(), {}, { paramRel: -1 })).toEqual([]);
   });
 
   it('locates issues by lane, key and σ', () => {
