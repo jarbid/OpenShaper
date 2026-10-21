@@ -221,6 +221,8 @@ export {
   projectCurveSamplesToSurface,
 } from './curve-on-surface';
 export type { PcurveSamples } from './curve-on-surface';
+export { curveOnSurfaceTo3d, DEFAULT_EDGE_FIT, projectCurveToSurface } from './edge-fit';
+export type { EdgeFitSampling } from './edge-fit';
 
 // Trimmed surfaces and integration (§6.16)
 export {

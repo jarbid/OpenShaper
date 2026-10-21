@@ -11,6 +11,7 @@
  * | `sphericalZoneSolid`   | `|latitude| ≤ φ` zone of a sphere (one or two bands), caps   | `π (r² h − h³/12)`, `h = 2 r sin φ` |
  * | `torusSolid`           | one doubly periodic face, two seams, one vertex              | `2 π² R r²`               |
  * | `plateWithHoleSolid`   | box with a cylindrical through-hole: two holed planar faces  | `x·y·z − π r² z`          |
+ * | `ellipticPuckSolid`    | elliptic band, planar bottom, planar or fitted-bicubic deck  | `π a b h`                 |
  *
  * Orientation follows `faces.ts`: loops in face orientation (counter-clockwise
  * seen from outside), a coedge's pcurve parameterised like its edge curve.
@@ -19,6 +20,7 @@
  * test.
  */
 import {
+  bezierSurface,
   circle,
   circle2,
   circleArc,
@@ -27,9 +29,14 @@ import {
   line2,
   planeSurface,
   revolve,
+  ruled,
   torus,
 } from '../primitives';
-import { controlPoint } from '../curve';
+import { fail } from '../errors';
+import { controlPoint, transformCurve, transformCurve2 } from '../curve';
+import { projectCurveToSurface } from '../edge-fit';
+import type { EdgeFitSampling } from '../edge-fit';
+import type { Tolerances } from '../tolerance';
 import { makeBrep, unwrapBrep } from '../brep/brep';
 import type {
   Brep,
@@ -417,4 +424,168 @@ export function torusSolid(R: number, r: number): Brep {
       solids: [{ outer: 0, genus: 1 }],
     }),
   );
+}
+
+/**
+ * The deck's control-net fractions along each parameter: a monotone but
+ * **non-uniform** spacing, so `x(u)` and `y(v)` are genuinely cubic and the
+ * pcurve of the deck's boundary is not an affine image of the ellipse.
+ */
+const DECK_U_FRACTIONS = [0, 0.15, 0.8, 1] as const;
+const DECK_V_FRACTIONS = [0, 0.35, 0.6, 1] as const;
+/** How far past the ellipse's bounding box the deck's domain reaches, as a fraction of a semi-axis. */
+const DECK_MARGIN = 0.25;
+
+/**
+ * The elliptic puck (design §15.3 corpus V5): the solid with the board's
+ * three-patch topology (a side band, a bottom, a deck) and one analytic volume.
+ *
+ * - The **band** is the ruled surface between the bottom ellipse (semi-axes
+ *   `a` along x and `b` along y, in the plane `z = 0`) and the top ellipse, a
+ *   rational biquadratic-by-linear patch, exact.
+ * - The **bottom** is the plane `z = 0`, trimmed by the ellipse (its pcurve an
+ *   exact affine image of `circle2`).
+ * - The **deck**, flat by default (`z = h`, an exact rational pcurve), or with
+ *   `bicubicDeck` a **bicubic Bézier patch** that is geometrically the tilted
+ *   plane `z = h + tilt · x` but parameterised non-uniformly in both
+ *   directions (`DECK_*_FRACTIONS`), so its trim is the genuine product of the
+ *   edge fitter: the top edge is the exact 3D ellipse `(a cos θ, b sin θ, h +
+ *   tilt · a cos θ)`, and its **pcurve on the deck is fitted**
+ *   ({@link projectCurveToSurface}), so the coedge's pcurve image differs from
+ *   the edge curve by up to the fit tolerance `tol.fit`, and the B-rep's
+ *   `edgeGaps` and the STEP uncertainty report exactly that.
+ *
+ * The volume is `π a b h` in both variants: a tilt about the plane's centroid
+ * (`x = 0`, by symmetry the mean of `x` over the ellipse is zero) does not
+ * change it. Seven loops: three faces, three edges (two ellipses and the seam
+ * line), two vertices.
+ *
+ * `tol` and `sampling` go to the pcurve fit. Throws `GeomError` when the fit
+ * fails and `brep-invalid` when the result does not check.
+ */
+export function ellipticPuckSolid(
+  a: number,
+  b: number,
+  h: number,
+  opts?: {
+    readonly bicubicDeck?: boolean;
+    /** Slope `dz/dx` of the bicubic deck (default 0.1); ignored for the flat deck. */
+    readonly tilt?: number;
+    readonly tol?: Partial<Tolerances>;
+    readonly sampling?: Partial<EdgeFitSampling>;
+  },
+): Brep {
+  const bicubic = opts?.bicubicDeck === true;
+  const tilt = bicubic ? (opts?.tilt ?? 0.1) : 0;
+  const unitCircle = circle({ x: 0, y: 0, z: 0 }, X, Y, 1);
+  // Row-major 3×4: x' = a x, y' = b y, z' = tilt · a x + z + h (the unit circle is flat).
+  const bottomEllipse = transformCurve(unitCircle, [a, 0, 0, 0, 0, b, 0, 0, 0, 0, 1, 0]);
+  const topEllipse = transformCurve(unitCircle, [a, 0, 0, 0, 0, b, 0, 0, tilt * a, 0, 1, h]);
+  const vb = startPoint(bottomEllipse);
+  const vt = startPoint(topEllipse);
+  const edges: BrepEdge[] = [
+    { curve: bottomEllipse, start: 0, end: 0 },
+    { curve: topEllipse, start: 1, end: 1 },
+    { curve: line(vb, vt), start: 0, end: 1 },
+  ];
+  const band: BrepFace = {
+    surface: ruled(bottomEllipse, topEllipse),
+    sameSense: true,
+    outer: {
+      coedges: [
+        coedge(0, true, line2({ x: 0, y: 0 }, { x: 1, y: 0 })),
+        coedge(2, true, line2({ x: 1, y: 0 }, { x: 1, y: 1 })),
+        coedge(1, false, line2({ x: 0, y: 1 }, { x: 1, y: 1 })),
+        coedge(2, false, line2({ x: 0, y: 0 }, { x: 0, y: 1 })),
+      ],
+    },
+    holes: [],
+  };
+  const half = 2 * Math.max(a, b);
+  const planarPcurve = transformCurve2(circle2({ x: 0, y: 0 }, 1), [a, 0, 0, 0, b, 0]);
+  const bottom: BrepFace = {
+    surface: capPlane({ x: 0, y: 0, z: 0 }, half),
+    sameSense: false,
+    outer: { coedges: [coedge(0, false, planarPcurve)] },
+    holes: [],
+  };
+  let deck: BrepFace;
+  if (bicubic) {
+    const xs = DECK_U_FRACTIONS.map((f) => -a * (1 + DECK_MARGIN) + 2 * a * (1 + DECK_MARGIN) * f);
+    const ys = DECK_V_FRACTIONS.map((f) => -b * (1 + DECK_MARGIN) + 2 * b * (1 + DECK_MARGIN) * f);
+    const points: number[] = [];
+    for (const x of xs) for (const y of ys) points.push(x, y, h + tilt * x);
+    const surface = bezierSurface(points, 4, 4);
+    const fit = projectCurveToSurface(topEllipse, surface, opts?.tol, opts?.sampling);
+    if (!fit.ok || !fit.value.withinTolerance) {
+      // Better a refused solid than one whose gaps are bigger than its caller asked for.
+      fail('not-converged', `ellipticPuckSolid: the deck's pcurve did not fit within tolerance`, {
+        issues: fit.issues,
+        ...(fit.ok ? { value: fit.value.maxDeviation } : {}),
+      });
+    }
+    deck = {
+      surface,
+      sameSense: true,
+      outer: { coedges: [coedge(1, true, fit.value.pcurve)] },
+      holes: [],
+    };
+  } else {
+    deck = {
+      surface: capPlane({ x: 0, y: 0, z: h }, half),
+      sameSense: true,
+      outer: { coedges: [coedge(1, true, planarPcurve)] },
+      holes: [],
+    };
+  }
+  const faces = [band, bottom, deck];
+  return unwrapBrep(
+    makeBrep({
+      vertices: [{ point: vb }, { point: vt }],
+      edges,
+      faces,
+      shells: [{ faces: [0, 1, 2], closed: true }],
+      solids: [{ outer: 0, genus: 0 }],
+    }),
+  );
+}
+
+/**
+ * The closed forms of {@link ellipticPuckSolid} (semi-axes `a`, `b`, height `h`,
+ * deck slope `tilt` along x; `tilt = 0` for the flat deck): the independent
+ * oracle of its volume, area and centroid.
+ *
+ * - volume `π a b h`; the tilt changes the height by `tilt · x`, whose mean over
+ *   the ellipse is zero;
+ * - area: bottom `π a b`, deck `π a b · √(1 + tilt²)` (a plane inclined by
+ *   `tilt`), band `∮ (h + tilt · a cos θ) · |E′(θ)| dθ` with `|E′| =
+ *   √(a² sin²θ + b² cos²θ)` (the ruled band's normal is `H(θ) · E₀′ × ẑ`), evaluated by
+ *   the trapezoidal rule with `bandSamples` points: spectrally accurate for a smooth
+ *   periodic integrand, so rounding-limited long before 4096;
+ * - centroid `x = tilt · a² / (4h)`, `y = 0`, `z = h/2 + tilt² a² / (8h)`, from the
+ *   first moments `∬ x (h + tilt x) dA = tilt · π a³ b / 4` and `½ ∬ (h + tilt x)² dA`.
+ */
+export function ellipticPuckExact(
+  a: number,
+  b: number,
+  h: number,
+  tilt = 0,
+  bandSamples = 4096,
+): { readonly volume: number; readonly area: number; readonly centroid: Point3 } {
+  let band = 0;
+  for (let i = 0; i < bandSamples; i++) {
+    const t = (2 * Math.PI * i) / bandSamples;
+    band += (h + tilt * a * Math.cos(t)) * Math.hypot(a * Math.sin(t), b * Math.cos(t));
+  }
+  band *= (2 * Math.PI) / bandSamples;
+  const ellipse = Math.PI * a * b;
+  return Object.freeze({
+    volume: ellipse * h,
+    area: ellipse + ellipse * Math.sqrt(1 + tilt * tilt) + band,
+    centroid: Object.freeze({
+      x: (tilt * a * a) / (4 * h),
+      y: 0,
+      z: h / 2 + (tilt * tilt * a * a) / (8 * h),
+    }),
+  });
 }

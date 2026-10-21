@@ -13,6 +13,8 @@ export { solveFairReference } from './reference-solver';
 export {
   boxSolid,
   cylinderSolid,
+  ellipticPuckExact,
+  ellipticPuckSolid,
   plateWithHoleSolid,
   sphericalZoneSolid,
   torusSolid,

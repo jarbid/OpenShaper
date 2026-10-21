@@ -68,6 +68,7 @@ import {
   vec,
 } from './index';
 import type { CurveOnSurface, GeomErrorCode, NurbsCurve, NurbsSurface, Point3 } from './index';
+import { curveSampleProjector } from './curve-on-surface';
 import { mulberry32, randomClampedBasis } from './testing';
 
 const EPS = Number.EPSILON;
@@ -526,5 +527,52 @@ describe('projectCurveSamplesToSurface', () => {
       'dimension-mismatch',
     );
     expect(surfaceDomain(s).u).toEqual([0, 1]);
+  });
+});
+
+describe('curveSampleProjector (prepared surface, seeded samples)', () => {
+  const side = cylinder({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }, 2, 3);
+  const ring = periodicCircle(
+    { x: 0, y: 0, z: 1.5 },
+    { x: 1, y: 0, z: 0 },
+    { x: 0, y: 1, z: 0 },
+    2,
+  );
+  const ts = Float64Array.from({ length: 21 }, (_, i) => 0.9 + (0.2 * i) / 20);
+
+  it('is projectCurveSamplesToSurface, prepared once: the same samples, call after call', () => {
+    const project = curveSampleProjector(ring, side);
+    const a = projectCurveSamplesToSurface(ring, side, ts);
+    for (let k = 0; k < 2; k++) {
+      const b = project(ts);
+      expect(Array.from(b.uv)).toEqual(Array.from(a.uv));
+      expect(Array.from(b.distance)).toEqual(Array.from(a.distance));
+      expect(b.notConverged).toBe(0);
+    }
+  });
+
+  it('starts from a seed and unwraps a periodic direction relative to it, not to the first sample', () => {
+    const project = curveSampleProjector(ring, side);
+    // The ring at t = 1.02 is the point at u = 0.02 (a period past 0.02): which period the
+    // answer lies in is the seed's, and the point is the same one.
+    const t = Float64Array.of(1.02);
+    const near1 = project(t, [0.98, 0.5]);
+    expect(near1.notConverged).toBe(0);
+    expect(Math.abs(near1.uv[0]! - 1.02)).toBeLessThanOrEqual(1e-9);
+    const near0 = project(t, [0.01, 0.5]);
+    expect(Math.abs(near0.uv[0]! - 0.02)).toBeLessThanOrEqual(1e-9);
+    // Both are the same surface point to rounding.
+    for (const r of [near0, near1]) {
+      const p = surfacePoint(side, r.uv[0]!, r.uv[1]!);
+      const q = curvePoint(ring, 1.02);
+      expect(Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z)).toBeLessThanOrEqual(64 * EPS * 2);
+    }
+  });
+
+  it('validates its curve once, at construction', () => {
+    expectCode(
+      () => curveSampleProjector(line2({ x: 0, y: 0 }, { x: 1, y: 1 }) as never, side),
+      'dimension-mismatch',
+    );
   });
 });

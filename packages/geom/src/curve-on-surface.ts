@@ -27,8 +27,8 @@
  *   started, globally seeded on failure: project.ts), unwraps periodic
  *   directions so the samples are continuous, and reports every distance. The
  *   samples are the input of the same-parameter pcurve fit
- *   (`projectCurveToSurface`), which needs Track A's least squares and lands
- *   at integration (geom-core.md §18).
+ *   (`projectCurveToSurface`, edge-fit.ts, geom-core.md §6.15), which uses
+ *   {@link curveSampleProjector} to prepare the surface once.
  */
 import { checkOut, makeScratch, scratchFor } from './array';
 import type { Scratch, ScratchImpl } from './array';
@@ -413,6 +413,31 @@ export function projectCurveSamplesToSurface(
   ts: ArrayLike<number>,
   opts?: { readonly tol?: Partial<Tolerances>; readonly seeding?: Partial<ProjectionSeeding> },
 ): PcurveSamples {
+  return curveSampleProjector(c, s, opts)(ts);
+}
+
+/**
+ * A projector of one curve's samples onto one surface: {@link projectCurveSamplesToSurface}
+ * with the validation and the surface's preparation (the cell boxes the global
+ * seeding searches, ~100 µs for a 40 × 20 net) done once. The edge fitters call
+ * it per refinement pass and, with a `seed`, per step of a bisection.
+ *
+ * With `seed = [u, v]` every sample starts Newton from that parameter pair
+ * (globally seeded only if that fails) and periodic directions are unwrapped
+ * relative to it, so a result lies within half a period of the seed: for
+ * locating where a curve crosses a knot line of the surface from a known point
+ * next to it. Without a seed, each sample starts from the previous one.
+ */
+export type CurveSampleProjector = (
+  ts: ArrayLike<number>,
+  seed?: readonly [number, number],
+) => PcurveSamples;
+
+export function curveSampleProjector(
+  c: NurbsCurve<3>,
+  s: NurbsSurface,
+  opts?: { readonly tol?: Partial<Tolerances>; readonly seeding?: Partial<ProjectionSeeding> },
+): CurveSampleProjector {
   if (typeof c !== 'object' || c === null) fail('size-mismatch', 'expected a curve');
   checkBasisShape(c.basis);
   if (c.dim !== 3) {
@@ -426,47 +451,60 @@ export function projectCurveSamplesToSurface(
   checkSurfaceShape(s);
   const tol = resolveTolerances(opts?.tol);
   const seeding = checkSeeding(opts?.seeding);
-  const n = ts.length;
-  const tv = new Float64Array(n);
-  const pts = new Float64Array(3 * n);
-  const sc = makeScratch(c.basis.degree, 0);
-  for (let i = 0; i < n; i++) {
-    const t = ts[i]!;
-    const u = checkParam(c.basis, t, undefined, tol);
-    if (i > 0 && !(t >= tv[i - 1]!)) {
-      fail('size-mismatch', `parameters must be non-decreasing; t[${i}] = ${t} < t[${i - 1}]`, {
-        index: i,
-        value: t,
-      });
-    }
-    tv[i] = t;
-    evalCurveSpan(c, u, spanOf(c.basis, u, false), 0, sc);
-    for (let k = 0; k < 3; k++) pts[3 * i + k] = sc.f[sc.oC + k]!;
-  }
-  const uv = new Float64Array(2 * n);
-  const distance = new Float64Array(n);
   const pr = prepareSurface(s, tol, seeding);
-  const notConverged = projectSurfaceBatch(pr, pts, n, uv, distance, true, undefined);
-  unwrap(uv, 0, s.u);
-  unwrap(uv, 1, s.v);
-  let maxDistance = 0;
-  for (let i = 0; i < n; i++) if (distance[i]! > maxDistance) maxDistance = distance[i]!;
-  return Object.freeze({
-    t: tv,
-    uv,
-    distance,
-    maxDistance,
-    notConverged,
-    withinTolerance: notConverged === 0 && maxDistance <= tol.fit,
-  });
+  return (ts, seed) => {
+    const n = ts.length;
+    const tv = new Float64Array(n);
+    const pts = new Float64Array(3 * n);
+    const sc = makeScratch(c.basis.degree, 0);
+    for (let i = 0; i < n; i++) {
+      const t = ts[i]!;
+      const u = checkParam(c.basis, t, undefined, tol);
+      if (i > 0 && !(t >= tv[i - 1]!)) {
+        fail('size-mismatch', `parameters must be non-decreasing; t[${i}] = ${t} < t[${i - 1}]`, {
+          index: i,
+          value: t,
+        });
+      }
+      tv[i] = t;
+      evalCurveSpan(c, u, spanOf(c.basis, u, false), 0, sc);
+      for (let k = 0; k < 3; k++) pts[3 * i + k] = sc.f[sc.oC + k]!;
+    }
+    const uv = new Float64Array(2 * n);
+    const distance = new Float64Array(n);
+    let seeds: Float64Array | undefined;
+    if (seed !== undefined) {
+      seeds = new Float64Array(2 * n);
+      for (let i = 0; i < n; i++) {
+        seeds[2 * i] = seed[0];
+        seeds[2 * i + 1] = seed[1];
+      }
+    }
+    const notConverged = projectSurfaceBatch(pr, pts, n, uv, distance, true, seeds);
+    unwrap(uv, 0, s.u, seed?.[0]);
+    unwrap(uv, 1, s.v, seed?.[1]);
+    let maxDistance = 0;
+    for (let i = 0; i < n; i++) if (distance[i]! > maxDistance) maxDistance = distance[i]!;
+    return Object.freeze({
+      t: tv,
+      uv,
+      distance,
+      maxDistance,
+      notConverged,
+      withinTolerance: notConverged === 0 && maxDistance <= tol.fit,
+    });
+  };
 }
 
-/** Shifts coordinate `k` of each sample by whole periods to within half a period of the previous one. */
-function unwrap(uv: Float64Array, k: 0 | 1, b: Basis): void {
+/**
+ * Shifts coordinate `k` of each sample by whole periods to within half a period of the previous
+ * one (of `first`, for the first sample, when given).
+ */
+function unwrap(uv: Float64Array, k: 0 | 1, b: Basis, first?: number): void {
   if (b.kind !== 'periodic') return;
   const T = b.period;
-  for (let i = 1; 2 * i + k < uv.length; i++) {
-    const prev = uv[2 * (i - 1) + k]!;
+  for (let i = first === undefined ? 1 : 0; 2 * i + k < uv.length; i++) {
+    const prev = i === 0 ? first! : uv[2 * (i - 1) + k]!;
     const x = uv[2 * i + k]!;
     const shift = Math.round((prev - x) / T);
     if (shift !== 0) uv[2 * i + k] = x + shift * T;

@@ -28,6 +28,7 @@ import {
   cylinderSolid,
   MUTATIONS,
   plateWithHoleSolid,
+  ellipticPuckSolid,
   sphericalZoneSolid,
   torusSolid,
 } from '../testing';
@@ -51,6 +52,7 @@ const SOLIDS: readonly (readonly [string, () => Brep, number, number])[] = [
   ['split zone', () => sphericalZoneSolid(2, 1, { split: true }), zoneVolume(2, 1), 1e-9],
   ['torus', () => torusSolid(3, 1), 2 * PI * PI * 3 * 1, 1e-9],
   ['plate with a hole', () => plateWithHoleSolid(6, 5, 2, 1), 60 - 2 * PI, 1e-9],
+  ['elliptic puck', () => ellipticPuckSolid(3, 2, 1), PI * 3 * 2 * 1, 1e-9],
 ];
 
 describe('checkBrep on valid solids', () => {

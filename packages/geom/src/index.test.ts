@@ -16,7 +16,9 @@
  * and curves on surfaces; B2 trimmed surfaces, integration, exact predicates,
  * constrained Delaunay triangulation and tessellation; B3 continuity
  * measures; B4 the B-rep (structure, geometric check, orientation,
- * transforms, mass properties, continuity across edges) and the STEP writer.
+ * transforms, mass properties, continuity across edges) and the STEP writer; the
+ * integration milestone the edge fitters (`projectCurveToSurface`,
+ * `curveOnSurfaceTo3d`, `DEFAULT_EDGE_FIT`).
  *
  * The type-level checks run under `tsc` (`pnpm typecheck` type-checks tests):
  * they pin the conventions the core types encode, so loosening one of them
@@ -40,6 +42,7 @@ import type {
 /** Every runtime (value) export of `@openshaper/geom`, sorted. */
 const PUBLIC_VALUES: readonly string[] = [
   'DEFAULT_BREP_CHECK_SAMPLING',
+  'DEFAULT_EDGE_FIT',
   'DEFAULT_CONTINUITY_SAMPLING',
   'DEFAULT_PROJECTION_SEEDING',
   'DEFAULT_TESSELLATION',
@@ -98,6 +101,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'curveOnSurfaceDerivatives',
   'curveOnSurfaceEvalInto',
   'curveOnSurfacePoint',
+  'curveOnSurfaceTo3d',
   'curvePoint',
   'curveSignedCurvature',
   'curveTangent',
@@ -169,6 +173,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'prepareFairSolver',
   'principalCurvatures',
   'projectCurveSamplesToSurface',
+  'projectCurveToSurface',
   'projectPointsToCurveInto',
   'projectPointsToSurfaceInto',
   'refineKnots',
@@ -276,7 +281,12 @@ describe('@openshaper/geom public API', () => {
       'rcmOrder',
       'curveFairnessMatrix',
       'surfaceLocal',
-
+      'sourceKnots',
+      'crossingKnots',
+      'fitKnots',
+      'knotSamples',
+      'bisections',
+      'refine',
       'prepareSurface',
       'projectSurfaceBatch',
       'newtonSurface',
@@ -298,6 +308,8 @@ describe('@openshaper/geom public API', () => {
       'formatKnots',
       'boxSolid',
       'cylinderSolid',
+      'ellipticPuckSolid',
+      'ellipticPuckExact',
       'plateWithHoleSolid',
       'sphericalZoneSolid',
       'torusSolid',

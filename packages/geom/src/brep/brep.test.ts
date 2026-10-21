@@ -34,6 +34,7 @@ import { flipBrep } from './brep';
 import {
   boxSolid,
   cylinderSolid,
+  ellipticPuckSolid,
   MUTATIONS,
   plateWithHoleSolid,
   sphericalZoneSolid,
@@ -49,6 +50,8 @@ const SOLIDS: readonly (readonly [string, () => Brep])[] = [
   ['split zone', () => sphericalZoneSolid(2, 1, { split: true })],
   ['torus', () => torusSolid(3, 1)],
   ['plate with a hole', () => plateWithHoleSolid(6, 5, 2, 1)],
+  ['elliptic puck', () => ellipticPuckSolid(3, 2, 1)],
+  ['elliptic puck, fitted bicubic deck', () => ellipticPuckSolid(3, 2, 1, { bicubicDeck: true })],
 ];
 
 function expectCode(f: () => unknown, code: GeomErrorCode): void {
@@ -99,6 +102,8 @@ describe('valid solids', () => {
     'split zone': [3, 5, 4],
     torus: [1, 2, 1],
     'plate with a hole': [10, 15, 7],
+    'elliptic puck': [2, 3, 3],
+    'elliptic puck, fitted bicubic deck': [2, 3, 3],
   };
   for (const [name, build] of SOLIDS) {
     it(`${name}: vertices, edges, faces as the topology says; frozen; Euler holds`, () => {
@@ -354,7 +359,13 @@ describe('transformBrep and orientBrep', () => {
       const z = massProperties(m);
       expect(Math.abs(z.volume.value / a.volume.value - 1), name).toBeLessThan(1e-9);
       expect(Math.abs(z.area.value / a.area.value - 1), name).toBeLessThan(1e-9);
-      expect(z.centroid.x, name).toBeCloseTo(-a.centroid.x, 8);
+      // A solid whose faces meet only to `maxEdgeGap` is not exactly closed, so moments about
+      // the two reference points (the mirror moves the corner they are taken from) differ by
+      // about that gap times perimeter · extent / volume (≈ 2.4 for the puck); 4 × the gap is a
+      // bound with margin (measured 100× below it, by cancellation). Exact solids: 5e-9.
+      expect(Math.abs(z.centroid.x + a.centroid.x), name).toBeLessThanOrEqual(
+        Math.max(5e-9, 4 * checkBrep(b).maxEdgeGap),
+      );
     }
   });
 

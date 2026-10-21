@@ -15,6 +15,8 @@ describe('@openshaper/geom/testing', () => {
         'boxSolid',
         'checksum',
         'cylinderSolid',
+        'ellipticPuckExact',
+        'ellipticPuckSolid',
         'mulberry32',
         'plateWithHoleSolid',
         'randomClampedBasis',

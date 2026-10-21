@@ -162,10 +162,13 @@ import {
   curveOnSurface,
   curveOnSurfaceDerivatives,
   curveOnSurfaceEvalInto,
+  curveOnSurfaceTo3d,
+  DEFAULT_EDGE_FIT,
   curveOnSurfacePoint,
   DEFAULT_PROJECTION_SEEDING,
   isoLinePcurve,
   projectCurveSamplesToSurface,
+  projectCurveToSurface,
   projectPointsToCurveInto,
   projectPointsToSurfaceInto,
   checkTriangulation,
@@ -1136,6 +1139,21 @@ function cases(seed: number): Case[] {
       inputs: [iso, S, us, tol],
       run: () => projectCurveSamplesToSurface(iso as NurbsCurve<3>, S, us, { tol }),
       frozen: same,
+    },
+    // Edge fitting (integration)
+    { name: 'DEFAULT_EDGE_FIT', inputs: [], run: () => DEFAULT_EDGE_FIT, frozen: same },
+    {
+      name: 'projectCurveToSurface',
+      inputs: [iso, S, tol, seeding],
+      run: () =>
+        projectCurveToSurface(iso as NurbsCurve<3>, S, tol, { samplesPerSpan: 4 }, seeding),
+      frozen: (r) => [r, (r as { value?: unknown }).value],
+    },
+    {
+      name: 'curveOnSurfaceTo3d',
+      inputs: [cos, tol],
+      run: () => curveOnSurfaceTo3d(cos, tol, { samplesPerSpan: 4 }),
+      frozen: (r) => [r, (r as { value?: unknown }).value],
     },
     // Trimmed surfaces, integration, triangulation and tessellation (B2)
     {

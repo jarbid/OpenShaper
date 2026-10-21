@@ -42,6 +42,7 @@ import {
   cylinderSolid,
   MUTATIONS,
   plateWithHoleSolid,
+  ellipticPuckSolid,
   readStepSubset,
   sphericalZoneSolid,
   torusSolid,
@@ -72,6 +73,8 @@ const SOLIDS: readonly (readonly [string, () => Brep])[] = [
   ['split zone', () => sphericalZoneSolid(2, 1, { split: true })],
   ['torus', () => torusSolid(3, 1)],
   ['plate with a hole', () => plateWithHoleSolid(6, 5, 2, 1)],
+  ['elliptic puck', () => ellipticPuckSolid(3, 2, 1)],
+  ['elliptic puck, fitted bicubic deck', () => ellipticPuckSolid(3, 2, 1, { bicubicDeck: true })],
 ];
 
 // ---------------------------------------------------------------------------
@@ -311,6 +314,15 @@ describe('entity structure', () => {
     // 12 box lines and 2 hole circles are surface curves with 2 pcurves each, the hole's seam
     // is a seam curve with 2: 14 × 2 + 2. Seven faces, two of them with a FACE_BOUND hole.
     'plate with a hole': { seam: 1, surfaceCurve: 14, pcurve: 30, faces: 7, bounds: 7, holes: 2 },
+    // As the cylinder: two closed edges (band + cap each) and the band's seam line.
+    'elliptic puck': { seam: 1, surfaceCurve: 2, pcurve: 6, faces: 3, bounds: 3 },
+    'elliptic puck, fitted bicubic deck': {
+      seam: 1,
+      surfaceCurve: 2,
+      pcurve: 6,
+      faces: 3,
+      bounds: 3,
+    },
   };
   for (const [name, build] of SOLIDS) {
     it(`${name}: a seam is a SEAM_CURVE with two pcurves, every other edge a SURFACE_CURVE with two`, () => {

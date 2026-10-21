@@ -54,6 +54,8 @@ import {
   boxSolid,
   cylinderSolid,
   plateWithHoleSolid,
+  ellipticPuckExact,
+  ellipticPuckSolid,
   readStepSubset,
   sphericalZoneSolid,
   torusSolid,
@@ -113,6 +115,12 @@ interface Solid {
   readonly curved: number;
   /** A point strictly inside the solid (cm). */
   readonly inside: readonly [number, number, number];
+  /**
+   * A face with a fitted pcurve: its edge gap `g` (measured by `checkBrep`) leaks into the
+   * integrals by at most `g · perimeter · reach / 3` (cm³; `reach` the largest distance from the
+   * mass reference point, cm), and into the mesh by `g · area`.
+   */
+  readonly fitted?: { readonly perimeter: number; readonly reach: number };
 }
 
 const PI = Math.PI;
@@ -147,7 +155,30 @@ const place = (p: readonly [number, number, number], m: Affine3): [number, numbe
   m[8] * p[0] + m[9] * p[1] + m[10] * p[2] + m[11],
 ];
 
+/** The V5 puck, semi-axes 3 × 2 cm and 1 cm high (30 × 20 × 10 mm), deck slope 0.1 when fitted. */
+const PUCK = { a: 3, b: 2, h: 1, tilt: 0.1 } as const;
+const puckForms = (tilt: number): Pick<Solid, 'volume' | 'area' | 'curved'> => {
+  const e = ellipticPuckExact(PUCK.a, PUCK.b, PUCK.h, tilt);
+  return { volume: e.volume, area: e.area, curved: e.area - PI * PUCK.a * PUCK.b };
+};
+
 const CORPUS: readonly Solid[] = [
+  {
+    name: 'V5-elliptic-puck',
+    brep: () => ellipticPuckSolid(PUCK.a, PUCK.b, PUCK.h),
+    ...puckForms(0),
+    inside: [0.2, 0.1, 0.5],
+  },
+  {
+    // The deck's pcurve is the fit's: edge gaps are measured, not rounding (design §15.3 V5).
+    name: 'V5-elliptic-puck-fitted-deck',
+    brep: () => ellipticPuckSolid(PUCK.a, PUCK.b, PUCK.h, { bicubicDeck: true, tilt: PUCK.tilt }),
+    ...puckForms(PUCK.tilt),
+    inside: [0.2, 0.1, 0.5],
+    // Perimeter of a 3 × 2 ellipse is 15.87 (rounded up) · √(1 + tilt²); reach from the
+    // control-net corner: hypot(2.5 a, 2.5 b, h + 2.5 tilt a) = 9.2 (rounded up).
+    fitted: { perimeter: 16, reach: 9.3 },
+  },
   { name: 'V1-box', brep: () => boxSolid(2, 3, 5), ...BOX, inside: [1, 1.5, 2.5] },
   {
     name: 'V1-box-trimmed',
@@ -369,7 +400,17 @@ for (const fileUnit of ['mm', 'cm'] as const) {
         // B8: volume. 1 % sanity for GProp; the oracle is the mesh volume.
         const exactMm3 = solid.volume * 1000;
         const ours = massProperties(b);
-        expect(ours.volume.value * 1000).toBeCloseTo(exactMm3, 6); // exact rules: ~1e-12 relative
+        const gapMm = 10 * report.maxEdgeGap;
+        if (solid.fitted === undefined) {
+          expect(ours.volume.value * 1000).toBeCloseTo(exactMm3, 6); // exact rules: ~1e-12 relative
+        } else {
+          const leakMm3 =
+            (1000 * report.maxEdgeGap * solid.fitted.perimeter * solid.fitted.reach) / 3;
+          expect(Math.abs(ours.volume.value * 1000 - exactMm3)).toBeLessThanOrEqual(
+            leakMm3 + 1e-9 * exactMm3,
+          );
+          expect(gapMm, 'a fitted deck has a real gap').toBeGreaterThan(1e-9);
+        }
         expect(Math.abs(kernel.getVolume(shape) / exactMm3 - 1)).toBeLessThan(0.01);
         const mesh = kernel.tessellate(shape, {
           linearDeflection: DEFLECTION_MM,
@@ -382,7 +423,9 @@ for (const fileUnit of ['mm', 'cm'] as const) {
         // coordinates up to the solid's extent, over its whole area.
         const extentMm = 10 * (5 + Math.hypot(5, 3, 2)); // beyond every corpus coordinate
         const bound =
-          solid.curved * 100 * DEFLECTION_MM + solid.area * 100 * extentMm * FLOAT32_EPS;
+          solid.curved * 100 * DEFLECTION_MM +
+          solid.area * 100 * extentMm * FLOAT32_EPS +
+          (solid.fitted === undefined ? 0 : gapMm * solid.area * 100);
         expect(vMesh, 'a negative mesh volume means an inside-out import').toBeGreaterThan(0);
         expect(
           Math.abs(vMesh - exactMm3),
