@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Evaluation, knot-operation, interpolation, solver, projection and meshing
- * benchmarks P1–P21 and P24 (docs/design/geom-core.md §17), run with
+ * benchmarks P1–P24 (docs/design/geom-core.md §17), run with
  * `pnpm --filter @openshaper/geom bench` (not part of `pnpm test`).
  *
  * Each case prints its measured rate or time next to the design's target. A
@@ -15,7 +15,14 @@ import {
   approximateCurve,
   approximateSurface,
   circle2,
+  checkBrep,
   constrainedDelaunay,
+  curveOnSurface,
+  curveOnSurfaceTo3d,
+  massProperties,
+  projectCurveToSurface,
+  tessellateBrep,
+  writeStep,
   makeTrimLoop,
   makeTrimmedSurface,
   retargetTessellation,
@@ -52,13 +59,14 @@ import type {
   FairProblem,
   FairSolver,
   LinearConstraint,
+  NurbsCurve,
   NurbsSurface,
   Result,
   TrimmedSurface,
 } from './index';
 import { checkFairness, surfaceFairnessMatrix } from './solver/fairness';
 import { resolveTolerances } from './tolerance';
-import { mulberry32 } from './testing';
+import { ellipticPuckSolid, mulberry32 } from './testing';
 
 interface BenchRun {
   latency: { mean: number; p50: number; p99: number; rme: number };
@@ -818,3 +826,107 @@ test('triangulation and tessellation: P19–P21', async ({ bench }) => {
   ]);
   if (Number.isNaN(sink)) process.stdout.write('unreachable\n');
 });
+
+/**
+ * A gentle one-period sine pcurve through the interior of the board-size deck's
+ * domain (63 control points, cubic): P18's input.
+ */
+function wavyPcurve(): NurbsCurve<2> {
+  const n = 63;
+  const pts: number[] = [];
+  for (let i = 0; i < n; i++) {
+    pts.push(0.2 + (0.5 * i) / (n - 1), 0.5 + 0.2 * Math.sin((2 * Math.PI * i) / (n - 1)));
+  }
+  return makeCurve({ dim: 2, basis: clampedBasis(3, clampedUniformKnots(3, n)), points: pts });
+}
+
+test('edge fitting, mass properties and STEP: P18, P22, P23', async ({ bench }) => {
+  const surface = deck(0.5).surface;
+  const onSurface = curveOnSurface(surface, wavyPcurve());
+  // The 3D image of that pcurve, fitted to 0.3 × the default fit (about 70 spans): it lies on the
+  // surface to well under the default fit that projecting it back is asked for.
+  const edge = value(curveOnSurfaceTo3d(onSurface, { fit: 0.3 * resolveTolerances().fit })).curve;
+  // A board-size 3-face B-rep: elliptic outline 300 × 60 cm, 10 cm high, fitted bicubic deck.
+  const t0 = performance.now();
+  const board = ellipticPuckSolid(150, 30, 10, { bicubicDeck: true, tilt: 0.02 });
+  const buildMs = performance.now() - t0;
+  const gap = checkBrep(board).maxEdgeGap;
+  const roundTrip = writeStep(board);
+  const digits9 = writeStep(board, { precision: 9 });
+  const fitted = value(projectCurveToSurface(edge, surface));
+  process.stdout.write(
+    `\nP18 input: edge ${edge.basis.count} control points (${edge.basis.count - 3} spans); ` +
+      `pcurve ${fitted.pcurve.basis.count} control points, deviation ${fitted.maxDeviation.toExponential(2)} cm\n` +
+      `P23 input: board-size puck built in ${buildMs.toFixed(1)} ms (includes its deck pcurve fit, ` +
+      `${board.faces[2]!.outer.coedges[0]!.pcurve.basis.count} control points, edge gap ${gap.toExponential(2)} cm); ` +
+      `STEP ${roundTrip.text.length} bytes roundTrip (${roundTrip.stats.entities} entities), ` +
+      `${digits9.text.length} bytes at 9 digits; declared uncertainty ${roundTrip.stats.uncertainty.toExponential(2)} mm\n`,
+  );
+  let sink = 0;
+  await runGroup(bench, 'edge fitting, mass properties and STEP (integration)', [
+    {
+      id: 'P18',
+      name: `projectCurveToSurface, ${edge.basis.count - 3}-span curve, default fit`,
+      units: 0,
+      target: { kind: 'time', value: 30 },
+      fn: () => {
+        sink += value(projectCurveToSurface(edge, surface)).pcurve.basis.count;
+      },
+    },
+    {
+      id: 'P18b',
+      name: 'curveOnSurfaceTo3d, 63-control-point pcurve, default fit',
+      units: 0,
+      target: { kind: 'time', value: 30 },
+      fn: () => {
+        sink += value(curveOnSurfaceTo3d(onSurface)).curve.basis.count;
+      },
+    },
+    {
+      id: 'P18c',
+      name: 'ellipticPuckSolid, board size, fitted bicubic deck (build + deck pcurve fit)',
+      units: 0,
+      target: { kind: 'time', value: 30 },
+      fn: () => {
+        sink += ellipticPuckSolid(150, 30, 10, { bicubicDeck: true, tilt: 0.02 }).faces.length;
+      },
+    },
+    {
+      id: 'P22',
+      name: 'massProperties, 3 faces (band, planar bottom, trimmed bicubic deck), quadRel',
+      units: 0,
+      target: { kind: 'time', value: 50 },
+      fn: () => {
+        sink += massProperties(board).volume.value;
+      },
+    },
+    {
+      id: 'P23',
+      name: 'writeStep, board-size 3-face B-rep, precision roundTrip',
+      units: 0,
+      target: { kind: 'time', value: 100 },
+      fn: () => {
+        sink += writeStep(board).text.length;
+      },
+    },
+    {
+      id: 'P23',
+      name: 'writeStep, board-size 3-face B-rep, precision 9 digits (re-reads and re-checks)',
+      units: 0,
+      target: { kind: 'time', value: 100 },
+      fn: () => {
+        sink += writeStep(board, { precision: 9 }).text.length;
+      },
+    },
+    {
+      id: 'P20b',
+      name: 'tessellateBrep, board-size 3-face B-rep, chord 0.05 cm',
+      units: 0,
+      target: { kind: 'time', value: 100 },
+      fn: () => {
+        sink += value(tessellateBrep(board, { chordTol: 0.05, angleTol: 0.1 })).indices.length;
+      },
+    },
+  ]);
+  if (Number.isNaN(sink)) process.stdout.write('unreachable\n');
+}, 300_000);
