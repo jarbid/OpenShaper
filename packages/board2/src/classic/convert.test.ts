@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * `convertGeometry` beyond the per-file exit checks (`convert.*.exit.test.ts`):
- * the §9.1 preconditions, immutability of the classic input, the knife-tip
+ * the §9.1 preconditions (also through `convertClassic`, S7), immutability of the classic input, the knife-tip
  * lift, and the inset keys of §9.5.
  *
  * The lift is exercised by raising `minRailHeight` on a converted knife-tip
@@ -23,7 +23,7 @@ import { planCurve } from '../plan';
 import { checkHeightFieldSymmetry } from '../symmetry';
 import { validateBoard } from '../validate';
 import type { Board2Issue, BoardDoc } from '../types';
-import { convergenceIssues, convertGeometry, liftKnifeTips } from './convert';
+import { convergenceIssues, convertClassic, convertGeometry, liftKnifeTips } from './convert';
 import type { ClassicGeometry } from './convert';
 import { DEFAULT_CONVERT_OPTIONS as O } from './params';
 import { classicSample } from './test-support/samples';
@@ -58,16 +58,21 @@ describe('preconditions (§9.1)', () => {
     const r = convertGeometry({ ...b, outline: swallow });
     expect(r.ok).toBe(false);
     expect(r.issues.map((i) => i.code)).toEqual(['unsupported-tail']);
+    // The public entry (S7) refuses with the same issue.
+    const c = convertClassic({ ...b, outline: swallow });
+    expect(c.ok).toBe(false);
+    expect(c.issues.map((i) => i.code)).toEqual(['unsupported-tail']);
   });
 
   it('a board without a real section is refused with too-few-sections', () => {
     const b = classicSample('golden/shortboard.brd').load();
-    const r = convertGeometry({
-      ...b,
-      crossSections: [b.crossSections[0]!, b.crossSections.at(-1)!],
-    });
+    const bare = { ...b, crossSections: [b.crossSections[0]!, b.crossSections.at(-1)!] };
+    const r = convertGeometry(bare);
     expect(r.ok).toBe(false);
     expect(r.issues.map((i) => i.code)).toEqual(['too-few-sections']);
+    const c = convertClassic(bare);
+    expect(c.ok).toBe(false);
+    expect(c.issues.map((i) => i.code)).toEqual(['too-few-sections']);
   });
 });
 

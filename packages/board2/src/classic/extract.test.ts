@@ -3,7 +3,8 @@
  * Law extraction and the offset factorisation (`extract.ts`, §9.7 items 4–6,
  * step S7) on their own.
  *
- * - **Factorisation identity on the stadium**: a band displaced along every
+ * - **Factorisation identity on the crowned stadium** (deck slope at the edge
+ *   not zero, so every component of τ̂_d counts): a band displaced along every
  *   structural direction the offset layer has (rows 1, 2, 4, 5; seeded,
  *   `mulberry32`, seed printed) is factorised against the law-only band, and the
  *   document with that layer builds into the displaced band within 1e-12 cm
@@ -33,7 +34,8 @@ const tol = resolveTolerances();
 
 describe('the offset factorisation', () => {
   it(`reproduces a displaced stadium band (seed ${SEED})`, () => {
-    const doc = stadiumBoard({ thickness: 6 });
+    // A crowned deck, so the deck slope s_d at the deck edge (the z part of τ̂_d) is not zero.
+    const doc = stadiumBoard({ thickness: 6, crown: 1.5 });
     const ctx = bandContext(doc);
     const b = stationBasis(ctx.plan, ctx.arc, doc.build, true, tol);
     const columns = bandColumns(b, ctx.arc);
@@ -129,7 +131,8 @@ describe('adaptiveLaw', () => {
 
 describe('the data-scale unknowns', () => {
   it('keep masters at least minSigma apart and interpolate the rest', () => {
-    const doc = stadiumBoard({ thickness: 6 });
+    // A crowned deck, so the deck slope s_d at the deck edge (the z part of τ̂_d) is not zero.
+    const doc = stadiumBoard({ thickness: 6, crown: 1.5 });
     const ctx = bandContext(doc);
     const b = stationBasis(ctx.plan, ctx.arc, doc.build, true, tol);
     const columns = bandColumns(b, ctx.arc);

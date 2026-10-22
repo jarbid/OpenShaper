@@ -487,8 +487,23 @@ order §14).
       the knife-tip lift reports stations outside the tip zone and a height still short; a
       failed solve at one fairness ratio no longer fails the field; `minKnotSpacing` recorded
       as flooring u only
-- [ ] S5 specs and volume convergence · S7 converter II · S8 deviation report · S9 benchmarks
-      and the Phase 2 report
+- [x] S7 converter II (board2.md §14, "S7 as built"): the band fit, law extraction and the
+      offset layer; `convertClassic` public. All fourteen sample files convert, validate,
+      revive, build, pass `checkBrep` (3 faces, 3 edges, 2 vertices, outward) and write STEP;
+      the three goldens pass OCCT (B1–B6, B8). Factorisation identity measured 2.8e-14 to
+      5.7e-14 cm (bound 1e-9). Preset recovery on the three goldens (24 conversions): apex
+      within 0.0073 (bound 0.01), hardness and fullness strictly monotone. Deviations
+      recorded: the band fit written out with bounds and data-scale unknowns, the apex a law
+      fitted to the classic apex (not a fit unknown), the other lanes interpolated at the
+      stations, the document built on the fit's basis without refinement, height fields solved
+      on z alone. One geom change, the tier-2 strip cache of the exact Green rule (converted
+      boards build 3–7× faster), recorded with its tests. Open (board2.md §15 risk 9): the band
+      misses `surfaceTol` (0.07–0.09 cm on the goldens, 0.88 cm on the rocker files' box
+      section) and, with offsets, law fidelity and "tuck crease = law" do not hold on converted
+      boards. `convertClassic` 12–22 s per file and a rebuild 1.6–4.6 s, against Q5's 3 s and
+      Q1's 150 ms: worker-only, recorded for S9
+- [ ] S5 specs and volume convergence · S8 deviation report · S9 benchmarks and the Phase 2
+      report
 
 ### Phase 3 — editors and analysis (behind the flag)
 

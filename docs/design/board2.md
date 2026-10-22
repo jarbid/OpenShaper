@@ -1,6 +1,6 @@
 # `@openshaper/board2` — board model v2 (Phase 2 design)
 
-Status: **design and scaffold, steps S1–S4 and S6 done** for Phase 2 of `docs/design/geometry-overhaul.md` (§6; the
+Status: **design and scaffold, steps S1–S4, S6 and S7 done** for Phase 2 of `docs/design/geometry-overhaul.md` (§6; the
 topology and editing model it implements are §3.2 and §3.3). Written 2026-10-21 on
 `experiment/nurbs-overhaul`, after Phase 1 (`docs/design/geom-core.md`) was integrated. The
 package has its scaffold (`package.json`, the type definitions of §11 in `src/types.ts` and
@@ -13,9 +13,10 @@ from step S3, the rail band builder (`band/`, `offsets.ts`, `measureLaws`, the b
 features, the B-rep, `buildBoard`, `writeBoardStep` and the board through OCCT (geom's
 `./testing/occt` protocol) and, from step S6, the converter's first part (classic sampling,
 the plan loop with fillets, the stringer lines, the insets, the deck and bottom fits,
-internal until S7 completes `convertClassic`); see the S1–S4 and S6 notes in §14 (S4 and S6
-with their review fixes). The specs (S5) and the rest of the converter are still to come; §14 is the
-build order.
+internal stages of the converter) and, from step S7, the rest of the converter (the band fit, law extraction
+and offsets: `convertClassic`); see the S1–S4, S6 and S7 notes in §14 (S4 and S6 with their
+review fixes). The specs (S5), the deviation report (S8) and the benchmarks (S9) are still to
+come; §14 is the build order.
 When this document and the code disagree, this document wins until the step that changes it
 edits this file in the same commit.
 
@@ -739,6 +740,11 @@ the eight `RAIL_PRESETS`' `deckBand` and `bottomBand`), clamped to [`minInset`,
 
 ### 9.7 Band, laws and offsets
 
+As built (S7, §14 "S7 as built" 1–7): the fit is written out with bounds, the apex is a law
+fitted to the classic apex before the fit (not a fit unknown), the initial apex follows the
+classic, the other lanes interpolate their station values, and the document builds on the
+fit's basis.
+
 1. **Initial band**: the doc so far with constant laws from `DEFAULT_RAIL_LAWS` (the 60/40
    tucked preset: apex 0.4, fullness 0.6, hardness 0.5) built by the core builder.
 2. **Data**: classic samples outside the inset loops (upper side outside the deck edge, lower
@@ -879,6 +885,9 @@ packages/board2/
       sample.ts           loft sampling, floor zones, crease angles
       convert.ts          convertClassic (§9)
       extract.ts          law extraction and offset factorisation
+      rail.ts             the rail stage of §9.7 (S7)
+      band-fit.ts         the band fit's least squares (S7)
+      lsq.ts              the height fields' least squares on z (S7)
       deviation.ts        deviationReport (§10)
       report.ts           markdown rendering
       test-support/       sample-file loading for tests (may import @openshaper/io, node:*)
@@ -1082,16 +1091,16 @@ cloud container are reported beside them, and a miss is reported, not failed (ge
 
 ### 13.5 Phase 1 misses and the Phase 2 paths they block
 
-| Phase 1 miss (geom §17)                                          | Phase 2 path               | Effect and plan                                                                                                                                                                          |
-| ---------------------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P22 `massProperties` 204 ms (target 50)                          | Q3 specs                   | The board has a 3-face B-rep like the puck; expect Q3 at ~P22. Tier-2 candidate: one multi-integrand pass per face (geom §17). Not blocking correctness.                                 |
-| P16 `approximateSurface` with correction 377 ms                  | Q5 converter               | Height-field fits need no correction (§9.6), which removes most of it; the band fit's correction passes remain (≤ `bandCorrectionPasses`).                                               |
-| P17 cold projection 0.25–0.3 ms per point                        | Q6 report, Q5 band data    | Use only the warm batch path (8.7 µs per point): 2·10⁵ report samples ≈ 2 s.                                                                                                             |
-| P12r / P13r rational assembly 1–2.8 s                            | rational rails             | The reason D5 is deferred (§5.6).                                                                                                                                                        |
-| P18 edge fit 23.6 ms (met)                                       | Q1, Q2 (two edge fits)     | Within budget.                                                                                                                                                                           |
-| P22-class trimmed integration (`orientBrep`, `checkBrep` volume) | Q1 with a fine feature net | Channels on the tail arc: a 141 × 337 bottom, 17 s of a 22.7 s `buildBoard` in the two signed-volume integrations (S4 as built). Tier-2 candidate, or hierarchical features (plan §3.4). |
-| P13/P14 solver prepare/solve, P7/P8 plans, P20/P21 tessellation  | none in Phase 2            | Phase 3's drag and display paths.                                                                                                                                                        |
-| Reference-desktop re-measurement (open)                          | every target above         | Still blocks tier-2 work; board2's numbers are recorded on the same container class and re-measured with geom's.                                                                         |
+| Phase 1 miss (geom §17)                                          | Phase 2 path               | Effect and plan                                                                                                                                                                                                                                                                    |
+| ---------------------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P22 `massProperties` 204 ms (target 50)                          | Q3 specs                   | The board has a 3-face B-rep like the puck; expect Q3 at ~P22. Tier-2 candidate: one multi-integrand pass per face (geom §17). Not blocking correctness.                                                                                                                           |
+| P16 `approximateSurface` with correction 377 ms                  | Q5 converter               | Height-field fits need no correction (§9.6), which removes most of it; the band fit's correction passes remain (≤ `bandCorrectionPasses`).                                                                                                                                         |
+| P17 cold projection 0.25–0.3 ms per point                        | Q6 report, Q5 band data    | Use only the warm batch path (8.7 µs per point): 2·10⁵ report samples ≈ 2 s.                                                                                                                                                                                                       |
+| P12r / P13r rational assembly 1–2.8 s                            | rational rails             | The reason D5 is deferred (§5.6).                                                                                                                                                                                                                                                  |
+| P18 edge fit 23.6 ms (met)                                       | Q1, Q2 (two edge fits)     | Within budget.                                                                                                                                                                                                                                                                     |
+| P22-class trimmed integration (`orientBrep`, `checkBrep` volume) | Q1 with a fine feature net | Channels on the tail arc: a 141 × 337 bottom, 17 s of a 22.7 s `buildBoard` in the two signed-volume integrations (S4 as built). S7 made the tier-2 change (the exact Green rule's strip cache) and dropped `orientBrep`: converted boards build 3–7× faster (S7 as built, 11–12). |
+| P13/P14 solver prepare/solve, P7/P8 plans, P20/P21 tessellation  | none in Phase 2            | Phase 3's drag and display paths.                                                                                                                                                                                                                                                  |
+| Reference-desktop re-measurement (open)                          | every target above         | Still blocks tier-2 work; board2's numbers are recorded on the same container class and re-measured with geom's.                                                                                                                                                                   |
 
 ---
 
@@ -1927,6 +1936,200 @@ distances outside the zones, corner distances) all passed, restored. `fields.ts`
 `fairness.ts` back to the sticky failure flag: two of the three `fields.failure.test.ts`
 tests failed (the injected failure returned instead of a fit), restored.
 
+### S7 as built (2026-10-22)
+
+Files, under `src/classic/`: `rail.ts` (the rail stage of §9.7: initial band, apex law, data,
+fit, the other lanes, offsets), `band-fit.ts` (the band's data, DOF frame, bounds, normal
+equations, active-set solve, fairness search and parameter correction), `extract.ts` (station
+keys, windows, the apex bounds of §5.3, the adaptive apex law, lane measurement, the offset
+layer), `lsq.ts` (the height-field least squares on z alone, deviation 10) and `convert.ts`
+(`convertClassic`, public, and `convertDetailed`, internal, which keeps the stages for the tests
+and S8). `sample.ts` gains the exact classic apex per row. Tests: `extract.test.ts`,
+`band-fit.test.ts`, `lsq.test.ts`, the S7 half of the three `convert.*.exit.test.ts` files
+(`test-support/exit.ts`, `expectS7Exit`), `presets.{shortboard,funboard,longboard}.test.ts`
+(`test-support/presets.ts`) and `convert.occt.test.ts` (under `pnpm test:occt`). Public value
+added to the pin: `convertClassic` (`./classic`). 373 board2 tests under `pnpm test` (37
+files, about 6 min on the container, the conversions on four workers).
+
+**How a conversion runs (S7 part).** After `convertGeometry` (§9.1–§9.6): the initial band on
+constant profile laws with the apex at the classic's own apex per station (deviation 4); the
+band refined by the build gives the fit's basis, which the document then carries as its
+plan's knots (deviation 5); the apex law from the classic apex curve (deviation 2); rail
+samples, projected onto the band on that law; the band fit (deviation 1) with
+`bandCorrectionPasses` parameter corrections; fullness and hardness measured at the stations
+and tips (deviation 3); the offsets (§9.7 item 5); `buildBoard` of the document; the identity
+measured on that build. Warnings: every stage above its target (`not-converged`), the band
+against `surfaceTol` on its judged samples included, and the build's own.
+
+**Deviations and clarifications:**
+
+1. **The band fit is written out, not geom's `FairProblem`** (`band-fit.ts`). The DOF rules of
+   §3.5 and §3.7 are linear, so `S = S₀ + J w` and the fit is a linear least squares in the
+   displacements `w`: per master column outside the tip windows, row 1 along `τ̂_d`, rows 2
+   and 4 along ẑ, row 5 along `n̂` and ẑ; rows 0, 3 and 6 fixed; partners the exact mirrors.
+   Written out, the data's normal equations are assembled once per parameter set and every
+   fairness trial is one banded factorisation; and it takes **bounds**, which geom's solver
+   does not: every column stays a convex profile (`fullnessRange[0]` of the way along each
+   handle at least, the handles inboard of the apex vertical by at least geom's `point`),
+   kept by an active set (held unknowns eliminated, re-solved until none leaves its bounds).
+   **Data-scale unknowns**: the band basis crowds its columns at a plan fillet (hundredths of
+   a millimetre for `maxFrameTurn`), far closer than the data rows; there the least squares
+   cannot tell neighbours apart and, at small fairness, zig-zags by metres. Only masters at
+   least `sampleSpacingX / L_loop` apart in σ are unknowns; the others interpolate their kept
+   neighbours linearly in σ. **Tips**: columns within `tipWindow` of an end are not fitted
+   (they keep the band built on the laws) and their samples are not data. **Fairness** (§9.8)
+   on the displacement from the initial band: the largest ratio whose fit meets `surfaceTol` on
+   the judged samples; when even the bracket's smallest cannot, the largest whose judged
+   samples all stay within `surfaceTol` of where the smallest puts them.
+2. **The apex is not a fit unknown.** §9.7 item 3 left row 3's z free and item 4 measured the
+   apex law back. But the apex row has no offset (§6.1), so the law alone must carry it, and
+   the apex is a datum: the outline's height. So the apex law is fitted first, to the classic
+   apex curve (each row's exact widest point, golden-section search on the ring fraction in
+   `sample.ts`; one ring step is up to a millimetre of rail there), as a fraction of each
+   column's rail height, at every column outside the tip windows: keys at the stations and
+   tips, then a key at the worst column of every segment missing by more than
+   `lawTolerance.apexHeight`, until none does (`adaptiveLaw`; 37–49 keys added on the goldens,
+   6–11 on the synthetic files). The fit then moves rows 1, 2, 4, 5 with the apex fixed.
+3. **The other lanes interpolate the measured values at the stations**, not a least squares:
+   §9.7 item 4's "auto handles are linear in the values" is not so (Fritsch–Carlson slopes are
+   limited, zero at extrema, §5.2). Keys at every station and both tips, the values measured
+   by §5.7 on the fitted band, clamped into the lane's range (`ConversionReport.stationLaws`
+   keeps them unclamped: a hard classic edge reads above 1). The offsets carry the rest.
+4. **The initial band's apex.** §9.7 item 1 started from the constant 0.4. On the funboard and
+   longboard that is the S6 failure (S6 item 14: the steep nose rocker lifts the bottom's
+   tangent corner above the apex). The apex starts at the classic apex at each station,
+   clamped into the profile's feasible interval (`apexBounds`: `H_l > 0` and `H_u > 0` of §5.3,
+   with `apexHeightRange`'s 5 % margins applied to the interval). A column the build still
+   refuses gets an apex key inside its interval, its insets halved together first while no
+   interval exists, at most `maxRefinePasses` rounds: the funboard needs 6 apex keys and 7
+   inset keys, `stringer-fold-a` and `-b` 10 and 20 apex keys, the rest none.
+5. **The document builds on the fit's basis; the identity is exact.** The initial design is
+   built by the band builder with its refinement (§5.4); that basis is the fit's, and the plan
+   JSON from then on carries its knots (the same curve, refined exactly), so every pass and the
+   final document's build compute the same columns, σ and frames bitwise. The final document
+   has `maxBandRefinePasses: 0`. The identity (§9.7 item 6) is then exact in exact arithmetic:
+   measured 2.8e-14–5.7e-14 cm on every file, by the converter on its build and, independently,
+   by the exit test on a rebuild from the document's JSON. Consequence (§15 risk 9):
+   `buildBoard` measures law fidelity on the band **with** offsets, which by design differs
+   from the laws by what the offsets carry, so every converted board warns `not-converged`
+   ("law fidelity at 21–78,000 × its target"); the exit test allows `not-converged` warnings
+   only.
+6. **Offsets** (item 5) as designed, plus one step of iterative refinement: the columns crowd
+   at a plan fillet, where `interpolatePeriodic` is ill-conditioned, and its residual reached
+   the identity's 1e-9 cm once the offsets are large; the residual, read back as the build reads
+   the layer, is interpolated on the same parameters and added.
+7. **The band fit does not meet `surfaceTol`** (reported as `not-converged`, §15 risk 9). The
+   largest projected distance over the judged rail samples is 0.067–0.088 cm on the goldens
+   (shortboard: 42 % of 33,000 judged samples above 0.005 cm, none above 0.1, the worst at the
+   tail, x 4–12 cm), 0.13–0.17 cm on five synthetic files and 0.88 cm on the two rocker files
+   (one real station, a box section whose deck-side corner the G1 deck join cannot follow:
+   §9.9's `profile-corner`). The likely limit is the seven-row profile with five displacements per column
+   (not profiled further). S8 must explain these by causes, or the band needs more freedom.
+8. **Field data stop where the classic leaves the face** (`convert.ts`, a change to S6's data):
+   a deck or bottom sample past a ring turn of `cornerAngleMin` outside the face, or past a
+   classic section corner within the data strip's width of the face edge, is the rail, not
+   the face. On preset boards with the tuck on the band mark the bottom fit otherwise refined
+   without end (a height field cannot turn the corner): 250 s conversions. The S6 exit checks
+   are unchanged and pass.
+9. **Knife-tip lift**: each deficit gets one spacing of doubles at the deck's largest height
+   added, so a deficit below the last round's rounding still lifts (seen on the funboard with
+   the 80/20 preset).
+10. **Height fields solved on z alone** (`lsq.ts`, performance). geom's `approximateSurface`
+    solved x, y and z with multipliers for the stringer identity at every fairness trial; a
+    height field's x and y are affine and need no solve, and the search solves one basis a
+    dozen times. `lsq.ts` assembles the data's normal equations once per basis, eliminates one
+    control value per column with the identity (exact by construction) and factors the banded
+    reduced system per trial, refusing an undetermined one as geom does (`pivotRel`, a
+    Hager–Higham condition estimate). Same minimiser as geom's within 1e-9 × the z range
+    (tested). The geometry stage of the goldens fell from 9.4–12.8 s (S6) to 3.3–4.3 s.
+11. **`orientBrep` is not called** by `boardBrep`: it integrated the signed volume a second time
+    to confirm what `checkBrep` already refuses (an inside-out shell is one of its errors).
+    `BoardBrep.flipped` is gone; `brep.test.ts` still checks that `orientBrep` would not flip.
+12. **geom: the exact Green rule caches its inner strips** (`integrate.ts`, the tier-2 item of
+    §13.5's P22-class row). `F(u, v) = ∫ f du` summed the inner rule over every u-span from
+    `uRef` for every outer point; on one v-span the integral over a whole strip is a polynomial
+    in v of the promised degree, so it is stored at that degree's Chebyshev–Lobatto points,
+    prefix-summed and interpolated (barycentric), and only the last partial strip is
+    integrated directly. `buildBoard` of the converted shortboard 5.6–5.9 s → 1.8–1.9 s,
+    longboard 5.4–5.8 → 1.7–2.0 s, `stringer-fold-b` 21.5–22.9 → 3.1–3.5 s; it runs on every
+    file open. geom-core §17 holds tier-2 work until the reference-desktop re-measurement; this
+    is an algorithmic change (one interpolation per outer point instead of a sum over up to M
+    strips), not a constant-factor tuning a faster machine could make unnecessary, so it is
+    made now and recorded here. Tests: two new `integrate.test.ts` cases on an 11 × 6-span
+    bicubic (natural loop: equal to the tensor rule; a curved trim crossing every knot line:
+    equal to adaptive integration at `quadRel` 1e-13, within 1e-12); all 1,301 geom tests pass.
+13. **Preset recovery as tested** (§13.2). The kernel's `applyRailProfile` on every real station
+    of each golden, converted with the insets at the preset's own band marks
+    (`deckInsetFraction = deckBand`, `tuckInsetFraction = bottomBand`). The oracle reads the
+    classic loft itself in board2's station plane between the document's own band marks
+    (`test-support/presets.ts`: bisection on the ring fraction, dense apex sampling), at the
+    stations outside the tip windows whose classic reading lies inside `apexHeightRange` (near
+    the nose the station plane cuts the rail at 49–52° and the classic apex lies above the deck
+    mark; the law is clamped to 0.95 there). The classic `apex` parameter itself is checked at
+    the station nearest the widest point (tangent 0.4–0.7° off x). Hardness: the classic edge is
+    binary (`HARD_EDGE` 0.75 in the kernel), so 0.5 against 1; fullness 0.2 < 0.6 < 0.9.
+
+**Oracles and tolerances.** Exit criterion 1 (`expectS7Exit`, every one of the ten distinct
+files; the four copies are their goldens' input, S6): `convertClassic` ok with `not-converged`
+warnings only; `validateBoard` no error; JSON revive equal; a rebuild from that JSON
+reproduces the fitted band within 1e-9 cm (the design's bound; measured ≤ 5.7e-14) and so does
+the converter's own measure; `checkBrep` ok, 3 faces, 3 edges, 2 vertices, positive volume;
+`writeBoardStep` writes 3/3/2; the input board unchanged. OCCT (`convert.occt.test.ts`, the
+three goldens, mm and cm): B1–B4, B5/B6 (every edge and face equal to ours), B8 (OCCT's mesh
+volume within its bound of `massProperties`). Preset recovery: apex within 0.01 (the classic
+places the apex exactly; the rest is fit error) at every in-range station of 24 conversions
+(measured at most 7.3e-3 on the shortboard, 3.3e-3 longboard, 6.2e-4 funboard; at the widest
+station at most 3.7e-3); hardness strictly greater with the hard edge at every station
+(margin ≥ 0.95); upper and lower fullness strictly increasing at every station. Units:
+factorisation on a crowned stadium band displaced along every offset direction (seeded) within
+1e-12 × 200 cm; apex bounds against the construction's own `H_u`, `H_l`; the adaptive law
+meets every target within its tolerance; the band fit recovers a known displaced band from
+its own samples within 1e-9 cm at the bracket's smallest weight, moves rows 1, 2, 4, 5 only,
+keeps rows 2 and 4 on the apex vertical bitwise, mirrors partners, and holds every unknown in
+its bounds; `lsq.ts` against geom (above); the exact apex against 2·10⁵ dense ring samples.
+Measured on the converted shortboard, longboard and `stringer-fold-b` (not a test; exit
+criterion 5 is S9's): deck join 0.039–0.048° (≤ 0.1°), apex join at rounding (≤ 1.9e-16 rad),
+and the tuck crease 0.40–0.61 rad away from the hardness law, because the offsets move row 5
+(§15 risk 9).
+
+**Measured** (Node 22, the cloud container, one conversion at a time; the copies as their
+goldens). Geometry: §9.1–§9.6; rail: §9.7 (the band fit in brackets); build: `buildBoard` of
+the document inside `convertClassic`; rebuild: `buildBoard` of the document alone (what a file
+open costs once the document is stored); band: largest projected distance, judged / all
+samples; ratio: the band's fairness ratio; columns: band columns; apex keys: added by the
+adaptive law; identity: `factorisationError`.
+
+| File                  | Geometry (s) | Rail (s)      | Build (s) | `convertClassic` (s) | Rebuild (s) | Band (cm)     | Ratio  | Columns | Apex keys | Identity (cm) |
+| --------------------- | ------------ | ------------- | --------- | -------------------- | ----------- | ------------- | ------ | ------- | --------- | ------------- |
+| shortboard            | 3.4          | 7.0 (fit 3.1) | 1.9       | 12.3                 | 1.9         | 0.067 / 0.108 | 0.20   | 352     | 37        | 2.8e-14       |
+| funboard              | 4.3          | 6.3 (fit 3.4) | 1.9       | 12.6                 | 1.7         | 0.088 / 0.088 | 1      | 294     | 49        | 2.8e-14       |
+| longboard             | 3.3          | 7.6 (fit 4.2) | 1.6       | 12.5                 | 1.6         | 0.077 / 0.115 | 0.91   | 324     | 48        | 5.7e-14       |
+| clean-6x22x2-75       | 4.6          | 5.8 (fit 1.5) | 3.3       | 13.7                 | 3.5         | 0.151 / 0.168 | 1      | 496     | 6         | 2.8e-14       |
+| degenerate-section    | 8.5          | 7.3 (fit 2.8) | 3.3       | 19.0                 | 3.2         | 0.168 / 0.168 | 0.036  | 394     | 11        | 2.8e-14       |
+| fallback-outline-5x10 | 4.8          | 5.9 (fit 1.6) | 3.5       | 14.2                 | 3.2         | 0.137 / 0.151 | 1      | 484     | 6         | 2.8e-14       |
+| rocker-absolute-deck  | 7.7          | 9.9 (fit 3.4) | 4.6       | 22.3                 | 4.6         | 0.885 / 0.886 | 2.9e-6 | 606     | 6         | 2.8e-14       |
+| rocker-thickness-deck | 7.8          | 9.9 (fit 3.4) | 4.6       | 22.3                 | 4.4         | 0.884 / 0.886 | 3.1e-6 | 600     | 6         | 2.8e-14       |
+| stringer-fold-a       | 7.6          | 5.7 (fit 2.1) | 3.1       | 16.4                 | 3.0         | 0.134 / 0.134 | 0.10   | 402     | 8         | 2.8e-14       |
+| stringer-fold-b       | 8.8          | 5.9 (fit 2.3) | 3.0       | 17.7                 | 3.2         | 0.129 / 0.146 | 0.23   | 422     | 7         | 2.8e-14       |
+
+`convertClassic` + its `buildBoard` takes 12.3–22.3 s per file against Q5's 3 s (a miss,
+reported, for S9), and a stored document rebuilds in 1.6–4.6 s against Q1's 150 ms: both must
+run in a Web Worker on file open (the project's "UI never blocks"). Preset conversions take 11–90 s each with three running at once (the slowest, `knifey` and
+`pinched` on the shortboard; not profiled). **Speed-ups not done** (follow-ups for S9): the
+initial band (1.7–4.5 s) builds and refines the band once more than the fit needs; the
+band fit reassembles the normal equations per correction pass and searches 12 ratios each
+time where the previous ratio brackets the next; the build inside `convertClassic` repeats
+the last pass of the rail stage; the field refinement splits both u and v spans of a failing
+sample (S6 deviation 10's candidate); the fairness search of a field could start from the
+previous basis's ratio.
+
+**Mutation spot check.** `extract.ts` with the z part of the deck-handle offset's `τ̂_d`
+component negated: the factorisation test failed on the crowned stadium (1.8e-3 cm against
+2e-10), restored. The first version of that test used the flat stadium, where `s_d = 0` hides
+the z part: the mutation passed it, so the test now uses a crowned deck. geom `integrate.ts`
+with one Chebyshev–Lobatto point too few in the strip cache: five `integrate.test.ts` tests
+failed (relative errors 3.9e-4 to 4.8e-3 against 1e-12, one NaN), restored.
+
 ---
 
 ## 15. Risks and open questions
@@ -1958,6 +2161,15 @@ tests failed (the injected failure returned instead of a fit), restored.
    bulb). S6 fillets; S8 must explain the synthetic files' length delta by the predicted
    fillet deviations (§10.4) rather than hold it to 1 mm. Open: whether the checkpoint should
    say so for pointed tips, or Phase 3 offer a tip-keeping blend.
+9. **The converted band: accuracy and what the offsets carry** (S7). The band fit misses
+   `surfaceTol` on every sample file (0.067–0.088 cm on the goldens, 0.13–0.17 cm on five
+   synthetic files, 0.88 cm on the two rocker files' box section), against S8's
+   `unexplainedMax` 0.01 cm: S8 must attribute it to causes (`profile-corner` and the like) or
+   the band needs more freedom per column. And because the offsets carry what the laws do not,
+   the build's law fidelity and the "tuck crease = law" invariant (exit criterion 5) do not hold
+   on a converted board (fidelity 21–78,000 × its target, reported as `not-converged`; crease
+   0.4–0.6 rad off): open whether fidelity and the crease should be measured on the law-only
+   band, or the hardness law refitted to the crease the offsets leave.
 
 ---
 
