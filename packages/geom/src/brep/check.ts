@@ -27,7 +27,8 @@
  * 5. **Euler–Poincaré**, `V − E + F − (L − F) = 2(S − G)`; the genus `G` is
  *    checked against the declared one or derived (and must then be a
  *    non-negative integer).
- * 6. **Outward.** `signedVolume > 0`. For a connected, coherently oriented
+ * 6. **Outward.** `signedVolume` finite and `> 0` (a NaN is refused, not passed:
+ *    review of S7). For a connected, coherently oriented
  *    closed shell the sign decides the global orientation, so this settles every
  *    face's `sameSense` and loop direction together; it is the measurement the
  *    STEP writer relies on instead of assuming handedness.
@@ -387,6 +388,11 @@ export function checkBrep(
         undefined,
         volume,
       ),
+    );
+  } else if (!Number.isFinite(volume)) {
+    // NaN fails both tests above; a closed shell's volume is never infinite.
+    issues.push(
+      err('brep-invalid', `the signed volume is not finite: ${volume}`, undefined, volume),
     );
   } else if (volume === 0 && issues.length === 0) {
     issues.push(err('brep-invalid', 'the shell encloses no volume'));

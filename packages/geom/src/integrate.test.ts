@@ -306,6 +306,88 @@ describe('integrateTrimmed: the exact Green rule on many spans (strip cache, boa
   });
 });
 
+describe('integrateTrimmed: the strip cache across C0 knot lines (review of S7)', () => {
+  // Where a knot of multiplicity ≥ q (≥ q − 1 for an integrand of second
+  // derivatives) makes the integrand jump across a v knot line, the strip
+  // polynomials of the two v-spans differ there: a cache node on the knot,
+  // evaluated with the right-hand span, interpolated the left span wrongly
+  // (2.1 % off for this triangle). The same knots in u, for symmetry.
+  const vol: SurfaceIntegrand = (_u, _v, d) =>
+    d[0]! * (d[4]! * d[8]! - d[5]! * d[7]!) +
+    d[1]! * (d[5]! * d[6]! - d[3]! * d[8]!) +
+    d[2]! * (d[3]! * d[7]! - d[4]! * d[6]!);
+  const simple = [0, 0, 0, 0, 0.25, 0.5, 0.75, 1, 1, 1, 1];
+  const withKnot = (m: number): number[] => [
+    0,
+    0,
+    0,
+    0,
+    0.3,
+    ...Array(m).fill(0.55),
+    0.8,
+    1,
+    1,
+    1,
+    1,
+  ];
+  const bicubic = (U: number[], V: number[], seed: number): NurbsSurface => {
+    const nu = U.length - 4;
+    const nv = V.length - 4;
+    const rnd = mulberry32(seed);
+    const pts: number[] = [];
+    for (let i = 0; i < nu; i++) {
+      for (let j = 0; j < nv; j++) {
+        pts.push((3 * i) / (nu - 1) + 0.2 * rnd(), (2 * j) / (nv - 1) + 0.4 * rnd(), rnd());
+      }
+    }
+    return makeSurface({ u: clampedBasis(3, U), v: clampedBasis(3, V), points: pts });
+  };
+  const a = { x: 0.05, y: 0.08 };
+  const b = { x: 0.95, y: 0.12 };
+  const c = { x: 0.1, y: 0.9 };
+  const tri = (): TrimLoop =>
+    loop([line2(a, b), bezierCurve(2, [b.x, b.y, 0.8, 0.95, c.x, c.y]), line2(c, a)]);
+  const tight = { quadRel: 1e-13 };
+  const cases: [string, NurbsSurface][] = [
+    ['C0 in v', bicubic(simple, withKnot(3), 7)],
+    ['C0 in u', bicubic(withKnot(3), simple, 7)],
+  ];
+  for (const [name, s] of cases) {
+    it(`${name}, volume integrand: triangle, natural loop and rational circle trims`, () => {
+      const deg = [8, 8] as const;
+      const ts = ok(makeTrimmedSurface(s, tri()));
+      const exact = integrateTrimmed(ts, vol, { polynomialDegree: deg });
+      const adaptive = integrateTrimmed(ts, vol, { tol: tight });
+      expect(adaptive.converged).toBe(true);
+      expect(relErr(exact.value, adaptive.value)).toBeLessThanOrEqual(1e-12);
+      const tensor = integrateTrimmed(ok(makeTrimmedSurface(s, null)), vol, {
+        polynomialDegree: deg,
+      });
+      const green = integrateTrimmed(ok(makeTrimmedSurface(s, naturalBoundaryLoop(s))), vol, {
+        polynomialDegree: deg,
+      });
+      expect(relErr(green.value, tensor.value)).toBeLessThanOrEqual(EXACT);
+      // A rational trim: adaptive outer rule over the cached exact inner one.
+      const circ = ok(makeTrimmedSurface(s, loop([circle2({ x: 0.5, y: 0.5 }, 0.37)])));
+      const mixed = integrateTrimmed(circ, vol, { polynomialDegree: deg, tol: tight });
+      const full = integrateTrimmed(circ, vol, { tol: tight });
+      expect(mixed.converged && full.converged).toBe(true);
+      expect(relErr(mixed.value, full.value)).toBeLessThanOrEqual(1e-12);
+    });
+  }
+
+  it('C1 in v (multiplicity q − 1), an integrand of S_vv: exact rule equals adaptive', () => {
+    const s = bicubic(simple, withKnot(2), 9);
+    // z of S_vv: bidegree (3, 1) per span pair; it jumps across the double knot.
+    const svvZ: SurfaceIntegrand = (_u, _v, d) => d[17]!;
+    const ts = ok(makeTrimmedSurface(s, tri()));
+    const exact = integrateTrimmed(ts, svvZ, { polynomialDegree: [3, 1], nDer: 2 });
+    const adaptive = integrateTrimmed(ts, svvZ, { nDer: 2, tol: tight });
+    expect(adaptive.converged).toBe(true);
+    expect(relErr(exact.value, adaptive.value)).toBeLessThanOrEqual(1e-12);
+  });
+});
+
 /** Radon's 7-point rule on a triangle (exact for degree ≤ 5; Strang & Fix, table 4.1), closed form. */
 function radon7(
   P: readonly { x: number; y: number }[],

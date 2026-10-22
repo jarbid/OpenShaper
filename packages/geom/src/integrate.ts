@@ -26,6 +26,10 @@
  * - **Otherwise** (rational geometry, the area integrand `|S_u × S_v|`):
  *   adaptive Gauss–Kronrod 7–15 (`integrate1d`) on both levels until
  *   `quadRel`.
+ * - **Strip cache.** On the exact path, the inner integrals over whole u-spans
+ *   are cached per v-span as polynomials in v (interpolated at interior
+ *   Chebyshev points; `stripCache`), so an outer point costs one interpolation
+ *   and the rule on its last, partial strip. Exact under the same promise.
  * - **Natural-boundary faces** (no loops) use the tensor-product rule per span
  *   pair, exact under the same conditions, or nested adaptive integration.
  *   Periodic directions integrate over one period.
@@ -240,9 +244,15 @@ function curveBreaks(
  * integral of `f` over one whole strip `[c_k, c_{k+1}]` is a polynomial in v of
  * degree at most `dv` (the integrand's promised v-degree per span pair, and
  * the inner rule is exact in u), so it is stored by its values at the `dv + 1`
- * Chebyshev–Lobatto points of the v-span, prefix-summed over k, and evaluated
- * by barycentric interpolation (exact for polynomials of degree `dv`, to
- * rounding: the Lebesgue constant of these points is below 3 for `dv ≤ 16`).
+ * Chebyshev points of the first kind of the v-span, prefix-summed over k, and
+ * evaluated by barycentric interpolation (exact for polynomials of degree `dv`,
+ * to rounding: the Lebesgue constant of these points is below 3 for `dv ≤ 16`).
+ * The points are interior to the span on purpose: the polynomial holds on the
+ * open span only, and where the integrand jumps across a v-knot (multiplicity
+ * ≥ q for a first-derivative integrand such as the volume one, ≥ q − 1 for
+ * second derivatives) a node on the span's upper end, evaluated with the
+ * right-hand span, would interpolate the next span's polynomial (review of S7:
+ * Chebyshev–Lobatto points were 2 % off on a C0 v-knot).
  * A v-span's prefix grows lazily to the largest u asked for. Each outer point
  * then costs one interpolation and the inner rule on its own last strip
  * instead of the rule on every strip from `uRef`: the strips of one v-span are
@@ -265,12 +275,15 @@ function stripCache(
 } {
   const cuts = [uRef, ...ub.filter((x) => x > uRef)];
   const n = dv + 1;
-  // Chebyshev–Lobatto points on [−1, 1] and their barycentric weights.
+  // Chebyshev points of the first kind on (−1, 1), ascending, and their barycentric
+  // weights (Berrut & Trefethen 2004, §5). All interior: none lies on a knot line,
+  // where a right-hand evaluation would take the next span's polynomial.
   const nodes = new Float64Array(n);
   const bw = new Float64Array(n);
   for (let l = 0; l < n; l++) {
-    nodes[l] = n === 1 ? 0 : -Math.cos((Math.PI * l) / dv);
-    bw[l] = (l % 2 === 0 ? 1 : -1) * (n > 1 && (l === 0 || l === dv) ? 0.5 : 1);
+    const theta = (Math.PI * (2 * l + 1)) / (2 * n);
+    nodes[l] = -Math.cos(theta);
+    bw[l] = (l % 2 === 0 ? 1 : -1) * Math.sin(theta);
   }
   /** Per v-span: prefix values (and of |terms|) per cut, `n` per cut, from cut 0. */
   const cache = new Map<number, { val: number[]; abs: number[] }>();

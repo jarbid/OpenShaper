@@ -2710,6 +2710,19 @@ holes CW):
   (its bottom through `c`) converges in 14k evaluations instead of 382k
   (`brep/mass.test.ts`). `massProperties` also returns `centroidError` (the estimates
   carried through `c + M / V`) and `centroidConverged`.
+- **Strip cache** (board2 S7; fixed in the review of S7). On the exact path the inner
+  integrals over whole u-spans are cached per v-span as polynomials in v of the promised
+  degree `d_v`, stored at `d_v + 1` interpolation nodes, prefix-summed over the strips
+  and evaluated by barycentric interpolation; an outer point then costs one
+  interpolation plus the rule on its last, partial strip. The nodes are **Chebyshev
+  points of the first kind**, all interior to the v-span. The first version used
+  Chebyshev–Lobatto points, whose end nodes lie on the v-knots; evaluated with the
+  right-hand span, the upper one took the next span's polynomial wherever the integrand
+  jumps across that knot (multiplicity ≥ q for the volume integrand, ≥ q − 1 for one of
+  second derivatives), and the interpolant was wrong on the whole span (2.1 % on a C0
+  v-knot under a triangle trim). Regression cases in `integrate.test.ts`: C0 in v and in
+  u (triangle against adaptive, natural loop against the tensor rule, a rational circle
+  trim against fully adaptive) and a C1 v-knot under an integrand of `S_vv`.
 - **Natural-boundary faces** use the tensor-product GL rule per span pair (exact under
   the same conditions, cheaper).
 - **Volume:** `V = ⅓ Σ_f σ_f ∫∫_{D_f} (S − c)·(S_u × S_v) du dv`, `σ_f = ±1` from
@@ -2877,7 +2890,8 @@ exactly twice (a seam twice by one face), and the faces edge-connected (one piec
 4. manifold and orientable: each edge's two uses run in opposite effective directions;
 5. Euler–Poincaré `V − E + F − (L − F) = 2(S − G)`, with `G` checked against the
    declared genus or reported as derived (must be a non-negative integer);
-6. outward orientation: `signedVolume > 0` (for a connected, coherently oriented
+6. outward orientation: `signedVolume` finite and `> 0` (a NaN is refused: review of
+   board2 S7, once board2 stopped calling `orientBrep`, whose guard it was; for a connected, coherently oriented
    closed shell the sign decides the global orientation; `makeBrep` guarantees the
    connectivity, because a torus beside an inside-out box passes Euler–Poincaré with a
    compensating genus and its summed volume hides the flipped part).
