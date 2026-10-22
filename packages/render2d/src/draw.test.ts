@@ -24,6 +24,7 @@ import {
   drawCurvatureComb,
   drawFinsPlan,
   drawGrid,
+  drawGhostSpline,
   drawMeasureCursor,
   drawSectionMarkers,
   drawSpline,
@@ -56,6 +57,7 @@ function makeCtx() {
     closePath: vi.fn(() => calls.push('closePath')),
     moveTo: vi.fn((_x: number, _y: number) => calls.push('moveTo')),
     lineTo: vi.fn((_x: number, _y: number) => calls.push('lineTo')),
+    bezierCurveTo: vi.fn(() => calls.push('bezierCurveTo')),
     setLineDash: vi.fn(() => calls.push('setLineDash')),
     rect: vi.fn(() => calls.push('rect')),
     fillText: vi.fn((_t: string, _x: number, _y: number) => calls.push('fillText')),
@@ -233,14 +235,43 @@ describe('clear', () => {
 // ---------------------------------------------------------------------------
 
 describe('drawSpline', () => {
-  it('calls beginPath + moveTo + lineTo sequence for a 2-segment spline', () => {
+  it('traces one native cubic Bézier per spline segment', () => {
     const { ctx, calls } = makeCtx();
     drawSpline(ctx, makeSpline(), VP, defaultStyle);
     expect(calls).toContain('beginPath');
     expect(calls).toContain('moveTo');
-    expect(calls).toContain('lineTo');
+    expect(ctx.bezierCurveTo).toHaveBeenCalledTimes(2);
+    expect(ctx.bezierCurveTo).toHaveBeenNthCalledWith(1, 120, 200, 180, 200, 200, 200);
+    expect(ctx.bezierCurveTo).toHaveBeenNthCalledWith(2, 220, 200, 280, 200, 300, 200);
+    expect(ctx.lineTo).not.toHaveBeenCalled();
     expect(calls).toContain('stroke');
   });
+
+  it.each(['live', 'reference'] as const)(
+    'transforms curved control points for live and reference splines',
+    (kind) => {
+      const spline = splineFromKnots([
+        knot(vec2(0, 1), vec2(0, 1), vec2(10, 20)),
+        knot(vec2(50, 3), vec2(40, 30), vec2(50, 3)),
+      ]);
+      const { ctx } = makeCtx();
+      if (kind === 'live')
+        drawSpline(ctx, spline, VP, defaultStyle, { mirrorY: true, mirrorX: true });
+      else drawGhostSpline(ctx, spline, VP, { mirrorY: true, mirrorX: true });
+      expect(vi.mocked(ctx.moveTo).mock.calls).toEqual([
+        [100, 198],
+        [100, 202],
+        [100, 198],
+      ]);
+      expect(vi.mocked(ctx.bezierCurveTo).mock.calls).toEqual([
+        [120, 160, 180, 140, 200, 194],
+        [120, 240, 180, 260, 200, 206],
+        [80, 160, 20, 140, 0, 194],
+      ]);
+      expect(ctx.lineTo).not.toHaveBeenCalled();
+      expect(ctx.stroke).toHaveBeenCalledTimes(3);
+    },
+  );
 
   it('draws two paths when mirrorY is true', () => {
     const { ctx } = makeCtx();
