@@ -21,7 +21,9 @@
  *   refused by the layer it names (`makeBrep` for structural ones, `checkBrep`
  *   for geometric and orientation ones), on the stadium and the notched loop.
  * - **Edges**: the gaps `checkBrep` measures are the build report's, ≤ `fit`,
- *   and equal to an independent sampling of `|row(t) − F(row.xy(t))|`.
+ *   and equal to an independent measurement of `|row(t) − F(row.xy(t))|`
+ *   (dense sampling, then golden-section on the bracket of the largest sample)
+ *   within 1e-12 × the board's thickness (§13.2 `snap`).
  * - **STEP**: `writeBoardStep` writes three faces, three edges, two vertices;
  *   geom's subset reader reads it back into a solid `checkBrep` accepts.
  */
@@ -154,30 +156,49 @@ describe('geom’s mutation catalogue applied to boards', () => {
 });
 
 describe('edge gaps against an independent sampling', () => {
-  it('crowned stadium: |row(t) − F(row.xy(t))| sampled densely matches checkBrep’s gap', () => {
+  it('crowned stadium: |row(t) − F(row.xy(t))| measured independently equals checkBrep’s gap', () => {
     const b = built(stadiumBoard({ crown: 1, rocker: 5 }));
     const [x0, x1] = b.doc.deck.x;
     const [y0, y1] = b.doc.deck.y;
-    const gap = (row: BuiltBoard['deckEdge'], s: BuiltBoard['deck']): number => {
-      let worst = 0;
-      for (let k = 0; k < 20000; k++) {
-        const p = curvePoint(row, k / 20000);
-        const z = surfacePoint(s, (p.x - x0) / (x1 - x0), (p.y - y0) / (y1 - y0)).z;
-        worst = Math.max(worst, Math.abs(p.z - z));
-      }
-      return worst;
+    // The planar parts agree to rounding, so the deviation is vertical: |row.z − F(row.xy)|.
+    const gapAt = (row: BuiltBoard['deckEdge'], s: BuiltBoard['deck'], t: number): number => {
+      const p = curvePoint(row, t - Math.floor(t));
+      return Math.abs(p.z - surfacePoint(s, (p.x - x0) / (x1 - x0), (p.y - y0) / (y1 - y0)).z);
     };
-    // The planar parts agree to rounding, so the deviation is vertical: the sampled maximum
-    // is at most the refined one, and within 1 % of it (20,000 samples resolve the z-fit
-    // error, a smooth function between the band's knots).
+    // The largest of N samples, then golden-section on its bracket [t − 1/N, t + 1/N] to a
+    // bracket of 1e-15 (the loop is periodic: t wraps). 20,000 samples put about 100 in each
+    // of the row's ~200 spans, so the bracket holds the global maximum, where the gap is
+    // smooth; at a smooth maximum the value converges quadratically in the bracket.
+    const N = 20000;
+    const GOLD = (Math.sqrt(5) - 1) / 2;
+    const gap = (row: BuiltBoard['deckEdge'], s: BuiltBoard['deck']): number => {
+      let k0 = 0;
+      let worst = -1;
+      for (let k = 0; k < N; k++) {
+        const g = gapAt(row, s, k / N);
+        if (g > worst) [worst, k0] = [g, k];
+      }
+      let a = (k0 - 1) / N;
+      let c = (k0 + 1) / N;
+      while (c - a > 1e-15) {
+        const m1 = c - GOLD * (c - a);
+        const m2 = a + GOLD * (c - a);
+        if (gapAt(row, s, m1) < gapAt(row, s, m2)) a = m1;
+        else c = m2;
+      }
+      return Math.max(worst, gapAt(row, s, 0.5 * (a + c)));
+    };
+    // checkBrep's own golden-section stops at a bracket of 0.618⁴⁰ ≈ 4e-9 of its piece; at
+    // the smooth maximum that costs ~g″ (4e-9 · piece)² ≪ 1e-12 cm. The rest is the rounding
+    // of z differences of a few cm (1e-15 cm). So 1e-12 × the thickness (6 cm), the design's
+    // bound, holds with margin; a gap misreported by more fails.
+    const scale = 6;
     for (const [row, s, g] of [
       [b.deckEdge, b.deck, b.report.edgeGaps.deckEdge],
       [b.tuck, b.bottom, b.report.edgeGaps.tuck],
     ] as const) {
-      const sampled = gap(row, s);
-      expect(sampled).toBeGreaterThan(0);
-      expect(sampled).toBeLessThanOrEqual(g * (1 + 1e-9) + 1e-14);
-      expect(sampled).toBeGreaterThan(0.99 * g);
+      expect(g).toBeGreaterThan(1e-7); // a real gap (the crown and rocker), not rounding
+      expect(Math.abs(gap(row, s) - g)).toBeLessThanOrEqual(1e-12 * scale);
     }
   });
 });

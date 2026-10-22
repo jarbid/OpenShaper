@@ -11,8 +11,8 @@ from step S2 the plan loop, the height fields and symmetry (plan invariants in
 from step S3, the rail band builder (`band/`, `offsets.ts`, `measureLaws`, the band checks of
 `validateBoard`, the band's row rules in `symmetryRules`) and, from step S4, the bottom
 features, the B-rep, `buildBoard`, `writeBoardStep` and the board through OCCT (geom's
-`./testing/occt` protocol); see the S1–S4 notes in §14. The specs and the converter are still
-to come; §14 is the build order.
+`./testing/occt` protocol); see the S1–S4 notes in §14 (S4 with its review fixes). The
+specs and the converter are still to come; §14 is the build order.
 When this document and the code disagree, this document wins until the step that changes it
 edits this file in the same commit.
 
@@ -562,15 +562,19 @@ curve, which does not depend on the bottom, so there is no cycle):
 | `channels` | `count`, `depth`, `width` (cm), `pitch` (cm), `railInset` (cm from the tuck) | `count` narrow concaves in absolute cm: `depth(x) · Σ_k bump((\|y\| − (h_t − c_k))/(width/2))`, `c_k = railInset + width/2 + k · pitch`                                                                                              |
 
 Evaluation: each feature is sampled on a grid over the tuck region and fitted onto the
-bottom's basis refined by the feature's own knot lines (`approximateSurface`, fixed bases, no
-parameter correction: height fields, §3.4), within `featureTol`. The fitted displacements are
+bottom's basis refined by the feature's own knot lines (least squares on fixed bases, no
+parameter correction: height fields, §3.4; solved separably, geom's `approximateCurve` down
+the grid's columns and then along its rows, the same minimiser as `approximateSurface` on
+the grid, S4 as built), within `featureTol`. The fitted displacements are
 added to the base bottom after making the bases compatible (exact), so the sum is
 independent of order up to rounding (a test). Features end in zero value and slope before the
 tuck unless a feature explicitly reaches it, so `edgeHardness` keeps its meaning.
 
 Limit: a channel's steep walls need fine knots, and tensor-product refinement spreads them
-across the whole bottom (cost, not correctness). Hierarchical splines stay deferred (plan
-§3.4); the cost is benchmarked (§13.5, Q7).
+across the whole bottom (cost, not correctness). Where `h_t` varies the walls' C¹ break lines
+curve across the grid: two 2 cm channels reaching the tail arc refine to a 141 × 337 net in 6
+passes (fit 5.0 s, `buildBoard` 22.7 s, measured in S4 as built). Hierarchical splines stay
+deferred (plan §3.4); the cost is benchmarked (§13.5, Q7).
 
 ### 6.3 Evaluation order
 
@@ -1027,7 +1031,7 @@ spot check per step (break the code, watch a named test fail, restore), as in Ph
 | `band`         | **Apex normal angle** along the whole apex (dense, both sides) ≤ 1e-9 rad; **outline invariance**: any law or offset change leaves row 3's x, y bitwise equal; **rocker invariance**: bottom net bitwise unchanged; deck join ≤ `deckJoinAngleTol` after refinement and converging O(h²) before; fidelity met; no degenerate band normal                     | Apex 1e-9 rad (rounding on unit normals, far below 0.1°); invariances bitwise |
 | `snap`         | Edge gaps from `checkBrep` ≤ `fit` and equal to independently sampled distances; handle vectors unchanged                                                                                                                                                                                                                                                    | `fit`; gaps 1e-12 · scale against the independent sampling                    |
 | `offsets`      | Zero layer = identity (bitwise); an offset survives a law change at the same σ in the new frame; components restricted (apex untouched)                                                                                                                                                                                                                      | Bitwise; 1e-12 · scale                                                        |
-| `features`     | Fit error ≤ `featureTol` against the closed-form d(x, η); order independence; zero features = identity (bitwise)                                                                                                                                                                                                                                             | `featureTol`; order 1e-12 · scale                                             |
+| `features`     | Fit error ≤ `featureTol` against the closed-form d(x, η) (where `h_t` varies, with `h_t` inverted by the test); order independence; zero features = identity (bitwise)                                                                                                                                                                                       | `featureTol`; order 1e-12 · scale                                             |
 | `brep`         | `checkBrep` ok, Euler 2, genus 0, outward volume; mutation catalogue from geom applied to boards; topology-agnostic notched loop builds (§3.8); **OCCT** (S4): B1–B4, B8 on the stadium and the three goldens                                                                                                                                                | As geom §15.3                                                                 |
 | `specs`        | Stadium closed forms (length, width, plan area); Δ-length identity for volume and plan area (§8.1.2); refinement invariance; plan-view quadrature; mesh O(h²); centroid y = 0                                                                                                                                                                                | §8.1                                                                          |
 | `convert`      | Every sample file converts and validates; line fits ≤ `lineTol`; factorisation identity ≤ 1e-9 cm; **preset recovery**: each classic preset applied to every station of each golden board (kernel `applyRailProfile`) converts back to its apex within 0.01, and varying one classic param at a time gives strictly monotone recovered hardness and fullness | Apex 0.01: the classic places the apex exactly; the rest is fit error         |
@@ -1070,15 +1074,16 @@ cloud container are reported beside them, and a miss is reported, not failed (ge
 
 ### 13.5 Phase 1 misses and the Phase 2 paths they block
 
-| Phase 1 miss (geom §17)                                         | Phase 2 path            | Effect and plan                                                                                                                                          |
-| --------------------------------------------------------------- | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| P22 `massProperties` 204 ms (target 50)                         | Q3 specs                | The board has a 3-face B-rep like the puck; expect Q3 at ~P22. Tier-2 candidate: one multi-integrand pass per face (geom §17). Not blocking correctness. |
-| P16 `approximateSurface` with correction 377 ms                 | Q5 converter            | Height-field fits need no correction (§9.6), which removes most of it; the band fit's correction passes remain (≤ `bandCorrectionPasses`).               |
-| P17 cold projection 0.25–0.3 ms per point                       | Q6 report, Q5 band data | Use only the warm batch path (8.7 µs per point): 2·10⁵ report samples ≈ 2 s.                                                                             |
-| P12r / P13r rational assembly 1–2.8 s                           | rational rails          | The reason D5 is deferred (§5.6).                                                                                                                        |
-| P18 edge fit 23.6 ms (met)                                      | Q1, Q2 (two edge fits)  | Within budget.                                                                                                                                           |
-| P13/P14 solver prepare/solve, P7/P8 plans, P20/P21 tessellation | none in Phase 2         | Phase 3's drag and display paths.                                                                                                                        |
-| Reference-desktop re-measurement (open)                         | every target above      | Still blocks tier-2 work; board2's numbers are recorded on the same container class and re-measured with geom's.                                         |
+| Phase 1 miss (geom §17)                                          | Phase 2 path               | Effect and plan                                                                                                                                                                          |
+| ---------------------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P22 `massProperties` 204 ms (target 50)                          | Q3 specs                   | The board has a 3-face B-rep like the puck; expect Q3 at ~P22. Tier-2 candidate: one multi-integrand pass per face (geom §17). Not blocking correctness.                                 |
+| P16 `approximateSurface` with correction 377 ms                  | Q5 converter               | Height-field fits need no correction (§9.6), which removes most of it; the band fit's correction passes remain (≤ `bandCorrectionPasses`).                                               |
+| P17 cold projection 0.25–0.3 ms per point                        | Q6 report, Q5 band data    | Use only the warm batch path (8.7 µs per point): 2·10⁵ report samples ≈ 2 s.                                                                                                             |
+| P12r / P13r rational assembly 1–2.8 s                            | rational rails             | The reason D5 is deferred (§5.6).                                                                                                                                                        |
+| P18 edge fit 23.6 ms (met)                                       | Q1, Q2 (two edge fits)     | Within budget.                                                                                                                                                                           |
+| P22-class trimmed integration (`orientBrep`, `checkBrep` volume) | Q1 with a fine feature net | Channels on the tail arc: a 141 × 337 bottom, 17 s of a 22.7 s `buildBoard` in the two signed-volume integrations (S4 as built). Tier-2 candidate, or hierarchical features (plan §3.4). |
+| P13/P14 solver prepare/solve, P7/P8 plans, P20/P21 tessellation  | none in Phase 2            | Phase 3's drag and display paths.                                                                                                                                                        |
+| Reference-desktop re-measurement (open)                          | every target above         | Still blocks tier-2 work; board2's numbers are recorded on the same container class and re-measured with geom's.                                                                         |
 
 ---
 
@@ -1512,8 +1517,8 @@ curve before the bottom exists), `validate.ts` (the feature checks and fits befo
 checks), `testing/volume.ts` (the independent volume oracle), `vitest.occt.config.ts` and
 `brep.occt.test.ts`; in geom the `./testing/occt` subpath (`src/testing/occt/index.ts`), with
 `step.occt.test.ts` and `curved-puck.occt.test.ts` running on it. Public values added to the
-pin: `buildBoard`, `writeBoardStep`. 273 board2 tests under `pnpm test` (32 new; the OCCT
-suite is 5 more, under `test:occt`). Root `pnpm test:occt` runs geom's
+pin: `buildBoard`, `writeBoardStep`. 275 board2 tests under `pnpm test` (34 new; the OCCT
+suite is 6 more, under `test:occt`), counts after the review fixes below. Root `pnpm test:occt` runs geom's
 suite, then board2's (`--workspace-concurrency=1`: one 21 MB WASM kernel at a time); board2's
 `pnpm test` excludes `*.occt.test.ts`. Isolation (§11.3): the protocol module is the one geom
 source file besides the test files allowed to import `occt-wasm`; `occt-isolation.test.ts` now
@@ -1539,8 +1544,8 @@ applied to the tuck loop; a tuck loop that fails it leaves η undefined and ever
 feature `feature-invalid`); `minOver(a, b)` is exact (ends and the closed-form roots of y′
 per quadratic piece). Each feature is sampled at `samplesPerSpan` points per span of its own
 basis (the bottom's knots plus double knots at its depth keys' x and at its lateral break
-lines, both sides), fitted by `approximateSurface` on fixed bases with the exact affine
-parameters, verified at `verifyFactor ×` the samples, and the spans whose error exceeds
+lines, both sides), fitted by least squares on fixed bases with the exact affine
+parameters (separably, deviation 11), verified at `verifyFactor ×` the samples, and the spans whose error exceeds
 `safety · featureTol` are split (v spans in mirror pairs), at most `maxPasses` times. The
 fitted nets are refined to the union of the knots (exact) and added to the base bottom; on a
 symmetric board the partner rows of the sum then take their masters' z (bitwise symmetric,
@@ -1558,7 +1563,13 @@ symmetric board the partner rows of the sum then take their masters' z (bitwise 
    the boundary rows (§5.5). A miss after `maxPasses` is a `not-converged` warning with the
    measured error, never silent. The lateral break lines are placed with `h_t` at the depth's
    largest key: exact where the tuck is straight; where `h_t` varies, the lines curve and
-   refinement resolves them (tested on a concave reaching the tail arc).
+   refinement resolves them (tested on a concave and on two channels reaching the tail arc,
+   against `h_t` inverted by the test). The refinement there is near the tensor grid's
+   inherent need, not wasteful: a C¹ wall with a second-derivative jump of 8 · depth /
+   (width/2)² = 2.4 cm⁻¹ needs spans of about 0.1 cm across the 12 cm the four walls sweep
+   per side on the arc (≈ 240 v spans) and along the 24 cm of arc where they move (≈ 120 u
+   spans); the fit ends on 141 × 337. Placing break-line knots per u span would not shrink
+   that net (each knot line is global), so the review's cost fix is the solve (deviation 11).
 3. **η uses the tuck plan curve on the station basis** (stage 5 before refinement), not the
    kept band's tuck row. The band's refinement depends on the bottom, so the refined row
    cannot define the bottom without a cycle; the two curves are the same design sampled on
@@ -1590,11 +1601,18 @@ symmetric board the partner rows of the sum then take their masters' z (bitwise 
    (flips, inside out, mutations) became one, on one `orientationControls` call, with the
    same assertions: `test:occt` in geom is 85 tests (97 before), its assertions unchanged.
 8. **GProp on the board is 2.23 % high** (both paths and units alike: B7 is bit-equal), above
-   the protocol's 1 % sanity bound that held on geom's corpus: GProp integrates the trimmed
-   planar deck and bottom with a fixed rule per surface span, and their trims (rows of ~200
-   control points) cross every span. The board's test bounds it at 3 % (`GPROP_BOARD_REL`)
-   as a sanity check only; the accuracy oracles are OCCT's mesh and our `massProperties`
-   against the independent volume.
+   the protocol's 1 % sanity bound that held on geom's corpus. The first explanation (a fixed
+   rule per surface span of the trimmed planar faces) was tested in the review and is
+   **refuted**: refining the flat deck and bottom exactly from 2 × 2 to 128 × 64 spans leaves
+   GProp's face areas equal to 1e-14 and its volume error at 2.229 % (the OCCT suite pins
+   2 × 2 against 32 × 16 at `B7_REL`), and
+   154 to 406 band columns (station spacing 10 to 1.25 cm, frame turn 2.5° to 20°) keep it
+   between 2.225 % and 2.234 %. GProp's face areas are 0.13 % (deck, bottom) and 0.56 %
+   (band) low against the exact plan areas and a 16-point Gauss–Legendre band area. The cause
+   is inside OCCT and not identified; no refinement of ours converges it. The board's test
+   bounds it at 2.5 % (`GPROP_BOARD_REL`, the measured 2.23 % plus a quarter of a percent; it
+   was 3 % before the measurement) as a sanity check only; the accuracy oracles are OCCT's
+   mesh and our `massProperties` against the independent volume.
 9. **`corrupt a weight`** (geom's mutation catalogue) is missed by OCCT's unhealed check on
    the stadium (pinned: `BRepCheck` samples an edge at 23 parameters, and the deck edge
    crosses the corner patch only near the nose), and caught by `checkBrep`. On the notched
@@ -1605,19 +1623,36 @@ symmetric board the partner rows of the sum then take their masters' z (bitwise 
     `1/(1 − r/2)` (continuous only at r → 0; the vee fit then missed `featureTol` after 8
     passes and the full suite took 8 minutes). Fixed; it is the step's first mutation spot
     check below.
+11. **The feature fit is solved separably** (review fix). On a grid the collocation matrix is
+    the Kronecker product `Bu ⊗ Bv`, whose pseudo-inverse is `Bu⁺ ⊗ Bv⁺`, so fitting every
+    sample column in u and then every resulting row in v (`tensorLeastSquares`: geom's
+    `approximateCurve` on the fixed bases, three columns per call) is the same minimiser as
+    `approximateSurface` on the whole grid (tested: 8e-14 apart on random data and random
+    bases with a double knot). `approximateSurface` solved one banded system with
+    `nu · nv` unknowns and bandwidth ≈ `3 nv`: 111 s of the 141 s that two channels on the
+    tail arc took (6 passes, net 141 × 337). The verification evaluates z alone by its tensor
+    basis one u sample at a time (the field's x, y are affine) instead of a 3D grid of
+    44 M points (1 GB). Same passes, nets and errors to rounding; that case now fits in
+    5.0 s.
 
 **Oracles and tolerances.** Features against the closed forms written out in the test (the
 stadium's straight tuck `h_t = ρ − w_t` exactly, an all-auto depth a smoothstep per segment):
 at 400 seeded random points the built bottom minus the base is within `featureTol`; the vee
-lies in the spline space once its knot lines are in, so 1e-12. `h_t` against its definition
+lies in the spline space once its knot lines are in, so 1e-12. On the tail arc (`h_t` from
+17.1 to 23 cm) the same closed forms with `h_t` inverted in the test (dense bracketing and
+Newton on geom's derivatives, not `tuckWidth`): a single concave (worst 8.2e-4 cm) and two
+channels (7.5e-5 cm at the random points, verified maximum 5.7e-4 cm), both within
+`featureTol`. `h_t` against its definition
 (`at(x(u)) = −y(u)`, 200 random u, 1e-9: |y′/x′| × an ulp of u); `minOver` never above dense
 sampling (4,000 points). Order independence 1e-12 × 6 cm, and checkHeightFieldSymmetry on the
 sum. No enabled feature: the base surface itself (`toBe`). B-rep: `checkBrep` ok, V 2, E 3,
 F 3, L 3, χ = 2, genus 0, positive volume, senses deck true, band and bottom false, no flip,
 on the stadium, crowned stadium, sample board and notched loop; geom's mutation catalogue on
 the stadium and notched loop, each defect refused by its layer. Edge gaps: the report's are
-`checkBrep`'s, ≤ `fit`, and a 20,000-point independent sampling of `|row(t) − F(row.xy(t))|`
-is within 1 % below them. Volume: `testing/volume.ts` (divergence theorem with `F = (0, 0, z)`
+`checkBrep`'s, ≤ `fit`, and equal to an independent measurement of `|row(t) − F(row.xy(t))|`
+(20,000 samples, then golden-section on the largest sample's bracket to 1e-15) within
+1e-12 × the 6 cm thickness, §13.2's bound (measured 5.3e-15 and 1.8e-15 cm on gaps of
+7.1e-6 and 4.3e-6 cm; the first version of this test accepted 1 %). Volume: `testing/volume.ts` (divergence theorem with `F = (0, 0, z)`
 on the flat stadium: deck height × the plan area inside the deck-edge row, Green's theorem by
 3-point Gauss–Legendre per cubic span, plus the band's flux by 5 × 5 points per bicubic patch,
 both exact; point evaluations only) against `massProperties` and `checkBrep`'s signed volume,
@@ -1635,14 +1670,20 @@ valid with exactly the negated volume, the STEP reader healing it to the referen
 | ------------------- | ------- | ------ | ------- | --------------- | ---------------- | -------------------------- | ---------------- | ---------- |
 | stadium             | 184     | 0      | 700 ms  | 87 ms           | 2.2 s            | 1.1e-13 / 1.1e-13          | —                | 11 × 7     |
 | crowned             | 184     | 0      | 773 ms  | 60 ms           | 1.9 s            | 7.1e-6 / 4.3e-6            | —                | 11 × 7     |
-| sample (concave)    | 204     | 6      | 1758 ms | 298 ms          | 3.0 s            | 2.4e-7 / 7.3e-7            | 6.5e-4           | 26 × 23    |
+| sample (concave)    | 204     | 6      | 1627 ms | 129 ms          | 3.0 s            | 2.4e-7 / 7.3e-7            | 6.5e-4           | 26 × 23    |
 | notched (direct)    | 308     | 6      | 1947 ms | —               | 2.2 s            | 8.6e-14 / 1.1e-13          | —                | 11 × 7     |
-| stadium vee+concave | 242     | 2      | 1634 ms | 218 ms          | 3.6 s            | 1.1e-13 / 2.2e-5           | 9.0e-4           | 22 × 21    |
+| stadium vee+concave | 242     | 2      | 1321 ms | 98 ms           | 3.6 s            | 1.1e-13 / 2.2e-5           | 9.0e-4           | 22 × 21    |
+| channels, tail arc  | 184     | 0      | 22.7 s  | 4.4 s           | —                | 1.1e-13 / 3.1e-6           | 5.7e-4           | 141 × 337  |
 
-Per feature on the stadium (fit only): vee 26 ms (0 passes, 8.7e-15 cm), single concave
-81 ms (1 pass, 9.0e-4), double concave 351 ms (2 passes, 1.4e-4), two channels 766 ms (2
-passes, 6.8e-4, a 31 × 57 net); one vee and one concave 177 ms (Q7's target 50 ms: reported,
-left to S9). A build without features spends most of its time past the band (S3 measured the
+Per feature on the stadium (fit only, after the separable fit of deviation 11; before it in
+brackets): vee 34 ms (26 ms; 0 passes, 7.8e-16 cm), single concave 65 ms (81 ms; 1 pass,
+9.0e-4), double concave 63 ms (351 ms; 2 passes, 1.4e-4), two channels 107 ms (766 ms; 2
+passes, 6.8e-4, a 31 × 57 net); one vee and one concave 29 ms (177 ms; Q7's target 50 ms,
+met). Reaching the tail arc (depth keys at x = 10, 30, 70): vee 21 ms, double concave 61 ms,
+two channels 4.95 s (149 s; 6 passes, a 141 × 337 net). The build and validation rows above
+were re-measured with it. The channels' `buildBoard` spends 17 s of its 22.7 s in geom's
+`orientBrep` and `checkBrep` (each integrates the signed volume over the 141 × 337 bottom's
+spans): recorded in §13.5, left to tier-2 work. A build without features spends most of its time past the band (S3 measured the
 stadium's band at 161 ms): `orientBrep` and `checkBrep` each integrate the signed volume.
 The board's OCCT suite takes about 27 s.
 
@@ -1652,7 +1693,13 @@ found in the resumed worktree): 4 tests failed (the vee closed-form fit with a 6
 `features.ts`: the mirrored cluster representative replaced by the smallest knot: the new
 `knotRel` cluster test failed (`symmetry-broken`), restored. `brep.ts`: the band face's
 `sameSense` set to true: 12 of 13 `brep.test.ts` tests failed (`checkBrep` refuses the trim
-orientation), restored.
+orientation), restored. Review fixes: `features.ts` with the one banded `approximateSurface`
+solve back in place of `tensorLeastSquares`: the channels-on-the-tail-arc test timed out at
+20 s (123 s), restored. `featureDisplacement` with a stale straight-part `h_t`
+(`max(h_t, 23)`): both tail-arc tests failed against the test's own `h_t` (errors 3.7e-3 and
+0.16 cm; the former oracle, `featureDisplacement` itself, could not see it), restored.
+`build.ts` reporting the deck-edge gap × 1.005: the edge-gap test failed (3.5e-8 cm > 6e-12;
+the former 1 % test passed it), restored.
 
 S5 and S6 can run in parallel after S4 and S3 respectively; S7 needs both S4 (validity through
 the B-rep) and S6.
@@ -1672,7 +1719,10 @@ the B-rep) and S6.
    files) and the classic's square transom edges. Explained, not reproduced
    (`profile-corner`, `tip`). Open: a deck-edge hardness lane, if shapers want crisp deck
    edges.
-4. **Channel cost** under tensor-product refinement (§6.2).
+4. **Channel cost** under tensor-product refinement (§6.2): channels whose walls curve with
+   `h_t` (the tail arc) need a fine tensor net. The fit is separable (5 s for two channels
+   there, 149 s as one banded solve); `validateBoard` pays the fit (4.4 s), `buildBoard`
+   also the B-rep's two volume integrations over that net (17 s, §13.5).
 5. **Converter conditioning** of the free band fit near tips where classic data are sparse:
    fairness by the discrepancy principle and the tip keys of §9.5.
 6. **Benchmarks** measured on the cloud container only, like Phase 1's.

@@ -21,13 +21,17 @@
  * A positive concave or channel depth raises the bottom into the board (the
  * hollow a concave is); S4 deviation 1 records the sign.
  *
- * **Fit** (§6.2). Each feature is sampled and fitted by geom's
- * `approximateSurface` on fixed bases with exact parameters (the height field's
- * affine (u, v), so no parameter correction, §3.4): the bottom's basis refined
+ * **Fit** (§6.2). Each feature is sampled on a grid and fitted by least squares
+ * on fixed bases with exact parameters (the height field's affine (u, v), so no
+ * parameter correction, §3.4), separably (`tensorLeastSquares`: geom's
+ * `approximateCurve` down every grid column, then along every row; the same
+ * minimiser as `approximateSurface` on the grid, S4 review): the bottom's basis refined
  * by the feature's own knot lines, double knots (the feature is C¹ there) at its
  * depth keys' x and at its lateral break lines, placed with the tuck
  * half-width at the depth's largest key (exact where the tuck is straight;
- * elsewhere the lines curve with `h_t` and refinement resolves them). The fit
+ * elsewhere the lines curve with `h_t` and refinement resolves them, at the
+ * cost of a fine tensor grid where they cross it: channels on the tail arc end
+ * on a net of about 140 × 340). The fit
  * is verified at `verifyFactor ×` denser samples and the spans whose error
  * exceeds `safety · featureTol` are split (v in mirror pairs), at most
  * `edgeFit.maxPasses` times: the document's edge-fit sampling (S4 deviation 2).
@@ -41,15 +45,23 @@
  * images of its own knots. No enabled feature: the base bottom itself.
  */
 import {
-  approximateSurface,
+  approximateCurve,
+  basisFunsInto,
   clampedBasis,
   createScratch,
   curveEvalInto,
   DEFAULT_EDGE_FIT,
+  findSpan,
   refineKnotsSurface,
-  surfaceEvalGridInto,
 } from '@openshaper/geom';
-import type { NurbsSurface, PeriodicCurve, Tolerances } from '@openshaper/geom';
+import type {
+  ClampedBasis,
+  GeomIssue,
+  NurbsSurface,
+  PeriodicCurve,
+  Scratch,
+  Tolerances,
+} from '@openshaper/geom';
 import { heightFieldSurface } from './height-field';
 import { causeOf, makeIssue } from './issues';
 import { lawEvaluator } from './law';
@@ -497,6 +509,111 @@ function canonicalKnots(
   return map;
 }
 
+/** The non-zero basis functions at each parameter: its span (P&T) and `p + 1` values. */
+interface Collocation {
+  readonly span: Int32Array;
+  readonly n: Float64Array;
+}
+
+function collocation(b: ClampedBasis, ts: Float64Array, sc: Scratch): Collocation {
+  const w = b.degree + 1;
+  const span = new Int32Array(ts.length);
+  const n = new Float64Array(ts.length * w);
+  for (let k = 0; k < ts.length; k++) {
+    span[k] = findSpan(b, ts[k]!);
+    basisFunsInto(b, span[k]!, ts[k]!, n, k * w, sc);
+  }
+  return Object.freeze({ span, n });
+}
+
+/** Columns fitted per `approximateCurve` call: its largest dimension. */
+const FIT_DIM = 3;
+
+/**
+ * Fits `count` columns of `length` values at `params` on the clamped basis
+ * `b` (geom's `approximateCurve`, `FIT_DIM` columns per call) and hands each
+ * column's control values to `put`; geom's issue when it refuses one.
+ */
+function fitColumns(
+  count: number,
+  length: number,
+  at: (k: number, c: number) => number,
+  b: ClampedBasis,
+  params: Float64Array,
+  tol: Tolerances,
+  put: (c: number, a: number, value: number) => void,
+): GeomIssue | null {
+  const pts = new Float64Array(length * FIT_DIM);
+  const stride = FIT_DIM + 1;
+  for (let c0 = 0; c0 < count; c0 += FIT_DIM) {
+    const m = Math.min(FIT_DIM, count - c0);
+    pts.fill(0);
+    for (let k = 0; k < length; k++) {
+      for (let c = 0; c < m; c++) pts[k * FIT_DIM + c] = at(k, c0 + c);
+    }
+    const fit = approximateCurve(pts, FIT_DIM, { degree: b.degree, knots: b.knots, params, tol });
+    if (!fit.ok) {
+      return fit.issues.find((i) => i.severity === 'error') ?? fit.issues[0]!;
+    }
+    const cw = fit.value.curve.cw;
+    for (let a = 0; a < b.count; a++) {
+      for (let c = 0; c < m; c++) put(c0 + c, a, cw[a * stride + c]! / cw[a * stride + FIT_DIM]!);
+    }
+  }
+  return null;
+}
+
+/**
+ * The least-squares fit of grid data on a tensor-product basis, separably.
+ * `d` (u-major, `us.length × vs.length`) at the exact parameters `us × vs`;
+ * returns the control values (u-major, `bu.count × bv.count`) minimising the
+ * sum of squared residuals. On a grid the collocation matrix is the Kronecker
+ * product `Bu ⊗ Bv`, whose pseudo-inverse is `Bu⁺ ⊗ Bv⁺` (both of full column
+ * rank: every span holds `samplesPerSpan > p` samples), so fitting every data
+ * column in u and then every resulting row in v is the same minimiser as
+ * `approximateSurface` on the whole grid, up to rounding: curve fits instead
+ * of one banded solve with `bu.count · bv.count` unknowns and bandwidth
+ * `≈ p · bv.count` (S4 review: 111 s of a 149 s channel fit on the tail arc).
+ */
+export function tensorLeastSquares(
+  d: Float64Array,
+  us: Float64Array,
+  vs: Float64Array,
+  bu: ClampedBasis,
+  bv: ClampedBasis,
+  tol: Tolerances,
+): Float64Array | GeomIssue {
+  const mv = vs.length;
+  // Every data column (one v sample) in u: E is bu.count × mv.
+  const E = new Float64Array(bu.count * mv);
+  const e1 = fitColumns(
+    mv,
+    us.length,
+    (k, c) => d[k * mv + c]!,
+    bu,
+    us,
+    tol,
+    (c, a, value) => {
+      E[a * mv + c] = value;
+    },
+  );
+  if (e1 !== null) return e1;
+  // Every row of E (one u control index) in v.
+  const z = new Float64Array(bu.count * bv.count);
+  const e2 = fitColumns(
+    bu.count,
+    mv,
+    (k, c) => E[c * mv + k]!,
+    bv,
+    vs,
+    tol,
+    (c, a, value) => {
+      z[c * bv.count + a] = value;
+    },
+  );
+  return e2 ?? z;
+}
+
 function fitFeature(
   f: BottomFeature,
   c: FitContext,
@@ -509,6 +626,12 @@ function fitFeature(
   const [x0, x1] = hf.x;
   const [y0, y1] = hf.y;
   const depthAt = lawEvaluator(f.depth, c.tol);
+  const sc = createScratch({ maxDegree: Math.max(p, q), maxDerivs: 0 });
+  const geomIssue = (message: string, cause?: GeomIssue): Board2Issue =>
+    makeIssue('geom', `feature '${f.id}': fit: ${message}`, {
+      at: { feature: f.id },
+      ...(cause === undefined ? {} : { cause }),
+    });
 
   let best: FeatureFit | null = null;
   let knotsU = U;
@@ -520,71 +643,54 @@ function fitFeature(
     const spansV = spansOf(fullV);
     const us = spanSamples(spansU, c.samplesPerSpan);
     const vs = spanSamples(spansV, c.samplesPerSpan);
-    const d = sampleGrid(f, c, depthAt, us, vs);
-    const pts = new Float64Array(us.length * vs.length * 3);
-    const uv = new Float64Array(us.length * vs.length * 2);
-    for (let i = 0; i < us.length; i++) {
-      for (let j = 0; j < vs.length; j++) {
-        const k = i * vs.length + j;
-        pts[3 * k] = x0 + us[i]! * (x1 - x0);
-        pts[3 * k + 1] = y0 + vs[j]! * (y1 - y0);
-        pts[3 * k + 2] = d[k]!;
-        uv[2 * k] = us[i]!;
-        uv[2 * k + 1] = vs[j]!;
-      }
-    }
-    let surface: NurbsSurface;
+    let bu: ClampedBasis;
+    let bv: ClampedBasis;
+    let z: Float64Array;
     try {
-      const bu = clampedBasis(p, fullU, c.tol);
-      const bv = clampedBasis(q, fullV, c.tol);
-      const fit = approximateSurface(pts, { uv }, { u: bu, v: bv, tol: c.tol });
-      if (!fit.ok) {
-        const cause = fit.issues.find((i) => i.severity === 'error') ?? fit.issues[0];
-        return makeIssue('geom', `feature '${f.id}': fit: ${cause?.message ?? 'failed'}`, {
-          at: { feature: f.id },
-          ...(cause === undefined ? {} : { cause }),
-        });
-      }
-      surface = fit.value.surface;
+      bu = clampedBasis(p, fullU, c.tol);
+      bv = clampedBasis(q, fullV, c.tol);
+      const r = tensorLeastSquares(sampleGrid(f, c, depthAt, us, vs), us, vs, bu, bv, c.tol);
+      if (!(r instanceof Float64Array)) return geomIssue(r.message, r);
+      z = r;
     } catch (e) {
-      const cause = causeOf(e);
-      return makeIssue(
-        'geom',
-        `feature '${f.id}': fit: ${e instanceof Error ? e.message : String(e)}`,
-        { at: { feature: f.id }, ...(cause === undefined ? {} : { cause }) },
-      );
+      return geomIssue(e instanceof Error ? e.message : String(e), causeOf(e));
     }
 
-    // Verify at verifyFactor × the samples; error per (u span, v span).
+    // Verify at verifyFactor × the samples, one u sample at a time (z only: the field's x
+    // and y are affine, §3.4); the error per u span and per v span.
     const n = c.samplesPerSpan * c.verifyFactor;
     const vu = spanSamples(spansU, n);
     const vv = spanSamples(spansV, n);
-    const exact = sampleGrid(f, c, depthAt, vu, vv);
-    const got = new Float64Array(vu.length * vv.length * 3);
-    surfaceEvalGridInto(
-      surface,
-      vu,
-      vv,
-      0,
-      got,
-      createScratch({ maxDegree: Math.max(p, q), maxDerivs: 0 }),
-    );
+    const cu = collocation(bu, vu, sc);
+    const cv = collocation(bv, vv, sc);
+    const nvc = bv.count;
+    const row = new Float64Array(nvc);
     const errU = new Float64Array(spansU.length);
     const errV = new Float64Array(spansV.length);
     let error = 0;
     for (let i = 0; i < vu.length; i++) {
+      row.fill(0);
+      for (let a = 0; a <= p; a++) {
+        const w = cu.n[i * (p + 1) + a]!;
+        const o = (cu.span[i]! - p + a) * nvc;
+        for (let j = 0; j < nvc; j++) row[j] = row[j]! + w * z[o + j]!;
+      }
+      const x = x0 + vu[i]! * (x1 - x0);
+      const depth = depthAt(x);
+      const ht = depth === 0 ? 0 : c.width.at(x);
+      const si = Math.floor(i / n);
       for (let j = 0; j < vv.length; j++) {
-        const k = i * vv.length + j;
-        const e = Math.abs(got[3 * k + 2]! - exact[k]!);
-        const si = Math.floor(i / n);
+        let s = 0;
+        const o = cv.span[j]! - q;
+        for (let b = 0; b <= q; b++) s += cv.n[j * (q + 1) + b]! * row[o + b]!;
+        const exact = depth === 0 ? 0 : featureDisplacement(f, depth, y0 + vv[j]! * (y1 - y0), ht);
+        const e = Math.abs(s - exact);
         const sj = Math.floor(j / n);
         if (e > errU[si]!) errU[si] = e;
         if (e > errV[sj]!) errV[sj] = e;
         if (e > error) error = e;
       }
     }
-    const z = new Float64Array(surface.u.count * surface.v.count);
-    for (let k = 0; k < z.length; k++) z[k] = surface.cw[4 * k + 2]! / surface.cw[4 * k + 3]!;
     const fit: FeatureFit = Object.freeze({
       id: f.id,
       knotsU: Object.freeze([...knotsU]),

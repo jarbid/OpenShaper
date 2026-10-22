@@ -15,7 +15,8 @@
  *   geom's trimmed integration). Two judges compare with it: OCCT's own
  *   triangulation of the imported solid (its error bounded by the band's area ×
  *   the deflection, planar faces meshing exactly), and our `massProperties`
- *   (1e-10 relative). GProp's `getVolume` is a 1 % sanity check only (§15.2).
+ *   (1e-10 relative). GProp's `getVolume` is a sanity check only (§15.2), at
+ *   2.5 % on the board (`GPROP_BOARD_REL`, below), not the protocol's 1 %.
  * - **Path A** (the unhealed native BREP, `fromBREP`): valid as built, every
  *   tolerance the one written, encodings, outward volume; **B7**: GProp's
  *   volume of Path A equals that of Path B in mm and in cm to 1e-9 relative.
@@ -24,6 +25,9 @@
  *   turned inside out is "valid" with exactly the negated volume (and the STEP
  *   reader re-orients it); every geometry or orientation mutation `checkBrep`
  *   refuses, OCCT refuses unhealed too.
+ * - **GProp's error is not a per-span rule of the planar faces**: the same
+ *   board on 2 × 2 and 32 × 16 deck and bottom spans (an exact refinement of
+ *   the flat fields) gets the same GProp volume to `B7_REL`.
  */
 import { checkBrep, massProperties } from '@openshaper/geom';
 import {
@@ -34,9 +38,11 @@ import {
   pathA,
   pathB,
   refused,
+  withCheckpoint,
 } from '@openshaper/geom/testing/occt';
 import type { ImportFacts, MeshVolumeCheck, OcctSolid } from '@openshaper/geom/testing/occt';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { writeBoardStep } from './brep';
 import { buildBoard } from './build';
 import { bandArea, flatBoardVolume, stadiumBoard, stadiumFacts } from './testing';
 import type { BuiltBoard } from './types';
@@ -85,13 +91,18 @@ const solid: OcctSolid = (() => {
 /**
  * GProp's own volume (`getVolume`, no epsilon) is a sanity check only (§15.2): the
  * protocol's 1 % (`GPROP_SANITY_REL`) held on geom's corpus, but on the board GProp is
- * 2.23 % high (measured, both paths and units alike, which B7 pins), so the check here is
- * 3 %: GProp integrates the trimmed planar deck and bottom with a fixed rule per surface
- * span, and their trims (the rows, ~200 control points) cross every span. The accuracy
- * oracles are the mesh volume and massProperties against the independent volume; S4
- * deviation 8 in board2.md records this.
+ * 2.23 % high (both paths and units alike, which B7 pins). The cause is inside OCCT and
+ * not identified; what is measured (S4 deviation 8) is that it does not follow our
+ * representation: the volume is unchanged by refining the planar deck and bottom from
+ * 2 × 2 to 128 × 64 spans (tested below at 32 × 16), and stays between 2.225 % and
+ * 2.234 % for 154 to 406 band columns (station spacing 10 to 1.25 cm, frame turn 2.5° to
+ * 20°): no per-span rule of ours converges it. GProp's face areas are 0.13 % (deck,
+ * bottom) and 0.56 % (band) low. So 2.5 % here: the measured 2.23 % plus a quarter of a
+ * percent; the check still catches gross errors (a flipped face moves the volume by far
+ * more, the orientation test below). The accuracy oracles are the mesh volume and
+ * massProperties against the independent volume.
  */
-const GPROP_BOARD_REL = 0.03;
+const GPROP_BOARD_REL = 0.025;
 
 /**
  * The one checkBrep mutation OCCT's unhealed check misses on the board (pinned):
@@ -157,6 +168,24 @@ describe('the stadium board through OCCT', () => {
       );
     }
     expectMesh(r.mesh);
+  });
+
+  it('GProp’s error does not follow the planar faces’ spans (exact refinement leaves it)', () => {
+    // The flat deck and bottom on 2 × 2 and on 32 × 16 spans are the same planes (a flat
+    // field refines exactly), so the band and the rows are the same too: a quadrature rule
+    // per surface span would give a different volume on the finer net; GProp's is equal.
+    const gprop = (spansX: number, spansY: number): number =>
+      withCheckpoint(kernel, () => {
+        const r = buildBoard(stadiumBoard({ thickness: THICKNESS, spansX, spansY }));
+        if (!r.ok) throw new Error(JSON.stringify(r.issues));
+        return kernel.getVolume(kernel.importStep(writeBoardStep(r.value).text)) / 1000;
+      });
+    const coarse = gprop(2, 2);
+    const fine = gprop(32, 16);
+    expect(Math.abs(fine - coarse)).toBeLessThanOrEqual(B7_REL * coarse);
+    const rel = coarse / solid.volume - 1;
+    expect(rel).toBeGreaterThan(0.02);
+    expect(rel).toBeLessThan(GPROP_BOARD_REL);
   });
 
   it('orientation oracles: flipped faces and edge uses refused, inside out only by its sign', () => {

@@ -462,7 +462,12 @@ order §14).
       `./testing/occt` subpath (the §15.3 protocol extracted from `step.occt.test.ts`);
       root `pnpm test:occt` runs geom and board2: the stadium board passes Path B, Path A,
       B7 and the orientation oracles. Deviations recorded (concave sign, η from the
-      station-basis tuck curve, GProp 2.2 % high on the board)
+      station-basis tuck curve, GProp 2.2 % high on the board, not a per-span rule of
+      ours: measured). Review fixes: the feature fit solved separably (two channels on the
+      tail arc 149 s → 5 s; their build is 22.7 s, 17 s of it geom's volume integrations
+      over the fine bottom, recorded in board2.md §13.5), tail-arc oracles with `h_t`
+      inverted by the test, edge gaps against an independent maximum at 1e-12 × scale, and
+      the GProp sanity bound 2.5 % from the measurement
 - [ ] S5 specs and volume convergence · S6 converter I · S7 converter II · S8 deviation
       report · S9 benchmarks and the Phase 2 report
 

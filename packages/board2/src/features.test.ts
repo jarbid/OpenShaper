@@ -14,6 +14,13 @@
  *   tolerance), and a vee, which lies in the spline space once its own knot
  *   lines are in (a parabola and lines in |y| with double knots at ±r h_t, a
  *   cubic smoothstep in x with double knots at the keys), to rounding.
+ * - **Where h_t varies** (the tail arc): the same closed forms with `h_t`
+ *   computed here, independently of `features.ts`: the tuck curve's −y half
+ *   inverted by dense bracketing and Newton on geom's derivatives. A single
+ *   concave and two channels (the case that took 149 s before the separable
+ *   fit) reach `featureTol` within the suite's 20 s test budget.
+ * - **The separable fit** equals geom's `approximateSurface` on the same grid
+ *   and bases (the same least-squares minimiser) to rounding.
  * - **h_t** against its definition: `at(x(u)) = −y(u)` on the tuck curve at
  *   random u (an inverse-function identity), `minOver` against dense sampling.
  * - **Order independence**: the same features in another order give the same
@@ -22,8 +29,15 @@
  * - Negative controls for every geometric `feature-invalid` rule, and an
  *   honest `not-converged` warning when the target is out of reach.
  */
-import { curvePoint, resolveTolerances, surfacePoint } from '@openshaper/geom';
-import type { NurbsSurface } from '@openshaper/geom';
+import {
+  approximateSurface,
+  clampedBasis,
+  curveDerivatives,
+  curvePoint,
+  resolveTolerances,
+  surfacePoint,
+} from '@openshaper/geom';
+import type { NurbsSurface, PeriodicCurve } from '@openshaper/geom';
 import { mulberry32 } from '@openshaper/geom/testing';
 import { describe, expect, it } from 'vitest';
 import { bandContext, insetPlanCurve } from './band/band';
@@ -32,8 +46,8 @@ import { buildBoard } from './build';
 import {
   bottomWithFeatures,
   bump,
-  featureDisplacement,
   featureIssues,
+  tensorLeastSquares,
   tuckWidth,
   veeProfile,
 } from './features';
@@ -104,10 +118,12 @@ const channels = (d = 0.3): BottomFeature => ({
   railInset: 2,
 });
 
-/** The closed forms of the module comment (independent of `features.ts`). */
-function closedForm(f: BottomFeature, d: number, x: number, y: number): number {
-  const depth = smoothstep(scaled(d), x);
-  const eta = Math.abs(y) / HT;
+/**
+ * The closed forms of the module comment (independent of `features.ts`) at depth `depth`
+ * and tuck half-width `ht`.
+ */
+function displacement(f: BottomFeature, depth: number, y: number, ht: number): number {
+  const eta = Math.abs(y) / ht;
   const b4 = (t: number) => (Math.abs(t) < 1 ? (1 - t * t) ** 2 : 0);
   switch (f.kind) {
     case 'vee': {
@@ -121,11 +137,50 @@ function closedForm(f: BottomFeature, d: number, x: number, y: number): number {
       let s = 0;
       for (let k = 0; k < f.count; k++) {
         const c = f.railInset + f.width / 2 + k * f.pitch;
-        s += b4((Math.abs(y) - (HT - c)) / (f.width / 2));
+        s += b4((Math.abs(y) - (ht - c)) / (f.width / 2));
       }
       return depth * s;
     }
   }
+}
+
+/** On the straight part: `h_t = HT` exactly and an all-auto depth of peak `d`. */
+const closedForm = (f: BottomFeature, d: number, x: number, y: number): number =>
+  displacement(f, smoothstep(scaled(d), x), y, HT);
+
+/**
+ * `h_t(x)` independently of `features.ts`: the tuck curve's −y half (u in [0, ½], x
+ * strictly increasing) tabulated densely, the bracket of x found by binary search, then
+ * Newton on `x(u) − x` with geom's first derivative, kept inside the bracket (bisection
+ * when a step leaves it), to `|x(u) − x| ≤ 1e-13 × length`. Returns `−y(u)`.
+ */
+function independentHalfWidth(tuck: PeriodicCurve<2>): (x: number) => number {
+  const N = 4000;
+  const us = Array.from({ length: N + 1 }, (_, k) => (0.5 * k) / N);
+  const xs = us.map((u) => curvePoint(tuck, u).x);
+  const scale = xs[N]! - xs[0]!;
+  return (x: number) => {
+    let lo = 0;
+    let hi = N;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (xs[mid]! <= x) lo = mid;
+      else hi = mid;
+    }
+    let a = us[lo]!;
+    let b = us[hi]!;
+    let u = 0.5 * (a + b);
+    for (let it = 0; it < 100; it++) {
+      const [p, d1] = curveDerivatives(tuck, u, 1);
+      const r = p!.x - x;
+      if (Math.abs(r) <= 1e-13 * scale) break;
+      if (r < 0) a = u;
+      else b = u;
+      const next = u - r / d1!.x;
+      u = next > a && next < b ? next : 0.5 * (a + b);
+    }
+    return -curvePoint(tuck, u).y;
+  };
 }
 
 /** Stages 2–6 on a document: the base bottom, the tuck curve and the bottom with features. */
@@ -248,30 +303,101 @@ describe('features on the stadium: fit against the closed form', () => {
     });
   }
 
-  it('reaching the curved tail (h_t varies): converges to featureTol against featureDisplacement', () => {
-    const f: BottomFeature = { ...concave(0.4), depth: depthOf([10, 0], [45, 0.4], [80, 0]) };
-    const doc = { ...stadiumBoard(), features: [f] };
-    const { ctx, tuck, r } = stage6(doc);
-    expect(r.issues).toEqual([]);
-    const w = tuckWidth(tuck, TOL)!;
-    const rng2 = mulberry32(11);
-    let worst = 0;
-    for (let k = 0; k < 300; k++) {
-      const x = 10 + 70 * rng2();
-      const ht = w.at(x);
-      const y = (2 * rng2() - 1) * ht;
-      const depth = smoothstep(
-        [
-          [10, 0],
-          [45, 0.4],
-          [80, 0],
-        ],
-        x,
-      );
-      const got = zAt(r.value!.surface, doc, x, y) - zAt(ctx.bottom, doc, x, y);
-      worst = Math.max(worst, Math.abs(got - featureDisplacement(f, depth, y, ht)));
+  // Where h_t varies the break lines curve across the tensor grid. The oracle is the closed
+  // form with h_t inverted here (independentHalfWidth), at seeded random points over the
+  // depth's support and the whole tuck width: within featureTol (plus the rounding of two
+  // surface evaluations; the Newton residual 1e-13 × length moves h_t by less than that).
+  for (const [name, f, kv] of [
+    [
+      'a single concave',
+      { ...concave(0.4), depth: depthOf([10, 0], [45, 0.4], [80, 0]) },
+      [
+        [10, 0],
+        [45, 0.4],
+        [80, 0],
+      ],
+    ],
+    [
+      // 149 s (6 passes) when the fit was one banded solve on the whole net; the suite's 20 s
+      // test budget (vitest.config.ts) is the time bound.
+      'two channels',
+      { ...channels(), depth: depthOf([10, 0], [30, 0.3], [70, 0]) },
+      [
+        [10, 0],
+        [30, 0.3],
+        [70, 0],
+      ],
+    ],
+  ] as const) {
+    it(`reaching the curved tail (h_t varies): ${name} within featureTol of the closed form`, () => {
+      const doc = { ...stadiumBoard(), features: [f as BottomFeature] };
+      const { ctx, tuck, r } = stage6(doc);
+      expect(r.issues).toEqual([]);
+      expect(r.value!.error).toBeLessThanOrEqual(doc.build.featureTol);
+      const ht = independentHalfWidth(tuck);
+      // The oracle is not trivially the code's: on the arc h_t differs from the straight 23 cm.
+      expect(HT - ht(kv[0][0])).toBeGreaterThan(3);
+      const rng2 = mulberry32(11);
+      let worst = 0;
+      for (let k = 0; k < 400; k++) {
+        const x = kv[0][0] + (kv[2][0] - kv[0][0]) * rng2();
+        const h = ht(x);
+        const y = (2 * rng2() - 1) * h;
+        const got = zAt(r.value!.surface, doc, x, y) - zAt(ctx.bottom, doc, x, y);
+        const depth = smoothstep(kv as unknown as [number, number][], x);
+        worst = Math.max(worst, Math.abs(got - displacement(f as BottomFeature, depth, y, h)));
+      }
+      expect(worst).toBeLessThanOrEqual(doc.build.featureTol + 1e-12);
+    });
+  }
+});
+
+describe('the separable least-squares fit', () => {
+  it('equals approximateSurface on the same grid and bases (the same minimiser), to rounding', () => {
+    // Random clamped bicubic bases (some double knots, as the feature fit has) and random
+    // data on a grid of 8 samples per span: the Kronecker identity (Bu ⊗ Bv)⁺ = Bu⁺ ⊗ Bv⁺
+    // makes the two minimisers equal; both solve normal equations of condition ~1e3, so they
+    // agree to ~1e-13 of the data's unit scale.
+    const rng = mulberry32(5);
+    const interior = (n: number) => {
+      const k = Array.from({ length: n }, () => 0.05 + 0.9 * rng()).sort((a, b) => a - b);
+      return [...k, k[1]!].sort((a, b) => a - b); // one double knot
+    };
+    const full = (k: number[]) => [0, 0, 0, 0, ...k, 1, 1, 1, 1];
+    const samples = (knots: number[]) => {
+      const br = [...new Set(knots)].sort((a, b) => a - b);
+      const out: number[] = [];
+      for (let s = 0; s + 1 < br.length; s++) {
+        for (let j = 0; j < 8; j++) out.push(br[s]! + ((j + 0.5) / 8) * (br[s + 1]! - br[s]!));
+      }
+      return Float64Array.from(out);
+    };
+    const KU = full(interior(6));
+    const KV = full(interior(9));
+    const bu = clampedBasis(3, KU, TOL);
+    const bv = clampedBasis(3, KV, TOL);
+    const us = samples(KU);
+    const vs = samples(KV);
+    const d = Float64Array.from({ length: us.length * vs.length }, () => 2 * rng() - 1);
+    const z = tensorLeastSquares(d, us, vs, bu, bv, TOL);
+    if (!(z instanceof Float64Array)) throw new Error(z.message);
+    const pts = new Float64Array(d.length * 3);
+    const uv = new Float64Array(d.length * 2);
+    for (let i = 0; i < us.length; i++) {
+      for (let j = 0; j < vs.length; j++) {
+        const k = i * vs.length + j;
+        pts.set([us[i]!, vs[j]!, d[k]!], 3 * k);
+        uv.set([us[i]!, vs[j]!], 2 * k);
+      }
     }
-    expect(worst).toBeLessThanOrEqual(doc.build.featureTol + 1e-12);
+    const ref = approximateSurface(pts, { uv }, { u: bu, v: bv, tol: TOL });
+    expect(ref.ok).toBe(true);
+    if (!ref.ok) return;
+    const cw = ref.value.surface.cw;
+    expect(z.length).toBe(bu.count * bv.count);
+    let diff = 0;
+    for (let k = 0; k < z.length; k++) diff = Math.max(diff, Math.abs(z[k]! - cw[4 * k + 2]!));
+    expect(diff).toBeLessThan(1e-12);
   });
 });
 
