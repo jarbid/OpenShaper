@@ -68,6 +68,14 @@ export interface ContextMenuRequest {
   onToggleTunni?: () => void;
   /** Capture a stationary reference beneath this pane. */
   onSetReferenceCurve?: () => void;
+  /** Add a guide at the original, unreflected menu position. */
+  onAddReferencePoint?: (point: Vec2) => void;
+  /** Supplied when this pane has a selected reference point. */
+  onDeleteReferencePoint?: () => void;
+  onReferencePointArray?: (
+    target: SplineTarget,
+    mirror: { mirrorX: boolean; mirrorY: boolean },
+  ) => void;
   /** Provided when this pane has a reference to remove. */
   onClearReferenceCurve?: () => void;
   /**
@@ -118,6 +126,45 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
     onDeleteSection,
   } = req;
 
+  const referencePoint = screenToWorld(vp, screen);
+  const referenceItems: MenuItem[] = req.onAddReferencePoint
+    ? [
+        {
+          kind: 'action',
+          label: 'Add reference point',
+          onSelect: () => req.onAddReferencePoint!(referencePoint),
+        },
+      ]
+    : [];
+
+  if (req.onReferencePointArray && targets.length) {
+    const reflectedX = mirrorX && referencePoint.x < 0;
+    const reflectedY = mirrorY && referencePoint.y < 0;
+    const canonical = {
+      x: reflectedX ? -referencePoint.x : referencePoint.x,
+      y: reflectedY ? -referencePoint.y : referencePoint.y,
+    };
+    const target = [...targets].sort(
+      (a, b) =>
+        splineDistance(getTargetSpline(board, a), canonical) -
+        splineDistance(getTargetSpline(board, b), canonical),
+    )[0]!;
+    referenceItems.push({
+      kind: 'action',
+      label: 'Reference Point Array…',
+      onSelect: () =>
+        req.onReferencePointArray!(target, { mirrorX: reflectedX, mirrorY: reflectedY }),
+    });
+  }
+
+  if (req.onDeleteReferencePoint) {
+    referenceItems.push({
+      kind: 'action',
+      label: 'Delete reference point',
+      onSelect: req.onDeleteReferencePoint,
+    });
+  }
+
   if (sectionMarker && onAddSectionAt && onDeleteSection) {
     const first = board.crossSections[0]?.position ?? 0;
     const last = board.crossSections.at(-1)?.position ?? first;
@@ -145,10 +192,12 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
         disabled: board.crossSections.length <= 3,
         onSelect: () => onDeleteSection(sectionMarker.index),
       },
+      ...referenceItems,
     ];
   }
   const viewGroup: MenuItem[] = [
     { kind: 'separator' },
+    ...referenceItems,
     { kind: 'action', label: 'Fit view', onSelect: onFitView },
     ...(req.onToggleTunni
       ? [

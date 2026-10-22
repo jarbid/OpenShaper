@@ -16,7 +16,9 @@ import {
   MEASURE_COLORS,
   SplineEditor,
   type EditorOverlays,
+  type ReferencePointSelection,
   type SectionMarker,
+  type ViewCenter,
 } from '@openshaper/render2d';
 import type { SplineTarget } from '@openshaper/store';
 import {
@@ -29,10 +31,11 @@ import {
   PanelTitle,
   Select,
 } from '@openshaper/ui';
-import { useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { fmtLen, LENGTH_UNITS, type LengthUnit } from './format';
 import type { Longitudinal, MeasurementAxis } from './longitudinal';
-import { SelectedPointEditor } from './ControlPointInspector';
+import { ReferencePointArrayDialog, type ReferenceArrayRequest } from './ReferencePointArrayDialog';
+import { ReferencePointEditor, SelectedPointEditor } from './ControlPointInspector';
 import { boardStore } from './store';
 import type { EditorSettings } from './settings';
 import { useIsCoarsePointer } from './useMediaQuery';
@@ -542,6 +545,29 @@ export function EditorPane({
   // rather than on width so a narrow desktop window does not suddenly rotate under
   // a mouse; whether the turn actually helps is then decided per pane inside
   // `SplineEditor`, which is what keeps it from ever making a pane worse.
+  const [referenceSelection, setReferenceSelection] = useState<ReferencePointSelection | null>(
+    null,
+  );
+  const [arrayRequest, setArrayRequest] = useState<ReferenceArrayRequest | null>(null);
+  const openReferenceArray = useCallback(
+    (target: SplineTarget, mirror: { mirrorX: boolean; mirrorY: boolean }) => {
+      setArrayRequest({ target, ...mirror });
+    },
+    [],
+  );
+  const [paneZoom, setPaneZoom] = useState<{ key: string; scale: number } | null>(null);
+  const pixelsPerCm = paneZoom?.key === p.key ? paneZoom.scale : initialView?.scale;
+  const reportViewChange = useCallback(
+    (view: ViewCenter) => {
+      setPaneZoom((current) =>
+        current?.key === p.key && current.scale === view.scale
+          ? current
+          : { key: p.key, scale: view.scale },
+      );
+      onViewChange?.(view);
+    },
+    [p.key, onViewChange],
+  );
   const allowTurn = useIsCoarsePointer() && kind !== 'crossSection';
   return (
     // `h-full` is load-bearing: in the quad layouts the pane is a grid item and
@@ -563,19 +589,35 @@ export function EditorPane({
             {title}
           </ViewToggleTitle>
         )}
-        <SelectedPointEditor
-          store={boardStore}
-          units={units}
-          targets={p.targets}
-          fallback={
-            headerActions && <div className="flex shrink-0 items-center gap-1">{headerActions}</div>
-          }
-        />
+        {referenceSelection ? (
+          <ReferencePointEditor
+            selection={referenceSelection}
+            longitudinal={longitudinal}
+            target={p.targets[0]!}
+            units={units}
+            pixelsPerCm={pixelsPerCm}
+          />
+        ) : (
+          <SelectedPointEditor
+            longitudinal={longitudinal}
+            store={boardStore}
+            units={units}
+            targets={p.targets}
+            pixelsPerCm={pixelsPerCm}
+            fallback={
+              headerActions && (
+                <div className="flex shrink-0 items-center gap-1">{headerActions}</div>
+              )
+            }
+          />
+        )}
       </ViewPaneHeader>
       <PanelBody className="min-h-0 flex-1 p-0">
         <SplineEditor
           key={p.key}
           store={boardStore}
+          onReferencePointSelectionChange={setReferenceSelection}
+          onReferencePointArray={openReferenceArray}
           targets={p.targets}
           colors={p.colors}
           mirrorY={p.mirrorY}
@@ -608,9 +650,17 @@ export function EditorPane({
           curveThickness={settings?.curveThickness}
           viewCommand={viewCommand}
           initialView={initialView}
-          onViewChange={onViewChange}
+          onViewChange={reportViewChange}
         />
       </PanelBody>
+      {arrayRequest && (
+        <ReferencePointArrayDialog
+          request={arrayRequest}
+          measurementAxis={longitudinal.axis}
+          units={units}
+          onClose={() => setArrayRequest(null)}
+        />
+      )}
     </Panel>
   );
 }

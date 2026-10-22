@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   board,
+  nameReferencePoints,
   crossSection,
   defaultFinConfig,
   getLength,
@@ -209,4 +210,63 @@ describe('board-json handle-angle locks', () => {
     doc.outline[1]!.l = 'locked';
     expect(() => readBoardJson(JSON.stringify(doc))).toThrow(BoardJsonError);
   });
+});
+
+describe('persistent reference points', () => {
+  it('round-trips guides in every view including negative coordinates', () => {
+    const b = {
+      ...loadBrd('shortboard'),
+      referencePoints: {
+        outline: [{ x: 53.123456789, y: -12, name: 'Tail guide' }],
+        rocker: [{ x: -2, y: 9 }],
+        'crossSection:1': [
+          { x: -8, y: 3 },
+          { x: 0, y: 4 },
+        ],
+      },
+    };
+    expect(readBoardJson(writeBoardJson(b)).board.referencePoints).toEqual(
+      nameReferencePoints(b.referencePoints),
+    );
+  });
+
+  it('accepts older documents without guides', () => {
+    const b = loadBrd('shortboard');
+    expect(JSON.parse(writeBoardJson(b)).referencePoints).toBeUndefined();
+    expect(readBoardJson(writeBoardJson(b)).board.referencePoints).toBeUndefined();
+  });
+
+  it.each([
+    null,
+    [],
+    { outline: [{ x: '1', y: 2 }] },
+    { rocker: [{ x: null, y: 0 }] },
+    { unknown: [] },
+    { 'crossSection:9999': [] },
+    { 'crossSection:-1': [] },
+  ])('rejects invalid guides %j', (referencePoints) => {
+    const doc = JSON.parse(writeBoardJson(loadBrd('shortboard')));
+    doc.referencePoints = referencePoints;
+    expect(() => readBoardJson(JSON.stringify(doc))).toThrow(/invalid reference points/);
+  });
+});
+
+it('assigns names to old unnamed guides while keeping existing names and exact coordinates', () => {
+  const doc = JSON.parse(writeBoardJson(loadBrd('shortboard')));
+  doc.referencePoints = {
+    outline: [
+      { x: 1.123456789, y: -2 },
+      { x: 5, y: 6, name: 'ref_1' },
+    ],
+  };
+  const restored = readBoardJson(JSON.stringify(doc)).board;
+  expect(restored.referencePoints!.outline).toEqual([
+    { x: 1.123456789, y: -2, name: 'ref_2' },
+    { x: 5, y: 6, name: 'ref_1' },
+  ]);
+  expect(readBoardJson(writeBoardJson(restored)).board.referencePoints).toEqual(
+    restored.referencePoints,
+  );
+  doc.referencePoints.outline[0].name = 99;
+  expect(() => readBoardJson(JSON.stringify(doc))).toThrow(/invalid reference points/);
 });

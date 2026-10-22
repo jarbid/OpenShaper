@@ -39,6 +39,39 @@ import { vec2, type Vec2 } from './vec2';
  */
 export type InterpolationType = 'controlPoint' | 'sLinear';
 
+/** Station indices refer to the board's ordered cross-section list. Coordinates are cm. */
+export type ReferencePointView = 'outline' | 'rocker' | `crossSection:${number}`;
+/** Name is optional only for documents saved before named guides were introduced. */
+export interface ReferencePoint extends Vec2 {
+  readonly name?: string;
+}
+export type ReferencePoints = Readonly<
+  Partial<Record<ReferencePointView, readonly ReferencePoint[]>>
+>;
+
+/** Give older unnamed guides stable names without modifying their coordinates. */
+export const nameReferencePoints = (
+  points: ReferencePoints | undefined,
+): ReferencePoints | undefined => {
+  if (!points) return points;
+  const used = new Set(
+    Object.values(points).flatMap((list) => (list ?? []).map((point) => point.name)),
+  );
+  let number = 1;
+  return Object.fromEntries(
+    Object.entries(points).map(([view, list]) => [
+      view,
+      (list ?? []).map((point) => {
+        if (point.name?.trim()) return point;
+        while (used.has(`ref_${number}`)) number++;
+        const name = `ref_${number++}`;
+        used.add(name);
+        return { ...point, name };
+      }),
+    ]),
+  );
+};
+
 /**
  * The surfboard model, ported from legacy `board.BezierBoard`.
  *
@@ -64,6 +97,7 @@ export interface BezierBoard {
   readonly interpolationType: InterpolationType;
   /** Parametric fin configuration (resolved to geometry on demand by `resolveFins`). */
   readonly fins: FinConfig;
+  readonly referencePoints?: ReferencePoints;
 }
 
 // Legacy fixed integration resolutions (BezierBoard.*_SPLITS). These are NO LONGER
@@ -123,7 +157,16 @@ export const board = (
   crossSections: readonly CrossSection[],
   interpolationType: InterpolationType = 'controlPoint',
   fins: FinConfig = noFins(),
-): BezierBoard => ({ outline, bottom, deck, crossSections, interpolationType, fins });
+  referencePoints?: ReferencePoints,
+): BezierBoard => ({
+  outline,
+  bottom,
+  deck,
+  crossSections,
+  interpolationType,
+  fins,
+  ...(referencePoints ? { referencePoints } : {}),
+});
 
 // --- dimensions ---
 
@@ -319,7 +362,9 @@ export const adjustCrossSectionsToThicknessAndWidth = (b: BezierBoard): BezierBo
     if (scaled !== c) changed = true;
     return scaled;
   });
-  return changed ? board(b.outline, b.bottom, b.deck, next, b.interpolationType, b.fins) : b;
+  return changed
+    ? board(b.outline, b.bottom, b.deck, next, b.interpolationType, b.fins, b.referencePoints)
+    : b;
 };
 
 // --- sLinear (station-linear / arc-length) interpolation model ---

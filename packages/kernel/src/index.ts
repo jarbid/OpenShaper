@@ -39,3 +39,5 @@ export * from './guides';
 export * from './fins';
 export * from './tunni';
 export * from './curvature-comb';
+
+export { referencePointArray, MAX_REFERENCE_ARRAY_STATIONS } from './reference-point-array';

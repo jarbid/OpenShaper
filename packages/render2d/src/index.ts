@@ -68,3 +68,5 @@ export {
   type SimilarityParams,
   type CanvasMatrix,
 } from './trace-transform';
+
+export type { ReferencePointSelection } from './SplineEditor';

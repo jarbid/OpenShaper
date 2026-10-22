@@ -22,7 +22,8 @@ import {
   type BezierBoard,
 } from '@openshaper/kernel';
 import { ControlPointInspector, SelectedPointEditor } from './ControlPointInspector';
-import { DEFAULT_LENGTH_UNIT, LENGTH_UNITS } from './format';
+import { longitudinalFor } from './longitudinal';
+import { DEFAULT_LENGTH_UNIT, LENGTH_UNITS, lengthUnitByKey } from './format';
 
 // Mock render3d to avoid WebGL in jsdom (same pattern as App.test.tsx)
 vi.mock('@openshaper/render3d', () => ({ Board3DView: () => null }));
@@ -528,5 +529,127 @@ describe('<SelectedPointEditor />', () => {
       />,
     );
     expect(container.innerHTML).toBe('');
+  });
+});
+
+it.each(['end', 'next'] as const)('updates %s nudges immediately when zoom changes', (kind) => {
+  const store = createBoardStore();
+  store.getState().load(makeBoard());
+  store.getState().select({ target: { kind: 'outline' }, index: 1, kind });
+  const handle = () => {
+    const knot = store.getState().board!.outline.knots[1]!;
+    return kind === 'end' ? knot.end : knot.tangentToNext;
+  };
+  const initial = handle();
+  const props = { store, units: DEFAULT_LENGTH_UNIT, targets: [{ kind: 'outline' } as const] };
+  const { rerender } = render(<SelectedPointEditor {...props} pixelsPerCm={20} />);
+  expect(screen.getByLabelText('X position').getAttribute('step')).toBe('1');
+  fireEvent.keyDown(window, { key: 'ArrowRight' });
+  expect(handle().x).toBeCloseTo(initial.x + 0.1, 8); // 1 mm
+  rerender(<SelectedPointEditor {...props} pixelsPerCm={200} />);
+  expect(screen.getByLabelText('X position').getAttribute('step')).toBe('0.1');
+  fireEvent.keyDown(screen.getByLabelText('X position'), { key: 'ArrowRight' });
+  expect(handle().x).toBeCloseTo(initial.x + 0.11, 8); // another 0.1 mm
+});
+
+const slopedMeasurement = longitudinalFor(
+  splineFromKnots([
+    knot(vec2(0, 0), vec2(0, 0), vec2(100 / 3, 25)),
+    knot(vec2(100, 75), vec2(200 / 3, 50), vec2(100, 75)),
+  ]),
+  'o-curve',
+);
+
+const overCurveStore = () => {
+  const store = createBoardStore();
+  const b = makeBoard();
+  store.getState().load({ ...b, bottom: b.outline, deck: b.outline });
+  return store;
+};
+
+describe('over-curve control point and handle coordinates', () => {
+  it.each(['outline', 'deck', 'bottom'] as const)(
+    'edits endpoints and both handles over curve in %s',
+    (targetKind) => {
+      const store = overCurveStore();
+      const target = { kind: targetKind };
+      const props = {
+        store,
+        units: lengthUnitByKey('cm'),
+        targets: [target],
+        longitudinal: slopedMeasurement,
+        pixelsPerCm: 20,
+      };
+      const { rerender } = render(<SelectedPointEditor {...props} />);
+      for (const kind of ['end', 'prev', 'next'] as const) {
+        act(() => {
+          const b = makeBoard();
+          store.getState().load({ ...b, bottom: b.outline, deck: b.outline });
+          store.getState().select({ target, index: 1, kind });
+        });
+        rerender(<SelectedPointEditor {...props} />);
+        const position = () => {
+          const k = getTargetSpline(store.getState().board!, target).knots[1]!;
+          return kind === 'end' ? k.end : kind === 'prev' ? k.tangentToPrev : k.tangentToNext;
+        };
+        const before = position();
+        const input = screen.getByLabelText('X o/c position') as HTMLInputElement;
+        expect(input.value).toBe((before.x * 1.25).toFixed(2));
+        const desiredX = kind === 'prev' ? 40 : 60;
+        fireEvent.change(input, { target: { value: String(desiredX * 1.25) } });
+        fireEvent.keyDown(input, { key: 'Enter' });
+        expect(position().x).toBeCloseTo(desiredX, 6);
+        expect(position().y).toBeCloseTo(before.y, 8);
+        fireEvent.keyDown(input, { key: 'ArrowRight' });
+        expect(position().x).toBeCloseTo(desiredX + 0.08, 6);
+        const y = screen.getByLabelText(targetKind === 'outline' ? 'Y position' : 'Z position');
+        fireEvent.keyDown(y, { key: 'ArrowUp' });
+        expect(position().x).toBeCloseTo(desiredX + 0.08, 6);
+        expect(position().y).toBeCloseTo(before.y + 0.1, 8);
+      }
+    },
+  );
+
+  it('uses over-curve coordinates for endpoint and tangent fields in the sidebar', () => {
+    const store = overCurveStore();
+    store.getState().select({ target: { kind: 'outline' }, index: 1 });
+    render(
+      <ControlPointInspector
+        store={store}
+        units={lengthUnitByKey('cm')}
+        longitudinal={slopedMeasurement}
+      />,
+    );
+    const end = screen.getByLabelText('Endpoint X o/c') as HTMLInputElement;
+    expect(end.value).toBe('62.50');
+    fireEvent.change(end, { target: { value: '75' } });
+    fireEvent.keyDown(end, { key: 'Enter' });
+    expect(store.getState().board!.outline.knots[1]!.end.x).toBeCloseTo(60, 6);
+    for (const [group, field] of [
+      ['Tangent to previous', 'tangentToPrev'],
+      ['Tangent to next', 'tangentToNext'],
+    ] as const) {
+      const input = screen.getByLabelText(`${group} X o/c`);
+      const desiredX = field === 'tangentToPrev' ? 59 : 61;
+      fireEvent.change(input, { target: { value: String(desiredX * 1.25) } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+      expect(store.getState().board!.outline.knots[1]![field].x).toBeCloseTo(desiredX, 6);
+    }
+  });
+
+  it('leaves cross-section coordinates transverse and vertical with over-curve enabled', () => {
+    const store = overCurveStore();
+    store.getState().select({ target: { kind: 'crossSection', index: 1 }, index: 1 });
+    render(
+      <SelectedPointEditor
+        store={store}
+        units={lengthUnitByKey('cm')}
+        targets={[{ kind: 'crossSection', index: 1 }]}
+        longitudinal={slopedMeasurement}
+      />,
+    );
+    expect(screen.getByLabelText('Y position')).toBeTruthy();
+    expect(screen.getByLabelText('Z position')).toBeTruthy();
+    expect(screen.queryByLabelText('X o/c position')).toBeNull();
   });
 });

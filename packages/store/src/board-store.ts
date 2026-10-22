@@ -1,5 +1,8 @@
-import type { BezierBoard, RailPresetId, Vec2 } from '@openshaper/kernel';
+import type { BezierBoard, RailPresetId, ReferencePointView, Vec2 } from '@openshaper/kernel';
 import {
+  nameReferencePoints,
+  referencePointArray,
+  splineLengthToX,
   adjustCrossSectionsToThicknessAndWidth,
   applyRailProfile,
   railPresetById,
@@ -69,6 +72,18 @@ export interface BoardState {
   /** Index of the selected fin (for the fin inspector / highlight), or null. */
   selectedFin: number | null;
 
+  addReferencePointArray: (
+    target: SplineTarget,
+    interval: number,
+    unitsPerCm?: number,
+    mirrorX?: boolean,
+    mirrorY?: boolean,
+    spacingAxis?: 'x-axis' | 'o-curve',
+  ) => void;
+  renameReferencePoint: (view: ReferencePointView, index: number, name: string) => void;
+  addReferencePoint: (view: ReferencePointView, point: Vec2) => void;
+  deleteReferencePoint: (view: ReferencePointView, index: number) => void;
+  moveReferencePoint: (view: ReferencePointView, index: number, point: Vec2) => void;
   load: (board: BezierBoard) => void;
   /** Toggle whether cross-sections are slaved to the rocker/deck/outline (JC-4-y). */
   setAdjustThickness: (v: boolean) => void;
@@ -242,7 +257,12 @@ export const createBoardStore = (): StoreApi<BoardState> =>
       selectedFin: null,
 
       load: (board) => {
-        const pinned = enforceJunctions(board);
+        const pinned = enforceJunctions({
+          ...board,
+          ...(board.referencePoints
+            ? { referencePoints: nameReferencePoints(board.referencePoints) }
+            : {}),
+        });
         set({
           board: get().adjustThickness ? adjustCrossSectionsToThicknessAndWidth(pinned) : pinned,
           past: [],
@@ -453,6 +473,120 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         const next = updateFinSpec(board, index, patch);
         if (next === board) return;
         commit(next, 'Edit fin');
+      },
+
+      addReferencePointArray: (
+        target,
+        interval,
+        unitsPerCm = 10,
+        mirrorX = false,
+        mirrorY = false,
+        spacingAxis = 'x-axis',
+      ) => {
+        const { board } = get();
+        if (!board || !Number.isFinite(unitsPerCm) || unitsPerCm <= 0) return;
+        const view: ReferencePointView =
+          target.kind === 'crossSection'
+            ? `crossSection:${target.index}`
+            : target.kind === 'outline'
+              ? 'outline'
+              : 'rocker';
+        const overCurve =
+          target.kind !== 'crossSection' && spacingAxis === 'o-curve' ? board.bottom : undefined;
+        const points = referencePointArray(getTargetSpline(board, target), interval, overCurve).map(
+          (point) => {
+            const x = mirrorX ? -point.x : point.x;
+            const y = mirrorY ? -point.y : point.y;
+            const distance = overCurve
+              ? Math.round(splineLengthToX(overCurve, point.x) / interval) * interval
+              : x;
+            return { x, y, name: `ref_${Number((distance * unitsPerCm).toFixed(6))}` };
+          },
+        );
+        if (!points.length) return;
+        commit(
+          {
+            ...board,
+            referencePoints: {
+              ...board.referencePoints,
+              [view]: [...(board.referencePoints?.[view] ?? []), ...points],
+            },
+          },
+          'Add reference point array',
+        );
+      },
+      renameReferencePoint: (view, index, name) => {
+        const { board } = get();
+        const points = board?.referencePoints?.[view];
+        if (!board || !points?.[index] || !name.trim() || points[index].name === name.trim())
+          return;
+        commit(
+          {
+            ...board,
+            referencePoints: {
+              ...board.referencePoints,
+              [view]: points.map((point, i) =>
+                i === index ? { ...point, name: name.trim() } : point,
+              ),
+            },
+          },
+          'Rename reference point',
+        );
+      },
+      addReferencePoint: (view, point) => {
+        const { board } = get();
+        if (!board || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+        commit(
+          {
+            ...board,
+            referencePoints: nameReferencePoints({
+              ...board.referencePoints,
+              [view]: [...(board.referencePoints?.[view] ?? []), { x: point.x, y: point.y }],
+            }),
+          },
+          'Add reference point',
+        );
+      },
+      deleteReferencePoint: (view, index) => {
+        const { board } = get();
+        const points = board?.referencePoints?.[view];
+        if (!board || !points?.[index]) return;
+        commit(
+          {
+            ...board,
+            referencePoints: {
+              ...board.referencePoints,
+              [view]: points.filter((_, i) => i !== index),
+            },
+          },
+          'Delete reference point',
+        );
+      },
+      moveReferencePoint: (view, index, point) => {
+        const { board } = get();
+        const points = board?.referencePoints?.[view];
+        const old = points?.[index];
+        if (
+          !board ||
+          !points ||
+          !old ||
+          !Number.isFinite(point.x) ||
+          !Number.isFinite(point.y) ||
+          (old.x === point.x && old.y === point.y)
+        )
+          return;
+        commit(
+          {
+            ...board,
+            referencePoints: {
+              ...board.referencePoints,
+              [view]: points.map((oldPoint, i) =>
+                i === index ? { ...oldPoint, x: point.x, y: point.y } : oldPoint,
+              ),
+            },
+          },
+          'Move reference point',
+        );
       },
 
       moveFin: (index, point) => {

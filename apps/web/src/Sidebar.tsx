@@ -260,7 +260,9 @@ export const Sidebar = memo(function Sidebar({
         applyResize={applyResize}
       />
     ),
-    controlPoint: <ControlPointInspector store={boardStore} units={units} />,
+    controlPoint: (
+      <ControlPointInspector store={boardStore} units={units} longitudinal={longitudinal} />
+    ),
     analysis: <AnalysisSection overlayToggles={overlayToggles} setOverlay={setOverlay} />,
     boardInfo: <BoardInfoSection meta={meta} setMeta={setMeta} />,
     fins: <FinPanel store={boardStore} units={units} />,

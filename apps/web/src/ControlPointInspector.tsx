@@ -7,9 +7,15 @@ import {
   type BoardState,
   type SplineTarget,
 } from '@openshaper/store';
-import { handleSideName, visualSideForHandleKind } from '@openshaper/render2d';
+import {
+  type ReferencePointSelection,
+  handleSideName,
+  visualSideForHandleKind,
+} from '@openshaper/render2d';
 import { Button, Input } from '@openshaper/ui';
 import { Lock, LockOpen } from 'lucide-react';
+import type { Longitudinal } from './longitudinal';
+import { pointEditStep } from './point-edit-step';
 import { NumericInput } from './components/numeric-input';
 import { shortcutKeys } from './shortcuts';
 import { useSyncedText } from './use-numeric-field';
@@ -17,7 +23,6 @@ import { useCallback, useEffect, useRef, useSyncExternalStore, type ReactNode } 
 import type { StoreApi } from 'zustand/vanilla';
 import {
   cmToUnitNumber,
-  lengthEditStep,
   parseLen,
   parseTypedLen,
   unitDecimals,
@@ -30,9 +35,6 @@ const display = (cm: number, units: LengthUnit): string =>
   cmToUnitNumber(cm, units).toFixed(unitDecimals(units));
 
 const parse = (text: string, units: LengthUnit): number => parseLen(text, units);
-
-/** Control-point nudges are intentionally finer than station-position edits. */
-const pointEditStep = (units: LengthUnit): number => lengthEditStep(units) / 2;
 
 type ArrowKey = 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown';
 
@@ -120,6 +122,7 @@ function HeaderCoordInput({
   onCommit,
   onDismiss,
   onNudge,
+  pixelsPerCm,
 }: {
   label: string;
   ariaLabel?: string;
@@ -128,8 +131,11 @@ function HeaderCoordInput({
   onCommit: (cm: number) => void;
   onDismiss: () => void;
   onNudge: (key: ArrowKey) => void;
+  pixelsPerCm?: number;
 }) {
-  const shown = display(valueCm, units);
+  const step = pointEditStep(units, pixelsPerCm);
+  const decimals = Math.min(10, Math.max(unitDecimals(units), -Math.floor(Math.log10(step))));
+  const shown = cmToUnitNumber(valueCm, units).toFixed(decimals);
   // Re-sync when the value changes, even below display precision (drag, undo, reselect).
   const [text, setText] = useSyncedText(shown, `${shown}|${valueCm}`);
   const lastCommitted = useRef(valueCm);
@@ -155,7 +161,8 @@ function HeaderCoordInput({
       <Input
         aria-label={ariaLabel}
         type="number"
-        step={pointEditStep(units)}
+        step={step}
+        title={`Step: ${step} ${unitSuffix(units)}`}
         value={text}
         onChange={(e) => {
           dirty.current = true;
@@ -185,16 +192,132 @@ function HeaderCoordInput({
   );
 }
 
+/** Reuse the point fields, units and nudge increments for temporary guides. */
+export function ReferencePointEditor({
+  selection,
+  target,
+  units,
+  pixelsPerCm,
+  longitudinal,
+}: {
+  selection: ReferencePointSelection;
+  longitudinal?: Longitudinal;
+  pixelsPerCm?: number;
+  target: SplineTarget;
+  units: LengthUnit;
+}) {
+  const measurement = target.kind !== 'crossSection' ? longitudinal : undefined;
+  const live = useRef(selection);
+  live.current = selection;
+  const nudge = useCallback(
+    (key: ArrowKey) => {
+      const current = live.current;
+      const step = parse(String(pointEditStep(units, pixelsPerCm)), units);
+      const horizontal = key === 'ArrowLeft' || key === 'ArrowRight';
+      const distance = measurement ? measurement.toDisplay(current.point.x) : current.point.x;
+      const nextDistance = distance + (key === 'ArrowLeft' ? -step : step);
+      const point = {
+        x: horizontal
+          ? measurement
+            ? measurement.toModel(nextDistance)
+            : nextDistance
+          : current.point.x,
+        y: current.point.y + (key === 'ArrowDown' ? -step : key === 'ArrowUp' ? step : 0),
+      };
+      live.current = { ...current, point };
+      current.onChange(point);
+    },
+    [units, pixelsPerCm, measurement],
+  );
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      const element = event.target as HTMLElement | null;
+      if (
+        event.defaultPrevented ||
+        !isArrowKey(event.key) ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        element?.isContentEditable ||
+        element?.tagName === 'INPUT' ||
+        element?.tagName === 'TEXTAREA'
+      )
+        return;
+      event.preventDefault();
+      nudge(event.key);
+    };
+    window.addEventListener('keydown', keydown);
+    return () => window.removeEventListener('keydown', keydown);
+  }, [nudge]);
+  const labels = coordinateLabels(target);
+  const [name, setName] = useSyncedText(selection.point.name ?? 'Reference point');
+  const commitName = () => {
+    if (name.trim()) selection.onRename?.(name.trim());
+    else setName(selection.point.name ?? 'Reference point');
+  };
+  return (
+    <div
+      className="no-scrollbar flex min-w-0 items-center gap-2 overflow-x-auto"
+      aria-label="Reference point position editor"
+    >
+      <Input
+        aria-label="Reference point name"
+        value={name}
+        className="h-7 w-28 shrink-0 px-1.5 text-xs pointer-coarse:h-9"
+        onChange={(e) => setName(e.target.value)}
+        onBlur={commitName}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            commitName();
+            e.currentTarget.blur();
+          }
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            setName(selection.point.name ?? 'Reference point');
+          }
+        }}
+      />
+      {(['x', 'y'] as const).map((axis, index) => (
+        <HeaderCoordInput
+          pixelsPerCm={pixelsPerCm}
+          key={axis}
+          label={labels[index]! + (axis === 'x' ? (measurement?.mark ?? '') : '')}
+          valueCm={
+            axis === 'x' && measurement
+              ? measurement.toDisplay(selection.point.x)
+              : selection.point[axis]
+          }
+          units={units}
+          onCommit={(value) =>
+            selection.onChange({
+              ...live.current.point,
+              [axis]: axis === 'x' && measurement ? measurement.toModel(value) : value,
+            })
+          }
+          onDismiss={selection.onDismiss}
+          onNudge={nudge}
+        />
+      ))}
+      <span className="shrink-0 text-[11px] text-muted-foreground">{unitSuffix(units)}</span>
+    </div>
+  );
+}
+
 /** Position editor shown in the header of the pane containing the active point/handle. */
 export function SelectedPointEditor({
   store,
   units,
   targets,
   fallback,
+  pixelsPerCm,
+  longitudinal,
 }: {
   store: StoreApi<BoardState>;
   units: LengthUnit;
   targets: SplineTarget[];
+  pixelsPerCm?: number;
+  longitudinal?: Longitudinal;
   /** Header content shown whenever this pane does not own the spline selection. */
   fallback?: ReactNode;
 }) {
@@ -217,9 +340,17 @@ export function SelectedPointEditor({
           : activeKind === 'next'
             ? activeKnot.tangentToNext
             : activeKnot.end;
-      const stepCm = parse(String(pointEditStep(units)), units);
+      const stepCm = parse(String(pointEditStep(units, pixelsPerCm)), units);
+      const measurement = active.target.kind !== 'crossSection' ? longitudinal : undefined;
+      const horizontal = key === 'ArrowLeft' || key === 'ArrowRight';
+      const distance = measurement ? measurement.toDisplay(activePoint.x) : activePoint.x;
+      const nextDistance = distance + (key === 'ArrowLeft' ? -stepCm : stepCm);
       const next = {
-        x: activePoint.x + (key === 'ArrowLeft' ? -stepCm : key === 'ArrowRight' ? stepCm : 0),
+        x: horizontal
+          ? measurement
+            ? measurement.toModel(nextDistance)
+            : nextDistance
+          : activePoint.x,
         y: activePoint.y + (key === 'ArrowDown' ? -stepCm : key === 'ArrowUp' ? stepCm : 0),
       };
 
@@ -227,7 +358,7 @@ export function SelectedPointEditor({
       else state.moveTangent(active.target, active.index, activeKind, next);
       return true;
     },
-    [store, targets, units],
+    [store, targets, units, pixelsPerCm, longitudinal],
   );
 
   useEffect(() => {
@@ -272,6 +403,7 @@ export function SelectedPointEditor({
     else store.getState().moveTangent(selection.target, selection.index, kind, { x, y });
   };
   const [splineXLabel, splineYLabel] = coordinateLabels(selection.target);
+  const measurement = selection.target.kind !== 'crossSection' ? longitudinal : undefined;
   const dismiss = () => store.getState().select(null);
 
   return (
@@ -293,6 +425,7 @@ export function SelectedPointEditor({
         // A locked handle only slides along its line, so its length is the one
         // number left to edit; X and Y could not be typed independently.
         <HeaderCoordInput
+          pixelsPerCm={pixelsPerCm}
           label="Length"
           ariaLabel={`${label} length`}
           valueCm={handleLength(knot, kind)}
@@ -307,7 +440,7 @@ export function SelectedPointEditor({
             const live =
               state.board && getTargetSpline(state.board, selection.target).knots[selection.index];
             if (!live) return;
-            const step = parse(String(pointEditStep(units)), units);
+            const step = parse(String(pointEditStep(units, pixelsPerCm)), units);
             const grow = key === 'ArrowUp' || key === 'ArrowRight';
             state.setTangentLength(
               selection.target,
@@ -320,14 +453,16 @@ export function SelectedPointEditor({
       ) : (
         <>
           <HeaderCoordInput
-            label={splineXLabel}
-            valueCm={point.x}
+            pixelsPerCm={pixelsPerCm}
+            label={splineXLabel + (measurement?.mark ?? '')}
+            valueCm={measurement ? measurement.toDisplay(point.x) : point.x}
             units={units}
-            onCommit={(x) => commit(x, point.y)}
+            onCommit={(x) => commit(measurement ? measurement.toModel(x) : x, point.y)}
             onDismiss={dismiss}
             onNudge={nudge}
           />
           <HeaderCoordInput
+            pixelsPerCm={pixelsPerCm}
             label={splineYLabel}
             valueCm={point.y}
             units={units}
@@ -405,6 +540,7 @@ function HandleFields({
   knot,
   which,
   units,
+  longitudinal,
 }: {
   store: StoreApi<BoardState>;
   target: SplineTarget;
@@ -412,8 +548,10 @@ function HandleFields({
   knot: Knot;
   which: 'prev' | 'next';
   units: LengthUnit;
+  longitudinal?: Longitudinal;
 }) {
   const [xLabel, yLabel] = coordinateLabels(target);
+  const measurement = target.kind !== 'crossSection' ? longitudinal : undefined;
   const handle = which === 'prev' ? knot.tangentToPrev : knot.tangentToNext;
   const group = which === 'prev' ? 'Tangent to previous' : 'Tangent to next';
   const locked = handleLocked(knot, which);
@@ -427,10 +565,10 @@ function HandleFields({
       </div>
       <CoordInput
         group={group}
-        label={xLabel}
-        valueCm={handle.x}
+        label={xLabel + (measurement?.mark ?? '')}
+        valueCm={measurement ? measurement.toDisplay(handle.x) : handle.x}
         units={units}
-        onCommit={(x) => move(x, handle.y)}
+        onCommit={(x) => move(measurement ? measurement.toModel(x) : x, handle.y)}
         disabled={locked}
       />
       <CoordInput
@@ -464,9 +602,11 @@ function HandleFields({
 export function ControlPointInspector({
   store,
   units,
+  longitudinal,
 }: {
   store: StoreApi<BoardState>;
   units: LengthUnit;
+  longitudinal?: Longitudinal;
 }) {
   const board = useSyncExternalStore(store.subscribe, () => store.getState().board);
   const selection = useSyncExternalStore(store.subscribe, () => store.getState().selection);
@@ -486,6 +626,7 @@ export function ControlPointInspector({
 
   const { target, index } = selection;
   const [splineXLabel, splineYLabel] = coordinateLabels(target);
+  const measurement = target.kind !== 'crossSection' ? longitudinal : undefined;
   const deletable = canDeleteKnot(spline, index);
   const setEnd = (x: number, y: number) =>
     store.getState().moveControlPoint(target, index, { x, y });
@@ -500,10 +641,10 @@ export function ControlPointInspector({
       <div className="text-xs font-medium text-muted-foreground">Endpoint</div>
       <CoordInput
         group="Endpoint"
-        label={splineXLabel}
-        valueCm={knot.end.x}
+        label={splineXLabel + (measurement?.mark ?? '')}
+        valueCm={measurement ? measurement.toDisplay(knot.end.x) : knot.end.x}
         units={units}
-        onCommit={(x) => setEnd(x, knot.end.y)}
+        onCommit={(x) => setEnd(measurement ? measurement.toModel(x) : x, knot.end.y)}
       />
       <CoordInput
         group="Endpoint"
@@ -515,6 +656,7 @@ export function ControlPointInspector({
 
       {/* Tangent handles, toward the previous and the next segment */}
       <HandleFields
+        longitudinal={longitudinal}
         store={store}
         target={target}
         index={index}
@@ -523,6 +665,7 @@ export function ControlPointInspector({
         units={units}
       />
       <HandleFields
+        longitudinal={longitudinal}
         store={store}
         target={target}
         index={index}

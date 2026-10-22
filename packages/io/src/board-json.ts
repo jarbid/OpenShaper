@@ -1,5 +1,6 @@
 import {
   FIN_SETUPS,
+  nameReferencePoints,
   board,
   crossSection,
   defaultFinConfig,
@@ -12,6 +13,7 @@ import {
   type FinConfig,
   type FinSetup,
   type Knot,
+  type ReferencePoints,
   type KnotLock,
   type Spline,
   type Vec2,
@@ -32,6 +34,7 @@ import {
  *       Later, still 2: a locked knot carries an optional `l` (its fixed handle
  *       directions). The field is written only for locked knots, so a board without
  *       locks serializes exactly as before, and a reader that predates it ignores it.
+ *       Optional referencePoints stores per-view guides in cm; absent in older files.
  */
 export const BOARD_JSON_VERSION = 2;
 
@@ -62,6 +65,7 @@ export interface BoardJson {
   crossSections: CrossSectionJson[];
   /** Parametric fin configuration (v2+). Omitted when there are no fins. */
   fins?: FinConfig;
+  referencePoints?: ReferencePoints;
   metadata?: Record<string, unknown>;
 }
 
@@ -138,6 +142,7 @@ export const writeBoardJson = (b: BezierBoard, metadata?: Record<string, unknown
       knots: splineToJson(cs.spline),
     })),
     ...(b.fins.setup !== 'none' ? { fins: b.fins } : {}),
+    ...(b.referencePoints ? { referencePoints: nameReferencePoints(b.referencePoints) } : {}),
     ...(metadata ? { metadata } : {}),
   };
   return JSON.stringify(doc, null, 2);
@@ -188,6 +193,33 @@ const assertStructure = (doc: Record<string, unknown>): void => {
   if (!Array.isArray(doc.crossSections)) {
     throw new BoardJsonError('Malformed document: crossSections is missing');
   }
+  if (doc.referencePoints !== undefined) {
+    if (!isObject(doc.referencePoints)) {
+      throw new BoardJsonError('Malformed document: invalid reference points');
+    }
+    for (const [view, points] of Object.entries(doc.referencePoints)) {
+      const section = /^crossSection:(0|[1-9]\d*)$/.exec(view);
+      const validView =
+        view === 'outline' ||
+        view === 'rocker' ||
+        (section && Number(section[1]) < doc.crossSections.length);
+      if (
+        !validView ||
+        !Array.isArray(points) ||
+        !points.every(
+          (p: unknown) =>
+            isObject(p) &&
+            typeof p.x === 'number' &&
+            Number.isFinite(p.x) &&
+            typeof p.y === 'number' &&
+            Number.isFinite(p.y) &&
+            (p.name === undefined || typeof p.name === 'string'),
+        )
+      ) {
+        throw new BoardJsonError('Malformed document: invalid reference points');
+      }
+    }
+  }
   doc.crossSections.forEach((cs: unknown, i) => {
     const where = `cross-section ${i + 1}`;
     if (!isObject(cs) || typeof cs.position !== 'number' || !Number.isFinite(cs.position)) {
@@ -227,6 +259,7 @@ export const readBoardJson = (
     doc.crossSections.map((cs) => crossSection(cs.position, splineFromJson(cs.knots))),
     doc.interpolationType ?? 'controlPoint',
     finConfigFromDoc(doc),
+    nameReferencePoints(doc.referencePoints),
   );
   return doc.metadata ? { board: b, metadata: doc.metadata } : { board: b };
 };

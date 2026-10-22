@@ -5,6 +5,8 @@ import {
   moveTunniPoint,
   value,
   type BezierBoard,
+  type ReferencePointView,
+  type ReferencePoint,
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
@@ -20,6 +22,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
+import { nextHorizontalPoint, nextSplineHandle } from './selection-order';
 import { buildContextMenuItems } from './context-menu-items';
 import { drawTunniControls, hitTunniControls, type TunniHit } from './tunni-controls';
 import {
@@ -202,6 +205,11 @@ export interface SplineEditorProps {
    * so passing this can never shrink anything.
    */
   allowTurn?: boolean;
+  onReferencePointArray?: (
+    target: SplineTarget,
+    mirror: { mirrorX: boolean; mirrorY: boolean },
+  ) => void;
+  onReferencePointSelectionChange?: (selection: ReferencePointSelection | null) => void;
   className?: string;
 }
 
@@ -220,6 +228,7 @@ type DragState =
       downAt: ScreenPoint;
       started: boolean;
     }
+  | { mode: 'reference'; index: number; grab: Vec2; started: boolean }
   | { mode: 'tunni'; target: SplineTarget; hit: TunniHit; start: Vec2; started: boolean }
   | { mode: 'section'; index: number; started: boolean; handle: SectionHandle; grab: number }
   // Dragging a fin to re-place it (plan pane).
@@ -250,7 +259,11 @@ type DragState =
 
 /** Whether a drag holds the store's grouped edit open (a section drag only once it moved). */
 const holdsEdit = (d: DragState): boolean =>
-  (d?.mode === 'tunni' || d?.mode === 'edit' || d?.mode === 'fin' || d?.mode === 'section') &&
+  (d?.mode === 'reference' ||
+    d?.mode === 'tunni' ||
+    d?.mode === 'edit' ||
+    d?.mode === 'fin' ||
+    d?.mode === 'section') &&
   d.started;
 
 /**
@@ -432,6 +445,13 @@ const calibrationHint = (cal: NonNullable<Calibration>): string => {
   }
 };
 
+export interface ReferencePointSelection {
+  point: ReferencePoint;
+  onRename?: (name: string) => void;
+  onChange: (point: Vec2) => void;
+  onDismiss: () => void;
+}
+
 /** A canvas editor for one or more board splines (outline / deck+bottom / cross-section). */
 export function SplineEditor({
   store,
@@ -467,6 +487,8 @@ export function SplineEditor({
   onViewChange,
   allowTurn = false,
   className,
+  onReferencePointSelectionChange,
+  onReferencePointArray,
 }: SplineEditorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -521,6 +543,126 @@ export function SplineEditor({
     const current = store.getState().board;
     if (current) setReference({ key, splines: targets.map((t) => getTargetSpline(current, t)) });
   }, [store, key, targets]);
+  const referenceView: ReferencePointView =
+    targets[0]?.kind === 'crossSection'
+      ? `crossSection:${targets[0].index}`
+      : targets[0]?.kind === 'outline'
+        ? 'outline'
+        : 'rocker';
+  const referencePoints = board?.referencePoints;
+  const addReferencePoint = useCallback(
+    (point: Vec2) => {
+      store.getState().addReferencePoint(referenceView, point);
+    },
+    [store, referenceView],
+  );
+  const [selectedReference, setSelectedReference] = useState<{ key: string; index: number } | null>(
+    null,
+  );
+  const referenceIndex = selectedReference?.key === key ? selectedReference.index : null;
+  const selectedReferencePoint =
+    referenceIndex === null ? null : referencePoints?.[referenceView]?.[referenceIndex];
+  const dismissReference = useCallback(() => setSelectedReference(null), []);
+  const deleteReferencePoint = useMemo(() => {
+    if (referenceIndex === null || !selectedReferencePoint) return undefined;
+    return () => {
+      store.getState().deleteReferencePoint(referenceView, referenceIndex);
+      dismissReference();
+    };
+  }, [store, referenceView, referenceIndex, selectedReferencePoint, dismissReference]);
+  const moveReference = useCallback(
+    (point: Vec2) => {
+      if (referenceIndex === null || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return;
+      store.getState().moveReferencePoint(referenceView, referenceIndex, point);
+    },
+    [store, referenceView, referenceIndex],
+  );
+  const renameReference = useCallback(
+    (name: string) => {
+      if (referenceIndex !== null)
+        store.getState().renameReferencePoint(referenceView, referenceIndex, name);
+    },
+    [store, referenceView, referenceIndex],
+  );
+  useEffect(() => {
+    onReferencePointSelectionChange?.(
+      selectedReferencePoint
+        ? {
+            point: selectedReferencePoint,
+            onChange: moveReference,
+            onRename: renameReference,
+            onDismiss: dismissReference,
+          }
+        : null,
+    );
+  }, [
+    selectedReferencePoint,
+    moveReference,
+    renameReference,
+    dismissReference,
+    onReferencePointSelectionChange,
+  ]);
+  useEffect(() => {
+    if (selection) dismissReference();
+  }, [selection, dismissReference]);
+  const hitReference = useCallback(
+    (p: ScreenPoint, tolerance = HIT_TOL_PX) => {
+      if (!vp) return -1;
+      return (referencePoints?.[referenceView] ?? []).findIndex((point) => {
+        const screen = worldToScreen(vp, point);
+        return Math.hypot(screen.x - p.x, screen.y - p.y) <= tolerance;
+      });
+    },
+    [vp, referencePoints, referenceView],
+  );
+  useEffect(() => {
+    const onTab = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.key !== 'Tab' ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        menu ||
+        document.querySelector('[data-modal], [role="menu"]')
+      )
+        return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.closest?.(
+          'input, textarea, select, button, a, [contenteditable]:not([contenteditable="false"]), [role="textbox"]',
+        )
+      )
+        return;
+      const focused = document.activeElement;
+      if (focused?.tagName === 'CANVAS' && focused !== canvasRef.current) return;
+      const state = store.getState();
+      if (!state.board || state.editing || drag.current) return;
+      const direction = event.shiftKey ? -1 : 1;
+      const active = state.selection;
+      if (active && targets.some((target) => sameTarget(target, active.target))) {
+        const next = nextSplineHandle(
+          getTargetSpline(state.board, active.target),
+          { index: active.index, kind: active.kind ?? 'end' },
+          direction,
+        );
+        if (!next) return;
+        event.preventDefault();
+        state.select({ target: active.target, ...next });
+      } else if (!active && referenceIndex !== null && selectedReferencePoint) {
+        const next = nextHorizontalPoint(
+          state.board.referencePoints?.[referenceView] ?? [],
+          referenceIndex,
+          direction,
+        );
+        if (next === null) return;
+        event.preventDefault();
+        setSelectedReference({ key, index: next });
+      }
+    };
+    window.addEventListener('keydown', onTab);
+    return () => window.removeEventListener('keydown', onTab);
+  }, [store, targets, referenceIndex, selectedReferencePoint, referenceView, key, menu]);
   const clearReferenceCurve = useCallback(() => setReference(null), []);
   // Tunni controls are an app-level overlay (View menu); the context menu flips it too.
   const tunniEnabled = overlays?.tunni ?? false;
@@ -820,6 +962,24 @@ export function SplineEditor({
           drawVProbe(ctx, profile, vp, size.h, overlays.scrubProbe, MEASURE_COLORS.fromCl);
       }
     }
+    // Draw guides last, at a constant screen size, without reflecting across the board.
+    ctx.save();
+    ctx.strokeStyle =
+      getComputedStyle(canvas).getPropertyValue('--muted-foreground').trim() ||
+      defaultStyle.tangent;
+    ctx.lineWidth = 1;
+    const radius = controlPointSize ?? 5;
+    for (const point of referencePoints?.[referenceView] ?? []) {
+      const p = worldToScreen(vp, point);
+      ctx.lineWidth = point === selectedReferencePoint ? 2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(p.x - radius, p.y);
+      ctx.lineTo(p.x + radius, p.y);
+      ctx.moveTo(p.x, p.y - radius);
+      ctx.lineTo(p.x, p.y + radius);
+      ctx.stroke();
+    }
+    ctx.restore();
   }, [
     turned,
     board,
@@ -841,6 +1001,9 @@ export function SplineEditor({
     overlays,
     ghostSplines,
     referenceSplines,
+    referencePoints,
+    referenceView,
+    selectedReferencePoint,
     tunniEnabled,
     background,
     liveTrace,
@@ -956,6 +1119,7 @@ export function SplineEditor({
       setGestureTurned((cur) => cur ?? liveTurned);
       if (!vp || !board) return;
       setMenu(null);
+      if (e.button === 0) canvasRef.current?.focus({ preventScroll: true });
       const p = localPoint(e);
       const touch = e.pointerType === 'touch';
       // Pin the mapping for whatever gesture this press starts.
@@ -1030,6 +1194,9 @@ export function SplineEditor({
             store,
             onFitView: fitView,
             onSetReferenceCurve: setReferenceCurve,
+            onAddReferencePoint: addReferencePoint,
+            onDeleteReferencePoint: deleteReferencePoint,
+            onReferencePointArray,
             tunniEnabled,
             onToggleTunni: toggleTunni,
             onClearReferenceCurve: referenceSplines ? clearReferenceCurve : undefined,
@@ -1065,6 +1232,23 @@ export function SplineEditor({
         setCursor('grabbing');
         return;
       }
+      // Reference guides use their displayed (unreflected) coordinates.
+      const referenceHit = hitReference(p, touch ? TOUCH_HIT_TOL_PX : HIT_TOL_PX);
+      if (referenceHit >= 0) {
+        store.getState().select(null);
+        setSelectedReference({ key, index: referenceHit });
+        const point = referencePoints?.[referenceView]?.[referenceHit];
+        if (!point) return;
+        const at = screenToWorld(vp, p);
+        drag.current = {
+          mode: 'reference',
+          started: false,
+          index: referenceHit,
+          grab: { x: point.x - at.x, y: point.y - at.y },
+        };
+        return;
+      }
+      dismissReference();
       // Left button is select/edit only — never pans.
       const marker = sectionMarkerAt(p, touch);
       if (marker && onPickSection) {
@@ -1162,6 +1346,11 @@ export function SplineEditor({
       store.getState().select(null);
     },
     [
+      hitReference,
+      referencePoints,
+      referenceView,
+      key,
+      dismissReference,
       liveTurned,
       localPoint,
       size.h,
@@ -1181,6 +1370,9 @@ export function SplineEditor({
       mirrorY,
       fitView,
       setReferenceCurve,
+      addReferencePoint,
+      deleteReferencePoint,
+      onReferencePointArray,
       tunniEnabled,
       toggleTunni,
       hitTunni,
@@ -1212,7 +1404,7 @@ export function SplineEditor({
           ? 'ew-resize'
           : marker
             ? 'pointer'
-            : picked || hitTunni(p)
+            : picked || hitReference(p) >= 0 || hitTunni(p)
               ? 'pointer'
               : 'crosshair',
       );
@@ -1268,6 +1460,7 @@ export function SplineEditor({
         // With nothing under the finger there is no drag to protect, so the finger's
         // own noise floor is the right threshold instead.
         const dragging =
+          drag.current?.mode === 'reference' ||
           drag.current?.mode === 'edit' ||
           drag.current?.mode === 'fin' ||
           drag.current?.mode === 'section';
@@ -1325,6 +1518,21 @@ export function SplineEditor({
         return;
       }
       const world = screenToWorld(vp, p);
+      if (d.mode === 'reference') {
+        const point = { x: world.x + d.grab.x, y: world.y + d.grab.y };
+        if (d.started && !store.getState().editing) {
+          drag.current = null;
+          return;
+        }
+        const old = store.getState().board?.referencePoints?.[referenceView]?.[d.index];
+        if (!old || (old.x === point.x && old.y === point.y)) return;
+        if (!d.started) {
+          store.getState().beginEdit('Move reference point');
+          d.started = true;
+        }
+        store.getState().moveReferencePoint(referenceView, d.index, point);
+        return;
+      }
       if (d.mode === 'section') {
         if (d.started && !store.getState().editing) {
           // Closed under the drag (see the point-drag case below).
@@ -1410,7 +1618,7 @@ export function SplineEditor({
       if (d.hit.kind === 'end') store.getState().moveControlPoint(d.target, d.hit.index, held);
       else store.getState().moveTangent(d.target, d.hit.index, d.hit.kind, held);
     },
-    [localPoint, vp, store, cancelLongPress, onMoveSection],
+    [localPoint, vp, store, cancelLongPress, onMoveSection, referenceView],
   );
 
   const onPointerUp = useCallback(
@@ -1465,6 +1673,9 @@ export function SplineEditor({
           store,
           onFitView: fitView,
           onSetReferenceCurve: setReferenceCurve,
+          onAddReferencePoint: addReferencePoint,
+          onDeleteReferencePoint: deleteReferencePoint,
+          onReferencePointArray,
           tunniEnabled,
           onToggleTunni: toggleTunni,
           onClearReferenceCurve: referenceSplines ? clearReferenceCurve : undefined,
@@ -1489,6 +1700,9 @@ export function SplineEditor({
       hitAny,
       fitView,
       setReferenceCurve,
+      addReferencePoint,
+      deleteReferencePoint,
+      onReferencePointArray,
       tunniEnabled,
       toggleTunni,
       clearReferenceCurve,
@@ -1599,6 +1813,7 @@ export function SplineEditor({
     >
       <canvas
         ref={canvasRef}
+        tabIndex={-1}
         style={{
           // Turned, the element is laid out at its own (landscape) size and rotated
           // into the pane; upright, it just fills it. Rotating the ELEMENT rather

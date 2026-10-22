@@ -895,3 +895,122 @@ describe('board store: handle-angle locks', () => {
     expect(store.getState().past.at(-1)!.label).toBe('Set handle length');
   });
 });
+
+describe('reference point history and preservation', () => {
+  it('adds and moves guides with undo/redo, preserving them through curve edits and load', () => {
+    const store = createBoardStore();
+    const state = () => store.getState();
+    state().load(makeBoard());
+    state().addReferencePoint('outline', { x: 40, y: -12 });
+    const added = state().board!.referencePoints;
+    state().moveReferencePoint('outline', 0, { x: 45, y: -10 });
+    expect(state().board!.referencePoints?.outline).toEqual([{ x: 45, y: -10, name: 'ref_1' }]);
+    state().undo();
+    expect(state().board!.referencePoints).toEqual(added);
+    state().undo();
+    expect(state().board!.referencePoints).toBeUndefined();
+    state().redo();
+    state().moveControlPoint({ kind: 'outline' }, 1, { x: 50, y: 22 });
+    expect(state().board!.referencePoints).toEqual(added);
+    state().load(state().board!);
+    expect(state().board!.referencePoints).toEqual(added);
+  });
+
+  it('keeps cross-section guides on their section when inserting and deleting stations', () => {
+    const store = createBoardStore();
+    const state = () => store.getState();
+    state().load(makeBoard());
+    const points = [{ x: -8, y: 3, name: 'ref_1' }];
+    state().addReferencePoint('crossSection:1', points[0]!);
+    state().addCrossSection(25);
+    expect(state().board!.referencePoints?.['crossSection:2']).toEqual(points);
+    expect(state().board!.referencePoints?.['crossSection:1']).toBeUndefined();
+    state().deleteCrossSection(1);
+    expect(state().board!.referencePoints?.['crossSection:1']).toEqual(points);
+    state().addCrossSection(75);
+    state().deleteCrossSection(1);
+    expect(Object.keys(state().board!.referencePoints ?? {})).toEqual([]);
+    state().undo();
+    expect(state().board!.referencePoints?.['crossSection:1']).toEqual(points);
+  });
+});
+
+describe('named reference point arrays', () => {
+  it('names individual points across views and preserves custom names when moving', () => {
+    const store = createBoardStore();
+    const state = () => store.getState();
+    state().load(makeBoard());
+    state().addReferencePoint('outline', { x: 20, y: -5 });
+    state().addReferencePoint('rocker', { x: 30, y: 5 });
+    expect(state().board!.referencePoints?.outline?.[0]?.name).toBe('ref_1');
+    expect(state().board!.referencePoints?.rocker?.[0]?.name).toBe('ref_2');
+    state().renameReferencePoint('outline', 0, 'Tail guide');
+    state().moveReferencePoint('outline', 0, { x: 21, y: -6 });
+    expect(state().board!.referencePoints?.outline?.[0]).toEqual({
+      x: 21,
+      y: -6,
+      name: 'Tail guide',
+    });
+    state().undo();
+    state().undo();
+    expect(state().board!.referencePoints?.outline?.[0]?.name).toBe('ref_1');
+  });
+
+  it('adds an axis-spaced array on the chosen rocker curve as one undo step', () => {
+    const store = createBoardStore();
+    const state = () => store.getState();
+    state().load(makeBoard());
+    const source = state().board!;
+    state().load({
+      ...source,
+      bottom: splineFromKnots([
+        knot(vec2(0, 11), vec2(0, 11), vec2(50 / 3, 11)),
+        knot(vec2(50, 5), vec2(100 / 3, 5), vec2(200 / 3, 5)),
+        knot(vec2(100, 11), vec2(250 / 3, 11), vec2(100, 11)),
+      ]),
+    });
+    const before = state().board!;
+    state().addReferencePointArray({ kind: 'bottom' }, 10);
+    const points = state().board!.referencePoints!.rocker!;
+    expect(points.map((p) => p.x)).toEqual(Array.from({ length: 10 }, (_, i) => (i + 1) * 10));
+    expect(points.map((p) => p.name)).toEqual(
+      Array.from({ length: 10 }, (_, i) => `ref_${(i + 1) * 100}`),
+    );
+    for (const point of points) {
+      // Linear x(t) on each half; exact cubic y(t), independent of legacy valueAt tolerance.
+      const t = point.x <= 50 ? point.x / 50 : (point.x - 50) / 50;
+      const ease = 3 * t * t - 2 * t * t * t;
+      const expected = point.x <= 50 ? 11 - 6 * ease : 5 + 6 * ease;
+      expect(point.y).toBeCloseTo(expected, 8);
+    }
+    expect(points[4]!.y).toBeCloseTo(5, 8);
+    expect(state().past).toHaveLength(1);
+    state().undo();
+    expect(state().board).toBe(before);
+    state().redo();
+    expect(state().board!.referencePoints!.rocker).toEqual(points);
+  });
+
+  it('uses board Y spacing on a cross-section and supports the mirrored side', () => {
+    const store = createBoardStore();
+    store.getState().setAdjustThickness(false);
+    const source = makeBoard();
+    const profile = splineFromKnots([
+      knot(vec2(0, 5), vec2(0, 5), vec2(5, 5)),
+      knot(vec2(10, 8), vec2(10, 6), vec2(10, 10)),
+      knot(vec2(0, 11), vec2(5, 11), vec2(0, 11)),
+    ]);
+    store.getState().load({
+      ...source,
+      crossSections: source.crossSections.map((section) => ({ ...section, spline: profile })),
+    });
+    store.getState().addReferencePointArray({ kind: 'crossSection', index: 1 }, 5, 10, true);
+    const points = store.getState().board!.referencePoints!['crossSection:1']!;
+    expect(points.length).toBeGreaterThan(0);
+    for (const point of points) {
+      expect(point.x).toBeLessThanOrEqual(0);
+      expect(Math.abs(point.x / 5 - Math.round(point.x / 5))).toBeLessThan(1e-8);
+      expect(point.name).toBe(`ref_${Number((point.x * 10).toFixed(6))}`);
+    }
+  });
+});

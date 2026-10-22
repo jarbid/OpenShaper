@@ -67,16 +67,40 @@ export const getTargetSpline = (b: BezierBoard, t: SplineTarget): Spline => {
 export const withSpline = (b: BezierBoard, t: SplineTarget, spline: Spline): BezierBoard => {
   switch (t.kind) {
     case 'outline':
-      return board(spline, b.bottom, b.deck, b.crossSections, b.interpolationType, b.fins);
+      return board(
+        spline,
+        b.bottom,
+        b.deck,
+        b.crossSections,
+        b.interpolationType,
+        b.fins,
+        b.referencePoints,
+      );
     case 'deck':
-      return board(b.outline, b.bottom, spline, b.crossSections, b.interpolationType, b.fins);
+      return board(
+        b.outline,
+        b.bottom,
+        spline,
+        b.crossSections,
+        b.interpolationType,
+        b.fins,
+        b.referencePoints,
+      );
     case 'bottom':
-      return board(b.outline, spline, b.deck, b.crossSections, b.interpolationType, b.fins);
+      return board(
+        b.outline,
+        spline,
+        b.deck,
+        b.crossSections,
+        b.interpolationType,
+        b.fins,
+        b.referencePoints,
+      );
     case 'crossSection': {
       const cs = b.crossSections.map((c, i) =>
         i === t.index ? { position: c.position, spline } : c,
       );
-      return board(b.outline, b.bottom, b.deck, cs, b.interpolationType, b.fins);
+      return board(b.outline, b.bottom, b.deck, cs, b.interpolationType, b.fins, b.referencePoints);
     }
   }
 };
@@ -465,21 +489,34 @@ export const propagateCrossSectionToCurves = (
     outline = setSplineValueAt(outline, x, valueAt(outline, x) + widthHalfDelta);
 
   if (bottom === next.bottom && deck === next.deck && outline === next.outline) return next;
-  return board(outline, bottom, deck, next.crossSections, next.interpolationType, next.fins);
+  return board(
+    outline,
+    bottom,
+    deck,
+    next.crossSections,
+    next.interpolationType,
+    next.fins,
+    next.referencePoints,
+  );
 };
 
 // --- cross-section management (legacy Cross-sections menu) ---
 
 /** Replace the board's cross-section list, kept sorted by longitudinal position. */
-export const withCrossSections = (b: BezierBoard, list: readonly CrossSection[]): BezierBoard =>
-  board(
-    b.outline,
-    b.bottom,
-    b.deck,
-    [...list].sort((a, c) => a.position - c.position),
-    b.interpolationType,
-    b.fins,
-  );
+export const withCrossSections = (b: BezierBoard, list: readonly CrossSection[]): BezierBoard => {
+  const sorted = [...list].sort((a, c) => a.position - c.position);
+  const referencePoints = b.referencePoints
+    ? Object.fromEntries(
+        Object.entries(b.referencePoints).flatMap(([view, points]) => {
+          if (!view.startsWith('crossSection:')) return [[view, points]];
+          const section = b.crossSections[Number(view.split(':')[1])];
+          const index = section ? sorted.indexOf(section) : -1;
+          return index < 0 ? [] : [[`crossSection:${index}`, points]];
+        }),
+      )
+    : undefined;
+  return board(b.outline, b.bottom, b.deck, sorted, b.interpolationType, b.fins, referencePoints);
+};
 
 /**
  * Insert a shape-preserving cross-section at `position` (legacy
@@ -543,7 +580,15 @@ export const moveCrossSectionPosition = (
   const sections = b.crossSections.map((section, i) =>
     i === index ? crossSection(clamped, section.spline) : section,
   );
-  return board(b.outline, b.bottom, b.deck, sections, b.interpolationType, b.fins);
+  return board(
+    b.outline,
+    b.bottom,
+    b.deck,
+    sections,
+    b.interpolationType,
+    b.fins,
+    b.referencePoints,
+  );
 };
 
 /**
@@ -555,7 +600,7 @@ export const moveCrossSectionPosition = (
  */
 /** Return the board with a different cross-section interpolation model. */
 export const withInterpolationType = (b: BezierBoard, type: InterpolationType): BezierBoard =>
-  board(b.outline, b.bottom, b.deck, b.crossSections, type, b.fins);
+  board(b.outline, b.bottom, b.deck, b.crossSections, type, b.fins, b.referencePoints);
 
 /**
  * Scale fin placement with the board (legacy `finScaling`): trailing-edge distance
@@ -586,13 +631,14 @@ export const scaleBoard = (b: BezierBoard, fL: number, fW: number, fT: number): 
     b.crossSections.map((cs) => crossSection(cs.position * fL, scaleSpline(cs.spline, fT, fW))),
     b.interpolationType,
     scaleFins(b.fins, fL, fW, fT),
+    b.referencePoints,
   );
 
 // --- fins -------------------------------------------------------------------
 
 /** Return a new board with a different fin configuration. */
 export const withFins = (b: BezierBoard, fins: FinConfig): BezierBoard =>
-  board(b.outline, b.bottom, b.deck, b.crossSections, b.interpolationType, fins);
+  board(b.outline, b.bottom, b.deck, b.crossSections, b.interpolationType, fins, b.referencePoints);
 
 /** Change the fin setup, re-seeding placement from defaults but keeping the system. */
 export const setFinSetup = (b: BezierBoard, setup: FinSetup): BezierBoard =>
@@ -840,7 +886,15 @@ export const enforceJunctions = (b: BezierBoard, changed?: SplineTarget): Bezier
     outline = clampHandleFloor(outline, noseIdx, 'prev', 'y');
   }
 
-  return board(outline, bottom, deck, crossSections, b.interpolationType, b.fins);
+  return board(
+    outline,
+    bottom,
+    deck,
+    crossSections,
+    b.interpolationType,
+    b.fins,
+    b.referencePoints,
+  );
 };
 
 /**

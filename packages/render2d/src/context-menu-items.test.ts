@@ -463,3 +463,43 @@ it('offers clearing a reference only when one exists, and only in clear space', 
     ),
   ).toBeUndefined();
 });
+
+describe('reference points', () => {
+  it.each([
+    { targets: [{ kind: 'outline' }] as SplineTarget[], mirrorX: false, mirrorY: true },
+    {
+      targets: [{ kind: 'deck' }, { kind: 'bottom' }] as SplineTarget[],
+      mirrorX: false,
+      mirrorY: false,
+    },
+    {
+      targets: [{ kind: 'crossSection', index: 1 }] as SplineTarget[],
+      mirrorX: true,
+      mirrorY: false,
+    },
+  ])('captures the unreflected menu position for $targets', ({ targets, mirrorX, mirrorY }) => {
+    const { store } = setup();
+    const onAddReferencePoint = vi.fn();
+    const point = { x: -15, y: -20 };
+    const screen = { ...worldToScreen(VP, point) };
+    const vp = { ...VP };
+    const items = buildContextMenuItems({
+      board: store.getState().board!,
+      targets,
+      mirrorX,
+      mirrorY,
+      screen,
+      vp,
+      store,
+      onFitView: vi.fn(),
+      onAddReferencePoint,
+    });
+    // Choosing the menu item later must retain the original world position.
+    vp.originX += 100;
+    screen.x += 50;
+    const item = find(items, 'Add reference point');
+    expect(item?.kind).toBe('action');
+    if (item?.kind === 'action') item.onSelect();
+    expect(onAddReferencePoint).toHaveBeenCalledExactlyOnceWith(point);
+  });
+});

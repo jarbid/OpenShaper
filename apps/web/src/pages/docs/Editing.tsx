@@ -79,6 +79,26 @@ export default function DocsEditing() {
           cross-section, and is never saved with the board.
         </p>
         <p>
+          Choose <strong>Add reference point</strong> in a 2D context menu to place a named
+          crosshair at the cursor, or <strong>Reference Point Array…</strong> to add points on the
+          nearest curve at a chosen interval. Arrays start at the first interval. In outline and
+          rocker views, choose X-axis or Over curve (distance along the bottom rocker); the dialog
+          defaults to your current longitudinal measurement setting. Cross-sections use Y spacing.
+          The interval defaults to 100 mm, shown in your current units. Individual points are named{' '}
+          <code>ref_1</code>, <code>ref_2</code>, and so on; array names use the chosen measurement
+          distance in the chosen units, such as <code>ref_100</code>. Click a point to edit its name
+          and coordinates in the view header, or drag it to move it. Select a point and choose{' '}
+          <strong>Delete reference point</strong> to remove it. Points stay fixed as curves change,
+          support undo/redo, and are saved in native board files.
+        </p>
+        <p>
+          With a point or handle selected in a 2D view, press <kbd>Tab</kbd> to select the next
+          point or handle to the right, or <kbd>Shift+Tab</kbd> to move left. The selection wraps at
+          either end of the current curve. Reference points cycle separately in the same spatial
+          order within their view. While editing a field or using a dialog, Tab keeps its normal
+          focus-navigation behavior.
+        </p>
+        <p>
           Turn on <strong>Tunni controls</strong> from the <strong>View</strong> menu, or
           right-click a 2D view and check <strong>Show Tunni controls</strong>, to adjust both
           handles of a curve segment together. Drag the amber dashed line to scale the handles
