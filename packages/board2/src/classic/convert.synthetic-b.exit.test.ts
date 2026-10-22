@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+/**
+ * S6 exit (docs/design/board2.md §14): the synthetic `.s3dx` sample files in
+ * name order, last three. All of them have pointed tips and polygonal
+ * sections. Every one also passes `validateBoard`. See `test-support/exit.ts`
+ * for the checks.
+ */
+import { describe, expect, it } from 'vitest';
+import { expectExit, runExit } from './test-support/exit';
+import { CLASSIC_SAMPLES } from './test-support/samples';
+
+const files = CLASSIC_SAMPLES.filter((s) => s.name.endsWith('.s3dx')).slice(4);
+
+describe('S6 exit: synthetic sample files (b)', () => {
+  it('covers three files', () => expect(files).toHaveLength(3));
+  for (const s of files) {
+    it(
+      s.name,
+      () => {
+        const run = runExit(s);
+        expectExit(s.name, run);
+        expect(run.measures.validateErrors).toEqual([]);
+      },
+      180_000,
+    );
+  }
+});

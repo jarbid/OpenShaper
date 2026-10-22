@@ -468,8 +468,21 @@ order §14).
       over the fine bottom, recorded in board2.md §13.5), tail-arc oracles with `h_t`
       inverted by the test, edge gaps against an independent maximum at 1e-12 × scale, and
       the GProp sanity bound 2.5 % from the measurement
-- [ ] S5 specs and volume convergence · S6 converter I · S7 converter II · S8 deviation
-      report · S9 benchmarks and the Phase 2 report
+- [x] S6 converter I (board2.md §14, "S6 as built"): classic sampling, the plan loop with
+      fillets, the stringer lines, the insets and the deck and bottom height fields, internal
+      to `./classic` until S7 (`DEFAULT_CONVERT_OPTIONS` public). All fourteen sample files:
+      plan and lines ≤ `lineTol` (0.001 cm) outside fillet zones and each corner at its
+      predicted deviation within `lineTol`; deck and bottom residual ≤ `surfaceTol`
+      (0.005 cm) outside crease and tip windows, with the stringer identity and the fairness
+      weight by the discrepancy principle (maximality tested); rail height ≥ 1 mm at every
+      station (no file needs the knife-tip lift once its tips are filleted; the lift is tested
+      at 2 mm). No geom change. Deviations recorded: pointed tips retreat by their fillet's
+      predicted deviation (1.2–1.7 cm on the synthetic files, so S8's 1 mm length checkpoint
+      needs the fillet explanation, board2.md §15 risk 8), corners by tangents, flat tips as one
+      arc, a deck lift in x instead of equality constraints. Conversion 7–21 s per file
+      (Q5 targets 3 s: recorded for S9)
+- [ ] S5 specs and volume convergence · S7 converter II · S8 deviation report · S9 benchmarks
+      and the Phase 2 report
 
 ### Phase 3 — editors and analysis (behind the flag)
 

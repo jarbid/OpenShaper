@@ -1,6 +1,6 @@
 # `@openshaper/board2` — board model v2 (Phase 2 design)
 
-Status: **design and scaffold, steps S1–S4 done** for Phase 2 of `docs/design/geometry-overhaul.md` (§6; the
+Status: **design and scaffold, steps S1–S4 and S6 done** for Phase 2 of `docs/design/geometry-overhaul.md` (§6; the
 topology and editing model it implements are §3.2 and §3.3). Written 2026-10-21 on
 `experiment/nurbs-overhaul`, after Phase 1 (`docs/design/geom-core.md`) was integrated. The
 package has its scaffold (`package.json`, the type definitions of §11 in `src/types.ts` and
@@ -11,8 +11,11 @@ from step S2 the plan loop, the height fields and symmetry (plan invariants in
 from step S3, the rail band builder (`band/`, `offsets.ts`, `measureLaws`, the band checks of
 `validateBoard`, the band's row rules in `symmetryRules`) and, from step S4, the bottom
 features, the B-rep, `buildBoard`, `writeBoardStep` and the board through OCCT (geom's
-`./testing/occt` protocol); see the S1–S4 notes in §14 (S4 with its review fixes). The
-specs and the converter are still to come; §14 is the build order.
+`./testing/occt` protocol) and, from step S6, the converter's first part (classic sampling,
+the plan loop with fillets, the stringer lines, the insets, the deck and bottom fits,
+internal until S7 completes `convertClassic`); see the S1–S4 and S6 notes in §14 (S4 with its
+review fixes). The specs (S5) and the rest of the converter are still to come; §14 is the
+build order.
 When this document and the code disagree, this document wins until the step that changes it
 edits this file in the same commit.
 
@@ -834,7 +837,10 @@ otherwise. Causes and the evidence each one needs:
   `|(V_board2 − V_loft) − ∮ d dA| ≤ volumeBudgetTol · V` and splits `∮ d dA` by cause zone, so
   the volume delta is attributed in cm³ to creases, tips, fillets, profile corners and fit.
 - Length, width and thickness deltas are explained by the line fits (≤ `lineTol`) and, at the
-  ends, by fillets (which keep the tip centres) and the tip floor.
+  ends, by fillets and the tip floor. A flat tip's arc keeps the tip centre; a **pointed**
+  tip's fillet moves it inwards by its predicted deviation (S6 as built, deviation 1), so on
+  the seven synthetic files the length delta is the two tips' predicted deviations
+  (2.4–3.3 cm), attributed to `corner-fillet` exactly, not within the 1 mm checkpoint.
 
 ---
 
@@ -983,6 +989,7 @@ geom's tolerances apply unless `build.tolerances` overrides them.
 | `cornerFilletRadius`   | 0.5 cm                      | D12's small tip radius; ≥ `minInset / insetCurvatureFraction` = 0.2 cm, so the minimum band fits.                                                                 |
 | `sampleSpacingX`       | 0.5 cm                      | Three samples per `minKnotSpacing` span.                                                                                                                          |
 | `ringSamples`          | 128 per half                | Twice the classic STEP fit's 64 columns, on the classic's own curvature ladder.                                                                                   |
+| `lineSampleSpacing`    | 0.05 cm                     | S6: exact outline and stringer-line samples; a C² cubic needs spans of a few mm next to a 0.5 cm fillet, and the adaptive fit splits only spans with data.        |
 | `creaseProbe`          | 0.01 cm                     | One-sided difference step: O(δ) truncation, and three orders below the closest pair of real stations (27.9 cm on the goldens), so no neighbour enters a quotient. |
 | `endGap`               | 0.001 cm                    | Past the classic's vertical end segments (x ≤ 1e-13), before any real shape change.                                                                               |
 | `surfaceKnotSpacing`   | x 10 cm, y 5 cm (start)     | Coarse start; refinement decides.                                                                                                                                 |
@@ -1704,6 +1711,168 @@ the former 1 % test passed it), restored.
 S5 and S6 can run in parallel after S4 and S3 respectively; S7 needs both S4 (validity through
 the B-rep) and S6.
 
+### S6 as built (2026-10-22)
+
+Files, all under `src/classic/`: `params.ts` (`DEFAULT_CONVERT_OPTIONS`, the §12.2 table plus
+`lineSampleSpacing`, and `LINE_CORRECTION_PASSES`; exempt by name from the no-magic-tolerances
+scan like the core's `params.ts`), `sample.ts` (§9.2: `classicFloors`, `classicStations`,
+`loftRowPositions`, `sampleLoft`, `creaseAngles`), `outline.ts` (the classic outline and
+stringer curves as exact pieces, corners and fillets, exact arc-length sampling), `lines.ts`
+(the plan-loop and stringer-line fits), `membership.ts` (row membership in a plan loop),
+`fairness.ts` (§9.8: exact traces, `discrepancySearch`), `fields.ts` (the height-field fit),
+`convert.ts` (`convertGeometry`: §9.1–§9.6 in order, and `liftKnifeTips`), and
+`test-support/` (`samples.ts`, the fourteen files through the io readers; `oracles.ts`, exact
+classic curve points, polyline distances and polygon crossings; `conversion-checks.ts` and
+`exit.ts`, the exit measurements). Public value added to the pin: `DEFAULT_CONVERT_OPTIONS`
+(`./classic`); the stages stay internal until S7 completes `convertClassic`. 324 board2 tests
+under `pnpm test` (49 new).
+
+**How a conversion runs (S6 part).** Preconditions (§9.1); sampling (§9.2: rows at most
+`sampleSpacingX` apart across the kernel's solid span plus station ± `creaseProbe`, the
++y half of the classic's own ring ladder, the row's widest ring point splitting deck side from
+bottom side); the outline filleted and sampled exactly, mirrored into the loop data
+(centripetal parameters, u = ½ at the nose exactly) and fitted (§9.3); the rocker and deck
+lines (§9.4); the inset laws (§9.5) and a draft document with constant `DEFAULT_RAIL_LAWS` on
+the four profile lanes (§9.7 item 1); the deck-edge and tuck plan curves on the station basis
+(S4's `insetPlanCurve` construction) and the same moved out by the data strip; the field data
+by row membership; the bottom and deck fits; the knife-tip lift. `convertGeometry` returns the
+draft and per-stage measurements (errors, fillets, knots, passes, fairness ratios, timings).
+
+**Deviations and clarifications:**
+
+1. **Pointed tips retreat; the board is shifted back to x = 0.** A pointed classic tip
+   (all seven synthetic files, interior angle 27–34°) is filleted like any corner: the circle
+   of radius `cornerFilletRadius`, centred on the stringer, tangent to the side, so the tip
+   centre moves in by the predicted deviation (1.21–1.67 cm). The tail's retreat is taken
+   out by a shift (board2 x = classic x − `shift`, reported), so the tail centre is at x = 0
+   (decision 3) and the nose constraint of §9.3 is the filleted nose, not the classic L. §10.4
+   said fillets keep the tip centres: true for a flat tip (2 below), impossible for a pointed
+   one with a convex tip (a curve tangent to a straight side and ending on that side's line
+   must cross it: an inflection). §10.4 is edited and the consequence for S8's length
+   checkpoint is §15 risk 8.
+2. **Flat tips.** An end segment within `cornerAngleMin` of perpendicular to the stringer whose
+   inner end is a corner (the shortboard's 1 cm flat nose, whose handle pokes 0.002 cm past the
+   tip, so x is not monotone there) is replaced, with its corner, by one arc centred on the
+   stringer through the tip centre and tangent to the neighbouring segment (radius 0.971 cm, set
+   by that geometry, not `cornerFilletRadius`). The length is kept; the corners' predicted
+   deviation is 0.121 cm.
+3. **Corners by the curve's tangents, not `continuous`.** The synthetic outlines are polygons
+   with zero-length handles on knots flagged continuous (the editor treats them as corners), so
+   a knot is a corner when the one-sided tangents (a zero handle falls back to the next distinct
+   control point) turn by more than `cornerAngleMin`. The predicted deviation is the corner's
+   exact distance to the arc, `|K − c| − r`, which is `r (1/sin(θ/2) − 1)` on straight
+   neighbours (tested) and differs on curved ones (by 0.03 cm at the rocker files' tips).
+   Fillets on curved neighbours are solved by Newton on the two tangent parameters; the radius
+   shrinks until the tangent points fit in half of each neighbouring segment.
+4. **Exact samples.** The outline and stringer curves are sampled on the cubics themselves at
+   arc-length steps of the kernel's chord table, not at the table's interpolated points (up to
+   `h²/8ρ` off the curve: 2.4e-3 cm on a 90 cm segment of radius 100 cm, above `lineTol`).
+   Spacing `lineSampleSpacing` (0.05 cm, added to §12.2).
+5. **Adaptive knots kept symmetric.** geom's adaptive `approximateCurve` picks knots worst span
+   first and would break the plan's mirror-symmetric knot set (§3.7), so `lines.ts` runs the fit
+   on given knots and refines them itself: geom's split rule (midway between the two middle
+   distinct parameters of each failing span), candidates from the −y half with their exact
+   mirrors. One parameter-correction pass (`LINE_CORRECTION_PASSES`, named in
+   `classic/params.ts`: on the goldens it cuts 490–534 knots to 116–224, further passes change
+   them by under 3 %), so the adaptive loop judges distance to the loop rather than a parametric
+   error with a tangential part. The loop is then symmetrised exactly (§9.3).
+6. **Fillet zones are judged tighter than §9.3's 1.1 ×.** Each corner's distance to the fitted
+   loop equals its predicted deviation within `lineTol`; outside the zones both one-sided
+   distances are ≤ `lineTol`.
+7. **Stringer lines.** Their knots come from the data's own parameters, so every span holds data
+   and the end spans reach over the plan margin as the polynomial continuation of the last data
+   span: no data-free span, so §9.4's fairness is not needed and not used. The synthetic decks
+   are polygonal (a ridge a C² line cannot follow within `lineTol`): their interior corners are
+   filleted like the outline's (one per deck, predicted deviation reported and checked), and the
+   vertical end segments within `endGap` of an end are dropped first.
+8. **Membership by rows, not `classifyUV`.** The samples come in rows of constant x, so each row
+   costs one exact root solve per monotone Bézier piece of the loop and the ray-crossing rule
+   along the row (`membership.ts`); `classifyUV` decomposes the loop on every call. Tested
+   against `classifyUV` on the sample plan, an off-knot loop, the notched loop (not a graph over
+   x) and rows through piece ends.
+9. **The data strip stays in the band's inner half.** §9.6's strip of `trimDataMargin` outside
+   each inset loop is capped at half the local inset (`inset − min(trimDataMargin, inset/2)`),
+   so near the tips, where the insets shrink to `minInset`, it never reaches the classic rail.
+10. **Basis first, then fairness.** Refinement runs with the least fairness that determines the
+    net (the bracket's bottom, or the first feasible ratio of a log grid when data-free control
+    points leave the system singular): every u and v span holding a judged sample above
+    `surfaceTol` is halved, u spans only while the halves stay ≥ `minKnotSpacing`, v spans in
+    mirror pairs (the v knots stay symmetric). The discrepancy search then runs once, on the
+    final basis. The thin-plate energy is geom's parametric metric; the ratio's traces are exact
+    (`fairness.ts`: Gauss–Legendre per span, separable `tr(G₂)`).
+11. **Knife tips lift the deck by a function of x.** §9.6's equality constraints at violating
+    stations are replaced by `Λ(x) = Σ λ_i N_i(u(x))` added to every control row (λ_i the
+    largest deficit of the violating stations in the support of N_i, so Λ meets every deficit in
+    one round, as the N_i are non-negative and sum to 1), after inserting `degree + 1` knots
+    (exact) between the innermost violating station and the tip zone's edge so the lift stays
+    inside it. At a tip the stations crowd within millimetres on centimetre spans and the
+    stringer identity already fixes the deck at the tip centre: pointwise equalities there are
+    dependent and in general inconsistent. The lift raises the deck line with the deck (inside
+    the tip zone only). **No sample file needs it at the default 1 mm** once its tips are
+    filleted: the two knife-tip files' smallest station rail heights are 1.09 and 1.23 mm; the
+    lift is tested with `minRailHeight` raised to 2 mm on the first (`validateBoard` finds no
+    `rail-height` issue after it, the deck is unchanged outside the tip zone to 1e-11 cm, and
+    stays bitwise symmetric).
+12. **What S6 hands to S7.** The draft passes `validateBoard` on the shortboard and all seven
+    synthetic files. On the funboard and longboard it reports only `rail-profile-invalid` within
+    σ ± 0.02 of the nose: with the constant profile laws the steep nose rocker lifts the
+    bottom's tangent corner above the apex. Fitting the laws is S7's job; the exit test pins it.
+
+**Oracles and tolerances.** Plan (`conversion-checks.ts`, independent of the converter): the
+classic outline evaluated from its control points about 0.005 cm apart against a polyline of
+100,001 points of the loop, both ways, less the polylines' chord error (1e-5 cm), ≤ `lineTol`
+outside the fillet zones; inside, each corner's distance to the loop equals its predicted
+deviation within `lineTol`. Lines: the document's own stringer iso-curves (so the stringer
+identity is checked with the line fit) against the classic curves' exact points in
+`[endGap, L − endGap]`, ≤ `lineTol` outside line fillets, ≤ the predicted deviation + `lineTol`
+inside. Surfaces: the classic loft resampled by the kernel on every other converter row,
+membership by crossings with 40,000-point polygons of the face loops (points within 1e-4 cm of a
+loop skipped), windows recomputed from the classic stations and floors: vertical residual ≤
+`surfaceTol` + 1e-12 (rounding of a re-evaluation); on rows halfway between the converter's rows,
+never fitted, ≤ 2 × `surfaceTol` (§12.3's reason). No `not-converged` warning; at least 5,000
+judged samples per file. The four copies are shown to be the goldens' input (byte-equal files,
+or a deep-equal parse for the self-authored shortboard), so they convert identically. Unit
+oracles: fillets against the straight-line closed forms (1e-12 × L) and tangency on curves
+(1e-9 relative); crease angles converge O(δ) (halving δ halves the change: ratios 2.00–2.02);
+ring samples bitwise the kernel's `loftRing`; row membership equals `classifyUV`; the traces
+against geom's energies and independent basis functions; the discrepancy search finds the
+largest passing ratio to its resolution; `fitField` on an analytic field with a narrow bump in
+an unjudged window: judged residual ≤ `surfaceTol`, the bump not followed, the stringer identity
+at `constraint` (1e-9 cm), bitwise symmetry, and **maximality** (a fit at the next ratio of the
+bisection's resolution, made with geom directly, misses `surfaceTol`).
+
+**Measured** (Node 22, the cloud container, one conversion at a time; the copies as their
+goldens). Plan: largest one-sided distance outside fillet zones, knots, passes; lines: worst of
+rocker and deck line; fields: judged residual at fitted rows / at mid rows, net (u × v control points),
+refinement passes, fairness ratio; rail: smallest station rail height.
+
+| File                  | Plan (cm) | Plan knots, passes | Tip fillets δ (cm) | Lines (cm) | Deck residual, net, passes, ratio  | Bottom residual, net, passes, ratio | Rail (mm) | Time   |
+| --------------------- | --------- | ------------------ | ------------------ | ---------- | ---------------------------------- | ----------------------------------- | --------- | ------ |
+| shortboard            | 9.1e-4    | 160, 6             | flat nose 0.121    | 6.3e-4     | 4.6e-3 / 4.8e-3, 35 × 25, 2, 6e-4  | 5.0e-3 / 4.4e-3, 59 × 55, 3, 4e-4   | 4.4       | 12.4 s |
+| funboard              | 9.2e-4    | 108, 2             | —                  | 6.6e-4     | 5.0e-3 / 4.3e-3, 33 × 23, 2, 2e-4  | 5.0e-3 / 5.1e-3, 78 × 43, 3, 2e-4   | 1.6       | 12.8 s |
+| longboard             | 7.7e-4    | 138, 3             | —                  | 5.1e-4     | 5.0e-3 / 4.9e-3, 36 × 20, 2, 6e-4  | 5.0e-3 / 5.0e-3, 61 × 28, 2, 7e-3   | 2.9       | 9.4 s  |
+| clean-6x22x2-75       | 7.4e-4    | 298, 6             | 1.21               | 4.0e-4     | 3.9e-3 / 3.9e-3, 100 × 27, 3, 1    | 5.0e-3 / 5.0e-3, 77 × 27, 3, 0.19   | 1.09      | 7.2 s  |
+| degenerate-section    | 8.3e-4    | 300, 6             | 1.58               | 4.0e-4     | 5.0e-3 / 4.6e-3, 105 × 37, 5, 0.07 | 5.0e-3 / 5.0e-3, 91 × 37, 5, 0.03   | 9.2       | 20.7 s |
+| fallback-outline-5x10 | 8.2e-4    | 282, 6             | 1.46               | 6.4e-4     | 4.1e-3 / 4.1e-3, 93 × 29, 3, 1     | 5.0e-3 / 5.0e-3, 73 × 29, 3, 0.16   | 1.23      | 7.2 s  |
+| rocker-absolute-deck  | 8.2e-4    | 196, 6             | 1.48               | 2.8e-4     | 5.0e-3 / 4.9e-3, 87 × 39, 5, 0.24  | 5.0e-3 / 4.9e-3, 87 × 39, 5, 0.21   | 5.8       | 16.4 s |
+| rocker-thickness-deck | 8.2e-4    | 196, 6             | 1.48               | 6.8e-4     | 5.0e-3 / 4.9e-3, 87 × 39, 5, 0.26  | 5.0e-3 / 4.9e-3, 87 × 39, 5, 0.23   | 5.7       | 17.1 s |
+| stringer-fold-a       | 8.3e-4    | 296, 6             | 1.56               | 8.4e-4     | 3.1e-3 / 3.1e-3, 106 × 39, 5, 1    | 5.0e-3 / 5.0e-3, 87 × 39, 5, 0.28   | 3.7       | 13.0 s |
+| stringer-fold-b       | 8.4e-4    | 304, 6             | 1.67               | 4.1e-4     | 5.0e-3 / 5.1e-3, 109 × 37, 5, 0.74 | 5.0e-3 / 5.1e-3, 95 × 37, 5, 0.02   | 8.9       | 19.9 s |
+
+The five synthetic files with a side corner also fillet it (predicted 0.014–0.023 cm), and their
+polygonal decks one ridge each. Corner distance minus prediction is at most 6.1e-4 cm. Most of
+the time is the two field fits (13–26 `approximateSurface` solves of 27,000–49,000 samples
+each): the goldens take 9.4–12.8 s against Q5's 3 s for the whole conversion, a miss recorded for
+S9 (candidates: the separable solve of S4 deviation 11 does not apply to scattered data; fewer
+bisection steps once the bracket is narrowed by the refinement's ratio). The exit tests convert the
+ten distinct files in about 60 s (three test files in parallel).
+
+**Mutation spot check.** `fields.ts` judging a trial as meeting at `2 × surfaceTol`: the two
+residual tests of `fields.test.ts` failed (judged residual 1.0e-2 cm), restored. `fairness.ts`
+moving the upper end of the bracket (instead of the lower) after a passing trial: three tests
+failed (the two search tests of `fairness.test.ts` and the maximality test of `fields.test.ts`,
+whose ratio fell to a fit 9.0e-4 cm off), restored.
+
 ---
 
 ## 15. Risks and open questions
@@ -1728,6 +1897,13 @@ the B-rep) and S6.
 6. **Benchmarks** measured on the cloud container only, like Phase 1's.
 7. **Two classic volume models** (spec panel vs loft) differ; the report separates them so a
    board2 change is never blamed for a classic split.
+8. **Pointed plan tips and the length checkpoint** (S6). A smooth tip of plan radius ≥
+   `minInset / insetCurvatureFraction` either retreats from a pointed classic tip (the
+   fillet: 1.2–1.7 cm per tip at `cornerFilletRadius` on the synthetic files' 27–34° tips, still
+   ≥ 0.48 cm at the smallest admissible radius) or keeps the tip centre with an inflection (a
+   bulb). S6 fillets; S8 must explain the synthetic files' length delta by the predicted
+   fillet deviations (§10.4) rather than hold it to 1 mm. Open: whether the checkpoint should
+   say so for pointed tips, or Phase 3 offer a tip-keeping blend.
 
 ---
 

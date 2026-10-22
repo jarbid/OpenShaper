@@ -31,6 +31,8 @@ export interface ConvertOptions {
   /** Classic loft sampling: row spacing in x (cm) and ring points per half. */
   readonly sampleSpacingX: number;
   readonly ringSamples: number;
+  /** Arc-length spacing of the exact outline and stringer-line samples, cm (S6). */
+  readonly lineSampleSpacing: number;
   /** One-sided difference step for classic crease angles, cm. */
   readonly creaseProbe: number;
   /** Stringer-line samples start this far inside each end, cm. */

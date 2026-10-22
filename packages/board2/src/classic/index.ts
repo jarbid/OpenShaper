@@ -6,8 +6,12 @@
  * may import `@openshaper/kernel`, so the core model stays free of the classic
  * engine and an app can load this lazily.
  *
- * Scaffold: the types only (steps S6 to S8 add the functions).
+ * Step S6 adds the converter's named defaults (`DEFAULT_CONVERT_OPTIONS`);
+ * its stages so far (sampling, plan loop, stringer lines, insets, deck and
+ * bottom: `convert.ts`) stay internal until step S7 completes `convertClassic`.
+ * Step S8 adds the deviation report.
  */
+export { DEFAULT_CONVERT_OPTIONS } from './params';
 export type {
   ClassicBoard,
   Conversion,

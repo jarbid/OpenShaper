@@ -6,8 +6,9 @@
  * patterns (small e-notation, long-zero decimals, large e-notation, bare
  * `Number.EPSILON`), over every non-test source file under `src`.
  *
- * Exempt, by name: `params.ts` (the one place named parameters are written, like
- * geom's `tolerance.ts`) and the `testing/` and `test-support/` directories
+ * Exempt, by name: `params.ts` and `classic/params.ts` (the places named
+ * parameters are written, like geom's `tolerance.ts`; the converter's defaults
+ * of §12.2 live in the second, S6) and the `testing/` and `test-support/` directories
  * (test-only fixtures, like tests). The `Number.EPSILON` allow-list is empty:
  * the one use, `LAW_ROUNDING_REL`, is in `params.ts`.
  */
@@ -17,7 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const SRC = dirname(fileURLToPath(import.meta.url));
-const EXEMPT_FILES: ReadonlySet<string> = new Set(['params.ts']);
+const EXEMPT_FILES: ReadonlySet<string> = new Set(['params.ts', join('classic', 'params.ts')]);
 const EXEMPT_DIRS: ReadonlySet<string> = new Set(['testing', 'test-support']);
 const PATTERNS: readonly RegExp[] = [/\b\d+(\.\d+)?e-\d+\b/gi, /\b0\.0{4,}\d/g];
 const LARGE_E = /\b\d+(\.\d+)?e\+?\d+\b/gi;
@@ -62,12 +63,19 @@ describe('no magic tolerances', () => {
     expect(files).toContain('law.ts');
     expect(files).toContain('doc.ts');
     expect(files).toContain('validate.ts');
+    expect(files).toContain(join('classic', 'convert.ts'));
     expect(files.some((f) => f.split(sep)[0] === 'testing')).toBe(false);
+    expect(files.some((f) => f.split(sep).includes('test-support'))).toBe(false);
     for (const name of EXEMPT_FILES) expect(files).toContain(name);
-    // `testing/` exists now; `test-support/` arrives with the converter (step S6).
+    // Both exempt directories exist (`classic/test-support/` since step S6).
     expect(
       readdirSync(SRC, { withFileTypes: true }).some(
         (e) => e.isDirectory() && e.name === 'testing',
+      ),
+    ).toBe(true);
+    expect(
+      readdirSync(join(SRC, 'classic'), { withFileTypes: true }).some(
+        (e) => e.isDirectory() && e.name === 'test-support',
       ),
     ).toBe(true);
   });
@@ -81,7 +89,7 @@ describe('no magic tolerances', () => {
     expect(findLiterals('x.ts', 'const k = 123456; const w = 0.005;')).toHaveLength(0);
   });
 
-  it('allows tolerance literals only in params.ts', () => {
+  it('allows tolerance literals only in the two params files', () => {
     const hits: string[] = [];
     for (const file of sources(SRC)) {
       const name = relative(SRC, file);
