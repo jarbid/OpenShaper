@@ -50,9 +50,15 @@ importers:
       '@fontsource-variable/instrument-sans':
         specifier: ^5.3.0
         version: 5.3.0
+      '@openshaper/board2':
+        specifier: workspace:*
+        version: link:../../packages/board2
       '@openshaper/export':
         specifier: workspace:*
         version: link:../../packages/export
+      '@openshaper/geom':
+        specifier: workspace:*
+        version: link:../../packages/geom
       '@openshaper/io':
         specifier: workspace:*
         version: link:../../packages/io

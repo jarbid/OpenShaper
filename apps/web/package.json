@@ -18,7 +18,9 @@
   },
   "dependencies": {
     "@fontsource-variable/instrument-sans": "^5.3.0",
+    "@openshaper/board2": "workspace:*",
     "@openshaper/export": "workspace:*",
+    "@openshaper/geom": "workspace:*",
     "@openshaper/io": "workspace:*",
     "@openshaper/kernel": "workspace:*",
     "@openshaper/render2d": "workspace:*",

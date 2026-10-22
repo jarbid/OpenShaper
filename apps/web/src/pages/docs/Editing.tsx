@@ -14,6 +14,7 @@ export default function DocsEditing() {
         { id: 'views', label: 'The views' },
         { id: 'guides', label: 'Guides in 3D' },
         { id: 'analysis', label: 'Surface analysis in 3D' },
+        { id: 'nurbs', label: 'Experimental NURBS engine' },
         { id: 'points', label: 'Control points & tangents' },
         { id: 'locks', label: 'Locking handle angles' },
         { id: 'keyboard', label: 'Nudging from the keyboard' },
@@ -202,6 +203,46 @@ export default function DocsEditing() {
           as STEP export &mdash; so on such a board the three exact modes are listed but disabled,
           with the reason. If one was already chosen, the view says so and shows Normal change
           (approx.) instead.
+        </p>
+      </Section>
+
+      <Section id="nurbs" title="Experimental NURBS engine">
+        <p>
+          <strong>Engine: NURBS (experimental)</strong> is an opt-in preview of a new surface model.
+          Turn it on in <em>Settings &rsaquo; Experimental</em>, or open the editor with{' '}
+          <code>?engine=nurbs</code> to try it for one session. It is off by default, and with it
+          off nothing about the editor changes.
+        </p>
+        <p>
+          With it on, the 3D view shows a NURBS version of your board, converted from the classic
+          board once your edits settle. The conversion takes 10 to 20 seconds, done in the
+          background: the classic mesh stays on screen with a <em>Converting to NURBS&hellip;</em>{' '}
+          timer until it finishes, and a conversion in progress is dropped when you edit again. A{' '}
+          <strong>NURBS (experimental) &mdash; read-only</strong> badge sits over the view, with a{' '}
+          <strong>Classic / NURBS</strong> switch to compare the same board on both, and an{' '}
+          <strong>i</strong> button that lists the converter&rsquo;s warnings (for instance a rail
+          fit that missed its target) and how well each part of the board was fitted. If the
+          conversion fails, the classic mesh is shown and the <strong>i</strong> button says why.
+        </p>
+        <p>
+          It is a viewer only: editing, saving and every export stay classic, and the NURBS surface
+          is never written to a file. It is also a different surface from the classic one, since it
+          is fitted to it, so it differs by a fraction of a millimetre in most places and more where
+          the classic loft has a station crease (the NURBS surface flows through stations). The
+          surface analysis modes above all work on it, read from the NURBS surface&rsquo;s own exact
+          derivatives, and the menu gains one more:
+        </p>
+        <Terms>
+          <Term name="Deviation from classic">
+            How far the NURBS surface lies from the classic surface of the same board, measured
+            along the surface normal: red where the NURBS surface has more foam, blue where it has
+            less, in your display unit. The colour band is the same control as for the ghost
+            deviation.
+          </Term>
+        </Terms>
+        <p>
+          Boards with a concave (swallow or fish) tail are not converted yet; the classic mesh is
+          shown for them.
         </p>
       </Section>
 

@@ -15,24 +15,37 @@
  *   (`curvature-mesh.ts`).
  * - **Deviation** (`ghost-deviation`): the signed distance from the hull to a ghost
  *   (reference) board, computed in the worker (`deviation-mesh.ts`).
+ * - **Deviation from classic** (`nurbs-deviation`): the same map, but of an
+ *   {@link ExternalSurface} (the experimental NURBS engine's) against the classic
+ *   surface of the same board; the app computes it and hands it in.
  * - `none`.
+ *
+ * With an external surface on screen the exact modes read its curvature, which the
+ * app also computed, so they are ready at once instead of waiting for the hull fit.
  */
-import type { BezierBoard } from '@openshaper/kernel';
+import type { BezierBoard, BoardMesh } from '@openshaper/kernel';
 import { DIVERGING_RAMP, NO_DATA_STRIPES, SEQUENTIAL_RAMP } from './analysis-palette';
 import { curvatureUnsupported, type CurvatureMesh, type CurvatureScale } from './curvature-mesh';
 import type { DeviationMesh } from './deviation-mesh';
+import type { ExternalSurface } from './external-surface';
 import { boardCenter } from './geometry';
 
 export type ExactAnalysisMode = 'mean-curvature' | 'gaussian-curvature' | 'rail-radius';
 
+/** The deviation maps: a board against a ghost, or an external surface against the classic one. */
+export type DeviationAnalysisMode = 'ghost-deviation' | 'nurbs-deviation';
+
 /** The modes computed in a worker, which report where they stand (`AnalysisStatus`). */
-export type ComputedAnalysisMode = ExactAnalysisMode | 'ghost-deviation';
+export type ComputedAnalysisMode = ExactAnalysisMode | DeviationAnalysisMode;
 
 /** Surface-analysis overlay (replaces the shaded material). */
 export type AnalysisMode = 'none' | 'zebra' | 'curvature' | 'slope' | ComputedAnalysisMode;
 
 export const isExactAnalysis = (mode: AnalysisMode): mode is ExactAnalysisMode =>
   mode === 'mean-curvature' || mode === 'gaussian-curvature' || mode === 'rail-radius';
+
+export const isDeviationAnalysis = (mode: AnalysisMode): mode is DeviationAnalysisMode =>
+  mode === 'ghost-deviation' || mode === 'nurbs-deviation';
 
 /**
  * Default half-width (cm) of the deviation map's colour band: full colour at ±5 mm.
@@ -81,6 +94,12 @@ export type AnalysisStatus =
       readonly mode: 'ghost-deviation';
       readonly reason: 'no-ghost';
     }
+  /** There is no external surface on screen (not converted yet, or the classic one is shown). */
+  | {
+      readonly state: 'unavailable';
+      readonly mode: 'nurbs-deviation';
+      readonly reason: 'no-surface';
+    }
   | { readonly state: 'failed'; readonly mode: ComputedAnalysisMode; readonly message: string }
   | {
       readonly state: 'ready';
@@ -89,23 +108,27 @@ export type AnalysisStatus =
       /** The colours the hull is painted with, low to high. */
       readonly ramp: readonly string[];
     }
-  | {
-      readonly state: 'ready';
-      readonly mode: 'ghost-deviation';
-      /** Full colour at ± this many cm; beyond it the colour saturates. */
-      readonly band: number;
-      /** The smallest and largest deviation on the board shown (cm); null with no data. */
-      readonly range: readonly [number, number] | null;
-      /**
-       * The map (and `range`) is an earlier board's, or the same board's at another
-       * mesh quality: the board on screen is still being measured.
-       */
-      readonly stale: boolean;
-      /** The colours the hull is painted with, less foam to more. */
-      readonly ramp: readonly string[];
-      /** The two greys striped where there is no data (past the ghost's ends, the tips). */
-      readonly stripes: readonly [string, string];
-    };
+  | ReadyDeviation<'ghost-deviation'>
+  | ReadyDeviation<'nurbs-deviation'>;
+
+/** A deviation map that is ready to show. */
+interface ReadyDeviation<M extends DeviationAnalysisMode> {
+  readonly state: 'ready';
+  readonly mode: M;
+  /** Full colour at ± this many cm; beyond it the colour saturates. */
+  readonly band: number;
+  /** The smallest and largest deviation on the board shown (cm); null with no data. */
+  readonly range: readonly [number, number] | null;
+  /**
+   * The map (and `range`) is an earlier board's, or the same board's at another
+   * mesh quality: the board on screen is still being measured.
+   */
+  readonly stale: boolean;
+  /** The colours the hull is painted with, less foam to more. */
+  readonly ramp: readonly string[];
+  /** The two greys striped where there is no data (past the ghost's ends, the tips). */
+  readonly stripes: readonly [string, string];
+}
 
 export const ANALYSIS_OFF: AnalysisStatus = { state: 'off' };
 
@@ -174,6 +197,42 @@ export const deviationStatus = (
   };
 };
 
+/**
+ * The status of an exact mode when an external surface is on screen: its curvature
+ * came with it, so there is nothing to wait for.
+ */
+export const surfaceCurvatureStatus = (
+  mode: ExactAnalysisMode,
+  surface: ExternalSurface,
+): AnalysisStatus => ({
+  state: 'ready',
+  mode,
+  scale: surface.curvature.scale,
+  ramp: rampFor(mode),
+});
+
+/**
+ * The status of "Deviation from classic": ready when an external surface with a
+ * deviation is on screen, unavailable otherwise. It is never stale: the surface
+ * and its deviation are one result.
+ */
+export const surfaceDeviationStatus = (
+  surface: ExternalSurface | null,
+  band: number,
+): AnalysisStatus => {
+  const mode = 'nurbs-deviation';
+  if (!surface?.deviation) return { state: 'unavailable', mode, reason: 'no-surface' };
+  return {
+    state: 'ready',
+    mode,
+    band,
+    range: surface.deviation.range,
+    stale: false,
+    ramp: DIVERGING_RAMP,
+    stripes: NO_DATA_STRIPES,
+  };
+};
+
 /** Whether two statuses would show the same thing (so a report can be skipped). */
 export const sameStatus = (a: AnalysisStatus, b: AnalysisStatus): boolean => {
   if (a.state !== b.state) return false;
@@ -181,10 +240,10 @@ export const sameStatus = (a: AnalysisStatus, b: AnalysisStatus): boolean => {
   if (a.mode !== b.mode) return false;
   if (a.state === 'failed' && b.state === 'failed') return a.message === b.message;
   if (a.state === 'ready' && b.state === 'ready') {
-    if (a.mode === 'ghost-deviation' && b.mode === 'ghost-deviation') {
+    if ('band' in a && 'band' in b) {
       return a.band === b.band && a.range === b.range && a.stale === b.stale;
     }
-    if (a.mode !== 'ghost-deviation' && b.mode !== 'ghost-deviation') return a.scale === b.scale;
+    if ('scale' in a && 'scale' in b) return a.scale === b.scale;
   }
   return true;
 };
@@ -216,5 +275,5 @@ export const curvatureCenter = (
  */
 export const deviationCenter = (
   hull: { readonly center: readonly [number, number, number] } | null,
-  mesh: DeviationMesh,
+  mesh: BoardMesh,
 ): readonly [number, number, number] => (hull ? hull.center : boardCenter(mesh));

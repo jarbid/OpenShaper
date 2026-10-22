@@ -43,6 +43,12 @@ export interface EditorSettings {
    * an icon-only control, which nobody should have to opt in to.
    */
   showTips: boolean;
+  /**
+   * "Engine: NURBS (experimental)": show the board2 NURBS surface of the current board
+   * in the 3D view, read-only. Off by default; `?engine=nurbs` turns it on for a
+   * session without changing this (see nurbs-flag.ts).
+   */
+  nurbsEngine: boolean;
 }
 
 /**
@@ -70,6 +76,8 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   adjustCrossSectionThickness: true,
   // Explain controls until the user has learned them and turns it off.
   showTips: true,
+  // The experimental NURBS viewer is opt-in.
+  nurbsEngine: false,
 };
 
 /**

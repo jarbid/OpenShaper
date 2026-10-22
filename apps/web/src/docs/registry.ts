@@ -98,6 +98,8 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
   ]),
   // Documented with the ghost board it compares against (and listed on /docs/editing).
   ...entries('analysis-mode', '/docs/specs', ['ghost-deviation']),
+  // Only offered with the experimental NURBS engine on; documented in its section.
+  ...entries('analysis-mode', '/docs/editing', ['nurbs-deviation']),
   ...entries('shortcut', '/docs/shortcuts', [
     'undo',
     'redo',
