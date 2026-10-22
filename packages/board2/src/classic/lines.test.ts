@@ -143,3 +143,35 @@ describe('stringer lines', () => {
     });
   }
 });
+
+describe('refinement passes (review of S6)', () => {
+  it('a line fit stops after maxPasses and reports the error it reached', () => {
+    // The filleted polygonal deck: the ridge fillet needs several passes.
+    const board = classicSample('synthetic-clean-6x22x2-75.s3dx').load();
+    const L = getLength(board);
+    const f = filletLine(board.deck, [O.endGap, L - O.endGap], O);
+    const pts = f.pieces
+      .flatMap((p) => samplePiece(p, O.lineSampleSpacing))
+      .filter(([x]) => x >= O.endGap && x <= L - O.endGap);
+    const xs = Float64Array.from(pts.map((p) => p[0]));
+    const zs = Float64Array.from(pts.map((p) => p[1]));
+    const extent = [-2, L + 2] as const;
+    const full = fitStringerLine(xs, zs, extent, O.lineTol, O.surfaceKnotSpacing.x);
+    const capped = fitStringerLine(xs, zs, extent, O.lineTol, O.surfaceKnotSpacing.x, tol, 1);
+    if (!('curve' in full) || !('curve' in capped)) throw new Error('fit failed');
+    expect(full.maxError).toBeLessThanOrEqual(O.lineTol);
+    expect(full.passes).toBeGreaterThan(1);
+    expect(capped.passes).toBe(1);
+    expect(capped.maxError).toBeGreaterThan(O.lineTol);
+    expect(capped.maxError).toBe(Math.max(...capped.errors));
+  });
+
+  it('the plan loop fit stops after maxPasses', () => {
+    const f = filletOutline(classicSample('golden/funboard.brd').load().outline, O);
+    const { pts, fz } = halfSamples(f, O.lineSampleSpacing);
+    const r = fitPlanLoop(loopData(pts, fz), O.lineTol, O.surfaceKnotSpacing.x, tol, 0);
+    if (!('curve' in r)) throw new Error(r.message);
+    expect(r.passes).toBe(0);
+    expect(r.maxError).toBeGreaterThan(O.lineTol);
+  });
+});

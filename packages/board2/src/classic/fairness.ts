@@ -90,15 +90,21 @@ export interface DiscrepancyChoice<T> {
   readonly evaluations: number;
 }
 
-/** A trial fit: `null` when the fit does not exist at that ratio (the data do not determine it). */
-export type Trial<T> = { readonly fit: T; readonly meets: boolean } | null;
+/**
+ * A trial fit: `null` when the fit does not exist at that ratio because the
+ * fairness is too small to determine it (the data do not), `'failed'` when it
+ * failed for another reason, which says nothing about the direction to move.
+ */
+export type Trial<T> = { readonly fit: T; readonly meets: boolean } | null | 'failed';
 
 /**
  * The largest ratio in `[r0, r1]` whose fit meets the tolerance (§9.8), by
  * bisection in log scale with `steps` halvings. `r0` must give a fit. A trial
  * has three outcomes, ordered along the ratio: too little fairness to
  * determine every control point (no fit: move up), a fit that meets the
- * tolerance (keep it, move up), a fit that misses it (move down). When the
+ * tolerance (keep it, move up), a fit that misses it (move down). A trial that
+ * failed otherwise is not taken and the search continues below it (review of
+ * S6: the result is then the largest passing ratio below the failure). When the
  * largest ratio meets it is taken; when no trial meets, the fit at `r0` is
  * returned with `meets: false` (the caller refines or reports).
  */
@@ -112,7 +118,8 @@ export function discrepancySearch<T>(
   let evaluations = 0;
   const top = fitAt(r1);
   evaluations++;
-  if (top !== null && top.meets) return { ratio: r1, fit: top.fit, meets: true, evaluations };
+  if (top !== null && top !== 'failed' && top.meets)
+    return { ratio: r1, fit: top.fit, meets: true, evaluations };
   let lo = Math.log(r0);
   let hi = Math.log(r1);
   let best: { ratio: number; fit: T } | null = first.meets ? { ratio: r0, fit: first.fit } : null;
@@ -122,6 +129,7 @@ export function discrepancySearch<T>(
     const t = fitAt(r);
     evaluations++;
     if (t === null) lo = mid;
+    else if (t === 'failed') hi = mid;
     else if (t.meets) {
       lo = mid;
       best = { ratio: r, fit: t.fit };
@@ -137,6 +145,7 @@ export function discrepancySearch<T>(
  * `[r0, r1]` at which a fit exists (thin-plate fairness has to determine the
  * control points no datum reaches, and too small a ratio leaves the normal
  * equations singular to geom's `pivotRel`), with its fit; `null` when none does.
+ * A failed trial is passed over like a missing one.
  */
 export function smallestFeasible<T>(
   fitAt: (ratio: number) => Trial<T>,
@@ -145,13 +154,13 @@ export function smallestFeasible<T>(
   steps: number,
 ): {
   readonly ratio: number;
-  readonly trial: NonNullable<Trial<T>>;
+  readonly trial: Exclude<Trial<T>, null | 'failed'>;
   readonly evaluations: number;
 } | null {
   for (let k = 0; k <= steps; k++) {
     const r = k === 0 ? r0 : k === steps ? r1 : r0 * Math.pow(r1 / r0, k / steps);
     const t = fitAt(r);
-    if (t !== null) return { ratio: r, trial: t, evaluations: k + 1 };
+    if (t !== null && t !== 'failed') return { ratio: r, trial: t, evaluations: k + 1 };
   }
   return null;
 }

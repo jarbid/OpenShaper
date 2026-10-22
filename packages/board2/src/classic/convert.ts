@@ -18,14 +18,16 @@
  * with it): `λ_i` is the largest deficit of the violating stations whose `E.x`
  * lies in the support of `N_i`. As the `N_i` are non-negative and sum to 1,
  * `Λ(E.x) ≥` that station's deficit at every violating station, in one round
- * (later rounds, at most `maxRefinePasses`, only absorb rounding). Before the
- * lift the deck's u basis is refined (exactly) so that the lift's support ends
- * inside the tip zone: `degree + 1` knots between the last violating station
- * and the zone's edge. This replaces §9.6's equality constraints (S6
- * deviation): at a tip the stations crowd within millimetres of each other on
- * a basis with centimetre spans, and the stringer identity already fixes the
- * deck at the tip centre, so pointwise equalities are dependent and in general
- * inconsistent.
+ * (at most `maxRefinePasses` rounds in all; the later ones only absorb
+ * rounding). Before the lift the deck's u basis is refined (exactly) so that
+ * the lift's support ends inside the tip zone: `degree + 1` knots between the
+ * last violating station and the zone's edge. A violating station outside the
+ * tip zone (the lift then reaches into the fitted deck) and a rail height still
+ * short after the last round are reported as `rail-height` warnings. This
+ * replaces §9.6's equality constraints (S6 deviation): at a tip the stations
+ * crowd within millimetres of each other on a basis with centimetre spans, and
+ * the stringer identity already fixes the deck at the tip centre, so pointwise
+ * equalities are dependent and in general inconsistent.
  */
 import { hasTailCutout } from '@openshaper/kernel';
 import type { BezierBoard } from '@openshaper/kernel';
@@ -484,19 +486,16 @@ export function convertGeometry(
   const floor = liftKnifeTips({ ...draft, deck: deckFit.field, bottom: bottomFit.field }, zones, o);
   lap('floor');
 
-  const issues: Board2Issue[] = [];
-  if (!deckFit.meets || !bottomFit.meets) {
-    issues.push(
-      issue(
-        'not-converged',
-        `height fields: residual above surfaceTol ${o.surfaceTol} outside the windows`,
-        {
-          severity: 'warning',
-          value: Math.max(deckFit.maxResidual, bottomFit.maxResidual),
-        },
-      ),
-    );
-  }
+  const issues: Board2Issue[] = [
+    ...convergenceIssues([
+      { stage: 'plan loop', error: pf.maxError, target: o.lineTol },
+      { stage: 'rocker', error: rocker.fit.maxError, target: o.lineTol },
+      { stage: 'deck line', error: deckLine.fit.maxError, target: o.lineTol },
+      { stage: 'bottom (judged samples)', error: bottomFit.maxResidual, target: o.surfaceTol },
+      { stage: 'deck (judged samples)', error: deckFit.maxResidual, target: o.surfaceTol },
+    ]),
+    ...floor.issues,
+  ];
   const doc: BoardDoc = { ...draft, deck: floor.deck, bottom: bottomFit.field };
   const fieldReport = (f: FieldFit, d: FieldData): FieldReport => ({
     maxResidual: f.maxResidual,
@@ -534,6 +533,30 @@ export function convertGeometry(
   );
 }
 
+/** A fit stage's achieved error and its target (cm). */
+export interface StageError {
+  readonly stage: string;
+  readonly error: number;
+  readonly target: number;
+}
+
+/**
+ * A `not-converged` warning for every stage whose achieved error is above its
+ * target: the plan loop and the stringer lines against `lineTol` (their fits
+ * stop at `LINE_REFINE_PASSES` or when no failing span can be split), the
+ * height fields' judged residual against `surfaceTol` (review of S6).
+ */
+export function convergenceIssues(stages: readonly StageError[]): Board2Issue[] {
+  return stages
+    .filter((s) => s.error > s.target)
+    .map((s) =>
+      issue('not-converged', `${s.stage}: error ${s.error} cm above the target ${s.target} cm`, {
+        severity: 'warning',
+        value: s.error,
+      }),
+    );
+}
+
 /** What the knife-tip lift did: the lifted deck, where, by how much, and the smallest rail height after it. */
 export interface KnifeTipLift {
   readonly deck: HeightFieldJSON;
@@ -541,6 +564,24 @@ export interface KnifeTipLift {
   readonly floored: readonly number[];
   readonly lift: number;
   readonly minHeight: number;
+  /**
+   * `rail-height` warnings (review of S6): a violating station outside the tip
+   * zone (the lift then reaches into the fitted deck), and a rail height still
+   * below `minRailHeight` after `maxRefinePasses` rounds.
+   */
+  readonly issues: readonly Board2Issue[];
+}
+
+/** The tip zone's inner edges: the tip windows widened by the classic floor zones that touch an end. */
+function tipZoneEdges(
+  zones: readonly (readonly [number, number])[],
+  length: number,
+  o: ConvertOptions,
+): { tail: number; nose: number } {
+  return {
+    tail: Math.max(o.tipWindow, ...zones.filter(([a]) => a <= 0).map(([, b]) => b)),
+    nose: Math.min(length - o.tipWindow, ...zones.filter(([, b]) => b >= length).map(([a]) => a)),
+  };
 }
 
 /**
@@ -575,6 +616,7 @@ export function liftKnifeTips(
   });
   const bottomAt = heightSampler(heightFieldSurface(doc.bottom, 'mirror-y', tol), doc.bottom, tol);
   const floored = new Set<number>();
+  const issues: Board2Issue[] = [];
   let deck: HeightFieldJSON = doc.deck;
   let lift = 0;
   let minHeight = Infinity;
@@ -587,9 +629,22 @@ export function liftKnifeTips(
       minHeight = Math.min(minHeight, height);
       if (height < h) deficits.push({ x: ex[i]!, d: h - height });
     }
-    if (deficits.length === 0 || round > o.maxRefinePasses) break;
+    if (deficits.length === 0 || round >= o.maxRefinePasses) break;
     for (const f of deficits) floored.add(f.x);
-    if (round === 0) deck = localise(deck, deficits, zones, length, o, tol);
+    if (round === 0) {
+      const edge = tipZoneEdges(zones, length, o);
+      const outside = deficits.filter((f) => f.x >= edge.tail && f.x <= edge.nose);
+      if (outside.length > 0) {
+        issues.push(
+          issue(
+            'rail-height',
+            `knife-tip lift: ${outside.length} station(s) below minRailHeight ${h} outside the tip zone [${edge.tail}, ${edge.nose}]; the lift reaches into the fitted deck`,
+            { severity: 'warning', at: { x: outside[0]!.x }, value: h - outside[0]!.d },
+          ),
+        );
+      }
+      deck = localise(deck, deficits, edge, length, tol);
+    }
     const [x0, x1] = deck.x;
     const U = deck.knotsU;
     const p = deck.degreeU;
@@ -613,30 +668,36 @@ export function liftKnifeTips(
     deck = { ...deck, z };
     lift = Math.max(lift, ...lam);
   }
-  return { deck, floored: [...floored].sort((a, b) => a - b), lift, minHeight };
+  if (minHeight < h) {
+    issues.push(
+      issue(
+        'rail-height',
+        `knife-tip lift: rail height ${minHeight} still below minRailHeight ${h} after ${o.maxRefinePasses} round(s)`,
+        { severity: 'warning', value: minHeight },
+      ),
+    );
+  }
+  return { deck, floored: [...floored].sort((a, b) => a - b), lift, minHeight, issues };
 }
 
 /**
  * Refines the deck's u knots (exactly) so the lift for `deficits` stays inside
  * the tip zone: `degree + 1` knots, evenly spaced, between the innermost
- * violating station and the zone's edge at each end where there is one.
+ * violating station and the zone's edge at each end where that station lies
+ * inside the zone (otherwise none: the caller reports it).
  */
 function localise(
   deck: HeightFieldJSON,
   deficits: readonly { x: number; d: number }[],
-  zones: readonly (readonly [number, number])[],
+  edge: { readonly tail: number; readonly nose: number },
   length: number,
-  o: ConvertOptions,
   tol: Tolerances,
 ): HeightFieldJSON {
   const [x0, x1] = deck.x;
   const p = deck.degreeU;
   const add: number[] = [];
-  const tailEdge = Math.max(o.tipWindow, ...zones.filter(([a]) => a <= 0).map(([, b]) => b));
-  const noseEdge = Math.min(
-    length - o.tipWindow,
-    ...zones.filter(([, b]) => b >= length).map(([a]) => a),
-  );
+  const tailEdge = edge.tail;
+  const noseEdge = edge.nose;
   const tail = deficits.filter((f) => f.x < length / 2).map((f) => f.x);
   const nose = deficits.filter((f) => f.x >= length / 2).map((f) => f.x);
   if (tail.length > 0) {

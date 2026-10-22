@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_BUILD_PARAMS } from '../params';
-import { DEFAULT_CONVERT_OPTIONS as O, LINE_CORRECTION_PASSES } from './params';
+import { DEFAULT_CONVERT_OPTIONS as O, LINE_CORRECTION_PASSES, LINE_REFINE_PASSES } from './params';
 
 describe('DEFAULT_CONVERT_OPTIONS', () => {
   it('is the §12.2 table (plus S6’s lineSampleSpacing), deeply frozen', () => {
@@ -35,12 +35,17 @@ describe('DEFAULT_CONVERT_OPTIONS', () => {
     expect(Object.isFrozen(O.surfaceKnotSpacing)).toBe(true);
     expect(Object.isFrozen(O.fairnessRatioBracket)).toBe(true);
     expect(LINE_CORRECTION_PASSES).toBe(1);
+    expect(LINE_REFINE_PASSES).toBe(16);
   });
 
   it('keeps the relations its reasons state', () => {
     const b = DEFAULT_BUILD_PARAMS;
     // A fillet hosts the minimum band (§12.2 cornerFilletRadius).
     expect(O.cornerFilletRadius).toBeGreaterThanOrEqual(b.minInset / b.insetCurvatureFraction);
+    // Twice the halvings that leave a start span of line samples with fewer than two.
+    expect(LINE_REFINE_PASSES).toBe(
+      2 * Math.ceil(Math.log2(O.surfaceKnotSpacing.x / O.lineSampleSpacing)),
+    );
     // creaseWindow is 2 × minKnotSpacing; three samples per minKnotSpacing span.
     expect(O.creaseWindow).toBe(2 * O.minKnotSpacing);
     expect(O.minKnotSpacing / O.sampleSpacingX).toBe(3);

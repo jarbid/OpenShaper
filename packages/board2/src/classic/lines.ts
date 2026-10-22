@@ -14,8 +14,10 @@
  * holds (geom's own rule, so both halves keep data), with its mirror `1 − m` on
  * the loop. The parameters of the loop's +y half are the exact mirrors of the
  * −y half's, so mirrored spans choose mirrored knots. It stops when every
- * span meets `lineTol` or none can be split (a candidate within `knotRel` of a
- * knot is dropped); the errors are measured on the result, never assumed.
+ * span meets `lineTol`, when none can be split (a candidate within `knotRel` of
+ * a knot is dropped) or after `maxPasses` refinements (`LINE_REFINE_PASSES`);
+ * the errors are measured on the result, never assumed, and the converter
+ * reports a fit that stopped above `lineTol`.
  *
  * **Plan loop** (§9.3): periodic cubic, period 1, centripetal parameters
  * (`u = 0` at the tail centre, `u = ½` at the nose centre exactly), point
@@ -46,7 +48,7 @@ import type {
 } from '@openshaper/geom';
 import { periodicPairing } from '../symmetry';
 import type { PlanLoopJSON } from '../types';
-import { LINE_CORRECTION_PASSES } from './params';
+import { LINE_CORRECTION_PASSES, LINE_REFINE_PASSES } from './params';
 
 /** The outcome of an adaptive line fit: the curve, its knots and the errors it achieved. */
 export interface LineFit<C> {
@@ -56,6 +58,7 @@ export interface LineFit<C> {
   /** Per sample, the distance to the fit at the sample's parameter. */
   readonly errors: Float64Array;
   readonly maxError: number;
+  /** Refinement passes made (fits − 1). */
   readonly passes: number;
 }
 
@@ -175,13 +178,15 @@ function startKnotsPeriodic(perimeter: number, spacing: number): number[] {
 
 /**
  * The plan loop (§9.3): the adaptive symmetric fit of the loop data to
- * `lineTol`, constrained at both centres, then symmetrised exactly.
+ * `lineTol`, constrained at both centres, then symmetrised exactly; at most
+ * `maxPasses` refinements.
  */
 export function fitPlanLoop(
   data: LoopData,
   lineTol: number,
   startSpacing: number,
   tolIn?: Partial<Tolerances>,
+  maxPasses: number = LINE_REFINE_PASSES,
 ): LineFit<PeriodicCurve<2>> | LineFitFailure {
   const tol = resolveTolerances(tolIn);
   const n = data.params.length;
@@ -242,7 +247,7 @@ export function fitPlanLoop(
     // parameters are symmetric only to the correction's convergence.
     const mirrored = cands.filter((c) => c > 0 && c < 0.5).flatMap((c) => [c, 1 - c]);
     const next = addKnots(knots, mirrored, tol.knotRel, true);
-    if (next.length === knots.length) {
+    if (next.length === knots.length || pass >= maxPasses) {
       return Object.freeze({ curve, knots: Object.freeze(knots), errors, maxError, passes: pass });
     }
     knots = next;
@@ -301,7 +306,8 @@ export function clampedKnots(inner: readonly number[], p: number): number[] {
  * A stringer line (§9.4): samples `(x, z)` (x ascending) fitted as a 1D cubic
  * spline in `u = (x − x0)/(x1 − x0)` to `lineTol`, knots refined adaptively
  * from a uniform start `startSpacing` cm apart (only knots strictly inside the
- * data's parameter range, so every span holds data).
+ * data's parameter range, so every span holds data); at most `maxPasses`
+ * refinements.
  */
 export function fitStringerLine(
   xs: Float64Array,
@@ -310,6 +316,7 @@ export function fitStringerLine(
   lineTol: number,
   startSpacing: number,
   tolIn?: Partial<Tolerances>,
+  maxPasses: number = LINE_REFINE_PASSES,
 ): LineFit<ClampedCurve<1>> | LineFitFailure {
   const tol = resolveTolerances(tolIn);
   const [x0, x1] = extent;
@@ -356,7 +363,7 @@ export function fitStringerLine(
     const cands =
       maxError > lineTol ? splitCandidates(spans, params, (k) => errors[k]! > lineTol) : [];
     const next = addKnots(inner, cands, tol.knotRel, false);
-    if (next.length === inner.length) {
+    if (next.length === inner.length || pass >= maxPasses) {
       return Object.freeze({ curve, knots: Object.freeze(inner), errors, maxError, passes: pass });
     }
     inner = next;

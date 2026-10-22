@@ -19,6 +19,7 @@ import {
   smallestFeasible,
   thinPlateTrace,
 } from './fairness';
+import type { Trial } from './fairness';
 
 describe('fairness traces', () => {
   it('tr(G₂) equals the sum of unit energies by geom (random bases, seeded)', () => {
@@ -97,6 +98,19 @@ describe('discrepancy search', () => {
       ratio: 1e-10,
       meets: false,
     });
+  });
+
+  it('does not take a ratio whose fit failed and searches below it (review of S6)', () => {
+    // Meets iff ratio ≤ 3.3e-4, but every trial above 1e-5 fails outright.
+    const base = make(1e-10, 3.3e-4);
+    const fit = (r: number): Trial<number> => (r > 1e-5 ? 'failed' : base(r));
+    const c = discrepancySearch(fit, 1e-10, 1, base(1e-10)!, 12);
+    expect(c.meets).toBe(true);
+    expect(c.ratio).toBeLessThanOrEqual(1e-5);
+    expect(Math.log(1e-5 / c.ratio)).toBeLessThanOrEqual(Math.log(1e10) / 2 ** 12);
+    // smallestFeasible passes over failed trials as over missing ones.
+    const low = (r: number): Trial<number> => (r < 1e-6 ? 'failed' : base(r));
+    expect(smallestFeasible(low, 1e-10, 1, 12)!.ratio).toBeGreaterThanOrEqual(1e-6);
   });
 
   it('moves up past ratios that give no fit', () => {

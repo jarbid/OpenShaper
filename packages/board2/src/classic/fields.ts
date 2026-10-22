@@ -3,7 +3,8 @@
  * The deck and bottom height-field fits (docs/design/board2.md §9.6, §9.8).
  *
  * - **Bases.** u knots: the stringer line's knots (mandatory: the stringer
- *   identity needs the line on the field's basis) and a uniform grid at
+ *   identity needs the line on the field's basis, so they enter as they are,
+ *   millimetres apart at a line fillet) and a uniform grid at
  *   `surfaceKnotSpacing.x`, a grid knot closer than `minKnotSpacing` to a line
  *   knot dropped; v knots: symmetric uniform at `surfaceKnotSpacing.y`.
  * - **Fit.** geom's `approximateSurface` at the data's exact plan parameters
@@ -13,9 +14,13 @@
  *   z is kept; x and y are the field's affine Greville map.
  * - **Refinement.** With the smallest fairness of the bracket, every u span and
  *   v span holding a judged sample (inside the face, outside the crease and tip
- *   windows) whose vertical residual exceeds `surfaceTol` is halved (v spans with
- *   their mirrors), never below `minKnotSpacing`, at most `maxRefinePasses`
- *   times: refining further would resolve the classic creases themselves.
+ *   windows) whose vertical residual exceeds `surfaceTol` is halved, at most
+ *   `maxRefinePasses` times. u spans only while the halves stay at least
+ *   `minKnotSpacing` long: a finer u basis would resolve the classic station
+ *   creases (lines of constant x) as curvature. v spans with their mirrors and
+ *   without that floor: a v knot is a line of constant y, which no station
+ *   crease follows, and what it resolves is the sections' own shape across the
+ *   face (S6 as built, deviation 10).
  * - **Fairness.** Then, on the final basis, the largest weight that still meets
  *   `surfaceTol` on the judged samples (§9.8, `fairness.ts`). The basis is
  *   decided with negligible fairness first so that the search runs once, on
@@ -188,6 +193,7 @@ export function fitField(
     }
   };
   const isFailure = (t: Trial | FieldFitFailure): t is FieldFitFailure => 'message' in t;
+  type FieldTrial = { fit: Trial; meets: boolean } | null | 'failed';
   const bases = (): { bu: ClampedBasis; bv: ClampedBasis } => ({
     bu: clampedBasis(3, clampedKnots(ku, 3), tol),
     bv: clampedBasis(3, clampedKnots(kv, 3), tol),
@@ -195,15 +201,19 @@ export function fitField(
   const betaOf = (bu: ClampedBasis, bv: ClampedBasis): number =>
     dataTrace(bu, bv, uv) / thinPlateTrace(bu, bv);
 
-  // A trial: null when the data and fairness do not determine the net (schoenberg-whitney).
+  // A trial: null when the data and fairness do not determine the net
+  // (schoenberg-whitney), 'failed' for any other failure. A failure is kept to
+  // be returned only when no ratio gives a fit; a fit found elsewhere stands
+  // (review of S6).
   let failure: FieldFitFailure | null = null;
   const trialOn =
     (bu: ClampedBasis, bv: ClampedBasis, beta: number) =>
-    (ratio: number): { fit: Trial; meets: boolean } | null => {
+    (ratio: number): FieldTrial => {
       const t = fitOn(bu, bv, ratio * beta);
       if (isFailure(t)) {
-        if (t.cause?.code !== 'schoenberg-whitney') failure = t;
-        return null;
+        if (t.cause?.code === 'schoenberg-whitney') return null;
+        failure = t;
+        return 'failed';
       }
       return { fit: t, meets: t.judgedMax <= o.surfaceTol };
     };
@@ -216,9 +226,9 @@ export function fitField(
   for (; ; passes++) {
     const { bu, bv } = bases();
     const trial = trialOn(bu, bv, betaOf(bu, bv));
-    current = trial(ratio);
-    if (current === null) {
-      if (failure !== null) return failure;
+    const first = trial(ratio);
+    if (first !== null && first !== 'failed') current = first;
+    else {
       const f = smallestFeasible(trial, ratio, r1, o.fairnessSearchSteps);
       if (f === null)
         return (
@@ -281,7 +291,6 @@ export function fitField(
     current!,
     o.fairnessSearchSteps,
   );
-  if (failure !== null) return failure;
   const t = choice.fit;
 
   // Exact symmetrisation of the z net (rows j and m − 1 − j averaged).

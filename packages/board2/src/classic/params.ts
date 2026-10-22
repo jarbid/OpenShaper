@@ -24,6 +24,17 @@ const DEG = Math.PI / 180;
 export const LINE_CORRECTION_PASSES = 1;
 
 /**
+ * Most knot-refinement passes of a line fit (§9.3, §9.4; review of S6). A
+ * pass splits every failing span at its middle distinct parameter, so a start
+ * span (`surfaceKnotSpacing.x`, 10 cm, of samples `lineSampleSpacing`, 0.05 cm,
+ * apart: 200 of them) holds fewer than two samples after ⌈log₂ 200⌉ = 8 passes;
+ * a span can fail again after a refit elsewhere, so twice that. Measured: at
+ * most 6 on the fourteen files. A fit that stops above `lineTol` (here, or
+ * because no failing span can be split) is reported as `not-converged`.
+ */
+export const LINE_REFINE_PASSES = 16;
+
+/**
  * The §12.2 defaults, frozen.
  *
  * `lineSampleSpacing` (S6): the outline and the rocker and deck lines are

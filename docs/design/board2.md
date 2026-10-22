@@ -13,8 +13,8 @@ from step S3, the rail band builder (`band/`, `offsets.ts`, `measureLaws`, the b
 features, the B-rep, `buildBoard`, `writeBoardStep` and the board through OCCT (geom's
 `./testing/occt` protocol) and, from step S6, the converter's first part (classic sampling,
 the plan loop with fillets, the stringer lines, the insets, the deck and bottom fits,
-internal until S7 completes `convertClassic`); see the S1–S4 and S6 notes in §14 (S4 with its
-review fixes). The specs (S5) and the rest of the converter are still to come; §14 is the
+internal until S7 completes `convertClassic`); see the S1–S4 and S6 notes in §14 (S4 and S6
+with their review fixes). The specs (S5) and the rest of the converter are still to come; §14 is the
 build order.
 When this document and the code disagree, this document wins until the step that changes it
 edits this file in the same commit.
@@ -729,8 +729,9 @@ the eight `RAIL_PRESETS`' `deckBand` and `bottomBand`), clamped to [`minInset`,
   fairness by §9.8.
 - **Refinement**: insert knots in spans whose residual exceeds `surfaceTol` outside the crease
   windows (± `creaseWindow` of each real station) and tip windows, never below
-  `minKnotSpacing`, at most `maxRefinePasses`: refining further would resolve the classic
-  creases themselves, which is what Phase 2 removes.
+  `minKnotSpacing` in x (S6 as built, deviation 10: v is not floored), at most
+  `maxRefinePasses`: refining further would resolve the classic creases themselves, which is
+  what Phase 2 removes.
 - **Knife tips**: if a station's rail height `E.z − T.z` is below `minRailHeight`, equality
   constraints `D(E) − B(T) = minRailHeight` are added at the violating stations and the deck
   refitted (active set, at most `maxRefinePasses` rounds). Reported as the board2 tip floor.
@@ -1725,7 +1726,7 @@ stringer curves as exact pieces, corners and fillets, exact arc-length sampling)
 classic curve points, polyline distances and polygon crossings; `conversion-checks.ts` and
 `exit.ts`, the exit measurements). Public value added to the pin: `DEFAULT_CONVERT_OPTIONS`
 (`./classic`); the stages stay internal until S7 completes `convertClassic`. 324 board2 tests
-under `pnpm test` (49 new).
+under `pnpm test` (49 new; 335 after the review fixes, deviations 6 and 10–13).
 
 **How a conversion runs (S6 part).** Preconditions (§9.1); sampling (§9.2: rows at most
 `sampleSpacingX` apart across the kernel's solid span plus station ± `creaseProbe`, the
@@ -1776,9 +1777,22 @@ draft and per-stage measurements (errors, fillets, knots, passes, fairness ratio
    `classic/params.ts`: on the goldens it cuts 490–534 knots to 116–224, further passes change
    them by under 3 %), so the adaptive loop judges distance to the loop rather than a parametric
    error with a tangential part. The loop is then symmetrised exactly (§9.3).
-6. **Fillet zones are judged tighter than §9.3's 1.1 ×.** Each corner's distance to the fitted
-   loop equals its predicted deviation within `lineTol`; outside the zones both one-sided
-   distances are ≤ `lineTol`.
+6. **Fillet zones: §9.3's 1.1 × and the arcs themselves** (corrected in the S6 review: the
+   first version judged a zone by its corner's distance alone, one point per zone, and called
+   that tighter; it covered less). Outside the zones both one-sided distances to the classic
+   outline are ≤ `lineTol`. Inside them, both ways: the fillet arcs, sampled 0.005 cm apart,
+   against the loop and the loop against the filleted outline (the fit's target) ≤ `lineTol`;
+   the loop and the classic outline against each other ≤ 1.1 × the zone's predicted deviation
+   (§9.3's own criterion; measured at most 1.0000 ×, the corner itself); each corner's distance
+   to the loop equals its prediction within `lineTol`. The arcs come from the converter's
+   `filletOutline`, so they are checked against the classic independently: every fillet
+   circle is inscribed (its centre's distance to the classic outline is its radius, within
+   the polylines' 1e-5 cm), and a pointed tip on a straight end segment has the closed form
+   `r (1/sin(θ/2) − 1)` with θ from the classic's own end tangent (within 1e-12 cm; the
+   rocker files' tips are curved, where only the inscribed check applies). The converter's
+   own fillet-zone errors (`plan.filletError`, the lines' `filletError`) are asserted
+   ≤ `lineTol` too. Measured: arcs → loop at most 9.6e-4 cm, loop → filleted outline 9.6e-4
+   cm, line arcs → line 7.3e-4 cm.
 7. **Stringer lines.** Their knots come from the data's own parameters, so every span holds data
    and the end spans reach over the plan margin as the polynomial continuation of the last data
    span: no data-free span, so §9.4's fairness is not needed and not used. The synthetic decks
@@ -1798,34 +1812,67 @@ draft and per-stage measurements (errors, fillets, knots, passes, fairness ratio
     points leave the system singular): every u and v span holding a judged sample above
     `surfaceTol` is halved, u spans only while the halves stay ≥ `minKnotSpacing`, v spans in
     mirror pairs (the v knots stay symmetric). The discrepancy search then runs once, on the
-    final basis. The thin-plate energy is geom's parametric metric; the ratio's traces are exact
+    final basis. **`minKnotSpacing` floors u only** (recorded in the S6 review). §12.2's reason
+    for it is the classic station crease, a tangent break along a line of constant x that a
+    finer u basis would resolve as curvature; a v knot is a line of constant y, which no station
+    crease follows, and what v refinement resolves is the sections' own shape across the face
+    (the synthetic files' polygonal sections above all), bounded by `maxRefinePasses`. Smallest
+    v spans measured: 0.15 cm on the five synthetic files with five passes, 0.58–1.2 cm on the
+    others. **The line's knots enter the u basis as they are**, below `minKnotSpacing` where a
+    line fillet needs them (the stringer identity needs the line on the field's basis): the
+    polygonal decks' ridge fillets (the five synthetic files with a side corner) put deck u
+    spans of 0.04–0.15 cm into those decks. A failing sample splits both its u and its v span,
+    whichever direction its residual comes from; splitting only the direction a residual
+    indicates would cut the nets and the time (Q5), and is left to S9 as a candidate with the
+    others. The thin-plate energy is geom's parametric metric; the ratio's traces are exact
     (`fairness.ts`: Gauss–Legendre per span, separable `tr(G₂)`).
 11. **Knife tips lift the deck by a function of x.** §9.6's equality constraints at violating
     stations are replaced by `Λ(x) = Σ λ_i N_i(u(x))` added to every control row (λ_i the
     largest deficit of the violating stations in the support of N_i, so Λ meets every deficit in
     one round, as the N_i are non-negative and sum to 1), after inserting `degree + 1` knots
     (exact) between the innermost violating station and the tip zone's edge so the lift stays
-    inside it. At a tip the stations crowd within millimetres on centimetre spans and the
-    stringer identity already fixes the deck at the tip centre: pointwise equalities there are
-    dependent and in general inconsistent. The lift raises the deck line with the deck (inside
-    the tip zone only). **No sample file needs it at the default 1 mm** once its tips are
-    filleted: the two knife-tip files' smallest station rail heights are 1.09 and 1.23 mm; the
-    lift is tested with `minRailHeight` raised to 2 mm on the first (`validateBoard` finds no
-    `rail-height` issue after it, the deck is unchanged outside the tip zone to 1e-11 cm, and
-    stays bitwise symmetric).
-12. **What S6 hands to S7.** The draft passes `validateBoard` on the shortboard and all seven
+    inside it. At most `maxRefinePasses` rounds in all (§9.6; the first version allowed one
+    more). Two cases are reported as `rail-height` warnings (S6 review): a violating station
+    outside the tip zone, where no knots are inserted and the lift reaches into the fitted deck,
+    and a rail height still short after the last round. At a tip the stations crowd within
+    millimetres on centimetre spans and the stringer identity already fixes the deck at the tip
+    centre: pointwise equalities there are dependent and in general inconsistent. The lift
+    raises the deck line with the deck (inside the tip zone only). **No sample file needs it at
+    the default 1 mm** once its tips are filleted: the two knife-tip files' smallest station
+    rail heights are 1.09 and 1.23 mm; the lift is tested with `minRailHeight` raised to 2 mm on
+    the first (`validateBoard` finds no `rail-height` issue after it, the deck is unchanged
+    outside the tip zone to 1e-11 cm, and stays bitwise symmetric).
+12. **Line fits are capped and reported** (S6 review). The plan-loop and stringer-line
+    refinements stop after `LINE_REFINE_PASSES` (16, in `classic/params.ts`: twice the
+    ⌈log₂ 200⌉ halvings after which a 10 cm start span of 0.05 cm samples cannot hold two;
+    measured at most 6) or when no failing span can be split. `convertGeometry` reports every
+    stage whose achieved error is above its target as `not-converged` (`convergenceIssues`):
+    the plan loop and both lines against `lineTol`, the two fields' judged residual against
+    `surfaceTol`. Before, only the fields were reported, so a plan or a line stopping above
+    `lineTol` on a board outside the fourteen was silent.
+13. **A failed solve at one fairness ratio no longer fails the field** (S6 review). A geom
+    failure other than `schoenberg-whitney` is a third trial outcome (`'failed'`):
+    `discrepancySearch` does not take it and continues below it, `smallestFeasible` passes over
+    it, and `fitField` returns the failure only when no ratio gives a fit. Before, one such
+    failure anywhere in the search discarded the fit already found (tested by wrapping geom's
+    `approximateSurface` to fail chosen solves).
+14. **What S6 hands to S7.** The draft passes `validateBoard` on the shortboard and all seven
     synthetic files. On the funboard and longboard it reports only `rail-profile-invalid` within
     σ ± 0.02 of the nose: with the constant profile laws the steep nose rocker lifts the
     bottom's tangent corner above the apex. Fitting the laws is S7's job; the exit test pins it.
 
-**Oracles and tolerances.** Plan (`conversion-checks.ts`, independent of the converter): the
-classic outline evaluated from its control points about 0.005 cm apart against a polyline of
-100,001 points of the loop, both ways, less the polylines' chord error (1e-5 cm), ≤ `lineTol`
-outside the fillet zones; inside, each corner's distance to the loop equals its predicted
-deviation within `lineTol`. Lines: the document's own stringer iso-curves (so the stringer
-identity is checked with the line fit) against the classic curves' exact points in
-`[endGap, L − endGap]`, ≤ `lineTol` outside line fillets, ≤ the predicted deviation + `lineTol`
-inside. Surfaces: the classic loft resampled by the kernel on every other converter row,
+**Oracles and tolerances.** Plan (`conversion-checks.ts`, `measurePlan`, independent of the
+converter): the classic outline evaluated from its control points about 0.005 cm apart against
+a polyline of 100,001 points of the loop, both ways, less the polylines' chord error
+(1e-5 cm), ≤ `lineTol` outside the fillet zones; inside, deviation 6's checks (arcs and loop
+both ways ≤ `lineTol`, ≤ 1.1 × predicted to the classic both ways, corners at their
+prediction within `lineTol`, circles inscribed within 1e-5 cm, straight pointed tips at the
+closed form within 1e-12 cm); `conversion-checks.test.ts` shows the zone checks catch a loop
+bent 0.013 cm off a tip arc that the outside checks and the corner distance pass. Lines: the
+document's own stringer iso-curves (so the stringer identity is checked with the line fit)
+against the classic curves' exact points in `[endGap, L − endGap]`, ≤ `lineTol` outside line
+fillets, ≤ the predicted deviation + `lineTol` inside, and the line fillet arcs ≤ `lineTol`
+from the line. Surfaces: the classic loft resampled by the kernel on every other converter row,
 membership by crossings with 40,000-point polygons of the face loops (points within 1e-4 cm of a
 loop skipped), windows recomputed from the classic stations and floors: vertical residual ≤
 `surfaceTol` + 1e-12 (rounding of a re-evaluation); on rows halfway between the converter's rows,
@@ -1871,7 +1918,14 @@ ten distinct files in about 60 s (three test files in parallel).
 residual tests of `fields.test.ts` failed (judged residual 1.0e-2 cm), restored. `fairness.ts`
 moving the upper end of the bracket (instead of the lower) after a passing trial: three tests
 failed (the two search tests of `fairness.test.ts` and the maximality test of `fields.test.ts`,
-whose ratio fell to a fit 9.0e-4 cm off), restored.
+whose ratio fell to a fit 9.0e-4 cm off), restored. Review fixes: `lines.ts` splitting only
+the plan-loop spans whose failing samples lie outside the fillet zones: on the first four
+synthetic files the exit's new zone checks failed (fillet arcs → loop 1.10e-3 to 1.32e-3 cm,
+plan fit in the zones above 1.07e-3 cm) and so did the new `not-converged` warning; on
+`clean-6x22x2-75` and `fallback-outline-5x10` the checks of the first version (both one-sided
+distances outside the zones, corner distances) all passed, restored. `fields.ts` and
+`fairness.ts` back to the sticky failure flag: two of the three `fields.failure.test.ts`
+tests failed (the injected failure returned instead of a fit), restored.
 
 ---
 

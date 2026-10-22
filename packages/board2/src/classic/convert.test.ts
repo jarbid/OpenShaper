@@ -22,8 +22,8 @@ import { evaluateLaw } from '../law';
 import { planCurve } from '../plan';
 import { checkHeightFieldSymmetry } from '../symmetry';
 import { validateBoard } from '../validate';
-import type { BoardDoc } from '../types';
-import { convertGeometry, liftKnifeTips } from './convert';
+import type { Board2Issue, BoardDoc } from '../types';
+import { convergenceIssues, convertGeometry, liftKnifeTips } from './convert';
 import type { ClassicGeometry } from './convert';
 import { DEFAULT_CONVERT_OPTIONS as O } from './params';
 import { classicSample } from './test-support/samples';
@@ -75,12 +75,14 @@ describe('a knife-tip board', () => {
   let board: BezierBoard;
   let before: string;
   let g: ClassicGeometry;
+  let warnings: readonly Board2Issue[];
   beforeAll(() => {
     board = classicSample('synthetic-clean-6x22x2-75.s3dx').load();
     before = JSON.stringify(board);
     const r = convertGeometry(board);
     if (!r.ok) throw new Error(r.issues.map((i) => i.message).join('; '));
     g = r.value;
+    warnings = r.issues;
   }, 120_000);
 
   it('leaves the classic board untouched', () => {
@@ -125,6 +127,7 @@ describe('a knife-tip board', () => {
     expect(validateBoard(doc).some((i) => i.code === 'rail-height')).toBe(true);
     const zones = g.floors.zones.map(([a, b]) => [a - g.shift, b - g.shift] as const);
     const lift = liftKnifeTips(doc, zones, O);
+    expect(lift.issues).toEqual([]);
     expect(lift.floored.length).toBeGreaterThan(0);
     expect(lift.lift).toBeGreaterThan(0);
     expect(lift.lift).toBeLessThanOrEqual(raised);
@@ -149,5 +152,45 @@ describe('a knife-tip board', () => {
         1e-12 * 10,
       );
     }
+  });
+
+  it('reports a violating station outside the tip zone (review of S6)', () => {
+    // 20 cm: every station of a 7 cm thick board violates, the middle ones too.
+    const doc: BoardDoc = { ...g.doc, build: { ...g.doc.build, minRailHeight: 20 } };
+    const zones = g.floors.zones.map(([a, b]) => [a - g.shift, b - g.shift] as const);
+    const lift = liftKnifeTips(doc, zones, O);
+    const outside = lift.issues.filter((i) => i.message.includes('outside the tip zone'));
+    expect(outside).toHaveLength(1);
+    expect(outside[0]).toMatchObject({ code: 'rail-height', severity: 'warning' });
+    expect(outside[0]!.at!.x!).toBeGreaterThan(O.tipWindow);
+    // The lift itself still meets every deficit (Λ ≥ each deficit in one round).
+    expect(lift.minHeight).toBeGreaterThanOrEqual(20);
+  });
+
+  it('reports a rail height still short when no round is allowed (review of S6)', () => {
+    const doc: BoardDoc = { ...g.doc, build: { ...g.doc.build, minRailHeight: 0.2 } };
+    const zones = g.floors.zones.map(([a, b]) => [a - g.shift, b - g.shift] as const);
+    const lift = liftKnifeTips(doc, zones, { ...O, maxRefinePasses: 0 });
+    expect(lift.lift).toBe(0);
+    expect(lift.minHeight).toBeLessThan(0.2);
+    expect(lift.issues).toEqual([
+      expect.objectContaining({ code: 'rail-height', severity: 'warning', value: lift.minHeight }),
+    ]);
+  });
+
+  it('converts without warnings, and a stage above its target is reported (review of S6)', () => {
+    expect(warnings).toEqual([]);
+    const stages = [
+      { stage: 'rocker', error: g.rocker.error, target: O.lineTol },
+      { stage: 'deck', error: g.deck.maxResidual, target: O.surfaceTol },
+    ];
+    expect(convergenceIssues(stages)).toEqual([]);
+    const missed = convergenceIssues([
+      ...stages,
+      { stage: 'plan loop', error: 2 * O.lineTol, target: O.lineTol },
+    ]);
+    expect(missed).toEqual([
+      expect.objectContaining({ code: 'not-converged', severity: 'warning', value: 2 * O.lineTol }),
+    ]);
   });
 });

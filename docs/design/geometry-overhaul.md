@@ -480,7 +480,13 @@ order §14).
       predicted deviation (1.2–1.7 cm on the synthetic files, so S8's 1 mm length checkpoint
       needs the fillet explanation, board2.md §15 risk 8), corners by tangents, flat tips as one
       arc, a deck lift in x instead of equality constraints. Conversion 7–21 s per file
-      (Q5 targets 3 s: recorded for S9)
+      (Q5 targets 3 s: recorded for S9). Review fixes: the exit checks the fillet zones both
+      ways against the arcs and at §9.3's 1.1 × against the classic, with the arcs checked
+      against the classic themselves (inscribed circles, the tip closed form); line fits capped
+      at `LINE_REFINE_PASSES` and every stage above its target reported as `not-converged`;
+      the knife-tip lift reports stations outside the tip zone and a height still short; a
+      failed solve at one fairness ratio no longer fails the field; `minKnotSpacing` recorded
+      as flooring u only
 - [ ] S5 specs and volume convergence · S7 converter II · S8 deviation report · S9 benchmarks
       and the Phase 2 report
 
