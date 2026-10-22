@@ -10,6 +10,7 @@ import {
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
+import type { LockedAxes } from '@openshaper/store';
 import { boundsOf } from './sample';
 import { screenToWorld, worldToScreen, type Viewport } from './viewport';
 import type { Hit } from './hit';
@@ -163,10 +164,73 @@ const drawLockBars = (
 };
 
 /**
+ * The radius of the ring round a fixed point, how far out a free axis's chevrons sit, and
+ * the chevrons' size (px). Each is a least: the ring stays `HELD_GAP` clear of the point as
+ * drawn (which the control-point size setting and a hover enlarge), and the chevrons stay
+ * clear of the point and of a locked handle's bar, which would otherwise cap them.
+ */
+const HELD_RING = 9;
+const HELD_CHEVRON_AT = 11;
+const HELD_CHEVRON = 3;
+const HELD_GAP = 3;
+
+/**
+ * Mark a point the blank holds, in the same strokes as the lock bars. A point fixed in
+ * both coordinates (a slice's centre point) gets a ring round it. A point held in one
+ * (a slice's apex, which keeps its x) gets a chevron either side along the axis it is
+ * still free on, pointing the two ways it can move.
+ */
+const drawHeldPoint = (
+  ctx: CanvasRenderingContext2D,
+  k: Knot,
+  held: LockedAxes,
+  vp: Viewport,
+  style: DrawStyle,
+  /** How far the point's own mark reaches from its centre (px). */
+  pointReach: number,
+): void => {
+  const end = worldToScreen(vp, k.end);
+  ctx.strokeStyle = style.tangent;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  if (held.x && held.y) {
+    const ring = Math.max(HELD_RING, pointReach + HELD_GAP);
+    ctx.moveTo(end.x + ring, end.y);
+    ctx.arc(end.x, end.y, ring, 0, Math.PI * 2);
+  } else {
+    const tipAt = Math.max(
+      HELD_CHEVRON_AT,
+      pointReach + HELD_GAP + HELD_CHEVRON,
+      k.lock ? LOCK_BAR_AT + HELD_GAP + HELD_CHEVRON : 0,
+    );
+    // The free axis on screen: a pane may turn its canvas, never the splines' own axes.
+    const free = held.x ? { x: k.end.x, y: k.end.y + 1 } : { x: k.end.x + 1, y: k.end.y };
+    const along = worldToScreen(vp, free);
+    const len = Math.hypot(along.x - end.x, along.y - end.y);
+    if (len > 1e-9) {
+      const ux = (along.x - end.x) / len;
+      const uy = (along.y - end.y) / len;
+      for (const side of [1, -1]) {
+        const tipX = end.x + side * ux * tipAt;
+        const tipY = end.y + side * uy * tipAt;
+        const baseX = tipX - side * ux * HELD_CHEVRON;
+        const baseY = tipY - side * uy * HELD_CHEVRON;
+        ctx.moveTo(baseX - uy * HELD_CHEVRON, baseY + ux * HELD_CHEVRON);
+        ctx.lineTo(tipX, tipY);
+        ctx.lineTo(baseX + uy * HELD_CHEVRON, baseY - ux * HELD_CHEVRON);
+      }
+    }
+  }
+  ctx.stroke();
+  ctx.lineWidth = 1;
+};
+
+/**
  * Draw control points + tangent handles for a spline. Smooth (continuous) knots
  * render as circles; corner knots as squares — mirroring the legacy editor so the
  * continuity of a point is readable at a glance. A locked knot adds a bar across
- * each locked handle's line.
+ * each locked handle's line, and a point the blank holds its own mark
+ * (`drawHeldPoint`).
  */
 export const drawControlPoints = (
   ctx: CanvasRenderingContext2D,
@@ -180,6 +244,8 @@ export const drawControlPoints = (
   selectedKind: Hit['kind'] = 'end',
   /** The individual point currently under the cursor. */
   hovered: Hit | null = null,
+  /** What the blank holds of each point, by knot index (`blankLocks`); null for none. */
+  held: readonly LockedAxes[] | null = null,
 ): void => {
   const r = pointSize ?? 5;
   const rSq = pointSize != null ? Math.max(1, pointSize - 1) : 4;
@@ -200,6 +266,13 @@ export const drawControlPoints = (
     const endActive =
       (i === selectedIndex && selectedKind === 'end') ||
       (hovered?.index === i && hovered.kind === 'end');
+    const endScale = endActive ? 1.55 : 1;
+    const hold = held?.[i];
+    if (hold && (hold.x || hold.y)) {
+      // A square reaches furthest at its corners.
+      const reach = k.continuous ? r * endScale : rSq * endScale * Math.SQRT2;
+      drawHeldPoint(ctx, k, hold, vp, style, reach);
+    }
     const prevActive =
       (i === selectedIndex && selectedKind === 'prev') ||
       (hovered?.index === i && hovered.kind === 'prev');
@@ -215,7 +288,6 @@ export const drawControlPoints = (
 
     // Draw the endpoint first and handles last. A selected zero-length handle then
     // remains visible on top of the endpoint and can be dragged out again.
-    const endScale = endActive ? 1.55 : 1;
     if (k.continuous) dot(ctx, end.x, end.y, r * endScale, endFill);
     else square(ctx, end.x, end.y, rSq * endScale, endFill);
     dot(
@@ -344,6 +416,11 @@ export interface EditorOverlays {
   verticalMarkers?: { x: number; color: string; label?: string }[];
   /** Longitudinal distribution strip (e.g. cross-sectional area vs. length). */
   distribution?: { x: number; value: number }[];
+  /**
+   * Height of the rail apex along the board (side view: `x` along the length, `z` the
+   * board height of each station's widest point), drawn dashed. Rocker pane only.
+   */
+  apexHeight?: readonly { x: number; z: number }[];
   /** Resolved fins to draw on this pane (placement + box/blade geometry). */
   fins?: readonly ResolvedFin[];
   /** How to draw fins: `'plan'` (footprint + box, default) or `'profile'` (blade silhouette). */
@@ -692,6 +769,34 @@ export const drawDistribution = (
   ctx.globalAlpha = 0.15;
   ctx.fill();
   ctx.globalAlpha = 1;
+};
+
+/** The 3D apex guide's lime (render3d `Guides3D`), so the two read as one line. */
+const APEX_COLOR = '#84CC16';
+
+/**
+ * The rail apex height in the side view: a dashed line through each station's widest
+ * point, between the deck and bottom curves. It is the line a CNC flips the blank on.
+ */
+export const drawApexHeight = (
+  ctx: CanvasRenderingContext2D,
+  pts: readonly { x: number; z: number }[],
+  vp: Viewport,
+  color = APEX_COLOR,
+): void => {
+  if (pts.length < 2) return;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  pts.forEach((p, i) => {
+    const s = worldToScreen(vp, { x: p.x, y: p.z });
+    if (i === 0) ctx.moveTo(s.x, s.y);
+    else ctx.lineTo(s.x, s.y);
+  });
+  ctx.stroke();
+  ctx.restore();
 };
 
 const FIN_COLOR = '#A78BFA';

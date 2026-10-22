@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import {
+  apexLine,
   crossSectionLoops,
   stringerLoop,
   tessellationSteps,
@@ -13,7 +14,10 @@ type Point = [number, number, number];
 export interface GuideLine {
   /** Stable React key. Rings key by station position so an insert does not remount the rest. */
   key: string;
-  /** One polyline, or two for a station inside a tail notch (one per lobe). */
+  /**
+   * One polyline, or two: one per lobe for a station inside a tail notch, one per
+   * rail for the apex line.
+   */
   paths: Point[][];
 }
 
@@ -65,6 +69,25 @@ export function guideLines(
   }
 
   return { stringer, sections, activeKey: activeGuideKey(sections, activeX) };
+}
+
+/**
+ * The rail apex line on both rails, as two open polylines, or null when the board has
+ * no real station to loft between.
+ *
+ * Kept out of {@link guideLines} so it is only computed while it is shown, and in the
+ * worker (`apexGuideAsync`): like the stringer, it lofts a section at every one of the
+ * mesh's stations. Those are the mesh's station COUNT, not its x positions — the
+ * stations are inset a hair from the tips and the tessellator's are not — so a point
+ * lies on the loft's ring at its own x, at the mesh's ring density, and generally
+ * between two drawn rings rather than on one. At that density it stays within a
+ * facet's sag of the faceted hull, which the depth bias in `Guides3D` covers.
+ */
+export function apexGuideLine(board: BezierBoard, targetFaceSize: number): GuideLine | null {
+  if (board.crossSections.length <= 2) return null;
+  const { lengthSteps, ringSteps } = tessellationSteps(board, targetFaceSize);
+  const line = apexLine(board, { lengthSteps, ringSteps });
+  return line ? { key: 'apex', paths: [toPoints(line.right), toPoints(line.left)] } : null;
 }
 
 const ringKey = (position: number): string => `s${position}`;

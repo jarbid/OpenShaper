@@ -13,10 +13,15 @@
  *
  * `keys` is the display form (using ⌘/⇧ symbols); `match` is what the handler
  * actually tests. Keep them describing the same chord.
+ *
+ * The arrow-key nudges are the exception: they act on whichever pane holds the
+ * selection, so the pane header's point editor handles them, not the global hook.
+ * Their rows carry no `match` and are here so `/docs/shortcuts` lists them; their
+ * keys and steps live in {@link NUDGE}, which that handler reads too.
  */
 import type { View } from './view-toolkit';
 
-export type ShortcutGroup = 'File' | 'Edit' | 'View' | 'Cross-sections';
+export type ShortcutGroup = 'File' | 'Edit' | 'Nudging' | 'View' | 'Cross-sections';
 
 export interface ShortcutMatch {
   /** Lowercased `KeyboardEvent.key`, or one of several for an either/or binding. */
@@ -45,8 +50,34 @@ export interface Shortcut {
   keys: string;
   label: string;
   group: ShortcutGroup;
-  match: ShortcutMatch;
+  /**
+   * What the global handler tests. Omitted for a chord another listener owns (the
+   * arrow-key nudges), which is listed only so the docs show it.
+   */
+  match?: ShortcutMatch;
 }
+
+/**
+ * The arrow-key nudge (`SelectedPointEditor` in `ControlPointInspector.tsx`).
+ *
+ * The arrows move the selected point or handle by one step of the length unit.
+ * Holding `rotateKey` turns them into a handle rotation, holding `lengthKey` into
+ * a handle length change; Shift multiplies whichever step by `shiftFactor`.
+ *
+ * Held keys rather than modifiers, because both modifier chords are taken:
+ * Ctrl+←/→ switches desktops on macOS, and Alt+←/→ is Back/Forward in browsers on
+ * Windows and Linux. Lowercased `KeyboardEvent.key` values, like `ShortcutMatch`.
+ */
+export const NUDGE = {
+  rotateKey: 'r',
+  lengthKey: 't',
+  /** Degrees a handle turns per press. */
+  turnDegrees: 1,
+  /** Shift multiplies a move, turn or length step by this. */
+  shiftFactor: 10,
+} as const;
+
+const ARROWS = '←↑→↓';
 
 /**
  * The views, in toolbar order — the single source for both the number keys and
@@ -102,6 +133,36 @@ export const SHORTCUTS: readonly Shortcut[] = [
     label: "Lock or unlock the selected point's handle angles",
     group: 'Edit',
     match: { keys: ['l'], notInField: true },
+  },
+  {
+    id: 'nudge',
+    keys: ARROWS,
+    label: 'Move the selected point or handle one step',
+    group: 'Nudging',
+  },
+  {
+    id: 'nudge-shift',
+    keys: `⇧ ${ARROWS}`,
+    label:
+      `${NUDGE.shiftFactor}× the step, whether moving, turning ` +
+      `(${NUDGE.shiftFactor * NUDGE.turnDegrees}°) or changing length`,
+    group: 'Nudging',
+  },
+  {
+    id: 'nudge-rotate',
+    keys: `${NUDGE.rotateKey.toUpperCase()} + ${ARROWS}`,
+    label:
+      `Hold ${NUDGE.rotateKey.toUpperCase()}: turn the selected handle, or both handles of a ` +
+      `selected point, ${NUDGE.turnDegrees}°: Left or Up counter-clockwise, Right or Down clockwise`,
+    group: 'Nudging',
+  },
+  {
+    id: 'nudge-length',
+    keys: `${NUDGE.lengthKey.toUpperCase()} + ${ARROWS}`,
+    label:
+      `Hold ${NUDGE.lengthKey.toUpperCase()}: lengthen (Right or Up) or shorten (Left or Down) ` +
+      'the selected handle, or both handles of a selected point, one step',
+    group: 'Nudging',
   },
   {
     id: 'save',
@@ -165,6 +226,7 @@ export function matches(
   inField: boolean,
   inTextEntry = inField,
 ): boolean {
+  if (!shortcut.match) return false;
   const {
     keys,
     mod = false,

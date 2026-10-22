@@ -1,6 +1,7 @@
 /**
  * Settings dialog: editor curve colors, ghost/grid colors, control-point size,
- * and curve stroke thickness. Persisted to localStorage via the settings module.
+ * curve stroke thickness, editing behaviour and tips. Persisted to localStorage via
+ * the settings module.
  * Modeled on the ConstructionPanel modal pattern (fixed-inset backdrop, Panel card).
  */
 import { Button, Checkbox, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
@@ -226,6 +227,20 @@ export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProp
               value={draft.adjustCrossSectionThickness}
               onChange={(v) => set('adjustCrossSectionThickness', v)}
             />
+          </SettingsGroup>
+
+          {/* --- Help --- */}
+          <SettingsGroup title="Help">
+            <CheckboxRow
+              id="setting-show-tips"
+              label="Show tips"
+              value={draft.showTips}
+              onChange={(v) => set('showTips', v)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Shows a button's name and what it does when you hover over it or tab to it. Turn off
+              to hide tooltips.
+            </p>
           </SettingsGroup>
         </PanelBody>
 

@@ -8,11 +8,13 @@ import {
   type Vec2,
 } from '@openshaper/kernel';
 import {
+  canDeleteKnot,
   canLockKnot,
   getTargetSpline,
   sameTarget,
   type BoardState,
   type SplineTarget,
+  whyKnotIsKept,
 } from '@openshaper/store';
 import type { MenuItem } from '@openshaper/ui';
 import type { StoreApi } from 'zustand/vanilla';
@@ -215,7 +217,6 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
       ];
     }
 
-    const isEndpoint = hit.index === 0 || hit.index === spline.knots.length - 1;
     const rightHandleKind = handleKindForVisualSide(knot, target, 'right');
     const leftHandleKind = handleKindForVisualSide(knot, target, 'left');
     const items: MenuItem[] = [
@@ -244,7 +245,9 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
       {
         kind: 'action',
         label: 'Delete point',
-        disabled: isEndpoint,
+        // Endpoints stay, and so does a slice's apex, which holds it to the outline's width.
+        disabled: !canDeleteKnot(spline, hit.index, target),
+        title: whyKnotIsKept(spline, hit.index, target) ?? undefined,
         shortcut: 'Del',
         onSelect: () => store.getState().deleteControlPoint(target, hit.index),
       },

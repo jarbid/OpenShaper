@@ -1,4 +1,4 @@
-import { getLength, resolveFins, valueAt, type BezierBoard, type ResolvedFin } from '@openshaper/kernel'; // prettier-ignore
+import { apexLine, getLength, resolveFins, valueAt, type BezierBoard, type ResolvedFin } from '@openshaper/kernel'; // prettier-ignore
 import {
   chainSegs,
   crossSectionBeziers,
@@ -24,7 +24,10 @@ export type DxfCurveMode = 'polyline' | 'spline';
 
 /** Options for {@link exportDxf}. */
 export interface DxfOptions {
-  /** Polyline samples per source spline (outline / rocker profiles). Default 200. */
+  /**
+   * Polyline samples per source spline (outline / rocker profiles), and stations along
+   * the rail apex line. Default 200.
+   */
   lengthSteps?: number;
   /** Profile samples per exported cross-section ring. Default 64. */
   ringSteps?: number;
@@ -49,6 +52,7 @@ const DEFAULT_CS_COUNT = 7;
 const LAYERS = {
   OUTLINE: 7, // white
   ROCKER: 5, // blue
+  APEX: 4, // cyan — rail apex height, in the rocker band
   CROSSSECTION: 3, // green
   CENTERLINE: 1, // red
   MARKERS: 2, // yellow
@@ -209,9 +213,10 @@ const tablesSection = (out: string[]): void => {
 /**
  * Export the board as an ASCII (R12-style) DXF organised into labelled, vertically
  * stacked bands: a plan view (outline + stringer centreline + dashed rib-station
- * markers with x labels), the rocker profile (deck + bottom) below it, and a row of
- * true-scale cross-sections below that. Layers and line types are declared in a
- * TABLES section so a DXF viewer can toggle them. Units are centimetres.
+ * markers with x labels), the rocker profile (deck + bottom, with the rail apex height
+ * dashed between them) below it, and a row of true-scale cross-sections below that.
+ * Layers and line types are declared in a TABLES section so a DXF viewer can toggle
+ * them. Units are centimetres.
  */
 export const exportDxf = (board: BezierBoard, opts: DxfOptions = {}): string => {
   const lengthSteps = Math.max(2, opts.lengthSteps ?? DEFAULT_LENGTH_STEPS);
@@ -277,6 +282,15 @@ export const exportDxf = (board: BezierBoard, opts: DxfOptions = {}): string => 
   const liftSeg = (s: CurveSeg): CurveSeg => mapSeg(s, (p) => ({ x: p.x, y: p.y + rockerShift }));
   curve(bottomSegs.map(liftSeg), 'ROCKER', false);
   curve(deckSegs.map(liftSeg), 'ROCKER', false);
+  // Rail apex height: where the rail is widest, which is where the deck meets the bottom
+  // and where a CNC flips the blank. Measured off the lofted surface rather than drawn
+  // from a stored curve, so it is a polyline in either curve mode; dashed, because it
+  // is a reference line and not a cut. One station per profile sample.
+  const apex = apexLine(board, { lengthSteps });
+  if (apex) {
+    const pts = apex.right.map((p) => ({ x: p.x, y: p.z + rockerShift }));
+    polyline(out, pts, 'APEX', { lineType: 'DASHED' });
+  }
   // Rocker baseline (rocker = 0) on the centreline layer.
   line(
     out,

@@ -232,6 +232,20 @@ export default function DocsExport() {
           widely compatible, at the cost of approximating curves as many short segments.
         </p>
         <p>
+          The DXF lays the board out in bands &mdash; plan view, then the rocker, then a row of
+          cross-sections &mdash; and puts each kind of line on its own layer, so you can hide or
+          select them in your CAD or CAM tool: <code>OUTLINE</code>, <code>ROCKER</code> (deck and
+          bottom), <code>APEX</code>, <code>CROSSSECTION</code>, <code>CENTERLINE</code>,{' '}
+          <code>MARKERS</code> and <code>LABELS</code> for the station lines and their positions,{' '}
+          <code>FINS</code> for fin boxes and plugs, and <code>GHOST</code> for a loaded reference
+          board. <code>APEX</code> is the rail apex height, drawn dashed in the rocker band between
+          the deck and bottom: the widest point of the rail at every station, which is the line that
+          parts the deck from the bottom and where a CNC flips the blank. It is always a polyline,
+          even in the true-curves export, because it is measured off the surface rather than drawn
+          as a curve. Reference layers like <code>APEX</code>, <code>MARKERS</code> and{' '}
+          <code>GHOST</code> are not cutting paths; leave them out of the toolpath.
+        </p>
+        <p>
           For 3D work, prefer STEP over STL. STL is a mesh: your CAD system sees thousands of flat
           triangles, not a surface, so it cannot offset it for a hot-wire allowance, shell it for a
           hollow build, or run a clean finishing toolpath over it. STEP carries the real curved
@@ -270,9 +284,9 @@ export default function DocsExport() {
 const FORMAT_NOTES: Record<ExportFormat, string> = {
   stl: 'The tessellated 3D surface. For 3D printing, rendering, or importing into other 3D software.',
   step: 'The hull as true B-spline surfaces, as one solid body. This is the one to use for CAD and CAM: it can be offset, shelled and machined, and the file is around ten times smaller than the equivalent STL. Fin boxes are not included.',
-  dxf: 'Outline, rocker and cross-section curves as polylines — approximated as short straight segments, which almost every CAD and CAM package reads.',
+  dxf: 'Outline, rocker and cross-section curves, and the rail apex line, as polylines — approximated as short straight segments, which almost every CAD and CAM package reads.',
   'dxf-spline':
-    'The same curves as true splines. Smaller files and exact geometry, if your software supports them.',
+    'The same curves as true splines (the rail apex line stays a polyline). Smaller files and exact geometry, if your software supports them.',
   'pdf-1to1':
     'Full-scale printable templates, tiled across your paper size with overlap and cut marks.',
   'rail-bands':

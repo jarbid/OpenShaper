@@ -20,6 +20,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   clear,
   defaultStyle,
+  drawApexHeight,
   drawControlPoints,
   drawCurvatureComb,
   drawFinsPlan,
@@ -377,6 +378,96 @@ describe('drawControlPoints', () => {
           Math.abs(y - (end.y - 12 * Math.SQRT1_2)) < 1e-9,
       );
     expect(guide).toBeDefined();
+  });
+
+  describe('points the blank holds', () => {
+    const FIXED = { x: true, y: true };
+    const HEIGHT_ONLY = { x: true, y: false };
+    const FREE = { x: false, y: false };
+
+    it('rings a fixed point and draws nothing for a free one', () => {
+      const { ctx } = makeCtx();
+      drawControlPoints(ctx, makeSpline(), VP, defaultStyle, null, undefined, 'end', null, [
+        FIXED,
+        FREE,
+        FREE,
+      ]);
+      // 9 filled dots, plus one ring round the first point …
+      expect(ctx.arc).toHaveBeenCalledTimes(10);
+      const end = worldToScreen(VP, vec2(0, 0));
+      expect(vi.mocked(ctx.arc).mock.calls[0]!.slice(0, 3)).toEqual([end.x, end.y, 9]);
+      // … stroked once, on top of the three handle lines.
+      expect(ctx.stroke).toHaveBeenCalledTimes(4);
+    });
+
+    it('points chevrons along the axis a height-only point can still move on', () => {
+      const { ctx } = makeCtx();
+      drawControlPoints(ctx, makeSpline(), VP, defaultStyle, null, undefined, 'end', null, [
+        FREE,
+        HEIGHT_ONLY,
+        FREE,
+      ]);
+      expect(ctx.arc).toHaveBeenCalledTimes(9); // no ring
+      expect(ctx.stroke).toHaveBeenCalledTimes(4);
+      // The two chevron tips sit 11 px straight above and below the point on screen.
+      const end = worldToScreen(VP, vec2(50, 0));
+      const tips = vi
+        .mocked(ctx.lineTo)
+        .mock.calls.filter(([x]) => Math.abs(x - end.x) < 1e-9)
+        .map(([, y]) => y - end.y);
+      expect(tips).toEqual(expect.arrayContaining([-11, 11]));
+    });
+
+    it('keeps the ring clear of a large or hovered point', () => {
+      const { ctx } = makeCtx();
+      // Size 10, hovered: the point is drawn 15.5 px across its radius.
+      drawControlPoints(
+        ctx,
+        makeSpline(),
+        VP,
+        defaultStyle,
+        null,
+        10,
+        'end',
+        { index: 0, kind: 'end' },
+        [FIXED, FREE, FREE],
+      );
+      const ring = vi.mocked(ctx.arc).mock.calls[0]![2];
+      expect(ring).toBeGreaterThan(10 * 1.55);
+    });
+
+    it("puts the chevrons beyond a locked handle's bar on the same axis", () => {
+      const { ctx } = makeCtx();
+      const s = splineFromKnots([
+        knot(vec2(0, 0), vec2(0, 0), vec2(10, 0)),
+        // An upright apex with its handles locked upright: the bars sit on the chevrons' axis.
+        knot(vec2(50, 0), vec2(50, -10), vec2(50, 10), true, false, {
+          prev: vec2(0, -1),
+          next: vec2(0, 1),
+        }),
+        knot(vec2(100, 0), vec2(90, 0), vec2(100, 0)),
+      ]);
+      drawControlPoints(ctx, s, VP, defaultStyle, null, undefined, 'end', null, [
+        FREE,
+        HEIGHT_ONLY,
+        FREE,
+      ]);
+      const end = worldToScreen(VP, vec2(50, 0));
+      // Chevron tips: the lineTo points on the axis other than the point and the handle tips.
+      const out = vi
+        .mocked(ctx.lineTo)
+        .mock.calls.filter(([x]) => Math.abs(x - end.x) < 1e-9)
+        .map(([, y]) => Math.abs(y - end.y))
+        .filter((d) => d > 0 && d !== 20);
+      expect(Math.min(...out)).toBeGreaterThan(12);
+    });
+
+    it('is drawn by nothing but the holds passed in', () => {
+      const { ctx } = makeCtx();
+      drawControlPoints(ctx, makeSpline(), VP, defaultStyle, null, undefined, 'end', null, null);
+      expect(ctx.arc).toHaveBeenCalledTimes(9);
+      expect(ctx.stroke).toHaveBeenCalledTimes(3);
+    });
   });
 
   it('renders a corner endpoint as a square with its permanent corner style', () => {
@@ -788,5 +879,39 @@ describe('fillTextUpright', () => {
     const { ctx } = makeCtx();
     fillTextUpright(ctx, 'x', 0, 0, true);
     expect(ctx.rotate).toHaveBeenCalledWith(Math.PI / 2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// rail apex height (rocker view)
+// ---------------------------------------------------------------------------
+
+describe('drawApexHeight', () => {
+  const pts = [
+    { x: 0, z: 1 },
+    { x: 50, z: 2.5 },
+    { x: 100, z: 1.5 },
+  ];
+
+  it('strokes one dashed polyline through (x, apex height), then clears the dash', () => {
+    const { ctx, calls } = makeCtx();
+    drawApexHeight(ctx, pts, VP);
+
+    expect(ctx.setLineDash).toHaveBeenCalledWith([6, 4]);
+    expect(ctx.moveTo).toHaveBeenCalledTimes(1);
+    expect(ctx.lineTo).toHaveBeenCalledTimes(2);
+    expect(ctx.stroke).toHaveBeenCalledTimes(1);
+    // The height is the side view's vertical axis, through the same viewport as the curves.
+    const second = worldToScreen(VP, vec2(50, 2.5));
+    expect(ctx.lineTo).toHaveBeenNthCalledWith(1, second.x, second.y);
+    // Wrapped in save/restore so the dash cannot leak into the curves drawn after it.
+    expect(calls[0]).toBe('save');
+    expect(calls.at(-1)).toBe('restore');
+  });
+
+  it('draws nothing for fewer than two points', () => {
+    const { ctx, calls } = makeCtx();
+    drawApexHeight(ctx, pts.slice(0, 1), VP);
+    expect(calls).toEqual([]);
   });
 });

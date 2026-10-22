@@ -1,5 +1,7 @@
 import {
   cloneElement,
+  createContext,
+  useContext,
   useCallback,
   useEffect,
   useId,
@@ -18,11 +20,25 @@ export interface TooltipProps {
    * the caller so platform differences stay in one place.
    */
   shortcut?: string;
+  /**
+   * A longer explanation, rendered muted on a second line: one plain sentence on what
+   * the control is for. Optional, and plain text only — the tooltip is `aria-hidden`
+   * and never takes the pointer, so anything in it that looked clickable would be a
+   * lie. Whether to show one is the caller's call (the editor has a setting for it);
+   * this component only lays it out.
+   */
+  description?: string;
   /** Side to prefer; flips automatically when it would leave the viewport. */
   side?: 'top' | 'bottom';
   /** The control to describe. Must forward ref and DOM props to a real element. */
   children: ReactElement;
 }
+
+/**
+ * Whether tooltips show at all. The editor turns them off from its Show tips
+ * setting; triggers keep their `aria-label`, so nothing is lost to screen readers.
+ */
+export const TooltipsEnabledContext = createContext(true);
 
 /** Delay before showing. Long enough not to fire while sweeping across a toolbar. */
 const OPEN_DELAY_MS = 400;
@@ -40,7 +56,8 @@ const MARGIN = 8;
  *
  * Behaviour worth knowing:
  *  - **Pointer only.** Suppressed for touch, where there is no hover and a
- *    tooltip would either never show or fight the tap.
+ *    tooltip would either never show or fight the tap. That includes the focus a
+ *    tap gives the control in some browsers (Chrome on Android).
  *  - **Focus shows it immediately**, with no delay, so keyboard users tabbing
  *    through a toolbar get the same information without waiting.
  *  - **Never traps or steals focus**, and is `aria-hidden`: the accessible name
@@ -49,11 +66,18 @@ const MARGIN = 8;
  *
  * The trigger keeps its own handlers — they're chained, not replaced.
  */
-export function Tooltip({ label, shortcut, side = 'bottom', children }: TooltipProps) {
+export function Tooltip(props: TooltipProps) {
+  // Off renders the bare trigger: no listeners, so nothing can open.
+  return useContext(TooltipsEnabledContext) ? <EnabledTooltip {...props} /> : props.children;
+}
+
+function EnabledTooltip({ label, shortcut, description, side = 'bottom', children }: TooltipProps) {
   const id = useId();
   const triggerRef = useRef<HTMLElement | null>(null);
   const tipRef = useRef<HTMLDivElement>(null);
   const timer = useRef<number | null>(null);
+  /** The trigger was last pressed by touch, so the focus that follows is a tap's. */
+  const touched = useRef(false);
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
 
@@ -105,7 +129,7 @@ export function Tooltip({ label, shortcut, side = 'bottom', children }: TooltipP
     const x = Math.max(MARGIN, Math.min(centred, window.innerWidth - width - MARGIN));
 
     setPos({ x, y });
-  }, [open, side, label, shortcut]);
+  }, [open, side, label, shortcut, description]);
 
   const show = (immediate: boolean) => {
     clearTimer();
@@ -150,12 +174,18 @@ export function Tooltip({ label, shortcut, side = 'bottom', children }: TooltipP
     // A click means the user found what they wanted; the tooltip is now noise.
     onPointerDown: chain(
       childProps.onPointerDown as ((e: React.PointerEvent) => void) | undefined,
-      hide,
+      (e: React.PointerEvent) => {
+        touched.current = e.pointerType === 'touch';
+        hide();
+      },
     ),
-    onFocus: chain(childProps.onFocus as ((e: React.FocusEvent) => void) | undefined, () =>
-      show(true),
-    ),
-    onBlur: chain(childProps.onBlur as ((e: React.FocusEvent) => void) | undefined, hide),
+    onFocus: chain(childProps.onFocus as ((e: React.FocusEvent) => void) | undefined, () => {
+      if (!touched.current) show(true);
+    }),
+    onBlur: chain(childProps.onBlur as ((e: React.FocusEvent) => void) | undefined, () => {
+      touched.current = false;
+      hide();
+    }),
   } as Record<string, unknown>);
 
   return (
@@ -169,15 +199,30 @@ export function Tooltip({ label, shortcut, side = 'bottom', children }: TooltipP
             role="presentation"
             aria-hidden="true"
             className={cn(
-              'pointer-events-none fixed z-[70] flex items-center gap-2 rounded-md border border-border',
+              'pointer-events-none fixed z-[70] flex rounded-md border border-border',
               'bg-card px-2 py-1 text-xs text-card-foreground shadow-lg',
+              // A description stacks under the label, wrapped to a readable measure;
+              // without one the tooltip stays the single row it always was.
+              description ? 'max-w-64 flex-col gap-0.5' : 'items-center gap-2',
               // Rendered off-screen for the first paint so measurement can't flash.
               pos ? 'opacity-100' : 'opacity-0',
             )}
             style={{ left: pos?.x ?? -9999, top: pos?.y ?? -9999 }}
           >
-            <span>{label}</span>
-            {shortcut && <span className="text-muted-foreground">{shortcut}</span>}
+            {description ? (
+              <>
+                <span className="flex items-center gap-2">
+                  <span className="font-medium">{label}</span>
+                  {shortcut && <span className="text-muted-foreground">{shortcut}</span>}
+                </span>
+                <span className="text-muted-foreground">{description}</span>
+              </>
+            ) : (
+              <>
+                <span>{label}</span>
+                {shortcut && <span className="text-muted-foreground">{shortcut}</span>}
+              </>
+            )}
           </div>,
           document.body,
         )}

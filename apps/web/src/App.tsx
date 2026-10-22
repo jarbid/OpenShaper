@@ -8,7 +8,7 @@ import {
   type Spline,
 } from '@openshaper/kernel';
 import { type EditorOverlays, type SimilarityParams } from '@openshaper/render2d';
-import type { Board3DViewProps } from '@openshaper/render3d';
+import type { AnalysisStatus, Board3DViewProps } from '@openshaper/render3d';
 import { selectSpecs } from '@openshaper/store';
 import {
   BottomSheet,
@@ -76,12 +76,16 @@ import {
   LENGTH_UNITS,
   lengthUnitByKey,
   parseLen,
+  type LengthUnit,
 } from './format';
+import { AnalysisLegend } from './AnalysisLegend';
 import { openHtmlInNewTab, specSheetHtmlFor } from './spec-sheet-open';
 import { loadSession, saveSession } from './session-store';
 import { DEFAULT_SPLIT, loadViewState, saveViewState, type SplitPanes } from './view-state';
 import { Brandmark } from './components/marks';
 import { CommandPalette, commandsFromMenus } from './CommandPalette';
+import { commandHelp } from './help-text';
+import { HelpTooltip, ShowTipsProvider } from './help-tips';
 import { ConstructionPanel } from './ConstructionPanel';
 import { SettingsDialog } from './SettingsDialog';
 import { ShareDialog } from './ShareDialog';
@@ -93,7 +97,12 @@ import { CrossSectionControls } from './CrossSectionControls';
 import { LandscapeHint } from './LandscapeHint';
 import { CoffeeIcon } from './components/Support';
 import { Sidebar, type OverlayToggles, type ResizeFields } from './Sidebar';
-import { applyViewChange, DEFAULT_SIDEBAR_STATE, type SidebarState } from './sidebar-sections';
+import {
+  applyViewChange,
+  DEFAULT_SIDEBAR_STATE,
+  revealSection,
+  type SidebarState,
+} from './sidebar-sections';
 import sampleBrd from './sample-board.brd?raw';
 import { boardStore } from './store';
 import { SUPPORT_URL } from './support';
@@ -122,7 +131,11 @@ import {
   type View3DSettings,
 } from './view-toolkit';
 import { longitudinalFor, type MeasurementAxis } from './longitudinal';
-import { DEFAULT_VIEW_3D } from './view3d-settings';
+import {
+  DEFAULT_VIEW_3D,
+  exactAnalysisUnavailable,
+  ghostDeviationUnavailable,
+} from './view3d-settings';
 import { estimateWeight, FOAM_TYPES, GLASS_SCHEDULES } from './weights';
 import { readRaw, writeRaw } from './persisted';
 
@@ -133,24 +146,40 @@ const Board3DView = lazy(() =>
   import('@openshaper/render3d').then((m) => ({ default: m.Board3DView })),
 );
 
+const ANALYSIS_IDLE: AnalysisStatus = { state: 'off' };
+
 /**
- * Board3DView behind a Suspense boundary, so the lazy 3D chunk can stream in.
+ * Board3DView behind a Suspense boundary, so the lazy 3D chunk can stream in, with
+ * the computed analysis modes' legend over it (the view reports where an analysis
+ * stands; the legend's lengths are formatted here, in the display unit).
  *
  * Memoized: the 3D view subscribes to the board store itself and every prop here is a
- * primitive, a ref-backed value or a stable callback, so an AppShell render (a 2D drag
- * move, a hover scrub) need not re-reconcile the three.js scene.
+ * primitive, a ref-backed value or a stable callback (`units` is one of the constant
+ * `LENGTH_UNITS`, `ghost` changes only when a ghost is opened or cleared), so an
+ * AppShell render (a 2D drag move, a hover scrub) need not re-reconcile the three.js
+ * scene.
  */
-const ThreeDPane = memo(function ThreeDPane(props: Board3DViewProps) {
+const ThreeDPane = memo(function ThreeDPane({
+  units,
+  ...props
+}: Board3DViewProps & { units: LengthUnit }) {
+  const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>(ANALYSIS_IDLE);
   return (
-    <Suspense
-      fallback={
-        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-          Loading 3D…
-        </div>
-      }
-    >
-      <Board3DView {...props} />
-    </Suspense>
+    <div className="relative h-full w-full">
+      <Suspense
+        fallback={
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+            Loading 3D…
+          </div>
+        }
+      >
+        <Board3DView {...props} onAnalysisStatus={setAnalysisStatus} />
+      </Suspense>
+      {/* Only an exact mode reports anything but 'off'; switching away clears it. */}
+      {props.analysis && props.analysis !== 'none' && (
+        <AnalysisLegend status={analysisStatus} units={units} />
+      )}
+    </div>
   );
 });
 
@@ -269,6 +298,7 @@ function AppShell() {
     com: false,
     dist: false,
     tunni: false,
+    apex: false,
   });
   // Flip one overlay and report it. These four are entirely unmeasured
   // otherwise — the curvature comb and volume distribution in particular are
@@ -292,12 +322,16 @@ function AppShell() {
   const workerResult = useSpecsWorker(settledBoard, {
     wantDistribution: overlayToggles.dist,
     distributionIntervals: 40,
+    wantApex: overlayToggles.apex,
   });
   const specs = workerResult?.specs ?? null;
   // Volume-distribution overlay: computed off-thread when the overlay is enabled.
   // When disabled the worker skips the sampling, saving ~41 getCrossSectionAreaAt
   // calls per settled-board change.
   const volumeDist = workerResult?.distribution;
+  // Rail apex height for the rocker view: traced off-thread too, from the settled board,
+  // so like the distribution it catches up when a drag is released.
+  const apexHeight = workerResult?.apex;
 
   // View-state restore: active tab, per-pane 2D framing, 3D camera pose —
   // read once at boot (synchronous localStorage), then live changes are
@@ -673,6 +707,56 @@ function AppShell() {
     setResize({ l: '', w: '', t: '' });
   }, [specs, resize, units]);
 
+  // Board ▸ Resize…: the tool lives in a section of the Shape tab that no view opens
+  // on its own, so asking to scale a finished design did not lead to it. The command
+  // brings it on screen — panel unfolded, or the sheet raised on the compact tiers —
+  // and puts the cursor in its first field.
+  //
+  // An effect keyed on a request counter rather than a call made here: the panel may
+  // be folded or the sheet closed, so the field does not exist until the commit these
+  // updates cause. Passive rather than layout, so it lands after every cleanup in that
+  // commit — a closing dialog handing focus back to its opener cannot take it back.
+  //
+  // Focus without the browser's own scroll, then scroll the form in once the sheet has
+  // settled. The sheet animates its height, and a field focused mid-grow is centred in
+  // the still-tiny body — a scroll offset it keeps at full height, which parks the tab
+  // strip and the Resize header above the fold. `nearest` leaves a form that already
+  // fits where it is; the form's scroll margins keep its header and the sticky support
+  // bar's strip clear (`ResizeSection`).
+  const resizeForm = useRef<HTMLDivElement>(null);
+  const [resizeFocus, setResizeFocus] = useState(0);
+  useEffect(() => {
+    const form = resizeForm.current;
+    if (resizeFocus === 0 || !form) return;
+    form.querySelector('input')?.focus({ preventScroll: true });
+    const reveal = () => form.scrollIntoView?.({ block: 'nearest' });
+    // getAnimations flushes style, so a height transition this commit started is
+    // already listed. Absent in jsdom.
+    const growing = form.closest('[role="dialog"]')?.getAnimations?.() ?? [];
+    if (growing.length === 0) {
+      reveal();
+      return;
+    }
+    let live = true;
+    void Promise.allSettled(growing.map((a) => a.finished)).then(() => {
+      if (live) reveal();
+    });
+    return () => {
+      live = false;
+    };
+  }, [resizeFocus]);
+  const openResize = () => {
+    setSidebar((s) => revealSection(s, 'resize'));
+    // `half` is where the panels button opens it; one already at `full` stays there. A
+    // short (landscape) half is too low to show the form above the support bar, so it
+    // goes to `full` — the board is not what this command is about.
+    if (!isDesktop) {
+      if (isShort) setSheetSnap('full');
+      else if (!panelsShowing) setSheetSnap('half');
+    }
+    setResizeFocus((n) => n + 1);
+  };
+
   // Fins are part of the board model now; resolve their geometry against the current
   // shape for the 2D overlays (plan footprint + box; profile blade silhouette).
   const resolvedFins = useMemo(() => (board ? resolveFins(board) : []), [board]);
@@ -713,6 +797,9 @@ function AppShell() {
       // probe in every length-axis pane (the hovered pane included — it tracks the cursor).
       scrubProbe: longitudinal && scrubX != null ? scrubX : undefined,
       distribution: longitudinal ? volumeDist : undefined,
+      // Gated on the toggle as well as the result: switching it off must hide the line
+      // at once, not when (or if) the worker answers the request without it.
+      apexHeight: kind === 'rocker' && overlayToggles.apex ? apexHeight : undefined,
       // Plan footprint + box on the outline; blade silhouette on the rocker (rail) view.
       fins:
         (kind === 'outline' || kind === 'rocker') && resolvedFins.length ? resolvedFins : undefined,
@@ -1216,6 +1303,12 @@ function AppShell() {
     },
     {
       kind: 'checkbox',
+      label: 'Apex height',
+      checked: overlayToggles.apex,
+      onSelect: () => toggleOverlay('apex'),
+    },
+    {
+      kind: 'checkbox',
       label: 'Tunni controls',
       checked: overlayToggles.tunni,
       onSelect: () => toggleOverlay('tunni'),
@@ -1249,6 +1342,8 @@ function AppShell() {
   ];
 
   const boardMenu: MenuItem[] = [
+    { kind: 'action', label: 'Resize…', onSelect: openResize },
+    { kind: 'separator' },
     ghost
       ? { kind: 'action', label: 'Clear ghost', onSelect: () => setGhost(null) }
       : { kind: 'action', label: 'Open ghost…', onSelect: () => ghostInput.current?.click() },
@@ -1304,6 +1399,12 @@ function AppShell() {
       : []),
   ];
 
+  // The exact curvature modes read the fitted surface, which a concave tail does not
+  // have; the controls list them disabled with the reason, as the STEP item is. The
+  // deviation map likewise needs a ghost to measure against.
+  const exactUnavailable = exactAnalysisUnavailable(board);
+  const ghostUnavailable = ghostDeviationUnavailable(ghost);
+
   // One 3D pane element and one set of 2D pane props, shared by the quad/split layout
   // and the single-view layout so the two cannot drift apart.
   const threeDPane = (
@@ -1316,9 +1417,13 @@ function AppShell() {
       finColor={settings.finColor}
       viewCubeLineColor={settings.outlineColor}
       analysis={view3d.analysis}
+      ghost={ghost}
+      deviationBand={view3d.deviationBand}
+      units={units}
       targetFaceSize={faceSizeFor(view3d.meshQuality)}
       showStringer={view3d.showStringer}
       showSections={view3d.showSections}
+      showApex={view3d.showApex}
       activeSectionX={activeSectionX}
       key={cameraEpoch}
       initialCamera={liveViewState.current.camera3d}
@@ -1367,7 +1472,14 @@ function AppShell() {
             {titleControl ?? (
               <ViewToggleTitle onDoubleClick={() => selectView('3d')}>3D</ViewToggleTitle>
             )}
-            <ThreeDControls settings={view3d} onChange={patchView3d} compact />
+            <ThreeDControls
+              settings={view3d}
+              onChange={patchView3d}
+              units={units}
+              exactUnavailable={exactUnavailable}
+              ghostUnavailable={ghostUnavailable}
+              compact
+            />
           </ViewPaneHeader>
           <PanelBody className="min-h-0 flex-1 p-0">{threeDPane}</PanelBody>
         </Panel>
@@ -1403,6 +1515,7 @@ function AppShell() {
       resize={resize}
       setResize={setResize}
       applyResize={applyResize}
+      resizeFormRef={resizeForm}
       meta={meta}
       setMeta={setMeta}
       foamType={foamType}
@@ -1436,7 +1549,9 @@ function AppShell() {
     <span className="text-sm text-muted-foreground">Board panels</span>
   );
 
-  return (
+  // The Show tips setting reaches every tooltip by context: the memoised panels
+  // that render tooltips are not re-rendered or rethreaded when it changes.
+  const shell = (
     <div className="flex h-full flex-col">
       {/* Two 44px rows cost 88px, which is 23% of a landscape phone. Where height
           is the scarce axis they sit side by side as one 44px row instead — the
@@ -1467,16 +1582,17 @@ function AppShell() {
           <ToolbarSeparator className="hidden sm:block" />
           {/* Phones: a single button opens the command palette, which lists every menu
               action. Tablets and up get the full menubar. */}
-          <Button
-            size="sm"
-            variant="ghost"
-            className="sm:hidden"
-            title="Menu / commands"
-            aria-label="Menu and commands"
-            onClick={togglePalette}
-          >
-            <MenuIcon className="size-4" />
-          </Button>
+          <HelpTooltip label="Menu and commands" helpId="toolbar:menu">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="sm:hidden"
+              aria-label="Menu and commands"
+              onClick={togglePalette}
+            >
+              <MenuIcon className="size-4" />
+            </Button>
+          </HelpTooltip>
           <MenuBar className="hidden sm:flex">
             <Menu label="File" items={fileMenu} />
             <Menu label="Edit" items={editMenu} />
@@ -1488,18 +1604,19 @@ function AppShell() {
           {/* Sharing is the one action aimed at someone who is not in the room,
               so it gets a button of its own rather than living only in a menu.
               The label drops below sm, where the menubar is a hamburger. */}
-          <Button
-            size="sm"
-            variant="secondary"
-            className="shrink-0"
-            disabled={!board}
-            title="Share this board as a link"
-            aria-label="Share board"
-            onClick={() => setShareOpen(true)}
-          >
-            <Share2 className="size-4" />
-            <span className="hidden sm:inline">Share</span>
-          </Button>
+          <HelpTooltip label="Share this board as a link" helpId="toolbar:share">
+            <Button
+              size="sm"
+              variant="secondary"
+              className="shrink-0"
+              disabled={!board}
+              aria-label="Share board"
+              onClick={() => setShareOpen(true)}
+            >
+              <Share2 className="size-4" />
+              <span className="hidden sm:inline">Share</span>
+            </Button>
+          </HelpTooltip>
           {!isShort && <div className="flex-1" />}
           {SUPPORT_URL && !isShort && (
             <a
@@ -1549,16 +1666,20 @@ function AppShell() {
               names the same action as the rail's own control, and two mounted buttons
               claiming it is one ambiguity for assistive tech and one for tests. */}
           {!isDesktop && (
-            <Button
-              size="sm"
-              variant="ghost"
-              className="shrink-0"
-              title={panelsShowing ? 'Hide board panels' : 'Show board panels'}
-              aria-label={panelsShowing ? 'Hide board panels' : 'Show board panels'}
-              onClick={() => setSheetSnap(panelsShowing ? 'closed' : 'half')}
+            <HelpTooltip
+              label={panelsShowing ? 'Hide board panels' : 'Show board panels'}
+              helpId="toolbar:panels"
             >
-              <SlidersHorizontal className="size-4" />
-            </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="shrink-0"
+                aria-label={panelsShowing ? 'Hide board panels' : 'Show board panels'}
+                onClick={() => setSheetSnap(panelsShowing ? 'closed' : 'half')}
+              >
+                <SlidersHorizontal className="size-4" />
+              </Button>
+            </HelpTooltip>
           )}
         </div>
 
@@ -1643,7 +1764,13 @@ function AppShell() {
                     drag to orbit • scroll to zoom
                   </span>
                 </div>
-                <ThreeDControls settings={view3d} onChange={patchView3d} />
+                <ThreeDControls
+                  settings={view3d}
+                  onChange={patchView3d}
+                  units={units}
+                  exactUnavailable={exactUnavailable}
+                  ghostUnavailable={ghostUnavailable}
+                />
               </ViewPaneHeader>
               <PanelBody className="min-h-0 flex-1 p-0">{threeDPane}</PanelBody>
             </Panel>
@@ -1692,14 +1819,17 @@ function AppShell() {
 
       {paletteOpen && (
         <CommandPalette
-          commands={commandsFromMenus([
-            ['File', fileMenu],
-            ['Edit', editMenu],
-            ['View', viewMenu],
-            ['Board', boardMenu],
-            ['Export', exportMenu],
-            ['Help', helpMenu],
-          ])}
+          commands={commandsFromMenus(
+            [
+              ['File', fileMenu],
+              ['Edit', editMenu],
+              ['View', viewMenu],
+              ['Board', boardMenu],
+              ['Export', exportMenu],
+              ['Help', helpMenu],
+            ],
+            commandHelp,
+          )}
           onClose={() => setPaletteOpen(false)}
         />
       )}
@@ -1803,6 +1933,7 @@ function AppShell() {
       )}
     </div>
   );
+  return <ShowTipsProvider value={settings.showTips}>{shell}</ShowTipsProvider>;
 }
 
 export function App() {

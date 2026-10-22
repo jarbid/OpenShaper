@@ -412,6 +412,20 @@ const measureIntervals = (
   return perInterval;
 };
 
+/**
+ * Which way `S_u x S_v` points on each hull patch, as the `orientation` to hand
+ * `principalCurvatures` (`bspline-surface.ts`) for outward normals.
+ *
+ * u runs tail to nose (+x) and v from the bottom centreline round the rail to the
+ * deck centreline. On the +Y half that sweeps the rail upward, so at the apex
+ * `S_u x S_v` is x × z = -y: into the board. {@link mirrorSurface} reverses the
+ * sweep, so on the -Y half it points out.
+ */
+export const HULL_ORIENTATION = { plus: -1, minus: 1 } as const satisfies Record<
+  'plus' | 'minus',
+  1 | -1
+>;
+
 /** `s` with y negated — the other half of the hull, exact by construction. */
 export const mirrorSurface = (s: BSplineSurface): BSplineSurface => ({
   uDegree: s.uDegree,

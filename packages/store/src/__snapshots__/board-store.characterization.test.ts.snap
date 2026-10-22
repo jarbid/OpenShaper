@@ -461,7 +461,7 @@ exports[`characterization: store actions on the reference shortboard > move an o
 
 exports[`characterization: store actions on the reference shortboard > paste a section shape and apply a rail preset 1`] = `
 {
-  "boardHash": "1155dd9502ce56b4",
+  "boardHash": "c9505f7ba2f711aa",
   "editing": false,
   "fins": {
     "fins": [],

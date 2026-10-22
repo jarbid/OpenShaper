@@ -2,7 +2,13 @@ import { getCrossSectionAreaAt, getLength, type BezierBoard } from '@openshaper/
 import { selectSpecs, type BoardSpecs } from '@openshaper/store';
 import { useEffect, useRef, useState } from 'react';
 import { captureError } from './analytics';
-import type { DistributionSample, SpecsRequest, SpecsResponse } from './workers/specs-protocol';
+import { apexSamples } from './workers/apex-samples';
+import type {
+  ApexSample,
+  DistributionSample,
+  SpecsRequest,
+  SpecsResponse,
+} from './workers/specs-protocol';
 
 // jsdom tests and the vite-react-ssg prerender pass have no Worker; compute
 // synchronously there (selectSpecs memoizes by board identity, so it's cheap
@@ -21,6 +27,11 @@ export interface SpecsWorkerOptions {
    * (distributionIntervals + 1) samples. Defaults to 40.
    */
   distributionIntervals?: number;
+  /**
+   * When true, trace the rail apex height (the rocker view's apex overlay). The hook
+   * re-issues a new request whenever this flag changes.
+   */
+  wantApex?: boolean;
 }
 
 /** Result returned by useSpecsWorker — null while the first result is pending. */
@@ -28,11 +39,13 @@ export interface SpecsWorkerResult {
   specs: BoardSpecs;
   /** Present when wantDistribution was true in the matching request. */
   distribution?: DistributionSample[];
+  /** Present when wantApex was true in the matching request. */
+  apex?: ApexSample[];
 }
 
 /**
- * Derived board specs (and optionally the cross-sectional-area distribution)
- * computed in the specs worker instead of on the main thread (see
+ * Derived board specs (and optionally the cross-sectional-area distribution and the
+ * rail apex height) computed in the specs worker instead of on the main thread (see
  * docs/design/specs-worker.md). Returns the last completed result, so during
  * recompute the previous values stay on screen (no flicker); stale responses
  * (superseded by a newer board or option change) are dropped by id.
@@ -41,7 +54,7 @@ export function useSpecsWorker(
   board: BezierBoard | null,
   options: SpecsWorkerOptions = {},
 ): SpecsWorkerResult | null {
-  const { wantDistribution = false, distributionIntervals = 40 } = options;
+  const { wantDistribution = false, distributionIntervals = 40, wantApex = false } = options;
 
   const workerRef = useRef<Worker | null>(null);
   const idRef = useRef(0);
@@ -59,7 +72,7 @@ export function useSpecsWorker(
     worker.onmessage = (e: MessageEvent<SpecsResponse>) => {
       if (e.data.id !== idRef.current) return; // superseded mid-flight — drop
       if (e.data.ok) {
-        setResult({ specs: e.data.specs, distribution: e.data.distribution });
+        setResult({ specs: e.data.specs, distribution: e.data.distribution, apex: e.data.apex });
       } else {
         // Volume, dimensions and the distribution overlay silently stop
         // updating from here on — the numbers on screen just go stale. The
@@ -102,7 +115,7 @@ export function useSpecsWorker(
           return { x, value: getCrossSectionAreaAt(board, x, 10) };
         });
       }
-      setResult({ specs, distribution });
+      setResult({ specs, distribution, apex: wantApex ? apexSamples(board) : undefined });
       return;
     }
     const request: SpecsRequest = {
@@ -110,9 +123,10 @@ export function useSpecsWorker(
       board,
       wantDistribution,
       distributionIntervals,
+      wantApex,
     };
     workerRef.current?.postMessage(request);
-  }, [board, wantDistribution, distributionIntervals, workerFailed]);
+  }, [board, wantDistribution, distributionIntervals, wantApex, workerFailed]);
 
   return result;
 }

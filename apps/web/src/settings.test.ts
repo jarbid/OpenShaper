@@ -48,6 +48,18 @@ describe('DEFAULT_SETTINGS', () => {
     expect(migrateSettings(v1 as EditorSettings).adjustCrossSectionThickness).toBe(true);
   });
 
+  it('shows tips by default, including for a blob saved before the setting existed', () => {
+    expect(DEFAULT_SETTINGS.showTips).toBe(true);
+    const before = { ...DEFAULT_SETTINGS } as Partial<EditorSettings>;
+    delete before.showTips;
+    expect(migrateSettings(before as EditorSettings).showTips).toBe(true);
+  });
+
+  it('remembers tips turned off', () => {
+    saveSettings({ ...DEFAULT_SETTINGS, showTips: false });
+    expect(loadSettings().showTips).toBe(false);
+  });
+
   it('all color values are valid CSS hex strings', () => {
     const hexRe = /^#[0-9a-fA-F]{6}$/;
     expect(DEFAULT_SETTINGS.outlineColor).toMatch(hexRe);

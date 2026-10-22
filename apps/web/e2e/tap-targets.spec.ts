@@ -166,7 +166,7 @@ test.describe('touch targets on a phone', () => {
     // Rail bands is the dialog that actually renders the shared numeric atoms
     // (`IntField`, `LenField`) — a dozen of them. Picking a dialog without them
     // would make this case pass on an empty form.
-    await page.getByText('Export: Rail bands…', { exact: true }).click();
+    await page.getByRole('option', { name: 'Export: Rail bands…', exact: true }).click();
     await page.waitForTimeout(400);
 
     const all = await targets(page);

@@ -21,6 +21,11 @@
  * control net comes out the same size as the data grid, endpoints are
  * interpolated exactly, and no end-derivative conditions are needed.
  *
+ * Evaluation goes to second order (P&T A2.3): {@link evalSurfaceDeriv2} and
+ * {@link principalCurvatures}, which the 3D view's exact curvature analysis reads.
+ * Both can be asked for either one-sided limit at a knot ({@link KnotSide}), which
+ * is what lets the analysis show a crease as a crisp jump rather than a smear.
+ *
  * ## Why the strip machinery exists
  *
  * A surface skinned through the board is NOT globally smooth along its length:
@@ -157,6 +162,37 @@ const findSpan = (n: number, degree: number, u: number, U: readonly number[]): n
   return mid;
 };
 
+/**
+ * Which one-sided limit to take when a parameter lands exactly on an interior knot.
+ *
+ * Inside a knot span the surface is one polynomial and the two limits agree. At a
+ * knot of multiplicity `degree - 1` or more they need not: the derivatives the
+ * surface lacks there (curvature at a C1 knot, the tangent too at a C0 crease) are
+ * different numbers on each side. `'above'` evaluates the span starting at the knot
+ * (what {@link findSpan} picks, and the default); `'below'` the span ending at it.
+ */
+export type KnotSide = 'below' | 'above';
+
+/**
+ * {@link findSpan}, or for `side === 'below'` the span `i` with
+ * `U[i] < u <= U[i + 1]` — the one ending at `u` when `u` is a knot.
+ */
+const findSpanSided = (
+  n: number,
+  degree: number,
+  u: number,
+  U: readonly number[],
+  side: KnotSide,
+): number => {
+  let span = findSpan(n, degree, u, U);
+  if (side === 'below') {
+    // At the last span findSpan already answers from below; elsewhere step back
+    // over every copy of the knot `u` sits on.
+    while (span > degree && U[span]! >= u) span--;
+  }
+  return span;
+};
+
 /** The `degree + 1` nonzero basis functions at `u` (P&T A2.2). */
 const basisFuns = (span: number, u: number, degree: number, U: readonly number[]): number[] => {
   const N = new Array<number>(degree + 1).fill(0);
@@ -213,21 +249,101 @@ const basisFunsDer1 = (
   const N = new Array<number>(degree + 1).fill(0);
   for (let j = 0; j <= degree; j++) N[j] = ndu[j]![degree]!;
 
-  // First derivative: P&T eq. 2.9 specialised to k = 1.
+  // First derivative: P&T eq. 2.9 specialised to k = 1,
+  //   N'_{i,p} = p N_{i,p-1} / (u_{i+p} - u_i) - p N_{i+1,p-1} / (u_{i+p+1} - u_{i+1}).
   const dN = new Array<number>(degree + 1).fill(0);
   for (let r = 0; r <= degree; r++) {
     let d = 0;
     if (r >= 1) {
       const den = ndu[degree]![r - 1]!;
-      if (den !== 0) d -= ndu[r - 1]![degree - 1]! / den;
+      if (den !== 0) d += ndu[r - 1]![degree - 1]! / den;
     }
     if (r <= degree - 1) {
       const den = ndu[degree]![r]!;
-      if (den !== 0) d += ndu[r]![degree - 1]! / den;
+      if (den !== 0) d -= ndu[r]![degree - 1]! / den;
     }
     dN[r] = d * degree;
   }
   return [N, dN];
+};
+
+/**
+ * Nonzero basis functions and their first two derivatives at `u` (P&T A2.3, n = 2).
+ *
+ * Returned as `[N, dN, d2N]`. A separate routine from {@link basisFunsDer1} rather
+ * than a generalisation of it, so the first-derivative path the STEP writer relies
+ * on keeps its exact arithmetic. Derivatives above the degree are zero, which is
+ * what a linear direction (a two-row grid) correctly reports.
+ */
+const basisFunsDer2 = (
+  span: number,
+  u: number,
+  degree: number,
+  U: readonly number[],
+): [number[], number[], number[]] => {
+  const p = degree;
+  const ndu: number[][] = Array.from({ length: p + 1 }, () => new Array<number>(p + 1).fill(0));
+  const left = new Array<number>(p + 1).fill(0);
+  const right = new Array<number>(p + 1).fill(0);
+  ndu[0]![0] = 1;
+  for (let j = 1; j <= p; j++) {
+    left[j] = u - U[span + 1 - j]!;
+    right[j] = U[span + j]! - u;
+    let saved = 0;
+    for (let r = 0; r < j; r++) {
+      // Lower triangle: knot differences. Upper triangle: basis functions.
+      ndu[j]![r] = right[r + 1]! + left[j - r]!;
+      const temp = ndu[j]![r] === 0 ? 0 : ndu[r]![j - 1]! / ndu[j]![r]!;
+      ndu[r]![j] = saved + right[r + 1]! * temp;
+      saved = left[j - r]! * temp;
+    }
+    ndu[j]![j] = saved;
+  }
+
+  const n = Math.min(2, p);
+  const ders: number[][] = [0, 1, 2].map(() => new Array<number>(p + 1).fill(0));
+  for (let j = 0; j <= p; j++) ders[0]![j] = ndu[j]![p]!;
+
+  // P&T A2.3: alternate between two rows of coefficients a[s][*].
+  const a: number[][] = [new Array<number>(p + 1).fill(0), new Array<number>(p + 1).fill(0)];
+  for (let r = 0; r <= p; r++) {
+    let s1 = 0;
+    let s2 = 1;
+    a[0]![0] = 1;
+    for (let k = 1; k <= n; k++) {
+      let d = 0;
+      const rk = r - k;
+      const pk = p - k;
+      if (r >= k) {
+        const den = ndu[pk + 1]![rk]!;
+        a[s2]![0] = den === 0 ? 0 : a[s1]![0]! / den;
+        d = a[s2]![0]! * ndu[rk]![pk]!;
+      }
+      const j1 = rk >= -1 ? 1 : -rk;
+      const j2 = r - 1 <= pk ? k - 1 : p - r;
+      for (let j = j1; j <= j2; j++) {
+        const den = ndu[pk + 1]![rk + j]!;
+        a[s2]![j] = den === 0 ? 0 : (a[s1]![j]! - a[s1]![j - 1]!) / den;
+        d += a[s2]![j]! * ndu[rk + j]![pk]!;
+      }
+      if (r <= pk) {
+        const den = ndu[pk + 1]![r]!;
+        a[s2]![k] = den === 0 ? 0 : -a[s1]![k - 1]! / den;
+        d += a[s2]![k]! * ndu[r]![pk]!;
+      }
+      ders[k]![r] = d;
+      const t = s1;
+      s1 = s2;
+      s2 = t;
+    }
+  }
+  // Multiply through by p!/(p-k)!.
+  let factor = p;
+  for (let k = 1; k <= n; k++) {
+    for (let j = 0; j <= p; j++) ders[k]![j] = ders[k]![j]! * factor;
+    factor *= p - k;
+  }
+  return [ders[0]!, ders[1]!, ders[2]!];
 };
 
 // --- dense LU, factored once per direction and reused for every right-hand side ---
@@ -558,6 +674,235 @@ export const surfaceNormal = (s: BSplineSurface, u: number, v: number): Vert3 | 
   const len = Math.hypot(nx, ny, nz);
   if (!(len > 1e-12)) return null;
   return { x: nx / len, y: ny / len, z: nz / len };
+};
+
+/** A surface point with its first and second partial derivatives. */
+export interface SurfaceDeriv2 {
+  readonly point: Vert3;
+  readonly du: Vert3;
+  readonly dv: Vert3;
+  readonly duu: Vert3;
+  readonly duv: Vert3;
+  readonly dvv: Vert3;
+}
+
+/** One-sided evaluation at a knot; see {@link KnotSide}. Both default to `'above'`. */
+export interface KnotSides {
+  readonly uSide?: KnotSide;
+  readonly vSide?: KnotSide;
+}
+
+/** One direction's span and basis functions to second order at a parameter. */
+interface Basis2 {
+  readonly span: number;
+  readonly N: readonly number[];
+  readonly dN: readonly number[];
+  readonly d2N: readonly number[];
+}
+
+const basis2 = (
+  knots: readonly number[],
+  degree: number,
+  count: number,
+  t: number,
+  side: KnotSide,
+): Basis2 => {
+  const span = findSpanSided(count - 1, degree, t, knots, side);
+  const [N, dN, d2N] = basisFunsDer2(span, t, degree, knots);
+  return { span, N, dN, d2N };
+};
+
+/**
+ * Sum over the control points the two spans touch: first along v (one row of
+ * weights per derivative order), then along u — six (u, v) derivative pairs out of
+ * three v-sums per control row.
+ */
+const combine2 = (s: BSplineSurface, bu: Basis2, bv: Basis2): SurfaceDeriv2 => {
+  const zero = (): Vert3 => ({ x: 0, y: 0, z: 0 });
+  const [point, du, dv, duu, duv, dvv] = [zero(), zero(), zero(), zero(), zero(), zero()];
+  const add = (into: Vert3, w: number, x: number, y: number, z: number) => {
+    into.x += w * x;
+    into.y += w * y;
+    into.z += w * z;
+  };
+  const { N: Nv, dN: dNv, d2N: d2Nv } = bv;
+  for (let i = 0; i <= s.uDegree; i++) {
+    const row = s.ctrl[bu.span - s.uDegree + i]!;
+    // Row i's v-sums: the curve over that control row and its first two derivatives.
+    let x0 = 0;
+    let y0 = 0;
+    let z0 = 0;
+    let x1 = 0;
+    let y1 = 0;
+    let z1 = 0;
+    let x2 = 0;
+    let y2 = 0;
+    let z2 = 0;
+    for (let j = 0; j <= s.vDegree; j++) {
+      const P = row[bv.span - s.vDegree + j]!;
+      const a = Nv[j]!;
+      const b = dNv[j]!;
+      const c = d2Nv[j]!;
+      x0 += a * P.x;
+      y0 += a * P.y;
+      z0 += a * P.z;
+      x1 += b * P.x;
+      y1 += b * P.y;
+      z1 += b * P.z;
+      x2 += c * P.x;
+      y2 += c * P.y;
+      z2 += c * P.z;
+    }
+    add(point, bu.N[i]!, x0, y0, z0);
+    add(du, bu.dN[i]!, x0, y0, z0);
+    add(duu, bu.d2N[i]!, x0, y0, z0);
+    add(dv, bu.N[i]!, x1, y1, z1);
+    add(duv, bu.dN[i]!, x1, y1, z1);
+    add(dvv, bu.N[i]!, x2, y2, z2);
+  }
+  return { point, du, dv, duu, duv, dvv };
+};
+
+/**
+ * Surface point and every partial derivative up to second order at `(u, v)`.
+ *
+ * Analytic, from the basis-function derivatives, for the same reason as
+ * {@link evalSurfaceDeriv}: a finite difference straddling one of the board fit's
+ * station creases would average two different surfaces. On a knot, `sides` picks
+ * which neighbouring span answers.
+ */
+export const evalSurfaceDeriv2 = (
+  s: BSplineSurface,
+  u: number,
+  v: number,
+  sides: KnotSides = {},
+): SurfaceDeriv2 =>
+  combine2(
+    s,
+    basis2(s.uKnots, s.uDegree, s.ctrl.length, u, sides.uSide ?? 'above'),
+    basis2(s.vKnots, s.vDegree, s.ctrl[0]!.length, v, sides.vSide ?? 'above'),
+  );
+
+/** A parameter to sample on a grid, and which side of a knot to take it from. */
+export interface GridParam {
+  readonly t: number;
+  /** Default `'above'`; see {@link KnotSide}. */
+  readonly side?: KnotSide;
+}
+
+/**
+ * {@link evalSurfaceDeriv2} over the tensor grid `us` × `vs`, row by row.
+ *
+ * Gives the same numbers as calling it per point, but evaluates each row's and
+ * each column's basis functions once instead of at every point — the bulk of the
+ * cost, and the difference between a few hundred milliseconds and a few tens for
+ * the 3D curvature analysis.
+ */
+export const evalSurfaceDeriv2Grid = (
+  s: BSplineSurface,
+  us: readonly GridParam[],
+  vs: readonly GridParam[],
+  visit: (row: number, col: number, d: SurfaceDeriv2) => void,
+): void => {
+  const cols = vs.map((p) =>
+    basis2(s.vKnots, s.vDegree, s.ctrl[0]!.length, p.t, p.side ?? 'above'),
+  );
+  us.forEach((p, r) => {
+    const bu = basis2(s.uKnots, s.uDegree, s.ctrl.length, p.t, p.side ?? 'above');
+    cols.forEach((bv, c) => visit(r, c, combine2(s, bu, bv)));
+  });
+};
+
+/**
+ * Principal, mean and Gaussian curvature at a point, with the normal the signs
+ * refer to. Curvatures are in 1/length of the surface's own units (1/cm for a
+ * board).
+ */
+export interface PrincipalCurvatures {
+  /** The larger principal curvature. */
+  readonly k1: number;
+  /** The smaller principal curvature: `k2 <= k1`. */
+  readonly k2: number;
+  /** `(k1 + k2) / 2`. Changes sign with the normal. */
+  readonly mean: number;
+  /** `k1 * k2`. Independent of the normal: positive on a dome, negative on a saddle. */
+  readonly gaussian: number;
+  /** Unit normal the signs are taken against. */
+  readonly normal: Vert3;
+}
+
+export interface CurvatureOptions extends KnotSides {
+  /**
+   * `1` (default) takes the normal as `S_u x S_v`, as {@link surfaceNormal} does;
+   * `-1` flips it. A patch whose parameterization makes `S_u x S_v` point inward
+   * passes `-1` to get outward-referenced signs.
+   */
+  readonly orientation?: 1 | -1;
+}
+
+/**
+ * Principal curvatures of a surface at `(u, v)`, from the first and second
+ * fundamental forms.
+ *
+ * ## Sign convention
+ *
+ * Positive means the surface bends AWAY from its normal — convex as seen from the
+ * side the normal points to. With outward normals a sphere of radius R reports
+ * k1 = k2 = mean = 1/R and gaussian = 1/R²; a concave (dished) patch reports
+ * negative curvature. For a board hull with outward normals that reads the way a
+ * shaper does: deck crown and rails positive, a bottom concave negative.
+ * Concretely, the second fundamental form is taken as `-S_uu·n`, `-S_uv·n`,
+ * `-S_vv·n`.
+ *
+ * Returns null where the surface is degenerate (`S_u x S_v` vanishes), as
+ * {@link surfaceNormal} does.
+ */
+export const principalCurvatures = (
+  s: BSplineSurface,
+  u: number,
+  v: number,
+  opts: CurvatureOptions = {},
+): PrincipalCurvatures | null => {
+  const d = evalSurfaceDeriv2(s, u, v, opts);
+  return curvaturesFromDerivs(d, opts.orientation ?? 1);
+};
+
+const dot = (a: Vert3, b: Vert3): number => a.x * b.x + a.y * b.y + a.z * b.z;
+
+/**
+ * {@link principalCurvatures} from derivatives already in hand — for callers that
+ * also want the point and the tangents, so the surface is evaluated once.
+ */
+export const curvaturesFromDerivs = (
+  d: SurfaceDeriv2,
+  orientation: 1 | -1 = 1,
+): PrincipalCurvatures | null => {
+  const { du, dv } = d;
+  const cx = du.y * dv.z - du.z * dv.y;
+  const cy = du.z * dv.x - du.x * dv.z;
+  const cz = du.x * dv.y - du.y * dv.x;
+  const len = Math.hypot(cx, cy, cz);
+  if (!(len > 1e-12)) return null;
+  const n: Vert3 = {
+    x: (orientation * cx) / len,
+    y: (orientation * cy) / len,
+    z: (orientation * cz) / len,
+  };
+  // First fundamental form; EG - F² = |S_u x S_v|², which is already in hand and
+  // does not suffer the cancellation the explicit difference would.
+  const E = dot(du, du);
+  const F = dot(du, dv);
+  const G = dot(dv, dv);
+  const det = len * len;
+  // Second fundamental form, signed so that bending away from n is positive.
+  const L = -dot(d.duu, n);
+  const M = -dot(d.duv, n);
+  const N = -dot(d.dvv, n);
+  const gaussian = (L * N - M * M) / det;
+  const mean = (L * G - 2 * M * F + N * E) / (2 * det);
+  // H² - K = ((k1 - k2) / 2)² ≥ 0 in exact arithmetic; clamp the rounding.
+  const half = Math.sqrt(Math.max(0, mean * mean - gaussian));
+  return { k1: mean + half, k2: mean - half, mean, gaussian, normal: n };
 };
 
 /**

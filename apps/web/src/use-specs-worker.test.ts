@@ -5,6 +5,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import sampleBrd from './sample-board.brd?raw';
 import { useSpecsWorker } from './use-specs-worker';
+import { apexSamples } from './workers/apex-samples';
 
 const { board } = parseBrd(sampleBrd);
 
@@ -65,6 +66,18 @@ describe('useSpecsWorker — no-Worker fallback (jsdom, SSG)', () => {
       expect(dist[i]!.x).toBeCloseTo(expected[i]!.x, 10);
       expect(dist[i]!.value).toBeCloseTo(expected[i]!.value, 10);
     }
+  });
+
+  it('leaves the apex out unless asked, and traces it like the worker when asked', async () => {
+    const { result: without } = renderHook(() => useSpecsWorker(board));
+    await waitFor(() => expect(without.current).not.toBeNull());
+    expect(without.current?.apex).toBeUndefined();
+
+    const { result } = renderHook(() => useSpecsWorker(board, { wantApex: true }));
+    await waitFor(() => expect(result.current?.apex).toBeDefined());
+    // The same function the worker runs, so the two paths cannot trace different lines.
+    expect(result.current!.apex).toEqual(apexSamples(board));
+    expect(result.current!.apex!.length).toBeGreaterThan(100);
   });
 
   it('uses default 40 intervals when distributionIntervals is omitted', async () => {

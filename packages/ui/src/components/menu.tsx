@@ -22,7 +22,7 @@ import { cn } from '../lib/cn';
  * (no clipping) and not yet in the menubar `Menu`, whose panel scrolls.
  */
 export type MenuItem =
-  | {
+  | ({
       kind: 'action';
       label: string;
       onSelect: () => void;
@@ -33,11 +33,22 @@ export type MenuItem =
        * option with no explanation is a dead end for the user.
        */
       title?: string;
-    }
-  | { kind: 'checkbox'; label: string; checked: boolean; onSelect: () => void }
+    } & MenuItemHelp)
+  | ({ kind: 'checkbox'; label: string; checked: boolean; onSelect: () => void } & MenuItemHelp)
   | { kind: 'submenu'; label: string; items: MenuItem[]; disabled?: boolean }
   | { kind: 'label'; label: string }
   | { kind: 'separator' };
+
+/**
+ * Search help for a command, read by the command palette rather than drawn in the
+ * menu, where a sentence under every row would bury the labels people scan for.
+ */
+export interface MenuItemHelp {
+  /** One plain sentence on what the item does. */
+  description?: string;
+  /** Other words someone might search for it by — synonyms, not the label again. */
+  keywords?: readonly string[];
+}
 
 /** Shared row chrome, so submenu rows sit flush with action and checkbox rows. */
 const ROW_CLASS =

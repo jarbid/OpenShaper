@@ -8,7 +8,13 @@ import {
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
-import { type BoardState, type SplineTarget, getTargetSpline, sameTarget } from '@openshaper/store';
+import {
+  type BoardState,
+  type SplineTarget,
+  blankLocks,
+  getTargetSpline,
+  sameTarget,
+} from '@openshaper/store';
 import { ContextMenu, type MenuItem } from '@openshaper/ui';
 import {
   useCallback,
@@ -28,6 +34,7 @@ import {
   drawControlPoints,
   drawCurvatureComb,
   drawDistribution,
+  drawApexHeight,
   drawGrid,
   drawMeasureCursor,
   drawVProbe,
@@ -118,7 +125,7 @@ export interface SplineEditorProps {
    * info"). Cross-section pane only — length-axis panes use the scrub guide.
    */
   measureCursor?: boolean;
-  /** Toggleable analysis overlays (curvature comb, CoM marker, distribution). */
+  /** Toggleable analysis overlays (curvature comb, CoM marker, distribution, apex height). */
   overlays?: EditorOverlays;
   /**
    * Turn the Tunni-controls overlay on or off; the owner holds the flag in `overlays`.
@@ -738,6 +745,7 @@ export function SplineEditor({
       if (overlays.finView === 'profile') drawFinsProfile(ctx, overlays.fins, vp, selectedFin);
       else drawFinsPlan(ctx, overlays.fins, vp, selectedFin);
     }
+    if (overlays?.apexHeight) drawApexHeight(ctx, overlays.apexHeight, vp);
     if (ghostSplines) {
       for (const g of ghostSplines) drawGhostSpline(ctx, g, vp, { mirrorX, mirrorY }, ghostColor);
     }
@@ -792,6 +800,8 @@ export function SplineEditor({
         controlPointSize,
         selection?.kind ?? 'end',
         hovered,
+        // A slice's centre points and apex carry a mark for what the blank holds of them.
+        blankLocks(t, spline),
       );
     });
     // Sliding-location probes: a closed board outline for the pane lets the cursor /

@@ -49,6 +49,7 @@ import {
   useSyncExternalStore,
   type Dispatch,
   type ReactNode,
+  type Ref,
   type SetStateAction,
 } from 'react';
 import { ControlPointInspector } from './ControlPointInspector';
@@ -78,6 +79,8 @@ import {
 import { boardStore } from './store';
 import { MeasurementAxisSelect, OverlayToggle, Sel, SpecRow, UnitSelect } from './view-toolkit';
 import type { Longitudinal, MeasurementAxis } from './longitudinal';
+import { sectionHelp, type ToolbarHelpId } from './help-text';
+import { DocsHelpLink, HelpTooltip } from './help-tips';
 import {
   fmtWeight,
   FOAM_TYPES,
@@ -149,6 +152,8 @@ export interface OverlayToggles {
   dist: boolean;
   /** Tunni controls: an editing aid, toggled from the View menu or a pane's context menu. */
   tunni: boolean;
+  /** Rail apex height, dashed in the rocker view. */
+  apex: boolean;
 }
 
 export interface SidebarProps {
@@ -158,6 +163,12 @@ export interface SidebarProps {
   resize: ResizeFields;
   setResize: Dispatch<SetStateAction<ResizeFields>>;
   applyResize: () => void;
+  /**
+   * Attached to the Resize form, so Board ▸ Resize… can scroll it in and put the cursor
+   * in its first field. A ref object rather than a callback, so it is stable across
+   * renders of the shell.
+   */
+  resizeFormRef?: Ref<HTMLDivElement>;
 
   meta: BoardMeta;
   setMeta: Dispatch<SetStateAction<BoardMeta>>;
@@ -211,6 +222,7 @@ export const Sidebar = memo(function Sidebar({
   resize,
   setResize,
   applyResize,
+  resizeFormRef,
   meta,
   setMeta,
   foamType,
@@ -258,6 +270,7 @@ export const Sidebar = memo(function Sidebar({
         resize={resize}
         setResize={setResize}
         applyResize={applyResize}
+        formRef={resizeFormRef}
       />
     ),
     controlPoint: <ControlPointInspector store={boardStore} units={units} />,
@@ -570,7 +583,10 @@ function TabPanel({
         <h2 className="min-w-0 flex-1 truncate px-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground/70">
           {meta.title}
         </h2>
+        {/* A bare tab has no section header of its own, so its docs link sits here. */}
+        {bare && sections[0] && <SectionHelpLink id={sections[0].id} title={meta.title} />}
         <IconButton
+          helpId="sidebar:pin"
           label={pinned ? `Unpin ${meta.title}` : `Pin ${meta.title} open`}
           onClick={() => onSidebarChange(togglePin(sidebar, tab))}
         >
@@ -578,6 +594,7 @@ function TabPanel({
         </IconButton>
         {sections.length > 1 || isSpecs ? (
           <IconButton
+            helpId="sidebar:expand"
             label={expanded ? 'Collapse all sections' : 'Expand all sections'}
             onClick={toggleAll}
           >
@@ -590,6 +607,7 @@ function TabPanel({
         ) : null}
         {showFold && (
           <IconButton
+            helpId="sidebar:fold"
             label="Hide board panels"
             onClick={() => onSidebarChange({ ...sidebar, collapsed: true })}
           >
@@ -631,6 +649,7 @@ function TabPanel({
                 onOpenChange={(v) => onSidebarChange(toggleSection(sidebar, s.id, v))}
                 summary={summaries[s.id]}
                 marked={s.id === 'trace' && hasTrace}
+                action={<SectionHelpLink id={s.id} title={s.title} />}
               >
                 {bodies[s.id]}
               </Disclosure>
@@ -640,18 +659,26 @@ function TabPanel({
   );
 }
 
+/** The `?` docs link for a section, when the help table has one for it. */
+function SectionHelpLink({ id, title }: { id: SectionId; title: string }) {
+  const entry = sectionHelp(id);
+  return entry ? <DocsHelpLink topic={title} entry={entry} /> : null;
+}
+
 /** A square icon button sized for both pointer kinds. */
 function IconButton({
   label,
+  helpId,
   onClick,
   children,
 }: {
   label: string;
+  helpId: ToolbarHelpId;
   onClick: () => void;
   children: ReactNode;
 }) {
   return (
-    <Tooltip label={label}>
+    <HelpTooltip label={label} helpId={helpId}>
       <button
         type="button"
         aria-label={label}
@@ -660,7 +687,7 @@ function IconButton({
       >
         {children}
       </button>
-    </Tooltip>
+    </HelpTooltip>
   );
 }
 
@@ -889,15 +916,20 @@ function ResizeSection({
   resize,
   setResize,
   applyResize,
+  formRef,
 }: {
   specs: BoardSpecs | null;
   units: LengthUnit;
   resize: ResizeFields;
   setResize: Dispatch<SetStateAction<ResizeFields>>;
   applyResize: () => void;
+  formRef?: Ref<HTMLDivElement>;
 }) {
   return (
-    <div className="space-y-2 text-sm">
+    // The scroll margins are for Board ▸ Resize…, which scrolls this form in: the top
+    // one keeps the section's own header in view above it, the bottom one keeps Apply
+    // clear of the support bar stuck to the bottom of the sheet.
+    <div ref={formRef} className="scroll-mb-14 scroll-mt-14 space-y-2 text-sm">
       {(
         [
           ['l', 'Length', specs?.length],
@@ -1030,6 +1062,7 @@ const OVERLAYS: readonly { key: keyof OverlayToggles; label: string }[] = [
   { key: 'comb', label: 'Curvature comb' },
   { key: 'com', label: 'Center of mass' },
   { key: 'dist', label: 'Volume distribution' },
+  { key: 'apex', label: 'Apex height' },
 ];
 
 function AnalysisSection({
@@ -1051,7 +1084,8 @@ function AnalysisSection({
       ))}
       <p className="pt-1 text-xs text-muted-foreground">
         Grid &amp; guides and the comb show in every 2D pane (the comb on the edited curves, ringing
-        inflections); CoM &amp; volume distribution on the outline and rocker.
+        inflections); CoM &amp; volume distribution on the outline and rocker; the apex height,
+        dashed, on the rocker. The apex line on the 3D hull is the 3D view&rsquo;s Apex button.
       </p>
     </div>
   );

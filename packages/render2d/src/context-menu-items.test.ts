@@ -84,6 +84,7 @@ describe('buildContextMenuItems', () => {
     ]);
     const del = find(items, 'Delete point');
     expect(del?.kind === 'action' && del.disabled).toBeFalsy();
+    expect(del?.kind === 'action' && del.title).toBeUndefined();
 
     // Delete dispatches to the store and removes the interior knot (3 -> 2).
     (del as { onSelect: () => void }).onSelect();
@@ -114,6 +115,7 @@ describe('buildContextMenuItems', () => {
     ]);
     const del = find(items, 'Delete point');
     expect(del?.kind === 'action' && del.disabled).toBe(true);
+    expect(del?.kind === 'action' && del.title).toBe('Endpoints cannot be deleted');
 
     (del as { onSelect: () => void }).onSelect();
     expect(store.getState().board!.outline.knots).toHaveLength(3); // unchanged
@@ -341,6 +343,17 @@ describe('buildContextMenuItems: rail presets', () => {
     // Still a hit-test-driven menu underneath.
     expect(labels(build(onHandle))).toContain('Delete point');
     expect(labels(build(onCurve))).toContain('Add point here');
+  });
+
+  it("keeps Delete point disabled on a slice's apex, which holds it to the outline", () => {
+    const { store, build, onHandle } = csSetup();
+    const del = find(build(onHandle), 'Delete point');
+    expect(del?.kind === 'action' && del.disabled).toBe(true);
+    // Greyed out with its reason, not as a dead end.
+    expect(del?.kind === 'action' && del.title).toMatch(/apex .* cannot be deleted/);
+    (del as { onSelect: () => void }).onSelect();
+    expect(store.getState().board!.crossSections[1]!.spline.knots).toHaveLength(3);
+    expect(store.getState().past).toHaveLength(0);
   });
 
   it('keeps left/right for cross-sections, and resolves them by position', () => {

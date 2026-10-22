@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { Link } from 'react-router-dom';
+import { shortcutKeys } from '../../shortcuts';
 import { DocsPage, Section, Term, Terms } from './DocsPage';
 
 export default function DocsOverview() {
@@ -11,6 +12,8 @@ export default function DocsOverview() {
       toc={[
         { id: 'start', label: 'Getting started' },
         { id: 'layout', label: 'How the editor is laid out' },
+        { id: 'help', label: 'Finding a tool' },
+        { id: 'settings', label: 'Settings' },
         { id: 'model', label: 'How a board is described' },
         { id: 'where', label: 'Where things live' },
       ]}
@@ -65,6 +68,65 @@ export default function DocsOverview() {
         </Terms>
       </Section>
 
+      <Section id="help" title="Finding a tool">
+        <Terms>
+          <Term name="Searching commands">
+            The command palette (<code>{shortcutKeys('command-palette')}</code>, or the menu button
+            on a phone) searches every menu command. It matches the command&apos;s name, the words a
+            shaper might use for it and what it does, so <code>scale</code> finds{' '}
+            <strong>Resize…</strong>, <code>litres</code> finds the volume tools and{' '}
+            <code>slice</code> finds the cross-section exports. Results are grouped by the menu they
+            live in, each with a line on what it does; the best match is listed first, and Enter
+            runs it. The link under the list opens the documentation for the highlighted command.
+            Commands added in the last 60 days carry a <strong>New</strong> badge.
+          </Term>
+          <Term name="Tips">
+            Hovering or tabbing to a toolbar button shows its name and, under it, a line on what it
+            does. Once you know the buttons, turn tooltips off with{' '}
+            <strong>Edit ▸ Settings… ▸ Show tips</strong>. Tips are for a mouse or trackpad and
+            keyboard focus — a touch screen does not show them.
+          </Term>
+          <Term name="The ? on a section">
+            Each sidebar section has a small <strong>?</strong> beside its header that opens the
+            part of these docs that explains it. Your board is kept while you read; going back to
+            the app brings it back as you left it.
+          </Term>
+          <Term name="The Help menu">
+            <strong>Documentation</strong> opens these pages and <strong>Keyboard shortcuts</strong>{' '}
+            the list of every key. <strong>About &amp; guides</strong> opens the about page, with
+            guides to surfboard design and construction. <strong>Buy me a coffee</strong> opens the
+            page where you can support the project; everything in the editor stays free either way.
+          </Term>
+        </Terms>
+      </Section>
+
+      <Section id="settings" title="Settings">
+        <p>
+          <strong>Edit ▸ Settings…</strong> holds the preferences that change how the editor looks
+          and behaves, not the board itself. They are kept in this browser and take effect when you
+          press <strong>Apply</strong>; <strong>Reset to defaults</strong> fills in the original
+          values, which also take effect on Apply.
+        </p>
+        <Terms>
+          <Term name="Curve and overlay colors">
+            The colors of the outline, the deck and bottom rocker lines, the cross-section, the
+            ghost board and the grid, and of the fin blades in the 3D view.
+          </Term>
+          <Term name="Sizes">
+            How big the control points are drawn and how thick the curves are, in screen pixels.
+          </Term>
+          <Term name="Resize cross-sections to rocker/deck">
+            On by default: editing the outline or the rocker resizes the cross-sections in that area
+            to match. Turned off, they keep their own size (see{' '}
+            <Link to="/docs/editing#blank">Cross-sections stay inside the blank</Link>).
+          </Term>
+          <Term name="Show tips">
+            On by default: hovering a button shows its name and what it does. Turned off, no
+            tooltips show (see <Link to="/docs#help">Finding a tool</Link>).
+          </Term>
+        </Terms>
+      </Section>
+
       <Section id="model" title="How a board is described">
         <p>
           A board is three families of curves: the <strong>outline</strong> (plan shape), the{' '}
@@ -77,6 +139,11 @@ export default function DocsOverview() {
           handles. Cross-sections between the ones you have defined are interpolated, so the surface
           stays continuous.
         </p>
+        <p>
+          The outline and the rocker define the blank. Cross-sections shape the rails inside it and
+          never change it — see{' '}
+          <Link to="/docs/editing#blank">cross-sections stay inside the blank</Link>.
+        </p>
       </Section>
 
       <Section id="where" title="Where things live">
@@ -85,7 +152,7 @@ export default function DocsOverview() {
             Control points, tangents, the views, undo.
           </Term>
           <Term name={<Link to="/docs/specs">Specs &amp; measurements</Link>}>
-            Volume, dimensions, weight, the readouts and overlays.
+            Volume, dimensions, resizing, weight, the readouts and overlays.
           </Term>
           <Term name={<Link to="/docs/fins">Fins</Link>}>Setups, systems, profiles.</Term>
           <Term name={<Link to="/docs/construction">Construction templates</Link>}>

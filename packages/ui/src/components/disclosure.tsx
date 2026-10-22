@@ -31,6 +31,12 @@ export interface DisclosureProps {
    * sibling of the tool that contains it.
    */
   headingLevel?: 2 | 3;
+  /**
+   * A small control beside the header — the editor's `?` docs link. Rendered next
+   * to the toggle button, not inside it, so it stays its own focus stop and is never
+   * a control nested in a button.
+   */
+  action?: ReactNode;
   children: ReactNode;
   className?: string;
 }
@@ -56,6 +62,7 @@ export function Disclosure({
   summary,
   marked = false,
   headingLevel = 2,
+  action,
   children,
   className,
 }: DisclosureProps) {
@@ -63,6 +70,54 @@ export function Disclosure({
   const summaryId = `${bodyId}-summary`;
   const showSummary = summary != null && !open;
   const Heading = headingLevel === 3 ? 'h3' : 'h2';
+  const header = (
+    <Heading className={action ? 'min-w-0 flex-1' : undefined}>
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={bodyId}
+        // The section's name must not drift as the board changes. Left to the
+        // button's own text content it would: the summary lives inside the button,
+        // so "Weight estimate" became "Weight estimate2.44 kg (5.4 lb)" — a name no
+        // test could query and a screen reader announced as one run-on word. The
+        // summary is still announced, as the description that follows the name.
+        aria-label={typeof title === 'string' ? title : undefined}
+        aria-describedby={showSummary ? summaryId : undefined}
+        onClick={() => onOpenChange(!open)}
+        className={cn(
+          'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent/40',
+          // The header is the only thing on screen when the section is shut, so its
+          // corners must follow the card's; rounding the bottom too would cut into
+          // the body's top border when it is open.
+          open && 'rounded-b-none',
+          'min-h-9 pointer-coarse:min-h-11',
+        )}
+      >
+        <ChevronRight
+          aria-hidden
+          className={cn(
+            'size-3.5 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none',
+            open && 'rotate-90',
+          )}
+        />
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">
+          {title}
+        </span>
+        {marked && (
+          <span
+            aria-hidden
+            className="size-1.5 shrink-0 rounded-full bg-primary"
+            title="This section is holding settings"
+          />
+        )}
+        {showSummary && (
+          <span id={summaryId} className="min-w-0 shrink truncate text-xs text-muted-foreground">
+            {summary}
+          </span>
+        )}
+      </button>
+    </Heading>
+  );
   return (
     <div
       className={cn(
@@ -70,52 +125,14 @@ export function Disclosure({
         className,
       )}
     >
-      <Heading>
-        <button
-          type="button"
-          aria-expanded={open}
-          aria-controls={bodyId}
-          // The section's name must not drift as the board changes. Left to the
-          // button's own text content it would: the summary lives inside the button,
-          // so "Weight estimate" became "Weight estimate2.44 kg (5.4 lb)" — a name no
-          // test could query and a screen reader announced as one run-on word. The
-          // summary is still announced, as the description that follows the name.
-          aria-label={typeof title === 'string' ? title : undefined}
-          aria-describedby={showSummary ? summaryId : undefined}
-          onClick={() => onOpenChange(!open)}
-          className={cn(
-            'flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-accent/40',
-            // The header is the only thing on screen when the section is shut, so its
-            // corners must follow the card's; rounding the bottom too would cut into
-            // the body's top border when it is open.
-            open && 'rounded-b-none',
-            'min-h-9 pointer-coarse:min-h-11',
-          )}
-        >
-          <ChevronRight
-            aria-hidden
-            className={cn(
-              'size-3.5 shrink-0 text-muted-foreground transition-transform motion-reduce:transition-none',
-              open && 'rotate-90',
-            )}
-          />
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold tracking-tight">
-            {title}
-          </span>
-          {marked && (
-            <span
-              aria-hidden
-              className="size-1.5 shrink-0 rounded-full bg-primary"
-              title="This section is holding settings"
-            />
-          )}
-          {showSummary && (
-            <span id={summaryId} className="min-w-0 shrink truncate text-xs text-muted-foreground">
-              {summary}
-            </span>
-          )}
-        </button>
-      </Heading>
+      {action ? (
+        <div className="flex items-center">
+          {header}
+          <div className="shrink-0 pr-1">{action}</div>
+        </div>
+      ) : (
+        header
+      )}
       {open && (
         <div id={bodyId} className="border-t border-border px-3 py-2">
           {children}

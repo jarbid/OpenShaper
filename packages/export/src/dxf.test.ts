@@ -93,7 +93,10 @@ describe('exportDxf', () => {
       // outline + bottom + deck + 3 cross-sections = 6 splines.
       expect(count(dxf, 'SPLINE')).toBe(6);
       // No POLYLINE for the curves (fins/ghost aside; this board is finless, no ghost).
-      expect(count(dxf, 'POLYLINE')).toBe(0);
+      // The one polyline is the apex line, which is measured, not a design curve.
+      expect(count(dxf, 'POLYLINE')).toBe(1);
+      const lines = dxf.split('\n');
+      expect(lines[lines.indexOf('POLYLINE') + 2]).toBe('APEX');
     });
 
     it('spline control-point and knot counts are consistent (knots = ctrl + degree + 1)', () => {
@@ -112,6 +115,71 @@ describe('exportDxf', () => {
         const dxf = exportDxf(board, { curveMode });
         expect(dxf).not.toMatch(/NaN|Infinity/);
       }
+    });
+  });
+
+  describe('rail apex', () => {
+    /** Every POLYLINE's layer and vertices, in file order. */
+    const polylines = (dxf: string): { layer: string; pts: { x: number; y: number }[] }[] => {
+      const lines = dxf.split('\n');
+      const out: { layer: string; pts: { x: number; y: number }[] }[] = [];
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i] !== 'POLYLINE') continue;
+        const entity = { layer: lines[i + 2]!, pts: [] as { x: number; y: number }[] };
+        let j = i + 1;
+        for (; lines[j] !== 'SEQEND'; j++) {
+          // 0 VERTEX 8 <layer> 10 <x> 20 <y> 30 <z>
+          if (lines[j] === 'VERTEX') {
+            entity.pts.push({ x: Number(lines[j + 4]), y: Number(lines[j + 6]) });
+          }
+        }
+        out.push(entity);
+        i = j;
+      }
+      return out;
+    };
+    /** Linear interpolation of a polyline's y at x (it runs tail to nose). */
+    const yAt = (pts: readonly { x: number; y: number }[], x: number): number => {
+      const k = pts.findIndex((p) => p.x >= x);
+      if (k <= 0) return pts[Math.max(0, k)]!.y;
+      const a = pts[k - 1]!;
+      const b = pts[k]!;
+      return a.y + ((b.y - a.y) * (x - a.x)) / (b.x - a.x || 1);
+    };
+
+    it('declares the APEX layer and draws one dashed polyline on it', () => {
+      const dxf = exportDxf(board, { lengthSteps: 60, crossSectionCount: 3 });
+      const lines = dxf.split('\n');
+      expect(lines.filter((l, i) => l === 'APEX' && lines[i - 1] === '2')).toHaveLength(1); // TABLES
+      const apex = polylines(dxf).filter((p) => p.layer === 'APEX');
+      expect(apex).toHaveLength(1);
+      // One vertex per profile sample, tail to nose.
+      expect(apex[0]!.pts).toHaveLength(60);
+      const at = lines.findIndex((l, i) => l === 'APEX' && lines[i - 1] === '8');
+      expect(lines.slice(at, at + 3)).toContain('DASHED');
+    });
+
+    it('runs inside the rocker band, between the bottom and the deck', () => {
+      const all = polylines(exportDxf(board, { lengthSteps: 60, crossSectionCount: 0 }));
+      const rocker = all.filter((p) => p.layer === 'ROCKER');
+      expect(rocker).toHaveLength(2);
+      const [bottom, deck] = rocker as [(typeof all)[0], (typeof all)[0]];
+      const apex = all.find((p) => p.layer === 'APEX')!;
+      const length = 100;
+      expect(apex.pts[0]!.x).toBeLessThan(1);
+      expect(apex.pts.at(-1)!.x).toBeGreaterThan(length - 1);
+      for (const p of apex.pts) {
+        expect(Number.isFinite(p.x) && Number.isFinite(p.y)).toBe(true);
+        expect(p.y).toBeGreaterThan(yAt(bottom.pts, p.x));
+        expect(p.y).toBeLessThan(yAt(deck.pts, p.x));
+      }
+      // The test board's rail knot sits at 45% of the thickness; the apex is there, not
+      // hugging either curve.
+      const mid = apex.pts[Math.floor(apex.pts.length / 2)]!;
+      const lo = yAt(bottom.pts, mid.x);
+      const frac = (mid.y - lo) / (yAt(deck.pts, mid.x) - lo);
+      expect(frac).toBeGreaterThan(0.3);
+      expect(frac).toBeLessThan(0.6);
     });
   });
 

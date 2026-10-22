@@ -76,6 +76,7 @@ Three deliberate calls, each of which looked like a coin-flip and was not:
 | Change a shut section's **summary**                                 | the `summaries` map in `Sidebar.tsx`                              |
 | Change the **spec bands** or their shut summaries                   | `SPEC_GROUPS` and `SpecsSection`                                  |
 | Make the active tab **close on a second click**                     | `selectTab` — JetBrains does this; it was considered and left out |
+| Open a tool from a **menu or palette command**                      | `revealSection`; Board ▸ Resize… in `App.tsx` is the example      |
 
 Two constraints worth knowing before you tune anything:
 

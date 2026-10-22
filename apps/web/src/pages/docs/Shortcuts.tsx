@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { SHORTCUTS, type ShortcutGroup } from '../../shortcuts';
+import { Link } from 'react-router-dom';
+import type { ReactNode } from 'react';
+import { NUDGE, SHORTCUTS, type ShortcutGroup } from '../../shortcuts';
 import { DocsPage, Section } from './DocsPage';
 
 /**
@@ -7,7 +9,20 @@ import { DocsPage, Section } from './DocsPage';
  * tooltips also read, so this page cannot describe a binding the app does not
  * have. Nothing here is transcribed by hand.
  */
-const GROUPS: ShortcutGroup[] = ['File', 'Edit', 'View', 'Cross-sections'];
+const GROUPS: ShortcutGroup[] = ['File', 'Edit', 'Nudging', 'View', 'Cross-sections'];
+
+/** A line under a group's heading, for what its rows alone cannot say. */
+const NOTES: Partial<Record<ShortcutGroup, ReactNode>> = {
+  Nudging: (
+    <>
+      These act on the selected point or handle in whichever view holds it. Hold{' '}
+      {NUDGE.rotateKey.toUpperCase()} or {NUDGE.lengthKey.toUpperCase()} first, then press the
+      arrows; let go to move again. They also work in the pane header&apos;s X, Y and Length fields,
+      where the arrows step that value. A locked handle does not turn, but its length still changes.
+      See <Link to="/docs/editing#keyboard">nudging from the keyboard</Link>.
+    </>
+  ),
+};
 
 export default function DocsShortcuts() {
   return (
@@ -27,6 +42,7 @@ export default function DocsShortcuts() {
         if (rows.length === 0) return null;
         return (
           <Section key={group} id={group.toLowerCase().replace(/\s+/g, '-')} title={group}>
+            {NOTES[group] && <p className="text-muted-foreground">{NOTES[group]}</p>}
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-border">

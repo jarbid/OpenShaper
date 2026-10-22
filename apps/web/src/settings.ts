@@ -1,7 +1,7 @@
 /**
- * Editor visual settings: curve colors, ghost color, grid color, 3D fin
- * color, control-point size, and curve stroke thickness. Persisted as a single
- * versioned JSON blob in localStorage under 'bs.settings'.
+ * Editor settings: curve colors, ghost color, grid color, 3D fin color,
+ * control-point size, curve stroke thickness, editing behaviour and tips.
+ * Persisted as a single versioned JSON blob in localStorage under 'bs.settings'.
  */
 import { readStored, writeStored } from './persisted';
 
@@ -37,6 +37,12 @@ export interface EditorSettings {
    * profile and a curve edit leaves them alone (legacy `adjustCrossectionThickness`).
    */
   adjustCrossSectionThickness: boolean;
+  /**
+   * When true (default), toolbar tooltips add a one-line description of what the
+   * control does under its label. The label itself always shows: it is the name of
+   * an icon-only control, which nobody should have to opt in to.
+   */
+  showTips: boolean;
 }
 
 /**
@@ -62,6 +68,8 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   curveThickness: 1,
   // Slave cross-sections to the rocker/deck/outline by default (today's behavior).
   adjustCrossSectionThickness: true,
+  // Explain controls until the user has learned them and turns it off.
+  showTips: true,
 };
 
 /**

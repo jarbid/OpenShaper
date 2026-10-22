@@ -5,7 +5,7 @@
  * that are easy to get subtly wrong.
  */
 import { describe, expect, it } from 'vitest';
-import { matches, SHORTCUTS, shortcutKeys, VIEW_KEYS, type Shortcut } from './shortcuts';
+import { matches, NUDGE, SHORTCUTS, shortcutKeys, VIEW_KEYS, type Shortcut } from './shortcuts';
 
 const byId = (id: string): Shortcut => {
   const s = SHORTCUTS.find((x) => x.id === id);
@@ -80,6 +80,37 @@ describe('matches', () => {
       const hits = SHORTCUTS.filter((s) => matches(s, e, false));
       expect(hits.length, `"${e.key}" matched ${hits.map((h) => h.id).join(', ')}`).toBeLessThan(2);
     }
+  });
+});
+
+// The arrow nudges belong to the pane header's point editor, which knows which pane
+// holds the selection. Were the global handler to claim one of these keys, `find`
+// would stop at it and the nudge would lose its key to a no-op.
+describe('the nudge rows', () => {
+  it('are listed for the docs but claim no key from the global handler', () => {
+    const nudges = SHORTCUTS.filter((s) => s.group === 'Nudging');
+    expect(nudges.map((s) => s.id)).toEqual([
+      'nudge',
+      'nudge-shift',
+      'nudge-rotate',
+      'nudge-length',
+    ]);
+    for (const s of nudges) expect(s.match).toBeUndefined();
+    for (const k of ['ArrowLeft', 'ArrowUp', 'r', 't', 'R', 'T']) {
+      for (const shift of [false, true]) {
+        const hits = SHORTCUTS.filter((s) => matches(s, key(k, { shift }), false));
+        expect(
+          hits.map((h) => h.id),
+          `"${k}"`,
+        ).toEqual([]);
+      }
+    }
+  });
+
+  it('name the hold keys the handler reads', () => {
+    expect(shortcutKeys('nudge-rotate')).toBe(`${NUDGE.rotateKey.toUpperCase()} + ←↑→↓`);
+    expect(shortcutKeys('nudge-length')).toBe(`${NUDGE.lengthKey.toUpperCase()} + ←↑→↓`);
+    expect(NUDGE.rotateKey).not.toBe(NUDGE.lengthKey);
   });
 });
 

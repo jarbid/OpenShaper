@@ -5,8 +5,8 @@
  * Documentation maintained by good intentions is wrong within two releases, so
  * this asserts coverage against the app's *own* definitions rather than a list
  * someone has to remember to update. Ship a new fin system, export format,
- * starter template or keyboard shortcut without a registry entry and this fails,
- * naming exactly what is missing.
+ * starter template, 3D analysis mode or keyboard shortcut without a registry
+ * entry and this fails, naming exactly what is missing.
  *
  * Same spirit as tools/precache-guard.ts: an invariant that fails the build
  * rather than a convention.
@@ -20,6 +20,7 @@ import { describe, expect, it } from 'vitest';
 import { EXPORT_FORMATS } from '../file-io';
 import { SHORTCUTS } from '../shortcuts';
 import { BOARD_TEMPLATES } from '../templates';
+import { ANALYSIS_3D } from '../view3d-settings';
 import { DOC_ENTRIES, DOCS_ROUTES, documentedIds, type FeatureKind } from './registry';
 
 /**
@@ -73,6 +74,13 @@ describe('docs coverage', () => {
     expectDocumented(
       'rail-preset',
       RAIL_PRESETS.map((p) => p.id),
+    );
+  });
+
+  it('documents every 3D surface-analysis mode', () => {
+    expectDocumented(
+      'analysis-mode',
+      ANALYSIS_3D.map((o) => o.value).filter((v) => v !== 'none'),
     );
   });
 

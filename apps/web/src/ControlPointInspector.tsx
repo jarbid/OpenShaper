@@ -1,17 +1,28 @@
-import { tangentToNextLength, tangentToPrevLength, type Knot } from '@openshaper/kernel';
 import {
+  tangentToNextLength,
+  tangentToPrevLength,
+  type Knot,
+  type Spline,
+} from '@openshaper/kernel';
+import {
+  alignTangentsHorizontal,
+  blankLocks,
   canDeleteKnot,
   canLockKnot,
+  constrainSectionToBlank,
   getTargetSpline,
   sameTarget,
   type BoardState,
+  type LockedAxes,
+  whyKnotIsKept,
   type SplineTarget,
 } from '@openshaper/store';
 import { handleSideName, visualSideForHandleKind } from '@openshaper/render2d';
 import { Button, Input } from '@openshaper/ui';
 import { Lock, LockOpen } from 'lucide-react';
 import { NumericInput } from './components/numeric-input';
-import { shortcutKeys } from './shortcuts';
+import { NUDGE, shortcutKeys } from './shortcuts';
+import { useNudgeMode, type NudgeMode } from './use-nudge-mode';
 import { useSyncedText } from './use-numeric-field';
 import { useCallback, useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
@@ -34,10 +45,31 @@ const parse = (text: string, units: LengthUnit): number => parseLen(text, units)
 /** Control-point nudges are intentionally finer than station-position edits. */
 const pointEditStep = (units: LengthUnit): number => lengthEditStep(units) / 2;
 
+/** One arrow-key step in cm: a {@link pointEditStep}, or `NUDGE.shiftFactor` of them with Shift. */
+const nudgeStepCm = (units: LengthUnit, big: boolean): number =>
+  parse(String(pointEditStep(units)), units) * (big ? NUDGE.shiftFactor : 1);
+
 type ArrowKey = 'ArrowLeft' | 'ArrowRight' | 'ArrowUp' | 'ArrowDown';
 
 const isArrowKey = (key: string): key is ArrowKey =>
   key === 'ArrowLeft' || key === 'ArrowRight' || key === 'ArrowUp' || key === 'ArrowDown';
+
+/**
+ * Which way an arrow turns a handle: ← and ↑ counter-clockwise (+1), → and ↓
+ * clockwise (−1), as seen on screen.
+ *
+ * A positive angle in a spline's own x/y is counter-clockwise on screen in every
+ * pane, so this needs no per-view case: every 2D view draws its splines y-up; a pane
+ * that stands the board nose-up turns its canvas a quarter turn, a rotation and never
+ * a reflection; and the mirrored halves (the outline below the stringer, a
+ * cross-section's left side) are drawn copies that carry no control points, so a
+ * selected handle is always on the half drawn the right way round. Pinned in
+ * `render2d/src/viewport.test.ts`.
+ */
+const turnSign = (key: ArrowKey): 1 | -1 => (key === 'ArrowLeft' || key === 'ArrowUp' ? 1 : -1);
+
+/** Which way an arrow changes a handle's length: → and ↑ lengthen, ← and ↓ shorten. */
+const growSign = (key: ArrowKey): 1 | -1 => (key === 'ArrowRight' || key === 'ArrowUp' ? 1 : -1);
 
 const targetLabel = (t: SplineTarget): string => {
   switch (t.kind) {
@@ -62,6 +94,37 @@ const targetLabel = (t: SplineTarget): string => {
  */
 const coordinateLabels = (target: SplineTarget): readonly [string, string] =>
   target.kind === 'crossSection' ? ['Y', 'Z'] : ['X', target.kind === 'outline' ? 'Y' : 'Z'];
+
+/** A slice point the blank holds, as the editors name and explain it. */
+interface BlankHold {
+  /** The coordinates no edit can change. */
+  readonly locked: LockedAxes;
+  /** What the point is, in place of "Point". */
+  readonly name: string;
+  /** Why it is held, in a few words. */
+  readonly note: string;
+  /** Where to make the change instead, for the locked fields. */
+  readonly hint: string;
+}
+
+const CENTRE_HINT =
+  "A slice's centre points sit on the rocker and the deck. With Resize cross-sections to rocker/deck on, they follow the Rocker view; off, the slice keeps its own thickness.";
+const APEX_HINT =
+  'The apex keeps the slice as wide as the outline, so it moves up and down only. With Resize cross-sections to rocker/deck on, it follows the Outline view; off, the slice keeps its own width.';
+
+/**
+ * What the blank holds of point `index` of `target`'s spline: a slice's centre points are
+ * fixed and its apex moves up and down only (`constrainSectionToBlank` in the store). Null
+ * for a free point, and for every point of the outline, deck and bottom.
+ */
+const blankHold = (target: SplineTarget, spline: Spline, index: number): BlankHold | null => {
+  const locked = blankLocks(target, spline)?.[index];
+  if (!locked || (!locked.x && !locked.y)) return null;
+  if (!locked.y) return { locked, name: 'Apex', note: 'width from the outline', hint: APEX_HINT };
+  return index === 0
+    ? { locked, name: 'Bottom centre', note: 'on the rocker', hint: CENTRE_HINT }
+    : { locked, name: 'Deck centre', note: 'on the deck', hint: CENTRE_HINT };
+};
 
 /** A handle's length (cm): its distance from the point. */
 const handleLength = (knot: Knot, which: 'prev' | 'next'): number =>
@@ -120,6 +183,8 @@ function HeaderCoordInput({
   onCommit,
   onDismiss,
   onNudge,
+  disabled,
+  title,
 }: {
   label: string;
   ariaLabel?: string;
@@ -127,7 +192,12 @@ function HeaderCoordInput({
   units: LengthUnit;
   onCommit: (cm: number) => void;
   onDismiss: () => void;
-  onNudge: (key: ArrowKey) => void;
+  /** An arrow key in the field; `big` when Shift is held, `repeat` when auto-repeated. */
+  onNudge: (key: ArrowKey, big: boolean, repeat: boolean) => void;
+  /** Shown but not editable: a coordinate the blank holds. */
+  disabled?: boolean;
+  /** Why the field is read-only. */
+  title?: string;
 }) {
   const shown = display(valueCm, units);
   // Re-sync when the value changes, even below display precision (drag, undo, reselect).
@@ -148,14 +218,18 @@ function HeaderCoordInput({
     if (Math.abs(parsed - lastCommitted.current) <= 1e-9) return;
     lastCommitted.current = parsed;
     onCommit(parsed);
+    // Show what was stored, not what was typed: the blank may have held the point short of
+    // it, or refused it, and then the value (and so the re-sync) never changes.
+    setText(shown);
   };
   return (
-    <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+    <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground" title={title}>
       <span>{label}</span>
       <Input
         aria-label={ariaLabel}
         type="number"
         step={pointEditStep(units)}
+        disabled={disabled}
         value={text}
         onChange={(e) => {
           dirty.current = true;
@@ -167,9 +241,11 @@ function HeaderCoordInput({
           if (e.key === 'ArrowUp' || e.key === 'ArrowDown') commit(e.currentTarget.value);
         }}
         onKeyDown={(e) => {
-          if (isArrowKey(e.key) && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+          // Shift+← → is left to the field: it selects text there.
+          const selecting = e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight');
+          if (isArrowKey(e.key) && !selecting && !e.altKey && !e.ctrlKey && !e.metaKey) {
             e.preventDefault();
-            onNudge(e.key);
+            onNudge(e.key, e.shiftKey, e.repeat);
           } else if (e.key === 'Enter') {
             commit(e.currentTarget.value);
             e.currentTarget.blur();
@@ -201,8 +277,28 @@ export function SelectedPointEditor({
   const board = useSyncExternalStore(store.subscribe, () => store.getState().board);
   const selection = useSyncExternalStore(store.subscribe, () => store.getState().selection);
 
+  const mode = useNudgeMode();
+  // The mode the last fresh arrow press acted in. A held arrow's auto-repeats carry on
+  // only in that mode: letting go of R or T a moment before the arrow must not turn
+  // the rest of a turn into moves.
+  const pressMode = useRef<NudgeMode>('move');
+  const continues = useCallback(
+    (repeat: boolean): boolean => {
+      if (!repeat) pressMode.current = mode.current;
+      return pressMode.current === mode.current;
+    },
+    [mode],
+  );
+
+  /**
+   * One arrow-key press on the selection, if this pane holds it: a move by one step,
+   * or, with R or T held, a turn or a length change of the selected handle — of both
+   * handles when the point itself is selected. Shift makes the step ten times larger.
+   * Each press is its own undo step; an auto-repeat that outlived its mode is
+   * swallowed (see `continues`).
+   */
   const nudge = useCallback(
-    (key: ArrowKey): boolean => {
+    (key: ArrowKey, big: boolean, repeat = false): boolean => {
       const state = store.getState();
       const active = state.selection;
       if (!state.board || !active || !targets.some((target) => sameTarget(target, active.target)))
@@ -210,14 +306,26 @@ export function SelectedPointEditor({
 
       const activeKnot = getTargetSpline(state.board, active.target).knots[active.index];
       if (!activeKnot) return false;
+      if (!continues(repeat)) return true;
       const activeKind = active.kind ?? 'end';
+      const handles = activeKind === 'end' ? 'both' : activeKind;
+      const stepCm = nudgeStepCm(units, big);
+      if (mode.current === 'rotate') {
+        const degrees = turnSign(key) * NUDGE.turnDegrees * (big ? NUDGE.shiftFactor : 1);
+        state.rotateTangent(active.target, active.index, handles, (degrees * Math.PI) / 180);
+        return true;
+      }
+      if (mode.current === 'length') {
+        state.stepTangentLength(active.target, active.index, handles, growSign(key) * stepCm);
+        return true;
+      }
+
       const activePoint =
         activeKind === 'prev'
           ? activeKnot.tangentToPrev
           : activeKind === 'next'
             ? activeKnot.tangentToNext
             : activeKnot.end;
-      const stepCm = parse(String(pointEditStep(units)), units);
       const next = {
         x: activePoint.x + (key === 'ArrowLeft' ? -stepCm : key === 'ArrowRight' ? stepCm : 0),
         y: activePoint.y + (key === 'ArrowDown' ? -stepCm : key === 'ArrowUp' ? stepCm : 0),
@@ -227,7 +335,7 @@ export function SelectedPointEditor({
       else state.moveTangent(active.target, active.index, activeKind, next);
       return true;
     },
-    [store, targets, units],
+    [store, targets, units, mode, continues],
   );
 
   useEffect(() => {
@@ -237,8 +345,7 @@ export function SelectedPointEditor({
         !isArrowKey(event.key) ||
         event.altKey ||
         event.ctrlKey ||
-        event.metaKey ||
-        event.shiftKey
+        event.metaKey
       )
         return;
       const target = event.target as HTMLElement | null;
@@ -247,7 +354,9 @@ export function SelectedPointEditor({
         (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
       )
         return;
-      if (nudge(event.key)) event.preventDefault();
+      // Like the global shortcuts, leave the board alone behind an open dialog.
+      if (document.querySelector('[data-modal]')) return;
+      if (nudge(event.key, event.shiftKey, event.repeat)) event.preventDefault();
     };
 
     window.addEventListener('keydown', onKeyDown);
@@ -257,14 +366,17 @@ export function SelectedPointEditor({
   if (!board || !selection || !targets.some((target) => sameTarget(target, selection.target)))
     return fallback ?? null;
 
-  const knot = getTargetSpline(board, selection.target).knots[selection.index];
+  const spline = getTargetSpline(board, selection.target);
+  const knot = spline.knots[selection.index];
   if (!knot) return fallback ?? null;
   const kind = selection.kind ?? 'end';
   const point =
     kind === 'prev' ? knot.tangentToPrev : kind === 'next' ? knot.tangentToNext : knot.end;
+  // The blank holds a slice's points, never their handles.
+  const hold = kind === 'end' ? blankHold(selection.target, spline, selection.index) : null;
   const label =
     kind === 'end'
-      ? 'Point'
+      ? (hold?.name ?? 'Point')
       : `${handleSideName(selection.target, visualSideForHandleKind(knot, selection.target, kind))} handle`;
   const commit = (x: number, y: number) => {
     if (kind === 'end')
@@ -301,20 +413,19 @@ export function SelectedPointEditor({
             store.getState().setTangentLength(selection.target, selection.index, kind, len)
           }
           onDismiss={dismiss}
-          onNudge={(key) => {
-            // Read the live knot: key repeat can outrun this render.
-            const state = store.getState();
-            const live =
-              state.board && getTargetSpline(state.board, selection.target).knots[selection.index];
-            if (!live) return;
-            const step = parse(String(pointEditStep(units)), units);
-            const grow = key === 'ArrowUp' || key === 'ArrowRight';
-            state.setTangentLength(
-              selection.target,
-              selection.index,
-              kind,
-              handleLength(live, kind) + (grow ? step : -step),
-            );
+          onNudge={(key, big, repeat) => {
+            // The field's own arrows step the one number it shows; a held R or T
+            // still means what it does everywhere else.
+            if (mode.current !== 'move') nudge(key, big, repeat);
+            else if (continues(repeat))
+              store
+                .getState()
+                .stepTangentLength(
+                  selection.target,
+                  selection.index,
+                  kind,
+                  growSign(key) * nudgeStepCm(units, big),
+                );
           }}
         />
       ) : (
@@ -326,6 +437,8 @@ export function SelectedPointEditor({
             onCommit={(x) => commit(x, point.y)}
             onDismiss={dismiss}
             onNudge={nudge}
+            disabled={hold?.locked.x}
+            title={hold?.locked.x ? hold.hint : undefined}
           />
           <HeaderCoordInput
             label={splineYLabel}
@@ -334,6 +447,8 @@ export function SelectedPointEditor({
             onCommit={(y) => commit(point.x, y)}
             onDismiss={dismiss}
             onNudge={nudge}
+            disabled={hold?.locked.y}
+            title={hold?.locked.y ? hold.hint : undefined}
           />
         </>
       )}
@@ -358,14 +473,17 @@ function CoordInput({
   units,
   onCommit,
   disabled,
+  title,
 }: {
   group: string;
   label: string;
   valueCm: number;
   units: LengthUnit;
   onCommit: (cm: number) => void;
-  /** Shown but not editable — a locked handle's X/Y. */
+  /** Shown but not editable — a locked handle's X/Y, or a coordinate the blank holds. */
   disabled?: boolean;
+  /** Why the field is read-only. */
+  title?: string;
 }) {
   const shown = display(valueCm, units);
   // Re-sync when the underlying value changes (drag, undo, reselect).
@@ -373,11 +491,13 @@ function CoordInput({
 
   const commit = () => {
     const cm = parseTypedLen(text, units);
-    if (cm === null) setText(shown);
-    else onCommit(cm);
+    if (cm !== null) onCommit(cm);
+    // Back to what is stored: a value the blank held short or refused changes nothing, so
+    // the re-sync would never fire and the typed number would stay up, unstored.
+    setText(shown);
   };
   return (
-    <label className="flex items-center gap-2">
+    <label className="flex items-center gap-2" title={title}>
       <span className="min-w-3 text-muted-foreground">{label}</span>
       <NumericInput
         value={text}
@@ -486,7 +606,12 @@ export function ControlPointInspector({
 
   const { target, index } = selection;
   const [splineXLabel, splineYLabel] = coordinateLabels(target);
-  const deletable = canDeleteKnot(spline, index);
+  const deletable = canDeleteKnot(spline, index, target);
+  const hold = blankHold(target, spline, index);
+  // Lying a slice's apex handles flat would push one out past the apex line, where it would
+  // collapse onto the point; the store refuses it, so the button says so.
+  const flatAligned = target.kind === 'crossSection' && alignTangentsHorizontal(spline, index);
+  const noFlat = flatAligned && constrainSectionToBlank(spline, flatAligned) !== flatAligned;
   const setEnd = (x: number, y: number) =>
     store.getState().moveControlPoint(target, index, { x, y });
 
@@ -497,13 +622,17 @@ export function ControlPointInspector({
       </div>
 
       {/* Endpoint */}
-      <div className="text-xs font-medium text-muted-foreground">Endpoint</div>
+      <div className="text-xs font-medium text-muted-foreground">
+        {hold ? `${hold.name} · ${hold.note}` : 'Endpoint'}
+      </div>
       <CoordInput
         group="Endpoint"
         label={splineXLabel}
         valueCm={knot.end.x}
         units={units}
         onCommit={(x) => setEnd(x, knot.end.y)}
+        disabled={hold?.locked.x}
+        title={hold?.locked.x ? hold.hint : undefined}
       />
       <CoordInput
         group="Endpoint"
@@ -511,6 +640,8 @@ export function ControlPointInspector({
         valueCm={knot.end.y}
         units={units}
         onCommit={(y) => setEnd(knot.end.x, y)}
+        disabled={hold?.locked.y}
+        title={hold?.locked.y ? hold.hint : undefined}
       />
 
       {/* Tangent handles, toward the previous and the next segment */}
@@ -548,7 +679,7 @@ export function ControlPointInspector({
           variant="ghost"
           disabled={!deletable}
           onClick={() => store.getState().deleteControlPoint(target, index)}
-          title={deletable ? 'Delete this point (Del)' : 'Endpoints cannot be deleted'}
+          title={whyKnotIsKept(spline, index, target) ?? 'Delete this point (Del)'}
         >
           Delete
         </Button>
@@ -560,8 +691,13 @@ export function ControlPointInspector({
           size="sm"
           variant="outline"
           className="flex-1 font-mono"
+          disabled={noFlat}
           onClick={() => store.getState().alignTangentsHorizontal(target, index)}
-          title="Align both tangent handles to horizontal axis, preserving their lengths. A locked point stays locked, now horizontal."
+          title={
+            noFlat
+              ? "A handle laid flat here would reach past the slice's apex, the outline's width"
+              : 'Align both tangent handles to horizontal axis, preserving their lengths. A locked point stays locked, now horizontal.'
+          }
         >
           —
         </Button>

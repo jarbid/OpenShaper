@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { Link } from 'react-router-dom';
 import { RAIL_PRESETS } from '@openshaper/kernel';
-import { shortcutKeys } from '../../shortcuts';
+import { NUDGE, shortcutKeys } from '../../shortcuts';
 import { DocsPage, Section, Term, Terms } from './DocsPage';
 
 export default function DocsEditing() {
@@ -13,9 +13,12 @@ export default function DocsEditing() {
       toc={[
         { id: 'views', label: 'The views' },
         { id: 'guides', label: 'Guides in 3D' },
+        { id: 'analysis', label: 'Surface analysis in 3D' },
         { id: 'points', label: 'Control points & tangents' },
         { id: 'locks', label: 'Locking handle angles' },
+        { id: 'keyboard', label: 'Nudging from the keyboard' },
         { id: 'sections', label: 'Cross-sections' },
+        { id: 'blank', label: 'Cross-sections stay inside the blank' },
         { id: 'rails', label: 'Rail presets' },
         { id: 'tail', label: 'Concave tails' },
         { id: 'undo', label: 'Undo & history' },
@@ -93,7 +96,7 @@ export default function DocsEditing() {
 
       <Section id="guides" title="Guides in 3D">
         <p>
-          The 3D view can draw reference lines directly on the surface. Two buttons in the 3D
+          The 3D view can draw reference lines directly on the surface. Three buttons in the 3D
           controls toggle them independently.
         </p>
         <Terms>
@@ -107,11 +110,98 @@ export default function DocsEditing() {
             editing drawn in cyan. Useful for judging whether your stations are spaced sensibly, and
             for seeing which one a change belongs to.
           </Term>
+          <Term name="Apex">
+            A dashed green line down each rail through the rail apex: the widest point of every
+            section, where the rail stops facing down and starts facing up. It is the line that
+            parts the deck from the bottom &mdash; where a CNC machine flips the blank to cut the
+            other side. Where a rail has a truly vertical face, or one that dips in a hair between
+            two level corners, the line runs down the middle of it; inside a swallow or fish notch
+            it follows the outer rail. The rocker view can show the same line&rsquo;s height (Apex
+            height, see <Link to="/docs/specs#overlays">Analysis overlays</Link>).
+          </Term>
         </Terms>
         <p>
           The lines are computed from the same surface the mesh is built from, so they sit on the
-          board rather than floating near it. Both toggles are remembered between sessions, along
-          with the rest of the 3D appearance settings.
+          board rather than floating near it. All three toggles are remembered between sessions,
+          along with the rest of the 3D appearance settings.
+        </p>
+      </Section>
+
+      <Section id="analysis" title="Surface analysis in 3D">
+        <p>
+          The <strong>Surface analysis</strong> menu in the 3D controls repaints the hull to show
+          its shape rather than its finish. Three modes are <em>exact</em>: they fit the hull with
+          the same B-spline surface the <Link to="/docs/export">STEP export</Link> writes &mdash;
+          within 0.15 mm of the 3D hull &mdash; and work out its curvature mathematically at every
+          point, so what you see does not change with zoom or mesh quality. The rest are quick
+          effects on the viewport mesh.
+        </p>
+        <Terms>
+          <Term name="Zebra">
+            Stripes, as if a striped room were reflected in a glossed board. Stripes that run on
+            smoothly mean a smooth surface; a kink in them is a crease.
+          </Term>
+          <Term name="Mean curvature">
+            How much the surface bends, averaged over its two directions, and which way: red is
+            convex (a domed deck, a rail), blue is concave (a bottom concave, a dished deck), grey
+            is flat. Use it to judge how evenly the deck and bottom flow. The rails are usually
+            beyond the scale and show solid red &mdash; read them with Rail radius.
+          </Term>
+          <Term name="Gaussian curvature">
+            The two bends multiplied: red where the surface curves the same way in every direction,
+            like a dome; blue on a saddle, curving up one way and down the other &mdash; where a
+            concave runs out into the rail, or rocker meets a vee; grey where it is flat or bent one
+            way only, like a cylinder. A fair board has broad, calm areas; blotches show where the
+            shape twists.
+          </Term>
+          <Term name="Rail radius">
+            The tightest radius of curvature at each point &mdash; the smallest circle that fits the
+            surface there. Dark is tight, a hard or tucked edge, fading to light where the board is
+            flat. Follow a rail from tail to nose to see where the edge hardens and softens.
+          </Term>
+          <Term name="Normal change (approx.)">
+            The quick view: how fast the mesh normal turns from one pixel to the next. Rails and
+            nose light up, but the picture changes as you zoom and with mesh quality, and it cannot
+            tell a smooth join from a break &mdash; hence &ldquo;approx.&rdquo; It is the curvature
+            view that works on a concave tail.
+          </Term>
+          <Term name="Slope">
+            How far the surface faces away from straight up: deck and bottom one colour, the rails
+            another.
+          </Term>
+          <Term name="Deviation from ghost">
+            With a reference board loaded, how far your board lies from it at every point: red for
+            more foam, blue for less. See <Link to="/docs/specs#ghost">Comparing two boards</Link>.
+          </Term>
+        </Terms>
+        <p>
+          <strong>Reading the exact modes.</strong> A legend in the corner of the 3D view shows the
+          colour scale. Curvature is labelled as a radius in your display unit &mdash; &ldquo;as
+          curved as a ball of this radius&rdquo; &mdash; and the scale fits itself to the board: it
+          ends at the curvature that only the most curved fifth of the surface (by area) goes
+          beyond, so a needle-sharp nose tip cannot wash the rest out to grey. Rail radius runs from
+          the tightest two percent of the board to its median.
+        </p>
+        <p>
+          <strong>Expect a band at every cross-section.</strong> The hull is lofted from one station
+          to the next with a straight-line blend, so it changes direction slightly at each station
+          instead of flowing through it &mdash; a real crease, however small. The exact modes show
+          every one of them as a crisp line across the board where the colour jumps. That is not a
+          drawing artefact: it is the shape the exports describe, and it is where a smoother loft
+          would make a difference.
+        </p>
+        <p>
+          An exact mode takes about a second to compute, in the background, so editing never waits
+          for it. When you pick one, and after each edit, the 3D view shows the board shaded as
+          normal with <em>Computing curvature&hellip;</em> in the corner until the result is ready.
+          During a drag it waits until you let go.
+        </p>
+        <p>
+          The fitted surface does not yet model a{' '}
+          <Link to="/docs/editing#tail">concave (swallow or fish) tail</Link> &mdash; the same limit
+          as STEP export &mdash; so on such a board the three exact modes are listed but disabled,
+          with the reason. If one was already chosen, the view says so and shows Normal change
+          (approx.) instead.
         </p>
       </Section>
 
@@ -144,7 +234,9 @@ export default function DocsEditing() {
         </p>
         <p>
           Press <code>{shortcutKeys('delete-point')}</code> to remove the selected point. The curve
-          re-fits through the remaining points.
+          re-fits through the remaining points. A curve&apos;s two endpoints cannot be deleted, nor
+          can a cross-section&apos;s widest point — see{' '}
+          <Link to="/docs/editing#blank">Cross-sections stay inside the blank</Link>.
         </p>
       </Section>
 
@@ -170,13 +262,58 @@ export default function DocsEditing() {
           locked directions, Extend handle grows a collapsed handle along its lock, and moving the
           point carries its handles with it. To lock handles level or upright, use the horizontal or
           vertical align buttons in the sidebar Control point section: aligning a locked point turns
-          its lock with it. Resizing the board scales the locks with the shape.
+          its lock with it. <Link to="/docs/specs#resize">Resizing the board</Link> scales the locks
+          with the shape.
         </p>
         <p>
           Locks are part of the board. Locking and unlocking undo like any other edit, and locks are
           saved in OpenShaper&apos;s own <code>.board.json</code> files and share links. A{' '}
           <code>.brd</code> export leaves them out — BoardCAD has no such setting — so the curve is
           unchanged but its points come back unlocked.
+        </p>
+      </Section>
+
+      <Section id="keyboard" title="Nudging from the keyboard">
+        <p>
+          Select a point or a handle and press the arrow keys (<code>{shortcutKeys('nudge')}</code>)
+          to move it one step at a time: 5 mm, 0.5 cm or 0.25 in, depending on the length unit. Hold
+          Shift for {NUDGE.shiftFactor} steps at once. The arrows work in whichever view holds the
+          selection, and in the pane header&apos;s own X, Y or Length field, where they step that
+          value (Shift with Left or Right still selects text there); not in any other text field,
+          nor while a dialog is open. Each press is one undo step.
+        </p>
+        <p>
+          Two keys, held down, change what the arrows do. On their own they do nothing; let go and
+          the arrows move the selection again.
+        </p>
+        <Terms>
+          <Term name={`Hold ${NUDGE.rotateKey.toUpperCase()}: turn`}>
+            <code>{shortcutKeys('nudge-rotate')}</code> turns the selected handle about its point,{' '}
+            {NUDGE.turnDegrees}° per press, keeping its length: Left and Up counter-clockwise, Right
+            and Down clockwise, as you see it — in every view, including a phone&apos;s nose-up one.
+            With the point itself selected, both of its handles turn by the same angle. A smooth
+            point&apos;s two handles always turn together, so it stays smooth. Shift turns{' '}
+            {NUDGE.turnDegrees * NUDGE.shiftFactor}°.
+          </Term>
+          <Term name={`Hold ${NUDGE.lengthKey.toUpperCase()}: length`}>
+            <code>{shortcutKeys('nudge-length')}</code> lengthens (Right, Up) or shortens (Left,
+            Down) the selected handle by one step along the line it points, never past zero; with
+            the point selected, both of its handles (at a curve&apos;s first or last point, the one
+            handle the curve uses). A handle only shortens to nothing when it can grow back the way
+            it pointed — along its lock, or opposite the other handle of a smooth point — so a point
+            never loses its tangent; any other handle stops at its last step short of zero. Shift
+            changes it {NUDGE.shiftFactor} steps at once.
+          </Term>
+        </Terms>
+        <p>
+          A lock fixes a handle&apos;s angle, so turning does nothing to a locked handle — and, on a
+          smooth point, to either of its handles — while its length still changes. A turn that would
+          fold a curve back on itself, such as an outline or rocker handle turned past square to the
+          board&apos;s length, is not made at all rather than squashing the handle: the press does
+          nothing, and smaller steps without Shift still take it closer. A ⌘ chord, such as{' '}
+          <code>{shortcutKeys('undo')}</code> to take back a step, ends a held mode: press R or T
+          again before the next arrow. Every chord is listed on the{' '}
+          <Link to="/docs/shortcuts#nudging">shortcuts</Link> page.
         </p>
       </Section>
 
@@ -207,6 +344,46 @@ export default function DocsEditing() {
           Moving a station carries its profile with it, so the surface between the neighbouring
           stations changes shape. That is deliberate: you are sliding a control station, not
           re-sampling the existing surface.
+        </p>
+      </Section>
+
+      <Section id="blank" title="Cross-sections stay inside the blank">
+        <p>
+          The outline and the rocker — deck and bottom — define the blank, the way a shaper
+          hot-wires the side profile and then cuts the outline. Cross-sections (slices) refine that
+          blank and always sit inside it, so editing one never changes the outline, the deck or the
+          bottom. Those change only in their own views.
+        </p>
+        <Terms>
+          <Term name="Centre points">
+            The two points on the stringer sit on the bottom and on the deck, so they do not move. A
+            ring marks each, and the sidebar and the pane header show their position read-only.
+            Their handles stay free. To make the board thicker or thinner there, edit the rocker
+            (with <strong>Resize cross-sections to rocker/deck</strong> on, as it is by default).
+          </Term>
+          <Term name="Apex">
+            The section&apos;s widest point holds it to the outline&apos;s width, so it moves only
+            up and down — which is how you raise or lower the rail. Chevrons above and below it show
+            the way it can go, its distance from the stringer shows read-only, and it cannot be
+            deleted. Its handles can lengthen, shorten or lean in, but never out past it, which
+            keeps a smooth apex&apos;s handles upright (so they cannot be aligned flat). To make the
+            board wider or narrower there, edit the outline (with the same setting on).
+          </Term>
+          <Term name="Every other point">
+            Moves freely inside the apex, and stops on the line through it when dragged further out;
+            so does every handle. A value typed past the line stops there too, and the field shows
+            where it stopped; a handle&apos;s length stops where the handle meets the line, keeping
+            its angle. Where two points sit level at the widest, as on a boxy rail, neither is
+            singled out: either can move in while the other keeps the width.
+          </Term>
+        </Terms>
+        <p>
+          A drag the blank refuses outright, such as pulling on a centre point, leaves nothing on
+          the undo stack. With <strong>Resize cross-sections to rocker/deck</strong> on in Settings
+          (the default), editing the outline or the rocker resizes the cross-sections in that area
+          to match; turned off, they keep their own size. Either way, editing a cross-section leaves
+          the curves alone. A pasted cross-section brings its shape, stretched to the station&apos;s
+          centre points and apex line, so it lands inside the blank too.
         </p>
       </Section>
 

@@ -167,6 +167,15 @@ Import warnings and Construction have no Escape handling. A shared `<Modal>` wou
 of them, together with Phase 2 item 15. Effort M · visible: keyboard and screen-reader
 users.
 
+**P46 · Hold R / hold T have no visible state and need two keys held** (Phase 0 item
+0.3, `use-nudge-mode.ts`). Nothing on screen or in an `aria-live` region says the arrows
+now turn or resize a handle, unlike Space-pan's grab cursor, and OS Sticky Keys latch
+only modifiers, so someone who cannot hold two keys has no keyboard turn or length.
+Proposal: a small "Turn" / "Length" badge (with `aria-live="polite"`) in the pane
+header's point editor, updated only when the mode changes, and possibly a latch (tap R
+twice to toggle). Effort S–M · risk low (one re-render per mode change) · visible: a
+badge while a key is held, and a new toggle gesture.
+
 ## Process and dependencies
 
 **P35 · ✅ Done (ecc7621) — Run the e2e and offline Playwright suites in CI.** Neither runs today, and

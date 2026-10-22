@@ -39,6 +39,12 @@ React (useSyncExternalStore on the board)
  ├─ Board3DView (render3d)      tessellateAsync(board, faceSize, signal) → mesh-queue
  │        → Web Worker: kernel tessellateBoard → loft rings → BoardMesh (typed arrays,
  │          transferred) → meshToGeometry → three.js BufferGeometry → R3F mesh
+ │        exact analysis modes: curvatureAsync(settled board, signal) → its own
+ │          worker + queue: fitBoardSurface → curvature-mesh (principal curvatures
+ │          per vertex) → CurvatureSurface; status → AnalysisLegend (apps/web)
+ │        deviation from ghost: deviationAsync(board, ghost, faceSize, signal) → its
+ │          own worker + queue: tessellateBoard → kernel ghostDeviation (signed
+ │          distance per vertex, one ghost section per station) → DeviationSurface
  ├─ useSpecsWorker              settled board → specs worker → volume, area, CoM…
  └─ exports (export pkg)        on demand, from the current board
         │

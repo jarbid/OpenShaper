@@ -4,7 +4,6 @@ import {
   crossSection,
   csCenterThickness,
   csWidth,
-  getDeckAtPos,
   getLength,
   getLengthOverCurve,
   getRockerAtPos,
@@ -18,7 +17,7 @@ import {
   type Vec2,
 } from '@openshaper/kernel';
 import { createBoardStore } from './board-store';
-import { canDeleteKnot, moveKnotTangent } from './edits';
+import { canDeleteKnot, moveKnotTangent, sectionApexIndex } from './edits';
 import { selectSpecs } from './selectors';
 
 // A small but valid board: outline (half-width), flat-ish bottom & deck.
@@ -252,43 +251,251 @@ describe('board store: curve coupling (rocker/outline → cross-sections)', () =
     expect(csWidth(mid)).toBeCloseTo(getWidthAtPos(b, 50), 6);
     expect(csWidth(mid)).toBeGreaterThan(before);
   });
+});
 
-  it('drives the deck two-way when the section centerline is dragged (no snap-back)', () => {
-    const store = createBoardStore();
-    store.getState().load(makeCoupledBoard());
-    const target = { kind: 'crossSection', index: 1 } as const;
-    const beforeThk = getThicknessAtPos(store.getState().board!, 50);
-    const knots = store.getState().board!.crossSections[1]!.spline.knots;
-    const last = knots.length - 1; // last knot = deck-center driver
-    const deckCenter = knots[last]!.end;
+describe('board store: slices refine the blank', () => {
+  // Mid station x = 50: outline half-width 20 (width 40), bottom 3, deck 9 (thickness 6).
+  // The slice already matches them — apex at x = 20 with upright handles, centre points 6
+  // apart — so the commit-time rescale has nothing to correct and every change below is
+  // the blank rule's own doing.
+  const blankBoard = (): BezierBoard => {
+    const k = (ex: number, ey: number) => knot(vec2(ex, ey), vec2(ex - 5, ey), vec2(ex + 5, ey));
+    const outline = splineFromKnots([k(0, 0), k(50, 20), k(100, 0)]);
+    const bottom = splineFromKnots([k(0, 2), k(50, 3), k(100, 2)]);
+    const deck = splineFromKnots([k(0, 8), k(50, 9), k(100, 8)]);
+    const prof = splineFromKnots([
+      knot(vec2(0, 0), vec2(-6, 0), vec2(6, 0)),
+      knot(vec2(18, 0.5), vec2(15, 0.2), vec2(19.5, 1), false),
+      knot(vec2(20, 2), vec2(20, 1.2), vec2(20, 3)),
+      knot(vec2(14, 5), vec2(18, 4.5), vec2(10, 5.5)),
+      knot(vec2(0, 6), vec2(6, 6), vec2(-6, 6)),
+    ]);
+    const cs = [crossSection(0, prof), crossSection(50, prof), crossSection(100, prof)];
+    return board(outline, bottom, deck, cs);
+  };
+  const SLICE = { kind: 'crossSection', index: 1 } as const;
+  const DEG = Math.PI / 180;
 
-    // Drag the deck-center up (keep its x so width is unaffected).
-    store.getState().moveControlPoint(target, last, vec2(deckCenter.x, deckCenter.y + 3));
+  type Store = ReturnType<typeof createBoardStore>;
+  const slice = (store: Store) => store.getState().board!.crossSections[1]!.spline;
 
-    const b = store.getState().board!;
-    // The deck rose: thickness increased (propagated) instead of snapping back, and the
-    // section stays consistent with the curve.
-    expect(getThicknessAtPos(b, 50)).toBeGreaterThan(beforeThk + 2);
-    expect(csCenterThickness(b.crossSections[1]!)).toBeCloseTo(getThicknessAtPos(b, 50), 4);
-  });
+  describe.each([true, false])('with "Resize cross-sections" %s', (adjust) => {
+    const setup = () => {
+      const store = createBoardStore();
+      store.getState().setAdjustThickness(adjust);
+      store.getState().load(blankBoard());
+      return store;
+    };
 
-  it('undoes a section-driven deck change in one step', () => {
-    const store = createBoardStore();
-    store.getState().load(makeCoupledBoard());
-    const original = store.getState().board!;
-    const beforeDeck = getDeckAtPos(original, 50);
-    const knots = original.crossSections[1]!.spline.knots;
-    const last = knots.length - 1;
-    const dc = knots[last]!.end;
+    /** Run `edit` as one drag; the outline, rocker and deck must come out untouched. */
+    const expectBlankKept = (edit: (store: Store) => void) => {
+      const store = setup();
+      const before = store.getState().board!;
+      const width = csWidth(before.crossSections[1]!);
+      store.getState().beginEdit();
+      edit(store);
+      store.getState().endEdit();
+      const after = store.getState().board!;
+      expect(after.outline).toBe(before.outline);
+      expect(after.bottom).toBe(before.bottom);
+      expect(after.deck).toBe(before.deck);
+      expect(csWidth(after.crossSections[1]!)).toBe(width);
+      return store;
+    };
 
-    store
-      .getState()
-      .moveControlPoint({ kind: 'crossSection', index: 1 }, last, vec2(dc.x, dc.y + 3));
-    expect(getDeckAtPos(store.getState().board!, 50)).toBeGreaterThan(beforeDeck + 2);
+    it('loads the slice as it is: it already fits the blank', () => {
+      const store = setup();
+      expect(slice(store).knots).toEqual(blankBoard().crossSections[1]!.spline.knots);
+      expect(csWidth(store.getState().board!.crossSections[1]!)).toBe(40);
+    });
 
-    // One undo restores the whole board — section AND the propagated deck together.
-    store.getState().undo();
-    expect(store.getState().board).toBe(original);
+    it.each([
+      ['outward', [vec2(23, 2.2), vec2(27, 2.5)]],
+      ['inward', [vec2(17, 2.2), vec2(12, 3)]],
+    ])('drags the apex %s: it only rises or falls', (_, moves) => {
+      const store = expectBlankKept((s) => {
+        for (const to of moves) s.getState().moveControlPoint(SLICE, 2, to);
+      });
+      expect(slice(store).knots[2]!.end).toEqual(vec2(20, moves.at(-1)!.y));
+    });
+
+    it.each([0, 4])('will not drag centre point %i, and records no step for trying', (i) => {
+      const store = setup();
+      const before = store.getState().board;
+      const at = slice(store).knots[i]!.end;
+      store.getState().moveControlPoint(SLICE, i, vec2(at.x + 1, at.y - 2));
+      expect(store.getState().board).toBe(before);
+      expect(store.getState().past).toHaveLength(0);
+      expectBlankKept((s) => s.getState().moveControlPoint(SLICE, i, vec2(3, at.y + 1.5)));
+    });
+
+    it('leaves no undo step, and keeps redo, after a drag the blank refused throughout', () => {
+      const store = setup();
+      store.getState().moveControlPoint(SLICE, 3, vec2(13, 5));
+      store.getState().undo();
+      const before = store.getState().board;
+      store.getState().beginEdit();
+      for (const y of [6.5, 7, 8]) store.getState().moveControlPoint(SLICE, 4, vec2(0, y));
+      store.getState().endEdit();
+      expect(store.getState().board).toBe(before);
+      expect(store.getState().past).toHaveLength(0);
+      expect(store.getState().future.map((h) => h.label)).toEqual(['Move control point']);
+    });
+
+    it('pushes a rail point out against the apex and brings it back in, in one drag', () => {
+      const store = expectBlankKept((s) => {
+        s.getState().moveControlPoint(SLICE, 1, vec2(23, 0.8));
+        expect(slice(s).knots[1]!.end).toEqual(vec2(20, 0.8));
+        s.getState().moveControlPoint(SLICE, 1, vec2(16, 0.6));
+      });
+      expect(slice(store).knots[1]!.end).toEqual(vec2(16, 0.6));
+      expect(slice(store).knots[2]!.end).toEqual(vec2(20, 2));
+      expect(store.getState().past).toHaveLength(1);
+    });
+
+    it('keeps a dragged handle inside the apex', () => {
+      const store = expectBlankKept((s) => {
+        s.getState().moveTangent(SLICE, 3, 'prev', vec2(22, 4.2));
+        s.getState().moveTangent(SLICE, 3, 'prev', vec2(26, 4));
+      });
+      expect(slice(store).knots[3]!.tangentToPrev).toEqual(vec2(20, 4));
+    });
+
+    it('takes a Tunni drag on the rail', () => {
+      const store = expectBlankKept((s) => {
+        // Both handles of the apex → rail segment, pulled out half again along themselves.
+        const rail = slice(s).knots[3]!.tangentToPrev;
+        const out = vec2(14 + (rail.x - 14) * 1.5, 5 + (rail.y - 5) * 1.5);
+        s.getState().moveSegmentTangents(SLICE, 2, vec2(20, 3.5), out);
+      });
+      expect(slice(store).knots[2]!.end).toEqual(vec2(20, 2));
+      expect(slice(store).knots[2]!.tangentToNext).toEqual(vec2(20, 3.5));
+      expect(slice(store).knots[3]!.tangentToPrev).toEqual(vec2(20, 4.25));
+    });
+
+    it('fairs the apex and its neighbours without moving the blank', () => {
+      const store = expectBlankKept((s) => {
+        s.getState().fairControlPoint(SLICE, 1);
+        s.getState().fairControlPoint(SLICE, 2);
+        s.getState().fairControlPoint(SLICE, 3);
+      });
+      const apex = slice(store).knots[2]!;
+      expect(apex.end).toEqual(vec2(20, 2));
+      expect(apex.tangentToPrev.x).toBe(20);
+      expect(apex.tangentToNext.x).toBe(20);
+    });
+
+    it('will not turn the upright handles of a smooth apex', () => {
+      const store = setup();
+      const before = store.getState().board;
+      store.getState().rotateTangent(SLICE, 2, 'both', 5 * DEG);
+      store.getState().rotateTangent(SLICE, 2, 'next', -5 * DEG);
+      expect(store.getState().board).toBe(before);
+      expect(store.getState().past).toHaveLength(0);
+    });
+
+    it('records nothing for a push straight out on a smooth apex handle', () => {
+      // ArrowRight on the apex's upper handle: the blank takes all of it back.
+      const store = setup();
+      const before = store.getState().board;
+      for (let i = 0; i < 3; i++) store.getState().moveTangent(SLICE, 2, 'next', vec2(25, 3));
+      expect(store.getState().board).toBe(before);
+      expect(store.getState().past).toHaveLength(0);
+    });
+
+    describe("a handle length edit keeps the handle's angle", () => {
+      const angle = (h: Vec2, at: Vec2) => Math.atan2(h.y - at.y, h.x - at.x);
+
+      it('stops a typed length where the handle meets the apex line', () => {
+        const store = setup();
+        const was = slice(store).knots[3]!;
+        store.getState().setTangentLength(SLICE, 3, 'prev', 10);
+        const k = slice(store).knots[3]!;
+        expect(k.tangentToPrev.x).toBe(20);
+        expect(angle(k.tangentToPrev, k.end)).toBeCloseTo(angle(was.tangentToPrev, was.end), 12);
+        expect(angle(k.tangentToNext, k.end)).toBeCloseTo(angle(was.tangentToNext, was.end), 12);
+        expect(store.getState().past.map((h) => h.label)).toEqual(['Set handle length']);
+      });
+
+      it('stops hold-T nudges on the line, and then records nothing', () => {
+        const store = setup();
+        const was = slice(store).knots[1]!; // the tuck: (18, 0.5) → (19.5, 1)
+        // It reaches the line, 2.11 long, on the second press …
+        for (let i = 0; i < 2; i++) store.getState().stepTangentLength(SLICE, 1, 'next', 0.5);
+        const k = slice(store).knots[1]!;
+        expect(k.tangentToNext.x).toBe(20);
+        expect(angle(k.tangentToNext, k.end)).toBeCloseTo(angle(was.tangentToNext, was.end), 12);
+        // … and stays there, without a step per press.
+        const at = store.getState().board;
+        for (let i = 0; i < 4; i++) store.getState().stepTangentLength(SLICE, 1, 'next', 0.5);
+        expect(store.getState().board).toBe(at);
+        expect(store.getState().past).toHaveLength(2);
+      });
+    });
+
+    it('will not lay the apex handles flat, which would collapse one, but aligns others', () => {
+      const store = setup();
+      const before = store.getState().board;
+      store.getState().alignTangentsHorizontal(SLICE, 2);
+      expect(store.getState().board).toBe(before);
+      expect(store.getState().past).toHaveLength(0);
+      store.getState().alignTangentsHorizontal(SLICE, 3);
+      expect(slice(store).knots[3]!.tangentToPrev.y).toBe(5);
+    });
+
+    it('will not delete the apex, but deletes another rail point', () => {
+      const store = setup();
+      const before = store.getState().board;
+      store.getState().deleteControlPoint(SLICE, 2);
+      expect(store.getState().board).toBe(before);
+      expect(store.getState().past).toHaveLength(0);
+      expectBlankKept((s) => s.getState().deleteControlPoint(SLICE, 3));
+    });
+
+    it.each(['60-40-tucked', '80-20-hard', 'egg'] as const)(
+      'restyles the rail with %s inside the blank, and then holds the new apex',
+      (preset) => {
+        const before = slice(setup());
+        const store = expectBlankKept((s) => s.getState().applyRailPreset(1, preset));
+        const after = slice(store);
+        expect(after).not.toBe(before);
+        // The preset keeps the centre points and puts its apex on the old one's line …
+        expect(after.knots[0]!.end).toEqual(before.knots[0]!.end);
+        expect(after.knots.at(-1)!.end).toEqual(before.knots.at(-1)!.end);
+        const apex = sectionApexIndex(after);
+        expect(after.knots[apex]!.end.x).toBe(20);
+        for (const k of after.knots) {
+          for (const p of [k.end, k.tangentToPrev, k.tangentToNext])
+            expect(p.x).toBeLessThanOrEqual(20);
+        }
+        // … which then moves only up and down like any other.
+        const y = after.knots[apex]!.end.y;
+        store.getState().moveControlPoint(SLICE, apex, vec2(25, y + 0.3));
+        expect(slice(store).knots[apex]!.end).toEqual(vec2(20, y + 0.3));
+      },
+    );
+
+    it('pastes a wider, thicker profile as a shape, fitted into the station', () => {
+      // A mid-board profile 60 wide and 10 thick, pasted onto this 40 × 6 station.
+      const wide = splineFromKnots([
+        knot(vec2(0, 0), vec2(-6, 0), vec2(6, 0)),
+        knot(vec2(30, 3), vec2(30, 1), vec2(30, 5)),
+        knot(vec2(0, 10), vec2(10, 10), vec2(-10, 10)),
+      ]);
+      const store = expectBlankKept((s) => s.getState().pasteCrossSection(1, wide));
+      const k = slice(store).knots;
+      expect(k).toHaveLength(3);
+      expect(k[0]!.end).toEqual(vec2(0, 0));
+      expect(k[2]!.end).toEqual(vec2(0, 6));
+      expect(k[1]!.end.x).toBe(20); // on the apex line exactly
+      expect(k[1]!.end.y).toBeCloseTo(1.8, 12); // 3 of 10 up, as 1.8 of 6
+      expect(store.getState().past.map((h) => h.label)).toEqual(['Paste cross-section']);
+    });
+
+    it('adds a point to the slice without moving the blank', () => {
+      const store = expectBlankKept((s) => s.getState().addControlPoint(SLICE, vec2(8, 5.9)));
+      expect(slice(store).knots).toHaveLength(6);
+    });
   });
 });
 
@@ -685,10 +892,10 @@ describe('board store: applyRailPreset', () => {
 
   /**
    * The load-bearing one. A preset restyles the rail and nothing else: it must not move
-   * the board curves (which would happen if `propagateCrossSectionToCurves` saw the
-   * width or centreline heights change), and it must not be quietly resized by the
-   * commit-time `adjustCrossSectionsToThicknessAndWidth` pass. Both show up here as the
-   * curve splines keeping their identity.
+   * the board curves, and it must not be quietly resized by the commit-time
+   * `adjustCrossSectionsToThicknessAndWidth` pass, which would happen if it changed the
+   * station's width or centre thickness. Both show up here as the curve splines keeping
+   * their identity and the station keeping its dimensions.
    */
   it('leaves the outline, deck and rocker untouched', () => {
     const store = load();
@@ -893,5 +1100,72 @@ describe('board store: handle-angle locks', () => {
     expect(k.tangentToNext.x).toBeCloseTo(62, 12);
     expect(k.tangentToNext.y).toBeCloseTo(20, 12);
     expect(store.getState().past.at(-1)!.label).toBe('Set handle length');
+  });
+});
+
+describe('board store: keyboard handle rotation and length', () => {
+  const OUTLINE = { kind: 'outline' } as const;
+  const DEG = Math.PI / 180;
+  const withBoard = () => {
+    const store = createBoardStore();
+    store.getState().load(makeBoard());
+    return store;
+  };
+  const middle = (store: ReturnType<typeof createBoardStore>) =>
+    store.getState().board!.outline.knots[1]!;
+
+  it('turns a handle in one labelled undo step per call, keeping its length', () => {
+    const store = withBoard();
+    store.getState().rotateTangent(OUTLINE, 1, 'next', 30 * DEG);
+    store.getState().rotateTangent(OUTLINE, 1, 'both', 10 * DEG);
+    const k = middle(store);
+    expect(k.tangentToNext.x).toBeCloseTo(50 + 5 * Math.cos(40 * DEG), 12);
+    expect(k.tangentToNext.y).toBeCloseTo(20 + 5 * Math.sin(40 * DEG), 12);
+    // Smooth: the other handle turned with it.
+    expect(k.tangentToPrev.x).toBeCloseTo(50 - 5 * Math.cos(40 * DEG), 12);
+    expect(k.tangentToPrev.y).toBeCloseTo(20 - 5 * Math.sin(40 * DEG), 12);
+    expect(store.getState().past.map((h) => h.label)).toEqual(['Rotate handle', 'Rotate handles']);
+
+    store.getState().undo();
+    store.getState().undo();
+    expect(middle(store).tangentToNext).toEqual(vec2(55, 20));
+  });
+
+  it('records nothing for a locked handle', () => {
+    const store = withBoard();
+    store.getState().setLocked(OUTLINE, 1, true);
+    const before = store.getState().board;
+    store.getState().rotateTangent(OUTLINE, 1, 'next', 5 * DEG);
+    expect(store.getState().board).toBe(before);
+    expect(store.getState().past.map((h) => h.label)).toEqual(['Lock handle angles']);
+  });
+
+  it('refuses a turn the junction pass would bend back and shorten', () => {
+    // An outline handle may turn up to vertical, never past it: the curve would fold
+    // back on itself, so the junction pass would squash the handle onto the vertical.
+    const store = withBoard();
+    store.getState().rotateTangent(OUTLINE, 1, 'next', 85 * DEG);
+    expect(store.getState().past).toHaveLength(1);
+    const before = store.getState().board;
+    store.getState().rotateTangent(OUTLINE, 1, 'next', 10 * DEG);
+    expect(store.getState().board).toBe(before);
+    expect(store.getState().past).toHaveLength(1);
+    expect(
+      Math.hypot(middle(store).tangentToNext.x - 50, middle(store).tangentToNext.y - 20),
+    ).toBeCloseTo(5, 12);
+  });
+
+  it('steps both handles of a point in one undo step, never below zero', () => {
+    const store = withBoard();
+    store.getState().stepTangentLength(OUTLINE, 1, 'both', 2);
+    expect(middle(store).tangentToPrev).toEqual(vec2(43, 20));
+    expect(middle(store).tangentToNext).toEqual(vec2(57, 20));
+    expect(store.getState().past.map((h) => h.label)).toEqual(['Set handle length']);
+
+    store.getState().stepTangentLength(OUTLINE, 1, 'next', -100);
+    expect(middle(store).tangentToNext).toEqual(vec2(50, 20));
+    // Already collapsed: shortening further records nothing.
+    store.getState().stepTangentLength(OUTLINE, 1, 'next', -1);
+    expect(store.getState().past).toHaveLength(2);
   });
 });
