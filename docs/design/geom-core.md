@@ -3054,7 +3054,14 @@ Path A.
 **Harness.** `src/**/*.occt.test.ts`, run by `vitest.occt.config.ts` (single fork,
 `testTimeout: 60_000`); one kernel per file, freed with `releaseSince(checkpoint())`;
 init ≈ 0.13–0.2 s, small solids import in 0.01–0.2 s. STEP files go to
-`packages/geom/.occt-corpus/` and CI uploads them.
+`packages/geom/.occt-corpus/` and CI uploads them. The protocol itself (Path B, Path A
+with B7, the orientation negative controls of §15.6, the mesh-volume oracle and their named
+thresholds) is the test-only subpath `@openshaper/geom/testing/occt`
+(`src/testing/occt/index.ts`, extracted in board2 step S4 so board2's `*.occt.test.ts` runs
+it on whole boards): the one non-test geom file that imports `occt-wasm`, reachable from no
+other entry and imported by `*.occt.test.ts` files only (`occt-isolation.test.ts`). Its
+runners measure and the tests assert; `step.occt.test.ts`'s three orientation tests per
+solid became one (same assertions), so geom's `test:occt` is 85 tests.
 
 ### 15.4 Fallback
 

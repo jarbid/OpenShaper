@@ -21,7 +21,10 @@
  * certified trim checks). The offset layer's structure is checked before them
  * (`doc-malformed`). The band checks judge the columns of the station basis
  * only: a board that passes can still fail at a column `buildBand`'s
- * refinement inserts (S3 deviation 8).
+ * refinement inserts (S3 deviation 8). Step S4 added the bottom features'
+ * geometric checks (`feature-invalid`: depth support inside the tuck loop's
+ * x-range, zero at its ends, channels clear of the stringer) and their fit; the
+ * band checks then run on the bottom with its features.
  *
  * It is pure and total: it never throws on a typed document, including one that
  * has not been through `reviveBoardDoc` (non-finite numbers are reported, not
@@ -29,7 +32,9 @@
  */
 import { curvePoint, knotMultiplicities, periodicBasis, resolveTolerances } from '@openshaper/geom';
 import type { PeriodicCurve, Tolerances } from '@openshaper/geom';
-import { bandChecks } from './band/band';
+import { bandChecks, bandContext, geomIssue, insetPlanCurve } from './band/band';
+import { stationBasis } from './band/stations';
+import { bottomWithFeatures } from './features';
 import { BOARD2_FORMAT, BOARD2_VERSION } from './doc';
 import { causeOf, hasErrors, makeIssue } from './issues';
 import { certifyLawRange, checkLawKeys } from './law';
@@ -132,8 +137,42 @@ function checkFeature(f: BottomFeature, out: Board2Issue[]): void {
   }
 }
 
-/** The model invariants that need no geometry. Empty for a valid document. */
+/**
+ * The model invariants of a document (module comment). Empty for a valid
+ * document; warnings (a feature fit that missed `featureTol`) do not make it
+ * invalid.
+ */
 export function validateBoard(doc: BoardDoc): readonly Board2Issue[] {
+  const out = [...validateDocument(doc)];
+  // The features and the band's columns need a sound plan, surfaces, laws, offsets and parameters.
+  if (!hasErrors(out)) out.push(...geometryChecks(doc));
+  return out;
+}
+
+/**
+ * Stages 4–8 as checks (step S4): the tuck plan curve on the station basis, the
+ * bottom features against it and fitted (`feature-invalid`, a `not-converged`
+ * warning on a missed `featureTol`), then the band's columns on the bottom
+ * with its features (`bandChecks`). Never throws.
+ */
+function geometryChecks(doc: BoardDoc): readonly Board2Issue[] {
+  try {
+    const ctx = bandContext(doc);
+    const b = stationBasis(ctx.plan, ctx.arc, doc.build, ctx.symmetric, ctx.tol);
+    const fb = bottomWithFeatures(doc, ctx.bottom, insetPlanCurve(ctx, b, 'tuck'), ctx.tol);
+    if (fb.value === null) return fb.issues;
+    return [...fb.issues, ...bandChecks(doc, fb.value.surface)];
+  } catch (e) {
+    return [geomIssue(e, 'geometry checks')];
+  }
+}
+
+/**
+ * Every check of {@link validateBoard} but the geometric ones of stages 4–8
+ * (features and band columns), which `buildBoard` reports itself as it builds
+ * them. Internal.
+ */
+export function validateDocument(doc: BoardDoc): readonly Board2Issue[] {
   const out: Board2Issue[] = [];
   if (doc.format !== BOARD2_FORMAT) {
     out.push(
@@ -203,8 +242,6 @@ export function validateBoard(doc: BoardDoc): readonly Board2Issue[] {
     out.push(...checkHeightFieldSymmetry(doc.bottom, 'bottom', tol));
   }
   checkOffsets(doc, tol, out);
-  // The band's columns need a sound plan, surfaces, laws, offsets and parameters.
-  if (!hasErrors(out)) out.push(...bandChecks(doc));
   return out;
 }
 

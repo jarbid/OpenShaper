@@ -20,6 +20,7 @@
     "build": "tsc -p tsconfig.json --noEmit",
     "coverage": "vitest run --coverage --coverage.include=src --coverage.reporter=text-summary --coverage.reporter=json-summary",
     "test": "vitest run",
+    "test:occt": "vitest run -c vitest.occt.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

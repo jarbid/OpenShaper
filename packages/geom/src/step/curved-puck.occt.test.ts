@@ -20,8 +20,6 @@
  *   OCCT's own triangulation at two deflections (its error bounded by
  *   `area × deflection` and shrinking with it) and GProp face by face.
  */
-import { OcctKernel } from 'occt-wasm';
-import type { ShapeHandle } from 'occt-wasm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   checkBrep,
@@ -39,6 +37,8 @@ import {
   toOcctBrepText,
   toOcctBrepTextUnchecked,
 } from '../testing';
+import { maxShapeTolerance, OcctKernel } from '../testing/occt';
+import type { ShapeHandle } from '../testing/occt';
 
 let kernel: OcctKernel;
 let mark = 0;
@@ -60,18 +60,6 @@ const OCCT_EDGE_SAMPLES = 23;
 const FLIP_REL = 1e-6;
 /** OCCT's healer stores what it measured with a small margin of its own (measured 1.00001×). */
 const HEALER_MARGIN_REL = 1e-4;
-
-/** Largest vertex and edge tolerance in OCCT's BREP text (as in `step.occt.test.ts`). */
-function maxShapeTolerance(brep: string): number {
-  const lines = brep.split('\n');
-  let max = 0;
-  for (let i = 0; i + 1 < lines.length; i++) {
-    if (lines[i] === 'Ve' || lines[i] === 'Ed') {
-      max = Math.max(max, Number(lines[i + 1]!.trim().split(/\s+/)[0]));
-    }
-  }
-  return max;
-}
 
 /** The largest same-parameter deviation over every coedge at `n` equally spaced parameters (cm). */
 function sampledDeviation(b: Brep, n: number): number {

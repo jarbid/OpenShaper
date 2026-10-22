@@ -65,6 +65,24 @@ const LAYERS = {
           'Test-only oracle or helper: import it from tests and benches only, never from src.',
       },
     ],
+    // The OCCT protocol module has its own entry below.
+    ignores: ['packages/geom/src/testing/occt/**'],
+  },
+  // The OCCT protocol (`@openshaper/geom/testing/occt`, docs/design/board2.md
+  // §14 S4): test-only, run by `*.occt.test.ts` files of any package. The one
+  // source file allowed to import `occt-wasm` (occt-isolation.test.ts checks
+  // that nothing shipping reaches it); otherwise geom's rules.
+  'geom/testing/occt': {
+    files: ['packages/geom/src/testing/occt/**/*.{ts,tsx}'],
+    pkgs: ['kernel', 'io', 'units', 'store', 'render2d', 'render3d', 'export', 'ui', 'board2'],
+    ui: true,
+    node: true,
+    extra: [
+      {
+        group: ['delaunator', '@kninnug/constrainautor', '@openshaper/geom/testing'],
+        message: 'The OCCT protocol uses geom through relative imports and occt-wasm only.',
+      },
+    ],
   },
   // The v2 board model (docs/design/board2.md §11.3). Its core may import
   // `@openshaper/geom` and nothing else of the workspace; the classic converter

@@ -10,3 +10,5 @@ export { notchedBoard, notchedLoopFixture } from './notched';
 export { offKnotLoop } from './off-knot';
 export type { OffKnotLoopOptions } from './off-knot';
 export { constantLaw, defaultLaws, sampleDoc } from './sample-doc';
+export { bandArea, bandZFlux, flatBoardVolume, rowPlanArea } from './volume';
+export type { FlatBoardVolume } from './volume';

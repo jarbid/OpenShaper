@@ -8,10 +8,17 @@
  * 1. only `packages/geom/package.json` names it, and as a **devDependency**;
  *    pnpm's strict `node_modules` then makes it unresolvable elsewhere, and
  *    the lockfile lists it under that one importer only;
- * 2. no non-test source file of geom imports it (ESLint says the same);
- * 3. nothing reachable from geom's two entry points (`exports`: `.` and
- *    `./testing`) imports it, following relative imports transitively: what a
- *    dependent package, bundler or worker can pull in never touches it.
+ * 2. no non-test source file of geom imports it (ESLint says the same),
+ *    except the OCCT protocol module `testing/occt/` (board2 step S4): the
+ *    test-only `./testing/occt` subpath that other packages' OCCT suites run
+ *    on, the one non-test file allowed to name it;
+ * 3. nothing reachable from geom's two shipping-safe entry points (`exports`:
+ *    `.` and `./testing`) imports it or the protocol module, following
+ *    relative imports transitively: what a dependent package, bundler or
+ *    worker can pull in never touches it;
+ * 4. the `./testing/occt` subpath is imported by `*.occt.test.ts` files only,
+ *    anywhere in the workspace (they run under `vitest.occt.config.ts`, never
+ *    in `pnpm test` or a build).
  */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -21,6 +28,8 @@ import { describe, expect, it } from 'vitest';
 const SRC = dirname(fileURLToPath(import.meta.url));
 const GEOM = resolve(SRC, '..');
 const ROOT = resolve(GEOM, '..', '..');
+/** The OCCT protocol module (the `./testing/occt` subpath), relative to `src`. */
+const OCCT_PROTOCOL = join('testing', 'occt', 'index.ts');
 
 function packageJsons(): string[] {
   const out = [join(ROOT, 'package.json')];
@@ -96,11 +105,43 @@ describe('occt-wasm stays a test-only oracle', () => {
     expect(lock).toMatch(/occt-wasm:\n\s+specifier: 5\.3\.5\n\s+version: 5\.3\.5/);
   });
 
-  it('is not imported by any non-test source file of geom', () => {
+  it('is not imported by any non-test source file of geom but the OCCT protocol module', () => {
     const offenders = sources(SRC)
       .filter((f) => !f.endsWith('.test.ts') && !f.endsWith('.bench.ts'))
       .filter((f) => specifiers(f).some((s) => s === 'occt-wasm' || s.startsWith('occt-wasm/')));
-    expect(offenders.map((f) => relative(SRC, f))).toEqual([]);
+    expect(offenders.map((f) => relative(SRC, f))).toEqual([OCCT_PROTOCOL]);
+  });
+
+  it('the protocol is the ./testing/occt subpath, and the only entry that reaches it', () => {
+    const pkg = JSON.parse(readFileSync(join(GEOM, 'package.json'), 'utf8')) as {
+      exports: Record<string, string>;
+    };
+    expect(Object.keys(pkg.exports).sort()).toEqual(['.', './testing', './testing/occt']);
+    expect(resolve(GEOM, pkg.exports['./testing/occt']!)).toBe(join(SRC, OCCT_PROTOCOL));
+  });
+
+  it('the ./testing/occt subpath is imported by *.occt.test.ts files only, workspace-wide', () => {
+    const importers: string[] = [];
+    for (const group of ['apps', 'packages']) {
+      const dir = join(ROOT, group);
+      if (!existsSync(dir)) continue;
+      for (const d of readdirSync(dir)) {
+        const src = join(dir, d, 'src');
+        if (!existsSync(src)) continue;
+        for (const f of sources(src)) {
+          const hit = specifiers(f).some((s) => {
+            if (s === '@openshaper/geom/testing/occt') return true;
+            if (!s.startsWith('.')) return false;
+            const r = resolveRelative(f, s);
+            return r !== null && r === join(SRC, OCCT_PROTOCOL);
+          });
+          if (hit) importers.push(relative(ROOT, f));
+        }
+      }
+    }
+    expect(importers.filter((f) => !f.endsWith('.occt.test.ts'))).toEqual([]);
+    // The scan can see an importer (a broken scan would pass vacuously).
+    expect(importers).toContain(join('packages', 'geom', 'src', 'step', 'step.occt.test.ts'));
   });
 
   it('is not reachable from the package entry points (index.ts and testing/index.ts)', () => {
@@ -127,12 +168,13 @@ describe('occt-wasm stays a test-only oracle', () => {
     expect(names).toContain(join('brep', 'check.ts'));
     expect(names).toContain(join('testing', 'solids.ts'));
     expect(seen.size).toBeGreaterThan(40);
-    // And the test file that does import it is not among them.
+    // And neither the protocol module nor a test file that imports it is among them.
+    expect(names).not.toContain(OCCT_PROTOCOL);
     expect(names.some((n) => n.endsWith('.occt.test.ts'))).toBe(false);
   });
 
-  it('the detector can fail: the OCCT test file is seen importing it', () => {
-    const occt = join(SRC, 'step', 'step.occt.test.ts');
-    expect(specifiers(occt)).toContain('occt-wasm');
+  it('the detector can fail: the protocol module is seen importing it, the OCCT tests the protocol', () => {
+    expect(specifiers(join(SRC, OCCT_PROTOCOL))).toContain('occt-wasm');
+    expect(specifiers(join(SRC, 'step', 'step.occt.test.ts'))).toContain('../testing/occt');
   });
 });

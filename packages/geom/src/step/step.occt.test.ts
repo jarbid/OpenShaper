@@ -6,7 +6,10 @@
  * required CI step on this branch, not part of `pnpm test`.
  *
  * `occt-wasm` is a devDependency of this package only and is imported by tests
- * only; ESLint forbids it in `src` and nothing outside geom imports geom yet.
+ * and by the protocol module `testing/occt/` only (the `./testing/occt`
+ * subpath, which other packages' `*.occt.test.ts` run on their own solids;
+ * `occt-isolation.test.ts`). The protocol's runners (`pathB`, `pathA`,
+ * `orientationControls`) measure; this file asserts.
  *
  * OCCT's STEP reader heals silently (box missing a face imports as a valid
  * 5-face shell; §15.2), so "imports without error" proves little. Each corpus
@@ -41,23 +44,11 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { OcctKernel } from 'occt-wasm';
-import type { ShapeHandle } from 'occt-wasm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import {
-  checkBrep,
-  curvePoint,
-  GeomError,
-  makeBrep,
-  massProperties,
-  surfacePoint,
-  transformBrep,
-  writeStep,
-} from '../index';
-import type { Affine3, Brep, StepStats, StepWriteOptions } from '../index';
+import { checkBrep, GeomError, makeBrep, massProperties, transformBrep, writeStep } from '../index';
+import type { Affine3, Brep, StepWriteOptions } from '../index';
 import { real } from './part21';
-import { writeStepCore } from './write';
-import { flipBrep, unwrapBrep } from '../brep/brep';
+import { unwrapBrep } from '../brep/brep';
 import {
   boxSolid,
   CURVED_PUCK_BOARD,
@@ -74,6 +65,31 @@ import {
   toOcctBrepTextUnchecked,
   torusSolid,
 } from '../testing';
+import {
+  ANGULAR_DEFLECTION,
+  B7_REL,
+  DEFLECTION_MM,
+  FLOAT32_EPS,
+  flipSubShape,
+  GPROP_SANITY_REL,
+  maxShapeTolerance,
+  MESH_BOUND_MAX_REL,
+  meshVolume,
+  MM_PER_FILE_UNIT,
+  OcctKernel,
+  occtVerdict,
+  orientationControls,
+  pathA,
+  pathB,
+  refused,
+} from '../testing/occt';
+import type {
+  ImportFacts,
+  MeshVolumeCheck,
+  OcctSolid,
+  OcctVerdict,
+  ShapeHandle,
+} from '../testing/occt';
 
 let kernel: OcctKernel;
 let mark = 0;
@@ -120,29 +136,20 @@ const MIRROR_X: Affine3 = [-1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
 
 // --- the corpus (geom-core.md §15.3; volumes are closed forms, in cm³) --------
 
-interface Solid {
-  readonly name: string;
+/**
+ * A corpus solid: the protocol's {@link OcctSolid} (exact measures, inside point, fitted-edge
+ * leak, extent) with its builder; `extent` defaults to {@link SMALL_EXTENT}.
+ */
+type Solid = Omit<OcctSolid, 'extent'> & {
   readonly brep: () => Brep;
-  /** Exact volume (cm³), total area (cm²) and the area of its curved faces (cm²). */
-  readonly volume: number;
-  readonly area: number;
-  readonly curved: number;
-  /** A point strictly inside the solid (cm). */
-  readonly inside: readonly [number, number, number];
-  /**
-   * A face with a fitted pcurve: its edge gap `g` (measured by `checkBrep`) leaks into the
-   * integrals by at most `g · perimeter · reach / 3` (cm³; `reach` the largest distance from the
-   * mass reference point, cm), and into the mesh by `g · area`.
-   */
-  readonly fitted?: { readonly perimeter: number; readonly reach: number };
-  /** The largest |coordinate| of the solid (cm), for the Float32 term of the mesh bound. */
   readonly extent?: number;
-  /** Deflection of the oracle mesh (mm), default {@link DEFLECTION_MM}: a coarser one for a large curved solid. */
-  readonly deflectionMm?: number;
-}
+};
 
 /** Default {@link Solid.extent}: beyond every coordinate of the small corpus solids (cm). */
 const SMALL_EXTENT = 5 + Math.hypot(5, 3, 2);
+
+/** The protocol's view of a corpus solid. */
+const occt = (s: Solid): OcctSolid => ({ ...s, extent: s.extent ?? SMALL_EXTENT });
 
 const PI = Math.PI;
 /** Closed forms of a sphere zone `|z| ≤ r sin φ` with planar caps. */
@@ -363,176 +370,33 @@ const CORPUS: readonly Solid[] = [
   },
 ];
 
-// --- helpers over OCCT results ----------------------------------------------
-
-/** Largest vertex and edge tolerance in OCCT's BREP text (`Ve` / `Ed` entries: tolerance first). */
-function maxShapeTolerance(brep: string): number {
-  const lines = brep.split('\n');
-  let max = 0;
-  for (let i = 0; i + 1 < lines.length; i++) {
-    if (lines[i] === 'Ve' || lines[i] === 'Ed') {
-      const tol = Number(lines[i + 1]!.trim().split(/\s+/)[0]);
-      expect(Number.isFinite(tol), `tolerance line after ${lines[i]}: ${lines[i + 1]}`).toBe(true);
-      max = Math.max(max, tol);
-    }
-  }
-  return max;
-}
-
-/** Signed volume of a triangle mesh (divergence theorem), relative to its first vertex. */
-function meshVolume(positions: Float32Array, indices: Uint32Array): number {
-  const ox = positions[0]!;
-  const oy = positions[1]!;
-  const oz = positions[2]!;
-  let v = 0;
-  for (let t = 0; t < indices.length; t += 3) {
-    const a = indices[t]! * 3;
-    const b = indices[t + 1]! * 3;
-    const c = indices[t + 2]! * 3;
-    const ax = positions[a]! - ox,
-      ay = positions[a + 1]! - oy,
-      az = positions[a + 2]! - oz;
-    const bx = positions[b]! - ox,
-      by = positions[b + 1]! - oy,
-      bz = positions[b + 2]! - oz;
-    const cx = positions[c]! - ox,
-      cy = positions[c + 1]! - oy,
-      cz = positions[c + 2]! - oz;
-    v += (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6;
-  }
-  return v;
-}
-
-/** Millimetres per file unit. */
-const MM_PER_FILE_UNIT = { mm: 1, cm: 10, in: 25.4 } as const;
-
 /**
- * B3 and B4 on an imported shape: one shell, and face / edge / vertex counts
- * equal to `StepStats`; the largest shape tolerance in OCCT's own BREP text is at
- * most twice the uncertainty the file declares (converted to mm from `fileUnit`).
- * The factor 2 is the headroom OCCT's own rounding of a tolerance needs; a healed
- * gap or a dropped weight grows the tolerance by orders of magnitude.
+ * B1–B4 asserted on a Path A or Path B report: one solid in one shell, counts equal to
+ * ours, no tolerance growth beyond twice the declared uncertainty (B4; Path A asserts
+ * the exact written tolerance itself), B5 and B6 encodings, the inside / outside probes.
  */
-function expectTopologyAndTolerance(
-  shape: ShapeHandle,
-  stats: StepStats,
-  fileUnit: keyof typeof MM_PER_FILE_UNIT,
-): void {
-  expect(kernel.subShapeCount(shape, 'shell')).toBe(1);
-  expect(kernel.subShapeCount(shape, 'face')).toBe(stats.faces);
-  expect(kernel.subShapeCount(shape, 'edge')).toBe(stats.edges);
-  expect(kernel.subShapeCount(shape, 'vertex')).toBe(stats.vertices);
-  const declaredMm = stats.uncertainty * MM_PER_FILE_UNIT[fileUnit];
-  const grown = maxShapeTolerance(kernel.toBREP(shape));
-  expect(grown, `tolerance grown to ${grown} mm; declared ${declaredMm}`).toBeLessThanOrEqual(
-    2 * declaredMm,
+function expectImport(r: ImportFacts, counts: { faces: number; edges: number; vertices: number }) {
+  expect(r.type).toBe('solid');
+  expect(r.valid, 'BRepCheck_Analyzer').toBe(true);
+  expect(r.solids).toBe(1);
+  expect(r.shells).toBe(1);
+  expect(r.faces).toBe(counts.faces);
+  expect(r.edges).toBe(counts.edges);
+  expect(r.vertices).toBe(counts.vertices);
+  expect(r.unmatchedEdges, 'B5: OCCT edges equal ours parameter by parameter').toEqual([]);
+  expect(r.unmatchedFaces, 'B6: OCCT faces equal ours parameter by parameter').toBe(0);
+  expect(r.contains).toEqual({ inside: true, outside: false });
+}
+
+/** B8's oracle: OCCT's mesh volume within its bound of the exact volume, and the bound tight. */
+function expectMesh(m: MeshVolumeCheck): void {
+  expect(m.volume, 'a negative mesh volume means an inside-out solid').toBeGreaterThan(0);
+  expect(Math.abs(m.volume - m.exact), `mesh ${m.volume} vs exact ${m.exact}`).toBeLessThanOrEqual(
+    m.bound,
   );
-}
-
-function solidOf(shape: ShapeHandle): ShapeHandle {
-  const type = kernel.getShapeType(shape);
-  if (type === 'solid') return shape;
-  expect(type, 'a compound must hold exactly one solid').toBe('compound');
-  expect(kernel.subShapeCount(shape, 'solid')).toBe(1);
-  return kernel.getSubShapes(shape, 'solid')[0]!;
-}
-
-/** `n × n` parameters across `[a, b]`, ends included. */
-const grid = (a: number, b: number, n: number): number[] =>
-  Array.from({ length: n }, (_, i) => a + ((b - a) * i) / (n - 1));
-
-// Deflection of the oracle mesh (mm): 0.01 mm, about a hundredth of a CNC pass.
-const DEFLECTION_MM = 0.01;
-const ANGULAR = 0.05;
-/** Relative rounding of a Float32 coordinate (2⁻²³ bounds the error with margin). */
-const FLOAT32_EPS = 2 ** -23;
-
-/**
- * B5: edge curves, in our parameterisation, in mm. Every one of our edges is
- * found among OCCT's, with the same parameter range and points.
- */
-function expectEdgesMatch(shape: ShapeHandle, b: Brep): void {
-  const occtEdges = kernel.getSubShapes(shape, 'edge');
-  const edgeTol = 1e-6; // mm: ≥ 10⁶ × the float64 rounding of coordinates ≤ 1000 mm
-  b.edges.forEach((e, ei) => {
-    const [a, z] = e.curve.basis.domain;
-    const found = occtEdges.some((oe) => {
-      const { first, last } = kernel.curveParameters(oe);
-      if (Math.abs(first - a) > 1e-9 || Math.abs(last - z) > 1e-9) return false;
-      return grid(a, z, 9).every((t) => {
-        const p = curvePoint(e.curve, t);
-        const q = kernel.curvePointAtParam(oe, t);
-        return Math.hypot(q.x - 10 * p.x, q.y - 10 * p.y, q.z - 10 * p.z) <= edgeTol;
-      });
-    });
-    expect(found, `no OCCT edge equals our edge ${ei} parameter by parameter`).toBe(true);
-  });
-}
-
-/**
- * B6: surfaces, in mm: some face of ours equals each OCCT face at sampled
- * (u, v) over the uv bounds OCCT reports for it.
- */
-function expectSurfacesMatch(shape: ShapeHandle, b: Brep): void {
-  const surfTol = 1e-6; // mm
-  for (const of of kernel.getSubShapes(shape, 'face')) {
-    const bounds = kernel.uvBounds(of);
-    const matched = b.faces.some((f) => {
-      const uExt =
-        f.surface.u.kind === 'periodic'
-          ? [f.surface.u.domain[0], f.surface.u.domain[0] + f.surface.u.period]
-          : f.surface.u.domain;
-      const vExt =
-        f.surface.v.kind === 'periodic'
-          ? [f.surface.v.domain[0], f.surface.v.domain[0] + f.surface.v.period]
-          : f.surface.v.domain;
-      if (bounds.uMin < uExt[0]! - 1e-9 || bounds.uMax > uExt[1]! + 1e-9) return false;
-      if (bounds.vMin < vExt[0]! - 1e-9 || bounds.vMax > vExt[1]! + 1e-9) return false;
-      return grid(bounds.uMin, bounds.uMax, 5).every((u) =>
-        grid(bounds.vMin, bounds.vMax, 5).every((v) => {
-          const p = surfacePoint(f.surface, u, v);
-          const q = kernel.pointOnSurface(of, u, v);
-          return Math.hypot(q.x - 10 * p.x, q.y - 10 * p.y, q.z - 10 * p.z) <= surfTol;
-        }),
-      );
-    });
-    expect(matched, 'an OCCT face matches none of our surfaces parameter by parameter').toBe(true);
-  }
-}
-
-/**
- * The accuracy oracle: the volume of OCCT's own fine mesh (mm³) against the
- * exact volume. |ΔV| ≤ (curved area) × deflection: every point of the mesh is
- * within the deflection of the surface, and planar faces are meshed exactly.
- * Plus the Float32 rounding of the returned positions (2⁻²³ per coordinate on
- * coordinates up to the solid's extent, over its whole area) and, for a fitted
- * pcurve, the gap times the area.
- */
-function expectMeshVolume(shape: ShapeHandle, solid: Solid, gapMm: number): void {
-  const exactMm3 = solid.volume * 1000;
-  const deflection = solid.deflectionMm ?? DEFLECTION_MM;
-  const mesh = kernel.tessellate(shape, {
-    linearDeflection: deflection,
-    angularDeflection: ANGULAR,
-  });
-  const vMesh = meshVolume(mesh.positions, mesh.indices);
-  const extentMm = 10 * (solid.extent ?? SMALL_EXTENT);
-  const bound =
-    solid.curved * 100 * deflection +
-    solid.area * 100 * extentMm * FLOAT32_EPS +
-    (solid.fitted === undefined ? 0 : gapMm * solid.area * 100);
-  expect(vMesh, 'a negative mesh volume means an inside-out solid').toBeGreaterThan(0);
-  expect(Math.abs(vMesh - exactMm3), `mesh ${vMesh} vs exact ${exactMm3}`).toBeLessThanOrEqual(
-    bound,
+  expect(m.bound / m.exact, 'the bound must be tight enough to mean something').toBeLessThan(
+    MESH_BOUND_MAX_REL,
   );
-  expect(bound / exactMm3, 'the bound must be tight enough to mean something').toBeLessThan(5e-3);
-}
-
-/** Inside and far-outside probes (cm → mm): orientation as OCCT's classifier sees the solid. */
-function expectContains(body: ShapeHandle, solid: Solid): void {
-  const [ix, iy, iz] = solid.inside;
-  expect(kernel.containsPoint(body, { x: 10 * ix, y: 10 * iy, z: 10 * iz })).toBe(true);
-  expect(kernel.containsPoint(body, { x: 1e4, y: 1e4, z: 1e4 })).toBe(false);
 }
 
 for (const fileUnit of ['mm', 'cm'] as const) {
@@ -540,132 +404,72 @@ for (const fileUnit of ['mm', 'cm'] as const) {
     for (const solid of CORPUS) {
       it(`${solid.name}: one valid solid, exact encoding, volume within its bound`, () => {
         const b = solid.brep();
-        const report = checkBrep(b);
-        expect(report.ok, JSON.stringify(report.issues)).toBe(true);
-        const out = writeStep(b, { fileUnit, name: solid.name, timestamp: '2026-01-01T00:00:00' });
-        writeFileSync(`${corpusDir}${solid.name}.${fileUnit}.step`, out.text);
+        const r = pathB(kernel, b, occt(solid), fileUnit, { timestamp: '2026-01-01T00:00:00' });
+        writeFileSync(`${corpusDir}${solid.name}.${fileUnit}.step`, r.text);
 
-        const m0 = kernel.checkpoint();
-        const shape = kernel.importStep(out.text);
-        const body = solidOf(shape);
-
-        // B1, B2, B3, B4.
-        expect(kernel.getShapeType(body)).toBe('solid');
-        expect(kernel.isValid(shape), 'BRepCheck_Analyzer').toBe(true);
-        expect(kernel.subShapeCount(shape, 'solid')).toBe(1);
-        expectTopologyAndTolerance(shape, out.stats, fileUnit);
-
-        expectEdgesMatch(shape, b); // B5
-        expectSurfacesMatch(shape, b); // B6
+        // B1–B6.
+        expectImport(r, r.stats);
+        expect(r.grownMm, `tolerance grown to ${r.grownMm} mm`).toBeLessThanOrEqual(
+          2 * r.declaredMm,
+        );
 
         // B8: volume. 1 % sanity for GProp; the oracle is the mesh volume.
         const exactMm3 = solid.volume * 1000;
         const ours = massProperties(b);
-        const gapMm = 10 * report.maxEdgeGap;
+        const gapMm = 10 * r.check.maxEdgeGap;
         if (solid.fitted === undefined) {
           expect(ours.volume.value * 1000).toBeCloseTo(exactMm3, 6); // exact rules: ~1e-12 relative
         } else {
           const leakMm3 =
-            (1000 * report.maxEdgeGap * solid.fitted.perimeter * solid.fitted.reach) / 3;
+            (1000 * r.check.maxEdgeGap * solid.fitted.perimeter * solid.fitted.reach) / 3;
           expect(Math.abs(ours.volume.value * 1000 - exactMm3)).toBeLessThanOrEqual(
             leakMm3 + 1e-9 * exactMm3,
           );
           expect(gapMm, 'a fitted deck has a real gap').toBeGreaterThan(1e-9);
         }
-        expect(Math.abs(kernel.getVolume(shape) / exactMm3 - 1)).toBeLessThan(0.01);
-        expectMeshVolume(shape, solid, gapMm);
-
-        expectContains(body, solid);
-        kernel.releaseSince(m0);
+        expect(Math.abs(r.gpropVolume / exactMm3 - 1)).toBeLessThan(GPROP_SANITY_REL);
+        expectMesh(r.mesh);
       });
     }
   });
 }
 
-/**
- * B7's bound. Both paths hand GProp the same poles, knots and weights (the
- * STEP reader's cm → mm conversion multiplies by 10, ≤ 1 ulp per coordinate),
- * and GProp's discretisation error (0.4 to 0.8 %, §15.2) is a function of that
- * geometry, so it cancels. 1e-9 relative is the design's bound (§15.3), six
- * orders above the rounding; measured, the volumes are equal to the last bit.
- */
-const B7_REL = 1e-9;
-
-/** The sub-shape line of the first `record` (`Sh`, `Wi`, …) in BREP text, as a line index. */
-function subShapeLine(lines: readonly string[], record: string): number {
-  const at = lines.indexOf(record);
-  expect(at, `no ${record} record`).toBeGreaterThanOrEqual(0);
-  expect(lines[at + 2], `${record}: flags line`).toMatch(/^[01]{7}$/);
-  expect(lines[at + 3], `${record}: sub-shapes line`).toMatch(/^([+-]\d+ 0 )*\*$/);
-  return at + 3;
-}
-
-/** The text with the orientation of sub-shape `k` of the first `record` flipped. */
-function flipSubShape(text: string, record: string, k: number): string {
-  const lines = text.split('\n');
-  const at = subShapeLine(lines, record);
-  const toks = lines[at]!.split(' ');
-  expect(2 * k + 1, `${record} has no sub-shape ${k}`).toBeLessThan(toks.length);
-  const t = toks[2 * k]!;
-  toks[2 * k] = `${t[0] === '+' ? '-' : '+'}${t.slice(1)}`;
-  lines[at] = toks.join(' ');
-  return lines.join('\n');
-}
-
-const subShapeCount = (text: string, record: string): number => {
-  const lines = text.split('\n');
-  return (lines[subShapeLine(lines, record)]!.split(' ').length - 1) / 2;
-};
-
 describe('Path A: our native BREP, unhealed (fromBREP), and B7', () => {
   for (const solid of CORPUS) {
     it(`${solid.name}: valid as built, exact encoding, outward, and GProp agrees with Path B (B7)`, () => {
       const b = solid.brep();
-      const a = toOcctBrepText(b);
-      writeFileSync(`${corpusDir}${solid.name}.brep`, a.text);
-      const step = writeStep(b);
+      const r = pathA(kernel, b, occt(solid));
+      writeFileSync(`${corpusDir}${solid.name}.brep`, r.text);
       // Both paths carry the same declared uncertainty, so they are compared on equal terms.
-      expect(a.tolerance).toBe(step.stats.uncertainty);
-
-      const m0 = kernel.checkpoint();
-      const shape = kernel.fromBREP(a.text);
-      expect(kernel.getShapeType(shape)).toBe('solid');
-      expect(kernel.isValid(shape), 'BRepCheck_Analyzer, nothing healed').toBe(true);
-      expect(kernel.subShapeCount(shape, 'solid')).toBe(1);
-      expect(kernel.subShapeCount(shape, 'shell')).toBe(1);
-      expect(kernel.subShapeCount(shape, 'face')).toBe(b.faces.length);
-      expect(kernel.subShapeCount(shape, 'edge')).toBe(b.edges.length);
-      expect(kernel.subShapeCount(shape, 'vertex')).toBe(b.vertices.length);
+      expect(r.tolerance).toBe(r.stepUncertainty);
+      expect(r.shapeType).toBe('solid');
+      expectImport(r, {
+        faces: b.faces.length,
+        edges: b.edges.length,
+        vertices: b.vertices.length,
+      });
       // Nothing was healed: every tolerance is the one written (OCCT prints 17 digits).
-      expect(maxShapeTolerance(kernel.toBREP(shape))).toBeCloseTo(a.tolerance, 15);
-      expectEdgesMatch(shape, b);
-      expectSurfacesMatch(shape, b);
-      expectContains(shape, solid);
+      expect(r.grownMm).toBeCloseTo(r.tolerance, 15);
 
-      const vA = kernel.getVolume(shape);
+      const vA = r.gpropVolume;
       const exactMm3 = solid.volume * 1000;
       expect(vA, 'outward: the unhealed volume keeps its sign').toBeGreaterThan(0);
-      expect(Math.abs(vA / exactMm3 - 1)).toBeLessThan(0.01);
+      expect(Math.abs(vA / exactMm3 - 1)).toBeLessThan(GPROP_SANITY_REL);
       // B7: the same integrator on the same solid through the other path, in both file units.
       for (const fileUnit of ['mm', 'cm'] as const) {
-        const vB = kernel.getVolume(kernel.importStep(writeStep(b, { fileUnit }).text));
+        const vB = r.b7[fileUnit];
         expect(Math.abs(vB - vA), `B7 (${fileUnit}): ${vB} vs ${vA}`).toBeLessThanOrEqual(
           B7_REL * vA,
         );
       }
-      expectMeshVolume(shape, solid, 10 * checkBrep(b).maxEdgeGap);
-      kernel.releaseSince(m0);
+      expectMesh(r.mesh);
     });
   }
 });
 
 describe('Path A sees the orientation errors the STEP reader heals', () => {
   /** OCCT's verdict on a shape: `isValid` and GProp's signed volume. */
-  function verdict(shape: ShapeHandle): { valid: boolean; volume: number } {
-    return { valid: kernel.isValid(shape), volume: kernel.getVolume(shape) };
-  }
-  /** Refused by the unhealed path: invalid, or valid but not outward (an inside-out solid). */
-  const refused = (v: { valid: boolean; volume: number }): boolean => !v.valid || !(v.volume > 0);
+  const verdict = (shape: ShapeHandle): OcctVerdict => occtVerdict(kernel, shape);
 
   const SOLIDS: readonly (readonly [string, () => Brep])[] = [
     ['V5b-curved-puck', () => curvedBoard(false)],
@@ -677,20 +481,17 @@ describe('Path A sees the orientation errors the STEP reader heals', () => {
   ];
 
   for (const [name, make] of SOLIDS) {
-    it(`${name}: every face flipped in the shell, every edge use flipped in a wire, is refused`, () => {
+    it(`${name}: every face flipped in the shell, every edge use flipped, inside out, every checkBrep mutation: refused`, () => {
       const b = make();
-      const good = toOcctBrepText(b);
-      const m0 = kernel.checkpoint();
-      const ref = verdict(kernel.fromBREP(good.text));
+      const c = orientationControls(kernel, b);
+      const ref = c.reference;
       expect(refused(ref)).toBe(false);
       // The control of the control: the unchecked writer at the same tolerance is the same text.
-      expect(toOcctBrepTextUnchecked(b, { tolerance: good.tolerance }).text).toBe(good.text);
+      expect(c.uncheckedSameText).toBe(true);
 
-      const faces = subShapeCount(good.text, 'Sh');
-      expect(faces).toBe(b.faces.length);
-      for (let k = 0; k < faces; k++) {
-        const v = verdict(kernel.fromBREP(flipSubShape(good.text, 'Sh', k)));
-        if (faces > 1) {
+      expect(c.faceFlips.length).toBe(b.faces.length);
+      c.faceFlips.forEach((v, k) => {
+        if (b.faces.length > 1) {
           // BRepCheck_Shell's orientation check refuses it, pinned as such: some flips also make
           // GProp's volume negative, so a sign test alone would not show the check ran.
           expect(v.valid, `face ${k} flipped: ${JSON.stringify(v)}`).toBe(false);
@@ -702,60 +503,31 @@ describe('Path A sees the orientation errors the STEP reader heals', () => {
         }
         // A flipped face changes GProp's volume: the defect is visible, not just flagged.
         expect(Math.abs(v.volume - ref.volume)).toBeGreaterThan(B7_REL * ref.volume);
-      }
-      const uses = subShapeCount(good.text, 'Wi');
-      expect(uses).toBe(b.faces[0]!.outer.coedges.length);
-      for (let k = 0; k < uses; k++) {
-        const v = verdict(kernel.fromBREP(flipSubShape(good.text, 'Wi', k)));
+      });
+      expect(c.edgeFlips.length).toBe(b.faces[0]!.outer.coedges.length);
+      c.edgeFlips.forEach((v, k) => {
         expect(v.valid, `edge use ${k} of the first wire flipped`).toBe(false);
-      }
-      kernel.releaseSince(m0);
-    });
+      });
 
-    it(`${name}: turned inside out, it stays "valid" but its volume changes sign; STEP heals it`, () => {
-      const b = make();
-      const inverted = flipBrep(b);
-      expect(checkBrep(inverted).ok).toBe(false);
-      const good = toOcctBrepText(b);
-      const m0 = kernel.checkpoint();
-      const ref = verdict(kernel.fromBREP(good.text));
-      const a = verdict(
-        kernel.fromBREP(toOcctBrepTextUnchecked(inverted, { tolerance: good.tolerance }).text),
+      // Turned inside out: pinned, BRepCheck accepts a coherent inside-out shell and only the
+      // sign tells; the STEP reader orients it outward again (nothing to see there).
+      expect(c.insideOutCheckOk).toBe(false);
+      expect(c.insideOut.valid).toBe(true);
+      expect(c.insideOut.volume).toBe(-ref.volume);
+      expect(refused(c.insideOut)).toBe(true);
+      expect(c.insideOutStep.valid).toBe(true);
+      expect(Math.abs(c.insideOutStep.volume - ref.volume)).toBeLessThanOrEqual(
+        B7_REL * ref.volume,
       );
-      // Pinned: BRepCheck accepts a coherent inside-out shell; only the sign tells.
-      expect(a.valid).toBe(true);
-      expect(a.volume).toBe(-ref.volume);
-      expect(refused(a)).toBe(true);
-      // The STEP reader orients the solid outward again: nothing to see. Written without the
-      // gate but declaring the intact solid's measured gaps (an inversion moves no geometry),
-      // so a fitted deck's gap is not healed into a volume change of its own.
-      const healed = verdict(
-        kernel.importStep(writeStepCore(inverted, undefined, checkBrep(b)).text),
-      );
-      expect(healed.valid).toBe(true);
-      expect(Math.abs(healed.volume - ref.volume)).toBeLessThanOrEqual(B7_REL * ref.volume);
-      kernel.releaseSince(m0);
-    });
 
-    it(`${name}: every orientation or geometry mutation checkBrep refuses, OCCT unhealed refuses too`, () => {
-      const b = make();
-      const good = toOcctBrepText(b);
-      const m0 = kernel.checkpoint();
-      let judged = 0;
-      for (const m of MUTATIONS) {
-        // A genus is our declaration (Euler–Poincaré); OCCT has no such notion to check.
-        if (m.caughtBy(b) !== 'checkBrep' || m.name === 'declare a wrong genus') continue;
-        const mutated = unwrapBrep(makeBrep(m.apply(b)));
-        expect(checkBrep(mutated).ok, m.name).toBe(false);
-        const text = toOcctBrepTextUnchecked(mutated, { tolerance: good.tolerance }).text;
-        const v = verdict(kernel.fromBREP(text));
-        // Pinned route: BRepCheck refuses every one (measured: none relies on the volume's sign,
-        // which stays positive for all but the torus's reversed loop).
-        expect(v.valid, `${m.name}: ${JSON.stringify(v)}`).toBe(false);
-        judged++;
+      // Every orientation or geometry mutation checkBrep refuses, OCCT unhealed refuses too.
+      // Pinned route: BRepCheck refuses every one (measured: none relies on the volume's sign,
+      // which stays positive for all but the torus's reversed loop).
+      for (const m of c.mutations) {
+        expect(m.checkBrepOk, m.name).toBe(false);
+        expect(m.verdict.valid, `${m.name}: ${JSON.stringify(m.verdict)}`).toBe(false);
       }
-      expect(judged, 'the orientation mutations at least').toBeGreaterThanOrEqual(2);
-      kernel.releaseSince(m0);
+      expect(c.mutations.length, 'the orientation mutations at least').toBeGreaterThanOrEqual(2);
     });
   }
 
@@ -815,11 +587,17 @@ describe('OCCT imports other writer options', () => {
         const shape = kernel.importStep(out.text);
         expect(kernel.isValid(shape)).toBe(true);
         expect(kernel.subShapeCount(shape, 'solid')).toBe(1);
-        expectTopologyAndTolerance(shape, out.stats, opts.fileUnit ?? 'mm');
+        // B3 and B4 against the stats and the uncertainty declared for this write.
+        expect(kernel.subShapeCount(shape, 'shell')).toBe(1);
+        expect(kernel.subShapeCount(shape, 'face')).toBe(out.stats.faces);
+        expect(kernel.subShapeCount(shape, 'edge')).toBe(out.stats.edges);
+        expect(kernel.subShapeCount(shape, 'vertex')).toBe(out.stats.vertices);
+        const declaredMm = out.stats.uncertainty * MM_PER_FILE_UNIT[opts.fileUnit ?? 'mm'];
+        expect(maxShapeTolerance(kernel.toBREP(shape))).toBeLessThanOrEqual(2 * declaredMm);
         const exactMm3 = solid.volume * 1000;
         const mesh = kernel.tessellate(shape, {
           linearDeflection: DEFLECTION_MM,
-          angularDeflection: ANGULAR,
+          angularDeflection: ANGULAR_DEFLECTION,
         });
         // 9 digits write 1e-9 relative: ≤ 1e-7 mm on 100 mm coordinates; the mesh bound dominates.
         expect(Math.abs(meshVolume(mesh.positions, mesh.indices) - exactMm3)).toBeLessThanOrEqual(

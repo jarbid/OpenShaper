@@ -22,7 +22,11 @@
  * test states its own tolerance and why) and vendored files, listed by name,
  * never by pattern: `mesh/vendor/robust-predicates.ts` (B2) holds Shewchuk's
  * unit roundoff `2⁻⁵³`, the exact-arithmetic constant its error bounds are
- * derived from, not a tolerance.
+ * derived from, not a tolerance. And `testing/occt/index.ts` (board2 step S4):
+ * the OCCT protocol of §15.3 extracted from `step.occt.test.ts` so other
+ * packages' OCCT suites can run it; its thresholds are the test protocol's
+ * pass conditions (B4's factor, B5/B6's 1e-6 mm, B7's 1e-9), each a named,
+ * documented constant at the top of that file, as a test file states its own.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
@@ -33,6 +37,7 @@ const SRC = dirname(fileURLToPath(import.meta.url));
 const EXEMPT: ReadonlySet<string> = new Set([
   'tolerance.ts',
   join('mesh', 'vendor', 'robust-predicates.ts'),
+  join('testing', 'occt', 'index.ts'),
 ]);
 const PATTERNS: readonly RegExp[] = [/\b\d+(\.\d+)?e-\d+\b/gi, /\b0\.0{4,}\d/g];
 

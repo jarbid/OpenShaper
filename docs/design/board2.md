@@ -1,6 +1,6 @@
 # `@openshaper/board2` — board model v2 (Phase 2 design)
 
-Status: **design and scaffold, steps S1, S2 and S3 done** for Phase 2 of `docs/design/geometry-overhaul.md` (§6; the
+Status: **design and scaffold, steps S1–S4 done** for Phase 2 of `docs/design/geometry-overhaul.md` (§6; the
 topology and editing model it implements are §3.2 and §3.3). Written 2026-10-21 on
 `experiment/nurbs-overhaul`, after Phase 1 (`docs/design/geom-core.md`) was integrated. The
 package has its scaffold (`package.json`, the type definitions of §11 in `src/types.ts` and
@@ -9,8 +9,10 @@ canonical JSON, keyed curves (laws) and the structural and range part of `valida
 from step S2 the plan loop, the height fields and symmetry (plan invariants in
 `validateBoard`, `stringerLines`, `symmetryRules`, the stadium and notched-loop fixtures) and,
 from step S3, the rail band builder (`band/`, `offsets.ts`, `measureLaws`, the band checks of
-`validateBoard`, the band's row rules in `symmetryRules`); see the S1–S3 notes in §14. The
-features, B-rep and specs are still to come; §14 is the build order.
+`validateBoard`, the band's row rules in `symmetryRules`) and, from step S4, the bottom
+features, the B-rep, `buildBoard`, `writeBoardStep` and the board through OCCT (geom's
+`./testing/occt` protocol); see the S1–S4 notes in §14. The specs and the converter are still
+to come; §14 is the build order.
 When this document and the code disagree, this document wins until the step that changes it
 edits this file in the same commit.
 
@@ -553,11 +555,11 @@ a longitudinal `depth: KeyedCurve` over x in cm (zero outside its keys) and a la
 **η = y / h_t(x)**, where `h_t(x)` is the tuck loop's half-width at x (from the tuck plan
 curve, which does not depend on the bottom, so there is no cycle):
 
-| Kind       | Parameters                                                                   | Displacement d(x, η) added to z        |
-| ---------- | ---------------------------------------------------------------------------- | -------------------------------------- | --- | ------------------------------------------- | --- | --------------------------------------------------------------------------------------------------------- |
-| `vee`      | `depth`, `stringerRadius` (fraction of h_t)                                  | `depth(x) · g(                         | η   | )`, g linear in                             | η   | with a C¹ parabolic blend of half-width `stringerRadius` at the stringer (rails rise, the stringer stays) |
-| `concave`  | `layout: 'single' \| 'double'`, `depth`, `centre`, `width` (fractions)       | `−depth(x) · bump((                    | η   | − centre)/width)`, `bump(t) = (1 − t²)²` on | t   | < 1: zero value and slope at its edges                                                                    |
-| `channels` | `count`, `depth`, `width` (cm), `pitch` (cm), `railInset` (cm from the tuck) | `count` narrow concaves in absolute cm |
+| Kind       | Parameters                                                                   | Displacement d(x, η) added to z                                                                                                                                                                                                      |
+| ---------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `vee`      | `depth`, `stringerRadius` (fraction of h_t)                                  | `depth(x) · g(\|η\|)`, g linear in \|η\| with a C¹ parabolic blend of half-width `stringerRadius` at the stringer, `g(1) = 1` (rails rise by `depth`, the stringer stays)                                                            |
+| `concave`  | `layout: 'single' \| 'double'`, `depth`, `centre`, `width` (fractions)       | `depth(x) · bump((\|η\| − centre)/width)` (centre 0 when single), `bump(t) = (1 − t²)²` on \|t\| < 1: zero value and slope at its edges. A positive depth raises the bottom into the board, the hollow a concave is (S4 deviation 1) |
+| `channels` | `count`, `depth`, `width` (cm), `pitch` (cm), `railInset` (cm from the tuck) | `count` narrow concaves in absolute cm: `depth(x) · Σ_k bump((\|y\| − (h_t − c_k))/(width/2))`, `c_k = railInset + width/2 + k · pitch`                                                                                              |
 
 Evaluation: each feature is sampled on a grid over the tuck region and fitted onto the
 bottom's basis refined by the feature's own knot lines (`approximateSurface`, fixed bases, no
@@ -1498,6 +1500,159 @@ non-geom error (the wrong-size offset test); the offset-structure check skipped 
 `validate.ts` (its message no longer names the size rule); the P1 check disabled (the
 deck-handle test); the cap on |κ| again (the concave-notch test); `measureColumn`'s
 `φ_chord` shifted by 0.01 rad (the `apexLower` hardness pin).
+
+### S4 as built (2026-10-22)
+
+Files: `features.ts` (stage 6: the tuck half-width `tuckWidth`, the closed forms, the
+geometric feature checks, the fit and the exact sum `bottomWithFeatures`), `brep.ts`
+(`boardBrep`, `writeBoardStep`), `build.ts` (`buildBoard` in the order of §6.3, and the
+internal `assembleBoard`: stages 2–13 without the document checks, for the notched loop), stage
+5 as functions of its own in `band/band.ts` (`effectiveInsets`, `insetPlanCurve`: the tuck plan
+curve before the bottom exists), `validate.ts` (the feature checks and fits before the band
+checks), `testing/volume.ts` (the independent volume oracle), `vitest.occt.config.ts` and
+`brep.occt.test.ts`; in geom the `./testing/occt` subpath (`src/testing/occt/index.ts`), with
+`step.occt.test.ts` and `curved-puck.occt.test.ts` running on it. Public values added to the
+pin: `buildBoard`, `writeBoardStep`. 273 board2 tests under `pnpm test` (32 new; the OCCT
+suite is 5 more, under `test:occt`). Root `pnpm test:occt` runs geom's
+suite, then board2's (`--workspace-concurrency=1`: one 21 MB WASM kernel at a time); board2's
+`pnpm test` excludes `*.occt.test.ts`. Isolation (§11.3): the protocol module is the one geom
+source file besides the test files allowed to import `occt-wasm`; `occt-isolation.test.ts` now
+checks that it is the only one, that it is reachable from no shipping-safe entry (`.`,
+`./testing`) and that only `*.occt.test.ts` files import it, workspace-wide; ESLint gives it
+its own layer entry. board2's `package.json` does not name `occt-wasm`: the import resolves
+from the module's real path in geom.
+
+**How a build runs.** `buildBoard(doc)`: `validateDocument` (every check of `validateBoard`
+but the geometric ones of stages 4–8, which the stages report as they build), then the plan,
+σ, deck and base bottom (`bandContext`), the station basis, the tuck plan curve on it
+(`insetPlanCurve`: each column's apex plan point moved in by its effective inset, mirror
+overwritten), the features against that curve (`bottomWithFeatures`), the band on the bottom
+with its features (`buildBand`, S3), and the B-rep. `validateBoard` runs the same stages
+through the features and the station basis's band checks (`geometryChecks`), so it never
+builds the band twice. Errors of any stage are returned, never thrown; warnings ride on the
+result and in `report.issues`. `report.edgeGaps` are `checkBrep`'s measurements of the two
+trimmed edges, `report.featureFitError` the largest verified feature fit error.
+
+**Features.** `h_t(x)` is the −y half of the tuck plan curve inverted by bisection on its loop
+parameter to the last bit (x is strictly increasing there by the standard-tail certificate
+applied to the tuck loop; a tuck loop that fails it leaves η undefined and every enabled
+feature `feature-invalid`); `minOver(a, b)` is exact (ends and the closed-form roots of y′
+per quadratic piece). Each feature is sampled at `samplesPerSpan` points per span of its own
+basis (the bottom's knots plus double knots at its depth keys' x and at its lateral break
+lines, both sides), fitted by `approximateSurface` on fixed bases with the exact affine
+parameters, verified at `verifyFactor ×` the samples, and the spans whose error exceeds
+`safety · featureTol` are split (v spans in mirror pairs), at most `maxPasses` times. The
+fitted nets are refined to the union of the knots (exact) and added to the base bottom; on a
+symmetric board the partner rows of the sum then take their masters' z (bitwise symmetric,
+§3.7).
+
+**Deviations and clarifications:**
+
+1. **Concave and channel sign** (§6.2 table, edited). The design had `−depth · bump`, which
+   with z up and the bottom below the board lowers the bottom: a belly, not a concave. A
+   positive depth now raises the bottom into the board, the hollow a concave or channel is,
+   the same sign as the vee (whose positive depth raises the rails).
+2. **The fit's sampling and refinement are the document's edge-fit parameters**
+   (`samplesPerSpan`, `verifyFactor`, `safety`, `maxPasses` of `DEFAULT_EDGE_FIT` merged with
+   `build.edgeFit`), not new ones: the same discrete least-squares verification problem as
+   the boundary rows (§5.5). A miss after `maxPasses` is a `not-converged` warning with the
+   measured error, never silent. The lateral break lines are placed with `h_t` at the depth's
+   largest key: exact where the tuck is straight; where `h_t` varies, the lines curve and
+   refinement resolves them (tested on a concave reaching the tail arc).
+3. **η uses the tuck plan curve on the station basis** (stage 5 before refinement), not the
+   kept band's tuck row. The band's refinement depends on the bottom, so the refined row
+   cannot define the bottom without a cycle; the two curves are the same design sampled on
+   two bases (they differ by about w Δθ²/8, §12.1 `maxFrameTurn`, ≤ 0.05 mm at w = 5 cm). The
+   features are sampled over the whole field, not only inside the tuck loop: the bottom face's
+   trim keeps the part that matters.
+4. **Geometric feature checks** (`feature-invalid`, left to S4 by S1 deviation 6): an enabled
+   feature's depth must start and end at 0 (it is 0 outside its keys, so anything else is a
+   jump no fit follows); its keys must lie strictly inside the tuck loop's x-range (η needs
+   `h_t > 0`); channels must not reach the stringer anywhere on their support (`minOver`).
+5. **Knots of different features closer than `knotRel`** (geom refuses distinct knots that
+   close) share one value: the base bottom's knot if the cluster has one, else on the v knots
+   of a symmetric board the knot nearest ½ (so mirror clusters get an exact mirror pair of
+   representatives and the total's v knots stay symmetric), else the smallest. The
+   choice depends on the pooled values only, so the sum stays order-independent.
+6. **The B-rep** is §7's: edges `deckEdge` and `tuck` are rows 0 and 6 clamped at the band's
+   domain start `t0` (`toClamped`), with exact pcurves on the height fields (the rows' plan
+   curves under the affine map) and `bandLine` on the band; `seam` is the band's iso-curve
+   `u = t0`, its two ends the two vertices. `orientBrep` confirms the designed senses and never
+   flips (tested on every board; `flipped` is reported). `writeBoardStep` names the product
+   after `doc.meta.name` and checks under the document's tolerances, `opts.tol` overriding.
+7. **The OCCT protocol module** exports the §15.3 runners (`pathB`: B1–B6 and B8 facts;
+   `pathA`: the same unhealed plus B7; `orientationControls`: §15.6) that measure and return
+   plain data, the helpers (`meshVolume`, `meshVolumeCheck`, `maxShapeTolerance`,
+   `flipSubShape`, …) and the protocol's thresholds as named constants (`B7_REL`,
+   `ENCODING_TOL_MM`, `GPROP_SANITY_REL`, `MESH_BOUND_MAX_REL`, …); the calling test asserts.
+   geom's no-magic-tolerances scan exempts the file by name, as test protocol thresholds,
+   like a test file's own. In `step.occt.test.ts` the three orientation tests per solid
+   (flips, inside out, mutations) became one, on one `orientationControls` call, with the
+   same assertions: `test:occt` in geom is 85 tests (97 before), its assertions unchanged.
+8. **GProp on the board is 2.23 % high** (both paths and units alike: B7 is bit-equal), above
+   the protocol's 1 % sanity bound that held on geom's corpus: GProp integrates the trimmed
+   planar deck and bottom with a fixed rule per surface span, and their trims (rows of ~200
+   control points) cross every span. The board's test bounds it at 3 % (`GPROP_BOARD_REL`)
+   as a sanity check only; the accuracy oracles are OCCT's mesh and our `massProperties`
+   against the independent volume.
+9. **`corrupt a weight`** (geom's mutation catalogue) is missed by OCCT's unhealed check on
+   the stadium (pinned: `BRepCheck` samples an edge at 23 parameters, and the deck edge
+   crosses the corner patch only near the nose), and caught by `checkBrep`. On the notched
+   loop's deck the edge never enters the corner patch, so the mutation changes no point of
+   the face: not a defect there, accepted by `checkBrep` with the same volume (tested; the
+   catalogue's premise holds for untrimmed faces).
+10. **Found while resuming the step**: the vee's linear branch lacked its normalisation
+    `1/(1 − r/2)` (continuous only at r → 0; the vee fit then missed `featureTol` after 8
+    passes and the full suite took 8 minutes). Fixed; it is the step's first mutation spot
+    check below.
+
+**Oracles and tolerances.** Features against the closed forms written out in the test (the
+stadium's straight tuck `h_t = ρ − w_t` exactly, an all-auto depth a smoothstep per segment):
+at 400 seeded random points the built bottom minus the base is within `featureTol`; the vee
+lies in the spline space once its knot lines are in, so 1e-12. `h_t` against its definition
+(`at(x(u)) = −y(u)`, 200 random u, 1e-9: |y′/x′| × an ulp of u); `minOver` never above dense
+sampling (4,000 points). Order independence 1e-12 × 6 cm, and checkHeightFieldSymmetry on the
+sum. No enabled feature: the base surface itself (`toBe`). B-rep: `checkBrep` ok, V 2, E 3,
+F 3, L 3, χ = 2, genus 0, positive volume, senses deck true, band and bottom false, no flip,
+on the stadium, crowned stadium, sample board and notched loop; geom's mutation catalogue on
+the stadium and notched loop, each defect refused by its layer. Edge gaps: the report's are
+`checkBrep`'s, ≤ `fit`, and a 20,000-point independent sampling of `|row(t) − F(row.xy(t))|`
+is within 1 % below them. Volume: `testing/volume.ts` (divergence theorem with `F = (0, 0, z)`
+on the flat stadium: deck height × the plan area inside the deck-edge row, Green's theorem by
+3-point Gauss–Legendre per cubic span, plus the band's flux by 5 × 5 points per bicubic patch,
+both exact; point evaluations only) against `massProperties` and `checkBrep`'s signed volume,
+1e-10 relative (measured 4.8e-15). STEP: three faces, three edges, two vertices; geom's subset
+reader reads a solid `checkBrep` accepts, volume 1e-12 relative. OCCT (stadium, 188.7 × 50 ×
+6 cm): Path B in mm and cm (B1–B6, B4 grown 1e-7 mm ≤ 2 × 1e-5 mm declared), the mesh oracle
+at 0.03 mm (−7.2e-5 relative against a bound of 2.7e-4), Path A valid unhealed with every
+tolerance as written, B7 bit-equal, every face flip and edge-use flip invalid, inside out
+valid with exactly the negated volume, the STEP reader healing it to the reference within
+`B7_REL`, and every `checkBrep` mutation but `corrupt a weight` invalid.
+
+**Measured** (Node 22, the cloud container, warm; `buildBoard` including the B-rep):
+
+| Board               | Columns | Passes | Build   | `validateBoard` | `massProperties` | Edge gaps deck / tuck (cm) | Feature fit (cm) | Bottom net |
+| ------------------- | ------- | ------ | ------- | --------------- | ---------------- | -------------------------- | ---------------- | ---------- |
+| stadium             | 184     | 0      | 700 ms  | 87 ms           | 2.2 s            | 1.1e-13 / 1.1e-13          | —                | 11 × 7     |
+| crowned             | 184     | 0      | 773 ms  | 60 ms           | 1.9 s            | 7.1e-6 / 4.3e-6            | —                | 11 × 7     |
+| sample (concave)    | 204     | 6      | 1758 ms | 298 ms          | 3.0 s            | 2.4e-7 / 7.3e-7            | 6.5e-4           | 26 × 23    |
+| notched (direct)    | 308     | 6      | 1947 ms | —               | 2.2 s            | 8.6e-14 / 1.1e-13          | —                | 11 × 7     |
+| stadium vee+concave | 242     | 2      | 1634 ms | 218 ms          | 3.6 s            | 1.1e-13 / 2.2e-5           | 9.0e-4           | 22 × 21    |
+
+Per feature on the stadium (fit only): vee 26 ms (0 passes, 8.7e-15 cm), single concave
+81 ms (1 pass, 9.0e-4), double concave 351 ms (2 passes, 1.4e-4), two channels 766 ms (2
+passes, 6.8e-4, a 31 × 57 net); one vee and one concave 177 ms (Q7's target 50 ms: reported,
+left to S9). A build without features spends most of its time past the band (S3 measured the
+stadium's band at 161 ms): `orientBrep` and `checkBrep` each integrate the signed volume.
+The board's OCCT suite takes about 27 s.
+
+**Mutation spot check.** `features.ts`: the vee's linear branch without `/ (1 − r/2)` (as
+found in the resumed worktree): 4 tests failed (the vee closed-form fit with a 6.2e-3 cm
+`not-converged`, the order test by timeout, the `buildBoard` vee test), restored.
+`features.ts`: the mirrored cluster representative replaced by the smallest knot: the new
+`knotRel` cluster test failed (`symmetry-broken`), restored. `brep.ts`: the band face's
+`sameSense` set to true: 12 of 13 `brep.test.ts` tests failed (`checkBrep` refuses the trim
+orientation), restored.
 
 S5 and S6 can run in parallel after S4 and S3 respectively; S7 needs both S4 (validity through
 the B-rep) and S6.

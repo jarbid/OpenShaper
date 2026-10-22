@@ -8,15 +8,17 @@
  * Every export is listed by name (decision 31), and `index.test.ts` pins the
  * runtime export list: each build step adds its values there in the same diff.
  * Steps S1 (document, laws, validation), S2 (plan loop, height fields,
- * symmetry) and S3 (the rail band builder; its public value is `measureLaws`,
- * the builder itself reaches the API through `buildBoard` in S4) are in; the
- * features, B-rep and specs follow (docs/design/board2.md §14).
+ * symmetry), S3 (the rail band builder; its public value is `measureLaws`)
+ * and S4 (bottom features, the B-rep and STEP: `buildBoard`, `writeBoardStep`)
+ * are in; the specs and the converter follow (docs/design/board2.md §14).
  *
  * The classic converter and the deviation report live in the separate entry
  * point `@openshaper/board2/classic`, the only part of this package that may
  * import `@openshaper/kernel` (§11.3).
  */
 export { measureLaws } from './band/profile';
+export { writeBoardStep } from './brep';
+export { buildBoard } from './build';
 export { reviveBoardDoc, boardDocToJson } from './doc';
 export { BOARD2_ISSUE_CODES, board2Err, board2Ok, hasErrors } from './issues';
 export { stringerLines } from './height-field';

@@ -82,11 +82,11 @@ import type { HeightSample } from '../height-field';
 import { board2Err, board2Ok, causeOf, hasErrors, makeIssue } from '../issues';
 import { lawEvaluator } from '../law';
 import { offsetEvaluator, ZERO_OFFSETS } from '../offsets';
-import type { OffsetEvaluator } from '../offsets';
+import type { OffsetEvaluator, OffsetValues } from '../offsets';
 import { RAIL_LANES } from '../params';
 import { planArc, planCurve, planFrame, sigmaAt } from '../plan';
 import type { PlanArc, PlanFrame } from '../plan';
-import { mirrorOverwriteColumns } from '../symmetry';
+import { mirrorOverwriteColumns, mirrorOverwriteCurve } from '../symmetry';
 import type {
   BandRow,
   BandStation,
@@ -204,6 +204,69 @@ export function insetRadiusAt(plan: PeriodicCurve<2>, u: number): number {
   return k > 0 ? 1 / k : Infinity;
 }
 
+/** The effective insets at a station (stage 5): law plus edge-row offset, capped by the curvature limit. */
+export interface EffectiveInsets {
+  readonly deckInset: number;
+  readonly tuckInset: number;
+  /** Law plus offset, before the cap. */
+  readonly deckRaw: number;
+  readonly tuckRaw: number;
+  /** The offset layer's values at the station (σ read on the −y half when symmetric). */
+  readonly offsets: OffsetValues;
+}
+
+/**
+ * Stage 5 at loop parameter `u` and arc fraction `sigma`: the effective deck and
+ * tuck insets `min(law + n offset, κ ρ(u))` (§5.3, S3 deviation 6). They depend
+ * on the plan, the laws and the offsets only, never on the surfaces, so the
+ * tuck plan curve is known before the bottom features are (§6.2, §6.3).
+ */
+export function effectiveInsets(ctx: BandContext, u: number, sigma: number): EffectiveInsets {
+  const b = ctx.doc.build;
+  // On a symmetric board the layer is read on the −y half and mirrored, like a
+  // half-domain law: the (½, 1) half of its fields would be overwritten anyway.
+  const sOff = ctx.symmetric && sigma > 0.5 ? 1 - sigma : sigma;
+  const off = ctx.offsets === null ? ZERO_OFFSETS : ctx.offsets(sOff);
+  const cap = b.insetCurvatureFraction * insetRadiusAt(ctx.plan, u);
+  const deckRaw = ctx.laws.deckInset(sigma) + off.deckEdgeN;
+  const tuckRaw = ctx.laws.tuckInset(sigma) + off.tuckN;
+  return {
+    deckInset: Math.min(deckRaw, cap),
+    tuckInset: Math.min(tuckRaw, cap),
+    deckRaw,
+    tuckRaw,
+    offsets: off,
+  };
+}
+
+/**
+ * The plan curve of the deck-edge or tuck row on band basis `b` (stage 5): each
+ * column's apex plan point moved inwards by its effective inset, on the band
+ * basis, mirror-overwritten on a symmetric board. Independent of the deck and
+ * bottom: the bottom features normalise their lateral coordinate by the tuck
+ * curve's half-width (§6.2) with no cycle.
+ */
+export function insetPlanCurve(
+  ctx: BandContext,
+  b: BandBasis,
+  row: 'deckEdge' | 'tuck',
+): PeriodicCurve<2> {
+  const columns = bandColumns(b, ctx.arc);
+  const n = b.basis.count;
+  const apex = new Float64Array(n * 2);
+  controlPointsInto(b.apexPlan, apex, 0);
+  const pts = new Float64Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    const c = columns[i]!;
+    const e = effectiveInsets(ctx, c.u, c.sigma);
+    const w = row === 'tuck' ? e.tuckInset : e.deckInset;
+    pts[2 * i] = apex[2 * i]! + w * c.frame.inward.x;
+    pts[2 * i + 1] = apex[2 * i + 1]! + w * c.frame.inward.y;
+  }
+  const curve = makeCurve({ dim: 2, basis: b.basis, points: pts }) as PeriodicCurve<2>;
+  return b.pairing === null ? curve : mirrorOverwriteCurve(curve, b.pairing);
+}
+
 /**
  * The column whose apex plan point is `(ax, ay)` with frame `frame` at loop
  * parameter `u` and arc fraction `sigma` (stages 5, 7, 8 and the handle
@@ -218,15 +281,11 @@ export function columnAt(
   sigma: number,
 ): BuiltColumn {
   const b = ctx.doc.build;
-  // On a symmetric board the layer is read on the −y half and mirrored, like a
-  // half-domain law: the (½, 1) half of its fields would be overwritten anyway.
-  const sOff = ctx.symmetric && sigma > 0.5 ? 1 - sigma : sigma;
-  const off = ctx.offsets === null ? ZERO_OFFSETS : ctx.offsets(sOff);
-  const cap = b.insetCurvatureFraction * insetRadiusAt(ctx.plan, u);
-  const wdRaw = ctx.laws.deckInset(sigma) + off.deckEdgeN;
-  const wtRaw = ctx.laws.tuckInset(sigma) + off.tuckN;
-  const deckInset = Math.min(wdRaw, cap);
-  const tuckInset = Math.min(wtRaw, cap);
+  const ins = effectiveInsets(ctx, u, sigma);
+  const off = ins.offsets;
+  const { deckInset, tuckInset } = ins;
+  const wdRaw = ins.deckRaw;
+  const wtRaw = ins.tuckRaw;
   const issues: Board2Issue[] = [];
   for (const [lane, w] of [
     ['deckInset', deckInset],
@@ -524,7 +583,7 @@ export function designedLawsAt(
 }
 
 /** The (u, 0) or (u, 1) line on the band as a same-parameter pcurve over `[t0, t0 + 1]`. */
-function bandLine(t0: number, v: number): ClampedCurve<2> {
+export function bandLine(t0: number, v: number): ClampedCurve<2> {
   return makeCurve({
     dim: 2,
     basis: clampedBasis(1, [t0, t0, t0 + 1, t0 + 1]),
@@ -533,7 +592,11 @@ function bandLine(t0: number, v: number): ClampedCurve<2> {
 }
 
 /** The pcurve of a boundary row's plan curve on a height field, over `[t0, t0 + 1]`. */
-function fieldPcurve(row: PeriodicCurve<3>, hf: BoardDoc['deck'], tol: Tolerances) {
+export function fieldPcurve(
+  row: PeriodicCurve<3>,
+  hf: Pick<BoardDoc['deck'], 'x' | 'y'>,
+  tol: Tolerances,
+) {
   const n = row.basis.count;
   const p3 = new Float64Array(n * 3);
   controlPointsInto(row, p3, 0);
@@ -751,7 +814,7 @@ export interface BuildBandOptions extends PassOptions {
  * seen: an offset field of the wrong size, a plan with no tangent at a column)
  * `doc-malformed` with its message.
  */
-function geomIssue(e: unknown, what: string): Board2Issue {
+export function geomIssue(e: unknown, what: string): Board2Issue {
   if (e instanceof PairingError) {
     return makeIssue('symmetry-broken', e.message, e.u === undefined ? {} : { at: { u: e.u } });
   }
@@ -864,13 +927,14 @@ export function buildBand(doc: BoardDoc, opts: BuildBandOptions = {}): Board2Res
  * The checks of stages 4–8 that `validateBoard` runs (§3.6, §4, §5.3): every
  * column of the station basis built, its insets, rail height and profile
  * judged, and the inset loops certified on that basis. Empty when they pass;
- * never throws. The column checks are pointwise at the station basis's
+ * never throws. `bottom` is the bottom with its features (step S4; default
+ * the base bottom). The column checks are pointwise at the station basis's
  * columns, so passing them does not imply that {@link buildBand} succeeds: a
  * column its refinement inserts can still fail them (S3 deviation 8).
  */
-export function bandChecks(doc: BoardDoc): readonly Board2Issue[] {
+export function bandChecks(doc: BoardDoc, bottom?: NurbsSurface): readonly Board2Issue[] {
   try {
-    const ctx = bandContext(doc);
+    const ctx = bandContext(doc, bottom);
     const b = stationBasis(ctx.plan, ctx.arc, doc.build, ctx.symmetric, ctx.tol);
     const p = bandPass(ctx, b);
     if (hasErrors(p.issues)) return p.issues;

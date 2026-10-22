@@ -453,9 +453,18 @@ order §14).
       deck handle refused past the apex vertical, the inset curvature cap only where the
       loop turns inwards (the notched loop now converges), and the crease gate, measured
       hardness and refined-column gaps documented
-- [ ] S4 features, B-rep, STEP, OCCT · S5 specs and volume
-      convergence · S6 converter I · S7 converter II · S8 deviation report ·
-      S9 benchmarks and the Phase 2 report
+- [x] S4 bottom features, B-rep, STEP and OCCT (board2.md §14, "S4 as built"): vee,
+      concave and channels fitted within `featureTol` against their closed forms and added
+      exactly (order-independent, bitwise symmetric); `buildBoard` (stages 1–13) and
+      `writeBoardStep` public; the three-face B-rep passes `checkBrep` with χ = 2 on the
+      stadium, crowned stadium, sample board and notched loop, its volume equal to an
+      independent divergence-theorem oracle (4.8e-15 relative). geom gained the test-only
+      `./testing/occt` subpath (the §15.3 protocol extracted from `step.occt.test.ts`);
+      root `pnpm test:occt` runs geom and board2: the stadium board passes Path B, Path A,
+      B7 and the orientation oracles. Deviations recorded (concave sign, η from the
+      station-basis tuck curve, GProp 2.2 % high on the board)
+- [ ] S5 specs and volume convergence · S6 converter I · S7 converter II · S8 deviation
+      report · S9 benchmarks and the Phase 2 report
 
 ### Phase 3 — editors and analysis (behind the flag)
 
