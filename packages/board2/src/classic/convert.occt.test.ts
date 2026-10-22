@@ -9,7 +9,8 @@
  * and surface equal to ours parameter by parameter, B8 OCCT's mesh volume
  * within its error bound of our `massProperties` volume (a converted board has
  * no closed form: the stadium's suite, `brep.occt.test.ts`, carries the
- * independent volume oracle). Run by `pnpm test:occt`, not by `pnpm test`.
+ * independent volume oracle; mesh deflection 0.03 mm, as there). Run by
+ * `pnpm test:occt`, not by `pnpm test`.
  */
 import { curvePoint, massProperties } from '@openshaper/geom';
 import { MESH_BOUND_MAX_REL, OcctKernel, pathB } from '@openshaper/geom/testing/occt';
@@ -54,6 +55,11 @@ describe('the converted goldens through OCCT', () => {
           // The deck edge and the tuck are fitted onto the height fields (§5.5).
           fitted: { perimeter: 2 * arc.total, reach: Math.hypot(length, arc.total / 4, 20) },
           extent: Math.hypot(length + 10, arc.total / 4, 20),
+          // All three faces are curved here: at the protocol's 0.01 mm OCCT meshes each
+          // golden for 2–5 minutes per file unit. 0.03 mm (the stadium's and geom's V5b
+          // setting) keeps the bound at 1.3e-3 to 1.6e-3 of the volume, under
+          // MESH_BOUND_MAX_REL.
+          deflectionMm: 0.03,
         };
         for (const fileUnit of ['mm', 'cm'] as const) {
           const p = pathB(kernel, b.brep, solid, fileUnit);
@@ -72,7 +78,9 @@ describe('the converted goldens through OCCT', () => {
           expect(p.mesh.bound / p.mesh.exact).toBeLessThan(MESH_BOUND_MAX_REL);
         }
       },
-      180_000,
+      // A synchronous test (one WASM kernel): conversion 12 s, massProperties 11–14 s,
+      // OCCT's mesh 1–2 min per file unit on the cloud container (S7 as built).
+      600_000,
     );
   }
 });

@@ -2068,6 +2068,13 @@ against `surfaceTol` on its judged samples included, and the build's own.
     mark; the law is clamped to 0.95 there). The classic `apex` parameter itself is checked at
     the station nearest the widest point (tangent 0.4–0.7° off x). Hardness: the classic edge is
     binary (`HARD_EDGE` 0.75 in the kernel), so 0.5 against 1; fullness 0.2 < 0.6 < 0.9.
+14. **OCCT on the converted goldens at 0.03 mm deflection**, as the stadium's suite (S4), not
+    the protocol's 0.01 mm: all three faces of a converted board are curved, and at 0.01 mm
+    OCCT meshes a golden for 2–5 min per file unit (the first run timed out at 370–605 s per
+    file). At 0.03 mm the B8 bound is 1.3e-3–1.6e-3 of the volume (under
+    `MESH_BOUND_MAX_REL` 5e-3; the shortboard's measured mesh error is a sixth of it). The suite still
+    takes about 10 min for the three goldens (conversion 12 s, `massProperties` 11–14 s,
+    OCCT's mesh 1–2 min per file unit), so the per-test timeout is 600 s.
 
 **Oracles and tolerances.** Exit criterion 1 (`expectS7Exit`, every one of the ten distinct
 files; the four copies are their goldens' input, S6): `convertClassic` ok with `not-converged`
@@ -2075,7 +2082,7 @@ warnings only; `validateBoard` no error; JSON revive equal; a rebuild from that 
 reproduces the fitted band within 1e-9 cm (the design's bound; measured ≤ 5.7e-14) and so does
 the converter's own measure; `checkBrep` ok, 3 faces, 3 edges, 2 vertices, positive volume;
 `writeBoardStep` writes 3/3/2; the input board unchanged. OCCT (`convert.occt.test.ts`, the
-three goldens, mm and cm): B1–B4, B5/B6 (every edge and face equal to ours), B8 (OCCT's mesh
+three goldens, mm and cm, deflection 0.03 mm: deviation 14): B1–B4, B5/B6 (every edge and face equal to ours), B8 (OCCT's mesh
 volume within its bound of `massProperties`). Preset recovery: apex within 0.01 (the classic
 places the apex exactly; the rest is fit error) at every in-range station of 24 conversions
 (measured at most 7.3e-3 on the shortboard, 3.3e-3 longboard, 6.2e-4 funboard; at the widest
