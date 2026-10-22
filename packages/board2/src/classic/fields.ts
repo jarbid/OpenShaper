@@ -7,11 +7,14 @@
  *   millimetres apart at a line fillet) and a uniform grid at
  *   `surfaceKnotSpacing.x`, a grid knot closer than `minKnotSpacing` to a line
  *   knot dropped; v knots: symmetric uniform at `surfaceKnotSpacing.y`.
- * - **Fit.** geom's `approximateSurface` at the data's exact plan parameters
- *   (a height field's vertical residual bounds the normal distance: **no
- *   parameter correction**), the stringer identity as `n_u` point constraints
- *   (`stringerConstraints`, §3.4), thin-plate fairness (parametric metric). Only
- *   z is kept; x and y are the field's affine Greville map.
+ * - **Fit.** Least squares at the data's exact plan parameters (a height
+ *   field's vertical residual bounds the normal distance: **no parameter
+ *   correction**), the stringer identity (§3.4), thin-plate fairness
+ *   (parametric metric): the minimiser of geom's `approximateSurface` with the
+ *   identity as `n_u` point constraints, solved for z alone by `lsq.ts` with
+ *   the data's normal equations assembled once per basis (step S7: the search
+ *   solves one basis a dozen times; x and y are the field's affine Greville
+ *   map and need no solve).
  * - **Refinement.** With the smallest fairness of the bracket, every u span and
  *   v span holding a judged sample (inside the face, outside the crease and tip
  *   windows) whose vertical residual exceeds `surfaceTol` is halved, at most
@@ -28,24 +31,14 @@
  * - **Symmetrisation.** Mirrored data on mirrored knots give a symmetric fit up
  *   to rounding; rows j and m − 1 − j are averaged (exact symmetry, §3.7).
  */
-import {
-  approximateSurface,
-  clampedBasis,
-  createScratch,
-  surfaceControlPoint,
-  surfaceEvalInto,
-} from '@openshaper/geom';
-import type {
-  ClampedBasis,
-  ClampedCurve,
-  GeomIssue,
-  NurbsSurface,
-  Tolerances,
-} from '@openshaper/geom';
-import { stringerConstraints } from '../height-field';
+import { clampedBasis, controlPointsInto } from '@openshaper/geom';
+import type { ClampedBasis, ClampedCurve, GeomIssue, Tolerances } from '@openshaper/geom';
+import { stringerParam } from '../height-field';
 import type { HeightFieldJSON } from '../types';
 import { dataTrace, discrepancySearch, smallestFeasible, thinPlateTrace } from './fairness';
 import { clampedKnots, lineOnKnots } from './lines';
+import { fieldProblem, solveField } from './lsq';
+import type { FieldProblem } from './lsq';
 import type { ConvertOptions } from './types';
 
 /** Samples for one height field: board2 plan coordinates and z, and which are judged. */
@@ -72,6 +65,8 @@ export interface FieldFit {
 export interface FieldFitFailure {
   readonly message: string;
   readonly cause?: GeomIssue;
+  /** The data and fairness do not determine the net (move the fairness up). */
+  readonly undetermined?: boolean;
 }
 
 type FieldOptions = Pick<
@@ -135,59 +130,40 @@ export function fitField(
   const lineInner = Array.from(line.basis.knots).slice(4, -4);
   let ku = startKnotsU(lineInner, x1 - x0, o);
   let kv = startKnotsV(y1 - y0, o);
-  const sc = createScratch({ maxDegree: 3, maxDerivs: 0 });
-  const f = new Float64Array(3);
+  const zs = new Float64Array(n);
+  for (let k = 0; k < n; k++) zs[k] = data.points[3 * k + 2]!;
+  const vs = stringerParam({ y: [y0, y1] });
   let fits = 0;
 
   interface Trial {
-    readonly surface: NurbsSurface;
+    readonly z: Float64Array;
     readonly residual: Float64Array;
     readonly judgedMax: number;
     readonly allMax: number;
   }
+  // The problem on the current bases, assembled once and solved at every ratio (lsq.ts).
+  let problem: { bu: ClampedBasis; bv: ClampedBasis; P: FieldProblem } | null = null;
+  const problemOn = (bu: ClampedBasis, bv: ClampedBasis): FieldProblem => {
+    if (problem !== null && problem.bu === bu && problem.bv === bv) return problem.P;
+    const c = new Float64Array(bu.count);
+    controlPointsInto(lineOnKnots(line, Array.from(bu.knots), tol), c, 0);
+    const P = fieldProblem(bu, bv, uv, zs, vs, c);
+    problem = { bu, bv, P };
+    return P;
+  };
   const fitOn = (bu: ClampedBasis, bv: ClampedBasis, beta: number): Trial | FieldFitFailure => {
     fits++;
-    const hf: HeightFieldJSON = {
-      degreeU: 3,
-      degreeV: 3,
-      knotsU: Array.from(bu.knots),
-      knotsV: Array.from(bv.knots),
-      x: [x0, x1],
-      y: [y0, y1],
-      z: new Array<number>(bu.count * bv.count).fill(0),
-    };
     try {
-      const constraints = stringerConstraints(hf, lineOnKnots(line, hf.knotsU, tol), tol);
-      const r = approximateSurface(
-        data.points,
-        { uv },
-        {
-          u: bu,
-          v: bv,
-          constraints,
-          fairness: { bend: beta, metric: 'parametric' },
-          tol,
-        },
-      );
-      if (!r.ok) {
-        const cause = r.issues.find((i) => i.severity === 'error') ?? r.issues[0];
-        return {
-          message: `height-field fit: ${cause?.message ?? 'failed'}`,
-          ...(cause ? { cause } : {}),
-        };
-      }
-      const s = r.value.surface;
-      const residual = new Float64Array(n);
+      const r = solveField(problemOn(bu, bv), beta, tol.pivotRel);
+      if (!r.ok) return { message: `height-field fit: ${r.message}`, undetermined: true };
       let judgedMax = 0;
       let allMax = 0;
       for (let k = 0; k < n; k++) {
-        surfaceEvalInto(s, uv[2 * k]!, uv[2 * k + 1]!, 0, f, 0, sc);
-        const e = Math.abs(f[2]! - data.points[3 * k + 2]!);
-        residual[k] = e;
+        const e = r.residual[k]!;
         if (e > allMax) allMax = e;
         if (data.judged[k] === 1 && e > judgedMax) judgedMax = e;
       }
-      return { surface: s, residual, judgedMax, allMax };
+      return { z: r.z, residual: r.residual, judgedMax, allMax };
     } catch (e) {
       return { message: `height-field fit: ${e instanceof Error ? e.message : String(e)}` };
     }
@@ -211,7 +187,7 @@ export function fitField(
     (ratio: number): FieldTrial => {
       const t = fitOn(bu, bv, ratio * beta);
       if (isFailure(t)) {
-        if (t.cause?.code === 'schoenberg-whitney') return null;
+        if (t.undetermined === true) return null;
         failure = t;
         return 'failed';
       }
@@ -298,7 +274,7 @@ export function fitField(
   const nv = bv.count;
   const z = new Array<number>(nu * nv);
   for (let i = 0; i < nu; i++) {
-    for (let j = 0; j < nv; j++) z[i * nv + j] = surfaceControlPoint(t.surface, i, j).z;
+    for (let j = 0; j < nv; j++) z[i * nv + j] = t.z[i * nv + j]!;
     for (let j = 0; 2 * j < nv; j++) {
       const jj = nv - 1 - j;
       const avg = jj === j ? z[i * nv + j]! : 0.5 * (z[i * nv + j]! + z[i * nv + jj]!);

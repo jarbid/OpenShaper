@@ -7,10 +7,14 @@
  * kernel's `loftRing` (the +y half of a ring of 2 × `ringSamples` steps uses
  * the same ladder: bitwise); the crease angles converge at O(δ) in the probe
  * (one-sided differences): halving δ halves the change, ratio in [1.6, 2.4]
- * (measured 2.00 to 2.02 at the shortboard's interior stations).
+ * (measured 2.00 to 2.02 at the shortboard's interior stations). The exact
+ * apex (S7) against dense sampling of the ring at 2e5 fractions: its y is at
+ * least the dense maximum (to rounding, 1e-12 cm) and its z within one dense
+ * step's z change of the dense argmax (y is flat at the apex, so z is the
+ * sensitive coordinate).
  */
 import { describe, expect, it } from 'vitest';
-import { getLength, loftRing, surfaceStations } from '@openshaper/kernel';
+import { getLength, loftPoint, loftRing, loftSection, surfaceStations } from '@openshaper/kernel';
 import { DEFAULT_CONVERT_OPTIONS as O } from './params';
 import {
   classicFloors,
@@ -91,6 +95,31 @@ describe('classic sampling', () => {
         expect(d1 / d2).toBeGreaterThan(1.6);
         expect(d1 / d2).toBeLessThan(2.4);
       }
+    });
+  });
+
+  it('the exact apex is the section’s widest point (S7)', () => {
+    const f = classicFloors(board);
+    const xs = [f.span[0] + 1, 60, 120, f.span[1] - 1];
+    const loft = sampleLoft(board, xs, O);
+    const N = 200_000;
+    loft.x.forEach((x, r) => {
+      const s = loftSection(board, x)!;
+      let best = -Infinity;
+      let bestZ = 0;
+      let step = 0;
+      let prev = loftPoint(s, 0);
+      for (let k = 1; k <= N; k++) {
+        const p = loftPoint(s, k / N);
+        step = Math.max(step, Math.abs(p.y - prev.y));
+        prev = p;
+        if (p.x > best) {
+          best = p.x;
+          bestZ = p.y + s.rocker;
+        }
+      }
+      expect(loft.apexY[r]!).toBeGreaterThanOrEqual(best - 1e-12);
+      expect(Math.abs(loft.apexZ[r]! - bestZ)).toBeLessThanOrEqual(step);
     });
   });
 });

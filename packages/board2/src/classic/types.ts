@@ -79,10 +79,42 @@ export interface ConversionReport {
   readonly railHeightFloored: readonly number[];
   /** Classic crease angle per real station (radians), by station x. */
   readonly creases: readonly { readonly x: number; readonly angle: number }[];
-  /** The laws extracted at the classic stations, before smoothing into keys. */
-  readonly stationLaws: readonly { readonly sigma: number; readonly laws: RailLawValues }[];
-  /** Largest |laws + offsets − fitted band|; the factorisation identity (§9.7), cm. */
+  /**
+   * The laws measured (§5.7) on the fitted band at the real classic stations
+   * (σ on the −y half, board2 x), before they are clamped into the lanes' keys.
+   */
+  readonly stationLaws: readonly {
+    readonly sigma: number;
+    readonly x: number;
+    readonly laws: RailLawValues;
+  }[];
+  /**
+   * Largest control-point coordinate difference between the document's built
+   * band and the fitted band: the factorisation identity (§9.7 item 6), cm.
+   */
   readonly factorisationError: number;
+  /** The band fit (§9.7, S7 as built). */
+  readonly band: {
+    /** Fairness ratio of the fit (§9.8; NaN when the initial band was kept). */
+    readonly ratio: number;
+    /** Parameter-correction passes the fit made. */
+    readonly corrections: number;
+    /** Rail samples, and the refitted band's largest projected distance over the judged ones and over all (cm). */
+    readonly samples: number;
+    readonly judgedMax: number;
+    readonly allMax: number;
+    readonly meets: boolean;
+    /** Band columns of the fit (the station basis). */
+    readonly columns: number;
+    /** Apex keys beyond the stations and tips: repairs of the initial law, and the extraction's. */
+    readonly initialApexKeysAdded: number;
+    readonly apexKeysAdded: number;
+    /** Inset keys the initial band's repairs added (both insets halved where no apex fits, §5.3). */
+    readonly insetKeysAdded: number;
+  };
+  /** Band columns and refinement passes of the built board. */
+  readonly builtColumns: number;
+  readonly builtPasses: number;
   readonly timings: { readonly [stage: string]: number };
 }
 

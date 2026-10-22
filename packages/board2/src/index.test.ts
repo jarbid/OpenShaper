@@ -6,7 +6,7 @@
  *   Each build step adds its values here in the same diff, so an API change shows
  *   in review. Steps S1 (document, laws, validation), S2 (`stringerLines`,
  *   `symmetryRules`), S3 (`measureLaws`) and S4 (`buildBoard`, `writeBoardStep`)
- *   are in; `./classic` has the converter's defaults (S6).
+ *   are in; `./classic` has the converter's defaults (S6) and `convertClassic` (S7).
  * - A sample document round-trips through JSON unchanged: `BoardDoc` is plain
  *   data (decision 1). The sample (`testing/sample-doc.ts`) is typed `BoardDoc`.
  * - Type-level checks pin the conventions the types encode (lanes, rows that may
@@ -51,7 +51,7 @@ const PUBLIC_VALUES: readonly string[] = [
   'writeBoardStep',
 ];
 /** Every runtime export of `@openshaper/board2/classic`, sorted. */
-const CLASSIC_VALUES: readonly string[] = ['DEFAULT_CONVERT_OPTIONS'];
+const CLASSIC_VALUES: readonly string[] = ['DEFAULT_CONVERT_OPTIONS', 'convertClassic'];
 
 describe('@openshaper/board2 public API', () => {
   it('exports exactly the pinned values of both entry points', () => {

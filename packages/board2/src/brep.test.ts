@@ -8,7 +8,8 @@
  *   rockered stadium, the sample board and, built directly past the validator,
  *   the notched loop (§3.8: nothing below the validator slices by x).
  * - **Orientation as designed**: the faces' `sameSense` are deck true, band and
- *   bottom false (§7), and `orientBrep` confirms them (no flip); the volume is
+ *   bottom false (§7), and `orientBrep` confirms them (no flip; the build no
+ *   longer calls it, S7: `checkBrep` refuses an inside-out shell); the volume is
  *   positive.
  * - **Volume against an independent oracle** (`testing/volume.ts`): on the flat
  *   stadium the divergence theorem with `F = (0, 0, z)` reduces to the plan area
@@ -33,6 +34,7 @@ import {
   curvePoint,
   makeBrep,
   massProperties,
+  orientBrep,
   resolveTolerances,
   surfacePoint,
 } from '@openshaper/geom';
@@ -68,6 +70,7 @@ describe('the board B-rep: checkBrep, Euler–Poincaré, orientation', () => {
       expect(c.euler.V - c.euler.E + c.euler.F - (c.euler.L - c.euler.F)).toBe(2);
       expect(c.signedVolume).toBeGreaterThan(0);
       // §7's senses, with no flip by orientBrep.
+      expect(orientBrep(b.brep, b.doc.build.tolerances)).toBe(b.brep);
       expect(b.faces).toEqual({ deck: 0, band: 1, bottom: 2 });
       expect(b.brep.faces.map((f) => f.sameSense)).toEqual([true, false, false]);
       expect(b.brep.faces[b.faces.band]!.surface).toBe(b.band);

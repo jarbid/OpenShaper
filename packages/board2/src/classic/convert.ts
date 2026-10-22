@@ -41,23 +41,26 @@ import {
   surfaceControlPoint,
 } from '@openshaper/geom';
 import type { ClampedCurve, PeriodicCurve, Tolerances } from '@openshaper/geom';
-import { bandContext, effectiveInsets, insetRadiusAt } from '../band/band';
+import { bandContext, effectiveInsets, geomIssue, insetRadiusAt } from '../band/band';
 import type { BandContext } from '../band/band';
 import { bandColumns, stationBasis } from '../band/stations';
+import { buildBoard } from '../build';
 import type { BandBasis } from '../band/stations';
 import { heightFieldSurface, heightSampler } from '../height-field';
 import { board2Err, board2Ok, makeIssue } from '../issues';
 import { DEFAULT_BUILD_PARAMS, DEFAULT_RAIL_LAWS, RAIL_LANES } from '../params';
-import { planArc, planCurve, planExtent, planPieces, sigmaAt } from '../plan';
+import { planCurve, planExtent, planPieces } from '../plan';
 import { mirrorOverwriteCurve } from '../symmetry';
 import type {
   Board2Issue,
   Board2Result,
   BoardDoc,
   HeightFieldJSON,
+  JsonValue,
   LawCurve,
   RailLaws,
 } from '../types';
+import { netDistance, stationKeys, windowTest } from './extract';
 import { fitField } from './fields';
 import type { FieldData, FieldFit } from './fields';
 import { rowClassifier } from './membership';
@@ -73,8 +76,10 @@ import {
   loftRowPositions,
   sampleLoft,
 } from './sample';
-import type { ClassicFloors } from './sample';
-import type { ConvertOptions } from './types';
+import type { ClassicFloors, LoftSamples } from './sample';
+import { bandIssues, fitRail, netOf } from './rail';
+import type { RailStage } from './rail';
+import type { Conversion, ConversionReport, ConvertOptions } from './types';
 
 /** A fitted stringer line and its fillets. */
 export interface LineReport {
@@ -95,6 +100,11 @@ export interface ClassicGeometry {
   readonly floors: ClassicFloors;
   /** Real classic stations, board2 x. */
   readonly stations: readonly number[];
+  /** The classic floor zones and the plan's length in board2 x, for the windows of §9.6. */
+  readonly zones: readonly (readonly [number, number])[];
+  readonly length: number;
+  /** The loft samples (classic coordinates; §9.2), for the band fit (§9.7). */
+  readonly loft: LoftSamples;
   readonly creases: readonly { readonly x: number; readonly angle: number }[];
   readonly plan: {
     /** Largest distance from a sample outside the fillet zones to the loop, cm. */
@@ -171,25 +181,6 @@ function placeholderField(
   };
 }
 
-/** The loop parameter on the −y half where the plan's x equals `x` (x increases there: standard tail). */
-function paramOfX(plan: PeriodicCurve<2>, x: number): number {
-  const sc = createScratch({ maxDegree: plan.basis.degree, maxDerivs: 0 });
-  const q = new Float64Array(2);
-  const xAt = (u: number): number => {
-    curveEvalInto(plan, u, 0, q, 0, sc);
-    return q[0]!;
-  };
-  let lo = 0;
-  let hi = 0.5;
-  for (;;) {
-    const mid = 0.5 * (lo + hi);
-    if (!(mid > lo && mid < hi)) break;
-    if (xAt(mid) < x) lo = mid;
-    else hi = mid;
-  }
-  return Math.abs(xAt(lo) - x) <= Math.abs(xAt(hi) - x) ? lo : hi;
-}
-
 /**
  * The inset laws (§9.5): keys at every real station inside the board (σ on
  * the −y half), `fraction × half-width` clamped to `[minInset, κ ρ]`; tip keys
@@ -202,27 +193,16 @@ function insetLaws(
   tol: Tolerances,
 ): { deck: LawCurve; tuck: LawCurve } {
   const b = DEFAULT_BUILD_PARAMS;
-  const arc = planArc(plan, true, tol);
   const sc = createScratch({ maxDegree: plan.basis.degree, maxDerivs: 0 });
   const q = new Float64Array(2);
-  const nose = (() => {
-    curveEvalInto(plan, 0.5, 0, q, 0, sc);
-    return q[0]!;
-  })();
   const cap = (u: number): number => b.insetCurvatureFraction * insetRadiusAt(plan, u);
-  const keys: { s: number; d: number; t: number }[] = [];
-  for (const x of stations) {
-    if (!(x > 0 && x < nose)) continue;
-    const u = paramOfX(plan, x);
-    curveEvalInto(plan, u, 0, q, 0, sc);
+  const keys = stationKeys(plan, stations, tol).map((k) => {
+    curveEvalInto(plan, k.u, 0, q, 0, sc);
     const half = -q[1]!;
-    const s = sigmaAt(arc, u);
-    if (!(s > 0 && s < 0.5)) continue;
-    const limit = cap(u);
+    const limit = cap(k.u);
     const clamp = (w: number): number => Math.max(b.minInset, Math.min(w, limit));
-    keys.push({ s, d: clamp(o.deckInsetFraction * half), t: clamp(o.tuckInsetFraction * half) });
-  }
-  keys.sort((p, r) => p.s - r.s);
+    return { s: k.s, d: clamp(o.deckInsetFraction * half), t: clamp(o.tuckInsetFraction * half) };
+  });
   const law = (pick: 'd' | 't'): LawCurve => {
     if (keys.length === 0) {
       const w = Math.max(b.minInset, Math.min(cap(0), cap(0.5)));
@@ -430,12 +410,26 @@ export function convertGeometry(
   // §9.6 data: windows, membership.
   const length = ext.xMax;
   const zones = floors.zones.map(([a, b]) => [a - shift, b - shift] as const);
-  const inWindow = (x: number): boolean =>
-    x <= o.tipWindow ||
-    x >= length - o.tipWindow ||
-    zones.some(([a, b]) => x >= a && x <= b) ||
-    stations.some((s) => Math.abs(x - s) <= o.creaseWindow);
+  const inWindow = windowTest(stations, zones, length, o);
   const nf = loft.fractions.length;
+  // The turn of the ring polyline at ring point k of row r (radians), and
+  // whether k is a crease there: a turn exceeding both turns two points away
+  // by `cornerAngleMin` (the classic's ring ladder spreads a smooth turn over
+  // its points; a section corner concentrates it in one or two of them).
+  const ringTurn = (r: number, k: number): number => {
+    if (k <= 0 || k >= nf - 1) return 0;
+    const at = (j: number): readonly [number, number] => [loft.y[r * nf + j]!, loft.z[r * nf + j]!];
+    const [y0, z0] = at(k - 1);
+    const [y1, z1] = at(k);
+    const [y2, z2] = at(k + 1);
+    const ax = y1 - y0;
+    const az = z1 - z0;
+    const bx = y2 - y1;
+    const bz = z2 - z1;
+    return Math.abs(Math.atan2(ax * bz - az * bx, ax * bx + az * bz));
+  };
+  const ringCrease = (r: number, k: number): boolean =>
+    ringTurn(r, k) - Math.max(ringTurn(r, k - 2), ringTurn(r, k + 2)) >= o.cornerAngleMin;
   const collect = (side: 'deck' | 'bottom'): FieldData => {
     const strip = side === 'deck' ? loops.deckStrip : loops.tuckStrip;
     const face = side === 'deck' ? loops.deckEdge : loops.tuck;
@@ -447,14 +441,37 @@ export function convertGeometry(
       const win = inWindow(x);
       const sc = strip.crossings(x);
       const fc = face.crossings(x);
-      for (let k = 0; k < nf; k++) {
-        if (side === 'deck' ? k <= a : k >= a) continue;
+      // From the stringer outwards: the bottom side ascends in k, the deck side descends.
+      const ks: number[] = [];
+      if (side === 'bottom') for (let k = 0; k < a; k++) ks.push(k);
+      else for (let k = nf - 1; k > a; k--) ks.push(k);
+      // S7 as built: the data stop where the classic leaves the face. The
+      // strip outside the face pins the field's slope at its edge only while
+      // the classic continues the face: it ends once the ring has turned by
+      // `cornerAngleMin` from the last point inside (a hard edge at once, a
+      // rail rolling away right at the edge within a few points). Inside the
+      // face, within the strip's width of its edge, a classic section corner
+      // (`ringCrease`) is the classic's own edge, which the inset law places
+      // only approximately between stations: the samples past it are the
+      // rail. A height field cannot follow either across the turn; its
+      // refinement then does not end (a preset's tuck on the band mark).
+      const faceEdge = fc.length > 0 ? fc[fc.length - 1]! : 0;
+      const width = (sc.length > 0 ? sc[sc.length - 1]! : faceEdge) - faceEdge;
+      let stop = false;
+      let turned = 0;
+      for (let e = 0; e < ks.length; e++) {
+        const k = ks[e]!;
         const y = loft.y[r * nf + k]!;
         const z = loft.z[r * nf + k]!;
         const onStringer = !(y > 0);
         // The loops are mirror images, so the −y sample's membership is the +y one's.
         if (!strip.inside(sc, onStringer ? 0 : y)) continue;
-        const j = !win && face.inside(fc, onStringer ? 0 : y) ? 1 : 0;
+        const inFace = face.inside(fc, onStringer ? 0 : y);
+        if (e > 0 && !inFace) turned += ringTurn(r, ks[e - 1]!);
+        if (e > 0 && y >= faceEdge - width && ringCrease(r, ks[e - 1]!)) stop = true;
+        if (turned >= o.cornerAngleMin) stop = true;
+        if (stop) continue;
+        const j = !win && inFace ? 1 : 0;
         pts.push(x, onStringer ? 0 : y, z);
         judged.push(j);
         if (!onStringer) {
@@ -512,6 +529,9 @@ export function convertGeometry(
       shift,
       floors,
       stations,
+      zones,
+      length,
+      loft,
       creases: creasesClassic.map((c) => ({ x: c.x - shift, angle: c.angle })),
       plan: {
         error: planErr,
@@ -570,6 +590,14 @@ export interface KnifeTipLift {
    * below `minRailHeight` after `maxRefinePasses` rounds.
    */
   readonly issues: readonly Board2Issue[];
+}
+
+/** The distance from |x| to the next larger double. */
+function doubleSpacing(x: number): number {
+  const a = new Float64Array([Math.abs(x)]);
+  const bits = new BigInt64Array(a.buffer);
+  bits[0] = bits[0]! + 1n;
+  return a[0]! - Math.abs(x);
 }
 
 /** The tip zone's inner edges: the tip windows widened by the classic floor zones that touch an end. */
@@ -650,7 +678,15 @@ export function liftKnifeTips(
     const p = deck.degreeU;
     const nu = U.length - p - 1;
     const lam = new Float64Array(nu);
-    for (const f of deficits) {
+    // Each deficit plus one spacing of doubles at the deck's largest height: a
+    // deficit below that spacing (the rounding of the last round's sum) would
+    // add nothing and the rail height would stay a rounding short of h (S7 as
+    // built; seen on the funboard with the 80/20 preset).
+    let zMax = 0;
+    for (const v of deck.z) zMax = Math.max(zMax, Math.abs(v));
+    const step = doubleSpacing(zMax);
+    for (const f0 of deficits) {
+      const f = { x: f0.x, d: f0.d + step };
       const u = (f.x - x0) / (x1 - x0);
       for (let i = 0; i < nu; i++) {
         // N_i is non-zero on (U[i], U[i + p + 1]) (and at its clamped end).
@@ -725,4 +761,108 @@ function localise(
   for (let i = 0; i < nu; i++)
     for (let j = 0; j < nv; j++) z[i * nv + j] = surfaceControlPoint(s, i, j).z;
   return { ...deck, knotsU: Array.from(s.u.knots), z };
+}
+
+/**
+ * The converter (§9): `convertGeometry` (§9.1–§9.6), the rail stage
+ * (`rail.ts`, §9.7) and `buildBoard` of the result. Returns the document, its
+ * build and the conversion report, or the issues that stopped it. Warnings:
+ * every stage that missed its target (`not-converged`, the band against
+ * `surfaceTol` on its judged samples included) and the build's own.
+ */
+export function convertClassic(
+  board: BezierBoard,
+  opts: Partial<ConvertOptions> = {},
+): Board2Result<Conversion> {
+  const r = convertDetailed(board, opts);
+  return r.ok ? board2Ok(r.value.conversion, r.issues) : r;
+}
+
+/** A conversion with its stages' internals (for the tests and the deviation report). */
+export interface DetailedConversion {
+  readonly conversion: Conversion;
+  readonly geometry: ClassicGeometry;
+  /** The warnings of `convertGeometry` alone (§9.1–§9.6). */
+  readonly geometryIssues: readonly Board2Issue[];
+  readonly rail: RailStage;
+}
+
+/** {@link convertClassic}, keeping the stages' internals. */
+export function convertDetailed(
+  board: BezierBoard,
+  optsIn: Partial<ConvertOptions> = {},
+): Board2Result<DetailedConversion> {
+  const o: ConvertOptions = { ...DEFAULT_CONVERT_OPTIONS, ...optsIn };
+  const geo = convertGeometry(board, o);
+  if (!geo.ok) return board2Err(geo.issues);
+  const g = geo.value;
+  let rail: ReturnType<typeof fitRail>;
+  try {
+    rail = fitRail(g, o);
+  } catch (e) {
+    return board2Err([...geo.issues, geomIssue(e, 'rail stage')]);
+  }
+  if (!rail.ok) return board2Err([...geo.issues, ...rail.issues]);
+  const r = rail.value;
+  const doc: BoardDoc = {
+    ...r.doc,
+    passthrough: { fins: JSON.parse(JSON.stringify(board.fins)) as JsonValue },
+  };
+  const clock = performance.now();
+  const built = buildBoard(doc);
+  const buildTime = performance.now() - clock;
+  if (!built.ok)
+    return board2Err([
+      ...geo.issues,
+      ...built.issues.map((i) =>
+        i.severity === 'error' ? { ...i, message: `buildBoard: ${i.message}` } : i,
+      ),
+    ]);
+  // §9.7 item 6: the document's band is the fitted band (same basis, no refinement).
+  const factorisationError =
+    built.value.band.u.count === r.basis.basis.count
+      ? netDistance(netOf(built.value.band), r.fitted)
+      : Infinity;
+  const report: ConversionReport = {
+    planError: g.plan.error,
+    rockerError: g.rocker.error,
+    deckLineError: g.deckLine.error,
+    deckSurfaceError: g.deck.maxResidual,
+    bottomSurfaceError: g.bottom.maxResidual,
+    bandError: r.fit.judgedMax,
+    fillets: g.plan.fillets.map((f) => ({
+      x: f.x,
+      radius: f.radius,
+      predictedDeviation: f.predictedDeviation,
+    })),
+    floorZones: g.zones,
+    railHeightFloored: g.railHeightFloored,
+    creases: g.creases,
+    stationLaws: r.stationLaws,
+    factorisationError,
+    band: {
+      ratio: r.fit.ratio,
+      corrections: r.fit.corrections,
+      samples: r.samples,
+      judgedMax: r.fit.judgedMax,
+      allMax: r.fit.allMax,
+      meets: r.fit.meets,
+      columns: r.basis.basis.count,
+      initialApexKeysAdded: r.initialApexKeysAdded,
+      apexKeysAdded: r.apexKeysAdded,
+      insetKeysAdded: r.insetKeysAdded,
+    },
+    builtColumns: built.value.stations.length,
+    builtPasses: built.value.report.refinePasses,
+    timings: { ...g.timings, ...r.timings, build: buildTime },
+  };
+  return board2Ok(
+    {
+      conversion: { doc, built: built.value, report },
+      geometry: g,
+      geometryIssues: geo.issues,
+      rail: r,
+    },
+    [...geo.issues, ...bandIssues(r, o), ...built.issues],
+  );
 }

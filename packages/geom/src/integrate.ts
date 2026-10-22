@@ -231,6 +231,108 @@ function curveBreaks(
   return { breaks, variationV };
 }
 
+/**
+ * The exact inner integrals of Green's theorem, cached as polynomials in v
+ * (performance; docs/design/board2.md S7 as built).
+ *
+ * The strips of `F(u, v) = ∫_{uRef}^{u} f(s, v) ds` are cut at the surface's
+ * u-breaks: `c_0 = uRef < c_1 < … < c_M`. On a v-span of the surface, the
+ * integral of `f` over one whole strip `[c_k, c_{k+1}]` is a polynomial in v of
+ * degree at most `dv` (the integrand's promised v-degree per span pair, and
+ * the inner rule is exact in u), so it is stored by its values at the `dv + 1`
+ * Chebyshev–Lobatto points of the v-span, prefix-summed over k, and evaluated
+ * by barycentric interpolation (exact for polynomials of degree `dv`, to
+ * rounding: the Lebesgue constant of these points is below 3 for `dv ≤ 16`).
+ * A v-span's prefix grows lazily to the largest u asked for. Each outer point
+ * then costs one interpolation and the inner rule on its own last strip
+ * instead of the rule on every strip from `uRef`: the strips of one v-span are
+ * integrated once, at `dv + 1` values of v, however many outer points fall in
+ * it (at least one Bézier piece of the trim curve, `⌈q(d_u + d_v + 2)/2⌉`
+ * points, does). Only `u > uRef` asks: `uRef` is the loops' smallest
+ * control-point u, so every loop point has `u ≥ uRef`.
+ */
+function stripCache(
+  ub: readonly number[],
+  vb: readonly number[],
+  uRef: number,
+  dv: number,
+): {
+  at(
+    u: number,
+    v: number,
+    piece: (a: number, b: number, v: number) => { sum: number; abs: number },
+  ): { sum: number; abs: number; from: number; cells: number };
+} {
+  const cuts = [uRef, ...ub.filter((x) => x > uRef)];
+  const n = dv + 1;
+  // Chebyshev–Lobatto points on [−1, 1] and their barycentric weights.
+  const nodes = new Float64Array(n);
+  const bw = new Float64Array(n);
+  for (let l = 0; l < n; l++) {
+    nodes[l] = n === 1 ? 0 : -Math.cos((Math.PI * l) / dv);
+    bw[l] = (l % 2 === 0 ? 1 : -1) * (n > 1 && (l === 0 || l === dv) ? 0.5 : 1);
+  }
+  /** Per v-span: prefix values (and of |terms|) per cut, `n` per cut, from cut 0. */
+  const cache = new Map<number, { val: number[]; abs: number[] }>();
+  const spanOfV = (v: number): number => {
+    let lo = 0;
+    let hi = vb.length - 2;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (vb[mid]! <= v) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
+  return {
+    at(u, v, piece) {
+      // The last cut below u: strips [c_0, c_1], …, [c_{k−1}, c_k] are whole.
+      let lo = 0;
+      let hi = cuts.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (cuts[mid]! < u) lo = mid;
+        else hi = mid - 1;
+      }
+      const k = lo;
+      const j = spanOfV(v);
+      const a = vb[j]!;
+      const b = vb[j + 1]!;
+      const m = 0.5 * (a + b);
+      const h = 0.5 * (b - a);
+      let c = cache.get(j);
+      if (c === undefined) {
+        c = { val: new Array<number>(n).fill(0), abs: new Array<number>(n).fill(0) };
+        cache.set(j, c);
+      }
+      while (c.val.length < (k + 1) * n) {
+        const s = c.val.length / n - 1;
+        for (let l = 0; l < n; l++) {
+          const r = piece(cuts[s]!, cuts[s + 1]!, m + h * nodes[l]!);
+          c.val.push(c.val[s * n + l]! + r.sum);
+          c.abs.push(c.abs[s * n + l]! + r.abs);
+        }
+      }
+      if (k === 0) return { sum: 0, abs: 0, from: cuts[0]!, cells: 0 };
+      // Barycentric interpolation at x = (v − m)/h.
+      const x = h > 0 ? (v - m) / h : 0;
+      let num = 0;
+      let numAbs = 0;
+      let den = 0;
+      for (let l = 0; l < n; l++) {
+        const d = x - nodes[l]!;
+        if (d === 0)
+          return { sum: c.val[k * n + l]!, abs: c.abs[k * n + l]!, from: cuts[k]!, cells: k };
+        const w = bw[l]! / d;
+        num += w * c.val[k * n + l]!;
+        numAbs += Math.abs(w) * c.abs[k * n + l]!;
+        den += w;
+      }
+      return { sum: num / den, abs: numAbs / Math.abs(den), from: cuts[k]!, cells: k };
+    },
+  };
+}
+
 /** Green's-theorem integral over the loops of a trimmed surface. */
 function integrateGreen(
   ts: TrimmedSurface,
@@ -266,12 +368,43 @@ function integrateGreen(
   const acc: Acc = { evaluations: 0, converged: true, innerErrMax: 0 };
   let exactAbs = 0;
   let exactTerms = 0;
+  const strips = ruInner !== null && deg !== undefined ? stripCache(ub, vb, uRef, deg[1]) : null;
+  // The strip cache's integrand evaluations, and the terms the error estimate
+  // counts for its interpolated values (as many as the direct sum would add).
+  let stripEvals = 0;
+  let stripTerms = 0;
+  /** The exact integral of `f(·, v)` over `[a, b]` (inside one u-span) by the inner rule. */
+  const exactPiece = (a: number, b: number, v: number): { sum: number; abs: number } => {
+    stripEvals += ruInner!.nodes.length;
+    const m = 0.5 * (a + b);
+    const h = 0.5 * (b - a);
+    let sum = 0;
+    let abs = 0;
+    for (let i = 0; i < ruInner!.nodes.length; i++) {
+      const uu = m + h * ruInner!.nodes[i]!;
+      const term = h * ruInner!.weights[i]! * finite(f(uu, v, ev(uu, v)), uu, v);
+      sum += term;
+      abs += Math.abs(term);
+    }
+    return { sum, abs };
+  };
   /** F(u, v) = ∫_{uRef}^{u} f(s, v) ds. */
   const F = (u: number, v: number): number => {
     if (u === uRef) return 0;
     const lo = Math.min(u, uRef);
     const hi = Math.max(u, uRef);
     const sign = u > uRef ? 1 : -1;
+    if (strips !== null && u > uRef) {
+      // Whole strips between cuts from the polynomial cache, the last one directly.
+      const r = strips.at(u, sanitizeParam(s.v, v), exactPiece);
+      exactAbs += r.abs;
+      const terms = r.cells * ruInner!.nodes.length + ruInner!.nodes.length;
+      exactTerms += terms;
+      stripTerms += terms;
+      const last = exactPiece(r.from, u, v);
+      exactAbs += last.abs;
+      return r.sum + last.sum;
+    }
     if (ruInner !== null) {
       let sum = 0;
       let x0 = lo;
@@ -342,7 +475,7 @@ function integrateGreen(
   return Object.freeze({
     value,
     errorEstimate: outerErr + acc.innerErrMax * variationV + exactTerms * Number.EPSILON * exactAbs,
-    evaluations: acc.evaluations + exactTerms,
+    evaluations: acc.evaluations + exactTerms - stripTerms + stripEvals,
     converged: acc.converged,
   });
 }

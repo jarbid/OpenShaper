@@ -58,6 +58,7 @@ import { polygonCrossings, polylineDistance, splinePoints } from './oracles';
 export interface ExitRun {
   readonly geometry: ClassicGeometry;
   readonly measures: ConversionMeasures;
+  /** `convertGeometry`'s warnings (S6). */
   readonly warnings: readonly Board2Issue[];
 }
 

@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * `fitField` when a geom solve fails for a reason other than an undetermined
- * net (review of S6): such a failure at one fairness ratio must not discard a
- * fit found at another. geom's `approximateSurface` is wrapped so that chosen
- * calls fail with `inconsistent-constraints` (the error geom returns when the
- * stringer constraints contradict each other to more than `constraint`); every
- * other call is geom's own. Oracles: the result is a fit, it meets
+ * `fitField` when a solve fails for a reason other than an undetermined net
+ * (review of S6): such a failure at one fairness ratio must not discard a fit
+ * found at another. The solve (`lsq.ts`'s `solveField`, step S7; geom's
+ * `approximateSurface` before) is wrapped so that chosen calls throw, as a
+ * solve failing for any other reason does; every other call is the real one.
+ * Oracles: the result is a fit, it meets
  * `surfaceTol` on the judged samples re-evaluated through `heightSampler`
  * (plus 1e-12 cm rounding: z ≤ 3 cm, a few dozen flops), and its ratio is below
  * the failing ones.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import * as geom from '@openshaper/geom';
 import { resolveTolerances } from '@openshaper/geom';
 import type { ClampedCurve } from '@openshaper/geom';
 import { heightFieldSurface, heightSampler } from '../height-field';
 import { fitField } from './fields';
 import type { FieldData, FieldFit } from './fields';
 import { fitStringerLine } from './lines';
+import type * as lsq from './lsq';
 import { DEFAULT_CONVERT_OPTIONS as O } from './params';
 
 const hook = vi.hoisted(() => ({
@@ -27,27 +27,16 @@ const hook = vi.hoisted(() => ({
   bends: [] as number[],
 }));
 
-vi.mock('@openshaper/geom', async (importOriginal) => {
-  const m = await importOriginal<typeof geom>();
+vi.mock('./lsq', async (importOriginal) => {
+  const m = await importOriginal<typeof lsq>();
   return {
     ...m,
-    approximateSurface: (...args: Parameters<typeof m.approximateSurface>) => {
+    solveField: (...args: Parameters<typeof m.solveField>) => {
       hook.calls++;
-      const bend = args[2].fairness?.bend ?? 0;
+      const bend = args[1];
       hook.bends.push(bend);
-      if (hook.fail(bend, hook.calls)) {
-        return {
-          ok: false,
-          issues: [
-            {
-              code: 'inconsistent-constraints',
-              severity: 'error',
-              message: 'injected by the test',
-            },
-          ],
-        };
-      }
-      return m.approximateSurface(...args);
+      if (hook.fail(bend, hook.calls)) throw new Error('injected by the test');
+      return m.solveField(...args);
     },
   };
 });
@@ -114,6 +103,6 @@ describe('fitField with failing solves', () => {
   it('a failure at every ratio is returned', () => {
     hook.fail = () => true;
     const r = fitField(data, EX, EY, line, O, tol);
-    expect('message' in r && r.cause?.code).toBe('inconsistent-constraints');
+    expect('message' in r && r.message).toContain('injected by the test');
   });
 });

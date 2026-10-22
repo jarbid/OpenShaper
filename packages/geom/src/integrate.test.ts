@@ -259,6 +259,53 @@ describe('integrateTrimmed: multi-span surfaces under a trim (knot-line splits)'
   });
 });
 
+describe('integrateTrimmed: the exact Green rule on many spans (strip cache, board2 S7)', () => {
+  // A bicubic with 11 u-spans and 6 v-spans: each outer point's inner integral
+  // F(u, v) = ∫ f du runs over up to 11 strips, which the rule takes from a
+  // cache of polynomials in v (one per strip and v-span) instead of summing.
+  const nU = 11;
+  const nV = 6;
+  const U = [0, 0, 0, ...Array.from({ length: nU + 1 }, (_, k) => k / nU), 1, 1, 1];
+  const V = [0, 0, 0, ...Array.from({ length: nV + 1 }, (_, k) => k / nV), 1, 1, 1];
+  const nu = U.length - 4;
+  const nv = V.length - 4;
+  const rnd = mulberry32(11);
+  const pts: number[] = [];
+  for (let i = 0; i < nu; i++) {
+    for (let j = 0; j < nv; j++) {
+      pts.push(3 * (i / (nu - 1)) + 0.1 * rnd(), 2 * (j / (nv - 1)) + 0.1 * rnd(), rnd());
+    }
+  }
+  const s = makeSurface({ u: clampedBasis(3, U), v: clampedBasis(3, V), points: pts });
+  const vol = (_u: number, _v: number, d: ArrayLike<number>): number =>
+    d[0]! * (d[4]! * d[8]! - d[5]! * d[7]!) +
+    d[1]! * (d[5]! * d[6]! - d[3]! * d[8]!) +
+    d[2]! * (d[3]! * d[7]! - d[4]! * d[6]!);
+  const deg = [8, 8] as const;
+
+  it('over the natural loop it equals the tensor rule', () => {
+    const tensor = integrateTrimmed(ok(makeTrimmedSurface(s, null)), vol, {
+      polynomialDegree: deg,
+    });
+    const green = integrateTrimmed(ok(makeTrimmedSurface(s, naturalBoundaryLoop(s))), vol, {
+      polynomialDegree: deg,
+    });
+    expect(relErr(green.value, tensor.value)).toBeLessThanOrEqual(EXACT);
+  });
+
+  it('under a curved trim crossing every knot line it equals adaptive integration', () => {
+    const a = { x: 0.05, y: 0.08 };
+    const b = { x: 0.95, y: 0.12 };
+    const c = { x: 0.1, y: 0.9 };
+    const tri = loop([line2(a, b), bezierCurve(2, [b.x, b.y, 0.8, 0.95, c.x, c.y]), line2(c, a)]);
+    const ts = ok(makeTrimmedSurface(s, tri));
+    const exact = integrateTrimmed(ts, vol, { polynomialDegree: deg });
+    const adaptive = integrateTrimmed(ts, vol, { tol: { quadRel: 1e-13 } });
+    expect(adaptive.converged).toBe(true);
+    expect(relErr(exact.value, adaptive.value)).toBeLessThanOrEqual(1e-12);
+  });
+});
+
 /** Radon's 7-point rule on a triangle (exact for degree ≤ 5; Strang & Fix, table 4.1), closed form. */
 function radon7(
   P: readonly { x: number; y: number }[],

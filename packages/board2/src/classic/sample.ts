@@ -17,6 +17,12 @@
  * - **Upper and lower side.** In each row the ring point of largest |y| (the
  *   classic rail's apex, sampled) splits the ring: the points after it are on
  *   the deck side, the points before it on the bottom side.
+ * - **Apex, exactly** (step S7): the widest point of each row's section by a
+ *   golden-section search over the ring fraction between the sampled apex's
+ *   two neighbours (the loft is smooth there: the classic apex knot has
+ *   vertical handles), run until the bracket stops shrinking in floating
+ *   point. The apex height of §9.7 is read off it, not off the sampled ring
+ *   point (one ring step is up to a millimetre of rail there).
  * - **Crease angles** (§9.2): at each real station the largest angle, over the
  *   ring fractions, between the loft's one-sided x-derivatives (difference
  *   quotients at ± `creaseProbe`: O(δ) truncation).
@@ -72,6 +78,48 @@ export interface LoftSamples {
   readonly z: Float64Array;
   /** Per row, the index of the largest y (the sampled classic apex). */
   readonly apex: Int32Array;
+  /** Per row, the classic apex itself: its y and z (module comment). */
+  readonly apexY: Float64Array;
+  readonly apexZ: Float64Array;
+}
+
+/** Golden-section ratio (1/φ). */
+const INV_PHI = (Math.sqrt(5) - 1) / 2;
+
+/**
+ * The widest point of the loft section `s` between ring fractions `a` and `b`
+ * (module comment): golden-section search for the largest y, to the end of
+ * floating point. Returns (y, z) in the board's coordinates (z with the rocker).
+ */
+function widestBetween(
+  s: NonNullable<ReturnType<typeof loftSection>>,
+  a: number,
+  b: number,
+): readonly [number, number] {
+  const yAt = (f: number): number => loftPoint(s, f).x;
+  let lo = a;
+  let hi = b;
+  let c = hi - INV_PHI * (hi - lo);
+  let d = lo + INV_PHI * (hi - lo);
+  let yc = yAt(c);
+  let yd = yAt(d);
+  while (c > lo && d < hi && c < d) {
+    if (yc >= yd) {
+      hi = d;
+      d = c;
+      yd = yc;
+      c = hi - INV_PHI * (hi - lo);
+      yc = yAt(c);
+    } else {
+      lo = c;
+      c = d;
+      yc = yd;
+      d = lo + INV_PHI * (hi - lo);
+      yd = yAt(d);
+    }
+  }
+  const p = loftPoint(s, 0.5 * (lo + hi));
+  return [p.x, p.y + s.rocker];
 }
 
 /** The row positions of §9.2: uniform at most `sampleSpacingX` apart across the span, plus station probes. */
@@ -106,6 +154,8 @@ export function sampleLoft(
   const ys: number[] = [];
   const zs: number[] = [];
   const apex: number[] = [];
+  const apexY: number[] = [];
+  const apexZ: number[] = [];
   for (const x of xs) {
     const s = loftSection(board, x);
     if (s === null) continue;
@@ -122,6 +172,13 @@ export function sampleLoft(
     }
     rx.push(x);
     apex.push(best);
+    const [ay, az] = widestBetween(
+      s,
+      fractions[Math.max(0, best - 1)]!,
+      fractions[Math.min(nf - 1, best + 1)]!,
+    );
+    apexY.push(ay);
+    apexZ.push(az);
   }
   return Object.freeze({
     fractions,
@@ -129,6 +186,8 @@ export function sampleLoft(
     y: Float64Array.from(ys),
     z: Float64Array.from(zs),
     apex: Int32Array.from(apex),
+    apexY: Float64Array.from(apexY),
+    apexZ: Float64Array.from(apexZ),
   });
 }
 

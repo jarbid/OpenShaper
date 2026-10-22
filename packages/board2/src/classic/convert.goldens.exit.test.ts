@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * S6 exit (docs/design/board2.md §14): the seven `.brd` sample files. The
+ * S6 and S7 exit (docs/design/board2.md §14): the seven `.brd` sample files. The
  * three goldens are converted and measured (`test-support/exit.ts`); the four
  * copies (`apps/web/src/*.brd`, byte-identical to the goldens, and the
  * self-authored shortboard, which parses to a board deep-equal to the golden's)
@@ -14,19 +14,20 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { expectExit, runExit } from './test-support/exit';
+import { expectExit, expectS7Exit, runExit } from './test-support/exit';
 import { classicSample } from './test-support/samples';
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const bytes = (p: string): Buffer => readFileSync(resolve(repo, p));
 
-describe('S6 exit: .brd sample files', () => {
+describe('S6 and S7 exit: .brd sample files', () => {
   for (const name of ['golden/shortboard.brd', 'golden/funboard.brd', 'golden/longboard.brd']) {
     it(
       name,
       () => {
         const run = runExit(classicSample(name));
         expectExit(name, run);
+        expectS7Exit(name, run, classicSample(name).load());
         const errors = run.measures.validateErrors;
         if (name === 'golden/shortboard.brd') expect(errors).toEqual([]);
         else {

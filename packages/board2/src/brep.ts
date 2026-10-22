@@ -24,10 +24,13 @@
  *   height fields' upwards, so the outward faces are the deck as built and the
  *   band and bottom reversed. The loops follow geom's convention (faces.ts:
  *   counter-clockwise seen from outside, so a `sameSense: false` face's (u, v)
- *   loop is its loop backwards). `orientBrep` then confirms the orientation by
- *   the sign of the measured volume (a flip would be a construction error: the
- *   tests require that it does not happen) and `checkBrep` measures the rest:
- *   gaps, trims, Euler–Poincaré `V − E + F − (L − F) = 2 − 3 + 3 − 0 = 2`.
+ *   loop is its loop backwards). `checkBrep` confirms the orientation by the
+ *   sign of the measured volume (an inside-out shell is one of its errors, so a
+ *   wrong sense here fails the build instead of being flipped) and measures
+ *   the rest: gaps, trims, Euler–Poincaré `V − E + F − (L − F) = 2 − 3 + 3 − 0
+ *   = 2`. `orientBrep` is not called (step S7): it integrated the same signed
+ *   volume a second time, about half the B-rep's cost, to confirm what
+ *   `checkBrep` already refuses.
  *
  * Nothing here slices by x: the faces come from the loop parameter, so the
  * notched loop of §3.8 assembles the same way (tested, bypassing the validator).
@@ -38,7 +41,6 @@ import {
   isoCurve,
   makeBrep,
   makeCurve,
-  orientBrep,
   toClamped,
   writeStep,
 } from '@openshaper/geom';
@@ -72,7 +74,7 @@ export interface BoardBrepParts {
   readonly tol: Tolerances;
 }
 
-/** The assembled, oriented and checked B-rep. */
+/** The assembled and checked B-rep (outward by construction; `checkBrep` refuses inside-out). */
 export interface BoardBrep {
   readonly brep: Brep;
   /** Face indices in `brep.faces`. */
@@ -81,8 +83,6 @@ export interface BoardBrep {
   readonly edges: { readonly deckEdge: number; readonly tuck: number; readonly seam: number };
   /** `checkBrep` of `brep` under the document's tolerances. */
   readonly check: BrepReport;
-  /** `orientBrep` flipped the assembly (never, for a board the construction is right about). */
-  readonly flipped: boolean;
 }
 
 /** Face and edge order of the board's B-rep. */
@@ -103,8 +103,8 @@ function seamLine(at: number): ClampedCurve<2> {
 }
 
 /**
- * The board's B-rep (module comment): assembled with `makeBrep`, oriented by
- * `orientBrep` and judged by `checkBrep` under `parts.tol`. Errors: geom's
+ * The board's B-rep (module comment): assembled with `makeBrep` in the designed
+ * orientation and judged by `checkBrep` under `parts.tol`. Errors: geom's
  * structural refusal, or each `checkBrep` issue, as `geom` issues with the
  * cause; never throws.
  */
@@ -173,8 +173,7 @@ export function boardBrep(parts: BoardBrepParts): Board2Result<BoardBrep> {
         made.issues.map((cause) => makeIssue('geom', `board B-rep: ${cause.message}`, { cause })),
       );
     }
-    const oriented = orientBrep(made.value, tol);
-    const check = checkBrep(oriented, tol);
+    const check = checkBrep(made.value, tol);
     if (!check.ok) {
       return board2Err(
         check.issues.map((cause) =>
@@ -187,11 +186,10 @@ export function boardBrep(parts: BoardBrepParts): Board2Result<BoardBrep> {
     }
     return board2Ok(
       Object.freeze({
-        brep: oriented,
+        brep: made.value,
         faces: BOARD_FACES,
         edges: EDGE,
         check,
-        flipped: oriented !== made.value,
       }),
     );
   } catch (e) {
