@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { assertNoNurbsPreloads, stripNurbsPreloads } from './tools/nurbs-preload';
 import { assertEditorPrecache, rewriteAppShellUrl } from './tools/precache-guard';
 
 const SITE_URL = (process.env.VITE_SITE_URL ?? 'https://openshaper.com').replace(/\/+$/, '');
@@ -154,6 +155,12 @@ export default defineConfig({
     // `...-undefined.json` (404) behind a fast CDN — a race that passes locally
     // but crashes in production.
     formatting: 'none',
+    // The NURBS viewer's chunks must not ride along as preloads (tools/nurbs-preload.ts).
+    onPageRendered: (route: string, html: string) => {
+      const out = stripNurbsPreloads(html);
+      assertNoNurbsPreloads(route, out);
+      return out;
+    },
     onFinished: (outDir: string) => writeSitemap(outDir),
   },
 });

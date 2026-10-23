@@ -2255,7 +2255,11 @@ deviation mode), the `Editing` docs page +2.4 KB. New chunks, fetched only with 
 297 KB (106 KB gzip: board2, geom, the converter, the kernel pieces they use) and
 `nurbs-core` 284 KB (101 KB gzip), which only the no-`Worker` fallback fetches and no browser
 does. board2 and geom are in no other chunk (grep of the build for the document format string
-and geom's issue codes finds only those two files). None of the three is precached.
+and geom's issue codes finds only those two files). None of the three is precached, and none is preloaded: vite-react-ssg writes a
+`modulepreload` hint into the prerendered page for every lazy chunk it can reach, which put all
+three (0.6 MB) on every `/app` load until `tools/nurbs-preload.ts` (run from `ssgOptions.onPageRendered`)
+stripped them and failed the build if one came back. The offline e2e suite caught it: the
+preload of an unprecached chunk is a console error with the network cut.
 
 **Known limits.**
 
