@@ -105,7 +105,17 @@ export default defineConfig({
           'favicon.svg',
           'icons/*.png',
         ],
-        globIgnores: ['**/*.map', 'images/**', 'og-cover.*', 'sitemap.xml', 'robots.txt'],
+        globIgnores: [
+          '**/*.map',
+          'images/**',
+          'og-cover.*',
+          'sitemap.xml',
+          'robots.txt',
+          // The experimental NURBS viewer (its layer, worker and synchronous-fallback
+          // core, ~0.6 MB): fetched only when the engine flag is on, so a user who
+          // never enables it does not download it, not even into the precache.
+          'assets/nurbs-*.js',
+        ],
         // The three.js chunk exceeds the 2 MiB default, and an over-size entry is
         // dropped with only a warning — which would silently break the editor offline.
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,

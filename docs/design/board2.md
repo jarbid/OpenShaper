@@ -949,8 +949,18 @@ export function notchedLoopFixture(): PlanLoopJSON; // bypasses the validator (�
   - A second entry for `src/classic/**` allows `@openshaper/kernel` and `@openshaper/geom` and
     forbids the rest (no io, units, store, render2d, render3d, export, ui; no UI; no
     `node:*`; no test-only subpaths).
-  - Every existing package's entry lists `board2` as forbidden, geom's included; the apps rule
-    forbids `@openshaper/board2` and `@openshaper/board2/*` until a later phase wires the flag.
+  - Every existing package's entry lists `board2` as forbidden, geom's included.
+  - **Apps (updated by the V1 viewer):** only `apps/web` may import `@openshaper/board2` and
+    `@openshaper/geom`, and only the viewer's two worker modules,
+    `apps/web/src/workers/nurbs-core.ts` and `nurbs-worker.ts` (`NURBS_VIEWER_MODULES` in
+    `eslint.config.mjs`). Every other file of every app, the desktop shell included, still
+    gets the `no-restricted-imports` error, whose message names those two modules. The rest of
+    the app reaches them only through a dynamic `import()` of `nurbs-core` or a
+    `new Worker(new URL('./workers/nurbs-worker.ts', ...))`, which is what keeps both packages
+    out of the main chunk. Tests are exempt as everywhere. The viewer also imports
+    `@openshaper/render3d/curvature-mesh` (a new subpath export of that package, pure: the
+    classic mesh's display-scale percentiles), never the package root, so the worker bundles no
+    three.js.
   - Tests, benches and `test-support/` are exempt, as for every layer.
 - **Lockfile**: the new importer and its workspace links are the only `pnpm-lock.yaml` change;
   no package is downloaded (`pnpm install --frozen-lockfile --offline` passes).
@@ -2138,6 +2148,134 @@ with one Chebyshev–Lobatto point too few in the strip cache: five `integrate.t
 failed (relative errors 3.9e-4 to 4.8e-3 against 1e-12, one NaN), restored.
 
 ---
+
+### V1 viewer (2026-10-23)
+
+The first user-visible use of board2: a read-only NURBS view of the board in the browser, behind
+the experimental-engine flag (plan §5), so the new geometry can be judged by eye before the
+Phase 3 editors exist. Editing, saving and every export stay classic; nothing of board2 is
+written to a file.
+
+**What it shows.**
+
+- **The flag.** "Engine: NURBS (experimental)" in Settings (`EditorSettings.nurbsEngine`,
+  persisted with the other settings, default off) or `?engine=nurbs` (this session only, never
+  saved; `nurbs-flag.ts`). With it off the app is unchanged: no NURBS UI, no request for any
+  NURBS chunk (an e2e test checks both), and the 3D view's props are the old ones.
+- **The surface.** The board on screen is converted (`convertClassic`, which builds it),
+  tessellated with geom's `tessellateBrep` (watertight, deck + band + bottom) and drawn in the 3D
+  pane in place of the classic hull, placed by the classic hull's centre so fins, guides and
+  every overlay still line up. The classic mesh stays on screen until the NURBS surface is ready
+  and whenever the board has changed since.
+- **Progress.** A status line, "Converting to NURBS… 12 s · classic shown meanwhile", ticks
+  while the worker runs. A hull change (outline, rocker curves, cross-sections: `sameHull`)
+  starts a 1.2 s quiet period (`DEBOUNCE_MS`) that every further change, and every moment the
+  store is mid-drag, restarts; a conversion in flight when the hull changes is cancelled and its
+  worker terminated. A fin edit is not a hull change.
+- **Cache.** Converted (and failed) hulls are kept three at a time by hull identity, in a
+  viewer that outlives the 3D pane, so undo, a view switch or a layout change shows the surface
+  again without converting. A change of mesh quality re-meshes the held model (the worker keeps
+  two; it rebuilds from the stored document if it was restarted) and never converts again.
+- **Badge and toggle.** "NURBS (experimental) — read-only" over the view, a Classic / NURBS
+  switch to compare the same board, and an "i" popover: the converter's warnings
+  (`not-converged`, band-fit residuals, law fidelity), how well each part was fitted (in the
+  display unit; lengths inside converter messages are rewritten into it, `localizeLengths`),
+  the conversion and mesh times and the vertex count. A failed conversion (a concave tail is
+  refused with `unsupported-tail`, a crashed worker) shows the classic mesh and the reason there.
+  Every converted board warns `not-converged` (S7 deviation 5), so the dot on the button is
+  always lit for now.
+- **Analysis on the NURBS surface**, through Phase 0's menu and legend. Mean curvature, Gaussian
+  curvature and rail radius are geom's exact principal curvatures at the tessellation vertices
+  (`FaceMesh.curvature`, from `Su`, `Sv`, `Suu`, `Suv`, `Svv`; not from the mesh), mapped to the
+  view's signs (`nurbs-curvature.ts`: with the outward normal, `mean = −(k1 + k2)/2`, so convex
+  is positive; a face with `sameSense = false` swaps to `(−k2, −k1)`), with the same area-weighted
+  percentile scales as the classic surface, so a board reads alike on both. Zebra and the other
+  screen-space modes use the exact normals. **Deviation from classic** (new, offered only with
+  the flag on) is the signed distance from the NURBS vertices to the classic surface,
+  positive where the NURBS surface has more foam, reusing the ± band control and the legend,
+  in the display unit. `ghostDeviation` of the kernel measures within the station plane; the
+  value is multiplied by `√(1 − nx²)` (`nx` the NURBS normal's length component), which is the
+  distance along the normal to first order (`nurbs-deviation.ts`). The NURBS vertices are not
+  in station rings, so the classic is measured at sections every 0.25 cm and interpolated in x.
+  Mean-curvature jumps at a station crease of the classic loft do not appear on the NURBS
+  surface (nor do they need to), but nothing was done to make the NURBS surface smoother than
+  its fit: it is what S7 produces.
+
+**Layout.** `apps/web/src/`: `nurbs-flag.ts`; `nurbs-client.ts` (ids, supersession,
+synchronous fallback, `use-specs-worker.ts`'s protocol as a plain object); `nurbs-viewer.ts`
+(the debounce, cancel and cache state machine); `nurbs-layer.tsx` (badge, toggle, popover;
+lazy); `nurbs-surface.ts`, `nurbs-text.ts`; `workers/nurbs-protocol.ts` (types, no board2),
+`nurbs-curvature.ts`, `nurbs-deviation.ts` (pure), `nurbs-core.ts` (the only board2/geom
+importer with the worker shell `nurbs-worker.ts`). `render3d` gains the `ExternalSurface` prop
+of `Board3DView` (`external-surface.ts`), `nurbs-deviation` in the analysis modes
+(`DeviationAnalysisMode`) and the exact modes' ready status from a supplied surface. Typed
+arrays come back from the worker as transferables.
+
+**Tessellation sizing.** The classic mesh is a grid of about `faceSize` cells; geom's is
+adaptive, so `tessellationFor(faceSize)` sizes it by error: chord tolerance 5 % of the face size
+(0.01 to 0.1 cm), normal turn 0.4·√(faceSize/0.9) rad (0.2 to 0.55), longest edge six faces.
+geom's defaults (0.1 mm, 0.1 rad) gave 160,000 vertices in 15 s on the shortboard.
+
+**Timings and sizes.** Measured in Chromium (headless, software GL, the cloud container: 4 cores, nothing else
+running) on a production build, one file at a time, by `apps/web/tools/perf/nurbs-timing.mjs`
+(opens each file in the editor with `?engine=nurbs`; the worker's own clock). _Convert_: `convertClassic`,
+its build included; _mesh_: tessellation, exact curvature and the deviation from classic at the
+standard quality (0.9 cm); _wall_: from opening the file to the surface on screen, the 1.2 s
+quiet period included.
+
+| File                     | Convert (s) | Mesh (s) | Wall (s)     | Vertices |
+| ------------------------ | ----------- | -------- | ------------ | -------- |
+| shortboard (golden)      | 7.4         | 2.2      | 11.3         | 31,916   |
+| funboard (golden)        | 7.8         | 1.5      | 10.9         | 20,188   |
+| longboard (golden)       | 8.3         | 1.7      | 11.7         | 22,772   |
+| self-authored-shortboard | 7.9         | 2.3      | 11.8         | 31,916   |
+| clean-6x22x2-75          | 9.8 to 10.1 | 5.9 to 7 | 17.3 to 18.8 | 71,691   |
+| degenerate-section       | 14.0        | 6.2      | 21.9         | 74,235   |
+| fallback-outline-5x10    | 9.8         | 3.6      | 15.0         | 43,967   |
+| rocker-absolute-deck     | 15.3        | 4.9      | 21.8         | 62,917   |
+| rocker-thickness-deck    | 16.5        | 4.9      | 23.1         | 62,714   |
+| stringer-fold-a          | 12.8        | 5.8      | 20.4         | 71,586   |
+| stringer-fold-b          | 13.3        | 7.1      | 22.0         | 73,401   |
+
+clean-6x22x2-75 was timed in two runs (the range in its row); run-to-run noise is about 5 to
+15 %. The goldens convert in 7 to 8 s, below the S7 table's Node figures (12 to 22 s), which
+were measured with other work running on the machine: the browser worker is not slower than
+Node. Every file converted (phase `ready`, no page error). `degenerate-section` opens with
+an import warning, which the script accepts. A re-mesh at another quality of a held model
+costs the "mesh" column again. The bundled sample board converts to the same 31,916-vertex
+mesh as the shortboard (the same board).
+
+Bundle (`pnpm build`, raw / gzip; the baseline is the build of the commit before the
+viewer): the **main entry chunk is unchanged** (`app`: 446,016 B, 145 KB gzip), and so is every
+chunk a flag-off user fetches apart from these small additions: the editor chunk `App`
+183,069 to 185,290 B (+2.2 KB; 56.1 to 56.9 KB gzip: the flag, the settings row, the
+`ThreeDPane` wiring), the shared render3d chunk +1.3 KB (the external-surface prop and the
+deviation mode), the `Editing` docs page +2.4 KB. New chunks, fetched only with the flag on:
+`nurbs-layer` 11.7 KB (4.6 KB gzip, the badge and viewer state machine), `nurbs-worker`
+297 KB (106 KB gzip: board2, geom, the converter, the kernel pieces they use) and
+`nurbs-core` 284 KB (101 KB gzip), which only the no-`Worker` fallback fetches and no browser
+does. board2 and geom are in no other chunk (grep of the build for the document format string
+and geom's issue codes finds only those two files). None of the three is precached.
+
+**Known limits.**
+
+- Conversion is 8 to 20 s per board (the S7 table above is Node; the browser worker is not
+  slower for the shortboard, see the table). The classic mesh is shown meanwhile; nothing can
+  be edited in NURBS.
+- Concave (swallow, fish) tails are refused by the converter: the classic mesh is shown with the
+  reason.
+- A conversion in flight is lost when the 3D pane is left and the board changes, and a refresh
+  loses the cache (nothing is stored); a stored document would rebuild in 2 to 5 s (S7 table).
+- The NURBS chunks are not precached by the service worker (`assets/nurbs-*.js` is in
+  `globIgnores`), so the viewer needs a connection the first time it is used.
+- The band fit misses its target on every file (S7 deviation 7: 0.67 mm on the shortboard in
+  the popover; the rocker files 8.8 mm), and "Deviation from classic" shows exactly that. The
+  deviation is measured at the NURBS vertices only, and is no data within a quarter of a
+  centimetre of a tip where the classic section degenerates.
+- Curvature at a knot line of the band or the height fields where the surface is not C2 is
+  read from one side.
+- Mesh quality "Fine" is slow (several seconds; the vertex count grows about with the square
+  of the quality).
 
 ## 15. Risks and open questions
 

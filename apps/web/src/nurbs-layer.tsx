@@ -194,6 +194,12 @@ export default function NurbsLayer({
           data-testid="nurbs-badge"
           data-phase={state.phase}
           data-showing={surface ? 'nurbs' : 'classic'}
+          // Timings of the conversion on screen, for the browser measurement script.
+          data-convert-ms={model ? Math.round(model.timings.convertMs) : undefined}
+          data-mesh-ms={
+            model ? Math.round(model.timings.tessellateMs + model.timings.deviationMs) : undefined
+          }
+          data-vertices={model ? model.mesh.positions.length / 3 : undefined}
           className="rounded-md border border-amber-500/60 bg-card/90 px-2 py-1 font-medium text-amber-300 shadow-lg"
         >
           NURBS (experimental) — read-only
