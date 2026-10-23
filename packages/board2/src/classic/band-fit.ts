@@ -982,55 +982,85 @@ export interface BandFit {
   readonly meets: boolean;
   /** The search found no valid fit and the initial band was kept. */
   readonly keptInitial: boolean;
+  /** Parameter-correction passes made (searches after the first). */
   readonly corrections: number;
+  /** The judged maximum after each search, cm (the first is before any correction). */
+  readonly history: readonly number[];
+}
+
+/** When the parameter correction stops (§12.2, review of S7). */
+export interface BandCorrectionStop {
+  /** At most this many correction passes. */
+  readonly maxPasses: number;
+  /** Stop once a pass improves the judged maximum by less than this fraction of it. */
+  readonly stallRel: number;
+}
+
+/** Largest projected distance over the judged samples and over all. */
+function maxima(distance: Float64Array, judged: Uint8Array): { jm: number; am: number } {
+  let jm = 0;
+  let am = 0;
+  for (let k = 0; k < distance.length; k++) {
+    const d = distance[k]!;
+    if (d > am) am = d;
+    if (judged[k] === 1 && d > jm) jm = d;
+  }
+  return { jm, am };
 }
 
 /**
  * The fit of `frame` to `samples`, starting at parameters `uv0` (module
- * comment): the search, then `passes` parameter corrections at the chosen
- * ratio, then the true distances.
+ * comment): the search, then parameter corrections (re-project, search again)
+ * until a pass improves the judged maximum by less than `stop.stallRel` of it
+ * or `stop.maxPasses` were made; the pass with the smallest judged maximum is
+ * kept, with its true distances.
  */
 export function fitBand(
   frame: BandFitFrame,
   samples: BandSamples,
   uv0: Float64Array,
-  passes: number,
+  stop: BandCorrectionStop,
   o: Pick<ConvertOptions, 'surfaceTol' | 'fairnessRatioBracket' | 'fairnessSearchSteps'>,
   tol: Tolerances,
 ): BandFit {
   let uv = uv0;
-  let net = frame.target;
-  let ratio = NaN;
+  let best: {
+    net: Float64Array;
+    ratio: number;
+    pr: { uv: Float64Array; distance: Float64Array };
+    jm: number;
+    am: number;
+  } | null = null;
   let corrections = 0;
-  let keptInitial = true;
+  const history: number[] = [];
   for (let k = 0; ; k++) {
     const P = bandFitProblem(frame, samples.points, uv);
     const found = searchBand(P, samples.judged, o, tol);
     if (found === null) break;
-    net = found.net;
-    ratio = found.ratio;
-    keptInitial = false;
     if (k > 0) corrections++;
-    if (k >= passes) break;
-    uv = projectSamples(bandSurface(frame, net), samples.points, uv, tol).uv;
+    const pr = projectSamples(bandSurface(frame, found.net), samples.points, uv, tol);
+    const { jm, am } = maxima(pr.distance, samples.judged);
+    const prev = best === null ? Infinity : best.jm;
+    history.push(jm);
+    if (best === null || jm < best.jm) best = { net: found.net, ratio: found.ratio, pr, jm, am };
+    if (k >= stop.maxPasses || (k > 0 && !(prev - jm > stop.stallRel * prev))) break;
+    uv = pr.uv;
   }
-  const pr = projectSamples(bandSurface(frame, net), samples.points, uv, tol);
-  let jm = 0;
-  let am = 0;
-  for (let k = 0; k < pr.distance.length; k++) {
-    const d = pr.distance[k]!;
-    if (d > am) am = d;
-    if (samples.judged[k] === 1 && d > jm) jm = d;
+  if (best === null) {
+    const pr = projectSamples(bandSurface(frame, frame.target), samples.points, uv, tol);
+    const { jm, am } = maxima(pr.distance, samples.judged);
+    best = { net: frame.target, ratio: NaN, pr, jm, am };
   }
   return {
-    net,
-    ratio,
-    uv: pr.uv,
-    distance: pr.distance,
-    judgedMax: jm,
-    allMax: am,
-    meets: jm <= o.surfaceTol,
-    keptInitial,
+    net: best.net,
+    ratio: best.ratio,
+    uv: best.pr.uv,
+    distance: best.pr.distance,
+    judgedMax: best.jm,
+    allMax: best.am,
+    meets: best.jm <= o.surfaceTol,
+    keptInitial: history.length === 0,
     corrections,
+    history: Object.freeze(history),
   };
 }

@@ -91,6 +91,7 @@ import type {
   BandRow,
   BandStation,
   Board2Issue,
+  OffsetContribution,
   Board2Result,
   BoardDoc,
   BoardFace,
@@ -609,8 +610,27 @@ export function fieldPcurve(
   return planCurvePcurve(toClamped(xy, row.basis.domain[0], tol), hf);
 }
 
-/** Stage 12 on a pass. */
-export function measurePass(ctx: BandContext, p: BandPass): PassMeasure {
+/**
+ * A band built on the laws alone, on the same basis as the document's band:
+ * what law fidelity and the tuck crease are measured on (review of S7).
+ */
+export interface LawBand {
+  readonly ctx: BandContext;
+  readonly pass: BandPass;
+}
+
+/**
+ * Stage 12 on a pass. Law fidelity and the tuck crease are measured on `laws`
+ * (default: the pass itself), the band the laws alone build on the same basis:
+ * the offset layer moves rows by design (§6.1), so on the band with offsets
+ * the laws are not what it shows (S7 as built, item 5). The apex and deck
+ * joins and the edge z-fits are the built band's.
+ */
+export function measurePass(
+  ctx: BandContext,
+  p: BandPass,
+  laws: LawBand = { ctx, pass: p },
+): PassMeasure {
   const b = ctx.doc.build;
   const spans = p.spans;
   const t0 = p.basis.basis.domain[0];
@@ -627,15 +647,17 @@ export function measurePass(ctx: BandContext, p: BandPass): PassMeasure {
   let apexJoinAngle = 0;
   let tuckCreaseError = 0;
   const sc = scratchFor(p.band);
+  const lawBand = laws.pass.band;
+  const lsc = lawBand === p.band ? sc : scratchFor(lawBand);
   spans.forEach((s, k) => {
     for (const u of [s.a, 0.5 * (s.a + s.b)]) {
-      const d = designedLawsAt(ctx, u);
       apexJoinAngle = Math.max(apexJoinAngle, apexAngleAt(p.band, u, sc));
-      const crease = tuckCreaseAt(p.band, ctx.bottomAt, d.frame, u, sc);
+      const d = designedLawsAt(laws.ctx, u);
+      const crease = tuckCreaseAt(lawBand, laws.ctx.bottomAt, d.frame, u, lsc);
       tuckCreaseError = Math.max(tuckCreaseError, Math.abs(crease - d.crease));
       if (u === s.a) continue;
       // Fidelity at the span's mid parameter (§5.4 condition 3).
-      const m = measuredLawsAt(p.band, d.frame, ctx.bottomAt, u);
+      const m = measuredLawsAt(lawBand, d.frame, laws.ctx.bottomAt, u);
       let worst = 0;
       for (const lane of RAIL_LANES) {
         const e = Math.abs(m[lane] - d.laws[lane]);
@@ -768,9 +790,57 @@ export interface BandReport {
   readonly deckJoinAngle: number;
   readonly tuckCreaseError: number;
   readonly lawFidelity: RailLawValues;
+  readonly offsetContribution: OffsetContribution;
   readonly edgeGaps: { readonly deckEdge: number; readonly tuck: number };
   readonly refinePasses: number;
   readonly insetLimited: readonly number[];
+}
+
+/**
+ * Per row, the largest distance between a control point of the band and of
+ * the law-only band on the same basis (cm): what the offset layer moved (§6.1;
+ * all 0 without offsets, and the apex row always 0).
+ */
+function offsetContribution(band: NurbsSurface, laws: NurbsSurface): OffsetContribution {
+  const out = new Float64Array(BAND_ROWS);
+  if (band !== laws) {
+    const n = band.cw.length / (4 * BAND_ROWS);
+    for (let i = 0; i < n; i++) {
+      for (let r = 0; r < BAND_ROWS; r++) {
+        const o = 4 * (i * BAND_ROWS + r);
+        const d = Math.hypot(
+          band.cw[o]! - laws.cw[o]!,
+          band.cw[o + 1]! - laws.cw[o + 1]!,
+          band.cw[o + 2]! - laws.cw[o + 2]!,
+        );
+        if (d > out[r]!) out[r] = d;
+      }
+    }
+  }
+  const rows = {} as Record<BandRow, number>;
+  for (const [name, r] of Object.entries(ROW) as [BandRow, number][]) rows[name] = out[r]!;
+  return Object.freeze(rows);
+}
+
+/** The empty offset layer (§6.1): a document's law-only band is built with it. */
+const NO_OFFSETS: BoardDoc['offsets'] = Object.freeze({ basis: null, rows: Object.freeze([]) });
+
+/**
+ * The law-only band on basis `b`, or the issues why it could not be built
+ * (then the built band itself is measured, and the caller warns).
+ */
+function lawOnlyPass(
+  lawCtx: BandContext,
+  b: BandBasis,
+  opts: PassOptions,
+): { ok: true; value: LawBand } | { ok: false; issues: readonly Board2Issue[] } {
+  try {
+    const pass = bandPass(lawCtx, b, opts);
+    if (hasErrors(pass.issues)) return { ok: false, issues: pass.issues };
+    return { ok: true, value: { ctx: lawCtx, pass } };
+  } catch (e) {
+    return { ok: false, issues: [geomIssue(e, 'law-only band')] };
+  }
 }
 
 /** The band and everything it was built from (the band part of `BuiltBoard`). */
@@ -843,7 +913,22 @@ export function buildBand(doc: BoardDoc, opts: BuildBandOptions = {}): Board2Res
     return board2Err([geomIssue(e, 'band context')]);
   }
   const maxPasses = opts.maxPasses ?? doc.build.maxBandRefinePasses;
-  let best: { pass: BandPass; measure: PassMeasure; index: number } | null = null;
+  // With an offset layer, fidelity and the crease are measured on the law-only band.
+  let lawCtx: BandContext | null = null;
+  if (ctx.offsets !== null) {
+    try {
+      lawCtx = bandContext({ ...doc, offsets: NO_OFFSETS }, opts.bottom);
+    } catch (e) {
+      return board2Err([geomIssue(e, 'band context')]);
+    }
+  }
+  let best: {
+    pass: BandPass;
+    measure: PassMeasure;
+    index: number;
+    laws: NurbsSurface;
+    lawIssues: readonly Board2Issue[];
+  } | null = null;
   try {
     let b = stationBasis(ctx.plan, ctx.arc, doc.build, ctx.symmetric, ctx.tol);
     for (let k = 0; k < (opts.uniformRefinements ?? 0); k++) {
@@ -853,9 +938,17 @@ export function buildBand(doc: BoardDoc, opts: BuildBandOptions = {}): Board2Res
     for (let pass = 0; ; pass++) {
       const p = bandPass(ctx, b, opts);
       if (hasErrors(p.issues)) return board2Err(p.issues);
-      const m = measurePass(ctx, p);
-      if (best === null || m.score < best.measure.score)
-        best = { pass: p, measure: m, index: pass };
+      const lp = lawCtx === null ? null : lawOnlyPass(lawCtx, b, opts);
+      const m = measurePass(ctx, p, lp?.ok === true ? lp.value : undefined);
+      if (best === null || m.score < best.measure.score) {
+        best = {
+          pass: p,
+          measure: m,
+          index: pass,
+          laws: lp?.ok === true ? lp.value.pass.band : p.band,
+          lawIssues: lp === null || lp.ok ? [] : lp.issues,
+        };
+      }
       if (m.failing.length === 0 || pass >= maxPasses) break;
       const next = insertMidpoints(b, m.failing, ctx.symmetric, ctx.tol);
       if (next.length === b.inserted.length) break;
@@ -864,8 +957,15 @@ export function buildBand(doc: BoardDoc, opts: BuildBandOptions = {}): Board2Res
   } catch (e) {
     return board2Err([geomIssue(e, 'band build')]);
   }
-  const { pass: p, measure: m, index } = best!;
+  const { pass: p, measure: m, index, laws, lawIssues } = best!;
   const issues: Board2Issue[] = [...p.issues];
+  for (const i of lawIssues) {
+    issues.push({
+      ...i,
+      severity: 'warning',
+      message: `the law-only band could not be built, so law fidelity and the tuck crease are measured with the offsets: ${i.message}`,
+    });
+  }
   try {
     issues.push(...insetLoopIssues(ctx, p));
   } catch (e) {
@@ -900,6 +1000,7 @@ export function buildBand(doc: BoardDoc, opts: BuildBandOptions = {}): Board2Res
     deckJoinAngle: m.deckJoinAngle,
     tuckCreaseError: m.tuckCreaseError,
     lawFidelity: m.lawFidelity,
+    offsetContribution: offsetContribution(p.band, laws),
     edgeGaps: m.edgeGaps,
     refinePasses: index,
     insetLimited: p.insetLimited,

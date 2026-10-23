@@ -55,6 +55,7 @@ export type {
   LawTolerance,
   OffsetBasisJSON,
   OffsetComponent,
+  OffsetContribution,
   OffsetField,
   OffsetLayer,
   OffsetRow,

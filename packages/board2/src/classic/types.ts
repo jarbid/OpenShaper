@@ -47,7 +47,13 @@ export interface ConvertOptions {
   /** Classic data kept outside the inset loops, cm. */
   readonly trimDataMargin: number;
   readonly maxRefinePasses: number;
-  readonly bandCorrectionPasses: number;
+  /**
+   * Band parameter correction (§9.7, review of S7): at most
+   * `maxBandCorrectionPasses` passes, stopping once a pass improves the judged
+   * maximum distance by less than `bandCorrectionStall` of it.
+   */
+  readonly maxBandCorrectionPasses: number;
+  readonly bandCorrectionStall: number;
   /** Fairness search (§9.8): ratio bracket to the data term and bisection steps. */
   readonly fairnessRatioBracket: readonly [number, number];
   readonly fairnessSearchSteps: number;
@@ -99,6 +105,8 @@ export interface ConversionReport {
     readonly ratio: number;
     /** Parameter-correction passes the fit made. */
     readonly corrections: number;
+    /** The judged maximum after each search (cm): before any correction, then per pass. */
+    readonly history: readonly number[];
     /** Rail samples, and the refitted band's largest projected distance over the judged ones and over all (cm). */
     readonly samples: number;
     readonly judgedMax: number;

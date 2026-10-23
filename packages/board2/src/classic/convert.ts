@@ -45,6 +45,7 @@ import { bandContext, effectiveInsets, geomIssue, insetRadiusAt } from '../band/
 import type { BandContext } from '../band/band';
 import { bandColumns, stationBasis } from '../band/stations';
 import { buildBoard } from '../build';
+import { deepFreeze } from '../freeze';
 import type { BandBasis } from '../band/stations';
 import { heightFieldSurface, heightSampler } from '../height-field';
 import { board2Err, board2Ok, makeIssue } from '../issues';
@@ -804,10 +805,11 @@ export function convertDetailed(
   }
   if (!rail.ok) return board2Err([...geo.issues, ...rail.issues]);
   const r = rail.value;
-  const doc: BoardDoc = {
+  // Deep-frozen, as `reviveBoardDoc` returns a document (review of S7).
+  const doc: BoardDoc = deepFreeze({
     ...r.doc,
     passthrough: { fins: JSON.parse(JSON.stringify(board.fins)) as JsonValue },
-  };
+  });
   const clock = performance.now();
   const built = buildBoard(doc);
   const buildTime = performance.now() - clock;
@@ -843,6 +845,7 @@ export function convertDetailed(
     band: {
       ratio: r.fit.ratio,
       corrections: r.fit.corrections,
+      history: r.fit.history,
       samples: r.samples,
       judgedMax: r.fit.judgedMax,
       allMax: r.fit.allMax,

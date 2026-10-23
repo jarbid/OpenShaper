@@ -396,6 +396,31 @@ describe('buildBand: symmetry, offsets, determinism', () => {
     }
   });
 
+  it('fidelity and the tuck crease are the law-only band’s; the offsets’ contribution per row (review of S7)', () => {
+    // The offsets move rows by design (§6.1), so the laws are measured on the band
+    // the laws alone build on the same basis: with or without an offset layer the
+    // report's fidelity and crease are the same bits, and the layer's own effect
+    // is reported per row (here a constant handle move of c: exactly c on its row).
+    const c = 0.25;
+    const base = crowned();
+    const plain = built(base, { maxPasses: 0 });
+    for (const v of Object.values(plain.report.offsetContribution)) expect(v).toBe(0);
+    for (const name of ['apexUpper', 'apexLower', 'deckHandle'] as const) {
+      const layer: OffsetLayer = {
+        basis: { degree: 3, knots: [0, 0.25, 0.5, 0.75] },
+        rows: [{ row: name, values: [c, c, c, c] }],
+      };
+      const b = built({ ...base, offsets: layer }, { maxPasses: 0 });
+      expect(net(b.band), name).not.toEqual(net(plain.band));
+      expect(b.report.lawFidelity, name).toEqual(plain.report.lawFidelity);
+      expect(b.report.tuckCreaseError, name).toBe(plain.report.tuckCreaseError);
+      for (const [r, v] of Object.entries(b.report.offsetContribution)) {
+        if (r === name) expect(Math.abs(v - c), `${name} on ${r}`).toBeLessThanOrEqual(1e-12 * 250);
+        else expect(v, `${name} on ${r}`).toBe(0);
+      }
+    }
+  });
+
   it('an offset field of the wrong size is an issue from buildBand and bandChecks, never a throw', () => {
     const doc: BoardDoc = {
       ...sampleDoc(),

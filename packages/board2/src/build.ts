@@ -85,6 +85,7 @@ export function assembleBoard(
     deckJoinAngle: bb.report.deckJoinAngle,
     tuckCreaseError: bb.report.tuckCreaseError,
     lawFidelity: bb.report.lawFidelity,
+    offsetContribution: bb.report.offsetContribution,
     // The B-rep's own measurement of the two trimmed edges (geom checkBrep, §5.5, §7).
     edgeGaps: Object.freeze({
       deckEdge: br.check.edgeGaps[br.edges.deckEdge]!,

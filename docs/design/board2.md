@@ -594,7 +594,8 @@ deferred (plan §3.4); the cost is benchmarked (§13.5, Q7).
 10. Offsets on rows 1, 2, 4, 5.
 11. Symmetric overwrite.
 12. Measure laws, deck join, tuck crease and apex angle; refine and repeat 4–11 if needed.
-13. B-rep: assemble, orient (`orientBrep`), `checkBrep`.
+13. B-rep: assemble with the designed senses of §7, `checkBrep` (which refuses an inside-out
+    or non-finite volume; `orientBrep` is not called: S7 as built, item 11).
 14. On demand: specs, STEP, tessellation.
 
 Each stage reads only the doc parts and stages above it, so a law edit reuses stages 2, 3 and
@@ -604,11 +605,11 @@ Each stage reads only the doc parts and stages above it, so a law edit reuses st
 
 ## 7. B-rep and STEP
 
-| Face     | Surface           | Boundary                                                                                             | `sameSense` (measured by `orientBrep`) |
-| -------- | ----------------- | ---------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| `deck`   | deck height field | deck-edge pcurve (the exact plan map), CCW                                                           | true (n = +z)                          |
-| `band`   | band (periodic u) | natural: row 0, seam, row 6, seam                                                                    | false for the u/v orientation of §3.5  |
-| `bottom` | bottom total      | tuck pcurve, clockwise in (u, v) (geom §6.19: a face with `sameSense` false runs its loop backwards) | false (outward is −z)                  |
+| Face     | Surface           | Boundary                                                                                             | `sameSense` (designed; `checkBrep` measures the outward volume) |
+| -------- | ----------------- | ---------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `deck`   | deck height field | deck-edge pcurve (the exact plan map), CCW                                                           | true (n = +z)                                                   |
+| `band`   | band (periodic u) | natural: row 0, seam, row 6, seam                                                                    | false for the u/v orientation of §3.5                           |
+| `bottom` | bottom total      | tuck pcurve, clockwise in (u, v) (geom §6.19: a face with `sameSense` false runs its loop backwards) | false (outward is −z)                                           |
 
 Edges: `deckEdge` and `tuck` are closed edges whose 3D curve is the band's boundary iso-curve
 (exact on the band; master `.CURVE_3D.`) with an exact pcurve on the height field (gap = the
@@ -753,7 +754,8 @@ fit's basis.
 3. **Free fit** with geom's solver: a `FairProblem` whose DOF map holds the structural rules of
    §3.5 plus the symmetry rules of §3.7 (rows 0 and 6 fixed, row 3 z free), data as soft
    targets, fairness on the displacement from the initial band (weight by §9.8), then
-   `parameterCorrection` passes (re-project, re-solve) up to `bandCorrectionPasses`.
+   `parameterCorrection` passes (re-project, re-solve) until a pass improves the judged
+   maximum by less than `bandCorrectionStall`, at most `maxBandCorrectionPasses` (review of S7).
 4. **Law extraction**: at every band column, measure the six lane values (§5.7); fit each
    lane's key values at the classic station σ's by linear least squares (auto handles are
    linear in the values), keys at the tips as §9.5.
@@ -989,28 +991,29 @@ geom's tolerances apply unless `build.tolerances` overrides them.
 
 ### 12.2 Converter (`DEFAULT_CONVERT_OPTIONS`)
 
-| Name                   | Default                     | Why                                                                                                                                                               |
-| ---------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `lineTol`              | 0.001 cm                    | Two orders below the checkpoint's 1 mm, one below CNC accuracy; reachable with adaptive knots on C¹ Bézier data.                                                  |
-| `surfaceTol`           | 0.005 cm                    | The classic engine's own STEP-fit target (`DEFAULT_TOLERANCE`, `board-surface.ts`).                                                                               |
-| `deckInsetFraction`    | 0.21                        | Median `deckBand` of the eight `RAIL_PRESETS`.                                                                                                                    |
-| `tuckInsetFraction`    | 0.08                        | Median `bottomBand` of the eight `RAIL_PRESETS`.                                                                                                                  |
-| `cornerAngleMin`       | 2°                          | Below this a non-continuous knot is smooth for practical purposes (the editor marks knots with zero-length handles as corners).                                   |
-| `cornerFilletRadius`   | 0.5 cm                      | D12's small tip radius; ≥ `minInset / insetCurvatureFraction` = 0.2 cm, so the minimum band fits.                                                                 |
-| `sampleSpacingX`       | 0.5 cm                      | Three samples per `minKnotSpacing` span.                                                                                                                          |
-| `ringSamples`          | 128 per half                | Twice the classic STEP fit's 64 columns, on the classic's own curvature ladder.                                                                                   |
-| `lineSampleSpacing`    | 0.05 cm                     | S6: exact outline and stringer-line samples; a C² cubic needs spans of a few mm next to a 0.5 cm fillet, and the adaptive fit splits only spans with data.        |
-| `creaseProbe`          | 0.01 cm                     | One-sided difference step: O(δ) truncation, and three orders below the closest pair of real stations (27.9 cm on the goldens), so no neighbour enters a quotient. |
-| `endGap`               | 0.001 cm                    | Past the classic's vertical end segments (x ≤ 1e-13), before any real shape change.                                                                               |
-| `surfaceKnotSpacing`   | x 10 cm, y 5 cm (start)     | Coarse start; refinement decides.                                                                                                                                 |
-| `minKnotSpacing`       | 1.5 cm                      | Below this a span would resolve a classic crease (the hull's tangent break) as curvature.                                                                         |
-| `creaseWindow`         | 3 cm (2 × `minKnotSpacing`) | A smoothed crease spreads over about one span each side.                                                                                                          |
-| `tipWindow`            | 2 cm                        | On the goldens the end thickness grows by 8–14% over the first centimetre (the classic's vertical deck segment and outline turn); 2 cm covers that with margin.   |
-| `trimDataMargin`       | 1 cm                        | Classic data just outside the inset loops pins the surfaces' slope at their edges.                                                                                |
-| `maxRefinePasses`      | 6                           | As `maxBandRefinePasses`.                                                                                                                                         |
-| `bandCorrectionPasses` | 2                           | P&T parameter correction converges quadratically from a projected start; geom's P16 measured two passes.                                                          |
-| `fairnessRatioBracket` | [1e-10, 1]                  | Fairness from negligible to equal to the data term; the search picks inside it (§9.8).                                                                            |
-| `fairnessSearchSteps`  | 12                          | Bisection in log scale: 12 halvings of 10 decades ≈ a factor 1.0057 resolution.                                                                                   |
+| Name                      | Default                     | Why                                                                                                                                                                                                                          |
+| ------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lineTol`                 | 0.001 cm                    | Two orders below the checkpoint's 1 mm, one below CNC accuracy; reachable with adaptive knots on C¹ Bézier data.                                                                                                             |
+| `surfaceTol`              | 0.005 cm                    | The classic engine's own STEP-fit target (`DEFAULT_TOLERANCE`, `board-surface.ts`).                                                                                                                                          |
+| `deckInsetFraction`       | 0.21                        | Median `deckBand` of the eight `RAIL_PRESETS`.                                                                                                                                                                               |
+| `tuckInsetFraction`       | 0.08                        | Median `bottomBand` of the eight `RAIL_PRESETS`.                                                                                                                                                                             |
+| `cornerAngleMin`          | 2°                          | Below this a non-continuous knot is smooth for practical purposes (the editor marks knots with zero-length handles as corners).                                                                                              |
+| `cornerFilletRadius`      | 0.5 cm                      | D12's small tip radius; ≥ `minInset / insetCurvatureFraction` = 0.2 cm, so the minimum band fits.                                                                                                                            |
+| `sampleSpacingX`          | 0.5 cm                      | Three samples per `minKnotSpacing` span.                                                                                                                                                                                     |
+| `ringSamples`             | 128 per half                | Twice the classic STEP fit's 64 columns, on the classic's own curvature ladder.                                                                                                                                              |
+| `lineSampleSpacing`       | 0.05 cm                     | S6: exact outline and stringer-line samples; a C² cubic needs spans of a few mm next to a 0.5 cm fillet, and the adaptive fit splits only spans with data.                                                                   |
+| `creaseProbe`             | 0.01 cm                     | One-sided difference step: O(δ) truncation, and three orders below the closest pair of real stations (27.9 cm on the goldens), so no neighbour enters a quotient.                                                            |
+| `endGap`                  | 0.001 cm                    | Past the classic's vertical end segments (x ≤ 1e-13), before any real shape change.                                                                                                                                          |
+| `surfaceKnotSpacing`      | x 10 cm, y 5 cm (start)     | Coarse start; refinement decides.                                                                                                                                                                                            |
+| `minKnotSpacing`          | 1.5 cm                      | Below this a span would resolve a classic crease (the hull's tangent break) as curvature.                                                                                                                                    |
+| `creaseWindow`            | 3 cm (2 × `minKnotSpacing`) | A smoothed crease spreads over about one span each side.                                                                                                                                                                     |
+| `tipWindow`               | 2 cm                        | On the goldens the end thickness grows by 8–14% over the first centimetre (the classic's vertical deck segment and outline turn); 2 cm covers that with margin.                                                              |
+| `trimDataMargin`          | 1 cm                        | Classic data just outside the inset loops pins the surfaces' slope at their edges.                                                                                                                                           |
+| `maxRefinePasses`         | 6                           | As `maxBandRefinePasses`.                                                                                                                                                                                                    |
+| `maxBandCorrectionPasses` | 4                           | Review of S7 (was a fixed `bandCorrectionPasses` 2, which stopped before the correction converged): the goldens still gain 5–8 % per pass at the fourth; 6 passes reach the plateau for +41 % conversion time, 4 cost +21 %. |
+| `bandCorrectionStall`     | 0.02                        | Stop once a pass (0.7–1.0 s) improves the judged maximum by less than 2 % of it: the synthetic files gain 0.1 % per pass and stop after one.                                                                                 |
+| `fairnessRatioBracket`    | [1e-10, 1]                  | Fairness from negligible to equal to the data term; the search picks inside it (§9.8).                                                                                                                                       |
+| `fairnessSearchSteps`     | 12                          | Bisection in log scale: 12 halvings of 10 decades ≈ a factor 1.0057 resolution.                                                                                                                                              |
 
 ### 12.3 Deviation report (`DEFAULT_DEVIATION_OPTIONS`)
 
@@ -1067,6 +1070,11 @@ spot check per step (break the code, watch a named test fail, restore), as in Ph
 4. **Volume convergence test**: §8.1 items 1–5 green.
 5. **Design invariants**: apex G1 ≤ 0.1° (measured; construction gives rounding), deck join ≤
    0.1°, tuck crease = law, outline and rocker bitwise invariant under law and offset changes.
+   Law fidelity and the tuck crease are measured on the **law-only band** (the laws on the
+   document's basis without the offset layer; review of S7): the offsets move rows by design
+   (§6.1), so on a converted board the band with offsets cannot show the laws. The offset
+   layer's own effect is reported separately (`BuildReport.offsetContribution`, the largest
+   control-point move per row).
 6. **Isolation**: `git diff f0c843f` shows no change under `packages/{kernel,io,units,store,render2d,render3d,export,ui}`
    or `apps/`, their tests and snapshots unchanged; geom changed only by the `testing/occt`
    subpath and any tier-2 item explicitly listed in the step that made it.
@@ -1094,7 +1102,7 @@ cloud container are reported beside them, and a miss is reported, not failed (ge
 | Phase 1 miss (geom §17)                                          | Phase 2 path               | Effect and plan                                                                                                                                                                                                                                                                    |
 | ---------------------------------------------------------------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | P22 `massProperties` 204 ms (target 50)                          | Q3 specs                   | The board has a 3-face B-rep like the puck; expect Q3 at ~P22. Tier-2 candidate: one multi-integrand pass per face (geom §17). Not blocking correctness.                                                                                                                           |
-| P16 `approximateSurface` with correction 377 ms                  | Q5 converter               | Height-field fits need no correction (§9.6), which removes most of it; the band fit's correction passes remain (≤ `bandCorrectionPasses`).                                                                                                                                         |
+| P16 `approximateSurface` with correction 377 ms                  | Q5 converter               | Height-field fits need no correction (§9.6), which removes most of it; the band fit's correction passes remain (≤ `maxBandCorrectionPasses`, stopped on a stall).                                                                                                                  |
 | P17 cold projection 0.25–0.3 ms per point                        | Q6 report, Q5 band data    | Use only the warm batch path (8.7 µs per point): 2·10⁵ report samples ≈ 2 s.                                                                                                                                                                                                       |
 | P12r / P13r rational assembly 1–2.8 s                            | rational rails             | The reason D5 is deferred (§5.6).                                                                                                                                                                                                                                                  |
 | P18 edge fit 23.6 ms (met)                                       | Q1, Q2 (two edge fits)     | Within budget.                                                                                                                                                                                                                                                                     |
@@ -1606,7 +1614,8 @@ symmetric board the partner rows of the sum then take their masters' z (bitwise 
    domain start `t0` (`toClamped`), with exact pcurves on the height fields (the rows' plan
    curves under the affine map) and `bandLine` on the band; `seam` is the band's iso-curve
    `u = t0`, its two ends the two vertices. `orientBrep` confirms the designed senses and never
-   flips (tested on every board; `flipped` is reported). `writeBoardStep` names the product
+   flips (tested on every board; S4 reported a `flipped` flag, which S7 removed with the call:
+   S7 as built, item 11). `writeBoardStep` names the product
    after `doc.meta.name` and checks under the document's tolerances, `opts.tol` overriding.
 7. **The OCCT protocol module** exports the §15.3 runners (`pathB`: B1–B6 and B8 facts;
    `pathA`: the same unhealed plus B7; `orientationControls`: §15.6) that measure and return
@@ -1956,7 +1965,8 @@ constant profile laws with the apex at the classic's own apex per station (devia
 band refined by the build gives the fit's basis, which the document then carries as its
 plan's knots (deviation 5); the apex law from the classic apex curve (deviation 2); rail
 samples, projected onto the band on that law; the band fit (deviation 1) with
-`bandCorrectionPasses` parameter corrections; fullness and hardness measured at the stations
+parameter corrections until they stall (review of S7: `bandCorrectionStall`, at most
+`maxBandCorrectionPasses`); fullness and hardness measured at the stations
 and tips (deviation 3); the offsets (§9.7 item 5); `buildBoard` of the document; the identity
 measured on that build. Warnings: every stage above its target (`not-converged`), the band
 against `surfaceTol` on its judged samples included, and the build's own.
@@ -2009,18 +2019,20 @@ against `surfaceTol` on its judged samples included, and the build's own.
    final document's build compute the same columns, σ and frames bitwise. The final document
    has `maxBandRefinePasses: 0`. The identity (§9.7 item 6) is then exact in exact arithmetic:
    measured 2.8e-14–5.7e-14 cm on every file, by the converter on its build and, independently,
-   by the exit test on a rebuild from the document's JSON. Consequence (§15 risk 9):
-   `buildBoard` measures law fidelity on the band **with** offsets, which by design differs
-   from the laws by what the offsets carry, so every converted board warns `not-converged`
-   ("law fidelity at 21–78,000 × its target"); the exit test allows `not-converged` warnings
-   only.
+   by the exit test on a rebuild from the document's JSON. At S7, `buildBoard`
+   measured law fidelity on the band **with** offsets, which by design differs from the laws
+   by what the offsets carry, so every converted board warned `not-converged` ("law fidelity
+   at 21–78,000 × its target") and the warning carried no signal. **Review of S7**: fidelity
+   and the tuck crease are measured on the law-only band (review item 3 below); a later law
+   edit keeps `maxBandRefinePasses: 0` (§15 risk 10).
 6. **Offsets** (item 5) as designed, plus one step of iterative refinement: the columns crowd
    at a plan fillet, where `interpolatePeriodic` is ill-conditioned, and its residual reached
    the identity's 1e-9 cm once the offsets are large; the residual, read back as the build reads
    the layer, is interpolated on the same parameters and added.
 7. **The band fit does not meet `surfaceTol`** (reported as `not-converged`, §15 risk 9). The
-   largest projected distance over the judged rail samples is 0.067–0.088 cm on the goldens
-   (shortboard: 42 % of 33,000 judged samples above 0.005 cm, none above 0.1, the worst at the
+   largest projected distance over the judged rail samples is 0.059–0.076 cm on the goldens
+   after the review of S7's correction stall (0.067–0.088 cm at S7's two passes; shortboard
+   at S7: 42 % of 33,000 judged samples above 0.005 cm, none above 0.1, the worst at the
    tail, x 4–12 cm), 0.13–0.17 cm on five synthetic files and 0.88 cm on the two rocker files
    (one real station, a box section whose deck-side corner the G1 deck join cannot follow:
    §9.9's `profile-corner`). The likely limit is the seven-row profile with five displacements per column
@@ -2048,8 +2060,9 @@ against `surfaceTol` on its judged samples included, and the build's own.
 12. **geom: the exact Green rule caches its inner strips** (`integrate.ts`, the tier-2 item of
     §13.5's P22-class row). `F(u, v) = ∫ f du` summed the inner rule over every u-span from
     `uRef` for every outer point; on one v-span the integral over a whole strip is a polynomial
-    in v of the promised degree, so it is stored at that degree's Chebyshev–Lobatto points,
-    prefix-summed and interpolated (barycentric), and only the last partial strip is
+    in v of the promised degree, so it is stored at that degree's Chebyshev points (first kind
+    since the review of S7, item 1: the Lobatto points of S7 put a node on each v-knot and
+    were wrong across a C0 one), prefix-summed and interpolated (barycentric), and only the last partial strip is
     integrated directly. `buildBoard` of the converted shortboard 5.6–5.9 s → 1.8–1.9 s,
     longboard 5.4–5.8 → 1.7–2.0 s, `stringer-fold-b` 21.5–22.9 → 3.1–3.5 s; it runs on every
     file open. geom-core §17 holds tier-2 work until the reference-desktop re-measurement; this
@@ -2077,8 +2090,12 @@ against `surfaceTol` on its judged samples included, and the build's own.
     OCCT's mesh 1–2 min per file unit), so the per-test timeout is 600 s.
 
 **Oracles and tolerances.** Exit criterion 1 (`expectS7Exit`, every one of the ten distinct
-files; the four copies are their goldens' input, S6): `convertClassic` ok with `not-converged`
-warnings only; `validateBoard` no error; JSON revive equal; a rebuild from that JSON
+files; the four copies are their goldens' input, S6): `convertClassic` ok with warnings of
+the two expected kinds only, matched by code and message (review of S7, item 2): the band
+against `surfaceTol` (exactly when `bandError` exceeds it) and the law-only band's law fidelity
+(at most one, within 20 cm of an end); `bandError`, the fidelity ratio and the law-only tuck
+crease within 1.2 × their per-file measured values (`S7_MEASURED`, characterization, not
+accuracy); the offsets never move the apex row; the document deep-frozen; `validateBoard` no error; JSON revive equal; a rebuild from that JSON
 reproduces the fitted band within 1e-9 cm (the design's bound; measured ≤ 5.7e-14) and so does
 the converter's own measure; `checkBrep` ok, 3 faces, 3 edges, 2 vertices, positive volume;
 `writeBoardStep` writes 3/3/2; the input board unchanged. OCCT (`convert.occt.test.ts`, the
@@ -2096,8 +2113,9 @@ keeps rows 2 and 4 on the apex vertical bitwise, mirrors partners, and holds eve
 its bounds; `lsq.ts` against geom (above); the exact apex against 2·10⁵ dense ring samples.
 Measured on the converted shortboard, longboard and `stringer-fold-b` (not a test; exit
 criterion 5 is S9's): deck join 0.039–0.048° (≤ 0.1°), apex join at rounding (≤ 1.9e-16 rad),
-and the tuck crease 0.40–0.61 rad away from the hardness law, because the offsets move row 5
-(§15 risk 9).
+and, at S7, the tuck crease 0.40–0.61 rad away from the hardness law on the band with offsets
+(the offsets move row 5); on the law-only band (review of S7) 1.5e-4–9.1e-3 rad on the ten
+files.
 
 **Measured** (Node 22, the cloud container, one conversion at a time; the copies as their
 goldens). Geometry: §9.1–§9.6; rail: §9.7 (the band fit in brackets); build: `buildBoard` of
@@ -2137,6 +2155,67 @@ the z part: the mutation passed it, so the test now uses a crowned deck. geom `i
 with one Chebyshev–Lobatto point too few in the strip cache: five `integrate.test.ts` tests
 failed (relative errors 3.9e-4 to 4.8e-3 against 1e-12, one NaN), restored.
 
+**Review of S7** (an independent review; each finding verified, then fixed):
+
+1. **geom strip cache across a C0 v-knot** (blocker, confirmed: 2.1 % on a bicubic with a
+   triple v-knot under a triangle trim, 0.9 % natural loop against the tensor rule, 1.3 % under
+   a rational circle). The Chebyshev–Lobatto end node on the knot was evaluated with the
+   right-hand span. Fixed with first-kind Chebyshev points (all interior; robust whatever the
+   span convention, rather than a left-hand evaluation of the end node): the reviewer's case
+   matches the S6 rule and adaptive integration to 4e-16. New cases (geom-core §11.3): C0 in v
+   and in u, a C1 v-knot under an `S_vv` integrand. Mutations: one node too few now fails two
+   tests (the volume integrand's top v-coefficient vanishes, `det(S, S_u, S_v)` of the leading
+   terms, so its true v-degree is `3q − 2`), two too few fail seven. Also measured: the
+   natural loop of the reviewer's C0 surface differs from the tensor rule by 1.75e-12 in both
+   the S6 and the fixed rule (the crossing bisection places the C0 break to `paramRel`, within
+   the reported error estimate); not changed.
+2. **Exit checks with teeth** (`expectS7Exit`): the allow-list and characterization above.
+   Mutation: `maxBandCorrectionPasses` 0 fails the shortboard (0.126 against 0.071) and the
+   funboard (0.134 against 0.091).
+3. **Law fidelity and the crease on the law-only band** (decision of the lead): `buildBand`
+   builds, beside each pass, the band of the laws alone on the same basis (one more band pass
+   on a document with offsets: a converted golden's build 1.3–1.6 s against 1.2–1.4 s, noisy)
+   and measures fidelity and the crease there; the apex and deck joins and the edge z-fits stay
+   the built band's. `BuildReport.offsetContribution` reports, per row, the largest
+   control-point move the offsets make. If the law-only band cannot be built its issues become
+   warnings and the built band is measured. Measured: fidelity 1.1–5.1 × its target on eight
+   files (none on `clean-6x22x2-75` and `fallback-outline-5x10`), 1.4–4.1 cm from an end on six,
+   17.8 cm on the two rocker files; the crease 1.5e-4–9.1e-3 rad. The scaled bound of
+   `band.test.ts` (`lawTolerance.edgeHardness · max |φ_chord|` × the fidelity miss) fails on
+   three files, so the crease is characterized. Test: `band.test.ts`, the same fidelity and
+   crease bits with or without an offset layer, and its contribution exactly on its row
+   (fails with the old measure). `maxBandRefinePasses: 0`: §15 risk 10.
+4. **Correction stall** (`maxBandCorrectionPasses` 4, `bandCorrectionStall` 0.02, §12.2).
+   Per-pass judged maximum (cm): shortboard 0.126, 0.086, 0.067, 0.063, 0.059 (8 passes:
+   0.056), funboard 0.135 → 0.076, longboard 0.082 → 0.069; the synthetic files improve by
+   0.1 % per pass and stop after one. Conversion times, same container, one at a time, two
+   fixed passes against the stall: shortboard 10.5 → 11.4 s, funboard 8.3 → 9.9 s, longboard
+   8.8 → 10.7 s (goldens +16 % together; 5 passes would be about +31 %, 6 +41 %); the synthetic
+   files 4–12 % faster. The pass with the smallest judged maximum is kept.
+5. **`checkBrep` refuses a non-finite volume** (geom; `check.volume.test.ts` with the measured
+   volume mocked: NaN and ±∞ were accepted before).
+6. **Preset apex check labelled**: the in-range comparison is a consistency check (the law is
+   fitted to the same widest points), the preset's own `apex` the independent oracle; the
+   monotonicity tests assert non-empty, identical station sets.
+7. **Stale text** (§6.3 step 13, §7, S4 item 6) corrected; `convertClassic`'s document is
+   deep-frozen like a revived one (checked by `expectS7Exit`).
+
+| File (after the review) | Geometry (s) | Rail (s)      | Build (s) | `convertDetailed` (s) | Band (cm)     | Ratio  | Corrections | Fidelity (×) | Crease (rad) |
+| ----------------------- | ------------ | ------------- | --------- | --------------------- | ------------- | ------ | ----------- | ------------ | ------------ |
+| shortboard              | 2.6          | 7.1 (fit 4.2) | 1.6       | 11.4                  | 0.059 / 0.109 | 0.37   | 4           | 3.46         | 2.2e-3       |
+| funboard                | 2.8          | 5.7 (fit 4.0) | 1.4       | 9.9                   | 0.076 / 0.076 | 1      | 4           | 2.37         | 2.1e-3       |
+| longboard               | 2.3          | 7.1 (fit 5.1) | 1.3       | 10.7                  | 0.069 / 0.115 | 0.95   | 4           | 5.11         | 2.4e-3       |
+| clean-6x22x2-75         | 3.2          | 4.1 (fit 0.8) | 2.7       | 10.0                  | 0.151 / 0.168 | 1      | 1           | met          | 1.5e-4       |
+| degenerate-section      | 6.9          | 4.2 (fit 1.2) | 2.3       | 13.4                  | 0.169 / 0.169 | 0.032  | 1           | 2.18         | 9.1e-3       |
+| fallback-outline-5x10   | 3.1          | 3.8 (fit 0.7) | 2.5       | 9.4                   | 0.137 / 0.151 | 1      | 1           | met          | 2.7e-4       |
+| rocker-absolute-deck    | 6.2          | 6.6 (fit 1.8) | 3.9       | 16.8                  | 0.885 / 0.886 | 1.3e-6 | 1           | 1.73         | 1.5e-3       |
+| rocker-thickness-deck   | 6.0          | 6.6 (fit 1.8) | 3.8       | 16.4                  | 0.884 / 0.887 | 1.4e-6 | 1           | 1.75         | 1.5e-3       |
+| stringer-fold-a         | 5.9          | 3.4 (fit 1.1) | 2.2       | 11.6                  | 0.134 / 0.134 | 0.10   | 1           | 1.22         | 6.0e-4       |
+| stringer-fold-b         | 6.9          | 3.9 (fit 1.3) | 2.6       | 13.5                  | 0.129 / 0.146 | 0.23   | 1           | 1.14         | 6.7e-4       |
+
+(Fidelity: the law-only band's worst lane ratio, the build's warning; crease: its tuck-crease
+error. The container ran these faster than the S7 table's run; compare within a table.)
+
 ---
 
 ## 15. Risks and open questions
@@ -2173,10 +2252,24 @@ failed (relative errors 3.9e-4 to 4.8e-3 against 1e-12, one NaN), restored.
    synthetic files, 0.88 cm on the two rocker files' box section), against S8's
    `unexplainedMax` 0.01 cm: S8 must attribute it to causes (`profile-corner` and the like) or
    the band needs more freedom per column. And because the offsets carry what the laws do not,
-   the build's law fidelity and the "tuck crease = law" invariant (exit criterion 5) do not hold
-   on a converted board (fidelity 21–78,000 × its target, reported as `not-converged`; crease
-   0.4–0.6 rad off): open whether fidelity and the crease should be measured on the law-only
-   band, or the hardness law refitted to the crease the offsets leave.
+   fidelity and the "tuck crease = law" invariant (exit criterion 5) did not hold on the band
+   with offsets (fidelity 21–78,000 × its target; crease 0.4–0.6 rad off). **Resolved in the
+   review of S7**: both are measured on the law-only band, where the crease is the law to
+   1.5e-4–9.1e-3 rad and fidelity misses by 1.1–5.1 × on eight files, within 20 cm of an end
+   (1.4–4.1 cm on six; the fit's basis was refined for the initial laws, not the final ones);
+   the offsets' contribution is reported per row. Still open: whether the converter should
+   refine the basis for its final laws (that
+   would remove the remaining fidelity warning, at the cost of a second band build and fit).
+10. **`maxBandRefinePasses: 0` in converted documents** (S7 as built, item 5; review of S7).
+    The converter stores it so the build reproduces the fitted band bitwise. A later law edit
+    keeps it: the edited band is built on the converter's basis without refinement, and if
+    that basis is too coarse for the new laws the law-only fidelity warns `not-converged`
+    (no longer drowned by the offsets) rather than refining. Restoring the default is safe
+    (the offset fields are functions of σ and re-apply on a refined basis). Decision: no
+    converter-specific setting now; board2 has no edit operations (they are Phase 3's store
+    edits), so there is nothing to reset it. Phase 3's law-edit operation must set
+    `maxBandRefinePasses` back to `DEFAULT_BUILD_PARAMS.maxBandRefinePasses` on a converted
+    document (`meta.source` `'classic'`) unless the user set it.
 
 ---
 

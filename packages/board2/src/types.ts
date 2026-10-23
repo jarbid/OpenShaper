@@ -386,6 +386,9 @@ export interface BandStation {
 }
 
 /** What a build measured (§3.5, §5.4, §5.5). Angles in radians, lengths in cm. */
+/** Per band row, the largest control-point move the offset layer makes (cm). */
+export type OffsetContribution = { readonly [R in BandRow]: number };
+
 export interface BuildReport {
   readonly issues: readonly Board2Issue[];
   /** Largest normal angle across the apex row (construction: rounding). */
@@ -393,8 +396,14 @@ export interface BuildReport {
   readonly deckJoinAngle: number;
   /** Largest |measured − designed| tuck crease angle. */
   readonly tuckCreaseError: number;
-  /** Largest |measured − law| per lane between stations. */
+  /**
+   * Largest |measured − law| per lane between stations, measured on the
+   * law-only band (the laws on the same basis without the offset layer: the
+   * offsets move rows by design, §6.1; review of S7). `tuckCreaseError` too.
+   */
   readonly lawFidelity: RailLawValues;
+  /** What the offset layer moved, per band row (cm; all 0 without offsets). */
+  readonly offsetContribution: OffsetContribution;
   /** Band-to-surface gaps of the two trimmed edges (geom `checkBrep`). */
   readonly edgeGaps: { readonly deckEdge: number; readonly tuck: number };
   readonly featureFitError: number;

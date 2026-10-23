@@ -8,10 +8,23 @@
  * and the apex height read back. Test-only (may import `@openshaper/io` through
  * `samples.ts`).
  *
- * The classic oracle is independent of the converter's fits: the classic
- * loft's own heights, read by bisection on the ring fraction of the loft
- * section at the point's x (`loftSection`, `loftPoint`), and its widest point
- * by dense sampling of the ring.
+ * Two checks of different strength (review of S7):
+ *
+ * - **The preset's own `apex` parameter** at the station nearest the widest
+ *   point is the independent oracle: a number the classic editor was given,
+ *   never seen by the converter.
+ * - **The apex law against the classic loft at every in-range station** is a
+ *   consistency check, partly circular: the converter fits the apex law to the
+ *   classic's widest points (§9.7 as built, deviation 2), and this reading
+ *   takes the same widest points (by dense sampling instead of golden-section
+ *   search) between the same band marks. What it verifies independently is the
+ *   classic heights at the marks (the oracle reads the loft, the converter its
+ *   fitted deck and bottom) and the law's interpolation between its keys; it
+ *   cannot catch a wrong choice of the widest point.
+ *
+ * The classic readings are the loft's own heights, by bisection on the ring
+ * fraction of the loft section at the point's x (`loftSection`, `loftPoint`),
+ * and its widest point by dense sampling of the ring.
  */
 import { createScratch, curveEvalInto } from '@openshaper/geom';
 import { applyRailProfile, loftPoint, loftSection, RAIL_PRESETS } from '@openshaper/kernel';
@@ -182,12 +195,19 @@ export function presetSuite(golden: string, cache: Map<string, PresetRun>): void
           const [lo, hi] = r.run.conversion.doc.build.apexHeightRange;
           const inRange = readings.filter((x) => x.classic >= lo && x.classic <= hi);
           expect(inRange.length).toBeGreaterThanOrEqual(2);
+          // Consistency (partly circular: the law was fitted to these widest points).
           for (const x of inRange) {
-            expect(Math.abs(x.law - x.classic), `σ ${x.sigma}`).toBeLessThanOrEqual(APEX_RECOVERY);
+            expect(Math.abs(x.law - x.classic), `consistency, σ ${x.sigma}`).toBeLessThanOrEqual(
+              APEX_RECOVERY,
+            );
           }
+          // The independent oracle: the preset's own apex parameter.
           const wide = readings.reduce((a, b) => (b.tangentAngle < a.tangentAngle ? b : a));
           expect(wide.tangentAngle).toBeLessThan(Math.PI / 180);
-          expect(Math.abs(wide.law - p.params.apex)).toBeLessThanOrEqual(APEX_RECOVERY);
+          expect(
+            Math.abs(wide.law - p.params.apex),
+            'the preset’s apex parameter at the widest station',
+          ).toBeLessThanOrEqual(APEX_RECOVERY);
         },
         PRESET_TIMEOUT,
       );

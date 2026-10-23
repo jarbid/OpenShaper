@@ -5,7 +5,7 @@
  * the conversions on several workers). One `convertDetailed` per file serves
  * both: its geometry stage is `convertGeometry`'s result. Test-only.
  */
-import { checkBrep, resolveTolerances } from '@openshaper/geom';
+import { checkBrep, curvePoint, resolveTolerances } from '@openshaper/geom';
 import type { BezierBoard } from '@openshaper/kernel';
 import { expect } from 'vitest';
 import { writeBoardStep } from '../../brep';
@@ -37,6 +37,53 @@ export interface FullRun extends ExitRun {
  */
 export const IDENTITY_TOL = 1e-9;
 
+/**
+ * The S7 exit's characterization (review of S7): per sample file, the values
+ * measured when these bounds were set (docs/design/board2.md, S7 as built,
+ * "Measured"), checked within {@link CHARACTERIZATION_MARGIN} of them. They pin
+ * what the converter achieves today, so a change that makes the band fit or the
+ * law extraction worse fails here; they are **not** accuracy targets
+ * (`surfaceTol` and `lawTolerance` are, and both are missed and reported).
+ *
+ * - `band`: the band's largest projected distance over its judged samples (cm,
+ *   `ConversionReport.bandError`);
+ * - `lawFidelity`: the build's worst law-fidelity ratio, on the law-only band
+ *   (the value of its `not-converged` warning; 0 where there is none);
+ * - `crease`: the build's tuck-crease error on the law-only band (radians;
+ *   exit criterion 5, "tuck crease = law"). On the band with offsets it was
+ *   0.4–0.7 rad. `band.test.ts` bounds it by `lawTolerance.edgeHardness ·
+ *   max |φ_chord|` where every lane meets its tolerance; here fidelity is
+ *   missed, and scaling that bound by the miss does not hold on three files
+ *   (the chord angle's own error, set by the other lanes, dominates where
+ *   φ_chord is small), so the crease is characterized too.
+ */
+export const S7_MEASURED: Readonly<
+  Record<string, { band: number; lawFidelity: number; crease: number }>
+> = Object.freeze({
+  'shortboard.brd': { band: 0.0591, lawFidelity: 3.46, crease: 0.00218 },
+  'funboard.brd': { band: 0.076, lawFidelity: 2.37, crease: 0.00213 },
+  'longboard.brd': { band: 0.0688, lawFidelity: 5.11, crease: 0.00242 },
+  'synthetic-clean-6x22x2-75.s3dx': { band: 0.1511, lawFidelity: 0, crease: 0.000154 },
+  'synthetic-degenerate-section.s3dx': { band: 0.1686, lawFidelity: 2.18, crease: 0.00905 },
+  'synthetic-fallback-outline-5x10.s3dx': { band: 0.1367, lawFidelity: 0, crease: 0.000273 },
+  'synthetic-rocker-absolute-deck.s3dx': { band: 0.8846, lawFidelity: 1.73, crease: 0.00146 },
+  'synthetic-rocker-thickness-deck.s3dx': { band: 0.8838, lawFidelity: 1.75, crease: 0.00145 },
+  'synthetic-stringer-fold-a.s3dx': { band: 0.1339, lawFidelity: 1.22, crease: 0.000597 },
+  'synthetic-stringer-fold-b.s3dx': { band: 0.1293, lawFidelity: 1.14, crease: 0.000666 },
+});
+
+/** Allowance over {@link S7_MEASURED}: room for rounding across platforms, not for a regression. */
+export const CHARACTERIZATION_MARGIN = 1.2;
+
+/**
+ * Where the law-only band may miss law fidelity: within this distance in x of
+ * either end (cm; characterization like {@link S7_MEASURED}). The fit's basis
+ * was refined for the initial laws, and the final apex law and measured lanes
+ * change fastest towards the tips: measured 1.4–4.1 cm from an end on six
+ * files, 17.8 cm on the two rocker files (one real station; S7 as built).
+ */
+export const LAW_FIDELITY_TIP_ZONE = 20;
+
 /** Rounding allowance on a re-evaluated residual (z ≤ 20 cm, a few dozen flops). */
 const ROUNDING = 1e-12;
 /** §9.3: inside the fillet zones the distance to the classic outline is at most 1.1 × the prediction. */
@@ -59,10 +106,43 @@ export function runExit(sample: ClassicSample): FullRun {
   };
 }
 
+/** Every object and array inside `x` is frozen. */
+function deepFrozen(x: unknown): boolean {
+  if (typeof x !== 'object' || x === null) return true;
+  return Object.isFrozen(x) && Object.values(x).every(deepFrozen);
+}
+
+/** A warning the S7 exit expects, by code and message; `check` adds its bound and location. */
+interface ExpectedWarning {
+  readonly what: string;
+  readonly code: Board2Issue['code'];
+  readonly message: RegExp;
+}
+
+const NUM = String.raw`[-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?`;
+const BAND_WARNING: ExpectedWarning = {
+  what: 'the band fit above surfaceTol (rail.ts, bandIssues)',
+  code: 'not-converged',
+  message: new RegExp(
+    `^rail band \\(judged samples\\): distance ${NUM} cm above the target ${NUM} cm$`,
+  ),
+};
+const FIDELITY_WARNING: ExpectedWarning = {
+  what: 'law fidelity of the law-only band near a tip (band.ts, buildBand)',
+  code: 'not-converged',
+  message: new RegExp(
+    `^band refinement stopped after 0 pass\\(es\\) with law fidelity at ${NUM} × its target near u = ${NUM}$`,
+  ),
+};
+
+const matches = (i: Board2Issue, w: ExpectedWarning): boolean =>
+  i.severity === 'warning' && i.code === w.code && w.message.test(i.message);
+
 /**
  * Exit criterion 1 (§13.3) and the identity (S7): `convertClassic` succeeds
- * with warnings only, and those only `not-converged` (the band against
- * `surfaceTol`, the build's law fidelity: S7 as built); the document passes
+ * with warnings only, each one of the expected kinds (the band against
+ * `surfaceTol`, within its characterization bound; the law-only band's law
+ * fidelity, within its bound and near a tip: review of S7); the document passes
  * `validateBoard` with no error, revives from its JSON unchanged, and builds
  * again from that JSON into the fitted band within {@link IDENTITY_TOL} (an
  * independent rebuild, not the converter's own measure, which is checked as
@@ -75,10 +155,47 @@ export function expectS7Exit(name: string, run: FullRun, fresh: BezierBoard): vo
   const { conversion, rail } = run.detailed;
   const { doc, built, report } = conversion;
   expect(run.board, msg('input unchanged')).toEqual(fresh);
+  expect(deepFrozen(doc), msg('the document is deep-frozen')).toBe(true);
+  const measured = S7_MEASURED[name.split('/').pop()!];
+  expect(measured, msg('characterization entry')).toBeDefined();
+  if (measured === undefined) return;
   expect(
-    run.issues.filter((i) => i.severity === 'error' || i.code !== 'not-converged'),
-    msg('warnings other than not-converged'),
+    run.issues.filter((i) => !matches(i, BAND_WARNING) && !matches(i, FIDELITY_WARNING)),
+    msg('unexpected warnings'),
   ).toEqual([]);
+  // The band: characterization (not accuracy), and warned exactly when above surfaceTol.
+  expect(report.bandError, msg('band error (characterization)')).toBeLessThanOrEqual(
+    CHARACTERIZATION_MARGIN * measured.band,
+  );
+  expect(
+    run.issues.filter((i) => matches(i, BAND_WARNING)).length,
+    msg('band warning iff above surfaceTol'),
+  ).toBe(report.bandError > O.surfaceTol ? 1 : 0);
+  // Law fidelity on the law-only band: bounded, and missed only near a tip.
+  const fidelity = run.issues.filter((i) => matches(i, FIDELITY_WARNING));
+  expect(fidelity.length, msg('one fidelity warning at most')).toBeLessThanOrEqual(1);
+  let fidelityRatio = 0;
+  for (const w of fidelity) {
+    fidelityRatio = w.value!;
+    expect(fidelityRatio, msg('law fidelity ratio (characterization)')).toBeLessThanOrEqual(
+      CHARACTERIZATION_MARGIN * measured.lawFidelity,
+    );
+    const x = curvePoint(built.plan, w.at!.u!).x;
+    const length = run.geometry.length;
+    expect(Math.min(x, length - x), msg(`fidelity miss near a tip (x ${x})`)).toBeLessThanOrEqual(
+      LAW_FIDELITY_TIP_ZONE,
+    );
+  }
+  // Exit criterion 5, tuck crease = law, on the law-only band (review of S7).
+  expect(
+    built.report.tuckCreaseError,
+    msg('tuck crease = law (law-only band)'),
+  ).toBeLessThanOrEqual(CHARACTERIZATION_MARGIN * measured.crease);
+  // The offsets' contribution: reported per row, never on the apex row (§6.1).
+  const contribution = built.report.offsetContribution;
+  expect(contribution.apex, msg('offsets never move the apex row')).toBe(0);
+  for (const v of Object.values(contribution))
+    expect(Number.isFinite(v), msg('contribution')).toBe(true);
   expect(
     validateBoard(doc).filter((i) => i.severity === 'error'),
     msg('validateBoard'),
@@ -112,6 +229,7 @@ export function expectS7Exit(name: string, run: FullRun, fresh: BezierBoard): vo
   for (const v of [report.bandError, report.band.allMax, report.band.ratio]) {
     expect(Number.isFinite(v), msg('report finite')).toBe(true);
   }
+  expect(report.band.allMax, msg('all samples ≥ judged')).toBeGreaterThanOrEqual(report.bandError);
 }
 
 /**

@@ -57,6 +57,7 @@ describe('preset recovery: monotone hardness and fullness (shortboard)', () => {
       const soft = preset60();
       const hard = run({ ...base60, edge: 1 });
       expect(soft.size).toBeGreaterThanOrEqual(2);
+      expect([...hard.keys()]).toEqual([...soft.keys()]);
       for (const [x, s] of soft) {
         expect(hard.get(x)!.edgeHardness, `x ${x}`).toBeGreaterThan(s.edgeHardness);
       }
@@ -72,6 +73,9 @@ describe('preset recovery: monotone hardness and fullness (shortboard)', () => {
         preset60(),
         run({ ...base60, fullness: 0.9 }),
       ];
+      // Not vacuous: the same stations in all three, at least two of them.
+      expect(runs[1]!.size).toBeGreaterThanOrEqual(2);
+      for (const r of runs) expect([...r.keys()]).toEqual([...runs[1]!.keys()]);
       for (const [x] of runs[1]!) {
         for (const lane of ['upperFullness', 'lowerFullness'] as const) {
           const v = runs.map((r) => r.get(x)![lane]);

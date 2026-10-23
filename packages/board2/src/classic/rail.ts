@@ -385,7 +385,14 @@ export function fitRail(
     minSigma,
     inTip,
   );
-  const fit2 = fitBand(frame2, samples, uv0, o.bandCorrectionPasses, o, tol);
+  const fit2 = fitBand(
+    frame2,
+    samples,
+    uv0,
+    { maxPasses: o.maxBandCorrectionPasses, stallRel: o.bandCorrectionStall },
+    o,
+    tol,
+  );
   lap('band fit');
 
   // 4. The other lanes at the stations and tips.

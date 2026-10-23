@@ -37,6 +37,14 @@ export const LINE_REFINE_PASSES = 16;
 /**
  * The §12.2 defaults, frozen.
  *
+ * `maxBandCorrectionPasses`, `bandCorrectionStall` (review of S7, replacing a
+ * fixed two passes): the band's parameter correction stops once a pass improves
+ * the judged maximum distance by less than 2 % of it, or after 4 passes. A pass
+ * costs 0.7–1.0 s (assembly, fairness search, re-projection) and the goldens
+ * still gain 5–8 % per pass at the fourth (0.067 → 0.059 cm on the shortboard;
+ * the plateau, 0.056 cm, takes 6 passes and +41 % conversion time, 4 passes
+ * +21 %); the synthetic files gain 0.1 % per pass and stop after one.
+ *
  * `lineSampleSpacing` (S6): the outline and the rocker and deck lines are
  * sampled exactly on the classic curves at this arc-length spacing. A tenth of
  * `sampleSpacingX`: near a fillet (radius `cornerFilletRadius`, so a curvature
@@ -62,7 +70,8 @@ export const DEFAULT_CONVERT_OPTIONS: ConvertOptions = deepFreeze({
   tipWindow: 2,
   trimDataMargin: 1,
   maxRefinePasses: 6,
-  bandCorrectionPasses: 2,
+  maxBandCorrectionPasses: 4,
+  bandCorrectionStall: 0.02,
   fairnessRatioBracket: [1e-10, 1],
   fairnessSearchSteps: 12,
 });

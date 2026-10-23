@@ -27,7 +27,8 @@ describe('DEFAULT_CONVERT_OPTIONS', () => {
       tipWindow: 2,
       trimDataMargin: 1,
       maxRefinePasses: 6,
-      bandCorrectionPasses: 2,
+      maxBandCorrectionPasses: 4,
+      bandCorrectionStall: 0.02,
       fairnessRatioBracket: [1e-10, 1],
       fairnessSearchSteps: 12,
     });
