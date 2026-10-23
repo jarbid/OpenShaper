@@ -612,7 +612,10 @@ function BoardMesh({
 
   // The external surface's own geometry, uncentred: it is placed by the classic hull's
   // centre (below), so fins and guides, which are, stay registered with it.
-  const surfaceGeo = useMemo(() => (surface ? surfaceGeometry(surface.curvature) : null), [surface]);
+  const surfaceGeo = useMemo(
+    () => (surface ? surfaceGeometry(surface.curvature) : null),
+    [surface],
+  );
   useEffect(() => () => surfaceGeo?.dispose(), [surfaceGeo]);
 
   // What the screen-space shader draws. A computed mode never reaches it, except as

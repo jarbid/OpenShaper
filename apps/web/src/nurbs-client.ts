@@ -110,7 +110,17 @@ interface Pending {
   reject(err: Error): void;
 }
 
-export function createNurbsClient(spawn: TransportFactory = spawnNurbsWorker): NurbsClient {
+/** The compute module, loaded on demand for the synchronous fallback. */
+export type CoreLoader = () => Promise<
+  Pick<typeof import('./workers/nurbs-core'), 'convertAndMesh' | 'remesh'>
+>;
+
+const loadCore: CoreLoader = () => import('./workers/nurbs-core');
+
+export function createNurbsClient(
+  spawn: TransportFactory = spawnNurbsWorker,
+  core: CoreLoader = loadCore,
+): NurbsClient {
   let nextId = 0;
   let pending: Pending | null = null;
   let transport: NurbsTransport | null = null;
@@ -175,14 +185,14 @@ export function createNurbsClient(spawn: TransportFactory = spawnNurbsWorker): N
   };
 
   const runSynchronously = async (req: NurbsRequest, p: Pending): Promise<void> => {
-    const core = await import('./workers/nurbs-core');
+    const compute = await core();
     // A newer request took over while the module loaded: nobody wants this one.
     if (pending !== p) return;
     const progress = (s: NurbsStage) => p.onStage?.(s);
     const out =
       req.kind === 'convert'
-        ? core.convertAndMesh(req.modelId, req.board, req.faceSize, progress)
-        : core.remesh(req.modelId, req.docJson, req.board, req.faceSize, progress);
+        ? compute.convertAndMesh(req.modelId, req.board, req.faceSize, progress)
+        : compute.remesh(req.modelId, req.docJson, req.board, req.faceSize, progress);
     if (pending !== p) return; // superseded during the (blocking) compute: drop
     pending = null;
     p.resolve(out.ok ? { ...out, modelId: req.modelId } : out);

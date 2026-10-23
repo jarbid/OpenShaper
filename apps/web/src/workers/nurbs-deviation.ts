@@ -42,6 +42,14 @@ import { getLength, ghostDeviation, type BezierBoard } from '@openshaper/kernel'
 /** Spacing (cm) of the classic sections the deviation is measured against. */
 export const STATION_SPACING = 0.25;
 
+/**
+ * How far (cm) past either end of the classic board a vertex may lie and still be
+ * measured against its end section. Beyond that the NURBS board is longer than the
+ * classic one and there is nothing to measure against: no data, not a distance to
+ * the end.
+ */
+export const END_TOLERANCE = 0.01;
+
 export interface ClassicDeviation {
   /** Per vertex, cm; NaN where there is no data. */
   readonly deviation: Float32Array;
@@ -69,8 +77,10 @@ export const classicDeviation = (
   const frac = new Float64Array(count);
   const last = Math.max(1, Math.ceil(length / STATION_SPACING));
   const step = length / last;
+  const beyond = new Uint8Array(count);
   for (let i = 0; i < count; i++) {
     const x = positions[3 * i]!;
+    if (!(x >= -END_TOLERANCE && x <= length + END_TOLERANCE)) beyond[i] = 1;
     const s = Math.min(last - 1e-9, Math.max(0, x / step));
     const k = Math.floor(s);
     frac[i] = s - k;
@@ -89,6 +99,10 @@ export const classicDeviation = (
   let hi = -Infinity;
   let noData = 0;
   for (let i = 0; i < count; i++) {
+    if (beyond[i]) {
+      noData++;
+      continue;
+    }
     const a = d[2 * i]!;
     const b = d[2 * i + 1]!;
     const nx = normals[3 * i]!;
