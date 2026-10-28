@@ -7,7 +7,8 @@
  * source file under `src`.
  *
  * Exempt, by name: `params.ts` (where named parameters are written, like geom's
- * `tolerance.ts`) and the `testing/` directory (test-only fixtures, like tests).
+ * `tolerance.ts`) and the `testing/` and `test-support/` directories (test-only
+ * fixtures and checks, like tests).
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
@@ -16,7 +17,7 @@ import { describe, expect, it } from 'vitest';
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const EXEMPT_FILES: ReadonlySet<string> = new Set(['params.ts']);
-const EXEMPT_DIRS: ReadonlySet<string> = new Set(['testing']);
+const EXEMPT_DIRS: ReadonlySet<string> = new Set(['testing', 'test-support']);
 const PATTERNS: readonly RegExp[] = [/\b\d+(\.\d+)?e-\d+\b/gi, /\b0\.0{4,}\d/g];
 const LARGE_E = /\b\d+(\.\d+)?e\+?\d+\b/gi;
 const EPSILON = /Number\.EPSILON/g;
@@ -67,13 +68,13 @@ describe('no magic tolerances', () => {
     ]) {
       expect(files).toContain(name);
     }
-    expect(files.some((f) => f.split(sep)[0] === 'testing')).toBe(false);
+    expect(files.some((f) => ['testing', 'test-support'].includes(f.split(sep)[0]!))).toBe(false);
     for (const name of EXEMPT_FILES) expect(files).toContain(name);
-    expect(
-      readdirSync(SRC, { withFileTypes: true }).some(
-        (e) => e.isDirectory() && e.name === 'testing',
-      ),
-    ).toBe(true);
+    for (const dir of EXEMPT_DIRS) {
+      expect(
+        readdirSync(SRC, { withFileTypes: true }).some((e) => e.isDirectory() && e.name === dir),
+      ).toBe(true);
+    }
   });
 
   it('detects every literal shape (so the scan can fail)', () => {

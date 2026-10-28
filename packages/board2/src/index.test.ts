@@ -17,15 +17,19 @@ describe('@openshaper/board2 public API', () => {
         'boardDocToJson',
         'buildBoard',
         'createEvaluator',
+        'deriveLadders',
         'hasErrors',
+        'meshBoard',
+        'meshProperties',
+        'meshVertex',
         'reviveBoardDoc',
         'validateBoard',
       ].sort(),
     );
   });
 
-  it('the classic entry has no values yet (the converter is M1 step 2)', () => {
-    expect(Object.keys(classic)).toEqual([]);
+  it('the classic entry exports the converter', () => {
+    expect(Object.keys(classic)).toEqual(['convertClassic']);
   });
 
   it('the testing entry exports the boards and the oracles', () => {

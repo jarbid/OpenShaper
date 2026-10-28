@@ -40,6 +40,9 @@ export const BOARD2_ISSUE_CODES = [
   'build-invalid',
   'section-fit',
   'blend-overshoot',
+  'convert-slice',
+  'convert-plan',
+  'convert-adjusted',
   'geom',
 ] as const satisfies readonly Board2IssueCode[];
 

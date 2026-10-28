@@ -209,6 +209,10 @@ export type Board2IssueCode =
   // build-time findings (warnings)
   | 'section-fit'
   | 'blend-overshoot'
+  // classic converter
+  | 'convert-slice'
+  | 'convert-plan'
+  | 'convert-adjusted'
   // a geom failure
   | 'geom';
 

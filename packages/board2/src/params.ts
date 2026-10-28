@@ -68,3 +68,56 @@ export const PLAN_EXACT_TOL = 1e-9;
 
 /** Smallest ratio of wall distance to stringer distance at the start of a notch zone's chord map. */
 export const NOTCH_MIN_LAMBDA = 0.05;
+
+// ---------------------------------------------------------------------------
+// Grid mesh (m1-model.md §3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Share of the mesh tolerance that one direction's midpoint deviation (distance of
+ * the surface at the midpoint of two neighbours from the chord between them) may
+ * use. The deviations of the two directions add at a quad's centre, so the triangle
+ * centres and edge midpoints stay within the tolerance itself.
+ */
+export const MESH_DEV_FRACTION = 0.4;
+/** Seed columns per half (bottom to apex, apex to deck) before refinement. */
+export const MESH_SEED_COLS_PER_HALF = 10;
+/** Seed rows spaced uniformly in ξ, and spaced by outline arc length, before refinement. */
+export const MESH_SEED_ROWS_UNIFORM = 8;
+export const MESH_SEED_ROWS_ARC = 32;
+/** Columns probed when a row interval is tested (a stride through the column ladder). */
+export const MESH_PROBE_COLS = 32;
+/** Uniformly spaced probe rows added to the stations and their midpoints when testing columns. */
+export const MESH_PROBE_ROWS_UNIFORM = 6;
+/** Hard caps on the ladders (a guard against a runaway refinement). */
+export const MESH_MAX_ROWS = 4096;
+export const MESH_MAX_COLS = 1024;
+/** Smallest row interval (cm of ξ) and column interval (in t) that is still split. */
+export const MESH_MIN_XI_SPAN = 1e-6;
+export const MESH_MIN_T_SPAN = 1e-6;
+/** Bisection levels of a refinement. */
+export const MESH_MAX_LEVELS = 24;
+/** Where a collapsed end row takes its normals from: this share of the way to the next row. */
+export const MESH_NORMAL_OFFSET = 0.5;
+/** Rows (a stride through the row ladder) at which the finished column ladder is verified. */
+export const MESH_VERIFY_ROWS = 96;
+
+// ---------------------------------------------------------------------------
+// Classic converter (m1-model.md §4)
+// ---------------------------------------------------------------------------
+
+/** Two knots at the board's ends whose x differ by less than this (cm) form an end wall of the classic deck, which the section model does not store. */
+export const CONVERT_WALL_TOL = 1e-6;
+/** A normalised u this close to 0 or 1 is rounding and is set to the bound. */
+export const CONVERT_SNAP = 1e-9;
+/** Relative difference under which two candidate widest points are a tie (a vertical plateau of the rail). */
+export const CONVERT_TIE = 1e-9;
+/** Times a section segment whose control polygon leaves 0 <= u <= 1 is halved before its control points are clamped. */
+export const CONVERT_MAX_SPLIT_DEPTH = 6;
+/** A classic slice narrower or thinner than this (cm), or off the centre line by more, cannot be normalised. */
+export const CONVERT_MIN_SIZE = 1e-6;
+export const CONVERT_CENTRE_TOL = 1e-6;
+/** Notch zone lengths tried, in multiples of the notch depth d, until the plan validates. */
+export const CONVERT_ZONE_LADDER: readonly number[] = [1.5, 2, 3, 4, 6, 8, 12];
+/** Largest control-point move (cm) a repair may make before the board is refused: the build tolerance. */
+export const CONVERT_MAX_ADJUST = DEFAULT_BUILD.tolerance;

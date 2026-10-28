@@ -16,7 +16,7 @@
  */
 import { chainEval, chainMinX, chainParamAtX } from './chain';
 import type { CompiledChain } from './chain';
-import { MIN_CHORD_ANGLE, NOTCH_MIN_LAMBDA, TIP_SLOPE_FLOOR } from './params';
+import { MIN_CHORD_ANGLE, NOTCH_MIN_LAMBDA, SOLVE_MAX_ITER, TIP_SLOPE_FLOOR } from './params';
 import type { TailSpec } from './types';
 
 /** The notch zone's map (undefined on a standard board). */
@@ -139,4 +139,29 @@ export function frameAt(f: PlanFrame, xi: number, out: Float64Array): void {
   out[3] = tmp[3]! * s1;
   out[4] = onBranch ? 0 : tmp[4]! * s1 * s1 + tmp[2]! * s2;
   out[5] = tmp[5]! * s1 * s1 + tmp[3]! * s2;
+}
+
+const xiBuf = new Float64Array(3);
+const ptBuf = new Float64Array(6);
+
+/**
+ * The station coordinate ξ whose chord ends at outline parameter `s`: the inverse of
+ * {@link outlineParam} inside the notch zone (by bisection; the map is increasing), the
+ * outline point's own x elsewhere.
+ */
+export function xiOfParam(f: PlanFrame, s: number): number {
+  const n = f.notch;
+  if (n !== null && s <= n.sEnd) {
+    let lo = n.d;
+    let hi = n.xiEnd;
+    for (let it = 0; it < SOLVE_MAX_ITER; it++) {
+      const mid = 0.5 * (lo + hi);
+      outlineParam(f, mid, xiBuf);
+      if (xiBuf[0]! < s) lo = mid;
+      else hi = mid;
+    }
+    return 0.5 * (lo + hi);
+  }
+  chainEval(f.chain, s, 0, ptBuf, 0);
+  return ptBuf[0]!;
 }

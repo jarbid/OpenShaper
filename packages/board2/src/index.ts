@@ -7,12 +7,14 @@
  * exact first and second derivatives. Built on `@openshaper/geom` and nothing else.
  *
  * Every export is listed by name, and `index.test.ts` pins the runtime export
- * list. The grid mesh (`meshBoard`) is M1 step 2; the classic converter lives in
- * the separate entry point `@openshaper/board2/classic`, the only part of this
+ * list. The grid mesh (`meshBoard`, docs/design/m1-model.md §3) turns a built board
+ * into typed arrays; the classic converter lives in the separate entry point `@openshaper/board2/classic`, the only part of this
  * package that may import `@openshaper/kernel`.
  */
 export { boardDocToJson, reviveBoardDoc } from './doc';
 export { BOARD2_ISSUE_CODES, board2Err, board2Ok, hasErrors } from './issues';
+export { deriveLadders, meshBoard, meshProperties, meshVertex } from './mesh';
+export type { BoardMesh, Ladders, MeshLayout, MeshOptions } from './mesh';
 export { DEFAULT_BUILD } from './params';
 export { MEASURE, buildBoard, createEvaluator } from './surface';
 export type {
