@@ -320,16 +320,19 @@ function DeviationBandControl({
   band,
   onChange,
   units,
+  reference = 'the ghost',
 }: {
   band: number;
   onChange: (band: number) => void;
   units: LengthUnit;
+  /** What the board is compared with, for the tooltip. */
+  reference?: string;
 }) {
   const text = `±${fmtSmallLen(band, units)}`;
   return (
     <label
       className="flex items-center gap-1 text-xs pointer-coarse:min-h-11"
-      title="Deviation band: full colour at this much more or less foam than the ghost"
+      title={`Deviation band: full colour at this much more or less foam than ${reference}`}
     >
       <input
         type="range"
@@ -360,6 +363,7 @@ export function ThreeDControls({
   compact = false,
   exactUnavailable = null,
   ghostUnavailable = null,
+  nurbsEngine = false,
 }: {
   settings: View3DSettings;
   onChange: (patch: Partial<View3DSettings>) => void;
@@ -376,10 +380,12 @@ export function ThreeDControls({
    * disabled with the reason, like the exact modes.
    */
   ghostUnavailable?: AnalysisBlock | null;
+  /** The experimental NURBS engine is on: also offer "Deviation from classic". */
+  nurbsEngine?: boolean;
 }) {
   const set = onChange;
   // Spelled out in the entry itself, not only in a tooltip: a phone has no hover.
-  const analysisOptions = ANALYSIS_3D.map((o) => {
+  const analysisOptions = ANALYSIS_3D.filter((o) => !o.nurbs || nurbsEngine).map((o) => {
     const block = o.exact ? exactUnavailable : o.ghost ? ghostUnavailable : null;
     return block
       ? { ...o, label: `${o.label} (${block.short})`, disabled: true, title: block.reason }
@@ -460,11 +466,13 @@ export function ThreeDControls({
         options={analysisOptions}
         title={reasons.length ? `Surface analysis. ${reasons.join(' ')}` : 'Surface analysis'}
       />
-      {settings.analysis === 'ghost-deviation' && !ghostUnavailable && (
+      {((settings.analysis === 'ghost-deviation' && !ghostUnavailable) ||
+        settings.analysis === 'nurbs-deviation') && (
         <DeviationBandControl
           band={settings.deviationBand}
           onChange={(deviationBand) => set({ deviationBand })}
           units={units}
+          reference={settings.analysis === 'nurbs-deviation' ? 'the classic surface' : undefined}
         />
       )}
       <Sel

@@ -229,6 +229,23 @@ export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProp
             />
           </SettingsGroup>
 
+          {/* --- Experimental --- */}
+          <SettingsGroup title="Experimental">
+            <CheckboxRow
+              id="setting-nurbs-engine"
+              label="Engine: NURBS (experimental)"
+              value={draft.nurbsEngine}
+              onChange={(v) => set('nurbsEngine', v)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Shows a NURBS version of the board in the 3D view, converted from the classic board
+              after your edits settle (this takes 10 to 20 seconds). It is read-only: editing,
+              saving and exporting stay classic. Turn it off to return to the classic 3D view. You
+              can also open the editor with <code>?engine=nurbs</code> to turn it on for one
+              session.
+            </p>
+          </SettingsGroup>
+
           {/* --- Help --- */}
           <SettingsGroup title="Help">
             <CheckboxRow

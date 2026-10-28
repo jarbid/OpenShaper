@@ -180,9 +180,18 @@ const layerConfigs = Object.entries(LAYERS).map(
 
 /**
  * The apps are not in LAYERS (they may use every package above), except the
- * experiment's NURBS core and board model, which nothing outside their own phase
- * plan may reach yet.
+ * experiment's NURBS core and board model. Only `apps/web` may import
+ * `@openshaper/geom` and `@openshaper/board2` (the read-only NURBS viewer,
+ * docs/design/board2.md "V1 viewer"), and only from the viewer's compute module and
+ * its worker: everything else reaches them through a dynamic `import()` of, or a
+ * `new Worker(...)` on, those modules, which keeps both packages out of the main
+ * chunk. Every other app (the desktop shell) imports neither.
  */
+const NURBS_VIEWER_MODULES = [
+  'apps/web/src/workers/nurbs-core.ts',
+  'apps/web/src/workers/nurbs-worker.ts',
+];
+
 const appConfigs = [
   {
     files: ['apps/*/src/**/*.{ts,tsx}'],
@@ -195,17 +204,22 @@ const appConfigs = [
             {
               group: ['@openshaper/geom', '@openshaper/geom/*'],
               message:
-                '@openshaper/geom is not wired into the apps yet (docs/design/geometry-overhaul.md §5).',
+                '@openshaper/geom may only be imported by the NURBS viewer worker modules (apps/web/src/workers/nurbs-core.ts, nurbs-worker.ts); load them lazily (docs/design/board2.md, "V1 viewer").',
             },
             {
               group: ['@openshaper/board2', '@openshaper/board2/*'],
               message:
-                '@openshaper/board2 is not wired into the apps yet (docs/design/geometry-overhaul.md §5).',
+                '@openshaper/board2 may only be imported by the NURBS viewer worker modules (apps/web/src/workers/nurbs-core.ts, nurbs-worker.ts); load them lazily (docs/design/board2.md, "V1 viewer").',
             },
           ],
         },
       ],
     },
+  },
+  {
+    // The viewer's own modules: the one place in the apps that may use them.
+    files: NURBS_VIEWER_MODULES,
+    rules: { 'no-restricted-imports': 'off' },
   },
 ];
 

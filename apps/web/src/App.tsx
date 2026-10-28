@@ -8,7 +8,7 @@ import {
   type Spline,
 } from '@openshaper/kernel';
 import { type EditorOverlays, type SimilarityParams } from '@openshaper/render2d';
-import type { AnalysisStatus, Board3DViewProps } from '@openshaper/render3d';
+import type { AnalysisStatus, Board3DViewProps, ExternalSurface } from '@openshaper/render3d';
 import { selectSpecs } from '@openshaper/store';
 import {
   BottomSheet,
@@ -93,6 +93,7 @@ import { SharedBoardPrompt } from './SharedBoardPrompt';
 import { clearSharedPayload, peekSharedPayload } from './share-bootstrap';
 import { shareLinkMessage } from './share-url';
 import { loadSettings, saveSettings, type EditorSettings } from './settings';
+import { useEngineParam } from './nurbs-flag';
 import { CrossSectionControls } from './CrossSectionControls';
 import { LandscapeHint } from './LandscapeHint';
 import { CoffeeIcon } from './components/Support';
@@ -133,6 +134,7 @@ import {
 import { longitudinalFor, type MeasurementAxis } from './longitudinal';
 import {
   DEFAULT_VIEW_3D,
+  effectiveAnalysis,
   exactAnalysisUnavailable,
   ghostDeviationUnavailable,
 } from './view3d-settings';
@@ -145,6 +147,10 @@ import { readRaw, writeRaw } from './persisted';
 const Board3DView = lazy(() =>
   import('@openshaper/render3d').then((m) => ({ default: m.Board3DView })),
 );
+
+// The experimental NURBS viewer: its own chunk, fetched only with the engine flag on
+// (and it starts its own worker, which carries board2 and geom).
+const NurbsLayer = lazy(() => import('./nurbs-layer'));
 
 const ANALYSIS_IDLE: AnalysisStatus = { state: 'off' };
 
@@ -161,9 +167,13 @@ const ANALYSIS_IDLE: AnalysisStatus = { state: 'off' };
  */
 const ThreeDPane = memo(function ThreeDPane({
   units,
+  nurbsEngine,
   ...props
-}: Board3DViewProps & { units: LengthUnit }) {
+}: Board3DViewProps & { units: LengthUnit; nurbsEngine: boolean }) {
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>(ANALYSIS_IDLE);
+  // The NURBS surface for the board on screen, from the (lazy) NURBS layer; always
+  // null with the engine flag off.
+  const [surface, setSurface] = useState<ExternalSurface | null>(null);
   return (
     <div className="relative h-full w-full">
       <Suspense
@@ -173,8 +183,22 @@ const ThreeDPane = memo(function ThreeDPane({
           </div>
         }
       >
-        <Board3DView {...props} onAnalysisStatus={setAnalysisStatus} />
+        <Board3DView
+          {...props}
+          surface={nurbsEngine ? surface : null}
+          onAnalysisStatus={setAnalysisStatus}
+        />
       </Suspense>
+      {nurbsEngine && (
+        <Suspense fallback={null}>
+          <NurbsLayer
+            store={props.store}
+            faceSize={props.targetFaceSize ?? 0.9}
+            units={units}
+            onSurface={setSurface}
+          />
+        </Suspense>
+      )}
       {/* Only an exact mode reports anything but 'off'; switching away clears it. */}
       {props.analysis && props.analysis !== 'none' && (
         <AnalysisLegend status={analysisStatus} units={units} />
@@ -589,6 +613,9 @@ function AppShell() {
   );
   const [pdf1to1, setPdf1to1] = useState<Pdf1to1Settings>(() => loadPdf1to1());
   const [settings, setSettings] = useState<EditorSettings>(() => loadSettings());
+  // "Engine: NURBS (experimental)": the saved setting, or `?engine=nurbs` this session.
+  const engineParam = useEngineParam();
+  const nurbsEngine = settings.nurbsEngine || engineParam;
   const handleSaveSettings = (s: EditorSettings) => {
     saveSettings(s);
     setSettings(s);
@@ -1402,6 +1429,12 @@ function AppShell() {
   // The exact curvature modes read the fitted surface, which a concave tail does not
   // have; the controls list them disabled with the reason, as the STEP item is. The
   // deviation map likewise needs a ghost to measure against.
+  // A saved "Deviation from classic" means nothing without the NURBS engine: it is
+  // ignored (not erased) until the engine is on again.
+  const view3dShown = useMemo(
+    () => ({ ...view3d, analysis: effectiveAnalysis(view3d.analysis, nurbsEngine) }),
+    [view3d, nurbsEngine],
+  );
   const exactUnavailable = exactAnalysisUnavailable(board);
   const ghostUnavailable = ghostDeviationUnavailable(ghost);
 
@@ -1416,10 +1449,11 @@ function AppShell() {
       color={view3d.color}
       finColor={settings.finColor}
       viewCubeLineColor={settings.outlineColor}
-      analysis={view3d.analysis}
+      analysis={view3dShown.analysis}
       ghost={ghost}
       deviationBand={view3d.deviationBand}
       units={units}
+      nurbsEngine={nurbsEngine}
       targetFaceSize={faceSizeFor(view3d.meshQuality)}
       showStringer={view3d.showStringer}
       showSections={view3d.showSections}
@@ -1473,11 +1507,12 @@ function AppShell() {
               <ViewToggleTitle onDoubleClick={() => selectView('3d')}>3D</ViewToggleTitle>
             )}
             <ThreeDControls
-              settings={view3d}
+              settings={view3dShown}
               onChange={patchView3d}
               units={units}
               exactUnavailable={exactUnavailable}
               ghostUnavailable={ghostUnavailable}
+              nurbsEngine={nurbsEngine}
               compact
             />
           </ViewPaneHeader>
@@ -1765,11 +1800,12 @@ function AppShell() {
                   </span>
                 </div>
                 <ThreeDControls
-                  settings={view3d}
+                  settings={view3dShown}
                   onChange={patchView3d}
                   units={units}
                   exactUnavailable={exactUnavailable}
                   ghostUnavailable={ghostUnavailable}
+                  nurbsEngine={nurbsEngine}
                 />
               </ViewPaneHeader>
               <PanelBody className="min-h-0 flex-1 p-0">{threeDPane}</PanelBody>

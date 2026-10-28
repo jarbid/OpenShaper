@@ -10,6 +10,7 @@ import {
   useState,
   useSyncExternalStore,
   type ComponentRef,
+  type ReactNode,
 } from 'react';
 import {
   BufferGeometry,
@@ -29,6 +30,8 @@ import {
   deviationStatus,
   isExactAnalysis,
   sameStatus,
+  surfaceCurvatureStatus,
+  surfaceDeviationStatus,
   type AnalysisMode,
   type AnalysisStatus,
   type CurvatureResult,
@@ -37,12 +40,14 @@ import {
 import { curvatureUnsupported } from './curvature-mesh';
 import { CurvatureSurface } from './CurvatureSurface';
 import { DeviationSurface } from './DeviationSurface';
+import { sameHull, type ExternalSurface } from './external-surface';
 import {
   boardCenter,
   boardSpan,
   curvatureAsync,
   deviationAsync,
   meshToGeometry,
+  surfaceGeometry,
   tessellateAsync,
 } from './geometry';
 import { BoardViewcube } from './BoardViewcube';
@@ -102,6 +107,14 @@ export interface Board3DViewProps {
    * saturated beyond it. Defaults to {@link DEFAULT_DEVIATION_BAND}.
    */
   deviationBand?: number;
+  /**
+   * A surface computed by the app (the experimental NURBS engine's) to draw instead
+   * of the classic hull, with its own exact curvature and deviation. Shown only while
+   * the store's board has the same hull shape as the one it came from; fins, guides
+   * and the classic-only modes are unaffected. Without one the view is exactly the
+   * classic view.
+   */
+  surface?: ExternalSurface | null;
   /** Target tessellation face size in cm (smaller = finer mesh). Defaults to ~0.9 cm. */
   targetFaceSize?: number;
   /** Draw the stringer plane's silhouette on the hull (defaults to false). */
@@ -554,6 +567,7 @@ function BoardMesh({
   status,
   curvature,
   deviation,
+  surface,
   targetFaceSize,
 }: {
   board: BezierBoard;
@@ -564,6 +578,8 @@ function BoardMesh({
   status: AnalysisStatus;
   curvature: CurvatureResult | null;
   deviation: DeviationResult | null;
+  /** The external surface to draw in place of the hull, already checked against `board`. */
+  surface: ExternalSurface | null;
   targetFaceSize: number;
 }) {
   // Tessellation runs in a worker; while a new mesh computes we keep showing the
@@ -594,6 +610,14 @@ function BoardMesh({
   // Free the previous geometry when it changes, and on unmount.
   useEffect(() => () => geometry?.dispose(), [geometry]);
 
+  // The external surface's own geometry, uncentred: it is placed by the classic hull's
+  // centre (below), so fins and guides, which are, stay registered with it.
+  const surfaceGeo = useMemo(
+    () => (surface ? surfaceGeometry(surface.curvature) : null),
+    [surface],
+  );
+  useEffect(() => () => surfaceGeo?.dispose(), [surfaceGeo]);
+
   // What the screen-space shader draws. A computed mode never reaches it, except as
   // the honest fallback for a concave tail: normal change is the one curvature
   // view that board can have. While a computed mode computes (or failed, or has no
@@ -601,7 +625,10 @@ function BoardMesh({
   const screenSpace: ScreenSpaceMode | null =
     status.state === 'unavailable' && status.reason === 'concave-tail'
       ? 'curvature'
-      : isExactAnalysis(analysis) || analysis === 'ghost-deviation' || analysis === 'none'
+      : isExactAnalysis(analysis) ||
+          analysis === 'ghost-deviation' ||
+          analysis === 'nurbs-deviation' ||
+          analysis === 'none'
         ? null
         : analysis;
 
@@ -639,12 +666,45 @@ function BoardMesh({
     );
   }
 
+  // The external surface's deviation from the classic one: its own mesh, placed by the
+  // classic hull's centre like the ghost deviation.
+  if (
+    status.state === 'ready' &&
+    status.mode === 'nurbs-deviation' &&
+    surface &&
+    surface.deviation
+  ) {
+    return (
+      <DeviationSurface
+        mesh={surface.deviation}
+        band={status.band}
+        center={deviationCenter(hull, surface.deviation)}
+      />
+    );
+  }
+
+  // The exact analysis of an external surface: its curvature came with it.
+  if (
+    surface &&
+    status.state === 'ready' &&
+    status.mode !== 'ghost-deviation' &&
+    status.mode !== 'nurbs-deviation'
+  ) {
+    const [cx, cy, cz] = deviationCenter(hull, surface.curvature);
+    return (
+      <group position={[-cx, -cy, -cz]}>
+        <CurvatureSurface mesh={surface.curvature} mode={status.mode} />
+      </group>
+    );
+  }
+
   // The exact analysis, once it is for this board. It is its own mesh, so it does
   // not wait for the hull (`curvatureCenter` places it): what the legend reports as
   // ready is what is drawn.
   if (
     status.state === 'ready' &&
     status.mode !== 'ghost-deviation' &&
+    status.mode !== 'nurbs-deviation' &&
     curvature &&
     'mesh' in curvature &&
     curvature.board === board
@@ -657,36 +717,40 @@ function BoardMesh({
     );
   }
 
-  if (!hull || !geometry) return null;
+  // The surface on screen: the external one when there is one, else the classic hull.
+  const shown = surfaceGeo ?? geometry;
+  if (!shown) return null;
 
-  // Analysis overlay replaces the lit surface entirely.
+  let body: ReactNode;
   if (analysisMaterial) {
-    return <mesh geometry={geometry} material={analysisMaterial} />;
-  }
-
-  // `normals` mode swaps in a debug material that colors faces by orientation —
-  // a flipped shell is then immediately obvious.
-  if (mode === 'normals') {
-    return (
-      <mesh geometry={geometry}>
+    // Analysis overlay replaces the lit surface entirely.
+    body = <mesh geometry={shown} material={analysisMaterial} />;
+  } else if (mode === 'normals') {
+    // `normals` mode swaps in a debug material that colors faces by orientation —
+    // a flipped shell is then immediately obvious.
+    body = (
+      <mesh geometry={shown}>
         <meshNormalMaterial side={DoubleSide} />
       </mesh>
     );
-  }
-
-  return (
-    <>
-      <mesh geometry={geometry} castShadow receiveShadow>
-        <SurfaceMaterial preset={material} color={color} wireframe={mode === 'wireframe'} />
-      </mesh>
-      {/* Shaded + an overlaid wireframe: a second pass in a contrasting color. */}
-      {mode === 'shaded-wire' && (
-        <mesh geometry={geometry}>
-          <meshBasicMaterial color="#0A1424" wireframe transparent opacity={0.25} />
+  } else {
+    body = (
+      <>
+        <mesh geometry={shown} castShadow receiveShadow>
+          <SurfaceMaterial preset={material} color={color} wireframe={mode === 'wireframe'} />
         </mesh>
-      )}
-    </>
-  );
+        {/* Shaded + an overlaid wireframe: a second pass in a contrasting color. */}
+        {mode === 'shaded-wire' && (
+          <mesh geometry={shown}>
+            <meshBasicMaterial color="#0A1424" wireframe transparent opacity={0.25} />
+          </mesh>
+        )}
+      </>
+    );
+  }
+  if (!surfaceGeo) return body;
+  const [cx, cy, cz] = deviationCenter(hull, surface!.curvature);
+  return <group position={[-cx, -cy, -cz]}>{body}</group>;
 }
 
 /**
@@ -714,6 +778,7 @@ export function Board3DView({
   onAnalysisStatus,
   ghost = null,
   deviationBand = DEFAULT_DEVIATION_BAND,
+  surface: surfaceProp = null,
   targetFaceSize = DEFAULT_FACE_SIZE,
   showStringer = false,
   showSections = false,
@@ -730,14 +795,22 @@ export function Board3DView({
   const [flipViewSequence, setFlipViewSequence] = useState(0);
   const [flipHovered, setFlipHovered] = useState(false);
 
+  // An external surface counts only for the hull it was built from.
+  const surface = surfaceProp && board && sameHull(surfaceProp.board, board) ? surfaceProp : null;
   const exact = isExactAnalysis(analysis);
   const settled = useSettledBoard(store, board);
-  const curvature = useCurvatureResult(exact ? settled : null, exact);
+  // With an external surface the exact modes read its curvature: no hull fit needed.
+  const fitWanted = exact && !surface;
+  const curvature = useCurvatureResult(fitWanted ? settled : null, fitWanted);
   const deviationWanted = analysis === 'ghost-deviation';
   const deviation = useDeviationResult(deviationWanted ? board : null, ghost, targetFaceSize);
   const computed = deviationWanted
     ? deviationStatus(board, ghost, deviation, deviationBand, targetFaceSize)
-    : analysisStatus(analysis, board, curvature);
+    : analysis === 'nurbs-deviation'
+      ? surfaceDeviationStatus(surface, deviationBand)
+      : exact && surface
+        ? surfaceCurvatureStatus(analysis, surface)
+        : analysisStatus(analysis, board, curvature);
   // One object per distinct state, so the report below fires on changes only.
   const statusRef = useRef<AnalysisStatus>(ANALYSIS_OFF);
   if (!sameStatus(statusRef.current, computed)) statusRef.current = computed;
@@ -777,6 +850,7 @@ export function Board3DView({
             status={status}
             curvature={curvature}
             deviation={deviation}
+            surface={surface}
             targetFaceSize={targetFaceSize}
           />
         )}

@@ -50,6 +50,8 @@ export const ANALYSIS_3D: {
   label: string;
   exact?: true;
   ghost?: true;
+  /** Only offered while the experimental NURBS engine is on. */
+  nurbs?: true;
 }[] = [
   { value: 'none', label: 'No analysis' },
   { value: 'zebra', label: 'Zebra' },
@@ -59,6 +61,7 @@ export const ANALYSIS_3D: {
   { value: 'curvature', label: 'Normal change (approx.)' },
   { value: 'slope', label: 'Slope' },
   { value: 'ghost-deviation', label: 'Deviation from ghost', ghost: true },
+  { value: 'nurbs-deviation', label: 'Deviation from classic', nurbs: true },
 ];
 
 export const QUALITY_3D: { value: MeshQuality; label: string }[] = [
@@ -144,6 +147,21 @@ export const exactAnalysisUnavailable = (board: BezierBoard | null): AnalysisBlo
 /** Shown wherever the deviation map is offered or chosen with no ghost loaded. */
 export const GHOST_DEVIATION_NO_GHOST =
   'Deviation from ghost compares this board with a reference board. Load one with Board ▸ Open ghost… first.';
+
+/** Shown in the legend when "Deviation from classic" is chosen with no NURBS surface on screen. */
+export const NURBS_DEVIATION_NO_SURFACE =
+  'Deviation from classic compares the NURBS surface with the classic one. It shows once the conversion has finished and the 3D view is set to NURBS.';
+
+/**
+ * The analysis mode actually in force: "Deviation from classic" exists only with the
+ * experimental NURBS engine on, so a saved choice of it is ignored (not erased) while
+ * the engine is off.
+ */
+export const effectiveAnalysis = (
+  analysis: View3DSettings['analysis'],
+  nurbsEngine: boolean,
+): View3DSettings['analysis'] =>
+  analysis === 'nurbs-deviation' && !nurbsEngine ? 'none' : analysis;
 
 /** Why the deviation map is unavailable — there is no ghost to measure against — or null. */
 export const ghostDeviationUnavailable = (ghost: BezierBoard | null): AnalysisBlock | null =>

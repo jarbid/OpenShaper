@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { assertNoNurbsPreloads, stripNurbsPreloads } from './tools/nurbs-preload';
 import { assertEditorPrecache, rewriteAppShellUrl } from './tools/precache-guard';
 
 const SITE_URL = (process.env.VITE_SITE_URL ?? 'https://openshaper.com').replace(/\/+$/, '');
@@ -105,7 +106,17 @@ export default defineConfig({
           'favicon.svg',
           'icons/*.png',
         ],
-        globIgnores: ['**/*.map', 'images/**', 'og-cover.*', 'sitemap.xml', 'robots.txt'],
+        globIgnores: [
+          '**/*.map',
+          'images/**',
+          'og-cover.*',
+          'sitemap.xml',
+          'robots.txt',
+          // The experimental NURBS viewer (its layer, worker and synchronous-fallback
+          // core, ~0.6 MB): fetched only when the engine flag is on, so a user who
+          // never enables it does not download it, not even into the precache.
+          'assets/nurbs-*.js',
+        ],
         // The three.js chunk exceeds the 2 MiB default, and an over-size entry is
         // dropped with only a warning — which would silently break the editor offline.
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
@@ -144,6 +155,12 @@ export default defineConfig({
     // `...-undefined.json` (404) behind a fast CDN — a race that passes locally
     // but crashes in production.
     formatting: 'none',
+    // The NURBS viewer's chunks must not ride along as preloads (tools/nurbs-preload.ts).
+    onPageRendered: (route: string, html: string) => {
+      const out = stripNurbsPreloads(html);
+      assertNoNurbsPreloads(route, out);
+      return out;
+    },
     onFinished: (outDir: string) => writeSitemap(outDir),
   },
 });

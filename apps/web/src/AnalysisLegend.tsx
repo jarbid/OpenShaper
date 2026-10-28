@@ -16,10 +16,11 @@ import {
   analysisLabel,
   EXACT_ANALYSIS_CONCAVE_TAIL,
   GHOST_DEVIATION_NO_GHOST,
+  NURBS_DEVIATION_NO_SURFACE,
 } from './view3d-settings';
 
 type Ready = Extract<AnalysisStatus, { state: 'ready' }>;
-type DeviationReady = Extract<Ready, { mode: 'ghost-deviation' }>;
+type DeviationReady = Extract<Ready, { band: number }>;
 
 /** A small length with its sign spelled out: "+4.3 mm", "−2.1 mm", "0 mm". */
 const signedSmallLen = (cm: number, units: LengthUnit): string =>
@@ -31,13 +32,16 @@ export const legendText = (
   units: LengthUnit,
 ): { low: string; mid: string; high: string; note: string } => {
   const L = (cm: number) => fmtLen(cm, units);
-  if (status.mode === 'ghost-deviation') {
+  if ('band' in status) {
     const band = fmtSmallLen(status.band, units);
+    const against = status.mode === 'nurbs-deviation' ? 'the classic surface' : 'the ghost';
     return {
       low: `−${band}`,
       mid: '0',
       high: `+${band}`,
-      note: `Blue: less foam than the ghost. Red: more. Full colour at ${band} or more.`,
+      note:
+        `Blue: less foam than ${against}. Red: more. Full colour at ${band} or more.` +
+        (status.mode === 'nurbs-deviation' ? ' Measured along the surface normal.' : ''),
     };
   }
   const { scale } = status;
@@ -72,6 +76,7 @@ export const legendText = (
  */
 export const deviationRangeText = (status: DeviationReady, units: LengthUnit): string => {
   if (!status.range) {
+    if (status.mode === 'nurbs-deviation') return 'No part of the surface could be measured.';
     return status.stale
       ? 'Last measured: no part of the board lay within the ghost’s length.'
       : 'No part of this board lies within the ghost’s length.';
@@ -81,7 +86,7 @@ export const deviationRangeText = (status: DeviationReady, units: LengthUnit): s
 };
 
 /** A deviation map still showing an earlier board's measurement while this one's runs. */
-const isStale = (status: Ready): boolean => status.mode === 'ghost-deviation' && status.stale;
+const isStale = (status: Ready): boolean => 'stale' in status && status.stale;
 
 /** "Computing curvature…" and its kin, per mode. */
 const busyText = (status: Exclude<AnalysisStatus, { state: 'off' }>): string =>
@@ -111,6 +116,9 @@ export function AnalysisLegend({ status, units }: { status: AnalysisStatus; unit
       {status.state === 'unavailable' && status.reason === 'no-ghost' && (
         <p className="mt-0.5 text-muted-foreground">{GHOST_DEVIATION_NO_GHOST}</p>
       )}
+      {status.state === 'unavailable' && status.reason === 'no-surface' && (
+        <p className="mt-0.5 text-muted-foreground">{NURBS_DEVIATION_NO_SURFACE}</p>
+      )}
       {status.state === 'failed' && (
         <p className="mt-0.5 text-muted-foreground">
           {status.mode === 'ghost-deviation'
@@ -139,7 +147,7 @@ function LegendScale({ status, units }: { status: Ready; units: LengthUnit }) {
         <span className="text-right">{high}</span>
       </div>
       <p className="mt-0.5 text-muted-foreground">{note}</p>
-      {status.mode === 'ghost-deviation' && (
+      {'band' in status && (
         <>
           <p className="mt-0.5 tabular-nums">{deviationRangeText(status, units)}</p>
           <div className="mt-1 flex items-center gap-1.5 text-muted-foreground">
@@ -152,7 +160,9 @@ function LegendScale({ status, units }: { status: Ready; units: LengthUnit }) {
                 background: `repeating-linear-gradient(135deg, ${status.stripes[0]} 0 3px, ${status.stripes[1]} 3px 6px)`,
               }}
             />
-            No data: past the ghost’s ends, and at the board’s own ends.
+            {status.mode === 'nurbs-deviation'
+              ? 'No data: where the classic board has no section to measure against.'
+              : 'No data: past the ghost’s ends, and at the board’s own ends.'}
           </div>
         </>
       )}
