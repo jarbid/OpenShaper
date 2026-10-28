@@ -81,6 +81,15 @@ export interface ConversionReport {
   readonly deckWalls: readonly [boolean, boolean];
   /** The outline ended off the stringer at the tail, nose: a straight edge to the stringer was added. */
   readonly bluntEnds: readonly [boolean, boolean];
+  /**
+   * Classic x (cm) of the slices inside the notch zone, which are not stations (empty on a standard
+   * tail): the zone's chords fan across the rail, and a station squeezed that close to the next one
+   * makes the blend swing (15.8 mm from the classic loft instead of 4.6 mm on a classic swallow).
+   * The zone takes the section of the first station beyond it.
+   */
+  readonly zoneSlices: readonly number[];
+  /** A notched tail was reshaped: its inner wall has a real rail (the classic pod wall is vertical). */
+  readonly notchReshaped: boolean;
 }
 
 export interface ClassicConversion {
@@ -560,23 +569,38 @@ function convert(board: BezierBoard, opts: ConvertOptions): Board2Result<Classic
   const outlineChain = toChain(outline);
   const d = outline[0]!.p[0];
   const L = outline[outline.length - 1]!.p[0];
-  const make = (tail: TailSpec): BoardDoc => {
+  const make = (tail: TailSpec): { doc: BoardDoc; zoneSlices: number[] } => {
     let stations: Station[];
+    const zoneSlices: number[] = [];
     if (tail.kind === 'notched') {
       const frame = makeFrame(compileChain(outlineChain), tail);
       const n = frame.notch!;
-      stations = sections.map((s, i) => ({
-        id: `s${i + 1}`,
-        x:
-          s.x >= n.xiEnd
-            ? s.x
-            : xiOfParam(frame, chainParamAtX(frame.chain, s.x, n.sTip, frame.chain.segments)),
-        plus: s.section,
-      }));
+      // Slices behind the zone's end (x < xiEnd) are not stations: the zone's chords fan across the rail,
+      // so such a slice is squeezed close to the next station (the tip slice of a swallow 10 cm from the
+      // first slice beyond the zone, against 62 cm to the next) and the blend between stations swings. The
+      // zone takes the section of the first station beyond it. (If every slice is behind the end, the
+      // last one stays.)
+      const keep = sections.filter((s) => s.x >= n.xiEnd);
+      if (keep.length === 0) keep.push(sections[sections.length - 1]!);
+      stations = [];
+      sections.forEach((s, i) => {
+        if (!keep.includes(s)) {
+          zoneSlices.push(s.x);
+          return;
+        }
+        stations.push({
+          id: `s${i + 1}`,
+          x:
+            s.x >= n.xiEnd
+              ? s.x
+              : xiOfParam(frame, chainParamAtX(frame.chain, s.x, n.sTip, frame.chain.segments)),
+          plus: s.section,
+        });
+      });
     } else {
       stations = sections.map((s, i) => ({ id: `s${i + 1}`, x: s.x, plus: s.section }));
     }
-    return deepFreeze({
+    const doc = deepFreeze({
       format: 'openshaper',
       version: 3,
       model: 'sections',
@@ -591,10 +615,11 @@ function convert(board: BezierBoard, opts: ConvertOptions): Board2Result<Classic
       fins: JSON.parse(JSON.stringify(board.fins ?? null)) as JsonValue,
       build: { ...DEFAULT_BUILD },
     }) as BoardDoc;
+    return { doc, zoneSlices };
   };
 
-  const report = (tail: TailSpec): ConversionReport => ({
-    stations: sections.length,
+  const report = (tail: TailSpec, zoneSlices: readonly number[]): ConversionReport => ({
+    stations: sections.length - zoneSlices.length,
     tail: tail.kind,
     zone: tail.kind === 'notched' ? tail.zone : 0,
     lineAdjust,
@@ -602,14 +627,16 @@ function convert(board: BezierBoard, opts: ConvertOptions): Board2Result<Classic
     addedKnots: added,
     deckWalls: [wallTail, wallNose],
     bluntEnds: blunt,
+    zoneSlices,
+    notchReshaped: tail.kind === 'notched',
   });
 
   if (!cutout) {
     const tail: TailSpec = { kind: 'standard' };
-    const doc = make(tail);
+    const { doc, zoneSlices } = make(tail);
     const issues = validateBoard(doc);
     if (issues.some((i) => i.severity === 'error')) return board2Err([...issues, ...warnings]);
-    return board2Ok({ doc, report: report(tail) }, [...issues, ...warnings]);
+    return board2Ok({ doc, report: report(tail, zoneSlices) }, [...issues, ...warnings]);
   }
 
   // a swallow or fish: the shortest notch zone of the ladder that validates
@@ -618,10 +645,23 @@ function convert(board: BezierBoard, opts: ConvertOptions): Board2Result<Classic
     const zone = m * d;
     if (!(d > 0 && d + zone < L)) continue;
     const tail: TailSpec = { kind: 'notched', zone };
-    const doc = make(tail);
+    const { doc, zoneSlices } = make(tail);
     const issues = validateBoard(doc);
     if (!issues.some((i) => i.severity === 'error')) {
-      return board2Ok({ doc, report: report(tail) }, [...issues, ...warnings]);
+      const plural = zoneSlices.length > 1;
+      const reshaped = issue(
+        'convert-adjusted',
+        `the notched tail is reshaped: sections run across the rail inside the notch zone (x < ${(d + zone).toPrecision(3)} cm) and the inner wall gets a real rail` +
+          (zoneSlices.length > 0
+            ? `; the slice${plural ? 's' : ''} at x = ${zoneSlices.join(', ')} cm ${plural ? 'lie' : 'lies'} in the zone and ${plural ? 'are' : 'is'} not a station (the zone takes the section of the first station beyond it)`
+            : ''),
+        { severity: 'warning' },
+      );
+      return board2Ok({ doc, report: report(tail, zoneSlices) }, [
+        reshaped,
+        ...issues,
+        ...warnings,
+      ]);
     }
     last = issues;
   }

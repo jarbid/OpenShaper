@@ -33,6 +33,7 @@ import { deriveLadders, meshBoard } from '../mesh';
 import { buildBoard, createEvaluator } from '../surface';
 import type { BuiltBoard } from '../surface';
 import { GOLDENS, SAMPLES, classicNotched } from '../test-support/classic-samples';
+import { planeSections, ringDeviation, sectionDeviation } from '../test-support/board-set';
 import { nurbsRing, normalJump, polylineHausdorff, topology } from '../test-support/mesh-checks';
 import type { V3 } from '../test-support/mesh-checks';
 import { fishBoard, swallowBoard } from '../testing';
@@ -301,7 +302,17 @@ describe('swallow and fish tails', () => {
       const conv = ok(classic);
       expect(conv.doc.tail.kind).toBe('notched');
       expect(conv.report.zone).toBeGreaterThan(0);
-      expect(conv.doc.stations.length).toBe(classic.crossSections.length - 2);
+      // the shortboard's slice at x = 0.95 lies in the notch zone and is not a station (see the next test)
+      expect(conv.report.zoneSlices).toHaveLength(1);
+      expect(conv.report.zoneSlices[0]).toBeCloseTo(0.9525, 4);
+      expect(conv.report.notchReshaped).toBe(true);
+      expect(conv.report.stations).toBe(classic.crossSections.length - 3);
+      expect(conv.doc.stations.length).toBe(classic.crossSections.length - 3);
+      const note = convertClassic(classic);
+      expect(
+        note.ok &&
+          note.issues.some((i) => i.code === 'convert-adjusted' && /reshaped/.test(i.message)),
+      ).toBe(true);
       for (let i = 1; i < conv.doc.stations.length; i++) {
         expect(conv.doc.stations[i]!.x).toBeGreaterThan(conv.doc.stations[i - 1]!.x);
       }
@@ -427,6 +438,72 @@ describe('handles that overlap in x (the curve is a function of x, the control p
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.issues.some((i) => i.code === 'convert-plan')).toBe(true);
   });
+});
+
+describe('a notched classic board stays close to the classic loft between its stations', () => {
+  const base = GOLDENS[0]!.load();
+  const shortboardWorst = ((): number => {
+    const b = built(base);
+    let worst = 0;
+    for (let x = 2; x < getLength(base) - 2; x += 2) {
+      const ring = nurbsRing(createEvaluator(b), x, 200);
+      const minus = ring.slice(1, -1).map((p): V3 => [p[0], -p[1], p[2]]);
+      const full = [...ring, ...minus.reverse()];
+      const classic = loftRing(base, x, 400)!.map((v): V3 => [v.x, v.y, v.z]);
+      worst = Math.max(
+        worst,
+        polylineHausdorff(classic, full, true),
+        polylineHausdorff(full, classic, true),
+      );
+    }
+    return worst;
+  })();
+
+  it.each([
+    ['swallow', swallowBoard],
+    ['fish', fishBoard],
+  ] as const)(
+    "a classic %s: the planes behind the notch zone are within the standard board's band (a tip slice squeezed into the zone made the blend swing, 15.8 and 9.1 mm)",
+    (_n, make) => {
+      const classic = classicNotched(base, make());
+      const b = built(classic);
+      const xiEnd = b.sides[0].frame.notch!.xiEnd;
+      let worst = 0;
+      let at = 0;
+      for (let x = Math.ceil(xiEnd / 2) * 2; x < getLength(classic) - 2; x += 2) {
+        const d = ringDeviation(classic, b, x);
+        if (d > worst) {
+          worst = d;
+          at = x;
+        }
+      }
+      // the same few millimetres as the standard shortboard (4.7 mm), not 3 to 4 times that
+      expect(worst, `worst ${worst} cm at x = ${at}`).toBeLessThan(Math.max(shortboardWorst, 0.5));
+      expect(worst).toBeLessThan(0.5);
+    },
+    60_000,
+  );
+
+  it.each([
+    ['swallow', swallowBoard],
+    ['fish', fishBoard],
+  ] as const)(
+    'a classic %s: the planes inside the notch zone follow the classic loft within a few millimetres too',
+    (_n, make) => {
+      const classic = classicNotched(base, make());
+      const b = built(classic);
+      const n = b.sides[0].frame.notch!;
+      // planes from just behind the notch bottom to the zone's end: the surface is cut where it is,
+      // because there the sections do not lie in planes
+      const xs: number[] = [];
+      for (let x = Math.ceil(n.d + 1); x < n.xiEnd; x += 3) xs.push(x);
+      const cuts = planeSections(b, xs, 600, 400);
+      xs.forEach((x, k) => {
+        expect(sectionDeviation(classic, cuts.segments[k]!, x), `x = ${x}`).toBeLessThan(0.5);
+      });
+    },
+    60_000,
+  );
 });
 
 describe('refusals', () => {

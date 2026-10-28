@@ -173,3 +173,106 @@ export function surfaceMove(a: BuiltBoard, b: BuiltBoard, rows = 60, cols = 120)
   }
   return worst;
 }
+
+/** Segments of the level curve X = x of a surface grid, for one or more planes (marching squares). */
+export interface PlaneSections {
+  /** `segments[k]`: flat list `ax ay az bx by bz` of the plane `xs[k]`, plus side then its mirror image. */
+  readonly segments: Float64Array[];
+}
+
+/**
+ * The cross-sections of a built board by the planes X = x, found from a `rows` × `cols` grid of the
+ * surface in (ξ, t) (both sides): for notched boards the plane does not follow a ξ row, so the surface
+ * is cut where it is. Segment lists (marching squares on the grid cells), accurate to a fraction of
+ * the cell size.
+ */
+export function planeSections(
+  board: BuiltBoard,
+  xs: readonly number[],
+  rows = 1200,
+  cols = 800,
+): PlaneSections {
+  const ev = createEvaluator(board);
+  const out = xs.map(() => [] as number[]);
+  const o = new Float64Array(3);
+  const gx = new Float64Array(2 * (cols + 1));
+  const gy = new Float64Array(2 * (cols + 1));
+  const gz = new Float64Array(2 * (cols + 1));
+  const fill = (xi: number, off: number): void => {
+    ev.row(0, xi, 0);
+    for (let j = 0; j <= cols; j++) {
+      ev.eval(j / cols, 0, o);
+      gx[off + j] = o[0]!;
+      gy[off + j] = o[1]!;
+      gz[off + j] = o[2]!;
+    }
+  };
+  fill(board.xiMin, 0);
+  for (let i = 1; i <= rows; i++) {
+    const a = ((i - 1) & 1) * (cols + 1);
+    const b = (i & 1) * (cols + 1);
+    fill(board.xiMin + ((board.xiMax - board.xiMin) * i) / rows, b);
+    for (let j = 0; j < cols; j++) {
+      const cx = [gx[a + j]!, gx[a + j + 1]!, gx[b + j + 1]!, gx[b + j]!];
+      const cy = [gy[a + j]!, gy[a + j + 1]!, gy[b + j + 1]!, gy[b + j]!];
+      const cz = [gz[a + j]!, gz[a + j + 1]!, gz[b + j + 1]!, gz[b + j]!];
+      const lo = Math.min(...cx);
+      const hi = Math.max(...cx);
+      xs.forEach((x, k) => {
+        if (!(x >= lo && x < hi)) return;
+        const pts: number[] = [];
+        for (let e = 0; e < 4; e++) {
+          const f = (e + 1) & 3;
+          if (cx[e]! < x === cx[f]! < x) continue;
+          const w = (x - cx[e]!) / (cx[f]! - cx[e]!);
+          pts.push(x, cy[e]! + w * (cy[f]! - cy[e]!), cz[e]! + w * (cz[f]! - cz[e]!));
+        }
+        for (let p = 0; p + 5 < pts.length + 0 && p < pts.length; p += 6) {
+          out[k]!.push(...pts.slice(p, p + 6));
+        }
+      });
+    }
+  }
+  return { segments: out.map((a) => Float64Array.from(a)) };
+}
+
+/**
+ * The distance (cm) between the plane section X = x of a built board (given as marching-squares segments,
+ * plus side only) and the classic loft's ring at x: the larger of the two Hausdorff distances.
+ */
+export function sectionDeviation(classic: BezierBoard, seg: Float64Array, x: number): number {
+  const loft = loftRing(classic, x, 2400);
+  if (loft === null || seg.length === 0) return Number.NaN;
+  // the classic ring's plus half (y >= 0) against the plus-side segments
+  const ring = loft.filter((v) => v.y >= -1e-9).map((v): V3 => [v.x, v.y, v.z]);
+  ring.sort((p, q) => p[2] - q[2]);
+  const half = loft.slice(0, loft.length >> 1).map((v): V3 => [v.x, v.y, v.z]);
+  const poly = half.length > 1 ? half : ring;
+  const segDist = (p: V3, a: V3, b: V3): number => {
+    const e: V3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    const w: V3 = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
+    const ee = e[0] * e[0] + e[1] * e[1] + e[2] * e[2];
+    const f = ee > 0 ? Math.min(1, Math.max(0, (w[0] * e[0] + w[1] * e[1] + w[2] * e[2]) / ee)) : 0;
+    return Math.hypot(w[0] - f * e[0], w[1] - f * e[1], w[2] - f * e[2]);
+  };
+  let h = 0;
+  // points of the surface section against the classic polyline
+  for (let k = 0; k < seg.length; k += 3) {
+    const p: V3 = [seg[k]!, seg[k + 1]!, seg[k + 2]!];
+    let d = Infinity;
+    for (let i = 0; i + 1 < poly.length; i++) d = Math.min(d, segDist(p, poly[i]!, poly[i + 1]!));
+    h = Math.max(h, d);
+  }
+  // points of the classic polyline against the surface section's segments
+  for (const p of poly) {
+    let d = Infinity;
+    for (let k = 0; k < seg.length; k += 6) {
+      d = Math.min(
+        d,
+        segDist(p, [seg[k]!, seg[k + 1]!, seg[k + 2]!], [seg[k + 3]!, seg[k + 4]!, seg[k + 5]!]),
+      );
+    }
+    h = Math.max(h, d);
+  }
+  return h;
+}
