@@ -7,7 +7,8 @@
  * a least-squares cubic B-spline (`approximateCurve`) on a knot vector that all
  * stations of a side share: `m` equal spans per half, a triple knot at t = ½ (the
  * apex). The fit holds the centre points, the horizontal centre tangents and the
- * apex point exactly; a vertical apex tangent is held when the stored one is.
+ * apex point exactly; a vertical apex tangent is held (on both sides) when the stored one is within
+ * {@link SECTION_APEX_TOL} of vertical.
  * `m` climbs a ladder until every station is within {@link SECTION_FIT_TOL} cm or the error
  * stops improving.
  *
@@ -21,9 +22,11 @@ import { approximateCurve, controlPointsInto } from '@openshaper/geom';
 import type { CurveConstraint } from '@openshaper/geom';
 import { arcFractionParams, chainEval, compileChain } from './chain';
 import {
+  SECTION_APEX_TOL,
   SECTION_DIRECTION_TOL,
   SECTION_EXACT_TOL,
   SECTION_FIT_TOL,
+  SECTION_HANDLE_MIN,
   SECTION_HALF_SAMPLES,
   SECTION_SPAN_LADDER,
   SECTION_STALL_PATIENCE,
@@ -84,7 +87,7 @@ export function fitSection(section: Section, m: number): SectionFit | null {
 
 /** First vector of `v` (as pairs) longer than the exact tolerance: the tangent of a Bézier end whose handle may have zero length. */
 function firstDirection(v: readonly (readonly [number, number])[]): [number, number] | null {
-  for (const d of v) if (Math.hypot(d[0], d[1]) > SECTION_EXACT_TOL) return [d[0], d[1]];
+  for (const d of v) if (Math.hypot(d[0], d[1]) > SECTION_HANDLE_MIN) return [d[0], d[1]];
   return null;
 }
 
@@ -106,8 +109,9 @@ export function arrivingDirection(chain: Section['chain'], k: number): [number, 
 
 const isHorizontal = (d: readonly [number, number] | null): boolean =>
   d !== null && Math.abs(d[1]) <= SECTION_DIRECTION_TOL * Math.hypot(d[0], d[1]);
-const isVertical = (d: readonly [number, number] | null): boolean =>
-  d !== null && Math.abs(d[0]) <= SECTION_DIRECTION_TOL * Math.hypot(d[0], d[1]);
+/** Whether `d` is within {@link SECTION_APEX_TOL} of vertical. */
+export const isNearVertical = (d: readonly [number, number] | null): boolean =>
+  d !== null && Math.abs(d[0]) <= Math.sin(SECTION_APEX_TOL) * Math.hypot(d[0], d[1]);
 
 function computeFit(section: Section, m: number): SectionFit | null {
   const chain = compileChain(section.chain);
@@ -119,8 +123,11 @@ function computeFit(section: Section, m: number): SectionFit | null {
   // handle leaves along the polygon, a V bottom or a pitched deck leaves at an angle).
   const bottomFlat = isHorizontal(leavingDirection(section.chain, 0));
   const deckFlat = isHorizontal(arrivingDirection(section.chain, n - 1));
-  const apexBelowVertical = isVertical(arrivingDirection(section.chain, a));
-  const apexAboveVertical = isVertical(leavingDirection(section.chain, a));
+  // Each side of the apex is held vertical when the stored tangent is within SECTION_APEX_TOL of it.
+  // (A smooth knot with u = 1 at the section's widest point is vertical on both sides, since the
+  // bounds forbid a handle beyond u = 1; the flag is not trusted, only the geometry.)
+  const apexBelowVertical = isNearVertical(arrivingDirection(section.chain, a));
+  const apexAboveVertical = isNearVertical(leavingDirection(section.chain, a));
   const sample = (s0: number, s1: number): Float64Array => {
     const ss = arcFractionParams(chain, s0, s1, fractions);
     const pts = new Float64Array(2 * ss.length);
@@ -183,6 +190,9 @@ function computeFit(section: Section, m: number): SectionFit | null {
   if (deckFlat) pin(count - 2, 1, 1);
   pin(nb - 1, 0, apex.p[0]);
   ctrl[2 * (nb - 1) + 1] = apex.p[1];
+  // a vertical apex tangent: the controls next to the apex have the apex's u exactly, on both sides
+  if (apexBelowVertical) pin(nb - 2, 0, apex.p[0]);
+  if (apexAboveVertical) pin(nb, 0, apex.p[0]);
   for (let i = 0; i < count; i++) {
     const u = ctrl[2 * i]!;
     if (u < 0 || u > 1) {

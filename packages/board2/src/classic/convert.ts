@@ -45,6 +45,7 @@ import {
   CONVERT_ZONE_LADDER,
   DEFAULT_BUILD,
   PLAN_EXACT_TOL,
+  SECTION_APEX_TOL,
 } from '../params';
 import type {
   Board2Issue,
@@ -285,6 +286,20 @@ function normalise(spline: Spline): SliceResult {
   f.in = [0, 0];
   l.out = [0, 1];
   ks[apex]!.p[0] = 1;
+  // The apex tangent is vertical: a handle within SECTION_APEX_TOL of it (a classic file stores a few
+  // micrometres of sideways run) is made exactly vertical, so both sides of the apex are G1.
+  {
+    const a = ks[apex]!;
+    for (const h of [a.in, a.out]) {
+      const run = 1 - h[0];
+      if (
+        Math.abs(run * W) <=
+        Math.sin(SECTION_APEX_TOL) * Math.hypot(run * W, (h[1] - a.p[1]) * T)
+      ) {
+        h[0] = 1;
+      }
+    }
+  }
 
   // bounds 0 <= u <= 1: halve the offending segments, then clamp what is left
   const snap = (q: [number, number]): void => {

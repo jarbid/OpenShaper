@@ -29,8 +29,21 @@ export const SECTION_FIT_TOL = DEFAULT_BUILD.tolerance;
 export const SECTION_STALL_RATIO = 0.85;
 /** Rungs in a row without such an improvement after which the ladder stops and keeps the best. */
 export const SECTION_STALL_PATIENCE = 2;
-/** A tangent is horizontal (vertical) when its vertical (horizontal) share of its length is below this. */
+/** A centre tangent is horizontal when its vertical share of its length is below this. */
 export const SECTION_DIRECTION_TOL = 1e-9;
+/**
+ * A side of the apex tangent is vertical (G1 across t = 1/2) when it is within this angle (rad) of
+ * vertical. The fit then holds it exactly vertical, and the converter snaps the handles to it: a handle a few micrometres off vertical (a classic file that stores
+ * 1.4e-5 of sideways run in a 0.27 cm handle) would otherwise lose the constraint and leave a rail crease
+ * along the apex line of up to 1.7 degrees. 1e-3 rad moves a point of the section by less than 0.02 mm.
+ */
+export const SECTION_APEX_TOL = 1e-3;
+/**
+ * A section handle shorter than this (normalised units, about 0.02 micrometres on a 20 cm chord) has no
+ * direction: the curve leaves along the next control point instead. A hand-edited or perturbed handle
+ * of 1e-8 must not decide whether a tangent is horizontal or vertical.
+ */
+export const SECTION_HANDLE_MIN = 1e-6;
 /** Samples per half section (bottom to apex, apex to deck) taken at equal arc-length fractions. */
 export const SECTION_HALF_SAMPLES = 192;
 /** Spans per half of the common knot vector, tried in order until every station fits. */

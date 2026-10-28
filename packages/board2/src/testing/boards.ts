@@ -19,13 +19,30 @@ import type {
   Station,
 } from '../types';
 
-/** A knot with absolute handles; a missing handle is the point itself (an unused end handle). */
-export const knot = (p: Pair, inn?: Pair, out?: Pair, smooth = true): ChainKnot => ({
-  p,
-  in: inn ?? p,
-  out: out ?? p,
-  smooth,
-});
+/** A knot with absolute handles; a missing handle is the point itself (an unused end handle). A smooth knot gets collinear handles. */
+export function knot(p: Pair, inn?: Pair, out?: Pair, smooth = true): ChainKnot {
+  if (!smooth || inn === undefined || out === undefined) {
+    return { p, in: inn ?? p, out: out ?? p, smooth };
+  }
+  // A smooth knot has collinear handles (G1): both are turned onto the mean of their two
+  // directions, keeping their lengths.
+  const a: Pair = [p[0] - inn[0], p[1] - inn[1]];
+  const b: Pair = [out[0] - p[0], out[1] - p[1]];
+  const la = Math.hypot(a[0], a[1]);
+  const lb = Math.hypot(b[0], b[1]);
+  if (la === 0 || lb === 0) return { p, in: inn, out, smooth };
+  const dx = a[0] / la + b[0] / lb;
+  const dy = a[1] / la + b[1] / lb;
+  const l = Math.hypot(dx, dy);
+  if (l === 0) return { p, in: inn, out, smooth };
+  const d: Pair = [dx / l, dy / l];
+  return {
+    p,
+    in: [p[0] - la * d[0], p[1] - la * d[1]],
+    out: [p[0] + lb * d[0], p[1] + lb * d[1]],
+    smooth,
+  };
+}
 
 /** Bézier segments of a chain given as knots `[p, in, out]`. */
 export const chain = (...knots: ChainKnot[]): Chain => ({ knots });
