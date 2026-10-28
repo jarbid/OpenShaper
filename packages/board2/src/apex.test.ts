@@ -25,7 +25,11 @@ function perturbApex(
 ): BoardDoc {
   const copy = structuredClone(doc) as { -readonly [K in keyof BoardDoc]: BoardDoc[K] };
   const move = (c: Chain, apex: number): void => {
-    const k = c.knots[apex] as { p: [number, number]; in: [number, number]; out: [number, number] };
+    const k = c.knots[apex] as unknown as {
+      p: [number, number];
+      in: [number, number];
+      out: [number, number];
+    };
     for (const h of which === 'both' ? (['in', 'out'] as const) : [which]) {
       const du = 'du' in how ? how.du : how.angle * Math.abs(k[h][1] - k.p[1]);
       k[h][0] -= du;

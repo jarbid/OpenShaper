@@ -16,12 +16,16 @@
  * cubic spline through the stations (zero end slopes), held constant beyond the
  * end stations. The spline is C2 at every interior station; the result is
  * therefore C2 along the board. (At an end station that lies inside the board the
- * curvature may jump: put the end stations at the board's ends.)
+ * curvature may jump: put the end stations at the board's ends.) The u coordinates,
+ * which must stay within [0, 1], go through one smooth limiter instead of a clamp
+ * or a switch: see {@link blendAt}. It depends continuously on the stations, so
+ * moving a station moves the surface by a comparable amount.
  */
 import { approximateCurve, controlPointsInto } from '@openshaper/geom';
 import type { CurveConstraint } from '@openshaper/geom';
 import { arcFractionParams, chainEval, compileChain } from './chain';
 import {
+  BLEND_ROOM_MIN,
   SECTION_APEX_TOL,
   SECTION_DIRECTION_TOL,
   SECTION_EXACT_TOL,
@@ -226,16 +230,17 @@ export interface SideBlend {
   readonly xs: Float64Array;
   /**
    * Fitted controls per station, `width` each, and per interval the second derivatives of its cubic
-   * at its left and right end (`lm`, `rm`; `width` each per interval). They are those of the
-   * complete C2 spline, except for the u coordinates that spline would push past a bound: those
-   * use a monotone C1 cubic (Fritsch-Carlson), which cannot leave [0, 1] and so needs no clamp
-   * (a clamp makes the derivative jump at a station whose control sits on the bound).
+   * at its left and right end (`lm`, `rm`; `width` each per interval): those of the complete C2
+   * spline. For the u coordinates (even indices) `ml`, `mr` hold the same for the monotone cubic
+   * Hermite interpolant (Fritsch-Carlson slopes, zero end slopes), which cannot leave the range of
+   * its data; {@link blendAt} limits the C2 spline's excursion from it. (Entries of the other
+   * coordinates are 0.)
    */
   readonly q: Float64Array;
   readonly lm: Float64Array;
   readonly rm: Float64Array;
-  /** u coordinates that use the monotone blend. */
-  readonly monotone: number;
+  readonly ml: Float64Array;
+  readonly mr: Float64Array;
   /** Per station: the fit error in cm (error × scale). */
   readonly stationError: Float64Array;
   /** Controls the fit pulled back into bounds, all stations. */
@@ -259,6 +264,9 @@ export function ladderClimb(): (worst: number) => { best: boolean; stop: boolean
     return { best: better, stop: worst <= SECTION_FIT_TOL || stalled >= SECTION_STALL_PATIENCE };
   };
 }
+
+/** What {@link blendAt} needs: a side's blend without the fit report. */
+export type Blend = Omit<SideBlend, 'stationError' | 'clamped'>;
 
 /**
  * Fits every station on a common knot vector and prepares the blend. Returns
@@ -294,7 +302,6 @@ export function fitSide(items: readonly SideItem[]): SideBlend | null {
   const { m, fits } = chosen;
   const n = items.length;
   const width = 2 * controlCount(m);
-  const xs = Float64Array.from(items.map((i) => i.x));
   const q = new Float64Array(n * width);
   const stationError = new Float64Array(n);
   let clamped = 0;
@@ -303,6 +310,18 @@ export function fitSide(items: readonly SideItem[]): SideBlend | null {
     stationError[i] = fits[i]!.error * items[i]!.scale;
     clamped += fits[i]!.clamped;
   }
+  const blend = blendControls(m, Float64Array.from(items.map((i) => i.x)), q);
+  return Object.freeze({ ...blend, stationError, clamped });
+}
+
+/**
+ * The blend through given station controls: `q` holds `width = 2·controlCount(m)` coordinates per
+ * station, `xs` the strictly increasing station coordinates. (The seam between the fits and the
+ * interpolation along the board; the fits are `fitSide`'s.)
+ */
+export function blendControls(m: number, xs: Float64Array, q: Float64Array): Blend {
+  const n = xs.length;
+  const width = 2 * controlCount(m);
   const mom = moments(xs, q, n, width);
   const lm = new Float64Array(Math.max(n - 1, 0) * width);
   const rm = new Float64Array(Math.max(n - 1, 0) * width);
@@ -310,78 +329,29 @@ export function fitSide(items: readonly SideItem[]): SideBlend | null {
     lm.set(mom.subarray(i * width, (i + 1) * width), i * width);
     rm.set(mom.subarray((i + 1) * width, (i + 2) * width), i * width);
   }
-  const monotone = boundBlend(xs, q, lm, rm, n, width);
-  return Object.freeze({
-    m,
-    knots: sectionKnots(m),
-    width,
-    xs,
-    q,
-    lm,
-    rm,
-    monotone,
-    stationError,
-    clamped,
-  });
-}
-
-/** Whether the cubic with end values `y0`, `y1`, end second derivatives `m0`, `m1` on an interval of length `h` leaves [0, 1]. */
-function leavesBounds(y0: number, y1: number, m0: number, m1: number, h: number): boolean {
-  const out = (v: number): boolean => v < -SECTION_EXACT_TOL || v > 1 + SECTION_EXACT_TOL;
-  // p'(t) = a t² + b t + c on t in [0, 1] (t the fraction of the interval)
-  const a = (h * h * (m1 - m0)) / 2;
-  const b = h * h * m0;
-  const c = y1 - y0 - (h * h * (m1 + 2 * m0)) / 6;
-  const at = (t: number): number => {
-    const A = 1 - t;
-    return A * y0 + t * y1 + (h * h * ((A * A * A - A) * m0 + (t * t * t - t) * m1)) / 6;
-  };
-  if (out(y0) || out(y1)) return true;
-  const roots: number[] = [];
-  const scale = Math.abs(a) + Math.abs(b) + Math.abs(c);
-  if (scale === 0) return false;
-  if (Math.abs(a) <= SECTION_EXACT_TOL * scale) {
-    if (b !== 0) roots.push(-c / b);
-  } else {
-    const disc = b * b - 4 * a * c;
-    if (disc >= 0) {
-      const r = Math.sqrt(disc);
-      roots.push((-b - r) / (2 * a), (-b + r) / (2 * a));
-    }
-  }
-  return roots.some((t) => t > 0 && t < 1 && out(at(t)));
+  const { ml, mr } = monotoneMoments(xs, q, n, width);
+  return { m, knots: sectionKnots(m), width, xs, q, lm, rm, ml, mr };
 }
 
 /**
- * Replaces, in place, the interval moments of every u coordinate (even index) whose C2 spline
- * leaves [0, 1] by those of the monotone cubic Hermite interpolant (Fritsch-Carlson slopes, zero
- * end slopes). Returns how many coordinates changed.
+ * The interval moments (second derivatives at the left and right end of each interval) of the
+ * monotone cubic Hermite interpolant (Fritsch-Carlson / Brodlie weighted harmonic slopes, zero end
+ * slopes) of every u coordinate (even index). It is C1 and stays within the range of its data on
+ * each interval; its slope depends continuously on the data (0 at a local extremum).
  */
-function boundBlend(
+function monotoneMoments(
   xs: Float64Array,
   q: Float64Array,
-  lm: Float64Array,
-  rm: Float64Array,
   n: number,
   width: number,
-): number {
-  let changed = 0;
+): { ml: Float64Array; mr: Float64Array } {
+  const ml = new Float64Array(Math.max(n - 1, 0) * width);
+  const mr = new Float64Array(Math.max(n - 1, 0) * width);
+  const d = new Float64Array(n);
+  const h = (i: number): number => xs[i + 1]! - xs[i]!;
   for (let k = 0; k < width; k += 2) {
-    let bad = false;
-    for (let i = 0; i + 1 < n && !bad; i++) {
-      bad = leavesBounds(
-        q[i * width + k]!,
-        q[(i + 1) * width + k]!,
-        lm[i * width + k]!,
-        rm[i * width + k]!,
-        xs[i + 1]! - xs[i]!,
-      );
-    }
-    if (!bad) continue;
-    changed++;
-    const d = new Float64Array(n);
-    const h = (i: number): number => xs[i + 1]! - xs[i]!;
     const delta = (i: number): number => (q[(i + 1) * width + k]! - q[i * width + k]!) / h(i);
+    d.fill(0);
     for (let i = 1; i + 1 < n; i++) {
       const l = delta(i - 1);
       const r = delta(i);
@@ -394,11 +364,11 @@ function boundBlend(
     for (let i = 0; i + 1 < n; i++) {
       const hh = h(i);
       const dl = delta(i);
-      lm[i * width + k] = (6 * dl - 4 * d[i]! - 2 * d[i + 1]!) / hh;
-      rm[i * width + k] = (-6 * dl + 2 * d[i]! + 4 * d[i + 1]!) / hh;
+      ml[i * width + k] = (6 * dl - 4 * d[i]! - 2 * d[i + 1]!) / hh;
+      mr[i * width + k] = (-6 * dl + 2 * d[i]! + 4 * d[i + 1]!) / hh;
     }
   }
-  return changed;
+  return { ml, mr };
 }
 
 /**
@@ -453,9 +423,20 @@ function moments(xs: Float64Array, q: Float64Array, n: number, width: number): F
  * `c`, `c1`, `c2` (each `width` long); a derivative array is only written for
  * the orders asked. Beyond the end stations the end section is held (value
  * exact, first derivative 0; the second is the spline's at the station itself).
+ *
+ * **The bounded u coordinates.** The C2 spline `s` through a u coordinate's station values may
+ * leave [0, 1] (a rail that is full at one station and tucked at the next). Instead of a switch or
+ * a clamp, the coordinate is `m + r·T(e / r)`: `m` is the monotone interpolant of the same data
+ * (always inside [0, 1]), `e = s − m` the spline's excursion from it, `r = m (1 − m)` the room to
+ * the nearest bound (never more than the distance to it), and `T(z) = z / √(1 + z²)` a smooth
+ * saturation. It cannot leave [0, 1] and passes through every station value. Where there is room
+ * (`e ≪ r`) it equals `s` to third order in `e / r`, so it is C2 across a station that is clear of
+ * the bounds; where the data touch a bound it follows `m` there (slope 0 on both sides, so the
+ * normal stays continuous; only the curvature can jump). It is a continuous function of the
+ * stations, which a threshold between two blends was not.
  */
 export function blendAt(
-  b: SideBlend,
+  b: Blend,
   xi: number,
   order: 0 | 1 | 2,
   c: Float64Array,
@@ -495,8 +476,40 @@ export function blendAt(
     const y1 = b.q[o1 + k]!;
     const m0 = b.lm[o0 + k]!;
     const m1 = b.rm[o0 + k]!;
-    c[k] = A * y0 + B * y1 + kA * m0 + kB * m1;
-    if (order >= 1) c1[k] = (y1 - y0) / h + dA * m0 + dB * m1;
-    if (order >= 2) c2[k] = A * m0 + B * m1;
+    let s = A * y0 + B * y1 + kA * m0 + kB * m1;
+    let s1 = (y1 - y0) / h + dA * m0 + dB * m1;
+    let s2 = A * m0 + B * m1;
+    if ((k & 1) === 0) {
+      // u coordinate: limit the spline's excursion from the monotone interpolant (see above)
+      const n0 = b.ml[o0 + k]!;
+      const n1 = b.mr[o0 + k]!;
+      const m = A * y0 + B * y1 + kA * n0 + kB * n1;
+      const mp = (y1 - y0) / h + dA * n0 + dB * n1;
+      const mpp = A * n0 + B * n1;
+      const e = s - m;
+      const r = m * (1 - m);
+      if (r > BLEND_ROOM_MIN) {
+        const rp = mp * (1 - 2 * m);
+        const rpp = mpp * (1 - 2 * m) - 2 * mp * mp;
+        const z = e / r;
+        const q = Math.sqrt(1 + z * z);
+        const T = z / q;
+        const S = 1 / (q * q * q);
+        const Sz = (-3 * z * S) / (q * q);
+        const ep = s1 - mp;
+        const zp = (ep - z * rp) / r;
+        const lim = T - S * z;
+        s = m + r * T;
+        s1 = mp + rp * lim + S * ep;
+        s2 = mpp + rpp * lim + r * Sz * zp * zp + S * (s2 - mpp);
+      } else {
+        s = m;
+        s1 = mp;
+        s2 = mpp;
+      }
+    }
+    c[k] = s;
+    if (order >= 1) c1[k] = s1;
+    if (order >= 2) c2[k] = s2;
   }
 }

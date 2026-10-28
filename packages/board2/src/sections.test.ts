@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   arrivingDirection,
   blendAt,
+  blendControls,
   controlCount,
   fitSection,
   fitSide,
@@ -84,8 +85,7 @@ describe('the blend', () => {
       for (let k = 0; k < w; k++) {
         expect(a[0][k]).toBeCloseTo(z[0][k]!, 8);
         expect(a[1][k]).toBeCloseTo(z[1][k]!, 6);
-        // (a u coordinate that the C2 spline would push past a bound uses the monotone blend: C1 only)
-        if (k % 2 === 1 || b.monotone === 0) expect(a[2][k]).toBeCloseTo(z[2][k]!, 4);
+        expect(a[2][k]).toBeCloseTo(z[2][k]!, 4);
       }
     }
     const [c, c1] = mk();
@@ -170,5 +170,171 @@ describe("the centre tangents are the stored curve's, not an assumption", () => 
     const vee = fitSection({ chain: chain([0.5, 0.15], [0.4, 1]), apex: 1 } as never, 12)!;
     expect(vee.ctrl[3]! / vee.ctrl[2]!).toBeGreaterThan(0.2); // the stored slope is 0.3
     expect(vee.error).toBeLessThan(0.01);
+  });
+});
+
+describe('the bounded blend (u stays within [0, 1], continuously in the stations)', () => {
+  const m = 12;
+  const width = 2 * controlCount(m);
+  const xs = Float64Array.from([10, 40, 90, 130, 170]);
+  // Station values of the u coordinates (even indices): pseudo-random in [0.2, 0.8], except that the
+  // coordinates below are full (1) or empty (0) at the middle station, which makes the C2 spline overshoot.
+  const base = ((): Float64Array => {
+    const q = new Float64Array(xs.length * width);
+    let seed = 12345;
+    const rnd = (): number => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648;
+    };
+    for (let i = 0; i < xs.length; i++) {
+      for (let k = 0; k < width; k++) q[i * width + k] = k % 2 === 0 ? 0.2 + 0.6 * rnd() : rnd();
+    }
+    return q;
+  })();
+  const FULL = [2, 6, 10]; // u coordinates (even indices) pushed to 1 at the middle station
+  const EMPTY = [14, 18]; // and to 0
+  /** Station data with the middle station's FULL/EMPTY coordinates at `p` (1 or 0 when `p` is 1). */
+  const data = (p: number): Float64Array => {
+    const q = base.slice();
+    for (const k of FULL) q[2 * width + k] = p;
+    for (const k of EMPTY) q[2 * width + k] = 1 - p;
+    // the neighbours are clear of the bounds, so the spline wants to go past them
+    for (const k of FULL) q[1 * width + k] = 0.55;
+    for (const k of EMPTY) q[1 * width + k] = 0.45;
+    return q;
+  };
+  const grid: number[] = [];
+  for (let x = 10; x <= 170; x += 0.5) grid.push(x);
+  const eval0 = (q: Float64Array): Float64Array => {
+    const b = blendControls(m, xs, q);
+    const c = new Float64Array(width);
+    const none = new Float64Array(width);
+    const out = new Float64Array(grid.length * width);
+    grid.forEach((x, i) => {
+      blendAt(b, x, 0, c, none, none);
+      out.set(c, i * width);
+    });
+    return out;
+  };
+
+  it('never leaves [0, 1], passes through every station value, and is the spline where there is room', () => {
+    const q = data(1);
+    const out = eval0(q);
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (let i = 0; i < grid.length; i++) {
+      for (let k = 0; k < width; k += 2) {
+        lo = Math.min(lo, out[i * width + k]!);
+        hi = Math.max(hi, out[i * width + k]!);
+      }
+    }
+    expect(lo).toBeGreaterThanOrEqual(0);
+    expect(hi).toBeLessThanOrEqual(1);
+    const b = blendControls(m, xs, q);
+    const c = new Float64Array(width);
+    const none = new Float64Array(width);
+    xs.forEach((x, i) => {
+      blendAt(b, x, 0, c, none, none);
+      for (let k = 0; k < width; k++) expect(c[k]).toBeCloseTo(q[i * width + k]!, 12);
+    });
+  });
+
+  it('is the C2 spline itself (to a few micrometres) where the data are smooth and well inside the bounds', () => {
+    const q = data(1);
+    const k = 20;
+    const smooth = [0.5, 0.52, 0.55, 0.57, 0.6];
+    smooth.forEach((v, i) => (q[i * width + k] = v));
+    const b = blendControls(m, xs, q);
+    const c = new Float64Array(width);
+    const none = new Float64Array(width);
+    let worst = 0;
+    for (const x of [25, 65, 110, 150]) {
+      blendAt(b, x, 0, c, none, none);
+      const i = x < 40 ? 0 : x < 90 ? 1 : x < 130 ? 2 : 3;
+      const h = xs[i + 1]! - xs[i]!;
+      const A = (xs[i + 1]! - x) / h;
+      const B = 1 - A;
+      const spline =
+        A * smooth[i]! +
+        B * smooth[i + 1]! +
+        (((A * A * A - A) * b.lm[i * width + k]! + (B * B * B - B) * b.rm[i * width + k]!) *
+          h *
+          h) /
+          6;
+      worst = Math.max(worst, Math.abs(c[k]! - spline));
+    }
+    expect(worst).toBeLessThan(1e-4);
+  });
+
+  it('moves by a comparable amount when a station value moves (no switch between two blends)', () => {
+    // sweep the middle station's FULL coordinates through the value at which the spline starts to overshoot
+    let prev = eval0(data(0.9));
+    let worstRatio = 0;
+    const step = 1e-3;
+    for (let p = 0.9 + step; p <= 1 + 1e-12; p += step) {
+      const cur = eval0(data(p));
+      let move = 0;
+      for (let j = 0; j < cur.length; j++) move = Math.max(move, Math.abs(cur[j]! - prev[j]!));
+      worstRatio = Math.max(worstRatio, move / step);
+      prev = cur;
+    }
+    // a station value moves the blend by a small multiple of its own amount, not by the whole gap
+    // between two blends (the monotone slopes are weighted harmonic means of the neighbouring chords)
+    expect(worstRatio).toBeLessThan(3);
+  });
+
+  it('has continuous first derivatives across every station, bounds touched or not, and second derivatives where clear of them', () => {
+    for (const p of [0.9, 1]) {
+      const b = blendControls(m, xs, data(p));
+      const a = [
+        new Float64Array(width),
+        new Float64Array(width),
+        new Float64Array(width),
+      ] as const;
+      const z = [
+        new Float64Array(width),
+        new Float64Array(width),
+        new Float64Array(width),
+      ] as const;
+      for (const x of [40, 90, 130]) {
+        blendAt(b, x - 1e-7, 2, ...a);
+        blendAt(b, x + 1e-7, 2, ...z);
+        for (let k = 0; k < width; k++) {
+          expect(Math.abs(a[1][k]! - z[1][k]!), `p ${p} x ${x} k ${k} slope`).toBeLessThan(1e-6);
+          const touches = k % 2 === 0 && [...FULL, ...EMPTY].includes(k) && x === 90 && p === 1;
+          if (!touches)
+            expect(Math.abs(a[2][k]! - z[2][k]!), `p ${p} x ${x} k ${k}`).toBeLessThan(1e-5);
+        }
+      }
+    }
+  });
+
+  it('has derivatives that agree with finite differences of the blend', () => {
+    for (const p of [0.9, 1]) {
+      const b = blendControls(m, xs, data(p));
+      const d = 1e-4;
+      const at = (x: number, order: 0 | 1 | 2) => {
+        const c = new Float64Array(width);
+        const c1 = new Float64Array(width);
+        const c2 = new Float64Array(width);
+        blendAt(b, x, order, c, c1, c2);
+        return { c, c1, c2 };
+      };
+      for (const x of [20, 63.3, 89.9, 90.1, 111, 150]) {
+        const lo = at(x - d, 1);
+        const hi = at(x + d, 1);
+        const mid = at(x, 2);
+        for (let k = 0; k < width; k++) {
+          expect(mid.c1[k]!, `p ${p} x ${x} k ${k} c1`).toBeCloseTo(
+            (hi.c[k]! - lo.c[k]!) / (2 * d),
+            5,
+          );
+          expect(mid.c2[k]!, `p ${p} x ${x} k ${k} c2`).toBeCloseTo(
+            (hi.c1[k]! - lo.c1[k]!) / (2 * d),
+            4,
+          );
+        }
+      }
+    }
   });
 });

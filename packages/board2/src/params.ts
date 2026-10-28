@@ -44,6 +44,12 @@ export const SECTION_APEX_TOL = 1e-3;
  * of 1e-8 must not decide whether a tangent is horizontal or vertical.
  */
 export const SECTION_HANDLE_MIN = 1e-6;
+/**
+ * Room (normalised u) below which the blend of a u coordinate is taken to sit on its bound: the limiter
+ * of `blendAt` has nothing to give there and the coordinate is the monotone interpolant itself. The error is
+ * below this, far under a micrometre.
+ */
+export const BLEND_ROOM_MIN = 1e-9;
 /** Samples per half section (bottom to apex, apex to deck) taken at equal arc-length fractions. */
 export const SECTION_HALF_SAMPLES = 192;
 /** Spans per half of the common knot vector, tried in order until every station fits. */

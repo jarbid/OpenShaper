@@ -4,13 +4,16 @@
  * swallow and a classic fish made from the shortboard, and the three test boards), and a few
  * measurements of a built board that more than one test needs.
  */
+import { board, crossSection, knotFromArray, loftRing, splineFromKnots } from '@openshaper/kernel';
 import type { BezierBoard } from '@openshaper/kernel';
 import { convertClassic } from '../classic';
 import { buildBoard, createEvaluator, MEASURE } from '../surface';
-import type { BuiltBoard } from '../surface';
+import type { BuiltBoard, SurfaceEvaluator } from '../surface';
 import { asymmetricBoard, fishBoard, swallowBoard } from '../testing';
 import type { BoardDoc } from '../types';
 import { classicNotched, GOLDENS } from './classic-samples';
+import { nurbsRing, polylineHausdorff } from './mesh-checks';
+import type { V3 } from './mesh-checks';
 
 export interface NamedBoard {
   readonly name: string;
@@ -86,4 +89,87 @@ export function apexCrease(
     }
   }
   return { max, at, list };
+}
+
+/**
+ * The distance (cm) between the converted surface's section at ξ = x and the classic loft's section at
+ * x: the larger of the two Hausdorff distances between the closed rings. (Valid where the plane x is a
+ * section of the converted surface, that is outside a notch zone.)
+ */
+export function ringDeviation(classic: BezierBoard, board: BuiltBoard, x: number): number {
+  const ev = createEvaluator(board);
+  const plus = nurbsRing(ev, x, 200);
+  const minus = plus.slice(1, -1).map((p): V3 => [p[0], -p[1], p[2]]);
+  const ring = [...plus, ...minus.reverse()];
+  const loft = loftRing(classic, x, 400);
+  if (loft === null) return Number.NaN;
+  const ref = loft.map((v): V3 => [v.x, v.y, v.z]);
+  return Math.max(polylineHausdorff(ref, ring, true), polylineHausdorff(ring, ref, true));
+}
+
+/**
+ * The classic board with slice `index` (counting the dummy tail slice as 0) edited: moved along the board
+ * by `dx`, and its knot `knot` (point and both handles) moved by (`dw`, `dh`) in the slice's own plane (cm).
+ */
+export function editSlice(
+  b: BezierBoard,
+  index: number,
+  edit: { dx?: number; knot?: number; dw?: number; dh?: number },
+): BezierBoard {
+  const slices = b.crossSections.map((cs, i) => {
+    if (i !== index) return cs;
+    const spline = splineFromKnots(
+      cs.spline.knots.map((k, j) =>
+        j === (edit.knot ?? -1)
+          ? knotFromArray(
+              [
+                k.end.x + (edit.dw ?? 0),
+                k.end.y + (edit.dh ?? 0),
+                k.tangentToPrev.x + (edit.dw ?? 0),
+                k.tangentToPrev.y + (edit.dh ?? 0),
+                k.tangentToNext.x + (edit.dw ?? 0),
+                k.tangentToNext.y + (edit.dh ?? 0),
+              ],
+              k.continuous,
+              k.other,
+            )
+          : k,
+      ),
+    );
+    return crossSection(cs.position + (edit.dx ?? 0), spline);
+  });
+  return board(b.outline, b.bottom, b.deck, slices, b.interpolationType, b.fins);
+}
+
+/**
+ * How far one built board's surface is from another's (cm): the largest Hausdorff distance between the
+ * rings of the two surfaces at `rows` values of ξ (cosine-spaced over the common range), on both sides.
+ * (A point-for-point comparison at equal (ξ, t) would also count the sliding of the parametrisation
+ * along a steep rail, which is not the surface moving.)
+ */
+export function surfaceMove(a: BuiltBoard, b: BuiltBoard, rows = 60, cols = 120): number {
+  const ea = createEvaluator(a);
+  const eb = createEvaluator(b);
+  const lo = Math.max(a.xiMin, b.xiMin);
+  const hi = Math.min(a.xiMax, b.xiMax);
+  let worst = 0;
+  for (const side of a.doc.symmetry === 'mirror' ? ([0] as const) : ([0, 1] as const)) {
+    const ring = (ev: SurfaceEvaluator, x: number): V3[] => {
+      const o = new Float64Array(3);
+      const out: V3[] = [];
+      ev.row(side, x, 0);
+      for (let j = 0; j <= cols; j++) {
+        ev.eval(j / cols, 0, o);
+        out.push([o[0]!, o[1]!, o[2]!]);
+      }
+      return out;
+    };
+    for (let i = 0; i <= rows; i++) {
+      const x = lo + ((hi - lo) * (1 - Math.cos((Math.PI * i) / rows))) / 2;
+      const ra = ring(ea, x);
+      const rb = ring(eb, x);
+      worst = Math.max(worst, polylineHausdorff(ra, rb, false), polylineHausdorff(rb, ra, false));
+    }
+  }
+  return worst;
 }
