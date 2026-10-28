@@ -122,7 +122,12 @@ describe.each(BOARDS)('%s board: the mesh', (_name, make) => {
     for (const side of [0, 1] as const) {
       // (a welded end row of an asymmetric board takes the plus side's positions)
       for (let i = 0; i < rows; i += 7) {
-        if (side === 1 && mesh.layout.weldFirst && i === 0) continue;
+        if (
+          side === 1 &&
+          ((mesh.layout.weldFirst && i === 0) || (mesh.layout.weldLast && i === rows - 1))
+        ) {
+          continue;
+        }
         for (let j = 0; j < cols; j += 3) {
           const v = meshVertex(mesh.layout, side, i, j);
           ev.at(side, xi[i]!, t[j]!, 0, o);
