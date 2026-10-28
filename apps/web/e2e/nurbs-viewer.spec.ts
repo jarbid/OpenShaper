@@ -64,6 +64,24 @@ test.describe('NURBS viewer, flag on', () => {
   });
 });
 
+test.describe('NURBS viewer, layer chunk unavailable', () => {
+  // The setting persists, so a layer chunk that will not load (offline, or removed by a
+  // deploy) must never take the editor down: the classic view stays and a note says why.
+  test('the editor still loads and shows a note when the layer cannot be fetched', async ({
+    page,
+  }) => {
+    await page.route(/nurbs-layer/, (route) => route.abort());
+    await page.goto('/app?engine=nurbs');
+    await open3D(page);
+    await expect(page.getByTestId('nurbs-unavailable')).toHaveText(
+      'NURBS viewer unavailable (offline?)',
+    );
+    await expect(page.getByText(/Something didn't load/)).toHaveCount(0);
+    await expect(page.locator('canvas').first()).toBeVisible();
+    await expect(page.getByTestId('nurbs-badge')).toHaveCount(0);
+  });
+});
+
 test.describe('NURBS viewer, flag off', () => {
   test('the default app has no NURBS UI and no NURBS code requests', async ({ page }) => {
     const errors = trackErrors(page);

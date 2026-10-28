@@ -54,6 +54,38 @@ test.describe('offline editor', () => {
     expect(errors).toEqual([]);
   });
 
+  /**
+   * "Engine: NURBS (experimental)" is a persisted setting, so with it saved the editor
+   * lazy-imports the NURBS layer on every load. The small layer chunk is precached; the
+   * heavy worker and core are not. Offline, the editor must still load and the layer show
+   * its badge.
+   * (Before the layer chunk was precached, the rejected import reached the route error
+   * screen and the canvas never appeared.)
+   */
+  test('the editor loads offline with the experimental NURBS engine saved', async ({
+    page,
+    context,
+  }) => {
+    await warmServiceWorker(page);
+    await page.evaluate(() => localStorage.setItem('bs.settings', '{"nurbsEngine":true}'));
+    await context.setOffline(true);
+    await page.reload();
+
+    await expect(page.getByText(/Something didn't load/)).toHaveCount(0);
+    await page.locator('canvas').first().waitFor();
+    await page.getByRole('button', { name: /^3D$/ }).first().click();
+    await expect(page.getByText(/Something didn't load/)).toHaveCount(0);
+    await expect(page.getByText(/Length/i).first()).toBeVisible();
+
+    // The layer chunk came from the precache. (Whether the worker then runs depends on
+    // the browser: Chromium's offline emulation does not always reach worker script
+    // fetches, so its outcome is not asserted; a failed worker is a failed conversion
+    // on the classic mesh, covered by the client and viewer unit tests.)
+    await expect(page.getByTestId('nurbs-badge')).toBeVisible();
+    await expect(page.getByTestId('nurbs-unavailable')).toHaveCount(0);
+    await expect(page.locator('canvas').first()).toBeVisible();
+  });
+
   // Docs are precached deliberately: being unable to read how a feature works is
   // worst precisely when there's no signal. This also pins the URL rewrite —
   // they're emitted as docs/fins/index.html but navigated to as /docs/fins, and
@@ -202,5 +234,9 @@ test.describe('offline editor', () => {
     // Both module workers must be precached or the editor loses live specs / 3D offline.
     expect(cached.some((p) => /specs-worker/.test(p))).toBe(true);
     expect(cached.some((p) => /tessellate\.worker/.test(p))).toBe(true);
+    // The NURBS layer (small) is precached for a saved engine setting; its worker and
+    // core (~0.6 MB) are fetched only by a user who turns the engine on.
+    expect(cached.some((p) => /\/assets\/nurbs-layer-/.test(p))).toBe(true);
+    expect(cached.filter((p) => /\/assets\/nurbs-(core|worker)-/.test(p))).toEqual([]);
   });
 });

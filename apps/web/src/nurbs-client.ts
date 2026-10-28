@@ -208,7 +208,15 @@ export function createNurbsClient(
     return new Promise<NurbsAnswer>((resolve, reject) => {
       const p: Pending = { id, kind: req.kind, onStage, resolve, reject };
       pending = p;
-      const t = ensureTransport();
+      let t: NurbsTransport | null;
+      try {
+        t = ensureTransport();
+      } catch (err) {
+        // The worker could not even be constructed (blocked, offline, CSP).
+        stop();
+        abandon(err instanceof Error ? err : new Error(String(err)));
+        return;
+      }
       if (t) {
         try {
           t.post(req);

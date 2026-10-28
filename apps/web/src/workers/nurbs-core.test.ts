@@ -14,6 +14,7 @@ import sampleBrd from '../sample-board.brd?raw';
 import {
   convertAndMesh,
   HELD_MODELS,
+  holdModel,
   meshBuiltBoard,
   releaseHeldModels,
   remesh,
@@ -178,18 +179,24 @@ describe('remesh', () => {
     expect(b.timings.buildMs).toBe(0);
     // A coarser face size gives fewer vertices.
     expect(b.mesh.positions.length).toBeLessThan(a.mesh.positions.length);
-  });
+    // ~1 s measured (two board builds' worth of work); 30 s so a loaded CI machine passes.
+  }, 30_000);
 
   it('holds only a few models', () => {
+    // Seed the held models directly: each would otherwise cost a ~0.6 s board build
+    // (measured 2.7 s for the old five-remesh version of this test, which timed out
+    // on a loaded machine). The eviction itself is checked through `remesh`.
     releaseHeldModels();
-    for (let id = 1; id <= HELD_MODELS + 1; id++) remesh(id, docJson, board, 3);
+    for (let id = 1; id <= HELD_MODELS + 1; id++) holdModel(id, built);
     const stages: string[] = [];
-    remesh(1, docJson, board, 3, (s) => stages.push(s)); // evicted: rebuilt
-    expect(stages[0]).toBe('building');
-    stages.length = 0;
     remesh(HELD_MODELS + 1, docJson, board, 3, (s) => stages.push(s)); // the newest: still held
     expect(stages[0]).toBe('meshing');
-  });
+    releaseHeldModels();
+    for (let id = 1; id <= HELD_MODELS + 1; id++) holdModel(id, built);
+    stages.length = 0;
+    remesh(1, docJson, board, 3, (s) => stages.push(s)); // evicted by the newer ones: rebuilt
+    expect(stages[0]).toBe('building');
+  }, 30_000);
 
   it('refuses a document that is not a board2 document', () => {
     const r = remesh(99, '{"format":"nope"}', board, 3);

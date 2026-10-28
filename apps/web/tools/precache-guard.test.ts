@@ -22,6 +22,7 @@ function validManifest(): PrecacheEntry[] {
     { url: 'assets/specs-worker-DKz.js', revision: null, size: 16_000 },
     { url: 'assets/tessellate.worker-DYN.js', revision: null, size: 16_000 },
     { url: 'assets/EditorPage-DQk.js', revision: null, size: 2_000 },
+    { url: 'assets/nurbs-layer-DO1.js', revision: null, size: 12_000 },
     { url: 'icons/icon-192.png', revision: 'mno', size: 6_000 },
     // Post-rewrite form: the guard runs after rewriteAppShellUrl in vite.config.ts.
     { url: 'docs', revision: 'd0' },
@@ -79,6 +80,18 @@ describe('assertEditorPrecache', () => {
     const entries = validManifest().filter((e) => e.url !== 'app');
     entries.push({ url: 'app/index.html', revision: 'x' });
     expect(messageOf(() => assertEditorPrecache(entries))).toMatch(/was not rewritten/);
+  });
+
+  it('rejects a manifest without the small NURBS layer chunk (the editor would not load offline with the setting on)', () => {
+    const entries = validManifest().filter((e) => !e.url.includes('nurbs-layer'));
+    expect(messageOf(() => assertEditorPrecache(entries))).toMatch(/NURBS layer chunk/);
+  });
+
+  it('rejects the heavy NURBS worker and core in the precache', () => {
+    for (const name of ['nurbs-core-pC1.js', 'nurbs-worker-DFC.js']) {
+      const entries = [...validManifest(), { url: `assets/${name}`, revision: null }];
+      expect(messageOf(() => assertEditorPrecache(entries))).toMatch(/worker and core/);
+    }
   });
 
   it('rejects a missing editor shell', () => {

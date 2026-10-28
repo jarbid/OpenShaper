@@ -112,6 +112,17 @@ export function assertEditorPrecache(entries: readonly PrecacheEntry[]): void {
     problems.push('no CSS entries — the assets glob probably matched nothing');
   }
 
+  // The experimental NURBS layer is lazy-imported on every load once the setting is
+  // saved: missing from the precache, the editor fails to load offline (the rejected
+  // import reaches the route error screen). Its heavy worker and core stay out.
+  if (countMatching(/^assets\/nurbs-layer-[^/]+\.js$/) < 1) {
+    problems.push('the small NURBS layer chunk (assets/nurbs-layer-*.js) must be precached');
+  }
+  const heavyNurbs = urls.filter((u) => /^assets\/nurbs-(core|worker)-[^/]+\.js$/.test(u));
+  if (heavyNurbs.length > 0) {
+    problems.push(`the NURBS worker and core must not be precached: ${heavyNurbs.join(', ')}`);
+  }
+
   // --- forbidden ---
   const marketingHtml = urls.filter((u) => isHtml(u) && !isAllowedHtml(u));
   if (marketingHtml.length > 0) {

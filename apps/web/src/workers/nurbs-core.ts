@@ -60,7 +60,8 @@ interface Held {
 }
 const held: Held[] = [];
 
-const hold = (modelId: number, built: BuiltBoard): void => {
+/** Keep `built` for cheap re-meshing under `modelId`; the oldest beyond {@link HELD_MODELS} go. */
+export const holdModel = (modelId: number, built: BuiltBoard): void => {
   const i = held.findIndex((h) => h.modelId === modelId);
   if (i !== -1) held.splice(i, 1);
   held.push({ modelId, built });
@@ -202,7 +203,7 @@ export const convertAndMesh = (
       };
     }
     const { built, doc } = r.value;
-    hold(modelId, built);
+    holdModel(modelId, built);
     const docJson = boardDocToJson(doc);
     const m = meshBuiltBoard(built, board, faceSize, progress);
     return {
@@ -263,7 +264,7 @@ export const remesh = (
       built = b.value;
       issues = b.issues.map(issueOf);
       buildMs = now() - t1;
-      hold(modelId, built);
+      holdModel(modelId, built);
     }
     const m = meshBuiltBoard(built, board, faceSize, progress);
     return {

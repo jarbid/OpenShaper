@@ -112,10 +112,15 @@ export default defineConfig({
           'og-cover.*',
           'sitemap.xml',
           'robots.txt',
-          // The experimental NURBS viewer (its layer, worker and synchronous-fallback
-          // core, ~0.6 MB): fetched only when the engine flag is on, so a user who
-          // never enables it does not download it, not even into the precache.
-          'assets/nurbs-*.js',
+          // The experimental NURBS viewer's worker and synchronous-fallback core
+          // (~0.6 MB): fetched only when the engine flag is on, so a user who never
+          // enables it does not download them, not even into the precache. The small
+          // layer chunk (`assets/nurbs-layer-*.js`, ~12 KB) IS precached: with the flag
+          // saved, the editor lazy-imports it on every load, and it must be there
+          // offline. (Without the worker and core the viewer reports that the
+          // conversion could not run and the classic view stays.)
+          'assets/nurbs-core-*.js',
+          'assets/nurbs-worker-*.js',
         ],
         // The three.js chunk exceeds the 2 MiB default, and an over-size entry is
         // dropped with only a warning — which would silently break the editor offline.

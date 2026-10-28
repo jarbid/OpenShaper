@@ -93,6 +93,7 @@ import { SharedBoardPrompt } from './SharedBoardPrompt';
 import { clearSharedPayload, peekSharedPayload } from './share-bootstrap';
 import { shareLinkMessage } from './share-url';
 import { loadSettings, saveSettings, type EditorSettings } from './settings';
+import { NurbsBoundary } from './nurbs-boundary';
 import { useEngineParam } from './nurbs-flag';
 import { CrossSectionControls } from './CrossSectionControls';
 import { LandscapeHint } from './LandscapeHint';
@@ -174,6 +175,7 @@ const ThreeDPane = memo(function ThreeDPane({
   // The NURBS surface for the board on screen, from the (lazy) NURBS layer; always
   // null with the engine flag off.
   const [surface, setSurface] = useState<ExternalSurface | null>(null);
+  const dropSurface = useCallback(() => setSurface(null), []);
   return (
     <div className="relative h-full w-full">
       <Suspense
@@ -190,14 +192,18 @@ const ThreeDPane = memo(function ThreeDPane({
         />
       </Suspense>
       {nurbsEngine && (
-        <Suspense fallback={null}>
-          <NurbsLayer
-            store={props.store}
-            faceSize={props.targetFaceSize ?? 0.9}
-            units={units}
-            onSurface={setSurface}
-          />
-        </Suspense>
+        // A chunk that will not load (offline, or removed by a deploy) must not take the
+        // editor down with it: the boundary falls back to the classic view.
+        <NurbsBoundary onFail={dropSurface}>
+          <Suspense fallback={null}>
+            <NurbsLayer
+              store={props.store}
+              faceSize={props.targetFaceSize ?? 0.9}
+              units={units}
+              onSurface={setSurface}
+            />
+          </Suspense>
+        </NurbsBoundary>
       )}
       {/* Only an exact mode reports anything but 'off'; switching away clears it. */}
       {props.analysis && props.analysis !== 'none' && (

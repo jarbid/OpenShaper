@@ -174,6 +174,17 @@ describe('errors', () => {
     await expect(client.convert(1, board, 0.9)).rejects.toThrow('DataCloneError');
   });
 
+  it('rejects (and does not stay pending) when the worker cannot be constructed', async () => {
+    let attempts = 0;
+    const client = createNurbsClient(() => {
+      attempts++;
+      throw new Error('Failed to construct Worker');
+    });
+    await expect(client.convert(1, board, 0.9)).rejects.toThrow('Failed to construct Worker');
+    await expect(client.convert(2, board, 0.9)).rejects.toThrow('Failed to construct Worker');
+    expect(attempts).toBe(2);
+  });
+
   it('dispose() rejects the job and releases the worker', async () => {
     const { workers, spawn } = fakeWorkers();
     const client = createNurbsClient(spawn);
