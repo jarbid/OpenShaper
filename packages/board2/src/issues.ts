@@ -39,6 +39,7 @@ export const BOARD2_ISSUE_CODES = [
   'feature-invalid',
   'build-invalid',
   'section-fit',
+  'section-normal',
   'blend-overshoot',
   'convert-slice',
   'convert-plan',

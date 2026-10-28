@@ -25,6 +25,59 @@ export const DEFAULT_BUILD: BuildSettings = Object.freeze({ tolerance: 0.05, rai
  * chord length and the thickness), so the true station deviation is about half of it.
  */
 export const SECTION_FIT_TOL = DEFAULT_BUILD.tolerance;
+// Rail smoothness (m1-model.md "As built (rail smoothness)"; `section-lsq.ts`, `sections.ts`).
+
+/**
+ * Registration. The centre of a section half's turning (its rail: the arc position of each turn, weighted
+ * by the turn) is placed at the knot nearest this t of the half in every section, bottom half ...
+ */
+export const SECTION_LANDMARK_BOTTOM = 0.78;
+/** ... and deck half, so the rails of two stations lie at the same t and a blend between them blends rail with rail. */
+export const SECTION_LANDMARK_DECK = 0.4;
+/** A half that turns by this much (rad) or more is registered in full; one that turns less (a flat or vee bottom) in proportion. */
+export const SECTION_REGISTER_TURN = 0.5;
+/**
+ * Graded knots. The span density of the shared knot vector is 1 over the flat end of a half (the bottom
+ * centre, the deck centre) up to this fraction of it, rises to {@link SECTION_GRADE_RATIO}
+ * at {@link SECTION_GRADE_TO}, and stays there to the apex: the rail and the wall have that many times
+ * the spans per length of the flat bottom and the crown of the deck.
+ */
+export const SECTION_GRADE_FROM = 0.4;
+export const SECTION_GRADE_TO = 0.7;
+export const SECTION_GRADE_RATIO = 5;
+/** Steps of the numeric inverse of the span density. */
+export const SECTION_GRADE_STEPS = 2000;
+/**
+ * A knot of a stored section where its chain turns by more than this (rad) is a corner: the end
+ * stations' 90 degree rail edge, the polygon sections' edges. A half with one corner holds it exactly.
+ */
+export const SECTION_CORNER_ANGLE = (15 * Math.PI) / 180;
+/**
+ * Weight of the tangent-direction rows of the fit: this many spans of position per radian (the
+ * rows ask the fitted tangent to be parallel to the stored one at every sample).
+ */
+export const SECTION_NORMAL_WEIGHT = 0.5;
+/**
+ * A rung of the span ladder is accepted only if the fitted section's tangent direction is within this
+ * angle (rad) of the stored one's, as well as the position being within {@link SECTION_FIT_TOL}.
+ */
+export const SECTION_NORMAL_TOL = (4 * Math.PI) / 180;
+/** Samples either side within which the stored tangent direction may match the fitted one (the position tolerance slides the fit along a bend). */
+export const SECTION_NORMAL_WINDOW = 1;
+/** The tangent-direction check measures angles on the section's real shape, with its width to thickness ratio held within 1/this and this (a sliver at a tip has no normal of its own). */
+export const SECTION_ASPECT_LIMIT = 8;
+/** A fitted curve moving slower than this share of its half's arc length per unit t has no tangent direction worth comparing (beside an exact corner it stands still). */
+export const SECTION_SPEED_FLOOR = 0.05;
+/** Share of a station's position error added to its fit cost: a tie-break between rungs whose tangent directions are equally far off. */
+export const SECTION_COST_TIE = 0.01;
+/** Polyline points per Bézier segment of a stored section, which the samples are taken from. */
+export const SECTION_POLYLINE_SAMPLES = 128;
+/** Polyline points either side of a sample that give its stored tangent direction. */
+export const SECTION_TANGENT_REACH = 3;
+/** Polyline points either side of a sample searched for the nearest point of the stored section when the fit error is measured (a few samples' worth). */
+export const SECTION_DISTANCE_REACH = 16;
+/** Ridge added to the diagonal of the fit's normal equations (a pivot guard, far below the data's weight of about 1). */
+export const SECTION_RIDGE = 1e-12;
 /** A rung must beat the best error so far by this factor (error ratio) to count as an improvement. */
 export const SECTION_STALL_RATIO = 0.85;
 /** Rungs in a row without such an improvement after which the ladder stops and keeps the best. */
@@ -50,7 +103,7 @@ export const SECTION_HANDLE_MIN = 1e-6;
  * below this, far under a micrometre.
  */
 export const BLEND_ROOM_MIN = 1e-9;
-/** Samples per half section (bottom to apex, apex to deck) taken at equal arc-length fractions. */
+/** Samples per half section (bottom to apex, apex to deck) the fit is made to, at equal steps of the fit's parameter t (arc length, registered at the rail). */
 export const SECTION_HALF_SAMPLES = 192;
 /** Spans per half of the common knot vector, tried in order until every station fits. */
 export const SECTION_SPAN_LADDER: readonly number[] = [12, 16, 24, 32, 48];

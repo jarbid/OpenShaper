@@ -37,7 +37,7 @@ import type { KeyedEval } from './features';
 import { frameAt, makeFrame } from './frame';
 import type { PlanFrame } from './frame';
 import { board2Err, board2Ok, hasErrors, makeIssue } from './issues';
-import { BLEND_CHECK_SAMPLES, CHORD_FLOOR, SECTION_FIT_TOL } from './params';
+import { BLEND_CHECK_SAMPLES, CHORD_FLOOR, SECTION_FIT_TOL, SECTION_NORMAL_TOL } from './params';
 import { blendAt, controlCount, fitSide } from './sections';
 import type { SideBlend, SideItem } from './sections';
 import type { Board2Issue, Board2Result, BoardDoc, BottomFeature } from './types';
@@ -54,6 +54,8 @@ export interface BuiltSide {
 export interface BuildReport {
   /** Largest station fit error over both sides, cm. */
   readonly stationFitError: number;
+  /** Largest angle (rad) by which a fitted station's tangent direction leaves the stored section's, over both sides. */
+  readonly stationNormalError: number;
   /** Spans per half of the common knot vector, per side. */
   readonly sectionSpans: readonly [number, number];
   /** Section controls pulled back into bounds or onto the Phase 0 rules by the fits. */
@@ -80,26 +82,28 @@ export interface BuiltBoard {
   readonly report: BuildReport;
 }
 
-/** Chord length and thickness at ξ: the scale that turns a normalised section error into cm. */
+/** Chord length and thickness (cm) at ξ, and the larger of the two: the scale that turns a normalised section error into cm. */
 function stationScale(
   frame: PlanFrame,
   rocker: CompiledChain,
   deck: CompiledChain,
   xi: number,
-): number {
+): { readonly chord: number; readonly thickness: number; readonly scale: number } {
   const p = new Float64Array(6);
   const r = new Float64Array(3);
   const d = new Float64Array(3);
   frameAt(frame, xi, p);
   funcEval(rocker, xi, r, 0);
   funcEval(deck, xi, d, 0);
-  return Math.max(Math.hypot(p[0]! - xi, p[1]!), d[0]! - r[0]!, CHORD_FLOOR);
+  const chord = Math.hypot(p[0]! - xi, p[1]!);
+  const thickness = d[0]! - r[0]!;
+  return { chord, thickness, scale: Math.max(chord, thickness, CHORD_FLOOR) };
 }
 
 /**
  * Builds the evaluator data of a document. Runs `validateBoard` first (pass
  * `{ check: false }` for a document already validated). A section fit that
- * misses {@link SECTION_FIT_TOL} or a blend that leaves the bounds is a warning.
+ * misses {@link SECTION_FIT_TOL} (position) or {@link SECTION_NORMAL_TOL} (tangent direction), or a blend that leaves the bounds, is a warning.
  */
 export function buildBoard(
   docIn: BoardDoc,
@@ -121,7 +125,7 @@ export function buildBoard(
       id: s.id,
       x: s.x,
       section: pick === 'plus' ? s.plus : (s.minus ?? s.plus),
-      scale: stationScale(frame, rocker, deck, s.x),
+      ...stationScale(frame, rocker, deck, s.x),
     }));
     const blend = fitSide(items);
     if (blend === null) {
@@ -140,6 +144,21 @@ export function buildBoard(
               severity: 'warning',
               at: { station: items[i]!.id, side: pick },
               value: blend.stationError[i]!,
+            },
+          ),
+        );
+      }
+    }
+    for (let i = 0; i < items.length; i++) {
+      if (blend.stationNormal[i]! > SECTION_NORMAL_TOL) {
+        issues.push(
+          makeIssue(
+            'section-normal',
+            `station '${items[i]!.id}' (${pick}): the fitted section's tangent direction leaves the stored one's by ${((blend.stationNormal[i]! * 180) / Math.PI).toPrecision(2)} degrees (limit ${((SECTION_NORMAL_TOL * 180) / Math.PI).toPrecision(2)})`,
+            {
+              severity: 'warning',
+              at: { station: items[i]!.id, side: pick },
+              value: blend.stationNormal[i]!,
             },
           ),
         );
@@ -173,6 +192,10 @@ export function buildBoard(
     stationFitError: Math.max(
       Math.max(...plus.blend.stationError),
       Math.max(...minus.blend.stationError),
+    ),
+    stationNormalError: Math.max(
+      Math.max(...plus.blend.stationNormal),
+      Math.max(...minus.blend.stationNormal),
     ),
     sectionSpans: [plus.blend.m, minus.blend.m] as const,
     clampedControls: plus.blend.clamped + (mirror ? 0 : minus.blend.clamped),

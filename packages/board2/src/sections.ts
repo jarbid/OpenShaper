@@ -2,15 +2,15 @@
 /**
  * The section fit and the smooth blend along the board (docs/design/m1-model.md §2).
  *
- * **Fit.** A station's section chain (normalised u-v) is resampled by arc-length
- * fraction, separately on each half (bottom to apex, apex to deck), and fitted by
- * a least-squares cubic B-spline (`approximateCurve`) on a knot vector that all
- * stations of a side share: `m` equal spans per half, a triple knot at t = ½ (the
- * apex). The fit holds the centre points, the horizontal centre tangents and the
- * apex point exactly; a vertical apex tangent is held (on both sides) when the stored one is within
- * {@link SECTION_APEX_TOL} of vertical.
- * `m` climbs a ladder until every station is within {@link SECTION_FIT_TOL} cm or the error
- * stops improving.
+ * **Fit.** A station's section chain (normalised u-v) is fitted, separately on each half (bottom to
+ * apex, apex to deck), by a least-squares cubic B-spline on a knot vector that all stations of a
+ * side share: `m` spans per half, graded towards the rail, a triple knot at t = ½ (the apex). The
+ * fit (`section-lsq.ts`) holds the centre points, the horizontal centre tangents and the apex point
+ * exactly (a vertical apex tangent on both sides when the stored one is within
+ * {@link SECTION_APEX_TOL} of vertical), registers the rail of every section to the same
+ * parameter, fits the tangent direction as well as the positions, and holds a corner of the stored
+ * section exactly. `m` climbs a ladder until every station is within {@link SECTION_FIT_TOL} cm and
+ * {@link SECTION_NORMAL_TOL} of the stored section's tangent direction, or the fit stops improving.
  *
  * **Blend.** Each control coordinate is interpolated along ξ by a **local** C2
  * quintic Hermite interpolant through the stations, held constant beyond the end
@@ -24,60 +24,31 @@
  * stations of the shortboard.) The u coordinates, which must stay within [0, 1], go
  * through one smooth limiter instead of a clamp or a switch: see {@link blendAt}.
  */
-import { approximateCurve, controlPointsInto } from '@openshaper/geom';
-import type { CurveConstraint } from '@openshaper/geom';
-import { arcFractionParams, chainEval, compileChain } from './chain';
+import {
+  arrivingDirection,
+  computeFit,
+  controlCount,
+  isNearVertical,
+  leavingDirection,
+  normalExcess,
+  sectionKnots,
+} from './section-lsq';
+import type { SectionFit } from './section-lsq';
 import {
   BLEND_ROOM_MIN,
-  SECTION_APEX_TOL,
-  SECTION_DIRECTION_TOL,
-  SECTION_EXACT_TOL,
+  SECTION_COST_TIE,
   SECTION_FIT_TOL,
-  SECTION_HANDLE_MIN,
-  SECTION_HALF_SAMPLES,
+  SECTION_NORMAL_TOL,
   SECTION_SPAN_LADDER,
   SECTION_STALL_PATIENCE,
   SECTION_STALL_RATIO,
 } from './params';
 import type { Section } from './types';
 
-/** Control points of the blended section for `m` spans per half. */
-export const controlCount = (m: number): number => 2 * m + 5;
-
-/** The shared clamped cubic knot vector: `m` equal spans per half, triple knot at ½. */
-export function sectionKnots(m: number): Float64Array {
-  const k: number[] = [0, 0, 0, 0];
-  for (let i = 1; i < m; i++) k.push(i / (2 * m));
-  k.push(0.5, 0.5, 0.5);
-  for (let i = 1; i < m; i++) k.push(0.5 + i / (2 * m));
-  k.push(1, 1, 1, 1);
-  return Float64Array.from(k);
-}
-
-function halfKnots(m: number): Float64Array {
-  const k: number[] = [0, 0, 0, 0];
-  for (let i = 1; i < m; i++) k.push(i / m);
-  k.push(1, 1, 1, 1);
-  return Float64Array.from(k);
-}
-
-/** One section fitted onto the `m`-span knot vector: `2·controlCount(m)` coordinates (u, v pairs). */
-export interface SectionFit {
-  readonly m: number;
-  readonly ctrl: Float64Array;
-  /** Largest distance from a sample to the fitted curve, normalised units. */
-  readonly error: number;
-  /** Controls moved back into the bounds. */
-  readonly clamped: number;
-}
+export { arrivingDirection, controlCount, isNearVertical, leavingDirection, sectionKnots };
+export type { SectionFit };
 
 const cache = new WeakMap<Section, Map<number, SectionFit | null>>();
-
-const fractions = ((): Float64Array => {
-  const f = new Float64Array(SECTION_HALF_SAMPLES + 1);
-  for (let j = 0; j <= SECTION_HALF_SAMPLES; j++) f[j] = j / SECTION_HALF_SAMPLES;
-  return f;
-})();
 
 /** Fits one section at `m` spans per half; cached by section identity. `null` if the fit failed. */
 export function fitSection(section: Section, m: number): SectionFit | null {
@@ -92,135 +63,34 @@ export function fitSection(section: Section, m: number): SectionFit | null {
   return fit;
 }
 
-/** First vector of `v` (as pairs) longer than the exact tolerance: the tangent of a Bézier end whose handle may have zero length. */
-function firstDirection(v: readonly (readonly [number, number])[]): [number, number] | null {
-  for (const d of v) if (Math.hypot(d[0], d[1]) > SECTION_HANDLE_MIN) return [d[0], d[1]];
-  return null;
-}
-
-/** Direction in which the chain leaves knot `k` (towards knot `k + 1`), from its control polygon. */
-export function leavingDirection(chain: Section['chain'], k: number): [number, number] | null {
-  const a = chain.knots[k]!;
-  const b = chain.knots[k + 1]!;
-  const sub = (q: readonly [number, number]): [number, number] => [q[0] - a.p[0], q[1] - a.p[1]];
-  return firstDirection([sub(a.out), sub(b.in), sub(b.p)]);
-}
-
-/** Direction in which the chain arrives at knot `k` (from knot `k - 1`). */
-export function arrivingDirection(chain: Section['chain'], k: number): [number, number] | null {
-  const a = chain.knots[k - 1]!;
-  const b = chain.knots[k]!;
-  const sub = (q: readonly [number, number]): [number, number] => [b.p[0] - q[0], b.p[1] - q[1]];
-  return firstDirection([sub(b.in), sub(a.out), sub(a.p)]);
-}
-
-const isHorizontal = (d: readonly [number, number] | null): boolean =>
-  d !== null && Math.abs(d[1]) <= SECTION_DIRECTION_TOL * Math.hypot(d[0], d[1]);
-/** Whether `d` is within {@link SECTION_APEX_TOL} of vertical. */
-export const isNearVertical = (d: readonly [number, number] | null): boolean =>
-  d !== null && Math.abs(d[0]) <= Math.sin(SECTION_APEX_TOL) * Math.hypot(d[0], d[1]);
-
-function computeFit(section: Section, m: number): SectionFit | null {
-  const chain = compileChain(section.chain);
-  const knots = section.chain.knots;
-  const n = knots.length;
-  const a = section.apex;
-  const apex = knots[a]!;
-  // The tangents that are held are the ones the stored curve really has (a zero-length
-  // handle leaves along the polygon, a V bottom or a pitched deck leaves at an angle).
-  const bottomFlat = isHorizontal(leavingDirection(section.chain, 0));
-  const deckFlat = isHorizontal(arrivingDirection(section.chain, n - 1));
-  // Each side of the apex is held vertical when the stored tangent is within SECTION_APEX_TOL of it.
-  // (A smooth knot with u = 1 at the section's widest point is vertical on both sides, since the
-  // bounds forbid a handle beyond u = 1; the flag is not trusted, only the geometry.)
-  const apexBelowVertical = isNearVertical(arrivingDirection(section.chain, a));
-  const apexAboveVertical = isNearVertical(leavingDirection(section.chain, a));
-  const sample = (s0: number, s1: number): Float64Array => {
-    const ss = arcFractionParams(chain, s0, s1, fractions);
-    const pts = new Float64Array(2 * ss.length);
-    for (let j = 0; j < ss.length; j++) chainEval(chain, ss[j]!, 0, pts, 2 * j);
-    return pts;
-  };
-  const horizontal = { x: 1, y: 0 };
-  const upward = { x: 0, y: 1 };
-  const pt = (t: number, x: number, y: number): CurveConstraint<2> => ({
-    kind: 'point',
-    t,
-    value: { x, y },
-  });
-  const dir = (t: number, d: { x: number; y: number }): CurveConstraint<2> => ({
-    kind: 'tangentDirection',
-    t,
-    direction: d,
-  });
-  const bottom: CurveConstraint<2>[] = [pt(0, 0, 0), pt(1, apex.p[0], apex.p[1])];
-  const deck: CurveConstraint<2>[] = [pt(0, apex.p[0], apex.p[1]), pt(1, 0, 1)];
-  if (bottomFlat) bottom.push(dir(0, horizontal));
-  if (deckFlat) deck.push(dir(1, horizontal));
-  if (apexBelowVertical) bottom.push(dir(1, upward));
-  if (apexAboveVertical) deck.push(dir(0, upward));
-  const half = (
-    s0: number,
-    s1: number,
-    cons: CurveConstraint<2>[],
-  ): { ctrl: Float64Array; err: number } | null => {
-    const r = approximateCurve(sample(s0, s1), 2, {
-      degree: 3,
-      knots: halfKnots(m),
-      params: fractions,
-      constraints: cons,
-    });
-    if (!r.ok) return null;
-    const ctrl = new Float64Array(2 * (m + 3));
-    controlPointsInto(r.value.curve, ctrl);
-    return { ctrl, err: r.value.maxError };
-  };
-  const b = half(0, a, bottom);
-  const d = half(a, n - 1, deck);
-  if (b === null || d === null) return null;
-  const count = controlCount(m);
-  const ctrl = new Float64Array(2 * count);
-  const nb = m + 3;
-  ctrl.set(b.ctrl, 0);
-  ctrl.set(d.ctrl.subarray(2), 2 * nb); // deck control 0 is the apex, already the bottom's last
-  // The rules are exact, not fitted: centre points and tangents, the apex point.
-  let clamped = 0;
-  const pin = (i: number, c: 0 | 1, value: number): void => {
-    if (Math.abs(ctrl[2 * i + c]! - value) > SECTION_EXACT_TOL) clamped++;
-    ctrl[2 * i + c] = value;
-  };
-  pin(0, 0, 0);
-  pin(0, 1, 0);
-  if (bottomFlat) pin(1, 1, 0);
-  pin(count - 1, 0, 0);
-  pin(count - 1, 1, 1);
-  if (deckFlat) pin(count - 2, 1, 1);
-  pin(nb - 1, 0, apex.p[0]);
-  ctrl[2 * (nb - 1) + 1] = apex.p[1];
-  // a vertical apex tangent: the controls next to the apex have the apex's u exactly, on both sides
-  if (apexBelowVertical) pin(nb - 2, 0, apex.p[0]);
-  if (apexAboveVertical) pin(nb, 0, apex.p[0]);
-  for (let i = 0; i < count; i++) {
-    const u = ctrl[2 * i]!;
-    if (u < 0 || u > 1) {
-      clamped++;
-      ctrl[2 * i] = u < 0 ? 0 : 1;
-    }
-  }
-  const error = Math.max(b.err, d.err);
-  return Object.freeze({ m, ctrl, error, clamped });
+/**
+ * What a station's fit costs, in cm: the larger of its position error and the position tolerance times the
+ * share of {@link SECTION_NORMAL_TOL} its tangent direction misses by, so the cost is within
+ * {@link SECTION_FIT_TOL} exactly when both are; and a small share of the position error besides, so a rung
+ * that improves the position while the direction cannot be improved still counts as better.
+ */
+function fitCost(fit: SectionFit, it: SideItem): number {
+  const pos = fit.error * it.scale;
+  const dir = (SECTION_FIT_TOL * stationNormal(fit, it)) / SECTION_NORMAL_TOL;
+  return Math.max(pos, dir) + SECTION_COST_TIE * pos;
 }
 
 // ---------------------------------------------------------------------------
 // One side's blend
 // ---------------------------------------------------------------------------
 
-/** A station's input to {@link fitSide}: `scale` converts normalised error to cm (the larger of chord length and thickness there). */
+/**
+ * A station's input to {@link fitSide}: `scale` converts normalised error to cm (the larger of chord length
+ * and thickness there); `chord` and `thickness` (cm, default `scale`) give the section its shape for the
+ * tangent-direction check.
+ */
 export interface SideItem {
   readonly id: string;
   readonly x: number;
   readonly section: Section;
   readonly scale: number;
+  readonly chord?: number;
+  readonly thickness?: number;
 }
 
 export interface SideBlend {
@@ -241,14 +111,19 @@ export interface SideBlend {
   readonly dd: Float64Array;
   /** Per station: the fit error in cm (error × scale). */
   readonly stationError: Float64Array;
+  /** Per station: how far the fitted tangent direction leaves the stored one's, rad ({@link normalExcess}). */
+  readonly stationNormal: Float64Array;
   /** Controls the fit pulled back into bounds, all stations. */
   readonly clamped: number;
 }
 
+const stationNormal = (fit: SectionFit, it: SideItem): number =>
+  normalExcess(fit.angles, it.chord ?? it.scale, it.thickness ?? it.scale);
+
 /**
- * The stopping rule of the span ladder. Offer the worst station error (cm) of each rung in turn; the
- * answer says whether this rung is the best so far (keep it) and whether to stop climbing: the error
- * is within {@link SECTION_FIT_TOL}, or {@link SECTION_STALL_PATIENCE} rungs in a row have failed to
+ * The stopping rule of the span ladder. Offer the worst station cost (cm: see `fitCost`) of each rung in
+ * turn; the answer says whether this rung is the best so far (keep it) and whether to stop climbing:
+ * the cost is within {@link SECTION_FIT_TOL} (position and tangent direction both), or {@link SECTION_STALL_PATIENCE} rungs in a row have failed to
  * beat the best error by {@link SECTION_STALL_RATIO}.
  */
 export function ladderClimb(): (worst: number) => { best: boolean; stop: boolean } {
@@ -259,12 +134,15 @@ export function ladderClimb(): (worst: number) => { best: boolean; stop: boolean
     stalled =
       worst <= SECTION_STALL_RATIO * best || best === Number.POSITIVE_INFINITY ? 0 : stalled + 1;
     if (better) best = worst;
-    return { best: better, stop: worst <= SECTION_FIT_TOL || stalled >= SECTION_STALL_PATIENCE };
+    return {
+      best: better,
+      stop: worst <= SECTION_FIT_TOL * (1 + SECTION_COST_TIE) || stalled >= SECTION_STALL_PATIENCE,
+    };
   };
 }
 
 /** What {@link blendAt} needs: a side's blend without the fit report. */
-export type Blend = Omit<SideBlend, 'stationError' | 'clamped'>;
+export type Blend = Omit<SideBlend, 'stationError' | 'stationNormal' | 'clamped'>;
 
 /**
  * Fits every station on a common knot vector and prepares the blend. Returns
@@ -279,6 +157,9 @@ export function fitSide(items: readonly SideItem[]): SideBlend | null {
   const climb = ladderClimb();
   for (const m of SECTION_SPAN_LADDER) {
     const fits: SectionFit[] = [];
+    // the rung's worst station cost, in cm (see fitCost): within the tolerance only when both the
+    // position and the tangent direction are, and an improvement in either counts
+    let worst = 0;
     let ok = true;
     for (const it of items) {
       const f = fitSection(it.section, m);
@@ -287,11 +168,9 @@ export function fitSide(items: readonly SideItem[]): SideBlend | null {
         break;
       }
       fits.push(f);
+      worst = Math.max(worst, fitCost(f, it));
     }
     if (!ok) continue;
-    let worst = 0;
-    for (let i = 0; i < items.length; i++)
-      worst = Math.max(worst, fits[i]!.error * items[i]!.scale);
     const step = climb(worst);
     if (step.best) chosen = { m, fits };
     if (step.stop) break;
@@ -302,14 +181,16 @@ export function fitSide(items: readonly SideItem[]): SideBlend | null {
   const width = 2 * controlCount(m);
   const q = new Float64Array(n * width);
   const stationError = new Float64Array(n);
+  const stationNormalErr = new Float64Array(n);
   let clamped = 0;
   for (let i = 0; i < n; i++) {
     q.set(fits[i]!.ctrl, i * width);
     stationError[i] = fits[i]!.error * items[i]!.scale;
+    stationNormalErr[i] = stationNormal(fits[i]!, items[i]!);
     clamped += fits[i]!.clamped;
   }
   const blend = blendControls(m, Float64Array.from(items.map((i) => i.x)), q);
-  return Object.freeze({ ...blend, stationError, clamped });
+  return Object.freeze({ ...blend, stationError, stationNormal: stationNormalErr, clamped });
 }
 
 /**

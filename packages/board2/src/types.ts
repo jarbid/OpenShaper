@@ -213,6 +213,7 @@ export type Board2IssueCode =
   | 'build-invalid'
   // build-time findings (warnings)
   | 'section-fit'
+  | 'section-normal'
   | 'blend-overshoot'
   // classic converter
   | 'convert-slice'
