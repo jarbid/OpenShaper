@@ -112,8 +112,11 @@ function halfKnots(m: number, towardEnd: boolean): Float64Array {
   return Float64Array.from([0, 0, 0, 0, ...gradedKnots(m, towardEnd), 1, 1, 1, 1]);
 }
 
-/** The interior knot of a half (1-based index `k`, parameter `t`) the rail is registered to: the one nearest the landmark. */
-function railKnot(m: number, towardEnd: boolean): { readonly k: number; readonly t: number } {
+/** The interior knot of a half (1-based index `k`, parameter `t` of the half) the rail is registered to: the one nearest the landmark. */
+export function railKnot(
+  m: number,
+  towardEnd: boolean,
+): { readonly k: number; readonly t: number } {
   const kn = gradedKnots(m, towardEnd);
   const land = towardEnd ? SECTION_LANDMARK_BOTTOM : SECTION_LANDMARK_DECK;
   let k = 1;

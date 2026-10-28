@@ -117,10 +117,16 @@ export const LANDMARK_KEYS: readonly (keyof Landmarks)[] = [
 const LANDMARK_SAMPLES = 800;
 
 /** The (u, v) point and tangent of the blended section at ξ for parameter `t`, from the controls `c`. */
-function sectionPoint(m: number, c: Float64Array, t: number, out: Float64Array): void {
-  const knots = sectionKnots(m);
+const basis = new Float64Array(BASIS_SIZE);
+function sectionPoint(
+  knots: Float64Array,
+  m: number,
+  c: Float64Array,
+  t: number,
+  out: Float64Array,
+): void {
   const count = controlCount(m);
-  const N = new Float64Array(BASIS_SIZE);
+  const N = basis;
   const span = spanOfKnots(knots, count, t, false);
   basisDers(knots, span, t, 1, N);
   let u = 0;
@@ -146,8 +152,9 @@ export function landmarksAt(b: Blend, xi: number): Landmarks {
   const c = new Float64Array(w);
   blendAt(b, xi, 0, c, new Float64Array(w), new Float64Array(w));
   const p = new Float64Array(4);
+  const knots = sectionKnots(b.m);
   // the apex is the control at index (m + 2) (the bottom half's last), t = 1/2
-  sectionPoint(b.m, c, 0.5, p);
+  sectionPoint(knots, b.m, c, 0.5, p);
   const apexV = p[1]!;
   // the bottom half from the apex down to where its tangent drops to 45 degrees, the deck half from
   // the apex up to where its tangent passes 135 degrees (linear between samples)
@@ -155,7 +162,7 @@ export function landmarksAt(b: Blend, xi: number): Landmarks {
     let prev: [number, number, number] | null = null;
     for (let k = 0; k <= LANDMARK_SAMPLES; k++) {
       const t = 0.5 + ((to - 0.5) * k) / LANDMARK_SAMPLES;
-      sectionPoint(b.m, c, t, p);
+      sectionPoint(knots, b.m, c, t, p);
       const a = Math.atan2(p[3]!, p[2]!);
       if (prev !== null && (prev[2] - level) * (a - level) <= 0 && a !== prev[2]) {
         const f = (level - prev[2]) / (a - prev[2]);
@@ -168,4 +175,11 @@ export function landmarksAt(b: Blend, xi: number): Landmarks {
   const tuck = find(0, Math.PI / 4);
   const deck = find(1, (3 * Math.PI) / 4);
   return { apexV, tuckU: tuck[0], tuckV: tuck[1], deckU: deck[0], deckV: deck[1] };
+}
+
+/** The point (u, v) of a section's controls `c` (a fit's `ctrl`, `m` spans per half) at parameter `t` of the whole section. */
+export function evalSection(m: number, c: Float64Array, t: number): [number, number] {
+  const p = new Float64Array(4);
+  sectionPoint(sectionKnots(m), m, c, t, p);
+  return [p[0]!, p[1]!];
 }
