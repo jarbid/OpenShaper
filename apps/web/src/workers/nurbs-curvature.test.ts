@@ -13,7 +13,13 @@ import {
 } from '@openshaper/geom';
 import { MAX_RADIUS } from '@openshaper/render3d/curvature-mesh';
 import { describe, expect, it } from 'vitest';
-import { convexCurvatures, curvatureScale, repairNormals, vertexAreas } from './nurbs-curvature';
+import {
+  convexCurvatures,
+  curvatureScale,
+  excludeUndefined,
+  repairNormals,
+  vertexAreas,
+} from './nurbs-curvature';
 
 const R = 7.5;
 
@@ -104,6 +110,33 @@ describe('display scale', () => {
     expect(scale.mean).toBeGreaterThan(0.009);
     expect(scale.mean).toBeLessThan(0.0115);
     expect(scale.gaussian).toBeGreaterThan(9e-5);
+    expect(scale.radius[0]).toBeGreaterThan(90);
+  });
+});
+
+describe('excludeUndefined', () => {
+  it('gives vertices with undefined curvature no weight in the display scales', () => {
+    // 100 vertices at mean 0.01 and 900 undefined ones (mean 0, capped radius) of the
+    // same area: counted, the 90th percentile of |mean| is 0; excluded, it is 0.01.
+    const n = 1000;
+    const mean = new Float32Array(n).fill(0.01);
+    const gaussian = new Float32Array(n).fill(1e-4);
+    const radius = new Float32Array(n).fill(100);
+    const undefinedAt = new Uint8Array(n);
+    for (let i = 100; i < n; i++) {
+      mean[i] = 0;
+      gaussian[i] = 0;
+      radius[i] = MAX_RADIUS;
+      undefinedAt[i] = 1;
+    }
+    const counted = curvatureScale(mean, gaussian, radius, new Float64Array(n).fill(1));
+    expect(counted.mean).toBeLessThan(1e-9);
+    const area = excludeUndefined(new Float64Array(n).fill(1), undefinedAt);
+    expect(area.slice(0, 100).every((a) => a === 1)).toBe(true);
+    expect(area.slice(100).every((a) => a === 0)).toBe(true);
+    const scale = curvatureScale(mean, gaussian, radius, area);
+    expect(scale.mean).toBeGreaterThan(0.009);
+    expect(scale.mean).toBeLessThan(0.0115);
     expect(scale.radius[0]).toBeGreaterThan(90);
   });
 });

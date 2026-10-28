@@ -77,6 +77,20 @@ export const vertexAreas = (
 };
 
 /**
+ * Give vertices whose curvature is undefined (`SAMPLE_DEGENERATE`: a collapsed edge,
+ * a tip point) no weight in the display scales, in place, and return `area`. They keep
+ * mean 0 and the capped radius, and as flat spots they would drag the percentiles
+ * down; the classic engine leaves its cap vertices out of the scales the same way.
+ */
+export const excludeUndefined = (
+  area: Float64Array,
+  undefinedAt: ArrayLike<number>,
+): Float64Array => {
+  for (let i = 0; i < area.length; i++) if (undefinedAt[i]) area[i] = 0;
+  return area;
+};
+
+/**
  * The display scales of the three modes: the same area-weighted percentiles as the
  * classic engine's curvature mesh (`SCALE_PERCENTILE`, `RADIUS_PERCENTILES`), so a
  * board reads the same on either surface.

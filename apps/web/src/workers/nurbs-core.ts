@@ -24,7 +24,13 @@ import { convertClassic, type Conversion } from '@openshaper/board2/classic';
 import { SAMPLE_DEGENERATE, tessellateBrep, type TessellationOptions } from '@openshaper/geom';
 import type { BezierBoard } from '@openshaper/kernel';
 import { MAX_RADIUS } from '@openshaper/render3d/curvature-mesh';
-import { convexCurvatures, curvatureScale, repairNormals, vertexAreas } from './nurbs-curvature';
+import {
+  convexCurvatures,
+  curvatureScale,
+  excludeUndefined,
+  repairNormals,
+  vertexAreas,
+} from './nurbs-curvature';
 import { classicDeviation } from './nurbs-deviation';
 import type {
   NurbsIssue,
@@ -110,13 +116,17 @@ export const meshBuiltBoard = (
   const mean = new Float32Array(vertexCount);
   const gaussian = new Float32Array(vertexCount);
   const minRadius = new Float32Array(vertexCount).fill(MAX_RADIUS);
+  const undefinedCurvature = new Uint8Array(vertexCount);
   for (let f = 0; f < b.faces.length; f++) {
     const face = built.brep.faces[f]!;
     const m = b.faces[f]!;
     const base = b.vertexRanges[f]!;
     const count = b.vertexRanges[f + 1]! - base;
     for (let i = 0; i < count; i++) {
-      if ((m.flags[i]! & SAMPLE_DEGENERATE) !== 0) continue;
+      if ((m.flags[i]! & SAMPLE_DEGENERATE) !== 0) {
+        undefinedCurvature[base + i] = 1;
+        continue;
+      }
       const c = convexCurvatures(m.curvature[2 * i]!, m.curvature[2 * i + 1]!, face.sameSense);
       mean[base + i] = c.mean;
       gaussian[base + i] = c.gaussian;
@@ -124,7 +134,7 @@ export const meshBuiltBoard = (
     }
   }
   repairNormals(positions, normals, indices);
-  const area = vertexAreas(positions, indices, vertexCount);
+  const area = excludeUndefined(vertexAreas(positions, indices, vertexCount), undefinedCurvature);
   const scale = curvatureScale(mean, gaussian, minRadius, area);
   const tessellateMs = now() - t0;
 

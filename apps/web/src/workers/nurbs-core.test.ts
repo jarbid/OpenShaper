@@ -9,7 +9,8 @@ import { boardDocToJson, buildBoard, type BuiltBoard } from '@openshaper/board2'
 import { stadiumBoard } from '@openshaper/board2/testing';
 import { parseBrd } from '@openshaper/io';
 import { knotFromArray, splineFromKnots } from '@openshaper/kernel';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { MAX_RADIUS } from '@openshaper/render3d/curvature-mesh';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import sampleBrd from '../sample-board.brd?raw';
 import {
   convertAndMesh,
@@ -20,6 +21,26 @@ import {
   remesh,
   tessellationFor,
 } from './nurbs-core';
+
+// Lets one test flag tessellation samples as degenerate (geom flags a tip point or a
+// collapsed edge); every other test sees geom unchanged.
+const injected = { degenerateShare: 0 };
+vi.mock('@openshaper/geom', async (importActual) => {
+  const actual = await importActual<typeof import('@openshaper/geom')>();
+  return {
+    ...actual,
+    tessellateBrep: ((...args: Parameters<typeof actual.tessellateBrep>) => {
+      const r = actual.tessellateBrep(...args);
+      if (!r.ok || injected.degenerateShare <= 0) return r;
+      const every = Math.round(1 / injected.degenerateShare);
+      const faces = r.value.faces.map((f) => {
+        const flags = Uint8Array.from(f.flags, (v, i) => (i % every === 0 ? v | 1 : v));
+        return { ...f, flags };
+      });
+      return { ...r, value: { ...r.value, faces } };
+    }) as typeof actual.tessellateBrep,
+  };
+});
 
 const doc = stadiumBoard();
 let built: BuiltBoard;
@@ -138,6 +159,29 @@ describe('meshBuiltBoard', () => {
     let worst = 0;
     for (const m of mesh.mean) worst = Math.min(worst, m);
     expect(worst).toBeGreaterThan(-0.01);
+  });
+
+  it('leaves vertices with undefined curvature out of the display scales', () => {
+    // Half of all samples flagged degenerate: they keep mean 0 and the capped radius, and
+    // counted as flat spots they would pull every percentile towards 0 / the cap.
+    const plain = meshBuiltBoard(built, null, 1.5).mesh;
+    injected.degenerateShare = 0.5;
+    let flagged;
+    try {
+      flagged = meshBuiltBoard(built, null, 1.5).mesh;
+    } finally {
+      injected.degenerateShare = 0;
+    }
+    const n = flagged.positions.length / 3;
+    let undefinedAt = 0;
+    for (let i = 0; i < n; i++) {
+      if (flagged.mean[i] === 0 && flagged.minRadius[i] === MAX_RADIUS) undefinedAt++;
+    }
+    expect(undefinedAt).toBeGreaterThan(n / 3);
+    // The surviving half is the same board, so the scales stay about where they were.
+    expect(flagged.scale.mean).toBeGreaterThan(0.5 * plain.scale.mean);
+    expect(flagged.scale.mean).toBeLessThan(2 * plain.scale.mean);
+    expect(flagged.scale.radius[0]).toBeLessThan(MAX_RADIUS / 10);
   });
 
   it('measures against the classic board when given one', () => {
