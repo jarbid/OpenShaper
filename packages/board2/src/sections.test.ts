@@ -239,29 +239,22 @@ describe('the bounded blend (u stays within [0, 1], continuously in the stations
     });
   });
 
-  it('is the C2 spline itself (to a few micrometres) where the data are smooth and well inside the bounds', () => {
+  it('is the unlimited blend itself (to a few micrometres) where the data are smooth and well inside the bounds', () => {
     const q = data(1);
     const k = 20;
     const smooth = [0.5, 0.52, 0.55, 0.57, 0.6];
-    smooth.forEach((v, i) => (q[i * width + k] = v));
+    // the same data in u coordinate k (limited) and in v coordinate k + 1 (never limited)
+    smooth.forEach((v, i) => {
+      q[i * width + k] = v;
+      q[i * width + k + 1] = v;
+    });
     const b = blendControls(m, xs, q);
     const c = new Float64Array(width);
     const none = new Float64Array(width);
     let worst = 0;
     for (const x of [25, 65, 110, 150]) {
       blendAt(b, x, 0, c, none, none);
-      const i = x < 40 ? 0 : x < 90 ? 1 : x < 130 ? 2 : 3;
-      const h = xs[i + 1]! - xs[i]!;
-      const A = (xs[i + 1]! - x) / h;
-      const B = 1 - A;
-      const spline =
-        A * smooth[i]! +
-        B * smooth[i + 1]! +
-        (((A * A * A - A) * b.lm[i * width + k]! + (B * B * B - B) * b.rm[i * width + k]!) *
-          h *
-          h) /
-          6;
-      worst = Math.max(worst, Math.abs(c[k]! - spline));
+      worst = Math.max(worst, Math.abs(c[k]! - c[k + 1]!));
     }
     expect(worst).toBeLessThan(1e-4);
   });
