@@ -403,22 +403,27 @@ function halfBasis(m: number, towardEnd: boolean): HalfBasis {
 
 /** The distance from (u, v) to the stored chain's polyline, searched `SECTION_DISTANCE_REACH` points either side of index `i`. */
 function distanceToStored(d: DenseHalf, i: number, u: number, v: number): number {
-  const n = d.cum.length;
+  const k0 = Math.max(1, i - SECTION_DISTANCE_REACH);
+  const k1 = Math.min(d.cum.length - 1, i + SECTION_DISTANCE_REACH);
   let best = Number.POSITIVE_INFINITY;
-  for (
-    let k = Math.max(1, i - SECTION_DISTANCE_REACH);
-    k <= Math.min(n - 1, i + SECTION_DISTANCE_REACH);
-    k++
-  ) {
-    const ax = d.x[k - 1]!;
-    const ay = d.y[k - 1]!;
-    const ex = d.x[k]! - ax;
-    const ey = d.y[k]! - ay;
+  let ax = d.x[k0 - 1]!;
+  let ay = d.y[k0 - 1]!;
+  for (let k = k0; k <= k1; k++) {
+    const bx = d.x[k]!;
+    const by = d.y[k]!;
+    const ex = bx - ax;
+    const ey = by - ay;
     const ee = ex * ex + ey * ey;
-    const f = ee > 0 ? Math.min(1, Math.max(0, ((u - ax) * ex + (v - ay) * ey) / ee)) : 0;
-    best = Math.min(best, Math.hypot(u - ax - f * ex, v - ay - f * ey));
+    let f = ee > 0 ? ((u - ax) * ex + (v - ay) * ey) / ee : 0;
+    f = f < 0 ? 0 : f > 1 ? 1 : f;
+    const dx = u - ax - f * ex;
+    const dy = v - ay - f * ey;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < best) best = d2;
+    ax = bx;
+    ay = by;
   }
-  return best;
+  return Math.sqrt(best);
 }
 
 const FIXED = -1;

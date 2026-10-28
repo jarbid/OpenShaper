@@ -75,7 +75,7 @@ export const SECTION_POLYLINE_SAMPLES = 128;
 /** Polyline points either side of a sample that give its stored tangent direction. */
 export const SECTION_TANGENT_REACH = 3;
 /** Polyline points either side of a sample searched for the nearest point of the stored section when the fit error is measured (a few samples' worth). */
-export const SECTION_DISTANCE_REACH = 16;
+export const SECTION_DISTANCE_REACH = 12;
 /** Ridge added to the diagonal of the fit's normal equations (a pivot guard, far below the data's weight of about 1). */
 export const SECTION_RIDGE = 1e-12;
 /** A rung must beat the best error so far by this factor (error ratio) to count as an improvement. */
