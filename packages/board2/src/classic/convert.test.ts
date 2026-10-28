@@ -326,6 +326,109 @@ describe('swallow and fish tails', () => {
   );
 });
 
+/** A classic spline with knot `index` replaced by the given point and handles (absolute coordinates). */
+function withKnot(
+  sp: BezierBoard['outline'],
+  index: number,
+  v: { p?: [number, number]; in?: [number, number]; out?: [number, number] },
+): BezierBoard['outline'] {
+  return splineFromKnots(
+    sp.knots.map((k, i) =>
+      i === index
+        ? knotFromArray(
+            [
+              (v.p ?? [k.end.x, k.end.y])[0],
+              (v.p ?? [k.end.x, k.end.y])[1],
+              (v.in ?? [k.tangentToPrev.x, k.tangentToPrev.y])[0],
+              (v.in ?? [k.tangentToPrev.x, k.tangentToPrev.y])[1],
+              (v.out ?? [k.tangentToNext.x, k.tangentToNext.y])[0],
+              (v.out ?? [k.tangentToNext.x, k.tangentToNext.y])[1],
+            ],
+            k.continuous,
+            k.other,
+          )
+        : k,
+    ),
+  );
+}
+
+describe('handles that overlap in x (the curve is a function of x, the control polygon is not)', () => {
+  const base = GOLDENS[0]!.load();
+  const rebuild = (parts: Partial<Pick<BezierBoard, 'outline' | 'bottom' | 'deck'>>): BezierBoard =>
+    board(
+      parts.outline ?? base.outline,
+      parts.bottom ?? base.bottom,
+      parts.deck ?? base.deck,
+      base.crossSections,
+      base.interpolationType,
+      base.fins,
+    );
+  const goldenAdjust = ok(base).report.lineAdjust;
+
+  it('converts the shortboard whose tail knot handle reaches past the next knot (refused as "would have to move 2.6 cm" before)', () => {
+    // the tail knot's out handle at (33, 17); the wide knot's in handle is at x = 30.39, so the polygon goes backwards
+    const edited = rebuild({ outline: withKnot(base.outline, 1, { out: [33, 17] }) });
+    const r = ok(edited);
+    expect(r.doc.outline.plus.knots[1]!.out).toEqual([33, 17]); // left alone
+    expect(r.report.lineAdjust).toBeCloseTo(goldenAdjust, 12); // only the golden's own 0.002 cm nose handle
+    // and the converted plan is the classic outline
+    const b = built(edited);
+    const ev = createEvaluator(b);
+    const o = new Float64Array(18);
+    const outline = sampleOutline(edited.outline, 3000).map((p): V3 => [p.x, p.y, 0]);
+    const apex: V3[] = [];
+    for (let i = 0; i <= 3000; i++) {
+      ev.at(0, (getLength(edited) * (1 - Math.cos((Math.PI * i) / 3000))) / 2, 0.5, 0, o);
+      apex.push([o[0]!, o[1]!, 0]);
+    }
+    expect(polylineHausdorff(apex, outline, false)).toBeLessThan(0.05);
+  });
+
+  it('converts overlapping rocker and deck handles and copies them knot for knot', () => {
+    // rocker: first knot's out handle at x = 45, the next knot's in handle at 41.11: monotone as a curve
+    const rocker = withKnot(base.bottom, 0, { out: [45, base.bottom.knots[0]!.tangentToNext.y] });
+    // deck: the same on its second segment (knot index 2 -> 3 is the last real one; use 1 -> 2)
+    const dk = base.deck.knots;
+    const deck = withKnot(base.deck, 1, {
+      out: [dk[2]!.tangentToPrev.x + 12, dk[1]!.tangentToNext.y],
+    });
+    const edited = rebuild({ bottom: rocker, deck });
+    const r = ok(edited);
+    expect(r.doc.rocker.knots[0]!.out[0]).toBe(45);
+    expect(r.doc.deck.knots[0]!.out[0]).toBe(dk[2]!.tangentToPrev.x + 12);
+    expect(r.report.lineAdjust).toBeCloseTo(goldenAdjust, 12);
+    // z(x) is the stored curve: the converted rocker at x matches the classic within 0.05 cm
+    const b = built(edited);
+    const ev = createEvaluator(b);
+    const o = new Float64Array(18);
+    for (let x = 1; x < getLength(edited) - 1; x += 3) {
+      ev.at(0, x, 0, 0, o);
+      expect(Math.abs(o[2]! - getRockerAtPos(edited, x)), `rocker at ${x}`).toBeLessThan(0.05);
+    }
+  });
+
+  it('converts a pin-to-squash tail whose handles overlap in x, keeping the handles', () => {
+    // a squash tail: the outline starts at x = 0 with a half-width of 5 cm; its first handle reaches x = 6,
+    // beyond the next knot's in handle (3), with the next knot at x = 9
+    let outline = withKnot(base.outline, 0, { p: [0, 5], out: [6, 5.3] });
+    outline = withKnot(outline, 1, { p: [9, 11.5], in: [3, 11.4], out: [14, 12] });
+    const edited = rebuild({ outline });
+    const r = ok(edited);
+    expect(r.report.bluntEnds).toEqual([true, false]);
+    expect(r.doc.outline.plus.knots[1]!.out).toEqual([6, 5.3]); // knot 0 of the board is the stringer edge
+    expect(r.doc.outline.plus.knots[2]!.in).toEqual([3, 11.4]);
+    expect(r.report.lineAdjust).toBeCloseTo(goldenAdjust, 12);
+  });
+
+  it('still refuses a curve that really goes backwards, and repairs a small overshoot', () => {
+    // a handle far beyond the next knot: x(t) loops back, the repair would be large
+    const loop = rebuild({ bottom: withKnot(base.bottom, 0, { out: [400, 6.44] }) });
+    const r = convertClassic(loop);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.issues.some((i) => i.code === 'convert-plan')).toBe(true);
+  });
+});
+
 describe('refusals', () => {
   const base = GOLDENS[0]!.load();
   const code = (b: BezierBoard): string | undefined => {

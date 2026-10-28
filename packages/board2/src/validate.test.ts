@@ -126,6 +126,19 @@ describe('validateBoard', () => {
     expect(validateBoard(doc)).toEqual([]);
   });
 
+  it('tests the curve of the rocker and deck, not their control polygons', () => {
+    // handles that overlap in x (the first beyond the second) while x(t) still increases: a function of x
+    const doc = mutate(swallowBoard(), (d) => {
+      d.rocker.knots[0].out[0] = 80; // next knot: x = 92, in handle 62
+      d.deck.knots[0].out[0] = 70;
+    });
+    expect(validateBoard(doc)).toEqual([]);
+    // and a curve that does go backwards is still refused
+    expect(codes(mutate(swallowBoard(), (d) => (d.rocker.knots[0].out[0] = 400)))).toEqual([
+      'line-not-function',
+    ]);
+  });
+
   it('lets the deck meet the rocker at the ends, but not cross it', () => {
     // zero thickness at the tail and at the nose: the board closes to a point or an edge there
     const closeEnds = (gap: number) =>

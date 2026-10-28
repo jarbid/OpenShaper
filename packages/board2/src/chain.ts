@@ -40,6 +40,33 @@ export function compileChain(chain: Chain): CompiledChain {
 }
 
 /**
+ * Whether x(t) of a Bézier segment with x control values `c0 … c3` does not decrease on [0, 1],
+ * to within `slack` (cm per unit t). A test of the *curve*, exact (the minimum of x′/3, a quadratic,
+ * at the ends and at its stationary point), not of the control polygon: handles may overlap in x
+ * (the first one beyond the second) and the curve still be a function of x.
+ */
+export function segmentXIncreasing(
+  c0: number,
+  c1: number,
+  c2: number,
+  c3: number,
+  slack: number,
+): boolean {
+  // x′(t) / 3 = d0 (1-t)² + 2 d1 (1-t) t + d2 t², the Bernstein form of the Bézier differences
+  const d0 = c1 - c0;
+  const d1 = c2 - c1;
+  const d2 = c3 - c2;
+  const floor = -slack / 3;
+  if (d0 < floor || d2 < floor) return false;
+  const a = d0 - 2 * d1 + d2;
+  if (a > 0) {
+    const t = (d0 - d1) / a;
+    if (t > 0 && t < 1 && (d0 * d2 - d1 * d1) / a < floor) return false;
+  }
+  return true;
+}
+
+/**
  * The point, and for `order ≥ 1, 2` the first and second derivatives, at chain
  * parameter `s` into `out[o … o + 2·(order + 1))` as x y x′ y′ x″ y″.
  */

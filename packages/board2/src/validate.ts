@@ -23,7 +23,7 @@
  * Document *shape* (types, finiteness, unknown keys) is `reviveBoardDoc`'s; this
  * judges the board. Never throws on a revived document.
  */
-import { chainEval, chainMinX, compileChain, funcEval } from './chain';
+import { chainEval, chainMinX, compileChain, funcEval, segmentXIncreasing } from './chain';
 import type { CompiledChain } from './chain';
 import { featureIssues } from './features';
 import { frameAt, makeFrame, outlineParam } from './frame';
@@ -456,13 +456,12 @@ function lineIssues(
     }
     for (let k = 0; k < ch.segments; k++) {
       const b = 8 * k;
-      if (
-        !(ch.c[b]! <= ch.c[b + 2]! && ch.c[b + 2]! <= ch.c[b + 4]! && ch.c[b + 4]! <= ch.c[b + 6]!)
-      ) {
+      // the curve, not its control polygon: overlapping handles are fine while x does not decrease
+      if (!segmentXIncreasing(ch.c[b]!, ch.c[b + 2]!, ch.c[b + 4]!, ch.c[b + 6]!, PLAN_EXACT_TOL)) {
         ok = false;
         err(
           'line-not-function',
-          `${name} segment ${k}: the control points' x must not decrease (z must be a function of x)`,
+          `${name} segment ${k}: x decreases along the curve (z must be a function of x)`,
           { key: k },
         );
         break;

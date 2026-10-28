@@ -28,7 +28,7 @@ import {
   type Knot,
   type Spline,
 } from '@openshaper/kernel';
-import { chainParamAtX, compileChain } from '../chain';
+import { chainParamAtX, compileChain, segmentXIncreasing } from '../chain';
 import { deepFreeze } from '../freeze';
 import { makeFrame, xiOfParam } from '../frame';
 import { board2Err, board2Ok, makeIssue } from '../issues';
@@ -140,7 +140,12 @@ function splitSegment(a: K, b: K, t: number): K {
   return { p: s, in: r0, out: r1, smooth: true };
 }
 
-/** Pulls handles' x into their segment's [x0, x3] (so x is non-decreasing along a forward chain) and, optionally, y up to 0. Returns the largest move. */
+/**
+ * Repairs a chain so that x is a function along it (non-decreasing from knot `from` on) and, optionally,
+ * lifts handles' y up to 0. A segment whose *curve* already has x non-decreasing is left alone, even if its
+ * handles overlap in x (the first beyond the second: the control polygon is not monotone, the curve is);
+ * only a segment whose curve goes backwards has its handles' x pulled into [x0, x3]. Returns the largest move.
+ */
 function monotoneX(ks: K[], from: number, clampY: boolean): number {
   let moved = 0;
   const set = (q: [number, number], x: number, y: number): void => {
@@ -153,7 +158,7 @@ function monotoneX(ks: K[], from: number, clampY: boolean): number {
     const b = ks[k + 1]!;
     const c0 = a.p[0];
     const c3 = b.p[0];
-    if (c3 >= c0) {
+    if (c3 >= c0 && !segmentXIncreasing(c0, a.out[0], b.in[0], c3, PLAN_EXACT_TOL)) {
       const c1 = Math.min(Math.max(a.out[0], c0), c3);
       const c2 = Math.min(Math.max(b.in[0], c1), c3);
       set(a.out, c1, a.out[1]);
