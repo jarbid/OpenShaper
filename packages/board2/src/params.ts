@@ -19,8 +19,18 @@ export const DEFAULT_BUILD: BuildSettings = Object.freeze({ tolerance: 0.05, rai
 // Section fit (m1-model.md §2, "Smooth blend")
 // ---------------------------------------------------------------------------
 
-/** A station's fitted section must be within this of the stored one (cm). */
-export const SECTION_FIT_TOL = 0.01;
+/**
+ * A station's fitted section must be within this of the stored one (cm): the project's one
+ * tolerance, 0.5 mm. The measure is conservative (normalised error times the larger of the
+ * chord length and the thickness), so the true station deviation is about half of it.
+ */
+export const SECTION_FIT_TOL = DEFAULT_BUILD.tolerance;
+/** A rung must beat the best error so far by this factor (error ratio) to count as an improvement. */
+export const SECTION_STALL_RATIO = 0.85;
+/** Rungs in a row without such an improvement after which the ladder stops and keeps the best. */
+export const SECTION_STALL_PATIENCE = 2;
+/** A tangent is horizontal (vertical) when its vertical (horizontal) share of its length is below this. */
+export const SECTION_DIRECTION_TOL = 1e-9;
 /** Samples per half section (bottom to apex, apex to deck) taken at equal arc-length fractions. */
 export const SECTION_HALF_SAMPLES = 192;
 /** Spans per half of the common knot vector, tried in order until every station fits. */
@@ -60,6 +70,8 @@ export const NOTCH_CHECK_SAMPLES = 96;
 export const LINE_CHECK_SAMPLES = 16;
 /** Smallest thickness (cm) the rocker and deck may leave anywhere. */
 export const MIN_THICKNESS = 0;
+/** Rounding slack (cm) of the thickness at x = 0 and x = L, where the deck may meet the rocker. */
+export const THICKNESS_END_SLACK = 1e-9;
 /** Samples per station interval when reporting blend overshoot. */
 export const BLEND_CHECK_SAMPLES = 8;
 
@@ -126,3 +138,6 @@ export const CONVERT_CENTRE_TOL = 1e-6;
 export const CONVERT_ZONE_LADDER: readonly number[] = [1.5, 2, 3, 4, 6, 8, 12];
 /** Largest control-point move (cm) a repair may make before the board is refused: the build tolerance. */
 export const CONVERT_MAX_ADJUST = DEFAULT_BUILD.tolerance;
+/** Decimals (normalised units) to which two converted sections are the same section, and how many are remembered. */
+export const CONVERT_CONTENT_DIGITS = 9;
+export const CONVERT_CONTENT_CACHE = 96;

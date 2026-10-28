@@ -2,7 +2,8 @@
 /**
  * The direct classic converter (docs/design/m1-model.md §4, step 2 acceptance in §6):
  *
- * - every classic sample file converts or is refused with a reason, and none throws;
+ * - every classic sample file converts, and none throws (convert.files.test.ts has the files that
+ *   need a zero-thickness end, a V bottom or a blunt tail);
  * - the outline, rocker and deck are copied exactly, the slices are normalised and keep their
  *   identity when the slice is unchanged;
  * - on the golden boards the converted surface matches the classic one within 0.05 cm at the
@@ -37,22 +38,6 @@ import type { V3 } from '../test-support/mesh-checks';
 import { fishBoard, swallowBoard } from '../testing';
 import { convertClassic } from './index';
 
-/** The pinned outcome of each sample file: converted, or refused with this first issue code. */
-const OUTCOME: Readonly<Record<string, string>> = {
-  'shortboard.brd': 'ok',
-  'funboard.brd': 'ok',
-  'longboard.brd': 'ok',
-  'sample-board.brd': 'ok',
-  'self-authored-shortboard.brd': 'ok',
-  'synthetic-clean-6x22x2-75.s3dx': 'thickness',
-  'synthetic-degenerate-section.s3dx': 'ok',
-  'synthetic-fallback-outline-5x10.s3dx': 'thickness',
-  'synthetic-rocker-absolute-deck.s3dx': 'convert-slice',
-  'synthetic-rocker-thickness-deck.s3dx': 'convert-slice',
-  'synthetic-stringer-fold-a.s3dx': 'ok',
-  'synthetic-stringer-fold-b.s3dx': 'ok',
-};
-
 function ok(b: BezierBoard) {
   const r = convertClassic(b);
   if (!r.ok) throw new Error(r.issues.map((i) => `${i.code}: ${i.message}`).join('; '));
@@ -66,37 +51,25 @@ function built(b: BezierBoard): BuiltBoard {
 }
 
 describe('the sample files', () => {
-  it('each converts or is refused with a reason; none throws', () => {
-    const seen = new Set<string>();
+  it('each converts, builds, meshes closed and round-trips through JSON; none throws', () => {
     for (const sample of SAMPLES) {
-      const base = sample.name.replace(/^.*\//, '');
       const r = convertClassic(sample.load());
-      if (r.ok) {
-        // a converted board builds and meshes closed
-        const b = buildBoard(r.value.doc, { check: false });
-        expect(b.ok, sample.name).toBe(true);
-        if (b.ok) {
-          const m = meshBoard(b.value);
-          expect(topology(m.indices, m.vertexCount).badEdges, sample.name).toBe(0);
-          expect(m.volume, sample.name).toBeGreaterThan(0);
-        }
-        // and its document round-trips through JSON exactly
-        const text = boardDocToJson(r.value.doc);
-        const back = reviveBoardDoc(JSON.parse(text) as unknown);
-        expect(back.ok, sample.name).toBe(true);
-        if (back.ok) expect(boardDocToJson(back.value)).toBe(text);
-        expect(OUTCOME[base], sample.name).toBe('ok');
-      } else {
-        const first = r.issues.find((i) => i.severity === 'error')!;
-        expect(first.message.length).toBeGreaterThan(10);
-        expect(OUTCOME[base], `${sample.name}: ${first.code}`).toBe(first.code);
+      expect(r.ok, `${sample.name}: ${r.ok ? '' : r.issues.map((i) => i.message).join('; ')}`).toBe(
+        true,
+      );
+      if (!r.ok) continue;
+      const b = buildBoard(r.value.doc, { check: false });
+      expect(b.ok, sample.name).toBe(true);
+      if (b.ok) {
+        const m = meshBoard(b.value);
+        expect(topology(m.indices, m.vertexCount).badEdges, sample.name).toBe(0);
+        expect(m.volume, sample.name).toBeGreaterThan(0);
       }
-      seen.add(base);
+      const text = boardDocToJson(r.value.doc);
+      const back = reviveBoardDoc(JSON.parse(text) as unknown);
+      expect(back.ok, sample.name).toBe(true);
+      if (back.ok) expect(boardDocToJson(back.value)).toBe(text);
     }
-    // the three copies of each golden board are the same board
-    expect([...seen].sort()).toEqual(
-      [...new Set(SAMPLES.map((s) => s.name.replace(/^.*\//, '')))].sort(),
-    );
   });
 });
 
@@ -138,7 +111,28 @@ describe.each(GOLDENS)('$name', (sample) => {
     again.doc.stations.forEach((s, i) => expect(s.plus).toBe(doc.stations[i]!.plus));
     // an edit that replaces one slice: only that section is new
     const slices = classic.crossSections;
-    const edited = crossSection(slices[2]!.position, scaleSpline(slices[2]!.spline, 1.03, 1.0));
+    const spline = slices[2]!.spline;
+    const edited = crossSection(
+      slices[2]!.position,
+      splineFromKnots(
+        spline.knots.map((k, i) =>
+          i === 1
+            ? knotFromArray(
+                [
+                  k.end.x,
+                  k.end.y + 0.2,
+                  k.tangentToPrev.x,
+                  k.tangentToPrev.y + 0.2,
+                  k.tangentToNext.x,
+                  k.tangentToNext.y + 0.2,
+                ],
+                k.continuous,
+                k.other,
+              )
+            : k,
+        ),
+      ),
+    );
     const changed = board(
       classic.outline,
       classic.bottom,
@@ -179,6 +173,25 @@ describe.each(GOLDENS)('$name', (sample) => {
       classic.fins,
     );
     ok(moved).doc.stations.forEach((s, i) => expect(s.plus).toBe(doc.stations[i]!.plus));
+  });
+
+  it('gives a slice that was only rescaled the very same section (the resize-with-outline drag)', () => {
+    // scaling a slice in width and height changes its classic control points but not its
+    // normalised section, so a drag that resizes the sections keeps the fit cache warm
+    const slices = classic.crossSections;
+    const scaled = board(
+      classic.outline,
+      classic.bottom,
+      classic.deck,
+      slices.map((c, i) =>
+        i === 0 || i === slices.length - 1
+          ? c
+          : crossSection(c.position, scaleSpline(c.spline, 1.07, 0.93)),
+      ),
+      classic.interpolationType,
+      classic.fins,
+    );
+    ok(scaled).doc.stations.forEach((s, i) => expect(s.plus).toBe(doc.stations[i]!.plus));
   });
 
   describe('against the classic surface', () => {
@@ -320,16 +333,9 @@ describe('refusals', () => {
     return r.ok ? undefined : r.issues.find((i) => i.severity === 'error')?.code;
   };
 
-  it('refuses a board without slices, a blunt tail and a slice without thickness', () => {
+  it('refuses a board without slices and a slice without thickness', () => {
     expect(code(board(base.outline, base.bottom, base.deck, [base.crossSections[0]!]))).toBe(
       'too-few-sections',
-    );
-    const blunt = splineFromKnots([
-      knotFromArray([0, 2, 0, 2, 0, 4], false, false),
-      ...base.outline.knots.slice(1),
-    ]);
-    expect(code(board(blunt, base.bottom, base.deck, base.crossSections))).toBe(
-      'outline-endpoints',
     );
     const flat = crossSection(
       30,

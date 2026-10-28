@@ -518,6 +518,16 @@ function buildMesh(
 
   /** Writes the vertex in `vtx` as node `(i, j)` of `side`, and on a mirror board its mirror image. */
   const store = (side: 0 | 1, i: number, j: number): void => {
+    if (mirror && (j === 0 || j === cols - 1)) {
+      // a vertex on the stringer is shared by both halves: its normal is their mean, which has no
+      // sideways part (a V bottom or a pitched deck has a crease there)
+      const len = Math.hypot(vtx[3]!, vtx[5]!);
+      if (len > 0) {
+        vtx[3] = vtx[3]! / len;
+        vtx[4] = 0;
+        vtx[5] = vtx[5]! / len;
+      }
+    }
     const v = meshVertex(layout, side, i, j);
     put(v, false);
     if (side === 0 && mirror && j !== 0 && j !== cols - 1) {

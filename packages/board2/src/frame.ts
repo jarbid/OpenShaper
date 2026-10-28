@@ -16,7 +16,13 @@
  */
 import { chainEval, chainMinX, chainParamAtX } from './chain';
 import type { CompiledChain } from './chain';
-import { MIN_CHORD_ANGLE, NOTCH_MIN_LAMBDA, SOLVE_MAX_ITER, TIP_SLOPE_FLOOR } from './params';
+import {
+  MIN_CHORD_ANGLE,
+  NOTCH_MIN_LAMBDA,
+  PLAN_EXACT_TOL,
+  SOLVE_MAX_ITER,
+  TIP_SLOPE_FLOOR,
+} from './params';
 import type { TailSpec } from './types';
 
 /** The notch zone's map (undefined on a standard board). */
@@ -43,12 +49,20 @@ export interface PlanFrame {
 
 const tmp = new Float64Array(6);
 
+/** Whether the segment at offset `b` of `c` is a straight run at x = `x0` (all four control points). */
+const verticalSegment = (c: Float64Array, b: number, x0: number): boolean =>
+  [0, 2, 4, 6].every((i) => Math.abs(c[b + i]! - x0) <= PLAN_EXACT_TOL);
+
 /** Builds the frame of one half-outline for a tail spec. */
 export function makeFrame(chain: CompiledChain, tail: TailSpec): PlanFrame {
   const xiMin = chain.c[0]!;
   const xiMax = chain.c[8 * chain.segments - 2]!;
   if (tail.kind === 'standard') {
-    return Object.freeze({ chain, xiMin, xiMax, notch: null, forwardFrom: 0 });
+    // A blunt tail starts with a vertical edge (x = 0 from the stringer to the tail's half-width):
+    // the first chord ends at the far end of that edge, so the end section is the whole transom.
+    let from = 0;
+    while (from < chain.segments - 1 && verticalSegment(chain.c, 8 * from, xiMin)) from++;
+    return Object.freeze({ chain, xiMin, xiMax, notch: null, forwardFrom: from });
   }
   const sTip = chainMinX(chain).s;
   const d = xiMin;

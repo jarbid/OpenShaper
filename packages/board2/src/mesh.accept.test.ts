@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * M1 step 2 acceptance of the grid mesh (docs/design/m1-model.md §6), on the three golden
- * boards (converted) and the swallow, fish and asymmetric test boards:
+ * boards (converted), the four sample files that need a zero-thickness end or a V bottom
+ * (step 4) and the swallow, fish and asymmetric test boards:
  *
  * 1. triangle centres and edge midpoints (diagonals included) are within the 0.05 cm tolerance of
  *    the surface, and the mesh is closed: every edge is shared by two triangles, oriented
@@ -13,7 +14,7 @@ import { convertClassic } from './classic';
 import { meshBoard } from './mesh';
 import { buildBoard } from './surface';
 import type { BuiltBoard } from './surface';
-import { GOLDENS } from './test-support/classic-samples';
+import { GOLDENS, SAMPLES } from './test-support/classic-samples';
 import { meshDeviation, topology } from './test-support/mesh-checks';
 import { asymmetricBoard, fishBoard, swallowBoard } from './testing';
 import type { BoardDoc } from './types';
@@ -26,6 +27,16 @@ function build(doc: BoardDoc): BuiltBoard {
 
 const cases: readonly [string, () => BuiltBoard][] = [
   ...GOLDENS.map((g): [string, () => BuiltBoard] => [
+    g.name.replace(/^.*\//, ''),
+    () => {
+      const c = convertClassic(g.load());
+      if (!c.ok) throw new Error(c.issues.map((i) => i.message).join('; '));
+      return build(c.value.doc);
+    },
+  ]),
+  ...SAMPLES.filter((g) =>
+    /clean-6x22|fallback-outline|rocker-absolute-deck|rocker-thickness-deck/.test(g.name),
+  ).map((g): [string, () => BuiltBoard] => [
     g.name.replace(/^.*\//, ''),
     () => {
       const c = convertClassic(g.load());

@@ -4,8 +4,9 @@
  * §1 and §2), each violation reported under its own code.
  *
  * - **Phase 0 (sections):** the centre knots are fixed at (0, 0) and (0, 1)
- *   (`section-centre-moved`) with horizontal handles (`section-centre-tangent`);
- *   the apex knot is an interior knot (`section-apex-index`) with u = 1
+ *   (`section-centre-moved`); their handles are free (a V bottom or a pitched deck leaves
+ *   the stringer at an angle: a crease along it, as in the classic) but must be finite
+ *   (`section-centre-tangent`); the apex knot is an interior knot (`section-apex-index`) with u = 1
  *   (`section-apex-moved`); every control point has 0 ≤ u ≤ 1
  *   (`section-out-of-bounds`), so by the convex hull property no section passes
  *   the outline or the stringer.
@@ -15,7 +16,8 @@
  *   and every chord crosses the outline at 20 degrees or more
  *   (`notch-chord-angle`).
  * - **Lines and stations:** rocker and deck span [0, L] as functions of x and
- *   leave a positive thickness; stations are sorted, uniquely named, inside the
+ *   leave a positive thickness (zero at x = 0 and x = L: the board closes to a point or
+ *   an edge there); stations are sorted, uniquely named, inside the
  *   station range.
  *
  * Document *shape* (types, finiteness, unknown keys) is `reviveBoardDoc`'s; this
@@ -31,6 +33,7 @@ import {
   LINE_CHECK_SAMPLES,
   MIN_CHORD_ANGLE,
   MIN_THICKNESS,
+  THICKNESS_END_SLACK,
   NOTCH_CHECK_SAMPLES,
   OUTLINE_CHECK_SAMPLES,
   PLAN_EXACT_TOL,
@@ -196,17 +199,17 @@ function sectionIssues(sec: Section, id: string, side: 'plus' | 'minus', err: Er
       at,
     );
   }
-  if (!near(first.out[1], first.p[1], SECTION_EXACT_TOL)) {
+  if (!first.out.every(Number.isFinite)) {
     err(
       'section-centre-tangent',
-      `station '${id}' (${side}): the bottom centre handle must be horizontal`,
+      `station '${id}' (${side}): the bottom centre handle must be finite`,
       at,
     );
   }
-  if (!near(last.in[1], last.p[1], SECTION_EXACT_TOL)) {
+  if (!last.in.every(Number.isFinite)) {
     err(
       'section-centre-tangent',
-      `station '${id}' (${side}): the deck centre handle must be horizontal`,
+      `station '${id}' (${side}): the deck centre handle must be finite`,
       at,
     );
   }
@@ -474,10 +477,12 @@ function lineIssues(
     const x = (L * i) / n;
     funcEval(rocker, x, r, 0);
     funcEval(deck, x, d, 0);
-    if (!(d[0]! - r[0]! > MIN_THICKNESS)) {
+    const t = d[0]! - r[0]!;
+    // zero thickness is allowed at the two ends only (a board that closes to a point or an edge)
+    if (!(i === 0 || i === n ? t >= -THICKNESS_END_SLACK : t > MIN_THICKNESS)) {
       err(
         'thickness',
-        `the deck must be above the rocker; at x = ${x} the thickness is ${d[0]! - r[0]!}`,
+        `the deck must be above the rocker; at x = ${x} the thickness is ${t}`,
         { x },
         d[0]! - r[0]!,
       );

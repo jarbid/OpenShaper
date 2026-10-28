@@ -34,6 +34,8 @@ import { makeFrame, xiOfParam } from '../frame';
 import { board2Err, board2Ok, makeIssue } from '../issues';
 import {
   CONVERT_CENTRE_TOL,
+  CONVERT_CONTENT_CACHE,
+  CONVERT_CONTENT_DIGITS,
   CONVERT_MAX_ADJUST,
   CONVERT_MAX_SPLIT_DEPTH,
   CONVERT_MIN_SIZE,
@@ -42,6 +44,7 @@ import {
   CONVERT_WALL_TOL,
   CONVERT_ZONE_LADDER,
   DEFAULT_BUILD,
+  PLAN_EXACT_TOL,
 } from '../params';
 import type {
   Board2Issue,
@@ -75,6 +78,8 @@ export interface ConversionReport {
   readonly addedKnots: number;
   /** The deck's end walls (tail, nose) were dropped. */
   readonly deckWalls: readonly [boolean, boolean];
+  /** The outline ended off the stringer at the tail, nose: a straight edge to the stringer was added. */
+  readonly bluntEnds: readonly [boolean, boolean];
 }
 
 export interface ClassicConversion {
@@ -204,7 +209,8 @@ function widest(ks: readonly K[]): { k: number; t: number; x: number }[] {
       }
     }
     for (const t of roots) {
-      if (!(t > 0 && t < 1)) continue;
+      // a root at a knot (to rounding) is that knot, which is a candidate already
+      if (!(t > CONVERT_SNAP && t < 1 - CONVERT_SNAP)) continue;
       const u = 1 - t;
       cand.push({
         k,
@@ -272,13 +278,10 @@ function normalise(spline: Spline): SliceResult {
   f.p[1] = 0;
   l.p[0] = 0;
   l.p[1] = 1;
-  note(
-    Math.abs(f.out[1]) * T,
-    'the bottom centre handle is not horizontal (it rises off the stringer)',
-  );
-  note(Math.abs(l.in[1] - 1) * T, 'the deck centre handle is not horizontal');
-  f.out[1] = 0;
-  l.in[1] = 1;
+  // The centre handles are kept as stored (a V bottom or a pitched deck leaves the stringer at an
+  // angle); only rounding of a horizontal one is removed.
+  if (Math.abs(f.out[1]) <= CONVERT_SNAP) f.out[1] = 0;
+  if (Math.abs(l.in[1] - 1) <= CONVERT_SNAP) l.in[1] = 1;
   f.in = [0, 0];
   l.out = [0, 1];
   ks[apex]!.p[0] = 1;
@@ -323,10 +326,45 @@ function normalise(spline: Spline): SliceResult {
   return { section, adjust, why, added };
 }
 
+/**
+ * Normalised sections by content (the coordinates rounded to CONVERT_CONTENT_DIGITS decimals). The
+ * classic editor's "resize cross-sections" scales a slice with the outline, rocker and deck, which
+ * leaves the *normalised* section unchanged up to rounding: such a slice gets the earlier `Section`
+ * object back, so `buildBoard`'s fit cache (keyed by that object) stays warm during a drag.
+ */
+const contentCache = new Map<string, Section>();
+const CONTENT_SCALE = 10 ** CONVERT_CONTENT_DIGITS;
+
+function contentKey(section: Section): string {
+  const parts: string[] = [String(section.apex)];
+  for (const k of section.chain.knots) {
+    for (const q of [k.p, k.in, k.out]) {
+      parts.push(
+        String(Math.round(q[0] * CONTENT_SCALE)),
+        String(Math.round(q[1] * CONTENT_SCALE)),
+      );
+    }
+    parts.push(k.smooth ? 's' : 'c');
+  }
+  return parts.join(',');
+}
+
 function sliceOf(cs: CrossSection): SliceResult {
   let r = sliceCache.get(cs.spline);
   if (r === undefined) {
     r = normalise(cs.spline);
+    if (!('error' in r)) {
+      const key = contentKey(r.section);
+      const known = contentCache.get(key);
+      if (known === undefined) {
+        contentCache.set(key, r.section);
+        if (contentCache.size > CONVERT_CONTENT_CACHE) {
+          contentCache.delete(contentCache.keys().next().value as string);
+        }
+      } else {
+        r = { ...r, section: known };
+      }
+    }
     sliceCache.set(cs.spline, r);
   }
   return r;
@@ -394,6 +432,35 @@ function convert(board: BezierBoard, opts: ConvertOptions): Board2Result<Classic
   // curves
   const cutout = hasTailCutout(board.outline);
   const outline = fromKnots(board.outline.knots);
+  // A blunt tail (a squash tail: the outline starts at x = 0 with a half-width) or nose gets a
+  // straight edge to the stringer: the model's outline runs from stringer to stringer.
+  const blunt: [boolean, boolean] = [false, false];
+  if (!cutout) {
+    const first = outline[0]!;
+    if (first.p[1] > PLAN_EXACT_TOL) {
+      blunt[0] = true;
+      first.in = [first.p[0], first.p[1]];
+      first.smooth = false;
+      outline.unshift({
+        p: [first.p[0], 0],
+        in: [first.p[0], 0],
+        out: [first.p[0], 0],
+        smooth: false,
+      });
+    }
+    const last = outline[outline.length - 1]!;
+    if (last.p[1] > PLAN_EXACT_TOL) {
+      blunt[1] = true;
+      last.out = [last.p[0], last.p[1]];
+      last.smooth = false;
+      outline.push({
+        p: [last.p[0], 0],
+        in: [last.p[0], 0],
+        out: [last.p[0], 0],
+        smooth: false,
+      });
+    }
+  }
   let tip = 0;
   if (cutout) {
     for (let i = 1; i < outline.length; i++) if (outline[i]!.p[0] < outline[tip]!.p[0]) tip = i;
@@ -514,6 +581,7 @@ function convert(board: BezierBoard, opts: ConvertOptions): Board2Result<Classic
     sectionAdjust,
     addedKnots: added,
     deckWalls: [wallTail, wallNose],
+    bluntEnds: blunt,
   });
 
   if (!cutout) {

@@ -4,7 +4,7 @@
  * §6, step 2): the three golden boards and every other sample file the io package pins, and a
  * classic swallow or fish made by giving a golden board a notched outline.
  */
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseBrdFile, parseS3dx } from '@openshaper/io';
@@ -80,4 +80,19 @@ export function classicNotched(base: BezierBoard, doc: BoardDoc): BezierBoard {
     base.interpolationType,
     base.fins,
   );
+}
+
+/**
+ * Every classic board file the repository carries, found by looking (the io fixtures, the golden
+ * boards and the app's bundled templates), so a new file cannot be left out of the conversion test.
+ */
+export function classicFilesInRepo(): string[] {
+  const dirs = ['packages/io/src/__fixtures__', 'docs/specs/golden', 'apps/web/src'];
+  const found: string[] = [];
+  for (const dir of dirs) {
+    for (const f of readdirSync(resolve(repo, dir))) {
+      if (/\.(brd|s3d|s3dx|srf)$/i.test(f)) found.push(`${dir}/${f}`);
+    }
+  }
+  return found.sort();
 }

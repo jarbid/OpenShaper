@@ -85,12 +85,12 @@ describe('validateBoard', () => {
     [
       'section-centre-tangent',
       swallowBoard,
-      (d) => (d.stations[2].plus.chain.knots[0].out[1] = 0.1),
+      (d) => (d.stations[2].plus.chain.knots[0].out[1] = Number.NaN),
     ],
     [
       'section-centre-tangent',
       swallowBoard,
-      (d) => (d.stations[2].plus.chain.knots[4].in[1] = 0.9),
+      (d) => (d.stations[2].plus.chain.knots[4].in[1] = Number.NaN),
     ],
     ['section-apex-index', swallowBoard, (d) => (d.stations[2].plus.apex = 0)],
     ['section-apex-index', swallowBoard, (d) => (d.stations[2].plus.apex = 4)],
@@ -115,6 +115,30 @@ describe('validateBoard', () => {
 
   it.each(cases)('refuses a %s violation under that code alone (#%#)', (code, make, edit) => {
     expect(codes(mutate(make(), edit))).toEqual([code]);
+  });
+
+  it('accepts a V bottom and a pitched deck (centre handles that leave the stringer at an angle)', () => {
+    const doc = mutate(swallowBoard(), (d) => {
+      const k = d.stations[2].plus.chain.knots;
+      k[0].out[1] = 0.1;
+      k[k.length - 1].in[1] = 0.9;
+    });
+    expect(validateBoard(doc)).toEqual([]);
+  });
+
+  it('lets the deck meet the rocker at the ends, but not cross it', () => {
+    // zero thickness at the tail and at the nose: the board closes to a point or an edge there
+    const closeEnds = (gap: number) =>
+      mutate(swallowBoard(), (d) => {
+        for (const [r, k] of [
+          [d.rocker.knots[0], d.deck.knots[0]],
+          [d.rocker.knots.at(-1), d.deck.knots.at(-1)],
+        ]) {
+          for (const key of ['p', 'in', 'out'] as const) k[key][1] = r[key][1] + gap;
+        }
+      });
+    expect(validateBoard(closeEnds(0))).toEqual([]);
+    expect(codes(closeEnds(-0.1))).toEqual(['thickness']);
   });
 
   it('reports the issue with its location and marks it an error', () => {

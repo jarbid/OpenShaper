@@ -1,7 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /** The section fit and the blend along the board. */
 import { describe, expect, it } from 'vitest';
-import { blendAt, controlCount, fitSection, fitSide, sectionKnots } from './sections';
+import {
+  arrivingDirection,
+  blendAt,
+  controlCount,
+  fitSection,
+  fitSide,
+  ladderClimb,
+  leavingDirection,
+  sectionKnots,
+} from './sections';
+import { SECTION_FIT_TOL } from './params';
 import { distanceToPolyline, sampleChain, section } from './testing';
 
 describe('sectionKnots', () => {
@@ -62,7 +72,7 @@ describe('the blend', () => {
       blendAt(b, x, 0, c, c1, c2);
       expect(Array.from(c)).toEqual(Array.from(b.q.slice(i * w, (i + 1) * w)));
     });
-    expect(Math.max(...b.stationError)).toBeLessThan(0.01);
+    expect(Math.max(...b.stationError)).toBeLessThanOrEqual(SECTION_FIT_TOL);
   });
 
   it('is C2 across the interior stations and has zero slope at the ends', () => {
@@ -74,7 +84,8 @@ describe('the blend', () => {
       for (let k = 0; k < w; k++) {
         expect(a[0][k]).toBeCloseTo(z[0][k]!, 8);
         expect(a[1][k]).toBeCloseTo(z[1][k]!, 6);
-        expect(a[2][k]).toBeCloseTo(z[2][k]!, 4);
+        // (a u coordinate that the C2 spline would push past a bound uses the monotone blend: C1 only)
+        if (k % 2 === 1 || b.monotone === 0) expect(a[2][k]).toBeCloseTo(z[2][k]!, 4);
       }
     }
     const [c, c1] = mk();
@@ -104,5 +115,60 @@ describe('the blend', () => {
     for (const p of mid) {
       expect(distanceToPolyline(pts(1), p) + distanceToPolyline(pts(2), p)).toBeLessThan(0.5);
     }
+  });
+});
+
+describe('the span ladder stops when the fit is good enough or stops improving', () => {
+  it('stops at the first rung within the limit and keeps it', () => {
+    const climb = ladderClimb();
+    expect(climb(SECTION_FIT_TOL * 4)).toEqual({ best: true, stop: false });
+    expect(climb(SECTION_FIT_TOL * 0.9)).toEqual({ best: true, stop: true });
+  });
+
+  it('stops after two rungs in a row that fail to improve meaningfully, keeping the best', () => {
+    const climb = ladderClimb();
+    expect(climb(1)).toEqual({ best: true, stop: false });
+    // 0.5 beats the best by more than the stall ratio; 0.49 and 0.48 do not
+    expect(climb(0.5)).toEqual({ best: true, stop: false });
+    expect(climb(0.49)).toEqual({ best: true, stop: false });
+    expect(climb(0.48)).toEqual({ best: true, stop: true });
+    // a rung that is worse than the best is not kept
+    const worse = ladderClimb();
+    worse(1);
+    expect(worse(1.2)).toEqual({ best: false, stop: false });
+    expect(worse(1.1)).toEqual({ best: false, stop: true });
+  });
+
+  it('fits a smooth section at the first rung and a board of smooth sections without the top rung', () => {
+    const smooth = section(0.88, 0.06, 0.38, 0.86, 0.78);
+    const items = [10, 90, 170].map((x) => ({ id: `s${x}`, x, section: smooth, scale: 25 }));
+    expect(fitSide(items)!.m).toBe(12);
+  });
+});
+
+describe("the centre tangents are the stored curve's, not an assumption", () => {
+  const chain = (bottomOut: [number, number], deckIn: [number, number]) => ({
+    knots: [
+      { p: [0, 0], in: [0, 0], out: bottomOut, smooth: true },
+      { p: [1, 0.3], in: [1, 0.3], out: [1, 0.5], smooth: true },
+      { p: [0, 1], in: deckIn, out: [0, 1], smooth: true },
+    ],
+  });
+
+  it('reads a zero-length handle as the polygon direction', () => {
+    // bottom: (0,0) -> (1,0.3) with both handles at the knots: a straight, tilted line
+    const c = chain([0, 0], [0, 1]) as never;
+    const d = leavingDirection(c, 0)!;
+    expect(d[1] / d[0]).toBeCloseTo(0.3, 12);
+    const e = arrivingDirection(c, 2)!;
+    expect(e[1] / e[0]).toBeCloseTo(-0.5, 12); // from the previous knot's out handle (1, 0.5)
+  });
+
+  it('holds a horizontal bottom centre tangent exactly and leaves a V bottom free', () => {
+    const flat = fitSection({ chain: chain([0.4, 0], [0.4, 1]), apex: 1 } as never, 12)!;
+    expect(flat.ctrl[3]).toBe(0); // second control of the bottom: still on the stringer's height
+    const vee = fitSection({ chain: chain([0.5, 0.15], [0.4, 1]), apex: 1 } as never, 12)!;
+    expect(vee.ctrl[3]! / vee.ctrl[2]!).toBeGreaterThan(0.2); // the stored slope is 0.3
+    expect(vee.error).toBeLessThan(0.01);
   });
 });

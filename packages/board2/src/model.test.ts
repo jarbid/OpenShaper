@@ -4,12 +4,13 @@
  * swallow, fish, asymmetric and analytic boards.
  *
  * 1. the u = 0 and u = 1 lines lie on the rocker, deck and outline within 1e-9, notch zone included;
- * 2. at each station the evaluated section is within 0.01 cm of the stored one;
+ * 2. at each station the evaluated section is within the fit tolerance (0.05 cm) of the stored one;
  * 3. the analytic board matches its closed form;
  * 4. first and second derivatives agree with finite differences;
  * 5. across every interior station the normal jump is < 1e-5 rad and the curvature jump < 1 %.
  */
 import { describe, expect, it } from 'vitest';
+import { SECTION_FIT_TOL } from './params';
 import { buildBoard, createEvaluator, MEASURE } from './surface';
 import type { BuiltBoard, SurfaceEvaluator } from './surface';
 import {
@@ -97,7 +98,7 @@ describe.each(BOARDS)('%s board: stations', (_name, make) => {
   const doc = noFeatures(make());
   const { board, ev } = built(doc);
 
-  it('the evaluated section is within 0.01 cm of the stored one at every station', () => {
+  it('the evaluated section is within the fit tolerance (0.05 cm) of the stored one at every station', () => {
     for (const st of doc.stations) {
       for (const side of sides) {
         const sec = side === 1 && st.minus ? st.minus : st.plus;
@@ -119,17 +120,17 @@ describe.each(BOARDS)('%s board: stations', (_name, make) => {
           ev.eval(i / 200, 0, S);
           worst = Math.max(worst, distanceToPolyline(stored, [S[0]!, S[1]!, S[2]!]));
         }
-        expect(worst, `station ${st.id} side ${side}`).toBeLessThan(0.01);
+        expect(worst, `station ${st.id} side ${side}`).toBeLessThan(SECTION_FIT_TOL);
       }
     }
-    expect(board.report.stationFitError).toBeLessThan(0.01);
+    expect(board.report.stationFitError).toBeLessThanOrEqual(SECTION_FIT_TOL);
   });
 });
 
 describe('analytic board: the closed form', () => {
   const { board, ev } = built(analyticBoard());
 
-  it('x, the plan outline, the rocker and the thickness are exact; the section is within 0.01 cm', () => {
+  it('x, the plan outline, the rocker and the thickness are exact; the section is within 0.05 cm', () => {
     const f = analyticFacts;
     for (let i = 3; i < 100; i += 8) {
       const xi = i;
