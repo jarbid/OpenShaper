@@ -9,6 +9,7 @@ import { moveKnotEnd } from '@openshaper/store';
 import { beforeEach, describe, expect, it } from 'vitest';
 import sampleBrd from '../sample-board.brd?raw';
 import vBottomS3dx from '../../../../packages/io/src/__fixtures__/synthetic-rocker-absolute-deck.s3dx?raw';
+import pointedS3dx from '../../../../packages/io/src/__fixtures__/synthetic-clean-6x22x2-75.s3dx?raw';
 import { canonical, convertAndMesh, meshTestBoard, resetCore } from './nurbs-core';
 import { meshTransferables, TEST_BOARDS, type JobOptions } from './nurbs-protocol';
 
@@ -137,13 +138,28 @@ describe('canonical', () => {
 });
 
 describe('refusals', () => {
-  it('refuses a board with a V bottom with a readable reason and no mesh', () => {
-    const board = parseS3dx(vBottomS3dx).board;
-    const out = convertAndMesh(board, NONE);
+  it('converts a board with a V bottom and one with no thickness at its ends (step 4)', () => {
+    for (const text of [vBottomS3dx, pointedS3dx]) {
+      const out = convertAndMesh(parseS3dx(text).board, NONE);
+      if (!out.ok) throw new Error(out.error);
+      expect(out.mesh.positions.length / 3).toBeGreaterThan(1000);
+      expect(out.summary.volume).toBeGreaterThan(0);
+    }
+  });
+
+  it('refuses an outline that folds back on itself with a readable reason and no mesh', () => {
+    // a handle of the outline far beyond the nose: x is no longer a function along the outline
+    const from = pointedS3dx.indexOf('<Tangents_1>');
+    const to = pointedS3dx.indexOf('</Tangents_1>', from);
+    const folded =
+      pointedS3dx.slice(0, from) +
+      pointedS3dx.slice(from, to).replace('<x>91.44</x>', '<x>400</x>') +
+      pointedS3dx.slice(to);
+    const out = convertAndMesh(parseS3dx(folded).board, NONE);
     expect(out.ok).toBe(false);
     if (out.ok) return;
-    expect(out.error).toMatch(/slice at x = /);
-    expect(out.issues.some((i) => i.severity === 'error' && i.code === 'convert-slice')).toBe(true);
+    expect(out.error).toMatch(/keep x a function/);
+    expect(out.issues.some((i) => i.severity === 'error' && i.code === 'convert-plan')).toBe(true);
   });
 
   it('never throws on a malformed board', () => {

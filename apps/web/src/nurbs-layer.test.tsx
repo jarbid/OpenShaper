@@ -120,7 +120,7 @@ describe('NurbsLayer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'NURBS conversion details' }));
     const info = screen.getByTestId('nurbs-info');
     expect(info.textContent).toContain('cannot hold this board yet');
-    expect(info.textContent).toContain('V bottom');
+    expect(info.textContent).toContain('cannot be converted');
     expect(info.textContent).toContain('convert-slice');
   });
 

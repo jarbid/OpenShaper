@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test';
 import { editorReady } from './helpers';
 
@@ -161,11 +162,26 @@ test.describe('NURBS viewer, flag on', () => {
     const badge = page.getByTestId('nurbs-badge');
     await expect(badge).toHaveAttribute('data-phase', 'ready', { timeout: 30_000 });
 
-    // A synthetic file whose bottom has a V (the centre handle rises off the stringer).
+    // A synthetic file whose outline handle points far beyond the nose, so the outline folds back
+    // on itself (x is no longer a function along it).
+    const fixture = readFileSync(
+      '../../packages/io/src/__fixtures__/synthetic-clean-6x22x2-75.s3dx',
+      'utf8',
+    );
+    const from = fixture.indexOf('<Tangents_1>');
+    const to = fixture.indexOf('</Tangents_1>', from);
+    const folded =
+      fixture.slice(0, from) +
+      fixture.slice(from, to).replace('<x>91.44</x>', '<x>400</x>') +
+      fixture.slice(to);
     await page
       .locator('input[type=file]')
       .first()
-      .setInputFiles('../../packages/io/src/__fixtures__/synthetic-rocker-absolute-deck.s3dx');
+      .setInputFiles({
+        name: 'folded-outline.s3dx',
+        mimeType: 'text/xml',
+        buffer: Buffer.from(folded),
+      });
     await page
       .getByRole('button', { name: 'Import anyway' })
       .click({ timeout: 3000 })
@@ -175,7 +191,7 @@ test.describe('NURBS viewer, flag on', () => {
     await expect(page.getByTestId('nurbs-status')).toContainText('classic shown');
     await page.getByRole('button', { name: 'NURBS conversion details' }).click();
     await expect(page.getByTestId('nurbs-refusal')).toContainText('cannot hold this board yet');
-    await expect(page.getByTestId('nurbs-info')).toContainText('V bottom');
+    await expect(page.getByTestId('nurbs-info')).toContainText('function of x');
     // The classic 3D view is still there.
     await expect(page.locator('canvas').first()).toBeVisible();
     expect(errors).toEqual([]);

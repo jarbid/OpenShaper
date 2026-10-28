@@ -175,7 +175,10 @@ Applies only to the experimental NURBS engine (`@openshaper/board2`, behind the 
 setting); the classic loft is untouched. The direct converter (`@openshaper/board2/classic`)
 copies the outline, rocker and deck exactly and normalises each classic slice, so **at the
 stations and on the three lines the converted surface is the classic one**; **between the stations it
-differs by design**:
+differs by design**. This is an **accepted decision** (Q32 = a, recorded in
+`docs/design/nurbs-plan.md`): converted boards keep the smooth blend between stations, the
+difference of up to 5 mm from the classic loft is accepted, and no extra stations are added to
+close it.
 
 - Classic blends the two neighbouring slices linearly in x (`loft.ts`), so the surface has a normal
   crease at every station. The NURBS engine blends the stations' fitted section controls with a
@@ -190,8 +193,15 @@ differs by design**:
 - Other known differences: the tips are true points or vertical edges (classic floors the width at
   `MIN_DIM` = 0.5 cm); a handle that steps outside its segment in x (the golden noses, 0.002 cm) is pulled
   back; a classic swallow or fish gets a real inner rail (the classic pod has a vertical inner wall); the
-  deck's vertical end walls become the thickness at the ends. A slice whose centre tangent is not
-  horizontal (a vee made of a stringer crease) is refused, not flattened.
+  deck's vertical end walls become the thickness at the ends. A slice whose bottom (or deck) centre
+  tangent is not horizontal (a V bottom, a pitched deck) is kept as it is: the section leaves the
+  stringer at an angle, a crease along the stringer as in the classic loft, with the shading normal on it
+  taken as the mean of the two sides. A deck that meets the rocker at an end closes the board to a point
+  or an edge there. A blunt tail or nose (the outline starts or ends off the stringer) gets a straight edge
+  to the stringer and a planar transom. Nothing is refused any more except what cannot be a surface (an
+  outline that folds back on itself, a deck below the rocker, a board with no slices): all 14 sample files
+  convert (Q33). The rail corners of a hand-made polygon section are rounded by about 1 mm by the cubic fit
+  (`docs/design/m1-model.md` "As built (step 4)").
 - Oracle: `packages/board2/src/classic/convert.test.ts` (stations, lines, the 8 mm regression bound,
   the crease test: the normal-angle jump across a station is 700 to 400,000 times smaller than the
   classic loft's) and `docs/design/m1-model.md` "As built (step 2)".

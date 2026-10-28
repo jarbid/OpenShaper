@@ -64,14 +64,10 @@ describe('statusText', () => {
 
 describe('refusalHint', () => {
   it('explains the refusals a person can act on', () => {
-    expect(refusalHint('thickness', '')).toMatch(/no thickness at one end/);
-    expect(refusalHint('tail-start', '')).toMatch(/blunt tail/);
-    expect(
-      refusalHint('convert-slice', 'slice at x = 5: the bottom centre handle rises 0.6 cm'),
-    ).toMatch(/V bottom/);
-    expect(refusalHint('convert-slice', 'slice at x = 5: has no width')).toMatch(
-      /cannot be converted/,
-    );
-    expect(refusalHint('geom', '')).toBeNull();
+    expect(refusalHint('thickness')).toMatch(/not above the rocker/);
+    expect(refusalHint('tail-start')).toMatch(/x = 0/);
+    expect(refusalHint('convert-slice')).toMatch(/cannot be converted/);
+    expect(refusalHint('convert-plan')).toMatch(/function of x/);
+    expect(refusalHint('geom')).toBeNull();
   });
 });

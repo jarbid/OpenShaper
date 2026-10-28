@@ -240,9 +240,10 @@ export default function DocsEditing() {
           </Term>
         </Terms>
         <p>
-          Some boards the NURBS model cannot hold yet: a V in the bottom of a cross-section, a board
-          with no thickness at an end, or a blunt tail that does not start on the stringer. For
-          those the classic mesh stays on screen and the <strong>i</strong> button says why.
+          Every board the classic editor can open converts, including a V in the bottom of a
+          cross-section, a board with no thickness at an end and a blunt tail. A board the model
+          cannot hold, such as an outline that folds back on itself or a deck that dips below the
+          rocker, keeps the classic mesh on screen and the <strong>i</strong> button says why.
         </p>
       </Section>
 

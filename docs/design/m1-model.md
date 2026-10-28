@@ -22,9 +22,10 @@ The plan's "v2": on disk `format: 'openshaper', version: 3, model: 'sections'`, 
 **Normalised section.** u ∈ [0, 1] runs along the station's chord from the stringer (u = 0) to the
 outline point (u = 1). v is height over the rocker in units of the thickness at the point's own x. The
 chain runs from bottom centre to deck centre. The Phase 0 rules become exact equalities and bounds,
-checked by the validator: the centre knots are fixed at (0, 0) and (0, 1) with horizontal handles
-(G1 across the stringer, mirrored or not); the apex knot has u = 1 and moves in v only; **every
-control point has 0 ≤ u ≤ 1**. By the convex hull property, no section can then pass the outline or
+checked by the validator: the centre knots are fixed at (0, 0) and (0, 1) (their handles are free
+since step 4, see §11: horizontal means G1 across the stringer, a V bottom or pitched deck is a
+crease along it); the apex knot has u = 1 and moves in v only; **every control point has
+0 ≤ u ≤ 1**. By the convex hull property, no section can then pass the outline or
 the stringer. The rocker and deck are pinned at u = 0, so a section cannot change outline, rocker or
 deck.
 
@@ -421,3 +422,100 @@ registered with it; the V-bottom, zero-thickness and blunt-tail refusals are the
 Checks at this commit: `pnpm lint`, `pnpm typecheck`, `turbo run test` (web: 90 files, 867 tests), `pnpm build`,
 `e2e` (45 tests, 7 of them the NURBS viewer's: open, live drag, test boards, refusal, chunk unavailable, flag
 off, settings toggle) and `e2e:offline` (8) all pass.
+
+## 11. As built (step 4)
+
+Landed in `packages/board2` (`validate.ts`, `sections.ts`, `frame.ts`, `mesh.ts`, `params.ts`,
+`classic/convert.ts`, tests and `perf.bench.ts`) and a few lines of `apps/web` (refusal wording, tests, the
+refusal e2e). Every classic file now converts (decision Q33, `nurbs-plan.md`); the smooth blend between
+stations stays (Q32 = a, `divergences.md`).
+
+**Rule change (Phase 0).** The centre **points** stay fixed at (0, 0) and (0, 1) on the stringer, the apex
+stays vertical-only and **no control point may pass 0 ≤ u ≤ 1**. The rule that the centre **handles are
+horizontal** is dropped, for the bottom and the deck: a handle must only be finite (`section-centre-tangent`
+now means that). A section that leaves the stringer at an angle has a crease along it, as in the classic loft.
+The converter no longer flattens a handle (it used to refuse more than 0.05 cm of it). The fit holds a centre
+tangent horizontal, and an apex tangent vertical, only when the stored curve really leaves that way: the
+direction is read from the Bézier control polygon (first non-zero difference), so a zero-length handle counts
+as the polygon direction, not as "horizontal". The mesh takes the mean of the two sides' normals on the
+stringer of a mirror board (no sideways part), so a keel shades as a ridge.
+
+**What changed per refused case.**
+
+| Case (files)                                                                     | Change                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Zero thickness at an end (`synthetic-clean-6x22x2-75`, `-fallback-outline-5x10`) | The validator accepts a deck on the rocker at x = 0 and x = L (thickness ≥ 0 there, > 0 everywhere between). The surface already collapsed to the point or edge (chord and thickness go to 0); the welded end row keeps the mesh closed and the normals come from half a row in, so there is no NaN. Tested on both files (points at x = 0 and x = L, finite mesh and curvature, closed, within 0.5 mm of the surface). |
+| V bottom (`synthetic-rocker-absolute-deck`, `-rocker-thickness-deck`)            | The rule change above. The section keeps its straight vee; the surface at the middle station follows the stored line within 0.5 mm. The fit pins a tangent only when the curve has it.                                                                                                                                                                                                                                  |
+| Blunt tail (a squash tail) or nose (no sample file; tested on the shortboard)    | The converter adds a straight edge from the stringer to the first (last) outline knot, as a corner, so the tail stays at x = 0. The frame starts the forward branch at the end of that vertical edge, so the end station is the whole transom (a planar cap, 6 cm wide in the test). Reported as `bluntEnds`.                                                                                                           |
+
+**Other changes that came with it.**
+
+- **Bounded blend.** A u coordinate that the C2 spline would push past 0 or 1 now uses a monotone C1
+  cubic (Fritsch-Carlson, zero end slopes) instead of the clamp. The clamp made the derivative jump at a
+  station whose control sits on the bound (longboard station 30.5: 1.2e-3 rad once the fit stopped at
+  24 spans). The `blend-overshoot` warnings of the funboard and longboard are gone; the other coordinates
+  stay C2. Only the u coordinates that would overshoot have a curvature jump (C1) at the stations.
+- **Section fit.** The limit is the project tolerance, `SECTION_FIT_TOL = 0.05` cm (it was 0.01 cm, which the
+  goldens never reached at any rung: the measure is conservative, normalised error times the larger of chord
+  length and thickness, and rail corners converge slowly). The ladder (12, 16, 24, 32, 48 spans) stops at the first
+  rung within the limit, or after `SECTION_STALL_PATIENCE` = 2 rungs in a row that fail to beat the best error
+  by `SECTION_STALL_RATIO` = 0.85, and keeps the best rung. The real deviation from the classic slice is about
+  half the conservative bound. Rungs reached: shortboard 32, funboard 48, longboard 24.
+- **Converter cache by content.** A normalised section is looked up by its coordinates rounded to 1e-9
+  (96 remembered): a slice that was only rescaled (the editor's "Resize cross-sections" while the outline,
+  rocker or deck is dragged) gets the earlier `Section` object back, so `buildBoard`'s fit cache stays warm.
+  This, not the ladder, is what removes the refits from an outline drag. A root of the widest-point search
+  that lies within 1e-9 of a knot is that knot (no spurious apex split from rounding).
+
+**All sample files** (Node, median of 6 fresh loads; deviation = Hausdorff distance of the section ring from the
+classic loft's, interior stations more than 1 cm from a tip; the stations 0.2 cm from a tip differ by the
+classic's 5 mm tip floor, so they are listed apart):
+
+| File                            | Converts | Convert (ms) | Spans | Interior station dev (mm) | Tip station dev (mm) | Vertices | Warnings    |
+| ------------------------------- | -------- | ------------ | ----- | ------------------------- | -------------------- | -------- | ----------- |
+| shortboard.brd (x3 copies)      | yes      | 0.9          | 32    | 0.18                      | 0.19                 | 9,419    | none        |
+| funboard.brd (x2)               | yes      | 1.2          | 48    | 0.15                      | 0.16                 | 12,220   | none        |
+| longboard.brd (x2)              | yes      | 0.8          | 24    | 0.08                      | 0.34                 | 11,934   | none        |
+| synthetic-clean-6x22x2-75       | yes      | 0.3          | 48    | 1.09                      | 4.85                 | 6,434    | section-fit |
+| synthetic-degenerate-section    | yes      | 0.3          | 12    | 0.00                      | 2.02                 | 6,970    | none        |
+| synthetic-fallback-outline-5x10 | yes      | 0.3          | 48    | 0.83                      | 4.85                 | 6,166    | section-fit |
+| synthetic-rocker-absolute-deck  | yes      | 0.3          | 48    | 1.01                      | 1.99                 | 5,522    | section-fit |
+| synthetic-rocker-thickness-deck | yes      | 0.2          | 48    | 1.01                      | 1.99                 | 5,522    | section-fit |
+| synthetic-stringer-fold-a       | yes      | 0.2          | 48    | 0.92                      | 2.54                 | 6,434    | section-fit |
+| synthetic-stringer-fold-b       | yes      | 0.4          | 48    | 1.01                      | 2.03                 | 6,166    | section-fit |
+
+Every file also builds, meshes closed (every edge twice, Euler 2), has finite positions, normals and curvature,
+and round-trips through JSON (`classic/convert.test.ts`, `classic/convert.files.test.ts`; the second one lists the
+board files of the repository and fails if one is not in the test). The four formerly refused files also pass
+the 0.5 mm mesh check and the 1 % volume check (`mesh.accept.test.ts`). The synthetic files are hand-made
+polygon sections (four knots with straight edges): the cubic fit rounds their rail corners by about 1 mm,
+which is the `section-fit` warning (0.07 to 0.09 cm, the conservative bound). Real boards stay under 0.4 mm.
+Templates are the three golden boards; no other classic board file exists in the repository.
+
+**Speed.**
+
+- Node (`pnpm --filter @openshaper/board2 bench`, `step 4 drag`: the wide outline knot moves 40 times with
+  the sections resized, each move converted, built without validation and meshed with the first mesh's
+  ladders, so this is the board2 share of a drag update). Build per move, median (p95): shortboard
+  **14.8 (31.7) ms before, 0.3 (1.8) ms after**; funboard 19.0 (32.4) before, 0.3 (0.4) after; longboard 18.2
+  (29.3) before, 0.2 (0.5) after. Whole move (convert + build + mesh): shortboard 18.9 (39.8) before, 5.9 (17.0)
+  after; funboard 25.0 (40.8) before, 5.3 (8.7) after; longboard 24.0 (37.2) before, 5.2 (7.7) after. "Before"
+  is the same code with the old limit (0.01 cm, every rung) and no content cache.
+- A section drag (one slice changes per move) is unchanged by the ladder: build 4 ms (p95 6 to 8 ms), whole move
+  8 ms (p95 10 to 22 ms); a cold build of a whole new board is 12 to 18 ms (one section 3 to 4 ms).
+- Browser (`node tools/perf/nurbs-timing.mjs` on a production build, Chromium with software WebGL in the
+  4-core container, drag of the shortboard's wide knot in the quad view, 60 moves, three runs): round trip
+  per update, request to answer on the main thread, **median 28, 36 and 15 ms, p95 48, 53 and 49 ms** (max 68,
+  59, 93), against 32 to 43 ms (p95 57 to 62) at step 3. The worker's share is now **median 5.1 to 5.5 ms**
+  (convert 0.5, build 0.2, mesh 4.1 to 4.6), p95 15 to 25 ms, against 16 to 18 ms (p95 34) at step 3. What is left of
+  the round trip is the main thread, which software WebGL keeps busy repainting the 3D view and the 2D panes;
+  on a machine with a GPU it is smaller. The p95 target of 50 ms is met in two of three runs here and missed by
+  3 ms in the third. After release: one update with fresh ladders and curvature, 59 to 85 ms in the worker.
+  Open (one run of each file, wall time from import to the surface on screen): the goldens 0.33 to 0.62 s; engine switch
+  0.50 s (three runs); the four formerly refused files open in 0.34 to 0.41 s (they were "failed" before).
+
+**Known limits.** (1) Rail corners of polygon sections are rounded by up to about 1 mm (a common knot vector
+cannot place a knot on every corner); (2) a creased stringer shows a tiny normal step in the curvature modes
+(curvature there is one-sided); (3) the zero
+thickness of an end is allowed only at the two ends (a deck that touches the rocker in the middle is refused as
+`thickness`).

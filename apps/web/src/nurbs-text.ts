@@ -28,17 +28,15 @@ export const elapsedText = (ms: number): string => {
  * (with its numbers) follows in the popover; this is the part that says what to do.
  * Null for a code with nothing to add.
  */
-export const refusalHint = (code: string, message: string): string | null => {
+export const refusalHint = (code: string): string | null => {
   switch (code) {
     case 'thickness':
-      return 'The board has no thickness at one end (the deck meets the rocker). Give the tail and the nose a little thickness.';
+      return 'The deck is not above the rocker somewhere along the board. Give it some thickness (zero is fine at the tail and the nose only).';
     case 'tail-start':
     case 'outline-endpoints':
-      return 'A blunt tail has to start on the stringer. Add an outline point on the stringer (y = 0) at the tail.';
+      return 'The outline has to start at the tail on x = 0 and end at the nose, with no point on the far side of the stringer (y below 0).';
     case 'convert-slice':
-      return /bottom centre|off the stringer|centre/i.test(message)
-        ? 'A cross-section has a V bottom (its centre sits off the stringer), which the NURBS model cannot hold yet.'
-        : 'A cross-section cannot be converted to the NURBS model.';
+      return 'A cross-section cannot be converted to the NURBS model.';
     case 'convert-plan':
       return 'The outline, rocker or deck is not a function of x (it folds back on itself).';
     case 'too-few-sections':

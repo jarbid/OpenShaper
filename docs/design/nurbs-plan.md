@@ -48,6 +48,13 @@ exports are NURBS.
 10. **Retire** the rail-law model (band builder, height grids, offset layer), the S6/S7
     surface-fitting converter, and the remaining Phase 2 checking steps (S5, S8, S9). Git
     history keeps them.
+11. **Between stations the converted board keeps the smooth blend (Q32 = a, decided 2026-10-28).** The
+    surface of a converted classic board flows through its stations (C2, no station creases), so it
+    differs from the classic loft by up to 5 mm between two stations. That difference is accepted
+    (recorded in `docs/specs/divergences.md`); no extra stations are inserted to close it.
+12. **Every classic file converts (Q33, decided 2026-10-28).** The converter refuses nothing a
+    classic file can contain: zero thickness at an end, a V bottom in a slice and a blunt tail all
+    convert (M1 step 4, `m1-model.md` §11). Only what cannot be a surface is refused, with a reason.
 
 ## Milestones
 

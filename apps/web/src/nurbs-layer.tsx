@@ -98,7 +98,7 @@ function InfoPanel({ state, units }: { state: ViewerState; units: LengthUnit }) 
       {errors.length > 0 && (
         <ul className="mt-1 list-disc space-y-1 pl-4">
           {errors.map((i, k) => {
-            const hint = refusalHint(i.code, i.message);
+            const hint = refusalHint(i.code);
             return (
               <li key={k}>
                 {hint && <span className="block">{hint}</span>}
