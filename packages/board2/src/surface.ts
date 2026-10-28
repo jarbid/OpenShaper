@@ -265,6 +265,9 @@ export interface SurfaceEvaluator {
   measure(t: number, out: Float64Array, left?: boolean): void;
 }
 
+/** y of a side: negated for the minus side (`0 - y`, so a zero stays +0). */
+const fy = (sgn: number, y: number): number => (sgn === 1 ? y : 0 - y);
+
 // Offsets of geom's `surfaceMeasureAt` results (surface-measure.ts: MEASURE_N, MEASURE_K, MEASURE_HK).
 const M_N = 0;
 const M_K = 9;
@@ -449,14 +452,12 @@ export function createEvaluator(board: BuiltBoard): SurfaceEvaluator {
         );
         for (let k = 0; k < 6; k++) dsum[k] = dsum[k]! + term[k]!;
       }
-      const [d, dX, dU, dXX, dXU, dUU] = [
-        dsum[0]!,
-        dsum[1]!,
-        dsum[2]!,
-        dsum[3]!,
-        dsum[4]!,
-        dsum[5]!,
-      ];
+      const d = dsum[0]!;
+      const dX = dsum[1]!;
+      const dU = dsum[2]!;
+      const dXX = dsum[3]!;
+      const dXU = dsum[4]!;
+      const dUU = dsum[5]!;
       D = d * F;
       Dx = (dX + dU * ux) * F;
       Dt = dU * ut * F + d * F1;
@@ -465,9 +466,8 @@ export function createEvaluator(board: BuiltBoard): SurfaceEvaluator {
       Dtt = (dUU * ut * ut + dU * utt) * F + 2 * dU * ut * F1 + d * F2;
     }
     const sgn = side.sign;
-    const sy = (y: number): number => (sgn === 1 ? y : 0 - y);
     out[o] = X;
-    out[o + 1] = sy(Y);
+    out[o + 1] = fy(sgn, Y);
     out[o + 2] = g + D;
     if (order < 1) return;
     const Xx = 1 + ux * a + u * a1;
@@ -475,23 +475,23 @@ export function createEvaluator(board: BuiltBoard): SurfaceEvaluator {
     const Yx = ux * b + u * b1;
     const Yt = ut * b;
     out[o + 3] = Xx;
-    out[o + 4] = sy(Yx);
+    out[o + 4] = fy(sgn, Yx);
     out[o + 5] = gX * Xx + T * vx + Dx;
     out[o + 6] = Xt;
-    out[o + 7] = sy(Yt);
+    out[o + 7] = fy(sgn, Yt);
     out[o + 8] = gX * Xt + T * vt + Dt;
     if (order < 2) return;
     const Xxx = uxx * a + 2 * ux * a1 + u * a2;
     const Xxt = uxt * a + ut * a1;
     const Xtt = utt * a;
     out[o + 9] = Xxx;
-    out[o + 10] = sy(uxx * b + 2 * ux * b1 + u * b2);
+    out[o + 10] = fy(sgn, uxx * b + 2 * ux * b1 + u * b2);
     out[o + 11] = gXX * Xx * Xx + 2 * T1 * Xx * vx + gX * Xxx + T * vxx + Dxx;
     out[o + 12] = Xxt;
-    out[o + 13] = sy(uxt * b + ut * b1);
+    out[o + 13] = fy(sgn, uxt * b + ut * b1);
     out[o + 14] = gXX * Xx * Xt + T1 * (Xx * vt + Xt * vx) + gX * Xxt + T * vxt + Dxt;
     out[o + 15] = Xtt;
-    out[o + 16] = sy(utt * b);
+    out[o + 16] = fy(sgn, utt * b);
     out[o + 17] = gXX * Xt * Xt + 2 * T1 * Xt * vt + gX * Xtt + T * vtt + Dtt;
   };
 

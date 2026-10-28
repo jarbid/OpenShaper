@@ -112,6 +112,7 @@ import {
   surfaceEvalGridInto,
   surfaceEvalInto,
   surfaceFromHomogeneous,
+  surfaceMeasureAt,
   surfaceNormal,
   surfacePoint,
   surfaceToJSON,
@@ -792,6 +793,18 @@ function cases(seed: number): Case[] {
       frozen: same,
     },
     { name: 'limitNormal', inputs: [clampedS], run: () => limitNormal(clampedS, 'v0', 0.4) },
+    {
+      name: 'surfaceMeasureAt',
+      inputs: [],
+      run: () => {
+        const d = geom.DEFAULT_TOLERANCES;
+        // derivatives in f[0 … 18), the kernel's 16 results written from f[18]
+        const f = new Float64Array(34);
+        f.set([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1]);
+        const flags = surfaceMeasureAt(f, 0, 2, 0, 1, 1, d.degenerateRel, d.umbilicRel, 18);
+        return [flags, f.slice(18)];
+      },
+    },
     { name: 'fundamentalForms', inputs: [S], run: () => fundamentalForms(S, u, v) },
     {
       name: 'fundamentalFormsInto',

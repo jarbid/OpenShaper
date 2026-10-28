@@ -185,3 +185,61 @@ V1 "looked exactly like classic" because S6/S7 fitted the creased classic surfac
   fallback is curvature on settle only.
 - Curvature lines at the outline, rocker and deck chain knots (G1 joins) remain. They are inherent
   to the input curves and are not station creases.
+
+## 8. As built (step 1)
+
+Landed in `packages/board2` (`chain.ts`, `bspline.ts`, `frame.ts`, `sections.ts`, `features.ts`,
+`surface.ts`, `validate.ts`, `doc.ts`, `params.ts`, `testing/`), with the rail-law model, the B-rep,
+the S6/S7 converter and their tests deleted. Deviations from the design above, and what step 2 must know:
+
+- **Blend.** The interpolation along ξ is the complete cubic spline with its breakpoints _at the
+  stations_ (zero end slopes, a tridiagonal solve for all coordinates at once, `blendAt`), not geom's
+  `interpolateCurve` (averaged knots, at most three coordinates per call). It is still exact at the
+  stations and C2 at every interior one. At an end station that lies inside the board the curvature
+  jumps (the section is held constant beyond it): put the end stations at the board's ends. The first
+  derivative is 0 at both ends.
+- **Fit.** Each half is fitted separately by `approximateCurve` on `m` equal spans with explicit
+  arc-length-fraction parameters (192 samples per half), then the halves are joined (same space as one
+  curve with a triple knot at ½). Held exactly: both centre points and horizontal tangents, the apex
+  point, and a vertical apex tangent only when the stored apex handles are both at u = 1. The ladder is
+  12, 16, 24, 32, 48 spans per half; a rung is accepted when `error × max(chord length, thickness)` at
+  every station is within 0.01 cm (conservative: the error is in normalised units). A miss is the
+  `section-fit` warning. Fits are cached per `Section` object, so an edit that keeps the other
+  sections' identity refits one section; `reviveBoardDoc` makes fresh objects, so revive only at load.
+- **Chains** store absolute handle positions (`{ p, in, out, smooth }`), parameter `s` ∈ [0, knots − 1].
+  The first knot's `in` and the last knot's `out` are unused.
+- **Notch map.** The start slope of the quintic map is chosen from the wall: it asks for chords that
+  cross the wall at twice the 20° minimum near the notch bottom, capped at the mean slope
+  (`frame.ts`). Consequently a notch whose inner wall leaves the stringer at less than about 30°, or a
+  very short zone, fails `notch-chord-angle`; that is the validator doing its job. A notched board's
+  stations lie in [d, L] (nothing exists at ξ < d), and a station at ξ = d is the collapsed notch-bottom
+  edge.
+- **Features.** The depth is read at ξ. Channels measure their distance from the outline along the chord
+  (ℓ, with exact ℓ′ and ℓ″). The fade is a quintic in t over the last `railFade` share of the bottom
+  half, so a vee also returns to zero at the apex.
+- **Issue codes.** `chain-too-short`, `station-id`, `symmetry-fields`, `outline-endpoints`,
+  `tail-start`, `outline-not-function`, `notch-zone`, `notch-tip`, `notch-chords-cross`,
+  `notch-chord-angle`, `line-domain`, `line-not-function`, `thickness`, `section-*` (five), `feature-invalid`,
+  `build-invalid`; warnings `section-fit` and `blend-overshoot` (reported above 0.01 cm; the overshoot
+  is clamped at evaluation, the clamp zeroing the control's ξ-derivatives).
+- **API.** `buildBoard(doc, { check? })` returns `BuiltBoard`; `createEvaluator(built)` returns the
+  allocation-free `row` / `eval` / `at` / `measure` (layout of a point: S, S*ξ, S_t, S*ξξ, S_ξt, S_tt,
+  stride 3, geom's `SKL` order). `MEASURE` gives the offsets of `measure`'s output (outward unit normal,
+  k1 ≥ k2, H, K, convex positive). Derivatives at the section's apex breakpoint (t = ½) are right-hand;
+  pass `left` for the left-hand ones. At a vertical outline end (blunt nose or tail) dx/ds is floored at
+  `TIP_SLOPE_FLOOR`, so ∂S/∂ξ stays finite there (and the normal is flagged degenerate at true tips).
+- **geom.** Only `surfaceMeasureAt` was exported (the `MEASURE_*` offsets are repeated in `surface.ts`).
+- **Viewer.** `apps/web/src/workers/nurbs-core.ts` is a marked "not yet wired (M1 step 3)" stub: every
+  job answers with an error outcome; its golden-conversion test is deleted. The e2e and perf scripts
+  that expect a mesh (`e2e/nurbs-viewer.spec.ts`, `tools/perf/nurbs-timing.mjs`) are not updated.
+- **Root.** `test:occt` no longer includes board2 (no OCCT suite until M3).
+
+Measured (Node, laptop container): the u = 0 / u = 1 lines are within 1e-13 of the rocker, deck and
+outline; station fit errors 0.002 to 0.008 cm (limit 0.01); across interior stations the normal jump
+is below 1e-7 rad and the relative curvature jump below 2e-6. A grid of 20,000 points costs 5 to 10 ms
+at any derivative order, 17 ms with `measure` (normal and curvatures). `buildBoard` is 1 to 4 ms with
+the section fits cached, 27 ms (8 sections) to 45 ms (14 sections) cold: about 3.5 ms per section per
+ladder rung, which is the cost of the first build after a conversion. Step 2's budget (build + mesh
+≤ 15 ms, ≤ 30 ms with curvature) therefore holds with warm fits; the first build after convert is in the
+convert-plus-first-mesh budget of < 1 s. Blend overshoot of a few hundredths of a cm occurs near the
+apex plateau when stations differ (0.007 to 0.03 cm on the test boards).
