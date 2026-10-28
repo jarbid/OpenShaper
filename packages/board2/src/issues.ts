@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * Issue codes and result helpers (docs/design/board2.md decision 29, §11.1).
+ * Issue codes and result helpers.
  *
  * `Board2Result<T>` is shaped like geom's `Result`: `ok: true` may carry warnings,
- * `ok: false` carries at least one error. Where geom reports a failure, the
- * `GeomIssue` travels in `cause` (see {@link causeOf}). Everything returned is
- * frozen, so a result can be shared between undo versions and posted to a worker.
+ * `ok: false` carries at least one error. Everything returned is frozen, so a
+ * result can be shared between undo versions and posted to a worker.
  */
-import { issueOf, isGeomError } from '@openshaper/geom';
-import type { GeomIssue } from '@openshaper/geom';
 import type { Board2Issue, Board2IssueCode, Board2Result } from './types';
 
 /**
@@ -19,24 +16,30 @@ import type { Board2Issue, Board2IssueCode, Board2Result } from './types';
 export const BOARD2_ISSUE_CODES = [
   'doc-malformed',
   'doc-version',
-  'tail-not-standard',
-  'plan-corner',
-  'plan-radius',
-  'tail-not-at-origin',
-  'asymmetric-unsupported',
-  'symmetry-broken',
-  'law-keys-unsorted',
-  'law-tip-slope',
-  'law-out-of-range',
-  'inset-invalid',
-  'inset-loop-invalid',
-  'rail-height',
-  'rail-profile-invalid',
-  'domain-too-small',
-  'feature-invalid',
-  'not-converged',
-  'unsupported-tail',
+  'symmetry-fields',
   'too-few-sections',
+  'chain-too-short',
+  'station-order',
+  'station-id',
+  'outline-endpoints',
+  'tail-start',
+  'outline-not-function',
+  'notch-zone',
+  'notch-tip',
+  'notch-chords-cross',
+  'notch-chord-angle',
+  'line-domain',
+  'line-not-function',
+  'thickness',
+  'section-centre-moved',
+  'section-centre-tangent',
+  'section-apex-index',
+  'section-apex-moved',
+  'section-out-of-bounds',
+  'feature-invalid',
+  'build-invalid',
+  'section-fit',
+  'blend-overshoot',
   'geom',
 ] as const satisfies readonly Board2IssueCode[];
 
@@ -45,7 +48,6 @@ export interface IssueExtras {
   readonly severity?: 'error' | 'warning';
   readonly at?: Board2Issue['at'];
   readonly value?: number;
-  readonly cause?: GeomIssue;
 }
 
 /** A frozen issue. Absent extras are omitted, not set to `undefined`. */
@@ -60,7 +62,6 @@ export function makeIssue(
     message,
     ...(extras.at === undefined ? {} : { at: Object.freeze({ ...extras.at }) }),
     ...(extras.value === undefined ? {} : { value: extras.value }),
-    ...(extras.cause === undefined ? {} : { cause: extras.cause }),
   };
   return Object.freeze(issue);
 }
@@ -78,9 +79,4 @@ export function board2Err<T>(issues: readonly Board2Issue[]): Board2Result<T> {
 /** True if any issue is an error (warnings do not fail a result). */
 export function hasErrors(issues: readonly Board2Issue[]): boolean {
   return issues.some((i) => i.severity === 'error');
-}
-
-/** The plain `GeomIssue` of a thrown geom error, or `undefined` for anything else. */
-export function causeOf(e: unknown): GeomIssue | undefined {
-  return isGeomError(e) ? issueOf(e) : undefined;
 }

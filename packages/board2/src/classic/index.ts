@@ -1,25 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * `@openshaper/board2/classic`: the converter from the classic `BezierBoard`
- * and the deviation report against the classic engine
- * (docs/design/board2.md §9, §10). The only entry point of the package that
- * may import `@openshaper/kernel`, so the core model stays free of the classic
- * engine and an app can load this lazily.
+ * `@openshaper/board2/classic`: the classic-board converter (the only part of
+ * board2 that may import `@openshaper/kernel`).
  *
- * Step S6 adds the converter's named defaults (`DEFAULT_CONVERT_OPTIONS`),
- * step S7 the converter itself (`convertClassic`; its stages stay internal).
- * Step S8 adds the deviation report.
+ * Not yet written: the direct converter is M1 step 2 (docs/design/m1-model.md §4).
+ * The S6/S7 surface-fitting converter that lived here is retired (git history).
  */
-export { convertClassic } from './convert';
-export { DEFAULT_CONVERT_OPTIONS } from './params';
-export type {
-  ClassicBoard,
-  Conversion,
-  ConversionReport,
-  ConvertOptions,
-  DeviationCause,
-  DeviationOptions,
-  DeviationReport,
-  DistanceSamples,
-  SpecDelta,
-} from './types';
+export {};

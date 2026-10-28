@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /** Issue codes and result helpers (decision 29). */
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { BOARD2_ISSUE_CODES, board2Err, board2Ok, causeOf, hasErrors, makeIssue } from './issues';
-import { GeomError } from '@openshaper/geom';
+import { BOARD2_ISSUE_CODES, board2Err, board2Ok, hasErrors, makeIssue } from './issues';
 import type { Board2IssueCode } from './types';
 
 describe('issues', () => {
@@ -18,10 +17,10 @@ describe('issues', () => {
     expect(Object.isFrozen(i)).toBe(true);
     const w = makeIssue('geom', 'w', {
       severity: 'warning',
-      at: { lane: 'apexHeight', key: 2 },
+      at: { station: 'a', key: 2 },
       value: 3,
     });
-    expect(w).toMatchObject({ severity: 'warning', at: { lane: 'apexHeight', key: 2 }, value: 3 });
+    expect(w).toMatchObject({ severity: 'warning', at: { station: 'a', key: 2 }, value: 3 });
     expect(Object.isFrozen(w.at)).toBe(true);
   });
 
@@ -38,12 +37,5 @@ describe('issues', () => {
     expect(hasErrors(bad.issues)).toBe(true);
     expect(hasErrors([warn])).toBe(false);
     expect(hasErrors([])).toBe(false);
-  });
-
-  it('causeOf turns a GeomError into its plain issue and ignores everything else', () => {
-    const c = causeOf(new GeomError('knots-decreasing', 'bad knots', { index: 3 }));
-    expect(c).toMatchObject({ code: 'knots-decreasing', severity: 'error', at: { index: 3 } });
-    expect(causeOf(new Error('x'))).toBeUndefined();
-    expect(causeOf('x')).toBeUndefined();
   });
 });

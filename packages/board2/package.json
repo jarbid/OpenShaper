@@ -1,7 +1,7 @@
 {
   "name": "@openshaper/board2",
   "version": "0.1.0",
-  "description": "Board model v2 over the NURBS core: rail loop, rail band and laws, trimmed deck and bottom, specs, and the classic converter (experiment branch)",
+  "description": "Section-based board model over the NURBS core: outline, rocker and deck curves, normalised sections, features and the surface evaluator (experiment branch)",
   "license": "GPL-3.0-or-later",
   "type": "module",
   "main": "./src/index.ts",
@@ -20,7 +20,6 @@
     "build": "tsc -p tsconfig.json --noEmit",
     "coverage": "vitest run --coverage --coverage.include=src --coverage.reporter=text-summary --coverage.reporter=json-summary",
     "test": "vitest run",
-    "test:occt": "vitest run -c vitest.occt.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

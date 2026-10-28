@@ -18,7 +18,7 @@
     "lint": "eslint . && prettier --check .",
     "typecheck": "turbo run typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,css}\"",
-    "test:occt": "pnpm --workspace-concurrency=1 --filter @openshaper/geom --filter @openshaper/board2 test:occt"
+    "test:occt": "pnpm --workspace-concurrency=1 --filter @openshaper/geom test:occt"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

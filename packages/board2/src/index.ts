@@ -1,70 +1,51 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * `@openshaper/board2`: the v2 board model of the geometry overhaul (Phase 2,
- * docs/design/board2.md). A full-width board whose rail is a closed loop with a
- * law-driven rail band, and whose deck and bottom are height fields trimmed by
- * that band; built on `@openshaper/geom` and nothing else.
+ * `@openshaper/board2`: the section-based board model of the NURBS engine
+ * (docs/design/nurbs-plan.md, docs/design/m1-model.md). A board is its outline,
+ * rocker and deck curves plus normalised cross-sections at stations, with bottom
+ * features; the surface is evaluated straight from them (`createEvaluator`), with
+ * exact first and second derivatives. Built on `@openshaper/geom` and nothing else.
  *
- * Every export is listed by name (decision 31), and `index.test.ts` pins the
- * runtime export list: each build step adds its values there in the same diff.
- * Steps S1 (document, laws, validation), S2 (plan loop, height fields,
- * symmetry), S3 (the rail band builder; its public value is `measureLaws`)
- * and S4 (bottom features, the B-rep and STEP: `buildBoard`, `writeBoardStep`)
- * are in; the specs and the converter follow (docs/design/board2.md §14).
- *
- * The classic converter and the deviation report live in the separate entry
- * point `@openshaper/board2/classic`, the only part of this package that may
- * import `@openshaper/kernel` (§11.3).
+ * Every export is listed by name, and `index.test.ts` pins the runtime export
+ * list. The grid mesh (`meshBoard`) is M1 step 2; the classic converter lives in
+ * the separate entry point `@openshaper/board2/classic`, the only part of this
+ * package that may import `@openshaper/kernel`.
  */
-export { measureLaws } from './band/profile';
-export { writeBoardStep } from './brep';
-export { buildBoard } from './build';
-export { reviveBoardDoc, boardDocToJson } from './doc';
+export { boardDocToJson, reviveBoardDoc } from './doc';
 export { BOARD2_ISSUE_CODES, board2Err, board2Ok, hasErrors } from './issues';
-export { stringerLines } from './height-field';
-export { evaluateLaw, lawEvaluator, lawSegments } from './law';
-export type { LawSegment } from './law';
-export { DEFAULT_BUILD_PARAMS, DEFAULT_RAIL_LAWS, RAIL_LANES, validateBuildParams } from './params';
-export { symmetryRules } from './symmetry';
-export type { SymmetryNet } from './symmetry';
+export { DEFAULT_BUILD } from './params';
+export { MEASURE, buildBoard, createEvaluator } from './surface';
+export type {
+  BuildReport,
+  BuiltBoard,
+  BuiltSide,
+  CompiledFeature,
+  SurfaceEvaluator,
+} from './surface';
 export { validateBoard } from './validate';
 export type {
-  BandRow,
-  BandStation,
-  Board2Format,
   Board2Issue,
   Board2IssueCode,
   Board2Result,
-  Board2Version,
   BoardDoc,
-  BoardFace,
+  BoardFormat,
   BoardMeta,
-  BoardSpecs,
+  BoardModel,
+  BoardVersion,
   BottomFeature,
-  BuildParams,
-  BuildReport,
-  BuiltBoard,
+  BuildSettings,
   ChannelsFeature,
+  Chain,
+  ChainKnot,
   ConcaveFeature,
   EaseHandle,
-  HeightFieldJSON,
   JsonValue,
   KeyedCurve,
-  LawCurve,
   LawKey,
-  LawTolerance,
-  OffsetBasisJSON,
-  OffsetComponent,
-  OffsetContribution,
-  OffsetField,
-  OffsetLayer,
-  OffsetRow,
-  Passthrough,
-  PlanLoopJSON,
-  RailLane,
-  RailLawValues,
-  RailLaws,
-  StringerLines,
+  Outline,
+  Pair,
+  Section,
+  Station,
   Symmetry,
   TailSpec,
   VeeFeature,

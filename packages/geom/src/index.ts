@@ -128,6 +128,7 @@ export {
   principalCurvatures,
   SAMPLE_DEGENERATE,
   SAMPLE_UMBILIC,
+  surfaceMeasureAt,
   surfaceNormal,
 } from './surface-measure';
 export type { Curvatures, FundamentalForms, NormalResult } from './surface-measure';
