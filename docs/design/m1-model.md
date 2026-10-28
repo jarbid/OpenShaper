@@ -337,3 +337,83 @@ with sparse, uneven stations; the clamp leaves no visible crease (jump <= 5e-6 r
 consider a shape-preserving C1 blend if it is frequent. (2) Section fits report 0.017 to 0.047 cm on the
 goldens (the conservative bound; the measured station deviation is under 0.2 mm). (3) A V bottom, a zero
 thickness end and a blunt tail are refused; the first matters for real files.
+
+## 10. As built (step 3)
+
+Landed in `apps/web` (`workers/nurbs-core.ts`, `nurbs-protocol.ts`, `nurbs-worker.ts`, `nurbs-curvature.ts`,
+`nurbs-client.ts`, `nurbs-viewer.ts`, `nurbs-surface.ts`, `nurbs-layer.tsx`, `nurbs-text.ts`) and a small
+extension of `ExternalSurface` in `render3d`. Deviations from the design above, and what step 4 must know:
+
+- **Job.** `convertAndMesh(classic, options)` is `convertClassic` → `buildBoard(doc, { check: false })` →
+  `meshBoard(built, { curvature, ladders })`; `meshTestBoard(name, options)` does the same for swallow, fish,
+  asymmetric and analytic (the board2 test boards, built with the validator on). The result is the transferred
+  typed arrays (float32 positions and normals, uint32 indices, optional curvature and deviation) plus the volume,
+  plan and surface area from `meshProperties`, which the "i" popover shows (volume in litres). Nothing is
+  serialised: no document JSON crosses the worker boundary any more.
+- **Protocol.** Requests are `classic` (the live board, by structured clone, 0.15 ms for the shortboard) and
+  `test`; the face size and `remesh` are gone (the 0.5 mm tolerance always holds). The client keeps its ids and
+  stale-answer dropping, and posts **one request at a time**: while the worker runs, only the newest later
+  request waits (it replaces an earlier waiting one), so a drag never builds a backlog and the worker is never
+  terminated for being slow. The worker posts no progress messages (a job is milliseconds).
+- **Identity.** A structured clone makes fresh objects, which would refit every section on every edit (the fit
+  cache is per `Section`, the converter's slice cache per classic `Spline`). `canonical()` in the core hands the
+  converter the earlier job's spline for every cross-section whose control points are unchanged (96 remembered),
+  which keeps both caches warm. `reviveBoardDoc` is never called per edit.
+- **Every edit converts at once.** The 1.2 s debounce, the `waiting` phase, the "not while dragging" gate and the
+  conversion cache are gone. The surface on screen is the last answer and is `tracking: 'live'`, so the 3D view
+  draws it whatever hull the store holds now: a drag never falls back to the classic hull between answers. While
+  the store is `editing`, a job reuses the last mesh's ladders (checked against the new board's ξ range) and
+  skips the curvature unless an exact analysis mode is shown; when the gesture ends one more job derives fresh
+  ladders and computes the curvature. The layer reads the analysis mode: an exact mode asks for curvature on
+  every update, "Deviation from classic" for the deviation (the old `classicDeviation` code and its tip and
+  no-data handling, unchanged). A drag in a non-exact mode hands the view zero curvature arrays, read only in an
+  exact mode, which asks for curvature and gets it with the next update.
+- **Curvature.** `meshBoard` already gives convex-positive `k1 >= k2`, so mean is `(k1 + k2) / 2`, Gaussian
+  `k1 k2`, radius `1 / max(|k1|, |k2|)` capped at the view's `MAX_RADIUS`; non-finite curvature is undefined and
+  has no weight in the display scales (the same percentile scales as before, so legends read as they did). Zebra
+  needs only the normals. `repairNormals` is deleted (the mesh's normals are exact, a collapsed end row takes the
+  limit half a row in).
+- **Refusals.** A refused board has no model: the classic mesh is shown, the badge says the phase is `failed`,
+  and the "i" popover gives a plain sentence per known code (zero thickness at an end, blunt tail off the
+  stringer, V bottom, folded curve, no sections) above the converter's own message with its numbers in the display
+  unit. A failed worker is shown the same way.
+- **Test boards.** With the engine on, a "Test board" menu in the badge area (My board, Swallow, Fish,
+  Asymmetric, Analytic) shows one on its own, read-only. The surface is `tracking: 'standalone'`: the view
+  centres it by its own bounding box and hides the classic board's fins and guides; the classic editors keep
+  editing the classic board, and classic edits are ignored while a test board is shown.
+- **render3d.** `ExternalSurface.board` may be null and `tracking?: 'hull' | 'live' | 'standalone'` says when the
+  surface counts (`surfaceApplies`); `surfaceCenter` places it. The default (`'hull'`) is the old behaviour.
+- **Flag off is unchanged.** `ThreeDPane` still imports only the lazy layer; board2 and geom (and the test boards)
+  stay in the worker and the dynamic-import chunks, there is no modulepreload of `nurbs-*` chunks (the build's
+  guard and the e2e flag-off test pass), the offline fallback and `NurbsBoundary` are untouched. The Settings
+  text and the `/docs/editing` section describe the live viewer.
+
+Measured in Chromium on a production build (`node tools/perf/nurbs-timing.mjs`; 4-core container, software
+WebGL, so the main thread is busier than on a laptop with a GPU):
+
+| What                                                                                   | Result                                                                       |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Engine switch (Apply in Settings to the NURBS hull on screen, 3 runs)                  | 0.50, 0.54, 0.50 s, including the lazy chunk and the worker start            |
+| Open a golden with the 3D view up (import to the surface on screen)                    | shortboard 0.50 s, funboard 0.37 s, longboard 0.48 s                         |
+| First job of a board (worker): convert / build / mesh                                  | 1 / 6-57 / 80-100 ms (cold fits and a cold mesh); 100 to 175 ms in all       |
+| Drag of the shortboard's wide outline knot, quad view, 60 moves                        | 56 updates, all with reused ladders                                          |
+| Per drag update, request to answer on the main thread (convert, build, mesh, transfer) | median 32 to 43 ms, p95 57 to 62 ms, max 88 to 129 ms (two runs)             |
+| Per drag update, worker only                                                           | median 16 to 18 ms (convert 0.4, build 10 to 12, mesh 4.5), p95 34 ms        |
+| One update after release (fresh ladders and curvature)                                 | 87 ms in the worker, 88 ms round trip; the surface on screen stays meanwhile |
+
+The target (< 50 ms) holds for the median; the p95 is slightly above it. Two things set the numbers:
+
+- **Build is 10 to 12 ms during an outline drag, not the 1 to 4 ms of step 1's bench.** The editor's outline
+  drag also rescales the cross-sections (the "Resize cross-sections" behaviour), so 4 of the 5 real sections
+  have new control points on every move and are refitted cold. A cold fit tries every rung of the span ladder
+  (12 to 48) because the goldens' fits sit above the 0.01 cm limit at every rung (the conservative bound of
+  step 2's open point 2). With that setting on (the default) the sections follow the outline, rocker and deck views. Stopping the ladder at the rung where the error stops improving could cut the cold fit substantially
+  (a board2 change, not done here).
+- **About 25 ms of the round trip is the main thread**, not the clone (0.15 ms) or the transfer: the answer
+  waits for the main thread, which software WebGL keeps busy re-rendering the 3D view and the three 2D panes on
+  every update.
+
+Known limits: `Deviation from classic` is first-order and blank within 0.5 cm of the tips (its code is
+unchanged); with a test board shown the classic board's fins and guides are hidden and its overlays are not
+registered with it; the V-bottom, zero-thickness and blunt-tail refusals are the model's, not the viewer's
+(of the 11 sample files timed above, 7 convert and 4 are refused with the reasons listed in step 2).

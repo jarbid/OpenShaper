@@ -238,11 +238,10 @@ export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProp
               onChange={(v) => set('nurbsEngine', v)}
             />
             <p className="text-xs text-muted-foreground">
-              Shows a NURBS version of the board in the 3D view, converted from the classic board
-              after your edits settle (this takes 10 to 20 seconds). It is read-only: editing,
-              saving and exporting stay classic. Turn it off to return to the classic 3D view. You
-              can also open the editor with <code>?engine=nurbs</code> to turn it on for one
-              session.
+              Shows a NURBS version of the board in the 3D view, built from the classic board and
+              updated as you edit. It is read-only: editing, saving and exporting stay classic. Turn
+              it off to return to the classic 3D view. You can also open the editor with{' '}
+              <code>?engine=nurbs</code> to turn it on for one session.
             </p>
           </SettingsGroup>
 

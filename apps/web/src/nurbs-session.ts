@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Ties the lazily loaded NURBS layer's long-lived resources (the shared viewer, its
- * worker and its cached meshes) to the engine setting, without the main chunk
- * importing the layer.
+ * worker and its mesh) to the engine setting, without the main chunk importing the
+ * layer.
  *
  * The layer registers a release function when it creates the shared viewer. Turning
- * the engine off calls it: the worker is terminated (even mid-conversion, which runs
- * 12 to 22 s) and the caches are dropped. Leaving the 3D pane does not: a pane
- * remount only pauses the viewer, so coming back finds the cache.
+ * the engine off calls it: the job in flight is dropped, the worker is terminated and
+ * the mesh is released. Leaving the 3D pane does not: a pane remount only pauses the
+ * viewer, so coming back finds the surface.
  */
 import { useEffect } from 'react';
 

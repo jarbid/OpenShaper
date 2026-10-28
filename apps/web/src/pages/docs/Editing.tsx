@@ -214,35 +214,35 @@ export default function DocsEditing() {
           off nothing about the editor changes.
         </p>
         <p>
-          With it on, the 3D view shows a NURBS version of your board, converted from the classic
-          board once your edits settle. The conversion takes 10 to 20 seconds, done in the
-          background: the classic mesh stays on screen with a <em>Converting to NURBS&hellip;</em>{' '}
-          timer until it finishes, and a conversion in progress is dropped when you edit again. A{' '}
-          <strong>NURBS (experimental) &mdash; read-only</strong> badge sits over the view, with a{' '}
+          With it on, the 3D view shows a NURBS version of your board, built from its outline,
+          rocker, deck and cross-sections. It updates on every edit, as you drag, not after a wait.
+          A <strong>NURBS (experimental) &mdash; read-only</strong> badge sits over the view, with a{' '}
           <strong>Classic / NURBS</strong> switch to compare the same board on both, and an{' '}
-          <strong>i</strong> button that lists the converter&rsquo;s warnings (for instance a rail
-          fit that missed its target) and how well each part of the board was fitted. If the
-          conversion fails, the classic mesh is shown and the <strong>i</strong> button says why.
+          <strong>i</strong> button that lists the volume, how closely the stations were fitted and
+          any warnings. A <strong>Test board</strong> menu shows one of the NURBS model&rsquo;s own
+          test boards (swallow, fish, asymmetric, analytic) on its own; your board is untouched.
         </p>
         <p>
           It is a viewer only: editing, saving and every export stay classic, and the NURBS surface
-          is never written to a file. It is also a different surface from the classic one, since it
-          is fitted to it, so it differs by a fraction of a millimetre in most places and more where
-          the classic loft has a station crease (the NURBS surface flows through stations). The
-          surface analysis modes above all work on it, read from the NURBS surface&rsquo;s own exact
-          derivatives, and the menu gains one more:
+          is never written to a file. It is a different surface from the classic one: it matches the
+          outline, rocker, deck and every cross-section, and flows smoothly between the stations
+          where the classic loft blends them linearly, so the two differ by up to a few millimetres
+          between stations. The surface analysis modes above all work on it, read from the NURBS
+          surface&rsquo;s own exact derivatives, with no crease at the stations, and the menu gains
+          one more:
         </p>
         <Terms>
           <Term name="Deviation from classic">
             How far the NURBS surface lies from the classic surface of the same board, measured
             along the surface normal: red where the NURBS surface has more foam, blue where it has
             less, in your display unit. The colour band is the same control as for the ghost
-            deviation.
+            deviation. It is left blank within half a centimetre of the tips.
           </Term>
         </Terms>
         <p>
-          Boards with a concave (swallow or fish) tail are not converted yet; the classic mesh is
-          shown for them.
+          Some boards the NURBS model cannot hold yet: a V in the bottom of a cross-section, a board
+          with no thickness at an end, or a blunt tail that does not start on the stringer. For
+          those the classic mesh stays on screen and the <strong>i</strong> button says why.
         </p>
       </Section>
 
