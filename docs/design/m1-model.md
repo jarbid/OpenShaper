@@ -519,3 +519,7 @@ cannot place a knot on every corner); (2) a creased stringer shows a tiny normal
 (curvature there is one-sided); (3) the zero
 thickness of an end is allowed only at the two ends (a deck that touches the rocker in the middle is refused as
 `thickness`).
+
+Checks at this commit: `pnpm --filter @openshaper/board2 test` (15 files, 231 tests), `pnpm lint`,
+`pnpm typecheck`, `turbo run test` (web: 90 files, 868 tests), `pnpm build`, `e2e` (45 tests; the refusal test
+now loads a deck that dips below the rocker, because the V-bottom file converts) and `e2e:offline` (8) all pass.

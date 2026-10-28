@@ -147,19 +147,13 @@ describe('refusals', () => {
     }
   });
 
-  it('refuses an outline that folds back on itself with a readable reason and no mesh', () => {
-    // a handle of the outline far beyond the nose: x is no longer a function along the outline
-    const from = pointedS3dx.indexOf('<Tangents_1>');
-    const to = pointedS3dx.indexOf('</Tangents_1>', from);
-    const folded =
-      pointedS3dx.slice(0, from) +
-      pointedS3dx.slice(from, to).replace('<x>91.44</x>', '<x>400</x>') +
-      pointedS3dx.slice(to);
-    const out = convertAndMesh(parseS3dx(folded).board, NONE);
+  it('refuses a deck below the rocker with a readable reason and no mesh', () => {
+    const dipped = pointedS3dx.split('<z>6.985</z>').join('<z>-3</z>');
+    const out = convertAndMesh(parseS3dx(dipped).board, NONE);
     expect(out.ok).toBe(false);
     if (out.ok) return;
-    expect(out.error).toMatch(/keep x a function/);
-    expect(out.issues.some((i) => i.severity === 'error' && i.code === 'convert-plan')).toBe(true);
+    expect(out.error).toMatch(/no thickness/);
+    expect(out.issues.some((i) => i.severity === 'error' && i.code === 'convert-slice')).toBe(true);
   });
 
   it('never throws on a malformed board', () => {
