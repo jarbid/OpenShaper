@@ -1,5 +1,10 @@
 # `@openshaper/board2` — board model v2 (Phase 2 design)
 
+> **Superseded (2026-10-28)** by [`nurbs-plan.md`](nurbs-plan.md). The rail-law model
+> (band builder, height fields, offset layer) and the S6/S7 converter are being retired in M1;
+> the bottom features, the B-rep/STEP path and the V1 viewer plumbing are kept. This document
+> is kept as history.
+
 Status: **design and scaffold, steps S1–S4, S6 and S7 done** for Phase 2 of `docs/design/geometry-overhaul.md` (§6; the
 topology and editing model it implements are §3.2 and §3.3). Written 2026-10-21 on
 `experiment/nurbs-overhaul`, after Phase 1 (`docs/design/geom-core.md`) was integrated. The

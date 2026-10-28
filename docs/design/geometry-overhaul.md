@@ -326,6 +326,10 @@ measurable.
 
 ## 6. Phases 1–6 (experiment branch)
 
+> **Superseded (2026-10-28).** Phase 1 below is done. Phases 2–6 and §7 are replaced by
+> [`nurbs-plan.md`](nurbs-plan.md): a curve-driven model with normalised cross-sections,
+> one 0.5 mm tolerance, and milestones M1–M4. The text is kept as history.
+
 ### Phase 1 — the NURBS core (`@openshaper/geom`)
 
 The beginning of the overhaul. Pure, dependency-free, no board concepts yet.
