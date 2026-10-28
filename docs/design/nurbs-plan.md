@@ -50,7 +50,7 @@ exports are NURBS.
     history keeps them.
 11. **Between stations the converted board keeps the smooth blend (Q32 = a, decided 2026-10-28).** The
     surface of a converted classic board flows through its stations (C2, no station creases), so it
-    differs from the classic loft by up to 5 mm between two stations. That difference is accepted
+    differs from the classic loft by up to 5 mm between two stations (about 1 mm since the rail-smoothness fix, `m1-model.md` §13). That difference is accepted
     (recorded in `docs/specs/divergences.md`); no extra stations are inserted to close it.
 12. **Every classic file converts (Q33, decided 2026-10-28).** The converter refuses nothing a
     classic file can contain: zero thickness at an end, a V bottom in a slice and a blunt tail all

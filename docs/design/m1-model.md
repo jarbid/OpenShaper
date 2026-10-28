@@ -48,13 +48,14 @@ negated.
   or vertical edge. There is no `MIN_DIM` floor. An end with real width (a transom) is closed by a
   planar cap: the end section, filled. ∂S/∂ξ is singular at pointed tips; normals there use the
   limit, and curvature is flagged undefined there, as the V1 viewer already does.
-- **Smooth blend.** Each side's station chains are resampled by arc-length fraction, separately on
-  each half: bottom → apex and apex → deck. Arc-length fraction is the correspondence `loft.ts`
-  proved pinch-free. The samples are fitted with `approximateCurve` onto **one common cubic knot
-  vector per side**: single knots except a triple knot at t = ½ (the apex). The fit is refined until
-  every station is within 0.01 cm, clamps any fitted control that lands outside the bounds, and is
-  cached per section. Each control coordinate is then interpolated along ξ with `interpolateCurve`
-  (cubic, parameter ξ, zero end slopes, held constant beyond the end stations).
+- **Smooth blend.** Each side's station chains are fitted, separately on each half (bottom → apex
+  and apex → deck), by a least-squares cubic B-spline onto **one common knot vector per side**: `m`
+  spans per half, graded so the rail has more spans than the flat bottom and the deck crown, and a
+  triple knot at t = ½ (the apex). The fit registers the rail of every section to the same parameter,
+  fits the tangent direction as well as the positions, and holds a corner of the stored section
+  exactly (§13). A span ladder picks `m` until every station is within 0.05 cm and 4° of the stored
+  section, and the fit is cached per section. Each control coordinate is then interpolated along ξ by a
+  local C2 quintic Hermite blend through the stations (§13), held constant beyond the end stations.
   - The result is **C2 along the board**, C2 around the section except G1 at the apex, and exact at
     the stations to within the fit. The remaining joins are those of the outline, rocker and deck
     chains themselves.
@@ -193,13 +194,13 @@ Landed in `packages/board2` (`chain.ts`, `bspline.ts`, `frame.ts`, `sections.ts`
 `surface.ts`, `validate.ts`, `doc.ts`, `params.ts`, `testing/`), with the rail-law model, the B-rep,
 the S6/S7 converter and their tests deleted. Deviations from the design above, and what step 2 must know:
 
-- **Blend.** The interpolation along ξ is the complete cubic spline with its breakpoints _at the
+- **Blend** (superseded by the local quintic blend of §13). The interpolation along ξ is the complete cubic spline with its breakpoints _at the
   stations_ (zero end slopes, a tridiagonal solve for all coordinates at once, `blendAt`), not geom's
   `interpolateCurve` (averaged knots, at most three coordinates per call). It is still exact at the
   stations and C2 at every interior one. At an end station that lies inside the board the curvature
   jumps (the section is held constant beyond it): put the end stations at the board's ends. The first
   derivative is 0 at both ends.
-- **Fit.** Each half is fitted separately by `approximateCurve` on `m` equal spans with explicit
+- **Fit** (superseded by `section-lsq.ts`, §13). Each half is fitted separately by `approximateCurve` on `m` equal spans with explicit
   arc-length-fraction parameters (192 samples per half), then the halves are joined (same space as one
   curve with a triple knot at ½). Held exactly: both centre points and horizontal tangents, the apex
   point, and a vertical apex tangent only when the stored apex handles are both at u = 1. The ladder is
@@ -514,7 +515,7 @@ Templates are the three golden boards; no other classic board file exists in the
   Open (one run of each file, wall time from import to the surface on screen): the goldens 0.33 to 0.62 s; engine switch
   0.50 s (three runs); the four formerly refused files open in 0.34 to 0.41 s (they were "failed" before).
 
-**Known limits.** (1) Rail corners of polygon sections are rounded by up to about 1 mm (a common knot vector
+**Known limits.** (1) (Fixed in §13: a half with one corner now holds it exactly.) Rail corners of polygon sections are rounded by up to about 1 mm (a common knot vector
 cannot place a knot on every corner); (2) a creased stringer shows a tiny normal step in the curvature modes
 (curvature there is one-sided); (3) the zero
 thickness of an end is allowed only at the two ends (a deck that touches the rocker in the middle is refused as
@@ -608,3 +609,116 @@ Cold fits are unchanged. A drag costs about 0.5 to 1 ms more; the 50 ms budget i
 **Not changed.** A moved station can still change the span rung of the section fit (the ladder stops on an
 error threshold): that moves the surface by at most the fit tolerance (0.16 mm measured), not by a blend
 switch. End stations inside the board keep the curvature jump noted in step 1.
+
+## 13. As built (rail smoothness)
+
+The default shortboard's rails showed edges and bulges that the classic surface does not have (a dark band
+along the tuck, ridges between the stations, streaks near the tail and the nose). A read-only diagnosis found
+two causes; both are fixed, on `experiment/nurbs-overhaul` only. Numbers are Node, laptop container, before
+(`42ce886`) and after.
+
+**1. The blend rang across the board (`sections.ts`, `blendControls` / `blendAt`).** The complete C2 cubic
+spline through the five stations is global: the tip stations' boxy sections (tail apex at v = 0.54, nose apex
+at v = 0.18 with a 90 degree tuck corner) are far from the interior ones (v about 0.25), so it overshot through
+the whole board: tuck (45 degree point) 1.75 cm against the classic 1.20 at x = 120, apex height 5.2 mm low at
+x = 60 and 3.5 mm high at x = 120, and the section normal turning back by up to 39 degrees at x = 134 (a real
+ridge). The blend is now a **local C2 quintic Hermite** interpolant per control coordinate: at each station its
+slope is the Fritsch-Carlson (Brodlie) slope of the monotone cubic through the same data and its second
+derivative the smaller (minmod) of that cubic's one-sided values (0 at an end station or a local extremum).
+It depends only on the two neighbouring stations, stays inside the range of its data, is C2 everywhere
+(station normal jump 3e-7 rad, curvature jump about 5e-5 of the largest) and leaves `blendAt`'s u limiter
+(monotone cubic as `m`, quintic as `s`) as it was.
+
+**2. The section fit let the corner and the tuck ring (`section-lsq.ts`, `sections.ts`).** The fit checked
+position only (0.05 cm), so the fitted normal wiggled: the shortboard's station at x = 30.5 swung its tuck
+normal by 17 degrees at 32 spans (0.3 at 48), and the two tip stations' 90 degree rail corners swung by 12 to
+30 degrees at any span count (a cubic cannot hold a corner; it overshoots by a tenth of the turn on both sides).
+The fit (`computeFit`, new file `section-lsq.ts`, replacing `approximateCurve` here) now:
+
+- **Graded knots.** The shared knot vector has `SECTION_GRADE_RATIO` = 5 times the spans per length along
+  the rail and the wall as along the flat bottom and the deck crown (density 1 up to t = 0.4 of a half,
+  rising to 5 at t = 0.7; `gradedKnots`). `sectionKnots(m)` is that vector; the control count is unchanged
+  (2 m + 5), so the evaluator, the mesh and the blend are untouched.
+- **Registration.** t is arc length except that the centre of each half's turning (the arc position of
+  each turn, weighted by the turn: where its rail is) is sent to the knot nearest t = 0.78 (bottom half) or 0.40
+  (deck half) in every section. The rails of two stations then lie at the same t, so the blend blends rail
+  with rail. A half that barely turns (a flat or vee bottom) is registered in proportion to its turning
+  (`SECTION_REGISTER_TURN`), continuously.
+- **Tangent rows.** The least squares has, besides the positions, a row per sample asking the fitted tangent
+  to be parallel to the stored one (`SECTION_NORMAL_WEIGHT` = 0.5 spans of position per radian). Solved by a
+  banded Cholesky factorisation of the normal equations with the fixed controls (centre points, flat centre
+  tangents, apex point, vertical apex tangent) eliminated; the rules stay exact.
+- **Exact corners.** A half with one corner (a knot where the stored chain turns by more than
+  `SECTION_CORNER_ANGLE` = 15 degrees: the end stations' rail edge, a polygon section's edges) holds it as a
+  **triple control point at the rail knot**: the curve reaches the corner with zero speed and leaves along the
+  other leg, a true crease, with no ringing and no rounding. The samples leave the corner as the cubic ramp
+  the curve does (distance from the corner proportional to the cube of the parameter over the first span,
+  linear beyond, C1). The knot vector, the evaluator and the mesh need no change: the crease is an ordinary
+  control polygon. A half with two or more corners is fitted as before (no exact corner).
+- **The ladder gates on position and direction.** A rung (12, 16, 24, 32, 48 spans) is accepted when every
+  station is within `SECTION_FIT_TOL` = 0.05 cm of the stored section and the fitted tangent direction is
+  within `SECTION_NORMAL_TOL` = 4 degrees of the stored one (`normalExcess`): at each sample the fitted
+  angle may be any angle the stored tangent takes within one sample (so the position tolerance can slide the
+  fit along a bend), measured on the section's real shape (chord against thickness, ratio limited to 1/8 to
+  8, so a sliver at a tip has no normal of its own), and samples where the fitted curve stands still (beside an
+  exact corner) are skipped. The cost of a rung is `max(position error, 0.05 cm x angle/4 degrees)` plus 1 % of
+  the position error as a tie-break; the stall rule is unchanged. The fit error is now the geometric distance
+  of the fitted samples from the stored chain (it was the parametric residual, conservative), so the
+  polygon sections' corners, which are exact, report 0.000. A station that misses the angle limit is a
+  `section-normal` warning (new issue code; `BuildReport.stationNormalError`). Fits are still cached per
+  `Section`; the fit does not depend on the station's scale, so a drag of the outline refits nothing.
+
+**Measured, shortboard / funboard / longboard** (golden boards; before at `42ce886`, after at this commit):
+
+| What                                                                                     | Before                                                                | After                                                           |
+| ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Section distance from the classic loft between stations (ring every 2 cm), max (mean) mm | 4.68 (1.97) / 1.85 (0.96) / 5.04 (2.22)                               | 1.02 (0.46) / 0.70 (0.27) / 1.07 (0.53)                         |
+| Worst reversal of the rail normal between stations (every 1 cm), degrees                 | 39.3 / 43.9 / 25.6                                                    | 1.6 / 1.6 / 1.6                                                 |
+| Fit normal swing at the stations (reversal of the evaluated section's normal), degrees   | 18.2 16.9 1.6 1.7 7.5 / 14.6 16.2 0.2 1.3 0.2 / 15.6 0.8 0.0 0.5 24.3 | 0.2 0.9 0.3 0.7 0.6 / 0.2 1.6 0.8 0.7 0.2 / 0.3 0.2 0.0 0.1 2.2 |
+| Spans per half (rung), worst station fit error (cm)                                      | 32, 0.050 / 48, 0.047 / 24, 0.046                                     | 24, 0.028 / 32, 0.016 / 32, 0.009                               |
+| Worst fitted-tangent error, degrees (not measured before)                                | (17 to 30 in the tuck and at the tips)                                | 2.7 / 0.9 / 3.4                                                 |
+| Vertices of the live mesh                                                                | 9,452 / 11,026 / 12,400                                               | 8,160 / 9,042 / 10,360                                          |
+| Distance from classic at the stations, mm (shortboard)                                   | 0.06 to 0.19                                                          | 0.02 to 0.11                                                    |
+
+Shortboard landmarks against the classic loft: apex height 5.2 mm low at x = 60 and 3.5 mm high at x = 120
+before, 0.98 mm high and 0.39 mm low after; tuck (45 degree point, arc distance from the apex) at x = 120
+1.75 cm against 1.20 before, 1.18 after; deck edge at x = 60 1.63 against 1.39 before, 1.25 after (the
+classic's own 1.39 is a loft between two slices). A classic swallow and a classic fish (behind the notch zone
+plus 12 cm): max 2.67 and 2.68 mm (mean 0.94 and 0.95) before, 0.74 and 1.46 mm (mean 0.45 and 0.47) after;
+their reversals 46 degrees before, 1.5 after. The V-bottom, zero-thickness, blunt-tail and polygon sample files
+all convert, build and mesh closed as before; the seven synthetic polygon files now fit exactly (0.000 cm;
+before 0.073 to 0.087, the `section-fit` warning) with rail reversals of 0 degrees (before 9.5 to 31); their
+meshes are 5,670 vertices (before 6,210 to 7,020) except the two V-bottom files, 7,854 (before 5,566: more
+rows, since the crease runs along the whole board).
+
+**Tests (`packages/board2/src/rail-smoothness.test.ts`, `section-lsq.test.ts`).** The rail test runs over the
+review set (three goldens, classic swallow and fish, the swallow, fish and asymmetric test boards; both sides of
+an asymmetric board) and fails on both earlier states (15 of 21 checks on `42ce886`, 11 on the blend-only fix):
+(1) the rail normal's reversal between the stations, measured on the evaluated physical section every 1 cm
+(within 80 degrees of horizontal, from the apex down and up), is at most **3 degrees**; (2) on the converted
+classic boards the section is within **2 mm** of the classic loft (mean **0.8 mm**) every 4 cm, outside a notch
+zone plus 12 cm; (3) every station is within 0.05 cm and 4 degrees with no build warning; (4) the apex height
+and the two 45 degree points (tuck, deck edge) of the blended normalised section between two stations stay
+within the range of the two stations' values plus **0.03** (normalised). The station-crease (`apex.test.ts`,
+`model.test.ts`) and edit-continuity tests are unchanged. `section-lsq.test.ts` pins the graded knots, the
+registration (a corner lands on the rail knot whatever its arc fraction, exactly, as three coincident
+controls), the vee bottom, the angle measure and the ladder's report.
+
+**Cost.** Node (`pnpm --filter @openshaper/board2 bench`, median of 20; the container is noisy, +-20 %; before /
+after, two alternating runs each). Cold build of a golden (fresh sections, every rung fitted), shortboard /
+funboard / longboard: 12 to 24, 11 to 20 and 6 to 8 ms before; 6 to 8, 6 to 9 and 6 to 9 ms after (a fit is a
+banded solve of about 0.3 to 0.4 ms per section and rung, and the shortboard and the funboard stop on a lower
+rung; the longboard goes from 24 to 32 spans). Drag of the wide outline knot, 40 moves, whole move (convert +
+build + mesh with reused ladders), median (p95): 4.6 to 4.7 (5.9 to 6.5) / 5.3 to 5.6 (7.5 to 9.4) / 5.2 to 5.5
+(7.6 to 9.0) ms before, 4.4 to 4.8 (7.8 to 8.2) / 4.7 to 5.7 (7.5 to 8.8) / 5.8 to 6.2 (9.4 to 9.6) ms after;
+build 0.2 to 0.3 ms before, 0.4 after (the blend of a wider section on the longboard), the 50 ms budget is
+untouched. A section drag (one slice changes per move, so one cold fit per move), shortboard: build 5.2 to 5.5
+(p95 8) ms before, 1.6 (p95 3.3) after. Warm caches are unchanged: a fit depends on the section only (not on the
+station's scale), so an outline drag still refits nothing. The live meshes have 11 to 17 % fewer vertices on the goldens.
+
+**Known limits.** (1) A half with two or more corners is fitted without exact corners and can still ring a
+little (none of the sample files has one). (2) A crease at an exact corner is a crease: a mesh column at exactly
+that t has a zero-length tangent (the viewer samples it by adaptive bisection, which never lands there). (3)
+Between a cornered station and a smooth one the crease fades as the blend moves from one to the other, as the
+classic loft's does. (4) The 4 degrees and 0.05 cm gates can fail on an extreme user section (the warnings
+say so); the ladder then keeps the best rung.

@@ -182,22 +182,30 @@ close it.
 
 - Classic blends the two neighbouring slices linearly in x (`loft.ts`), so the surface has a normal
   crease at every station. The NURBS engine blends the stations' fitted section controls with a
-  complete cubic spline in x: C2 along the board, no station creases. The u coordinates (which must stay
-  within the outline and the stringer) go through one smooth limiter instead of a switch between two
+  **local C2 quintic Hermite** interpolant in x (slopes from the monotone cubic through the same data, so it
+  stays within the range of its data): C2 along the board, no station creases, and no ringing between far-apart
+  stations (the complete cubic spline it replaced overshot through the whole board). The u coordinates (which
+  must stay within the outline and the stringer) go through one smooth limiter instead of a switch between two
   blends (`docs/design/m1-model.md` "As built (review fixes)"): the surface moves continuously with the
-  stations.
+  stations. Each station's section is fitted with registered rails, graded knots, the tangent direction and
+  exact corners (`docs/design/m1-model.md` "As built (rail smoothness)"), so the rails have no ripple the
+  classic loft does not have.
 - Why: the point of the engine is a surface whose zebra and curvature analysis are seamless. A
   linear blend cannot be that; the difference is the price of removing the creases.
 - How much (Hausdorff distance between the section rings of the two surfaces, ring every 2 cm, golden
-  boards, after the M1 review fixes): shortboard max 4.7 mm (mean 2.0 mm, at x = 58), funboard max
-  1.9 mm (mean 1.0 mm, x = 160), longboard max 5.0 mm (mean 2.2 mm, x = 72). The largest differences are
-  in the long intervals between the two inner stations; within 30 cm of a nose or tail station it is under
-  1 mm. At the stations: 0.01 to 0.19 mm; on the outline, rocker and deck lines: below 0.02 mm.
+  boards, after the rail-smoothness fix; the figures before it, the M1 review fixes, in brackets): shortboard
+  max 1.0 mm (4.7), mean 0.46 mm (2.0), at x = 24; funboard max 0.70 mm (1.9), mean 0.27 mm (1.0), x = 78;
+  longboard max 1.1 mm (5.0), mean 0.53 mm (2.2), x = 182. At the stations: 0.02 to 0.11 mm (0.06 to 0.19);
+  on the outline, rocker and deck lines: below 0.02 mm. The rails keep the classic's character: the worst
+  turn-back of the section normal along the rail between stations is 1.6 degrees (39, 44 and 26; the classic
+  loft's is at most 0.6), and the apex height, tuck and deck edge stay within 1 mm and 0.2 cm of the classic's
+  (5 mm and 0.6 cm before).
 - A classic swallow or fish (the shortboard's slices under the test swallow and fish outlines): max
-  2.7 mm for both (mean 0.9 and 1.0 mm), measured on the planes behind the notch zone, and 1.3 to 3.8 mm on
-  the planes inside it. (Before the review fixes the tip slice, 10 cm from the next station in the zone's
-  fan coordinates, made the blend swing: 15.8 mm and 9.1 mm.) The slices inside the notch zone are not
-  stations any more; the conversion report lists them (`zoneSlices`) and warns that the notch is reshaped.
+  0.74 and 1.5 mm (mean 0.45 and 0.47 mm; 2.7 mm, mean 0.9, before), measured on the planes behind the notch
+  zone plus 12 cm, and 1.3 to 3.8 mm on the planes inside it. (Before the review fixes the tip slice, 10 cm from
+  the next station in the zone's fan coordinates, made the blend swing: 15.8 mm and 9.1 mm.) The slices inside
+  the notch zone are not stations any more; the conversion report lists them (`zoneSlices`) and warns that the
+  notch is reshaped.
 - Other known differences: the tips are true points or vertical edges (classic floors the width at
   `MIN_DIM` = 0.5 cm); a handle that steps outside its segment in x (the golden noses, 0.002 cm) is pulled
   back; a classic swallow or fish gets a real inner rail (the classic pod has a vertical inner wall); the
@@ -208,9 +216,12 @@ close it.
   or an edge there. A blunt tail or nose (the outline starts or ends off the stringer) gets a straight edge
   to the stringer and a planar transom. Nothing is refused any more except what cannot be a surface (an
   outline that folds back on itself, a deck below the rocker, a board with no slices): all 14 sample files
-  convert (Q33). The rail corners of a hand-made polygon section are rounded by about 1 mm by the cubic fit
-  (`docs/design/m1-model.md` "As built (step 4)").
-- Oracle: `packages/board2/src/classic/convert.test.ts` (stations, lines, the 8 mm regression bound, 5 mm
+  convert (Q33). The rail corners of a section that has exactly one per half (the end stations' 90 degree rail edge, a hand-made polygon section) are held exactly, as a crease (they were rounded by about 1 mm, and rang by 12 to 30 degrees); a half with two or more corners is
+  fitted without exact corners (`docs/design/m1-model.md` "As built (rail smoothness)").
+- Oracle: `packages/board2/src/rail-smoothness.test.ts` (the rail normal turns back by at most 3 degrees,
+  the section is within 2 mm of the classic loft between stations, the rail landmarks stay within the range
+  of the stations; it fails on the complete-cubic-spline blend and on the position-only fit),
+  `packages/board2/src/classic/convert.test.ts` (stations, lines, the 8 mm regression bound, 5 mm
   for notched boards,
   the crease test: the normal-angle jump across a station is 700 to 400,000 times smaller than the
   classic loft's) and `docs/design/m1-model.md` "As built (step 2)".
