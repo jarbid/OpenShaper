@@ -13,3 +13,4 @@ export {
 } from './boards';
 export type { AnalyticFacts } from './boards';
 export { chain, knot, section } from './boards';
+export { chainPoint, chainZ, distanceToChain, distanceToPolyline, sampleChain } from './oracles';

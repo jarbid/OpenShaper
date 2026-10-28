@@ -201,7 +201,7 @@ export function swallowBoard(): BoardDoc {
       knot([92, 6.2], [62, 6.2], [125, 6.1]),
       knot([185, 11], [155, 7], undefined),
     ),
-    stations: sectionsAlong([11, 24, 40, 70, 95, 130, 160, 185], FULL_SECTIONS),
+    stations: sectionsAlong([11, 24, 40, 70, 100, 130, 160, 185], FULL_SECTIONS),
     features: [
       vee(
         'vee',
@@ -260,7 +260,7 @@ export function fishBoard(): BoardDoc {
       knot([85, 6.4], [58, 6.4], [115, 6.3]),
       knot([170, 10.2], [142, 6.6], undefined),
     ),
-    stations: sectionsAlong([6, 16, 32, 64, 88, 120, 150, 170], FULL_SECTIONS),
+    stations: sectionsAlong([6, 16, 32, 64, 100, 120, 150, 170], FULL_SECTIONS),
     features: [
       {
         kind: 'concave',
@@ -299,7 +299,7 @@ export function asymmetricBoard(): BoardDoc {
     knot([180, 0], [180, 8], undefined),
   );
   const outline: Outline = { plus, minus };
-  const xs = [0, 20, 45, 90, 135, 165, 180];
+  const xs = [0, 20, 45, 80, 115, 165, 180];
   const rows: readonly SectionRow[] = [
     [0.7, 0.04, 0.3, 0.7, 0.7],
     [0.8, 0.05, 0.3, 0.78, 0.7],
