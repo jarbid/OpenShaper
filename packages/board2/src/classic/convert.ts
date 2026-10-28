@@ -42,7 +42,7 @@ import {
   CONVERT_SNAP,
   CONVERT_TIE,
   CONVERT_WALL_TOL,
-  CONVERT_ZONE_LADDER,
+  NOTCH_ZONE_LADDER,
   DEFAULT_BUILD,
   PLAN_EXACT_TOL,
   SECTION_APEX_TOL,
@@ -641,7 +641,7 @@ function convert(board: BezierBoard, opts: ConvertOptions): Board2Result<Classic
 
   // a swallow or fish: the shortest notch zone of the ladder that validates
   let last: readonly Board2Issue[] = [];
-  for (const m of CONVERT_ZONE_LADDER) {
+  for (const m of NOTCH_ZONE_LADDER) {
     const zone = m * d;
     if (!(d > 0 && d + zone < L)) continue;
     const tail: TailSpec = { kind: 'notched', zone };
@@ -657,7 +657,9 @@ function convert(board: BezierBoard, opts: ConvertOptions): Board2Result<Classic
             : ''),
         { severity: 'warning' },
       );
-      return board2Ok({ doc, report: report(tail, zoneSlices) }, [
+      // the document asks for the zone to be re-picked when the outline is edited (`resolveTail`)
+      const auto: BoardDoc = { ...doc, tail: Object.freeze({ kind: 'notched', zone, auto: true }) };
+      return board2Ok({ doc: auto, report: report(tail, zoneSlices) }, [
         reshaped,
         ...issues,
         ...warnings,

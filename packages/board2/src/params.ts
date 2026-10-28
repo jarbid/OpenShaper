@@ -153,8 +153,8 @@ export const CONVERT_MAX_SPLIT_DEPTH = 6;
 /** A classic slice narrower or thinner than this (cm), or off the centre line by more, cannot be normalised. */
 export const CONVERT_MIN_SIZE = 1e-6;
 export const CONVERT_CENTRE_TOL = 1e-6;
-/** Notch zone lengths tried, in multiples of the notch depth d, until the plan validates. */
-export const CONVERT_ZONE_LADDER: readonly number[] = [1.5, 2, 3, 4, 6, 8, 12];
+/** Notch zone lengths tried, in multiples of the notch depth d, until the plan validates (the converter's choice, and a tail marked `auto`'s). */
+export const NOTCH_ZONE_LADDER: readonly number[] = [1.5, 2, 3, 4, 6, 8, 12];
 /** Largest control-point move (cm) a repair may make before the board is refused: the build tolerance. */
 export const CONVERT_MAX_ADJUST = DEFAULT_BUILD.tolerance;
 /** Decimals (normalised units) to which two converted sections are the same section, and how many are remembered. */

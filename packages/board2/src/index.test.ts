@@ -22,6 +22,7 @@ describe('@openshaper/board2 public API', () => {
         'meshBoard',
         'meshProperties',
         'meshVertex',
+        'resolveTail',
         'reviveBoardDoc',
         'validateBoard',
       ].sort(),

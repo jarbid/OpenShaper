@@ -25,7 +25,7 @@ export type {
   CompiledFeature,
   SurfaceEvaluator,
 } from './surface';
-export { validateBoard } from './validate';
+export { resolveTail, validateBoard } from './validate';
 export type {
   Board2Issue,
   Board2IssueCode,

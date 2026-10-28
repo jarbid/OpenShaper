@@ -41,7 +41,7 @@ import { BLEND_CHECK_SAMPLES, CHORD_FLOOR, SECTION_FIT_TOL } from './params';
 import { blendAt, controlCount, fitSide } from './sections';
 import type { SideBlend, SideItem } from './sections';
 import type { Board2Issue, Board2Result, BoardDoc, BottomFeature } from './types';
-import { validateBoard } from './validate';
+import { resolveTail, validateBoard } from './validate';
 
 /** One side of a built board. */
 export interface BuiltSide {
@@ -102,9 +102,10 @@ function stationScale(
  * misses {@link SECTION_FIT_TOL} or a blend that leaves the bounds is a warning.
  */
 export function buildBoard(
-  doc: BoardDoc,
+  docIn: BoardDoc,
   opts: { readonly check?: boolean } = {},
 ): Board2Result<BuiltBoard> {
+  const doc = resolveTail(docIn);
   const issues: Board2Issue[] = [];
   if (opts.check !== false) {
     const v = validateBoard(doc);

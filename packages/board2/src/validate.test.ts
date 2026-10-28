@@ -5,7 +5,9 @@
  * (docs/design/m1-model.md §6, step 1), and accepts the test boards.
  */
 import { describe, expect, it } from 'vitest';
-import { validateBoard } from './validate';
+import { boardDocToJson, reviveBoardDoc } from './doc';
+import { buildBoard } from './surface';
+import { resolveTail, validateBoard } from './validate';
 import { analyticBoard, asymmetricBoard, fishBoard, swallowBoard } from './testing';
 import type { Board2IssueCode, BoardDoc } from './types';
 
@@ -137,6 +139,32 @@ describe('validateBoard', () => {
     expect(codes(mutate(swallowBoard(), (d) => (d.rocker.knots[0].out[0] = 400)))).toEqual([
       'line-not-function',
     ]);
+  });
+
+  it('re-picks the notch zone of a tail marked auto when the outline changes (an outline edit near the tail)', () => {
+    // a steeper first segment of the notch wall: the stored 24 cm zone now gives a chord that crosses the wall too flatly, a 44 cm one does not
+    const edit = (d: any): void => {
+      d.outline.plus.knots[0].out = [7, 4];
+    };
+    expect(codes(mutate(swallowBoard(), edit))).toEqual(['notch-chord-angle']);
+    const auto = mutate(swallowBoard(), (d) => {
+      edit(d);
+      d.tail.auto = true;
+    });
+    expect(validateBoard(auto)).toEqual([]);
+    const picked = resolveTail(auto);
+    expect(picked.tail.kind === 'notched' && picked.tail.zone).toBeCloseTo(44, 9); // 4 d
+    expect(resolveTail(picked)).toEqual(picked); // stable
+    // buildBoard picks it too, and the stored document is untouched
+    const built = buildBoard(auto);
+    expect(built.ok && built.value.doc.tail).toEqual(picked.tail);
+    expect(auto.tail).toMatchObject({ kind: 'notched', zone: 24, auto: true });
+    // a board that validates keeps the shortest zone of the ladder, which may be shorter than the stored one
+    const ok = mutate(swallowBoard(), (d) => (d.tail.auto = true));
+    expect(validateBoard(ok)).toEqual([]);
+    // and it round-trips through JSON
+    const back = reviveBoardDoc(JSON.parse(boardDocToJson(auto)) as unknown);
+    expect(back.ok && back.value.tail).toEqual(auto.tail);
   });
 
   it('lets the deck meet the rocker at the ends, but not cross it', () => {

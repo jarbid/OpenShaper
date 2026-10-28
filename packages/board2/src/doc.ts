@@ -208,14 +208,16 @@ function station(r: Reader, v: unknown, path: string): Station {
 }
 
 function tail(r: Reader, v: unknown): TailSpec {
-  const o = rec(r, v, 'tail', ['kind'], ['zone']);
+  const o = rec(r, v, 'tail', ['kind'], ['zone', 'auto']);
   const kind = oneOf(r, o.kind, 'tail.kind', ['standard', 'notched'] as const);
   if (kind === 'standard') {
     if (o.zone !== undefined) bad(r, 'tail.zone', 'is only for a notched tail');
+    if (o.auto !== undefined) bad(r, 'tail.auto', 'is only for a notched tail');
     return { kind };
   }
   if (o.zone === undefined) bad(r, 'tail.zone', 'is required for a notched tail');
-  return { kind, zone: num(r, o.zone, 'tail.zone') };
+  const zone = num(r, o.zone, 'tail.zone');
+  return o.auto === undefined ? { kind, zone } : { kind, zone, auto: bool(r, o.auto, 'tail.auto') };
 }
 
 function outline(r: Reader, v: unknown): Outline {
@@ -408,7 +410,9 @@ function ordered(doc: BoardDoc): unknown {
     tail:
       doc.tail.kind === 'standard'
         ? { kind: 'standard' }
-        : { kind: 'notched', zone: doc.tail.zone },
+        : doc.tail.auto === undefined
+          ? { kind: 'notched', zone: doc.tail.zone }
+          : { kind: 'notched', zone: doc.tail.zone, auto: doc.tail.auto },
     outline: {
       plus: ch(doc.outline.plus),
       ...(doc.outline.minus === undefined ? {} : { minus: ch(doc.outline.minus) }),

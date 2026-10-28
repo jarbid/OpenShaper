@@ -58,10 +58,15 @@ export interface Station {
 
 export type Symmetry = 'mirror' | 'asymmetric';
 
-/** `notched`: the outline starts at the notch bottom (d, 0) and its tips are at x = 0; the chord map is ramped over `zone` cm after d. */
+/**
+ * `notched`: the outline starts at the notch bottom (d, 0) and its tips are at x = 0; the chord map is
+ * ramped over `zone` cm after d. With `auto`, `zone` is only the last choice: `validateBoard` and
+ * `buildBoard` re-pick the shortest zone of `NOTCH_ZONE_LADDER` that validates (see `resolveTail`),
+ * so an outline edit near the tail does not fail `notch-chord-angle` for a zone that suited the old outline.
+ */
 export type TailSpec =
   | { readonly kind: 'standard' }
-  | { readonly kind: 'notched'; readonly zone: number };
+  | { readonly kind: 'notched'; readonly zone: number; readonly auto?: boolean };
 
 /** Half-outlines (y ≥ 0 both), each from a stringer point to the nose (L, 0). `minus` only when asymmetric. */
 export interface Outline {

@@ -33,6 +33,7 @@ import {
   LINE_CHECK_SAMPLES,
   MIN_CHORD_ANGLE,
   MIN_THICKNESS,
+  NOTCH_ZONE_LADDER,
   THICKNESS_END_SLACK,
   NOTCH_CHECK_SAMPLES,
   OUTLINE_CHECK_SAMPLES,
@@ -43,8 +44,31 @@ import type { Board2Issue, BoardDoc, Chain, Section } from './types';
 
 const near = (a: number, b: number, tol: number): boolean => Math.abs(a - b) <= tol;
 
+/**
+ * The document with a notched tail marked `auto` given the shortest zone of `NOTCH_ZONE_LADDER` that
+ * validates (the stored zone if none does, so the refusal is the validator's own); any other document
+ * is returned as it is. Cheap on a standard tail (nothing to do).
+ */
+export function resolveTail(doc: BoardDoc): BoardDoc {
+  const tail = doc.tail;
+  if (tail.kind !== 'notched' || tail.auto !== true) return doc;
+  const d = doc.outline.plus.knots[0]!.p[0];
+  const L = doc.outline.plus.knots[doc.outline.plus.knots.length - 1]!.p[0];
+  for (const m of NOTCH_ZONE_LADDER) {
+    const zone = m * d;
+    if (!(d > 0 && d + zone < L)) continue;
+    const candidate: BoardDoc = { ...doc, tail: { kind: 'notched', zone, auto: true } };
+    if (!validateConcrete(candidate).some((i) => i.severity === 'error')) return candidate;
+  }
+  return doc;
+}
+
 /** Every issue of a document, errors first in rule order; empty if the board is valid. */
 export function validateBoard(doc: BoardDoc): readonly Board2Issue[] {
+  return validateConcrete(resolveTail(doc));
+}
+
+function validateConcrete(doc: BoardDoc): readonly Board2Issue[] {
   const out: Board2Issue[] = [];
   const err = (
     code: Board2Issue['code'],
