@@ -6,6 +6,7 @@
  */
 import { render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_LENGTH_UNIT } from './format';
 import type { NurbsClient } from './nurbs-client';
 import { releaseNurbs, useReleaseNurbsWhenOff } from './nurbs-session';
 import { boardStore } from './store';
@@ -33,7 +34,14 @@ vi.mock('./nurbs-client', async (importActual) => ({
 const { default: NurbsLayer } = await import('./nurbs-layer');
 
 const mountLayer = () =>
-  render(<NurbsLayer store={boardStore} faceSize={0.9} units="cm" onSurface={() => {}} />);
+  render(
+    <NurbsLayer
+      store={boardStore}
+      faceSize={0.9}
+      units={DEFAULT_LENGTH_UNIT}
+      onSurface={() => {}}
+    />,
+  );
 
 function Engine({ on }: { on: boolean }) {
   useReleaseNurbsWhenOff(on);
