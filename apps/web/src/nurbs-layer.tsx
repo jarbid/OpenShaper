@@ -221,6 +221,7 @@ export default function NurbsLayer({
       viewer.setInput({
         enabled: true,
         board: s.board,
+        generation: s.loadCount,
         editing: s.editing,
         wantCurvature,
         wantDeviation,
@@ -237,7 +238,8 @@ export default function NurbsLayer({
 
   // The surface the 3D view should draw.
   const model = state.model;
-  const surface: ExternalSurface | null = showing === 'nurbs' && model ? surfaceOf(model) : null;
+  const surface: ExternalSurface | null =
+    showing === 'nurbs' && model ? surfaceOf(model, model.generation === state.generation) : null;
   useEffect(() => {
     onSurface(surface);
   }, [surface, onSurface]);

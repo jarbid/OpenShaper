@@ -63,6 +63,7 @@ export const statusText = (
     case 'converting':
       return 'Converting to NURBS… · classic shown meanwhile';
     case 'failed':
+      if (state.stale) return 'NURBS refused this edit · last good surface shown (see details)';
       return 'NURBS refused this board · classic shown (see details)';
     case 'ready':
       if (showing === 'classic') return 'Showing classic';

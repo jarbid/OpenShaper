@@ -18,7 +18,15 @@
  *   ladders (cheap) and leaves out curvature unless an exact mode shows it. When the
  *   gesture ends one more job runs: fresh ladders, curvature included.
  * - **Refusals.** A board the converter refuses leaves no model: the classic mesh is
- *   shown and the reasons are in {@link ViewerState.issues}.
+ *   shown and the reasons are in {@link ViewerState.issues}. A refusal of an edit made
+ *   mid-gesture (a drag that passes through a state the model cannot hold) keeps the last
+ *   good model, marked {@link ViewerState.stale}, so the 3D view does not flash back to the
+ *   classic mesh; the settled board decides.
+ * - **Documents.** Every model carries the document generation it was made from
+ *   ({@link ViewerInput.generation}, the store's `loadCount`). After another file is
+ *   opened the old model is not the new board's, and the view stops drawing it (it falls
+ *   back to `hull` tracking, which only shows a surface that fits the hull on screen)
+ *   until the new answer arrives.
  * - **Test boards.** With a test board chosen the viewer ignores the classic board and
  *   shows board2's test board (a standalone surface).
  * - **Read-only.** Nothing here writes to the board or the store.
@@ -42,6 +50,8 @@ export const BUSY_AFTER_MS = 250;
 export interface NurbsModel {
   /** The classic board it was converted from; null for a test board. */
   readonly board: BezierBoard | null;
+  /** The document generation it was made from ({@link ViewerInput.generation}). */
+  readonly generation: number;
   /** The test board it shows, when it is one. */
   readonly testBoard: TestBoardName | null;
   readonly issues: readonly NurbsIssue[];
@@ -76,6 +86,10 @@ export interface ViewerState {
   readonly error: string | null;
   /** The issues of the latest conversion (or of its refusal). */
   readonly issues: readonly NurbsIssue[];
+  /** The latest board was refused mid-edit: `model` is the last good surface, not this board's. */
+  readonly stale: boolean;
+  /** The document generation of the board now in the store; a model of another generation is another file's. */
+  readonly generation: number;
 }
 
 export const VIEWER_IDLE: ViewerState = {
@@ -84,11 +98,15 @@ export const VIEWER_IDLE: ViewerState = {
   model: null,
   error: null,
   issues: [],
+  stale: false,
+  generation: 0,
 };
 
 export interface ViewerInput {
   readonly enabled: boolean;
   readonly board: BezierBoard | null;
+  /** The store's `loadCount`: changes when another document replaces the board. */
+  readonly generation: number;
   /** The store is mid-gesture (a drag). */
   readonly editing: boolean;
   /** An exact curvature mode is shown: curvature is wanted on every update. */
@@ -102,6 +120,7 @@ export interface ViewerInput {
 export const VIEWER_INPUT_OFF: ViewerInput = {
   enabled: false,
   board: null,
+  generation: 0,
   editing: false,
   wantCurvature: false,
   wantDeviation: false,
@@ -135,6 +154,7 @@ export interface NurbsViewer {
 interface Requested {
   readonly board: BezierBoard | null;
   readonly testBoard: TestBoardName | null;
+  readonly generation: number;
   readonly curvature: boolean;
   readonly deviation: boolean;
   readonly editing: boolean;
@@ -176,6 +196,7 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     if (!r) return true;
     if (i.testBoard !== null) return r.testBoard !== i.testBoard || (curvature && !r.curvature);
     if (r.testBoard !== null || !r.board || !i.board) return true;
+    if (r.generation !== i.generation) return true;
     if (!sameHull(r.board, i.board)) return true;
     // The edit settled on the same hull: derive fresh ladders and add curvature.
     if (r.editing && !i.editing) return true;
@@ -188,6 +209,7 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     requested = {
       board: i.testBoard ? null : i.board,
       testBoard: i.testBoard,
+      generation: i.generation,
       curvature: options.curvature,
       deviation: options.deviation,
       editing: i.editing,
@@ -202,6 +224,20 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     if (!state.model) set({ phase: 'converting' });
     const board = i.board!;
     const testBoard = i.testBoard;
+    const generation = i.generation;
+    const editing = i.editing;
+    // A refusal of an edit made mid-gesture keeps the last good surface of this document.
+    const refused = (error: string | null, issues: readonly NurbsIssue[]): void => {
+      const keep = editing && state.model !== null && state.model.generation === generation;
+      set({
+        phase: 'failed',
+        job: null,
+        model: keep ? state.model : null,
+        stale: keep,
+        error,
+        issues,
+      });
+    };
     const job = testBoard ? client.test(testBoard, options) : client.classic(board, options);
     job
       .then((answer) => {
@@ -214,6 +250,7 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
             job: null,
             model: {
               board: testBoard ? null : board,
+              generation,
               testBoard,
               issues: answer.issues,
               summary: answer.summary,
@@ -224,28 +261,17 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
             },
             error: null,
             issues: answer.issues,
+            stale: false,
           });
         } else {
-          set({
-            phase: 'failed',
-            job: null,
-            model: null,
-            error: answer.error,
-            issues: answer.issues,
-          });
+          refused(answer.error, answer.issues);
         }
       })
       .catch((err: unknown) => {
         if (err instanceof SupersededError || running !== me) return;
         running = null;
         clearBusy();
-        set({
-          phase: 'failed',
-          job: null,
-          model: null,
-          error: err instanceof Error ? err.message : String(err),
-          issues: [],
-        });
+        refused(err instanceof Error ? err.message : String(err), []);
       });
   };
 
@@ -259,6 +285,7 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
       set(VIEWER_IDLE);
       return;
     }
+    set({ generation: i.generation });
     // Curvature when an exact mode shows it, and on every settled board.
     const curvature = i.wantCurvature || !i.editing;
     const deviation = i.wantDeviation && i.testBoard === null;

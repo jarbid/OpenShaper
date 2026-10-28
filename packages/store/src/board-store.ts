@@ -59,6 +59,12 @@ export interface HistoryEntry {
 
 export interface BoardState {
   board: BezierBoard | null;
+  /**
+   * Counts `load` calls: it changes exactly when another document replaces this one (not on an edit,
+   * an undo or a redo). Views that keep derived data of the board (the experimental NURBS surface) use
+   * it to tell "the board was edited" from "another file was opened".
+   */
+  loadCount: number;
   past: HistoryEntry[];
   future: HistoryEntry[];
   /** True while a drag is in progress (edits coalesce into one undo step). */
@@ -347,6 +353,7 @@ export const createBoardStore = (): StoreApi<BoardState> =>
 
     return {
       board: null,
+      loadCount: 0,
       past: [],
       future: [],
       editing: false,
@@ -358,6 +365,7 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         const pinned = enforceJunctions(board);
         set({
           board: get().adjustThickness ? adjustCrossSectionsToThicknessAndWidth(pinned) : pinned,
+          loadCount: get().loadCount + 1,
           past: [],
           future: [],
           editing: false,

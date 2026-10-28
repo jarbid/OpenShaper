@@ -277,6 +277,80 @@ describe('refusals', () => {
   });
 });
 
+describe('a refusal in the middle of an edit', () => {
+  it('keeps the last good surface, marked stale, while the gesture lasts; the settled board decides', async () => {
+    const h = harness();
+    const a = makeBoard();
+    h.input({ board: a });
+    h.calls[0]!.answer.resolve(okAnswer('a'));
+    await h.flush();
+
+    // a drag passes through a state the model cannot hold: no flash back to the classic mesh
+    const bad = hullEdit(a);
+    h.input({ board: bad, editing: true });
+    h.calls[1]!.answer.resolve(refusal);
+    await h.flush();
+    let s = h.viewer.getState();
+    expect(s).toMatchObject({ phase: 'failed', stale: true, error: 'slice at x = 5: V bottom' });
+    expect(s.model?.board).toBe(a);
+    expect(s.model?.mesh).toMatchObject({ tag: 'a' });
+
+    // the drag continues to a good board: the surface is fresh again
+    const good = hullEdit(bad);
+    h.input({ board: good, editing: true });
+    h.calls[2]!.answer.resolve(okAnswer('good'));
+    await h.flush();
+    s = h.viewer.getState();
+    expect(s).toMatchObject({ phase: 'ready', stale: false });
+    expect(s.model?.board).toBe(good);
+
+    // ... and a refusal of the settled board leaves no model, as before
+    const settledBad = hullEdit(good);
+    h.input({ board: settledBad, editing: true });
+    h.calls[3]!.answer.resolve(okAnswer('x'));
+    await h.flush();
+    h.input({ board: settledBad, editing: false });
+    h.calls[4]!.answer.resolve(refusal);
+    await h.flush();
+    expect(h.viewer.getState()).toMatchObject({ phase: 'failed', model: null, stale: false });
+  });
+
+  it('does not carry the old document over a refusal of the new one', async () => {
+    const h = harness();
+    const a = makeBoard();
+    h.input({ board: a, generation: 1 });
+    h.calls[0]!.answer.resolve(okAnswer('a'));
+    await h.flush();
+    h.input({ board: makeBoard(), generation: 2, editing: true });
+    h.calls[1]!.answer.resolve(refusal);
+    await h.flush();
+    expect(h.viewer.getState()).toMatchObject({ phase: 'failed', model: null, stale: false });
+  });
+});
+
+describe('opening another document', () => {
+  it('tags the model with the document generation and starts a job even for an identical hull', async () => {
+    const h = harness();
+    const a = makeBoard();
+    h.input({ board: a, generation: 1 });
+    h.calls[0]!.answer.resolve(okAnswer('a'));
+    await h.flush();
+    expect(h.viewer.getState()).toMatchObject({ generation: 1 });
+    expect(h.viewer.getState().model?.generation).toBe(1);
+
+    // another file with the very same hull objects: still a new document, still a new job
+    h.input({ board: a, generation: 2 });
+    expect(h.calls).toHaveLength(2);
+    // meanwhile the state says the model belongs to another document
+    const s = h.viewer.getState();
+    expect(s.generation).toBe(2);
+    expect(s.model?.generation).toBe(1);
+    h.calls[1]!.answer.resolve(okAnswer('b'));
+    await h.flush();
+    expect(h.viewer.getState().model?.generation).toBe(2);
+  });
+});
+
 describe('test boards', () => {
   it('shows the chosen test board instead of the classic board, and back', async () => {
     const h = harness();

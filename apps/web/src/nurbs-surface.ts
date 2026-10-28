@@ -6,7 +6,7 @@
 import type { CurvatureMesh, DeviationMesh, ExternalSurface } from '@openshaper/render3d';
 import type { NurbsModel } from './nurbs-viewer';
 
-const surfaces = new WeakMap<object, ExternalSurface>();
+const surfaces = new WeakMap<object, { live?: ExternalSurface; hull?: ExternalSurface }>();
 
 /** The scale shown by an exact mode before its curvature has arrived (one update). */
 const NO_CURVATURE = { mean: 1, gaussian: 1, radius: [1, 100] as const };
@@ -16,13 +16,19 @@ const NO_CURVATURE = { mean: 1, gaussian: 1, radius: [1, 100] as const };
  * surface is `live` (the viewer replaces it on every edit, so a drag never shows the classic
  * hull between answers); a test board is `standalone`.
  *
+ * `live` says the model is the current document's: only then does a classic board's surface track the
+ * live board. After another file is opened (`live` false) it tracks the hull instead, which draws it only
+ * while it fits the hull on screen, so the old board's surface never sits on the new board's hull.
+ *
  * A job that skipped the curvature (a drag, with no exact mode shown) gives zero curvature
  * arrays: the view reads them only in an exact mode, and that mode asks the viewer for
  * curvature, which arrives with the next update.
  */
-export function surfaceOf(model: NurbsModel): ExternalSurface {
+export function surfaceOf(model: NurbsModel, live = true): ExternalSurface {
   const mesh = model.mesh;
-  const hit = surfaces.get(mesh);
+  const kind = live ? 'live' : 'hull';
+  const cached = surfaces.get(mesh) ?? {};
+  const hit = cached[kind];
   if (hit) return hit;
   const n = mesh.positions.length / 3;
   const c = mesh.curvature;
@@ -51,10 +57,10 @@ export function surfaceOf(model: NurbsModel): ExternalSurface {
     : null;
   const surface: ExternalSurface = {
     board: model.board,
-    tracking: model.board ? 'live' : 'standalone',
+    tracking: model.board ? (live ? 'live' : 'hull') : 'standalone',
     curvature,
     deviation,
   };
-  surfaces.set(mesh, surface);
+  surfaces.set(mesh, { ...cached, [kind]: surface });
   return surface;
 }

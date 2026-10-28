@@ -4,7 +4,7 @@
  * the classic mesh stays, the test-board picker drives the viewer's input, and the
  * badge carries the timings of the update on screen.
  */
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_LENGTH_UNIT } from './format';
 import NurbsLayer from './nurbs-layer';
@@ -41,6 +41,7 @@ const fakeViewer = (initial: ViewerState) => {
 
 const model = (): NurbsModel => ({
   board: null,
+  generation: 0,
   testBoard: 'fish',
   issues: [],
   summary: {
@@ -98,6 +99,34 @@ describe('NurbsLayer', () => {
     expect(badge.getAttribute('data-round-trip-ms')).toBe('21');
     expect(badge.getAttribute('data-worker-ms')).toBe('13.4');
     expect(onSurface).toHaveBeenLastCalledWith(expect.objectContaining({ tracking: 'standalone' }));
+  });
+
+  it('stops tracking the live board for a model of another document, and says a stale surface is stale', () => {
+    const classic = { ...model(), testBoard: null, board: {} as never, generation: 1 };
+    // the same document: the surface follows the live board
+    const same = fakeViewer({ ...VIEWER_IDLE, phase: 'ready', model: classic, generation: 1 });
+    const onSame = vi.fn();
+    mount(same.viewer, onSame);
+    expect(onSame).toHaveBeenLastCalledWith(expect.objectContaining({ tracking: 'live' }));
+    cleanup();
+    // another file was opened (generation 2) and the answer has not arrived: only a surface that fits
+    // the hull on screen is drawn, so the old board's surface does not sit on the new hull
+    const other = fakeViewer({ ...VIEWER_IDLE, phase: 'ready', model: classic, generation: 2 });
+    const onOther = vi.fn();
+    mount(other.viewer, onOther);
+    expect(onOther).toHaveBeenLastCalledWith(expect.objectContaining({ tracking: 'hull' }));
+    cleanup();
+    // a refusal mid-edit keeps the last good surface and the status line says so
+    const stale = fakeViewer({
+      ...VIEWER_IDLE,
+      phase: 'failed',
+      model: classic,
+      generation: 1,
+      stale: true,
+      error: 'x',
+    });
+    mount(stale.viewer);
+    expect(screen.getByTestId('nurbs-status').textContent).toContain('last good surface');
   });
 
   it('puts the refusal in the popover in plain words and keeps the classic mesh', () => {
