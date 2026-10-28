@@ -84,7 +84,7 @@ export const MESH_DEV_FRACTION = 0.4;
  * Share of the tolerance that the twist of a cell, `|a + d - b - c| / 4` for its corners, may use: a
  * diagonal's midpoint sits that far from the cell's bilinear centre, on top of the sag.
  */
-export const MESH_TWIST_FRACTION = 0.5;
+export const MESH_TWIST_FRACTION = 0.45;
 /** Seed columns per half (bottom to apex, apex to deck) before refinement. */
 export const MESH_SEED_COLS_PER_HALF = 10;
 /** Seed rows spaced uniformly in ξ, and spaced by outline arc length, before refinement. */
