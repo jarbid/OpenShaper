@@ -142,8 +142,9 @@ describe('meshBuiltBoard', () => {
 
   it('measures against the classic board when given one', () => {
     const { board } = parseBrd(sampleBrd);
-    // The stadium is not the sample board, but the plumbing must deliver a deviation
-    // array of the mesh's size and a range that matches it.
+    // Plumbing only: the stadium is not the sample board, so the values mean nothing.
+    // What the deviation measures on a board and its own conversion is pinned in
+    // nurbs-deviation.golden.test.ts.
     const { mesh } = meshBuiltBoard(built, board, 1.5);
     expect(mesh.deviation).not.toBeNull();
     expect(mesh.deviation!.length).toBe(mesh.positions.length / 3);

@@ -5,10 +5,16 @@
  * the classic engine's own mesh moved by known amounts.
  */
 import { parseBrd } from '@openshaper/io';
-import { getLength, tessellateBoard } from '@openshaper/kernel';
+import { crossSectionLoops, getLength, tessellateBoard } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
 import sampleBrd from '../sample-board.brd?raw';
-import { classicDeviation, STATION_SPACING } from './nurbs-deviation';
+import {
+  classicDeviation,
+  NX_NO_DATA,
+  OWN_STATION_END_ZONE,
+  STATION_SPACING,
+  TIP_NO_DATA_ZONE,
+} from './nurbs-deviation';
 
 const { board } = parseBrd(sampleBrd);
 const L = getLength(board);
@@ -109,5 +115,48 @@ describe('classicDeviation', () => {
     const c = classicDeviation(board, pts(x0 + STATION_SPACING), nrm).deviation[0]!;
     expect(b).toBeGreaterThanOrEqual(Math.min(a, c) - 1e-6);
     expect(b).toBeLessThanOrEqual(Math.max(a, c) + 1e-6);
+  });
+
+  it('has no data within the tip zone of either end, and counts it (not a distance to the end)', () => {
+    const e = TIP_NO_DATA_ZONE;
+    const p = Float32Array.of(0.01, 0, 3, e - 0.01, 0, 3, L - e + 0.01, 0, 3, e + 0.3, 0, 3);
+    const n = Float32Array.of(0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1);
+    const d = classicDeviation(board, p, n);
+    expect([...d.deviation].map(Number.isFinite)).toEqual([false, false, false, true]);
+    expect(d.noData).toBe(3);
+  });
+
+  it('has no data where the surface faces along the board, and the range ignores it', () => {
+    // A mid-board vertex with a normal almost along the length: the station-plane
+    // correction sqrt(1 - nx²) tends to 0 there, which used to read as "about zero".
+    const x = L / 2;
+    const p = Float32Array.of(x, 5, 8, x, 5, 8);
+    const steep = Math.sqrt(1 - 0.1 ** 2);
+    const n = Float32Array.of(0, 0, 1, steep, 0, 0.1);
+    expect(Math.abs(steep)).toBeGreaterThan(NX_NO_DATA);
+    const d = classicDeviation(board, p, n);
+    expect(Number.isFinite(d.deviation[0]!)).toBe(true);
+    expect(Number.isNaN(d.deviation[1]!)).toBe(true);
+    expect(d.noData).toBe(1);
+    expect(d.range![0]).toBeCloseTo(d.deviation[0]!, 6);
+    expect(d.range![1]).toBeCloseTo(d.deviation[0]!, 6);
+  });
+
+  it('measures against the section at the vertex’s own x near the ends, where a blend of stations fails', () => {
+    // The section grows like sqrt(x) here, so the distance to the stations 0.25 cm
+    // either side of a point differs by several mm and a linear blend is not the
+    // distance to the section at the point's own x. The oracle: a point 0.1 cm outside
+    // the widest point of the classic section at exactly that x (the loops are the
+    // classic's own), with a normal across the board (nx = 0, so no correction).
+    for (const x of [TIP_NO_DATA_ZONE + 0.07, 0.83, 1.1, OWN_STATION_END_ZONE - 0.1, L - 0.83]) {
+      const ring = crossSectionLoops(board, x, 800)![0]!;
+      let widest = ring[0]!;
+      for (const q of ring) if (q.y > widest.y) widest = q;
+      const out = 0.1;
+      const p = Float32Array.of(x, widest.y + out, widest.z);
+      const d = classicDeviation(board, p, Float32Array.of(0, 0, 1)).deviation[0]!;
+      expect(d, `x = ${x}`).toBeGreaterThan(out - 0.005);
+      expect(d, `x = ${x}`).toBeLessThan(out + 0.005);
+    }
   });
 });
