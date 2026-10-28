@@ -34,7 +34,13 @@ import { buildBoard, createEvaluator } from '../surface';
 import type { BuiltBoard } from '../surface';
 import { GOLDENS, SAMPLES, classicNotched } from '../test-support/classic-samples';
 import { planeSections, ringDeviation, sectionDeviation } from '../test-support/board-set';
-import { nurbsRing, normalJump, polylineHausdorff, topology } from '../test-support/mesh-checks';
+import {
+  nurbsRing,
+  normalJump,
+  polylineHausdorff,
+  topology,
+  weldMap,
+} from '../test-support/mesh-checks';
 import type { V3 } from '../test-support/mesh-checks';
 import { fishBoard, swallowBoard } from '../testing';
 import { convertClassic } from './index';
@@ -63,7 +69,7 @@ describe('the sample files', () => {
       expect(b.ok, sample.name).toBe(true);
       if (b.ok) {
         const m = meshBoard(b.value);
-        expect(topology(m.indices, m.vertexCount).badEdges, sample.name).toBe(0);
+        expect(topology(m.indices, m.vertexCount, weldMap(m)).badEdges, sample.name).toBe(0);
         expect(m.volume, sample.name).toBeGreaterThan(0);
       }
       const text = boardDocToJson(r.value.doc);
@@ -318,7 +324,7 @@ describe('swallow and fish tails', () => {
       }
       const b = built(classic);
       const mesh = meshBoard(b);
-      expect(topology(mesh.indices, mesh.vertexCount).badEdges).toBe(0);
+      expect(topology(mesh.indices, mesh.vertexCount, weldMap(mesh)).badEdges).toBe(0);
       expect(mesh.volume).toBeGreaterThan(0);
       // the apex line is the classic outline, notch wall and tips included
       const ev = createEvaluator(b);

@@ -15,7 +15,7 @@ import { meshBoard } from './mesh';
 import { buildBoard } from './surface';
 import type { BuiltBoard } from './surface';
 import { GOLDENS, SAMPLES } from './test-support/classic-samples';
-import { meshDeviation, topology } from './test-support/mesh-checks';
+import { meshDeviation, topology, weldMap } from './test-support/mesh-checks';
 import { asymmetricBoard, fishBoard, swallowBoard } from './testing';
 import type { BoardDoc } from './types';
 
@@ -56,7 +56,7 @@ describe.each(cases)('%s', (_name, make) => {
   const mesh = meshBoard(board);
 
   it('is closed: every edge is shared by exactly two triangles, oppositely oriented', () => {
-    const t = topology(mesh.indices, mesh.vertexCount);
+    const t = topology(mesh.indices, mesh.vertexCount, weldMap(mesh));
     expect(t.badEdges).toBe(0);
     expect(t.unused).toBe(0);
     expect(t.vertices - t.edges + t.triangles).toBe(2);
@@ -73,7 +73,7 @@ describe.each(cases)('%s', (_name, make) => {
   it('has a volume within 1 % of a very fine reference mesh', () => {
     const reference = meshBoard(board, { tolerance: 0.005 });
     expect(reference.vertexCount).toBeGreaterThan(5 * mesh.vertexCount);
-    expect(topology(reference.indices, reference.vertexCount).badEdges).toBe(0);
+    expect(topology(reference.indices, reference.vertexCount, weldMap(reference)).badEdges).toBe(0);
     expect(Math.abs(mesh.volume - reference.volume) / reference.volume).toBeLessThan(0.01);
     // and so is the plan area
     expect(Math.abs(mesh.planArea - reference.planArea) / reference.planArea).toBeLessThan(0.01);

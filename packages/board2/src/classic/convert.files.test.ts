@@ -15,7 +15,7 @@ import { meshBoard } from '../mesh';
 import { buildBoard, createEvaluator } from '../surface';
 import type { BuiltBoard } from '../surface';
 import { GOLDENS, SAMPLES, classicFilesInRepo } from '../test-support/classic-samples';
-import { nurbsRing, polylineHausdorff, topology } from '../test-support/mesh-checks';
+import { nurbsRing, polylineHausdorff, topology, weldMap } from '../test-support/mesh-checks';
 import type { V3 } from '../test-support/mesh-checks';
 import { convertClassic } from './index';
 
@@ -53,7 +53,7 @@ describe('every classic file converts', () => {
       expect(built.ok).toBe(true);
       if (!built.ok) return;
       const mesh = meshBoard(built.value, { curvature: true });
-      expect(topology(mesh.indices, mesh.vertexCount).badEdges).toBe(0);
+      expect(topology(mesh.indices, mesh.vertexCount, weldMap(mesh)).badEdges).toBe(0);
       expect(mesh.volume).toBeGreaterThan(0);
       for (const a of [mesh.positions, mesh.normals, mesh.k1!, mesh.k2!])
         expect(finite(a)).toBe(true);
@@ -132,7 +132,7 @@ describe('a V bottom', () => {
         expect(o[2]!, `y = ${o[1]}`).toBeCloseTo(0.975 * u, 1);
       }
       const mesh = meshBoard(b);
-      expect(topology(mesh.indices, mesh.vertexCount).badEdges).toBe(0);
+      expect(topology(mesh.indices, mesh.vertexCount, weldMap(mesh)).badEdges).toBe(0);
       // the normal on the stringer has no sideways part (the keel is shaded as a ridge)
       for (let i = 0; i < mesh.vertexCount; i++) {
         const x = mesh.positions[3 * i]!;
@@ -177,7 +177,7 @@ describe('a blunt tail', () => {
     const b = build(squash());
     const mesh = meshBoard(b);
     expect(mesh.layout.weldFirst).toBe(false);
-    expect(topology(mesh.indices, mesh.vertexCount).badEdges).toBe(0);
+    expect(topology(mesh.indices, mesh.vertexCount, weldMap(mesh)).badEdges).toBe(0);
     let yMax = 0;
     let xMin = Infinity;
     for (let i = 0; i < mesh.vertexCount; i++) {

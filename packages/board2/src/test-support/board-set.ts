@@ -276,3 +276,57 @@ export function sectionDeviation(classic: BezierBoard, seg: Float64Array, x: num
   }
   return h;
 }
+
+/**
+ * Triangles of a mesh with a vertex normal that faces away from the triangle: the dot product of the unit
+ * vertex normal with the triangle's own unit normal below `-minDot`. Triangles of area below `minArea`
+ * (cm²: a sliver whose own normal is numerically undefined) and triangles with a vertex within `endZone`
+ * (a share of the board's length) of either end in x (the fans of a pointed tip, whose normals are limits
+ * and not face averages) are skipped. Returns the count and the largest area counted.
+ */
+export function backFacingNormals(
+  positions: Float32Array,
+  normals: Float32Array,
+  indices: Uint32Array,
+  opts: { minDot?: number; minArea?: number; endZone?: number } = {},
+): { count: number; maxArea: number } {
+  const minDot = opts.minDot ?? 0.05;
+  const minArea = opts.minArea ?? 1e-3;
+  const endZone = opts.endZone ?? 0.03;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let v = 0; v < positions.length; v += 3) {
+    lo = Math.min(lo, positions[v]!);
+    hi = Math.max(hi, positions[v]!);
+  }
+  const margin = endZone * (hi - lo);
+  let count = 0;
+  let maxArea = 0;
+  for (let k = 0; k < indices.length; k += 3) {
+    const a = 3 * indices[k]!;
+    const b = 3 * indices[k + 1]!;
+    const c = 3 * indices[k + 2]!;
+    const ux = positions[b]! - positions[a]!;
+    const uy = positions[b + 1]! - positions[a + 1]!;
+    const uz = positions[b + 2]! - positions[a + 2]!;
+    const wx = positions[c]! - positions[a]!;
+    const wy = positions[c + 1]! - positions[a + 1]!;
+    const wz = positions[c + 2]! - positions[a + 2]!;
+    const nx = uy * wz - uz * wy;
+    const ny = uz * wx - ux * wz;
+    const nz = ux * wy - uy * wx;
+    const len = Math.hypot(nx, ny, nz);
+    if (!(len / 2 >= minArea)) continue;
+    if ([a, b, c].some((v) => positions[v]! < lo + margin || positions[v]! > hi - margin)) continue;
+    let bad = false;
+    for (const v of [a, b, c]) {
+      const dot = (nx * normals[v]! + ny * normals[v + 1]! + nz * normals[v + 2]!) / len;
+      if (dot < -minDot) bad = true;
+    }
+    if (bad) {
+      count++;
+      maxArea = Math.max(maxArea, len / 2);
+    }
+  }
+  return { count, maxArea };
+}

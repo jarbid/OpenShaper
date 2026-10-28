@@ -9,7 +9,8 @@ import { describe, expect, it } from 'vitest';
 import { deriveLadders, meshBoard, meshProperties, meshVertex } from './mesh';
 import { buildBoard, createEvaluator, MEASURE } from './surface';
 import type { BuiltBoard } from './surface';
-import { topology } from './test-support/mesh-checks';
+import { backFacingNormals, boardSet, buildOrThrow } from './test-support/board-set';
+import { topology, weldMap } from './test-support/mesh-checks';
 import { analyticBoard, asymmetricBoard, chainPoint, fishBoard, swallowBoard } from './testing';
 import type { BoardDoc } from './types';
 
@@ -58,7 +59,7 @@ describe.each(BOARDS)('%s board: the mesh', (_name, make) => {
   const mesh = meshBoard(board);
 
   it('is closed and consistently oriented: every edge is used once each way, no vertex is unused', () => {
-    const t = topology(mesh.indices, mesh.vertexCount);
+    const t = topology(mesh.indices, mesh.vertexCount, weldMap(mesh));
     expect(t.badEdges).toBe(0);
     expect(t.unused).toBe(0);
     // a closed surface of genus 0
@@ -177,7 +178,7 @@ describe.each(BOARDS)('%s board: the mesh', (_name, make) => {
     expect(Array.from(again.indices)).toEqual(Array.from(mesh.indices));
     const coarse = meshBoard(board, { tolerance: 0.2 });
     expect(coarse.vertexCount).toBeLessThan(mesh.vertexCount);
-    expect(topology(coarse.indices, coarse.vertexCount).badEdges).toBe(0);
+    expect(topology(coarse.indices, coarse.vertexCount, weldMap(coarse)).badEdges).toBe(0);
   });
 });
 
@@ -202,7 +203,7 @@ describe('the options', () => {
     }
     // the rows and columns are tested on a subset of probes, so allow some slack on the diagonals
     expect(longest).toBeLessThan(6 * 1.6);
-    expect(topology(capped.indices, capped.vertexCount).badEdges).toBe(0);
+    expect(topology(capped.indices, capped.vertexCount, weldMap(capped)).badEdges).toBe(0);
   });
 
   it('curvature arrays: finite, k1 >= k2, equal to the evaluator and convex at the rail', () => {
@@ -275,7 +276,42 @@ describe('a blunt end', () => {
     const mesh = meshBoard(board);
     expect(mesh.layout.weldFirst).toBe(true);
     expect(mesh.layout.weldLast).toBe(false);
-    expect(topology(mesh.indices, mesh.vertexCount).badEdges).toBe(0);
+    expect(topology(mesh.indices, mesh.vertexCount, weldMap(mesh)).badEdges).toBe(0);
     expect(mesh.volume).toBeGreaterThan(0);
   });
+});
+
+describe('a welded end row (a pointed end or the notch bottom)', () => {
+  const set = boardSet();
+
+  it.each(set.map((b) => [b.name, b] as const))(
+    '%s: each side keeps its own vertices and normals there, so no triangle shades against its own face',
+    (_name, b) => {
+      const mesh = meshBoard(buildOrThrow(b.doc));
+      const { rows, cols, weldFirst, weldLast } = mesh.layout;
+      const N = mesh.normals;
+      const P = mesh.positions;
+      for (const [row, welded] of [
+        [0, weldFirst],
+        [rows - 1, weldLast],
+      ] as const) {
+        if (!welded) continue;
+        for (let j = 1; j < cols - 1; j += 4) {
+          const p = meshVertex(mesh.layout, 0, row, j);
+          const m = meshVertex(mesh.layout, 1, row, j);
+          expect(m).not.toBe(p);
+          // the same position, bit for bit; normals that point to their own side (never into the other wall)
+          expect([P[3 * m], P[3 * m + 1], P[3 * m + 2]]).toEqual([
+            P[3 * p],
+            P[3 * p + 1],
+            P[3 * p + 2],
+          ]);
+          expect(N[3 * m + 1]! * N[3 * p + 1]!).toBeLessThanOrEqual(0);
+        }
+      }
+      // (slivers under 0.1 mm² and the fans of a pointed tip, whose normals are limits, are left out)
+      const bad = backFacingNormals(mesh.positions, mesh.normals, mesh.indices);
+      expect(bad, `largest sliver ${bad.maxArea} cm²`).toMatchObject({ count: 0 });
+    },
+  );
 });

@@ -15,20 +15,56 @@ export interface Topology {
   readonly vertices: number;
   readonly edges: number;
   readonly triangles: number;
-  /** Vertices that no triangle uses. */
+  /** Vertices that no triangle uses (by index). */
   readonly unused: number;
 }
 
-/** Edge bookkeeping of an indexed triangle list: closed and consistently oriented means `badEdges === 0`. */
-export function topology(indices: Uint32Array, vertexCount: number): Topology {
+/**
+ * Each vertex's canonical vertex: itself, except that on a welded end row (a collapsed row: pointed tail,
+ * nose or notch bottom) the minus side's vertex is its plus twin. The two sides have separate vertices
+ * there, with their own normals, at the same position; the mesh is closed once they count as one.
+ */
+export function weldMap(mesh: Pick<BoardMesh, 'layout' | 'vertexCount'>): Uint32Array {
+  const canon = new Uint32Array(mesh.vertexCount);
+  for (let v = 0; v < canon.length; v++) canon[v] = v;
+  const { rows, cols, weldFirst, weldLast } = mesh.layout;
+  for (const [row, welded] of [
+    [0, weldFirst],
+    [rows - 1, weldLast],
+  ] as const) {
+    if (!welded) continue;
+    for (let j = 1; j < cols - 1; j++) {
+      canon[meshVertex(mesh.layout, 1, row, j)] = meshVertex(mesh.layout, 0, row, j);
+    }
+  }
+  return canon;
+}
+
+/**
+ * Edge bookkeeping of an indexed triangle list: closed and consistently oriented means `badEdges === 0`.
+ * `canon` (see {@link weldMap}) names vertices that count as one; a triangle that is then degenerate
+ * (two corners the same vertex) has no area and no edges.
+ */
+export function topology(indices: Uint32Array, vertexCount: number, canon?: Uint32Array): Topology {
+  const c = (v: number): number => (canon === undefined ? v : canon[v]!);
   const directed = new Map<number, number>();
   const key = (a: number, b: number): number => a * vertexCount + b;
   const used = new Uint8Array(vertexCount);
+  const usedCanon = new Uint8Array(vertexCount);
   for (let k = 0; k < indices.length; k += 3) {
     for (let e = 0; e < 3; e++) {
-      const a = indices[k + e]!;
-      const b = indices[k + ((e + 1) % 3)]!;
-      used[a] = 1;
+      used[indices[k + e]!] = 1;
+      usedCanon[c(indices[k + e]!)] = 1;
+    }
+    const ca = c(indices[k]!);
+    const cb = c(indices[k + 1]!);
+    const cc = c(indices[k + 2]!);
+    if (ca === cb || cb === cc || ca === cc) continue;
+    for (const [a, b] of [
+      [ca, cb],
+      [cb, cc],
+      [cc, ca],
+    ] as const) {
       directed.set(key(a, b), (directed.get(key(a, b)) ?? 0) + 1);
     }
   }
@@ -41,10 +77,14 @@ export function topology(indices: Uint32Array, vertexCount: number): Topology {
     if (a < b) edges++;
   }
   let unused = 0;
-  for (let v = 0; v < vertexCount; v++) if (used[v] === 0) unused++;
+  let welded = 0;
+  for (let v = 0; v < vertexCount; v++) {
+    if (used[v] === 0) unused++;
+    if (usedCanon[v] === 1) welded++;
+  }
   return {
     badEdges: bad,
-    vertices: vertexCount - unused,
+    vertices: welded,
     edges,
     triangles: indices.length / 3,
     unused,

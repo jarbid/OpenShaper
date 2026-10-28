@@ -5,12 +5,13 @@
  *
  * **Grid.** Rows follow ξ (the stringer coordinate) and columns follow t (around the
  * section: 0 bottom centre, ½ apex, 1 deck centre). One pair of ladders serves both
- * sides, so the two sides share their stringer vertices (columns 0 and last) exactly,
- * and a collapsed end row (a pointed tail, nose or notch bottom: the chord has zero
- * length) is welded: the plus and minus vertices of that row are the same vertices.
- * An end with real width (a blunt tail or nose) is closed by a planar cap, a strip
- * across the end section. The mesh is therefore closed, and every edge is used by two
- * triangles of opposite direction.
+ * sides, so the two sides share their stringer vertices (columns 0 and last) exactly.
+ * A collapsed end row (a pointed tail, nose or notch bottom: the chord has zero length) is
+ * welded by position: the two sides' vertices of that row are at the same place, but each
+ * side keeps its own vertices and normals (the surface has a ridge there: one side's normal
+ * points into the other side's wall). An end with real width (a blunt tail or nose) is closed by a planar cap, a strip
+ * across the end section. The mesh is therefore closed (by position at a welded row), and
+ * every edge is used by two triangles of opposite direction.
  *
  * **Tolerance.** The ladders are refined by bisection until, for every neighbouring
  * pair of rows (columns), the surface at the midpoint is within a share of the tolerance
@@ -70,10 +71,10 @@ export interface MeshOptions {
 export interface MeshLayout {
   readonly rows: number;
   readonly cols: number;
-  /** The first (last) row has zero chord: the two sides share its vertices. */
+  /** The first (last) row has zero chord: the two sides' vertices there are at the same positions (but separate vertices, with their own normals). */
   readonly weldFirst: boolean;
   readonly weldLast: boolean;
-  /** Index of the first minus-only vertex (`rows · cols`: the plus grid comes first). */
+  /** Index of the first minus-only vertex (`rows · cols`: the plus grid comes first, then the minus interior columns). */
   readonly minusBase: number;
 }
 
@@ -99,12 +100,9 @@ export interface BoardMesh {
 
 /** Vertex index of grid node `(i, j)` on side 0 (plus) or 1 (minus). */
 export function meshVertex(layout: MeshLayout, side: 0 | 1, i: number, j: number): number {
-  const { rows, cols, weldFirst, weldLast } = layout;
-  const edge = j === 0 || j === cols - 1;
-  if (side === 0 || edge || (weldFirst && i === 0) || (weldLast && i === rows - 1)) {
-    return i * cols + j;
-  }
-  return layout.minusBase + (i - (weldFirst ? 1 : 0)) * (cols - 2) + (j - 1);
+  const { cols } = layout;
+  if (side === 0 || j === 0 || j === cols - 1) return i * cols + j;
+  return layout.minusBase + i * (cols - 2) + (j - 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -455,10 +453,9 @@ function buildMesh(
   const mirror = board.doc.symmetry === 'mirror';
   const weldFirst = collapsedRow(board, xi[0]!);
   const weldLast = collapsedRow(board, xi[rows - 1]!);
-  const minusRows = rows - (weldFirst ? 1 : 0) - (weldLast ? 1 : 0);
   const minusBase = rows * cols;
   const layout: MeshLayout = { rows, cols, weldFirst, weldLast, minusBase };
-  const nV = minusBase + minusRows * (cols - 2);
+  const nV = minusBase + rows * (cols - 2);
   const positions = new Float32Array(3 * nV);
   const normals = new Float32Array(3 * nV);
   const k1 = curvature ? new Float32Array(nV) : undefined;
@@ -516,8 +513,12 @@ function buildMesh(
     }
   };
 
-  /** Writes the vertex in `vtx` as node `(i, j)` of `side`, and on a mirror board its mirror image. */
-  const store = (side: 0 | 1, i: number, j: number): void => {
+  /**
+   * Writes the vertex in `vtx` as node `(i, j)` of `side`, and on a mirror board its mirror image. On a
+   * collapsed row the minus vertex takes the plus vertex's position exactly (the row is welded by
+   * position) and keeps its own normal.
+   */
+  const store = (side: 0 | 1, i: number, j: number, collapsed: boolean): void => {
     if (mirror && (j === 0 || j === cols - 1)) {
       // a vertex on the stringer is shared by both halves: its normal is their mean, which has no
       // sideways part (a V bottom or a pitched deck has a crease there)
@@ -532,8 +533,17 @@ function buildMesh(
     put(v, false);
     if (side === 0 && mirror && j !== 0 && j !== cols - 1) {
       const w = meshVertex(layout, 1, i, j);
-      if (w !== v) put(w, true);
+      put(w, true);
+      if (collapsed) weld(v, w);
+    } else if (side === 1 && collapsed) {
+      weld(meshVertex(layout, 0, i, j), v);
     }
+  };
+  /** Gives vertex `w` the position of vertex `v` (bit for bit). */
+  const weld = (v: number, w: number): void => {
+    positions[3 * w] = positions[3 * v]!;
+    positions[3 * w + 1] = positions[3 * v + 1]!;
+    positions[3 * w + 2] = positions[3 * v + 2]!;
   };
 
   const here = new Float64Array(3 * cols);
@@ -541,14 +551,13 @@ function buildMesh(
   for (const side of sideList) {
     for (let i = 0; i < rows; i++) {
       const collapsed = (i === 0 && weldFirst) || (i === rows - 1 && weldLast);
-      if (side === 1 && collapsed) continue;
       const first = side === 1 ? 1 : 0;
       const last = side === 1 ? cols - 2 : cols - 1;
       if (!collapsed) {
         ev.row(side, xi[i]!, order);
         for (let j = first; j <= last; j++) {
           evalVertex(side, t[j]!);
-          store(side, i, j);
+          store(side, i, j, false);
         }
         continue;
       }
@@ -562,12 +571,12 @@ function buildMesh(
       }
       const next = xi[i === 0 ? 1 : rows - 2]!;
       ev.row(side, xi[i]! + MESH_NORMAL_OFFSET * (next - xi[i]!), order);
-      for (let j = 0; j < cols; j++) {
+      for (let j = first; j <= last; j++) {
         evalVertex(side, t[j]!);
         vtx[0] = here[3 * j]!;
         vtx[1] = here[3 * j + 1]!;
         vtx[2] = here[3 * j + 2]!;
-        store(side, i, j);
+        store(side, i, j, true);
       }
     }
   }
@@ -594,8 +603,11 @@ function buildMesh(
       const bm = meshVertex(layout, 1, i, j + 1);
       const cm = meshVertex(layout, 1, i + 1, j);
       const dm = meshVertex(layout, 1, i + 1, j + 1);
-      // the diagonal b-c would be used by both sides' quads if both its ends are shared
-      if (b === bm && c === cm) {
+      // the diagonal b-c would be used by both sides' quads if both its ends are shared (a stringer
+      // vertex, or a vertex of a welded row, which the two sides place at the same position)
+      const welded = (row: number): boolean =>
+        (row === 0 && weldFirst) || (row === rows - 1 && weldLast);
+      if ((b === bm || welded(i)) && (c === cm || welded(i + 1))) {
         tri(a, b, d);
         tri(a, d, c);
         tri(am, dm, bm);
