@@ -169,6 +169,33 @@ else `?`). Legacy wrote the JVM's platform charset, which on the Windows machine
 BoardCAD mostly ran on is cp1252: latin1 except for 0x80–0x9F, a range we never emit.
 Comment newlines are escaped as `\n` and unescaped on read (p49 only), as legacy does.
 
+## NURBS engine: the section blend between stations (`packages/board2`, experiment branch)
+
+Applies only to the experimental NURBS engine (`@openshaper/board2`, behind the "Engine: NURBS"
+setting); the classic loft is untouched. The direct converter (`@openshaper/board2/classic`)
+copies the outline, rocker and deck exactly and normalises each classic slice, so **at the
+stations and on the three lines the converted surface is the classic one**; **between the stations it
+differs by design**:
+
+- Classic blends the two neighbouring slices linearly in x (`loft.ts`), so the surface has a normal
+  crease at every station. The NURBS engine blends the stations' fitted section controls with a
+  complete cubic spline in x: C2 along the board, no station creases.
+- Why: the point of the engine is a surface whose zebra and curvature analysis are seamless. A
+  linear blend cannot be that; the difference is the price of removing the creases.
+- How much (Hausdorff distance between the section rings of the two surfaces, ring every 2 cm, golden
+  boards): shortboard max 4.7 mm (mean 2.0 mm, at x = 57), funboard max 2.9 mm (mean 1.2 mm, x = 74),
+  longboard max 5.0 mm (mean 2.4 mm, x = 90). The largest differences are in the long intervals
+  between the two inner stations; within 30 cm of a nose or tail station it is under 1 mm.
+  At the stations: 0.01 to 0.19 mm; on the outline, rocker and deck lines: below 0.02 mm.
+- Other known differences: the tips are true points or vertical edges (classic floors the width at
+  `MIN_DIM` = 0.5 cm); a handle that steps outside its segment in x (the golden noses, 0.002 cm) is pulled
+  back; a classic swallow or fish gets a real inner rail (the classic pod has a vertical inner wall); the
+  deck's vertical end walls become the thickness at the ends. A slice whose centre tangent is not
+  horizontal (a vee made of a stringer crease) is refused, not flattened.
+- Oracle: `packages/board2/src/classic/convert.test.ts` (stations, lines, the 8 mm regression bound,
+  the crease test: the normal-angle jump across a station is 700 to 400,000 times smaller than the
+  classic loft's) and `docs/design/m1-model.md` "As built (step 2)".
+
 ## Known candidates (not yet diverged)
 
 - **Junction constraints — unimplemented legacy locks/masks** (see

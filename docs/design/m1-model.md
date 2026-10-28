@@ -243,3 +243,97 @@ ladder rung, which is the cost of the first build after a conversion. Step 2's b
 ≤ 15 ms, ≤ 30 ms with curvature) therefore holds with warm fits; the first build after convert is in the
 convert-plus-first-mesh budget of < 1 s. Blend overshoot of a few hundredths of a cm occurs near the
 apex plateau when stations differ (0.007 to 0.03 cm on the test boards).
+
+## 9. As built (step 2)
+
+Landed in `packages/board2`: `mesh.ts` (`meshBoard`, `deriveLadders`, `meshProperties`, `meshVertex`),
+`classic/convert.ts` (`convertClassic`, the `./classic` entry), `test-support/` (sample loaders and the
+mesh checks), `perf.bench.ts` (`pnpm --filter @openshaper/board2 bench`) and `timing.test.ts`. Deviations
+from the design above, and what step 3 must know:
+
+- **API.** `buildBoard(doc)` then `meshBoard(built, { tolerance?, maxEdge?, curvature?, ladders? })`
+  returns `{ positions: Float32Array (xyz), normals: Float32Array (unit, outward), k1?, k2?
+(Float32Array, convex positive, k1 >= k2), indices: Uint32Array (counter-clockwise from outside),
+vertexCount, triangleCount, layout, ladders, volume, planArea, surfaceArea }`. `deriveLadders(built)` is
+  the costly part (about 60 % of a fresh mesh); pass `mesh.ladders` back as `ladders` to re-mesh an edited
+  board without it (drag), and re-derive when the edit settles. Buffers are plain typed arrays and can be
+  transferred. `meshVertex(layout, side, i, j)` gives the vertex of grid node (row i, column j) on side 0
+  (plus) or 1 (minus): the plus grid first (`i * cols + j`), then the minus interior columns; columns 0 and
+  last are shared by both sides, and a collapsed end row (pointed tail, nose or notch bottom) is welded.
+  Volume is the divergence theorem about the box centre, plan area the projected upward-facing
+  triangles, both from the triangles. `convertClassic(board, { name?, source? })` returns a
+  `Board2Result<{ doc, report }>`: refusals carry the validator's issues or `convert-slice` /
+  `convert-plan`, repairs a `convert-adjusted` warning; it never throws.
+- **Criterion.** A pair of neighbouring rows (columns) is split while the surface at their midpoint is
+  further than `MESH_DEV_FRACTION` (0.4) of the tolerance from the chord between them (distance to the
+  segment, so sliding along the surface costs nothing), or while a cell's twist `|a + d - b - c| / 4`
+  exceeds `MESH_TWIST_FRACTION` (0.45): the diagonal of a long thin cell sits that far from the cell
+  centre. Without the twist term a diagonal midpoint was 0.53 mm off on the longboard; with it the design
+  bound is 0.85 of the tolerance. Columns are refined first on probe rows (stations, their midpoints, six
+  uniform rows), then rows on the final columns (a stride of at most 64), then the columns are verified
+  at the final rows (a feature's lateral track moves along the board, the asymmetric board's channels
+  need it) and, if they grew, the rows are redone.
+- **Normals** are exact (`S_t x S_xi`, or `measure` with curvature). At a collapsed end row they are the
+  limit half a row into the board. On an asymmetric board a welded end row takes the plus side's
+  positions (the minus section's z at the collapsed edge differs by up to 0.015 cm).
+- **Converter.** Outline, rocker and deck are copied knot for knot; the deck's vertical end walls
+  (tail and nose thickness) are dropped; handles whose x steps outside their segment are pulled back
+  (golden noses: 0.0022 cm, reported as `lineAdjust`); y < 0 handles are clamped. A slice is split at its
+  widest point (a tie, a vertical plateau, takes the middle candidate), x / half-width, y / thickness,
+  centre handles made horizontal, and any segment with a control point beyond 0 <= u <= 1 is halved (up to
+  six times, then clamped): the funboard and longboard add 6 knots. The result is cached per classic
+  slice (`WeakMap` on the slice's spline), so an unchanged slice returns the same `Section` object (tested:
+  an edit to one slice changes one section; an outline edit changes none). A repair of more than the build
+  tolerance (0.05 cm) refuses the board with the reason; so does a deck that starts at the rocker (zero
+  thickness at an end), a blunt tail (the outline must start on the stringer) and a slice whose bottom
+  centre tangent is not horizontal. A classic outline with a cutout becomes `notched` with the shortest
+  zone of `[1.5, 2, 3, 4, 6, 8, 12] x d` that validates (swallow 16.8 cm, fish 13.3 cm on the test
+  outlines); a slice inside the zone is placed at the station whose chord meets the outer rail at its x.
+  `xiOfParam` moved into `frame.ts` for this. No sample file has a notch, so the notched path is tested
+  on the shortboard with the swallow and fish test outlines.
+- **New issue codes:** `convert-slice`, `convert-plan`, `convert-adjusted` (warning). Test directory
+  `test-support/` is exempt from the no-magic-tolerance scan like `testing/`.
+
+Measured (Node, laptop container; `pnpm --filter @openshaper/board2 bench`, median of 20):
+
+| Board (vertices)       | convert | first build | build + mesh, fresh ladders | reused ladders | curvature, fresh / reused |
+| ---------------------- | ------- | ----------- | --------------------------- | -------------- | ------------------------- |
+| shortboard (10.0 k)    | 0.6 ms  | 18 ms       | 0.1 + 10.1 ms               | 3.9 ms         | 14.7 / 7.5 ms             |
+| funboard (11.3 k)      | 0.7 ms  | 22 ms       | 0.2 + 22.9 ms               | 7.2 ms         | 27.7 / 12.7 ms            |
+| longboard (12.8 k)     | 0.6 ms  | 25 ms       | 0.1 + 22.3 ms               | 7.0 ms         | 27.1 / 12.7 ms            |
+| classic swallow (20 k) | 0.5 ms  | 0.1 ms\*    | 0.1 + 39 ms                 | 13.5 ms        | 51 / 21.5 ms              |
+
+(\*sections shared with the shortboard, already fitted.) The shortboard meets both budgets (build + mesh
+fresh 10 ms <= 15, with curvature 15 ms <= 30); the larger boards meet them only with reused ladders.
+The first build after a convert is the cold section fit (about 4 ms per section); the figures for opening
+a file are therefore parse + convert + 18 to 25 ms + a fresh mesh, far under the 1 s target.
+
+Acceptance (tests in `mesh.accept.test.ts`, `classic/convert.test.ts`): every triangle centre and
+edge midpoint, the diagonals included (full check, all triangles), is within the 0.5 mm tolerance of the
+surface: shortboard 0.22 / 0.24 mm (centre / edge midpoint), funboard 0.27 / 0.30, longboard 0.32 / 0.43,
+swallow 0.31 / 0.37, fish 0.31 / 0.38, asymmetric 0.21 / 0.26. All six meshes are closed (every directed edge
+once, its reverse once, Euler characteristic 2). Volume against a 0.005 cm reference mesh (5 to 20 x the
+vertices): -0.17 %, -0.13 %, -0.13 %, -0.18 %, -0.19 %, -0.12 % (limit 1 %). Converted goldens against the
+classic: sections at the stations within 0.01 to 0.19 mm (limit 0.5), outline, rocker and deck lines within
+0.02 mm. Between the stations they differ by up to 4.7 (shortboard), 2.9 (funboard) and 5.0 mm
+(longboard), mean 1.2 to 2.4 mm: more than the 1 to 2 mm expected in section 4, because real stations
+are far apart and the cubic spline through them is not the linear blend; recorded in
+`docs/specs/divergences.md`. Crease: the normal-angle jump across a station (finite differences at 1e-5 cm,
+the same procedure on both surfaces) is 4e-8 to 5e-6 rad for the NURBS surface against 1.6e-3 to 2.9e-2
+rad for the classic loft, 700 to 390,000 times smaller (the least favourable are the end stations next to
+the tips, where the normal moves fastest). No crease elsewhere: the jump along the whole board, scanned
+every 0.25 cm, is at most 5e-6 rad.
+
+Conversion of the 14 sample files (11 distinct boards; three copies of each golden), each in under 1 ms:
+shortboard (x3), funboard (x2), longboard (x2), `synthetic-degenerate-section`, `synthetic-stringer-fold-a`
+and `-fold-b` convert; `synthetic-clean-6x22x2-75` and `synthetic-fallback-outline-5x10` are refused
+(`thickness`: the deck meets the rocker at x = 0), `synthetic-rocker-absolute-deck` and
+`synthetic-rocker-thickness-deck` are refused (`convert-slice`: the bottom centre handle rises 0.55 to
+0.97 cm off the stringer, a V bottom the model cannot hold).
+
+Open points for the lead. (1) **Blend overshoot is common on real boards**: the funboard (0.4 cm) and
+longboard (1.4 cm, before clamping, in cm at the widest chord) trigger `blend-overshoot`, as does any board
+with sparse, uneven stations; the clamp leaves no visible crease (jump <= 5e-6 rad) but the plan says to
+consider a shape-preserving C1 blend if it is frequent. (2) Section fits report 0.017 to 0.047 cm on the
+goldens (the conservative bound; the measured station deviation is under 0.2 mm). (3) A V bottom, a zero
+thickness end and a blunt tail are refused; the first matters for real files.
