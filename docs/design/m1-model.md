@@ -523,3 +523,88 @@ thickness of an end is allowed only at the two ends (a deck that touches the roc
 Checks at this commit: `pnpm --filter @openshaper/board2 test` (15 files, 231 tests), `pnpm lint`,
 `pnpm typecheck`, `turbo run test` (web: 90 files, 868 tests), `pnpm build`, `e2e` (45 tests; the refusal test
 now loads a deck that dips below the rocker, because the V-bottom file converts) and `e2e:offline` (8) all pass.
+
+## 12. As built (review fixes)
+
+An independent review of M1 found eight things; all eight are fixed, each with a regression test that fails
+without it. Numbers are Node, laptop container, before the fix (the commit of step 4) and after.
+
+1. **Apex G1 (`sections.ts`, `convert.ts`, `params.ts`: `SECTION_APEX_TOL` = 1e-3 rad, `SECTION_HANDLE_MIN`).**
+   A converted station whose apex tangent was a few micrometres off vertical (longboard station 30.5: direction
+   (1.4e-5, 0.27)) lost the vertical-tangent constraint of the section fit, and with the triple knot at t = 1/2
+   the least-squares fit left a rail crease along the apex line. A side of the apex within 1e-3 rad of vertical
+   is now held exactly vertical (both controls beside the apex have the apex's u), and the converter snaps the
+   handle; a handle shorter than 1e-6 (normalised) has no direction. Normal angle across t = 1/2 along the
+   board: longboard 1.70 degrees to 0, funboard 0.12 to 0, shortboard 0 (unchanged). Under a 1e-8 move of every
+   station's apex handles it was up to 9.2 degrees (zero-length handles read as sideways); now below 0.05.
+   `apex.test.ts` runs all converted goldens, the classic swallow and fish and the three test boards, plain and
+   perturbed (1e-8 and half the practical angle, in, out and both).
+2. **One blend (`sections.ts`, `blendAt`; `blendControls` is the seam).** The switch between the C2 spline and a
+   monotone C1 cubic on a 1e-12 overshoot test is gone. A u coordinate is `m + r T((s - m) / r)`: `m` the monotone
+   interpolant of the station values (always inside [0, 1]), `s` the C2 spline, `r = m (1 - m)` the room to the
+   nearest bound and `T(z) = z / sqrt(1 + z^2)`. It cannot leave [0, 1], passes through every station value,
+   equals the spline to third order in `(s - m) / r` where there is room (C2 across a station), and where the
+   data touch a bound it follows `m` on both sides (slope 0, so the normal stays continuous). The derivatives
+   are analytic (checked against finite differences). Every other coordinate is the C2 spline. Moving funboard
+   station 2 (x = 30.5) in 1 mm steps: one step moved the surface 1.32 mm against 0.04 mm for the others, now
+   0.02 mm for every step (ring Hausdorff; in the review's point-for-point measure 7.2 mm). A 0.1 mm edit of the
+   shortboard's tail slice moved the surface 0.96 mm before and 0.21 mm now (1 mm: 1.6 and 1.6). Edits of an
+   interior slice move the surface by at most 3.5 times the edit (1.0 to 2.9 mm for 1 mm; the end slices
+   next to a tip amplify by design: their section is normalised by a tiny chord and thickness). Curvature jump
+   across the stations, relative to the largest curvature: funboard up to 0.09 % and longboard 0.29 % before,
+   0.00 % and 0.01 % now. Between-stations deviation from the classic loft is in `divergences.md`:
+   shortboard 4.7 (4.7 before), funboard 1.9 (2.5), longboard 5.0 (4.9) mm.
+3. **The curve, not the control polygon (`chain.ts` `segmentXIncreasing`, `convert.ts`, `validate.ts`).**
+   The converter refused outlines whose handles overlap in x although x(s) is monotone (the shortboard with the
+   tail knot's out handle at (33, 17): "would have to move 2.6 cm"), and `line-not-function` was a polygon test.
+   Both now test x'(t) >= 0 along each segment exactly (the minimum of the quadratic x'/3 at its ends and
+   stationary point). A segment that passes keeps its handles; one that goes backwards is repaired (the golden
+   noses, 0.002 cm) or refused as before. Tested with the repro, an overlapping rocker and deck, a pin-to-squash
+   tail, a real loop (still refused) and the validator (rocker, deck).
+4. **Notched boards (`convert.ts`).** Cause: the tip slice (x = 0.95) maps to a station 10 cm from the next one
+   (62 cm to the one after), so the cubic blend swung through the middle of the board: the same shortboard
+   sections gave 15.8 mm (classic swallow, at x = 56) and 9.1 mm (classic fish) from the classic loft against
+   4.7 mm on the standard board. Slices behind the notch zone's end (x < xi_end) are no longer stations; the
+   zone takes the section of the first station beyond it (kept: the last slice if all are behind it).
+   `ConversionReport` gains `zoneSlices` (their classic x) and `notchReshaped`, and the result carries a
+   `convert-adjusted` warning ("the notched tail is reshaped ... the slice at x = 0.95 cm lies in the zone and
+   is not a station"), which the popover lists. Measured: classic swallow 2.7 mm (mean 0.9), classic fish
+   2.7 mm (mean 1.0) behind the zone, and 1.3 to 3.8 mm on the planes inside it (cut from the surface with
+   `planeSections`, because there the sections do not lie in planes). The mesh is smaller (swallow 20,282 to
+   11,946 vertices) and faster. `notchReshaped` is the report of design note section 4.
+5. **Welded end rows (`mesh.ts`).** A collapsed row (pointed end, notch bottom) is welded by position only: the
+   minus side has its own vertices there, at the plus vertices' exact positions, with its own normals (the plus
+   side's normal pointed into the other wall). Triangles with a vertex normal against their own face (dot < -0.05,
+   area >= 0.1 mm^2, away from the 3 % end zones where a pointed tip's normals are limits): classic swallow 47 to 0,
+   classic fish 5 to 0, test swallow 42 to 0, test fish 5 to 0, the rest 0. The mesh is closed by index mapping
+   (`weldMap` in the test support; `meshVertex` and the layout fields are unchanged apart from the minus
+   numbering, which now has `rows * (cols - 2)` vertices). The count of the review's 73 (shortboard) and 108
+   (longboard) triangles at x = 0 are the tip fans, left out of the test like the older normals test does.
+6. **Test boards (`testing/boards.ts`).** `knot()` turns a smooth knot's handles onto the mean of their two
+   directions, keeping the lengths (swallow x = 30 and 155, fish 28, asymmetric 30 and 150, and the
+   same on five other knots found by the new test, `testing/boards.test.ts`: every smooth knot is G1).
+7. **Viewer (`nurbs-viewer.ts`, `nurbs-surface.ts`, `nurbs-layer.tsx`, store `loadCount`).** The store counts
+   `load` calls (`loadCount`; an edit, undo or redo does not change it). Models carry the generation they were
+   made from and the viewer state carries the current one: a model of another generation is drawn with `hull`
+   tracking (only if it fits the hull on screen), so after opening a file the old surface no longer sits on
+   the new hull. A refusal of an edit made mid-gesture keeps the last good model of the same document, marked
+   `stale` (the status line says "last good surface shown"); the settled board decides, and a refusal of the
+   settled board or of a new document drops the model as before.
+8. **Notch zone (`validate.ts` `resolveTail`, `types.ts`, `doc.ts`).** `tail: { kind: 'notched', zone, auto: true }`:
+   `validateBoard` and `buildBoard` re-pick the shortest zone of `NOTCH_ZONE_LADDER` (1.5 to 12 times the notch
+   depth) that validates, so an outline edit near the tail does not fail `notch-chord-angle` for a zone that
+   suited the old outline (test: the swallow with its notch wall steepened, 24 cm fails, 44 cm is picked). The
+   converter marks its notched documents `auto`; the stored zone is the last choice and is kept if none
+   validates, so the refusal is the validator's own. `auto` round-trips through JSON; the stored document is
+   not changed by a build.
+
+**Cost.** `pnpm --filter @openshaper/board2 bench` (median of 20, two runs after against one before; the
+container is noisy, +-30 %): outline-knot drag, whole move (convert + build + mesh with reused ladders)
+shortboard 3.9 ms before, 4.4 and 4.6 after; funboard 6.5, 8.0 and 7.3; longboard 4.9, 5.1 and 6.3. Build
+0.2 to 0.4 ms (the limiter costs one more cubic and a square root per u coordinate per row). Fresh build +
+mesh: shortboard 10.7 ms before, 12.0 and 16.9 after; classic swallow 43.5 before, 26 after (fewer vertices).
+Cold fits are unchanged. A drag costs about 0.5 to 1 ms more; the 50 ms budget is untouched.
+
+**Not changed.** A moved station can still change the span rung of the section fit (the ladder stops on an
+error threshold): that moves the surface by at most the fit tolerance (0.16 mm measured), not by a blend
+switch. End stations inside the board keep the curvature jump noted in step 1.

@@ -182,14 +182,22 @@ close it.
 
 - Classic blends the two neighbouring slices linearly in x (`loft.ts`), so the surface has a normal
   crease at every station. The NURBS engine blends the stations' fitted section controls with a
-  complete cubic spline in x: C2 along the board, no station creases.
+  complete cubic spline in x: C2 along the board, no station creases. The u coordinates (which must stay
+  within the outline and the stringer) go through one smooth limiter instead of a switch between two
+  blends (`docs/design/m1-model.md` "As built (review fixes)"): the surface moves continuously with the
+  stations.
 - Why: the point of the engine is a surface whose zebra and curvature analysis are seamless. A
   linear blend cannot be that; the difference is the price of removing the creases.
 - How much (Hausdorff distance between the section rings of the two surfaces, ring every 2 cm, golden
-  boards): shortboard max 4.7 mm (mean 2.0 mm, at x = 57), funboard max 2.9 mm (mean 1.2 mm, x = 74),
-  longboard max 5.0 mm (mean 2.4 mm, x = 90). The largest differences are in the long intervals
-  between the two inner stations; within 30 cm of a nose or tail station it is under 1 mm.
-  At the stations: 0.01 to 0.19 mm; on the outline, rocker and deck lines: below 0.02 mm.
+  boards, after the M1 review fixes): shortboard max 4.7 mm (mean 2.0 mm, at x = 58), funboard max
+  1.9 mm (mean 1.0 mm, x = 160), longboard max 5.0 mm (mean 2.2 mm, x = 72). The largest differences are
+  in the long intervals between the two inner stations; within 30 cm of a nose or tail station it is under
+  1 mm. At the stations: 0.01 to 0.19 mm; on the outline, rocker and deck lines: below 0.02 mm.
+- A classic swallow or fish (the shortboard's slices under the test swallow and fish outlines): max
+  2.7 mm for both (mean 0.9 and 1.0 mm), measured on the planes behind the notch zone, and 1.3 to 3.8 mm on
+  the planes inside it. (Before the review fixes the tip slice, 10 cm from the next station in the zone's
+  fan coordinates, made the blend swing: 15.8 mm and 9.1 mm.) The slices inside the notch zone are not
+  stations any more; the conversion report lists them (`zoneSlices`) and warns that the notch is reshaped.
 - Other known differences: the tips are true points or vertical edges (classic floors the width at
   `MIN_DIM` = 0.5 cm); a handle that steps outside its segment in x (the golden noses, 0.002 cm) is pulled
   back; a classic swallow or fish gets a real inner rail (the classic pod has a vertical inner wall); the
@@ -202,7 +210,8 @@ close it.
   outline that folds back on itself, a deck below the rocker, a board with no slices): all 14 sample files
   convert (Q33). The rail corners of a hand-made polygon section are rounded by about 1 mm by the cubic fit
   (`docs/design/m1-model.md` "As built (step 4)").
-- Oracle: `packages/board2/src/classic/convert.test.ts` (stations, lines, the 8 mm regression bound,
+- Oracle: `packages/board2/src/classic/convert.test.ts` (stations, lines, the 8 mm regression bound, 5 mm
+  for notched boards,
   the crease test: the normal-angle jump across a station is 700 to 400,000 times smaller than the
   classic loft's) and `docs/design/m1-model.md` "As built (step 2)".
 
