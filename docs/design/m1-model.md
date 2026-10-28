@@ -582,7 +582,7 @@ without it. Numbers are Node, laptop container, before the fix (the commit of st
    (longboard) triangles at x = 0 are the tip fans, left out of the test like the older normals test does.
 6. **Test boards (`testing/boards.ts`).** `knot()` turns a smooth knot's handles onto the mean of their two
    directions, keeping the lengths (swallow x = 30 and 155, fish 28, asymmetric 30 and 150, and the
-   same on five other knots found by the new test, `testing/boards.test.ts`: every smooth knot is G1).
+   same on six other knots found by the new test, `testing/boards.test.ts`: every smooth knot is G1).
 7. **Viewer (`nurbs-viewer.ts`, `nurbs-surface.ts`, `nurbs-layer.tsx`, store `loadCount`).** The store counts
    `load` calls (`loadCount`; an edit, undo or redo does not change it). Models carry the generation they were
    made from and the viewer state carries the current one: a model of another generation is drawn with `hull`
