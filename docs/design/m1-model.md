@@ -417,3 +417,7 @@ Known limits: `Deviation from classic` is first-order and blank within 0.5 cm of
 unchanged); with a test board shown the classic board's fins and guides are hidden and its overlays are not
 registered with it; the V-bottom, zero-thickness and blunt-tail refusals are the model's, not the viewer's
 (of the 11 sample files timed above, 7 convert and 4 are refused with the reasons listed in step 2).
+
+Checks at this commit: `pnpm lint`, `pnpm typecheck`, `turbo run test` (web: 90 files, 867 tests), `pnpm build`,
+`e2e` (45 tests, 7 of them the NURBS viewer's: open, live drag, test boards, refusal, chunk unavailable, flag
+off, settings toggle) and `e2e:offline` (8) all pass.
