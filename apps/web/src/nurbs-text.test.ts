@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { fmtSmallLen, lengthUnitByKey } from './format';
-import { elapsedText, localizeLengths, statusText } from './nurbs-text';
+import { elapsedText, localizeLengths, refusalHint, statusText } from './nurbs-text';
 import { VIEWER_IDLE, type ViewerState } from './nurbs-viewer';
 
 describe('localizeLengths', () => {
@@ -37,25 +37,41 @@ describe('elapsedText', () => {
 });
 
 describe('statusText', () => {
-  const job = (kind: 'convert' | 'mesh', stage = 'converting' as const) => ({
-    kind,
-    startedAt: 0,
-    stage,
-  });
   const state = (patch: Partial<ViewerState>): ViewerState => ({ ...VIEWER_IDLE, ...patch });
 
-  it('says Converting to NURBS… with the elapsed time, and that classic stays up', () => {
-    const text = statusText(state({ phase: 'converting', job: job('convert') }), 'classic', 12_000);
+  it('says what the first conversion is doing, and that classic stays up', () => {
+    const text = statusText(state({ phase: 'converting' }), 'classic', 0);
     expect(text).toContain('Converting to NURBS…');
-    expect(text).toContain('12 s');
     expect(text).toContain('classic shown meanwhile');
   });
 
-  it('describes waiting, failure and the two ready views', () => {
-    expect(statusText(state({ phase: 'waiting' }), 'classic', 0)).toContain('settle');
-    expect(statusText(state({ phase: 'failed' }), 'classic', 0)).toContain('failed');
+  it('shows a slow update with its elapsed time', () => {
+    const text = statusText(state({ phase: 'ready', job: { startedAt: 0 } }), 'nurbs', 12_000);
+    expect(text).toContain('Updating the NURBS surface');
+    expect(text).toContain('12 s');
+  });
+
+  it('describes a refusal and the ready views, including a test board', () => {
+    expect(statusText(state({ phase: 'failed' }), 'classic', 0)).toContain('refused');
     expect(statusText(state({ phase: 'ready' }), 'nurbs', 0)).toBe('Showing the NURBS surface');
+    expect(statusText(state({ phase: 'ready' }), 'nurbs', 0, 'fish')).toBe(
+      'Showing the fish test board',
+    );
     expect(statusText(state({ phase: 'ready' }), 'classic', 0)).toBe('Showing classic');
     expect(statusText(VIEWER_IDLE, 'nurbs', 0)).toBe('');
+  });
+});
+
+describe('refusalHint', () => {
+  it('explains the refusals a person can act on', () => {
+    expect(refusalHint('thickness', '')).toMatch(/no thickness at one end/);
+    expect(refusalHint('tail-start', '')).toMatch(/blunt tail/);
+    expect(
+      refusalHint('convert-slice', 'slice at x = 5: the bottom centre handle rises 0.6 cm'),
+    ).toMatch(/V bottom/);
+    expect(refusalHint('convert-slice', 'slice at x = 5: has no width')).toMatch(
+      /cannot be converted/,
+    );
+    expect(refusalHint('geom', '')).toBeNull();
   });
 });

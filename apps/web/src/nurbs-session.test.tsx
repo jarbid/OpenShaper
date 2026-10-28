@@ -21,8 +21,8 @@ vi.mock('./nurbs-client', async (importActual) => ({
       cancels: number;
     };
     rec.client = {
-      convert: () => new Promise(() => {}), // a conversion that never finishes
-      mesh: () => new Promise(() => {}),
+      classic: () => new Promise(() => {}), // a job that never finishes
+      test: () => new Promise(() => {}),
       cancel: () => void rec.cancels++,
       dispose: () => void rec.disposed++,
     };
@@ -37,7 +37,7 @@ const mountLayer = () =>
   render(
     <NurbsLayer
       store={boardStore}
-      faceSize={0.9}
+      analysis="none"
       units={DEFAULT_LENGTH_UNIT}
       onSurface={() => {}}
     />,

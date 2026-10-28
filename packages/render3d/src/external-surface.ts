@@ -15,11 +15,23 @@ import type { DeviationMesh } from './deviation-mesh';
 
 export interface ExternalSurface {
   /**
-   * The classic board this surface was built from. The view shows the surface only
-   * while the board in the store has the same hull shape ({@link sameHull}); after an
-   * edit the classic hull is drawn until the app supplies a new surface.
+   * The classic board this surface was built from; null for a standalone surface.
+   * Unless {@link tracking} says otherwise, the view shows the surface only while the
+   * board in the store has the same hull shape ({@link sameHull}); after an edit the
+   * classic hull is drawn until the app supplies a new surface.
    */
-  readonly board: BezierBoard;
+  readonly board: BezierBoard | null;
+  /**
+   * When the surface counts (default `'hull'`):
+   *
+   * - `'hull'`: only for the hull it was built from ({@link board}).
+   * - `'live'`: the app replaces it on every edit within a frame or two, so it is
+   *   drawn whatever the store's hull is now (a drag never flashes the classic hull
+   *   between answers).
+   * - `'standalone'`: not the store's board at all (a test board shown on its own). It
+   *   is placed by its own centre, and the classic board's fins and guides are hidden.
+   */
+  readonly tracking?: 'hull' | 'live' | 'standalone';
   /**
    * The surface itself (positions, exact outward normals, triangles) with the exact
    * curvature at every vertex, in the units and signs of {@link CurvatureMesh}: the
@@ -47,3 +59,9 @@ export const sameHull = (a: BezierBoard, b: BezierBoard): boolean =>
     a.deck === b.deck &&
     a.crossSections === b.crossSections &&
     a.interpolationType === b.interpolationType);
+
+/** Whether `surface` is drawn while the store holds `board` (see {@link ExternalSurface.tracking}). */
+export const surfaceApplies = (surface: ExternalSurface, board: BezierBoard): boolean =>
+  surface.tracking === 'live' ||
+  surface.tracking === 'standalone' ||
+  (surface.board !== null && sameHull(surface.board, board));

@@ -3,13 +3,14 @@ import { describe, expect, it } from 'vitest';
 import {
   isDeviationAnalysis,
   sameStatus,
+  surfaceCenter,
   surfaceCurvatureStatus,
   surfaceDeviationStatus,
 } from './analysis';
 import { DIVERGING_RAMP, SEQUENTIAL_RAMP } from './analysis-palette';
 import type { CurvatureMesh } from './curvature-mesh';
 import type { DeviationMesh } from './deviation-mesh';
-import { sameHull, type ExternalSurface } from './external-surface';
+import { sameHull, surfaceApplies, type ExternalSurface } from './external-surface';
 import { stationBoard } from './test-support/boards';
 
 const curvature = {
@@ -36,6 +37,42 @@ describe('sameHull', () => {
     expect(sameHull(b, { ...b, deck: other.deck })).toBe(false);
     expect(sameHull(b, { ...b, bottom: other.bottom })).toBe(false);
     expect(sameHull(b, { ...b, crossSections: [...b.crossSections] })).toBe(false);
+  });
+});
+
+describe('surfaceApplies and surfaceCenter', () => {
+  const b = stationBoard();
+  const other = stationBoard();
+  const box = {
+    positions: Float32Array.of(0, 0, 0, 10, 4, 2),
+    normals: new Float32Array(6),
+    indices: new Uint32Array(0),
+    scale: curvature.scale,
+  } as unknown as CurvatureMesh;
+
+  it('by default counts only for the hull it was built from', () => {
+    expect(surfaceApplies(surfaceFor(b), b)).toBe(true);
+    expect(surfaceApplies(surfaceFor(b), other)).toBe(false);
+  });
+
+  it('counts for any hull when live, and for a standalone surface', () => {
+    expect(surfaceApplies({ ...surfaceFor(b), tracking: 'live' }, other)).toBe(true);
+    expect(
+      surfaceApplies({ board: null, tracking: 'standalone', curvature, deviation: null }, b),
+    ).toBe(true);
+    expect(surfaceApplies({ board: null, curvature, deviation: null }, b)).toBe(false);
+  });
+
+  it('places a standalone surface by its own centre and the others by the hull’s', () => {
+    const hull = { center: [1, 2, 3] as const };
+    const own: ExternalSurface = {
+      board: null,
+      tracking: 'standalone',
+      curvature: box,
+      deviation: null,
+    };
+    expect(surfaceCenter(hull, own, box)).toEqual([5, 2, 1]);
+    expect(surfaceCenter(hull, { ...own, tracking: 'live' }, box)).toEqual([1, 2, 3]);
   });
 });
 

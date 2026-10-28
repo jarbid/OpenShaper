@@ -1,27 +1,29 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * The main-thread side of the NURBS worker (docs/design/board2.md, "V1 viewer"): the
- * same protocol as `use-specs-worker.ts`, as a plain object so it can be tested
- * without React or a real Worker.
+ * The main-thread side of the NURBS worker (docs/design/m1-model.md §3): the same
+ * protocol as `use-specs-worker.ts`, as a plain object so it can be tested without
+ * React or a real Worker.
  *
  * - **Monotonic ids; stale answers dropped.** Every request takes the next id and
  *   becomes the only job that matters: its predecessor's promise rejects with
  *   {@link SupersededError}, and any answer that is not for the current id is
  *   ignored.
- * - **Superseded conversions are terminated.** A conversion runs 12 to 22 s and the
- *   worker is single-threaded, so a stale one left running would delay the next by
- *   that long. The worker is terminated and the next request starts a fresh one. A
- *   superseded re-mesh (a few seconds) is left to finish and its answer dropped.
+ * - **Newest wins, one job at a time.** A job takes milliseconds, and an edit sends
+ *   one per pointer move. The worker is given one request at a time; while it runs,
+ *   only the newest later request is kept (it replaces any earlier waiting one) and
+ *   is posted when the worker answers. So the worker never queues a backlog of jobs
+ *   nobody wants, and it is never terminated for being slow.
  * - **Synchronous fallback.** Without `Worker` (jsdom tests) the compute runs on the
  *   calling thread through a dynamic import of `workers/nurbs-core`.
- * - **Errors surfaced.** A conversion that fails resolves with `ok: false` and the
- *   converter's issues; a crashed or unloadable worker rejects.
+ * - **Errors surfaced.** A refused board resolves with `ok: false` and the converter's
+ *   issues; a crashed or unloadable worker rejects.
  *
  * Nothing here imports board2 or geom: the worker (and the fallback's dynamic import)
  * is what carries them, so this module stays small.
  */
 import type { BezierBoard } from '@openshaper/kernel';
 import type {
+  JobOptions,
   NurbsIssue,
   NurbsMeshData,
   NurbsRequest,
@@ -29,6 +31,7 @@ import type {
   NurbsStage,
   NurbsSummary,
   NurbsTimings,
+  TestBoardName,
 } from './workers/nurbs-protocol';
 
 /** A request replaced by a newer one before it answered. */
@@ -39,14 +42,12 @@ export class SupersededError extends Error {
   }
 }
 
-/** The answer to a job. A failed conversion is an answer, not an exception. */
+/** The answer to a job. A refused board is an answer, not an exception. */
 export type NurbsAnswer =
   | {
       readonly ok: true;
-      readonly modelId: number;
-      readonly docJson: string;
       readonly issues: readonly NurbsIssue[];
-      readonly summary: NurbsSummary | null;
+      readonly summary: NurbsSummary;
       readonly timings: NurbsTimings;
       readonly mesh: NurbsMeshData;
     }
@@ -81,19 +82,16 @@ export const spawnNurbsWorker: TransportFactory = (handlers) => {
 };
 
 export interface NurbsClient {
-  /** Convert `board`, build and mesh it at `faceSize` (cm). */
-  convert(
-    modelId: number,
+  /** Convert the live classic `board`, build and mesh it. */
+  classic(
     board: BezierBoard,
-    faceSize: number,
+    options: JobOptions,
     onStage?: (s: NurbsStage) => void,
   ): Promise<NurbsAnswer>;
-  /** Mesh an already converted board at another `faceSize`. */
-  mesh(
-    modelId: number,
-    docJson: string,
-    board: BezierBoard,
-    faceSize: number,
+  /** Build and mesh one of board2's test boards. */
+  test(
+    name: TestBoardName,
+    options: JobOptions,
     onStage?: (s: NurbsStage) => void,
   ): Promise<NurbsAnswer>;
   /** Drop the job in flight (its promise rejects with {@link SupersededError}). */
@@ -104,7 +102,6 @@ export interface NurbsClient {
 
 interface Pending {
   readonly id: number;
-  readonly kind: NurbsRequest['kind'];
   readonly onStage?: (s: NurbsStage) => void;
   resolve(answer: NurbsAnswer): void;
   reject(err: Error): void;
@@ -112,7 +109,7 @@ interface Pending {
 
 /** The compute module, loaded on demand for the synchronous fallback. */
 export type CoreLoader = () => Promise<
-  Pick<typeof import('./workers/nurbs-core'), 'convertAndMesh' | 'remesh'>
+  Pick<typeof import('./workers/nurbs-core'), 'convertAndMesh' | 'meshTestBoard'>
 >;
 
 const loadCore: CoreLoader = () => import('./workers/nurbs-core');
@@ -122,57 +119,76 @@ export function createNurbsClient(
   core: CoreLoader = loadCore,
 ): NurbsClient {
   let nextId = 0;
+  // The newest request: the only one whose promise is still live.
   let pending: Pending | null = null;
   let transport: NurbsTransport | null = null;
+  // A request the worker has not answered yet (possibly a stale one), and the newest
+  // request waiting behind it.
+  let busy = false;
+  let waiting: NurbsRequest | null = null;
   // Set once a spawn returned null: from then on every job runs on this thread.
   let synchronous = false;
 
   const stop = (): void => {
     transport?.terminate();
     transport = null;
+    busy = false;
+    waiting = null;
   };
 
   /** Settle the current job's promise with an error and forget it. */
   const abandon = (err: Error): void => {
     const p = pending;
     pending = null;
+    waiting = null;
     p?.reject(err);
   };
 
-  /** Replace the job in flight: its caller learns, and a running conversion is killed. */
-  const supersede = (): void => {
-    const p = pending;
-    if (!p) return;
-    abandon(new SupersededError());
-    if (p.kind === 'convert') stop();
+  const fail = (err: unknown): void => {
+    stop();
+    abandon(err instanceof Error ? err : new Error(String(err)));
+  };
+
+  /** Hand the worker the waiting request, if any. */
+  const flush = (): void => {
+    const req = waiting;
+    waiting = null;
+    if (!req || !transport) return;
+    try {
+      busy = true;
+      transport.post(req);
+    } catch (err) {
+      fail(err);
+    }
   };
 
   const handlers: TransportHandlers = {
     onMessage(res) {
-      const p = pending;
-      if (!p || res.id !== p.id) return; // superseded mid-flight: drop
       if (res.kind === 'progress') {
-        p.onStage?.(res.stage);
+        if (pending && res.id === pending.id) pending.onStage?.(res.stage);
         return;
       }
-      pending = null;
-      if (res.ok) {
-        p.resolve({
-          ok: true,
-          modelId: res.modelId,
-          docJson: res.docJson,
-          issues: res.issues,
-          summary: res.summary,
-          timings: res.timings,
-          mesh: res.mesh,
-        });
-      } else {
-        p.resolve({ ok: false, error: res.error, issues: res.issues });
+      // Any answer frees the worker, stale or not.
+      busy = false;
+      const p = pending;
+      if (p && res.id === p.id) {
+        pending = null;
+        if (res.ok) {
+          p.resolve({
+            ok: true,
+            issues: res.issues,
+            summary: res.summary,
+            timings: res.timings,
+            mesh: res.mesh,
+          });
+        } else {
+          p.resolve({ ok: false, error: res.error, issues: res.issues });
+        }
       }
+      flush();
     },
     onError(message) {
-      stop();
-      abandon(new Error(message));
+      fail(new Error(message));
     },
   };
 
@@ -190,54 +206,58 @@ export function createNurbsClient(
     if (pending !== p) return;
     const progress = (s: NurbsStage) => p.onStage?.(s);
     const out =
-      req.kind === 'convert'
-        ? compute.convertAndMesh(req.modelId, req.board, req.faceSize, progress)
-        : compute.remesh(req.modelId, req.docJson, req.board, req.faceSize, progress);
+      req.kind === 'classic'
+        ? compute.convertAndMesh(req.board, req.options, progress)
+        : compute.meshTestBoard(req.name, req.options, progress);
     if (pending !== p) return; // superseded during the (blocking) compute: drop
     pending = null;
-    p.resolve(out.ok ? { ...out, modelId: req.modelId } : out);
+    p.resolve(out);
   };
 
   const submit = (
     build: (id: number) => NurbsRequest,
     onStage?: (s: NurbsStage) => void,
   ): Promise<NurbsAnswer> => {
-    supersede();
+    // The previous job, if it is still waiting for its answer, is stale from here on.
+    const previous = pending;
+    pending = null;
+    previous?.reject(new SupersededError());
     const id = ++nextId;
     const req = build(id);
     return new Promise<NurbsAnswer>((resolve, reject) => {
-      const p: Pending = { id, kind: req.kind, onStage, resolve, reject };
+      const p: Pending = { id, onStage, resolve, reject };
       pending = p;
       let t: NurbsTransport | null;
       try {
         t = ensureTransport();
       } catch (err) {
         // The worker could not even be constructed (blocked, offline, CSP).
-        stop();
-        abandon(err instanceof Error ? err : new Error(String(err)));
+        fail(err);
         return;
       }
-      if (t) {
-        try {
-          t.post(req);
-        } catch (err) {
-          stop();
-          abandon(err instanceof Error ? err : new Error(String(err)));
-        }
-      } else {
+      if (!t) {
         runSynchronously(req, p).catch((err: unknown) => {
           if (pending === p) abandon(err instanceof Error ? err : new Error(String(err)));
         });
+        return;
       }
+      // Newest wins: it replaces any request still waiting for the worker.
+      waiting = req;
+      if (!busy) flush();
     });
   };
 
   return {
-    convert: (modelId, board, faceSize, onStage) =>
-      submit((id) => ({ kind: 'convert', id, modelId, board, faceSize }), onStage),
-    mesh: (modelId, docJson, board, faceSize, onStage) =>
-      submit((id) => ({ kind: 'mesh', id, modelId, docJson, board, faceSize }), onStage),
-    cancel: supersede,
+    classic: (board, options, onStage) =>
+      submit((id) => ({ kind: 'classic', id, board, options }), onStage),
+    test: (name, options, onStage) =>
+      submit((id) => ({ kind: 'test', id, name, options }), onStage),
+    cancel() {
+      const p = pending;
+      pending = null;
+      waiting = null;
+      p?.reject(new SupersededError());
+    },
     dispose() {
       abandon(new SupersededError());
       stop();

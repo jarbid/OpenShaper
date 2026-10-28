@@ -1,24 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * The experimental NURBS viewer's layer over the 3D pane (docs/design/board2.md, "V1
- * viewer"): it feeds the live board to the viewer, hands the 3D view the NURBS surface
- * when there is one for the board on screen, and draws the badge, the Classic / NURBS
- * toggle, the progress line and the "i" popover.
+ * The experimental NURBS viewer's layer over the 3D pane (docs/design/m1-model.md §3): it
+ * feeds the live board to the viewer, hands the 3D view the NURBS surface when there is
+ * one, and draws the badge, the Classic / NURBS toggle, the test-board picker, the
+ * status line and the "i" popover.
  *
  * Loaded lazily (`ThreeDPane` in App.tsx) and only with the engine flag on, so none
  * of this, nor the worker it starts, is downloaded otherwise.
  */
-import type { ExternalSurface } from '@openshaper/render3d';
+import { isExactAnalysis, type Board3DViewProps, type ExternalSurface } from '@openshaper/render3d';
 import type { BoardState } from '@openshaper/store';
 import { Info, LoaderCircle } from 'lucide-react';
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
-import { fmtSmallLen, type LengthUnit } from './format';
+import { fmtSmallLen, fmtVol, type LengthUnit } from './format';
 import { createNurbsClient } from './nurbs-client';
 import { registerNurbsRelease } from './nurbs-session';
 import { surfaceOf } from './nurbs-surface';
-import { localizeLengths, statusText } from './nurbs-text';
+import { localizeLengths, refusalHint, statusText } from './nurbs-text';
 import { createNurbsViewer, type NurbsViewer, type ViewerState } from './nurbs-viewer';
+import { TEST_BOARDS, type TestBoardName } from './workers/nurbs-protocol';
 
 /** One viewer for the session, so its cache outlives the pane being remounted. */
 let shared: NurbsViewer | null = null;
@@ -49,6 +50,19 @@ const subscribeChoice = (l: () => void) => {
   return () => void choiceListeners.delete(l);
 };
 
+// --- Test board shown instead of the classic board, kept across remounts -----
+
+let testChoice: TestBoardName | null = null;
+const testListeners = new Set<() => void>();
+const setTestChoice = (next: TestBoardName | null): void => {
+  testChoice = next;
+  for (const l of [...testListeners]) l();
+};
+const subscribeTest = (l: () => void) => {
+  testListeners.add(l);
+  return () => void testListeners.delete(l);
+};
+
 /** Milliseconds since `since`, ticking while it is set. */
 function useElapsed(since: number | null): number {
   const [now, setNow] = useState(() => Date.now());
@@ -61,12 +75,14 @@ function useElapsed(since: number | null): number {
   return since === null ? 0 : Math.max(0, now - since);
 }
 
-const sec = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
+const ms = (v: number): string => (v < 10 ? `${v.toFixed(1)} ms` : `${Math.round(v)} ms`);
 
 function InfoPanel({ state, units }: { state: ViewerState; units: LengthUnit }) {
   const { model, issues, error } = state;
   const warnings = issues.filter((i) => i.severity === 'warning');
   const errors = issues.filter((i) => i.severity === 'error');
+  const summary = model?.summary;
+  const conversion = summary?.conversion;
   return (
     <div
       role="dialog"
@@ -75,43 +91,67 @@ function InfoPanel({ state, units }: { state: ViewerState; units: LengthUnit }) 
       className="mt-1 max-h-72 w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-md border border-border bg-card/95 px-2 py-1.5 text-xs text-card-foreground shadow-lg"
     >
       {error && (
-        <p className="text-red-400">
-          <strong>Conversion failed:</strong> {localizeLengths(error, units)}. The classic mesh is
-          shown.
+        <p className="text-red-400" data-testid="nurbs-refusal">
+          <strong>The NURBS model cannot hold this board yet.</strong> The classic mesh is shown.
         </p>
       )}
       {errors.length > 0 && (
-        <ul className="mt-1 list-disc space-y-0.5 pl-4">
-          {errors.map((i, k) => (
-            <li key={k}>
-              <span className="font-mono">{i.code}</span> {localizeLengths(i.message, units)}
-            </li>
-          ))}
+        <ul className="mt-1 list-disc space-y-1 pl-4">
+          {errors.map((i, k) => {
+            const hint = refusalHint(i.code, i.message);
+            return (
+              <li key={k}>
+                {hint && <span className="block">{hint}</span>}
+                <span className="text-muted-foreground">
+                  <span className="font-mono">{i.code}</span> {localizeLengths(i.message, units)}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
-      {model && (
+      {error && errors.length === 0 && (
+        <p className="mt-1 text-muted-foreground">{localizeLengths(error, units)}</p>
+      )}
+      {model && summary && (
         <>
           <p>
-            The NURBS surface is converted from the classic board, so it differs from it by the fit.
-            Use <strong>Deviation from classic</strong> to see where.
+            {summary.source === 'test' ? (
+              <>
+                This is one of the NURBS <strong>test boards</strong>, shown on its own. It is not
+                your board, and the classic editors do not change it.
+              </>
+            ) : (
+              <>
+                The NURBS surface is built from the classic board&apos;s outline, rocker, deck and
+                cross-sections. It matches them at the stations and differs between them by design.
+                Use <strong>Deviation from classic</strong> to see where.
+              </>
+            )}
           </p>
-          {model.summary && (
-            <dl className="mt-1 grid grid-cols-[1fr_auto] gap-x-2 tabular-nums">
-              <dt>Outline fit</dt>
-              <dd>{fmtSmallLen(model.summary.planError, units)}</dd>
-              <dt>Rocker fit</dt>
-              <dd>{fmtSmallLen(model.summary.rockerError, units)}</dd>
-              <dt>Deck fit</dt>
-              <dd>{fmtSmallLen(model.summary.deckSurfaceError, units)}</dd>
-              <dt>Bottom fit</dt>
-              <dd>{fmtSmallLen(model.summary.bottomSurfaceError, units)}</dd>
-              <dt>Rail fit</dt>
-              <dd>{fmtSmallLen(model.summary.bandError, units)}</dd>
-            </dl>
-          )}
+          <dl className="mt-1 grid grid-cols-[1fr_auto] gap-x-2 tabular-nums">
+            <dt>Volume</dt>
+            <dd>{fmtVol(summary.volume)}</dd>
+            {conversion && (
+              <>
+                <dt>Stations</dt>
+                <dd>{conversion.stations}</dd>
+                <dt>Tail</dt>
+                <dd>{conversion.tail === 'notched' ? 'notched (swallow / fish)' : 'standard'}</dd>
+              </>
+            )}
+            <dt>Station fit</dt>
+            <dd>{fmtSmallLen(summary.stationFitError, units)}</dd>
+            {summary.blendOvershoot > 0 && (
+              <>
+                <dt>Blend overshoot (clamped)</dt>
+                <dd>{fmtSmallLen(summary.blendOvershoot, units)}</dd>
+              </>
+            )}
+          </dl>
           <p className="mt-1 text-muted-foreground tabular-nums">
-            Converted in {sec(model.timings.convertMs)}, meshed in{' '}
-            {sec(model.timings.tessellateMs + model.timings.deviationMs)} (
+            Last update {ms(model.roundTripMs)}: converted {ms(model.timings.convertMs)}, built{' '}
+            {ms(model.timings.buildMs)}, meshed {ms(model.timings.meshMs)} (
             {(model.mesh.positions.length / 3).toLocaleString('en-US')} vertices).
           </p>
         </>
@@ -138,8 +178,11 @@ function InfoPanel({ state, units }: { state: ViewerState; units: LengthUnit }) 
 
 export interface NurbsLayerProps {
   store: StoreApi<BoardState>;
-  /** The viewport face size (cm) the surface is meshed for. */
-  faceSize: number;
+  /**
+   * The analysis mode shown: an exact curvature mode has curvature computed on every
+   * update, "Deviation from classic" the deviation.
+   */
+  analysis: NonNullable<Board3DViewProps['analysis']>;
   units: LengthUnit;
   /** Receives the surface to draw (null: draw the classic hull). */
   onSurface: (surface: ExternalSurface | null) => void;
@@ -149,7 +192,7 @@ export interface NurbsLayerProps {
 
 export default function NurbsLayer({
   store,
-  faceSize,
+  analysis,
   units,
   onSurface,
   viewer: injected,
@@ -161,25 +204,38 @@ export default function NurbsLayer({
     () => choice,
     () => 'nurbs' as const,
   );
+  const testBoard = useSyncExternalStore(
+    subscribeTest,
+    () => testChoice,
+    () => null,
+  );
   const [infoOpen, setInfoOpen] = useState(false);
+  const wantCurvature = isExactAnalysis(analysis);
+  const wantDeviation = analysis === 'nurbs-deviation';
 
-  // Feed the live board to the viewer without re-rendering on every drag move.
+  // Feed the live board to the viewer without re-rendering on every drag move: every
+  // change converts at once (the section model takes milliseconds).
   useEffect(() => {
     const push = () => {
       const s = store.getState();
-      viewer.setInput({ enabled: true, board: s.board, faceSize, editing: s.editing });
+      viewer.setInput({
+        enabled: true,
+        board: s.board,
+        editing: s.editing,
+        wantCurvature,
+        wantDeviation,
+        testBoard,
+      });
     };
     push();
     const unsubscribe = store.subscribe(push);
     return () => {
       unsubscribe();
-      // Leaving the 3D pane stops the quiet-period timer but lets a running
-      // conversion finish into the cache, so coming back does not start over.
       viewer.pause();
     };
-  }, [store, viewer, faceSize]);
+  }, [store, viewer, wantCurvature, wantDeviation, testBoard]);
 
-  // The surface the 3D view should draw: only for the board on screen.
+  // The surface the 3D view should draw.
   const model = state.model;
   const surface: ExternalSurface | null = showing === 'nurbs' && model ? surfaceOf(model) : null;
   useEffect(() => {
@@ -189,6 +245,7 @@ export default function NurbsLayer({
 
   const elapsed = useElapsed(state.job?.startedAt ?? null);
   const hasDetails = !!(state.model || state.error || state.issues.length);
+  const shownTest = model?.testBoard ?? null;
   const warnings = state.issues.filter((i) => i.severity === 'warning').length;
   const ready = state.phase === 'ready';
   const toggle = useCallback((next: ShownEngine) => setChoice(next), []);
@@ -203,11 +260,17 @@ export default function NurbsLayer({
           data-testid="nurbs-badge"
           data-phase={state.phase}
           data-showing={surface ? 'nurbs' : 'classic'}
-          // Timings of the conversion on screen, for the browser measurement script.
-          data-convert-ms={model ? Math.round(model.timings.convertMs) : undefined}
-          data-mesh-ms={
-            model ? Math.round(model.timings.tessellateMs + model.timings.deviationMs) : undefined
-          }
+          // Timings of the update on screen, for the browser measurement script.
+          data-update={model?.sequence}
+          data-round-trip-ms={model ? model.roundTripMs : undefined}
+          data-worker-ms={model ? model.timings.totalMs.toFixed(1) : undefined}
+          data-convert-ms={model ? model.timings.convertMs.toFixed(1) : undefined}
+          data-build-ms={model ? model.timings.buildMs.toFixed(1) : undefined}
+          data-mesh-ms={model ? model.timings.meshMs.toFixed(1) : undefined}
+          data-curvature-ms={model ? model.timings.curvatureMs.toFixed(1) : undefined}
+          data-deviation-ms={model ? model.timings.deviationMs.toFixed(1) : undefined}
+          data-ladders-reused={model ? String(model.mesh.laddersReused) : undefined}
+          data-test-board={shownTest ?? undefined}
           data-vertices={model ? model.mesh.positions.length / 3 : undefined}
           className="rounded-md border border-amber-500/60 bg-card/90 px-2 py-1 font-medium text-amber-300 shadow-lg"
         >
@@ -264,14 +327,32 @@ export default function NurbsLayer({
           </button>
         ))}
       </div>
-      {statusText(state, surface ? 'nurbs' : 'classic', elapsed) && (
+      <label className="flex items-center gap-1 rounded-md border border-border bg-card/90 px-2 py-1 text-muted-foreground shadow-lg pointer-coarse:min-h-11">
+        <span>Test board</span>
+        <select
+          data-testid="nurbs-test-board"
+          aria-label="NURBS test board (experimental)"
+          title="Show one of the NURBS test boards instead of your board. Experimental, display only: the classic editors keep editing your board."
+          value={testBoard ?? ''}
+          onChange={(e) => setTestChoice((e.target.value || null) as TestBoardName | null)}
+          className="rounded border border-border bg-background px-1 py-0.5 text-foreground"
+        >
+          <option value="">My board</option>
+          {TEST_BOARDS.map((n) => (
+            <option key={n} value={n}>
+              {n[0]!.toUpperCase() + n.slice(1)}
+            </option>
+          ))}
+        </select>
+      </label>
+      {statusText(state, surface ? 'nurbs' : 'classic', elapsed, shownTest) && (
         <div
           role="status"
           data-testid="nurbs-status"
           className="flex items-center gap-1.5 rounded-md border border-border bg-card/90 px-2 py-1 text-muted-foreground shadow-lg"
         >
           {state.job && <LoaderCircle aria-hidden="true" className="size-3 animate-spin" />}
-          {statusText(state, surface ? 'nurbs' : 'classic', elapsed)}
+          {statusText(state, surface ? 'nurbs' : 'classic', elapsed, shownTest)}
         </div>
       )}
       {infoOpen && hasDetails && <InfoPanel state={state} units={units} />}

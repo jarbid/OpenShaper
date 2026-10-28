@@ -6,7 +6,6 @@
  */
 import { fmtSmallLen, type LengthUnit } from './format';
 import type { ViewerState } from './nurbs-viewer';
-import type { NurbsStage } from './workers/nurbs-protocol';
 
 /**
  * Rewrite the lengths in a converter message ("error 0.0675 cm above the target
@@ -24,39 +23,52 @@ export const elapsedText = (ms: number): string => {
   return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min ${s % 60} s`;
 };
 
-/** What the engine is doing, for the badge's status line; null when there is nothing to say. */
-export const stageText = (stage: NurbsStage): string =>
-  stage === 'converting'
-    ? 'Converting to NURBS…'
-    : stage === 'building'
-      ? 'Rebuilding the NURBS surface…'
-      : stage === 'meshing'
-        ? 'Meshing the NURBS surface…'
-        : 'Measuring against the classic surface…';
+/**
+ * Why the converter refuses a board, in the words of someone editing it. The raw message
+ * (with its numbers) follows in the popover; this is the part that says what to do.
+ * Null for a code with nothing to add.
+ */
+export const refusalHint = (code: string, message: string): string | null => {
+  switch (code) {
+    case 'thickness':
+      return 'The board has no thickness at one end (the deck meets the rocker). Give the tail and the nose a little thickness.';
+    case 'tail-start':
+    case 'outline-endpoints':
+      return 'A blunt tail has to start on the stringer. Add an outline point on the stringer (y = 0) at the tail.';
+    case 'convert-slice':
+      return /bottom centre|off the stringer|centre/i.test(message)
+        ? 'A cross-section has a V bottom (its centre sits off the stringer), which the NURBS model cannot hold yet.'
+        : 'A cross-section cannot be converted to the NURBS model.';
+    case 'convert-plan':
+      return 'The outline, rocker or deck is not a function of x (it folds back on itself).';
+    case 'too-few-sections':
+      return 'The board needs at least one cross-section between the tail and the nose.';
+    default:
+      return null;
+  }
+};
 
 /**
- * The status line under the badge. `elapsedMs` is how long the current job has run
- * (the caller ticks it); `showing` says which surface is on screen.
+ * The status line under the badge. `elapsedMs` is how long the busy job has run (the
+ * caller ticks it); `showing` says which surface is on screen; `testBoard` names the
+ * test board when one is shown.
  */
 export const statusText = (
   state: ViewerState,
   showing: 'nurbs' | 'classic',
   elapsedMs: number,
+  testBoard: string | null = null,
 ): string => {
   const { phase, job } = state;
-  if (job) {
-    const base = stageText(job.stage);
-    return job.kind === 'convert'
-      ? `${base} ${elapsedText(elapsedMs)} · classic shown meanwhile`
-      : `${base} ${elapsedText(elapsedMs)}`;
-  }
+  if (job) return `Updating the NURBS surface… ${elapsedText(elapsedMs)}`;
   switch (phase) {
-    case 'waiting':
-      return 'Waiting for your edits to settle · classic shown';
+    case 'converting':
+      return 'Converting to NURBS… · classic shown meanwhile';
     case 'failed':
-      return 'NURBS conversion failed · classic shown';
+      return 'NURBS refused this board · classic shown (see details)';
     case 'ready':
-      return showing === 'nurbs' ? 'Showing the NURBS surface' : 'Showing classic';
+      if (showing === 'classic') return 'Showing classic';
+      return testBoard ? `Showing the ${testBoard} test board` : 'Showing the NURBS surface';
     default:
       return '';
   }

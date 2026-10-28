@@ -1,77 +1,80 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * The experimental NURBS viewer's state machine (docs/design/board2.md, "V1 viewer"):
- * which classic board is converted, when, and what the 3D view may show of it. Plain
- * TypeScript with an injectable client, clock and timers, so the protocol (debounce,
- * supersession, caching) is testable without React, a worker or a 15 s conversion.
+ * The experimental NURBS viewer's state machine (docs/design/m1-model.md §3): which
+ * board is converted, when, and what the 3D view may show of it. Plain TypeScript with
+ * an injectable client, clock and timers, so the protocol (supersession, ladder reuse)
+ * is testable without React or a worker.
  *
  * ## Rules
  *
- * - **Convert after edits settle.** A change to the board's hull (outline, rocker
- *   curves, cross-sections: `sameHull`) starts a timer of {@link DEBOUNCE_MS}; every
- *   further hull change, and any moment the store is mid-gesture (`editing`), restarts
- *   it. A fin edit leaves the hull alone and costs nothing.
- * - **Drop superseded jobs.** A hull change while a conversion runs cancels it (the
- *   client terminates the worker); the classic mesh is on screen meanwhile.
- * - **Cache by identity.** A converted (or failed) hull is remembered, a few at a
- *   time, so undo, a view switch or a remount shows it again without converting. A
- *   change of mesh quality re-meshes the held model without converting.
+ * - **Every edit converts at once.** The section model converts, builds and meshes in
+ *   milliseconds, so there is no quiet period and no "not while dragging" gate: a change
+ *   to the board's hull (outline, rocker curves, cross-sections: `sameHull`) starts a
+ *   job immediately. A fin edit leaves the hull alone and costs nothing.
+ * - **Newest wins.** A job is never awaited: a hull change while one runs replaces it
+ *   (the client drops the stale answer). The surface on screen is the last answer, so a
+ *   drag never falls back to the classic mesh between answers.
+ * - **Settle.** While the store is mid-gesture (`editing`) a job reuses the last mesh's
+ *   ladders (cheap) and leaves out curvature unless an exact mode shows it. When the
+ *   gesture ends one more job runs: fresh ladders, curvature included.
+ * - **Refusals.** A board the converter refuses leaves no model: the classic mesh is
+ *   shown and the reasons are in {@link ViewerState.issues}.
+ * - **Test boards.** With a test board chosen the viewer ignores the classic board and
+ *   shows board2's test board (a standalone surface).
  * - **Read-only.** Nothing here writes to the board or the store.
  */
 import { sameHull } from '@openshaper/render3d';
 import type { BezierBoard } from '@openshaper/kernel';
 import { SupersededError, type NurbsClient } from './nurbs-client';
 import type {
+  JobOptions,
   NurbsIssue,
   NurbsMeshData,
-  NurbsStage,
   NurbsSummary,
   NurbsTimings,
+  TestBoardName,
 } from './workers/nurbs-protocol';
 
-/** How long the hull must stay unchanged before a conversion starts (ms). */
-export const DEBOUNCE_MS = 1200;
+/** A job still running after this long shows as busy in the status line (ms). */
+export const BUSY_AFTER_MS = 250;
 
-/** Converted boards kept for undo and view switches (each ~3 MB of meshes). */
-export const CACHE_SIZE = 3;
-
-/** A converted board. */
+/** The surface on screen. */
 export interface NurbsModel {
-  readonly modelId: number;
-  /** The classic board it was converted from. */
-  readonly board: BezierBoard;
-  readonly docJson: string;
+  /** The classic board it was converted from; null for a test board. */
+  readonly board: BezierBoard | null;
+  /** The test board it shows, when it is one. */
+  readonly testBoard: TestBoardName | null;
   readonly issues: readonly NurbsIssue[];
-  readonly summary: NurbsSummary | null;
-  /** The timings of the conversion itself (a re-mesh does not replace them). */
+  readonly summary: NurbsSummary;
+  /** The worker's timings of the job that made it. */
   readonly timings: NurbsTimings;
-  /** The latest mesh, at the face size it was made for. */
+  /** Request to answer on this thread (clone, compute, transfer), ms. */
+  readonly roundTripMs: number;
+  /** Jobs completed so far (the browser measurement counts updates with it). */
+  readonly sequence: number;
   readonly mesh: NurbsMeshData;
 }
 
-export type ViewerPhase = 'idle' | 'waiting' | 'converting' | 'ready' | 'failed';
+export type ViewerPhase = 'idle' | 'converting' | 'ready' | 'failed';
 
 export interface ViewerJob {
-  readonly kind: 'convert' | 'mesh';
   /** `now()` when it started, for the elapsed-time readout. */
   readonly startedAt: number;
-  readonly stage: NurbsStage;
 }
 
 /**
  * What the view needs and no more: the board itself is deliberately not published, so
- * the layer does not re-render on every drag move. `model`, when set, is always the
- * conversion of the hull on screen (it is cleared the moment the hull changes).
+ * the layer does not re-render on every drag move.
  */
 export interface ViewerState {
   readonly phase: ViewerPhase;
-  /** The job in flight, if any. */
+  /** A job that has run for more than {@link BUSY_AFTER_MS}. */
   readonly job: ViewerJob | null;
-  /** The converted model for `board`'s hull, once there is one. */
+  /** The latest surface; kept while the next one is computed. */
   readonly model: NurbsModel | null;
-  /** Why the conversion of `board`'s hull failed. */
+  /** Why the board was refused. */
   readonly error: string | null;
-  /** The issues of the conversion (or of its failure). */
+  /** The issues of the latest conversion (or of its refusal). */
   readonly issues: readonly NurbsIssue[];
 }
 
@@ -83,33 +86,33 @@ export const VIEWER_IDLE: ViewerState = {
   issues: [],
 };
 
-/** The state while waiting for the board to settle: one object, so repeats compare equal. */
-const WAITING: ViewerState = { ...VIEWER_IDLE, phase: 'waiting' };
-
 export interface ViewerInput {
   readonly enabled: boolean;
   readonly board: BezierBoard | null;
-  /** The viewport face size (cm) the surface is meshed for. */
-  readonly faceSize: number;
-  /** The store is mid-gesture (a drag): the board is not settled. */
+  /** The store is mid-gesture (a drag). */
   readonly editing: boolean;
+  /** An exact curvature mode is shown: curvature is wanted on every update. */
+  readonly wantCurvature: boolean;
+  /** "Deviation from classic" is shown. */
+  readonly wantDeviation: boolean;
+  /** Show this test board instead of the classic board. */
+  readonly testBoard: TestBoardName | null;
 }
 
-interface CacheEntry {
-  readonly board: BezierBoard;
-  model: NurbsModel | null;
-  error: string | null;
-  issues: readonly NurbsIssue[];
-  /** A face size whose re-mesh failed: not retried until the quality changes again. */
-  meshFailedAt?: number;
-}
+export const VIEWER_INPUT_OFF: ViewerInput = {
+  enabled: false,
+  board: null,
+  editing: false,
+  wantCurvature: false,
+  wantDeviation: false,
+  testBoard: null,
+};
 
 export interface ViewerDeps {
   readonly client: NurbsClient;
   readonly now?: () => number;
   readonly setTimer?: (fn: () => void, ms: number) => unknown;
   readonly clearTimer?: (handle: unknown) => void;
-  readonly debounceMs?: number;
 }
 
 export interface NurbsViewer {
@@ -117,17 +120,24 @@ export interface NurbsViewer {
   subscribe(listener: () => void): () => void;
   setInput(input: ViewerInput): void;
   /**
-   * The view that feeds this viewer went away (the 3D pane unmounted): stop the quiet
-   * period so no conversion starts for a board nobody is watching. A conversion
-   * already running finishes into the cache; the next `setInput` picks up from there.
+   * The view that feeds this viewer went away (the 3D pane unmounted): nothing to do
+   * for a viewer with no timers of its own beyond the busy indicator, which it drops.
    */
   pause(): void;
   /**
-   * The engine was turned off: cancel the job in flight (terminating the worker), drop
-   * the cache, the worker and the listeners. Unlike {@link pause}, which a pane
-   * remount uses and which keeps all of that.
+   * The engine was turned off: cancel the job in flight, drop the model, the worker
+   * and the listeners.
    */
   dispose(): void;
+}
+
+/** What the last job was asked for, to tell a repeated input from a new one. */
+interface Requested {
+  readonly board: BezierBoard | null;
+  readonly testBoard: TestBoardName | null;
+  readonly curvature: boolean;
+  readonly deviation: boolean;
+  readonly editing: boolean;
 }
 
 export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
@@ -135,19 +145,15 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
   const now = deps.now ?? (() => Date.now());
   const setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
   const clearTimer = deps.clearTimer ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
-  const debounceMs = deps.debounceMs ?? DEBOUNCE_MS;
 
   let state: ViewerState = VIEWER_IDLE;
   const listeners = new Set<() => void>();
-  let input: ViewerInput = { enabled: false, board: null, faceSize: 0.9, editing: false };
-  const cache: CacheEntry[] = [];
-  let timer: unknown = null;
-  // The board of the previous reconcile, to tell a hull change from a repeated input.
-  let lastBoard: BezierBoard | null = null;
-  let nextModelId = 0;
-  // The job in flight and what it is for: lets a repeated input (a fin edit, a
-  // re-render) leave it alone, and a hull change cancel it.
-  let running: { kind: 'convert' | 'mesh'; board: BezierBoard; faceSize: number } | null = null;
+  let input: ViewerInput = VIEWER_INPUT_OFF;
+  let requested: Requested | null = null;
+  // The job whose answer counts; a newer one replaces it.
+  let running: object | null = null;
+  let busyTimer: unknown = null;
+  let sequence = 0;
 
   const set = (patch: Partial<ViewerState>): void => {
     const next = { ...state, ...patch };
@@ -157,172 +163,109 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     for (const l of [...listeners]) l();
   };
 
-  const clearTimerIfAny = (): void => {
-    if (timer !== null) {
-      clearTimer(timer);
-      timer = null;
+  const clearBusy = (): void => {
+    if (busyTimer !== null) {
+      clearTimer(busyTimer);
+      busyTimer = null;
     }
   };
 
-  const remember = (entry: CacheEntry): void => {
-    const i = cache.indexOf(entry);
-    if (i !== -1) cache.splice(i, 1);
-    cache.push(entry);
-    while (cache.length > CACHE_SIZE) cache.shift();
+  /** Whether the input asks for something the last job did not deliver. */
+  const needsJob = (i: ViewerInput, curvature: boolean, deviation: boolean): boolean => {
+    const r = requested;
+    if (!r) return true;
+    if (i.testBoard !== null) return r.testBoard !== i.testBoard || (curvature && !r.curvature);
+    if (r.testBoard !== null || !r.board || !i.board) return true;
+    if (!sameHull(r.board, i.board)) return true;
+    // The edit settled on the same hull: derive fresh ladders and add curvature.
+    if (r.editing && !i.editing) return true;
+    return (curvature && !r.curvature) || (deviation && !r.deviation);
   };
 
-  const find = (board: BezierBoard): CacheEntry | undefined =>
-    cache.find((e) => sameHull(e.board, board));
-
-  const cancelRunning = (): void => {
-    if (!running) return;
-    running = null;
-    client.cancel();
-  };
-
-  const startConvert = (board: BezierBoard, faceSize: number): void => {
-    const modelId = ++nextModelId;
-    const job: ViewerJob = { kind: 'convert', startedAt: now(), stage: 'converting' };
-    running = { kind: 'convert', board, faceSize };
-    const me = running;
-    set({ phase: 'converting', job, model: null, error: null, issues: VIEWER_IDLE.issues });
-    client
-      .convert(modelId, board, faceSize, (stage) => {
-        if (running === me && state.job) set({ job: { ...state.job, stage } });
-      })
+  const start = (i: ViewerInput, options: JobOptions): void => {
+    const me = {};
+    running = me;
+    requested = {
+      board: i.testBoard ? null : i.board,
+      testBoard: i.testBoard,
+      curvature: options.curvature,
+      deviation: options.deviation,
+      editing: i.editing,
+    };
+    const t0 = now();
+    clearBusy();
+    busyTimer = setTimer(() => {
+      busyTimer = null;
+      if (running === me) set({ job: { startedAt: t0 } });
+    }, BUSY_AFTER_MS);
+    // First surface: say so; afterwards the previous model stays until the next arrives.
+    if (!state.model) set({ phase: 'converting' });
+    const board = i.board!;
+    const testBoard = i.testBoard;
+    const job = testBoard ? client.test(testBoard, options) : client.classic(board, options);
+    job
       .then((answer) => {
         if (running !== me) return;
         running = null;
-        const entry: CacheEntry = { board, model: null, error: null, issues: answer.issues };
+        clearBusy();
         if (answer.ok) {
-          entry.model = {
-            modelId: answer.modelId,
-            board,
-            docJson: answer.docJson,
+          set({
+            phase: 'ready',
+            job: null,
+            model: {
+              board: testBoard ? null : board,
+              testBoard,
+              issues: answer.issues,
+              summary: answer.summary,
+              timings: answer.timings,
+              roundTripMs: now() - t0,
+              sequence: ++sequence,
+              mesh: answer.mesh,
+            },
+            error: null,
             issues: answer.issues,
-            summary: answer.summary,
-            timings: answer.timings,
-            mesh: answer.mesh,
-          };
+          });
         } else {
-          entry.error = answer.error;
+          set({
+            phase: 'failed',
+            job: null,
+            model: null,
+            error: answer.error,
+            issues: answer.issues,
+          });
         }
-        remember(entry);
-        reconcile();
       })
       .catch((err: unknown) => {
         if (err instanceof SupersededError || running !== me) return;
         running = null;
-        const entry: CacheEntry = {
-          board,
+        clearBusy();
+        set({
+          phase: 'failed',
+          job: null,
           model: null,
           error: err instanceof Error ? err.message : String(err),
           issues: [],
-        };
-        remember(entry);
-        reconcile();
+        });
       });
   };
 
-  const startMesh = (entry: CacheEntry, faceSize: number): void => {
-    const model = entry.model!;
-    const job: ViewerJob = { kind: 'mesh', startedAt: now(), stage: 'meshing' };
-    running = { kind: 'mesh', board: entry.board, faceSize };
-    const me = running;
-    set({ job });
-    client
-      .mesh(model.modelId, model.docJson, entry.board, faceSize, (stage) => {
-        if (running === me && state.job) set({ job: { ...state.job, stage } });
-      })
-      .then((answer) => {
-        if (running !== me) return;
-        running = null;
-        if (answer.ok) {
-          entry.model = { ...model, mesh: answer.mesh };
-        } else {
-          // Keep the surface we have; say why the new density did not arrive.
-          entry.issues = [...entry.issues, ...answer.issues];
-          entry.meshFailedAt = faceSize;
-        }
-        reconcile();
-      })
-      .catch((err: unknown) => {
-        if (err instanceof SupersededError || running !== me) return;
-        running = null;
-        entry.meshFailedAt = faceSize;
-        reconcile();
-      });
-  };
-
-  /**
-   * Bring the state in line with the input and the cache: the one place that decides
-   * what to do next. Idempotent, so every event just calls it.
-   */
   function reconcile(): void {
-    const { enabled, board, faceSize, editing } = input;
-    const previous = lastBoard;
-    lastBoard = board;
-    if (!enabled || !board) {
-      clearTimerIfAny();
-      cancelRunning();
+    const i = input;
+    if (!i.enabled || (!i.board && !i.testBoard)) {
+      clearBusy();
+      running = null;
+      requested = null;
+      client.cancel();
       set(VIEWER_IDLE);
       return;
     }
-    const entry = find(board);
-    if (entry) {
-      // The hull is known. Whatever was converting for another hull is moot.
-      clearTimerIfAny();
-      if (running && !sameHull(running.board, board)) cancelRunning();
-      if (entry.model) {
-        const stale = entry.model.mesh.faceSize !== faceSize && entry.meshFailedAt !== faceSize;
-        if (stale && !(running?.kind === 'mesh' && running.faceSize === faceSize)) {
-          cancelRunning();
-          startMesh(entry, faceSize);
-        } else if (!stale && running?.kind === 'mesh') {
-          cancelRunning();
-        }
-        set({
-          phase: 'ready',
-          job: running ? state.job : null,
-          model: entry.model,
-          error: null,
-          issues: entry.issues,
-        });
-        return;
-      }
-      cancelRunning();
-      set({
-        phase: 'failed',
-        job: null,
-        model: null,
-        error: entry.error,
-        issues: entry.issues,
-      });
-      return;
-    }
-    // A hull never converted.
-    if (running && sameHull(running.board, board)) {
-      // Already converting this very hull (a non-hull edit, a re-render): carry on.
-      return;
-    }
-    cancelRunning();
-    if (editing) {
-      clearTimerIfAny();
-      set(WAITING);
-      return;
-    }
-    // Settled: (re)start the quiet period. A change of hull restarts it; the same
-    // hull again (a fin edit) leaves the running timer alone.
-    if (timer === null || previous === null || !sameHull(previous, board)) {
-      clearTimerIfAny();
-      timer = setTimer(() => {
-        timer = null;
-        const b = input.board;
-        if (!input.enabled || !b || input.editing || find(b) || running) return;
-        startConvert(b, input.faceSize);
-      }, debounceMs);
-    }
-    set(WAITING);
+    // Curvature when an exact mode shows it, and on every settled board.
+    const curvature = i.wantCurvature || !i.editing;
+    const deviation = i.wantDeviation && i.testBoard === null;
+    if (!needsJob(i, curvature, deviation)) return;
+    // Ladders carry over only from a job for the same kind of board, while editing.
+    const reuseLadders = i.editing && i.testBoard === null && state.model?.board != null;
+    start(i, { curvature, deviation, reuseLadders });
   }
 
   return {
@@ -335,15 +278,12 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
       input = next;
       reconcile();
     },
-    pause: clearTimerIfAny,
+    pause: clearBusy,
     dispose() {
-      clearTimerIfAny();
-      cancelRunning();
-      // Everything it holds: the converted meshes (~3 MB each) and the worker. A viewer
-      // is usable again afterwards; it starts from nothing.
-      cache.length = 0;
-      input = { enabled: false, board: null, faceSize: input.faceSize, editing: false };
-      lastBoard = null;
+      clearBusy();
+      running = null;
+      requested = null;
+      input = VIEWER_INPUT_OFF;
       set(VIEWER_IDLE);
       listeners.clear();
       client.dispose();

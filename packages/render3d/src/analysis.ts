@@ -277,3 +277,24 @@ export const deviationCenter = (
   hull: { readonly center: readonly [number, number, number] } | null,
   mesh: BoardMesh,
 ): readonly [number, number, number] => (hull ? hull.center : boardCenter(mesh));
+
+const standaloneCenters = new WeakMap<object, readonly [number, number, number]>();
+
+/**
+ * The centre an external surface is placed around (negated, as for the hull): the
+ * hull's, like the deviation map, so the surface stays registered with the fins and
+ * guides; a standalone surface (not the store's board) is centred on itself.
+ */
+export const surfaceCenter = (
+  hull: { readonly center: readonly [number, number, number] } | null,
+  surface: ExternalSurface,
+  mesh: BoardMesh,
+): readonly [number, number, number] => {
+  if (surface.tracking !== 'standalone') return deviationCenter(hull, mesh);
+  let c = standaloneCenters.get(surface);
+  if (!c) {
+    c = boardCenter(mesh);
+    standaloneCenters.set(surface, c);
+  }
+  return c;
+};

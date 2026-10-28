@@ -30,6 +30,7 @@ import {
   deviationStatus,
   isExactAnalysis,
   sameStatus,
+  surfaceCenter,
   surfaceCurvatureStatus,
   surfaceDeviationStatus,
   type AnalysisMode,
@@ -40,7 +41,7 @@ import {
 import { curvatureUnsupported } from './curvature-mesh';
 import { CurvatureSurface } from './CurvatureSurface';
 import { DeviationSurface } from './DeviationSurface';
-import { sameHull, type ExternalSurface } from './external-surface';
+import { surfaceApplies, type ExternalSurface } from './external-surface';
 import {
   boardCenter,
   boardSpan,
@@ -678,7 +679,7 @@ function BoardMesh({
       <DeviationSurface
         mesh={surface.deviation}
         band={status.band}
-        center={deviationCenter(hull, surface.deviation)}
+        center={surfaceCenter(hull, surface, surface.deviation)}
       />
     );
   }
@@ -690,7 +691,7 @@ function BoardMesh({
     status.mode !== 'ghost-deviation' &&
     status.mode !== 'nurbs-deviation'
   ) {
-    const [cx, cy, cz] = deviationCenter(hull, surface.curvature);
+    const [cx, cy, cz] = surfaceCenter(hull, surface, surface.curvature);
     return (
       <group position={[-cx, -cy, -cz]}>
         <CurvatureSurface mesh={surface.curvature} mode={status.mode} />
@@ -749,7 +750,7 @@ function BoardMesh({
     );
   }
   if (!surfaceGeo) return body;
-  const [cx, cy, cz] = deviationCenter(hull, surface!.curvature);
+  const [cx, cy, cz] = surfaceCenter(hull, surface!, surface!.curvature);
   return <group position={[-cx, -cy, -cz]}>{body}</group>;
 }
 
@@ -796,7 +797,8 @@ export function Board3DView({
   const [flipHovered, setFlipHovered] = useState(false);
 
   // An external surface counts only for the hull it was built from.
-  const surface = surfaceProp && board && sameHull(surfaceProp.board, board) ? surfaceProp : null;
+  const surface = surfaceProp && board && surfaceApplies(surfaceProp, board) ? surfaceProp : null;
+  const standalone = surface?.tracking === 'standalone';
   const exact = isExactAnalysis(analysis);
   const settled = useSettledBoard(store, board);
   // With an external surface the exact modes read its curvature: no hull fit needed.
@@ -854,10 +856,10 @@ export function Board3DView({
             targetFaceSize={targetFaceSize}
           />
         )}
-        {board && board.fins.setup !== 'none' && (
+        {board && !standalone && board.fins.setup !== 'none' && (
           <Fins3D board={board} targetFaceSize={targetFaceSize} color={finColor} />
         )}
-        {board && (showStringer || showSections || showApex) && (
+        {board && !standalone && (showStringer || showSections || showApex) && (
           <Guides3D
             board={board}
             targetFaceSize={targetFaceSize}

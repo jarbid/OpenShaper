@@ -28,7 +28,7 @@ export {
 } from './analysis';
 export type { CurvatureMesh, CurvatureScale } from './curvature-mesh';
 export type { DeviationMesh } from './deviation-mesh';
-export { sameHull, type ExternalSurface } from './external-surface';
+export { sameHull, surfaceApplies, type ExternalSurface } from './external-surface';
 export { Guides3D } from './Guides3D';
 export { apexGuideLine, guideLines, type GuideLine, type GuideLines } from './guide-lines';
 export { useBoardOffset, type BoardPlacement } from './use-board-offset';

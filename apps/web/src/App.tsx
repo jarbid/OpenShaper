@@ -199,7 +199,7 @@ const ThreeDPane = memo(function ThreeDPane({
           <Suspense fallback={null}>
             <NurbsLayer
               store={props.store}
-              faceSize={props.targetFaceSize ?? 0.9}
+              analysis={props.analysis ?? 'none'}
               units={units}
               onSurface={setSurface}
             />
