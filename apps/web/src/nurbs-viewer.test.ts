@@ -115,6 +115,14 @@ const harness = () => {
   };
 };
 
+const converted = async (h: ReturnType<typeof harness>, board: BezierBoard, faceSize = 0.9) => {
+  h.input({ board, faceSize });
+  h.advance(DEBOUNCE_MS);
+  const call = h.calls.at(-1)!;
+  call.answer.resolve(okAnswer(call.modelId, faceSize));
+  await h.flush();
+};
+
 describe('convert after edits settle', () => {
   it('shows the classic board (waiting) and converts once the quiet period passes', () => {
     const h = harness();
@@ -235,14 +243,6 @@ describe('dropping superseded jobs', () => {
 });
 
 describe('the result and its cache', () => {
-  const converted = async (h: ReturnType<typeof harness>, board: BezierBoard, faceSize = 0.9) => {
-    h.input({ board, faceSize });
-    h.advance(DEBOUNCE_MS);
-    const call = h.calls.at(-1)!;
-    call.answer.resolve(okAnswer(call.modelId, faceSize));
-    await h.flush();
-  };
-
   it('is ready with the model, its warnings and no job once the answer lands', async () => {
     const h = harness();
     const board = makeBoard();
@@ -365,5 +365,67 @@ describe('the result and its cache', () => {
     const h = harness();
     h.viewer.dispose();
     expect(h.disposed()).toBe(true);
+  });
+
+  it('dispose() (the engine turned off) cancels a running conversion and drops the cache', async () => {
+    const h = harness();
+    const board = makeBoard();
+    const other = hullEdit(board);
+    await converted(h, board); // cached
+    h.input({ board: other });
+    h.advance(DEBOUNCE_MS); // converting `other`: 12 to 22 s in a real worker
+    expect(h.viewer.getState().phase).toBe('converting');
+    const cancels = h.cancels();
+    h.viewer.dispose();
+    expect(h.cancels()).toBe(cancels + 1);
+    expect(h.disposed()).toBe(true);
+    expect(h.viewer.getState().phase).toBe('idle');
+    expect(h.viewer.getState().model).toBeNull();
+    // The cache is gone: the first board converts again instead of showing at once.
+    h.input({ board });
+    expect(h.viewer.getState().phase).toBe('waiting');
+    h.advance(DEBOUNCE_MS);
+    expect(h.calls).toHaveLength(3);
+    // No timer outlives it.
+    h.viewer.dispose();
+    expect(h.pendingTimers()).toBe(0);
+  });
+
+  it('pause() (a pane remount) keeps the cache and any conversion running', async () => {
+    const h = harness();
+    const board = makeBoard();
+    await converted(h, board);
+    h.viewer.pause();
+    expect(h.disposed()).toBe(false);
+    h.input({ board });
+    expect(h.viewer.getState().phase).toBe('ready');
+    expect(h.calls).toHaveLength(1);
+  });
+});
+
+describe('published state', () => {
+  it('does not change on drag moves of an unconverted hull, so subscribers do not re-render', () => {
+    const h = harness();
+    let board = makeBoard();
+    h.input({ board, editing: true });
+    let notified = 0;
+    h.viewer.subscribe(() => notified++);
+    const before = h.viewer.getState();
+    for (let i = 0; i < 20; i++) {
+      board = hullEdit(board);
+      h.input({ board, editing: true });
+    }
+    expect(notified).toBe(0);
+    expect(h.viewer.getState()).toBe(before);
+  });
+
+  it('does not change on a fin edit of a converted hull either', async () => {
+    const h = harness();
+    const board = makeBoard();
+    await converted(h, board);
+    let notified = 0;
+    h.viewer.subscribe(() => notified++);
+    h.input({ board: finEdit(board) });
+    expect(notified).toBe(0);
   });
 });

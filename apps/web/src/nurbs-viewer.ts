@@ -58,10 +58,13 @@ export interface ViewerJob {
   readonly stage: NurbsStage;
 }
 
+/**
+ * What the view needs and no more: the board itself is deliberately not published, so
+ * the layer does not re-render on every drag move. `model`, when set, is always the
+ * conversion of the hull on screen (it is cleared the moment the hull changes).
+ */
 export interface ViewerState {
   readonly phase: ViewerPhase;
-  /** The latest classic board given to the viewer. */
-  readonly board: BezierBoard | null;
   /** The job in flight, if any. */
   readonly job: ViewerJob | null;
   /** The converted model for `board`'s hull, once there is one. */
@@ -74,12 +77,14 @@ export interface ViewerState {
 
 export const VIEWER_IDLE: ViewerState = {
   phase: 'idle',
-  board: null,
   job: null,
   model: null,
   error: null,
   issues: [],
 };
+
+/** The state while waiting for the board to settle: one object, so repeats compare equal. */
+const WAITING: ViewerState = { ...VIEWER_IDLE, phase: 'waiting' };
 
 export interface ViewerInput {
   readonly enabled: boolean;
@@ -117,6 +122,11 @@ export interface NurbsViewer {
    * already running finishes into the cache; the next `setInput` picks up from there.
    */
   pause(): void;
+  /**
+   * The engine was turned off: cancel the job in flight (terminating the worker), drop
+   * the cache, the worker and the listeners. Unlike {@link pause}, which a pane
+   * remount uses and which keeps all of that.
+   */
   dispose(): void;
 }
 
@@ -132,6 +142,8 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
   let input: ViewerInput = { enabled: false, board: null, faceSize: 0.9, editing: false };
   const cache: CacheEntry[] = [];
   let timer: unknown = null;
+  // The board of the previous reconcile, to tell a hull change from a repeated input.
+  let lastBoard: BezierBoard | null = null;
   let nextModelId = 0;
   // The job in flight and what it is for: lets a repeated input (a fin edit, a
   // re-render) leave it alone, and a hull change cancel it.
@@ -173,7 +185,7 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     const job: ViewerJob = { kind: 'convert', startedAt: now(), stage: 'converting' };
     running = { kind: 'convert', board, faceSize };
     const me = running;
-    set({ phase: 'converting', job, model: null, error: null, issues: [] });
+    set({ phase: 'converting', job, model: null, error: null, issues: VIEWER_IDLE.issues });
     client
       .convert(modelId, board, faceSize, (stage) => {
         if (running === me && state.job) set({ job: { ...state.job, stage } });
@@ -248,10 +260,12 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
    */
   function reconcile(): void {
     const { enabled, board, faceSize, editing } = input;
+    const previous = lastBoard;
+    lastBoard = board;
     if (!enabled || !board) {
       clearTimerIfAny();
       cancelRunning();
-      set({ ...VIEWER_IDLE, board });
+      set(VIEWER_IDLE);
       return;
     }
     const entry = find(board);
@@ -269,7 +283,6 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
         }
         set({
           phase: 'ready',
-          board,
           job: running ? state.job : null,
           model: entry.model,
           error: null,
@@ -280,7 +293,6 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
       cancelRunning();
       set({
         phase: 'failed',
-        board,
         job: null,
         model: null,
         error: entry.error,
@@ -291,18 +303,17 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     // A hull never converted.
     if (running && sameHull(running.board, board)) {
       // Already converting this very hull (a non-hull edit, a re-render): carry on.
-      set({ board });
       return;
     }
     cancelRunning();
     if (editing) {
       clearTimerIfAny();
-      set({ phase: 'waiting', board, job: null, model: null, error: null, issues: [] });
+      set(WAITING);
       return;
     }
     // Settled: (re)start the quiet period. A change of hull restarts it; the same
     // hull again (a fin edit) leaves the running timer alone.
-    if (timer === null || state.board === null || !sameHull(state.board, board)) {
+    if (timer === null || previous === null || !sameHull(previous, board)) {
       clearTimerIfAny();
       timer = setTimer(() => {
         timer = null;
@@ -311,7 +322,7 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
         startConvert(b, input.faceSize);
       }, debounceMs);
     }
-    set({ phase: 'waiting', board, job: null, model: null, error: null, issues: [] });
+    set(WAITING);
   }
 
   return {
@@ -328,6 +339,12 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     dispose() {
       clearTimerIfAny();
       cancelRunning();
+      // Everything it holds: the converted meshes (~3 MB each) and the worker. A viewer
+      // is usable again afterwards; it starts from nothing.
+      cache.length = 0;
+      input = { enabled: false, board: null, faceSize: input.faceSize, editing: false };
+      lastBoard = null;
+      set(VIEWER_IDLE);
       listeners.clear();
       client.dispose();
     },

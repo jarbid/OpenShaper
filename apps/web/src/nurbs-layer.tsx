@@ -8,21 +8,32 @@
  * Loaded lazily (`ThreeDPane` in App.tsx) and only with the engine flag on, so none
  * of this, nor the worker it starts, is downloaded otherwise.
  */
-import { sameHull, type ExternalSurface } from '@openshaper/render3d';
+import type { ExternalSurface } from '@openshaper/render3d';
 import type { BoardState } from '@openshaper/store';
 import { Info, LoaderCircle } from 'lucide-react';
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
 import { fmtSmallLen, type LengthUnit } from './format';
 import { createNurbsClient } from './nurbs-client';
+import { registerNurbsRelease } from './nurbs-session';
 import { surfaceOf } from './nurbs-surface';
 import { localizeLengths, statusText } from './nurbs-text';
 import { createNurbsViewer, type NurbsViewer, type ViewerState } from './nurbs-viewer';
 
 /** One viewer for the session, so its cache outlives the pane being remounted. */
 let shared: NurbsViewer | null = null;
-const sharedViewer = (): NurbsViewer =>
-  (shared ??= createNurbsViewer({ client: createNurbsClient() }));
+const sharedViewer = (): NurbsViewer => {
+  if (!shared) {
+    const viewer = createNurbsViewer({ client: createNurbsClient() });
+    shared = viewer;
+    // Turning the engine off (nurbs-session.ts) disposes it: worker, jobs and caches.
+    registerNurbsRelease(() => {
+      viewer.dispose();
+      if (shared === viewer) shared = null;
+    });
+  }
+  return shared;
+};
 
 // --- Classic / NURBS choice, kept across remounts ----------------------------
 
@@ -170,9 +181,7 @@ export default function NurbsLayer({
 
   // The surface the 3D view should draw: only for the board on screen.
   const model = state.model;
-  const board = state.board;
-  const surface: ExternalSurface | null =
-    showing === 'nurbs' && model && board && sameHull(model.board, board) ? surfaceOf(model) : null;
+  const surface: ExternalSurface | null = showing === 'nurbs' && model ? surfaceOf(model) : null;
   useEffect(() => {
     onSurface(surface);
   }, [surface, onSurface]);

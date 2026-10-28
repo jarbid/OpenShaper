@@ -14,15 +14,42 @@
  * result.
  */
 
-/** `assets/nurbs-*.js`, the chunk names `vite.config.ts` also keeps out of the precache. */
-const NURBS_PRELOAD = /<link\s+rel="modulepreload"[^>]*href="[^"]*\/assets\/nurbs-[^"]*"[^>]*>/g;
+/** Link relations that make the browser fetch a chunk ahead of its import. */
+const HINT_RELS = new Set(['modulepreload', 'preload', 'prefetch']);
 
-/** The page without its modulepreload hints for NURBS chunks. */
-export const stripNurbsPreloads = (html: string): string => html.replace(NURBS_PRELOAD, '');
+/** `assets/nurbs-*.js` under any base: `/assets/…`, `assets/…`, `./assets/…`, `/base/assets/…`. */
+const NURBS_CHUNK = /(?:^|\/)assets\/nurbs-[^/]*$/;
 
-/** Throws if a page still names a NURBS chunk anywhere outside the lazy loaders. */
+/** Every `<link …>` start tag, whatever its attributes. */
+const LINK_TAG = /<link\b[^>]*>/gi;
+
+/** The value of attribute `name` in a start tag, quoted either way or bare. */
+const attributeOf = (tag: string, name: string): string | null => {
+  const m = new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s"'>]+))`, 'i').exec(tag);
+  return m ? (m[1] ?? m[2] ?? m[3] ?? '') : null;
+};
+
+/** Whether a `<link>` tag hints at a NURBS viewer chunk, whatever the order of its attributes. */
+const hintsAtNurbsChunk = (tag: string): boolean => {
+  const rel = attributeOf(tag, 'rel');
+  const href = attributeOf(tag, 'href');
+  if (rel === null || href === null) return false;
+  const hints = rel
+    .toLowerCase()
+    .split(/\s+/)
+    .some((r) => HINT_RELS.has(r));
+  return hints && NURBS_CHUNK.test(href.split(/[?#]/)[0]!);
+};
+
+/** The page without its preload hints for NURBS chunks. */
+export const stripNurbsPreloads = (html: string): string =>
+  html.replace(LINK_TAG, (tag) => (hintsAtNurbsChunk(tag) ? '' : tag));
+
+/** Throws if a page still hints at a NURBS chunk anywhere outside the lazy loaders. */
 export function assertNoNurbsPreloads(route: string, html: string): void {
-  if (/\bmodulepreload\b[^>]*\/assets\/nurbs-/.test(html)) {
-    throw new Error(`${route}: the prerendered page preloads a NURBS viewer chunk`);
+  for (const tag of html.match(LINK_TAG) ?? []) {
+    if (hintsAtNurbsChunk(tag)) {
+      throw new Error(`${route}: the prerendered page preloads a NURBS viewer chunk: ${tag}`);
+    }
   }
 }

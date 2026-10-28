@@ -2275,7 +2275,11 @@ written to a file.
   in the display unit. `ghostDeviation` of the kernel measures within the station plane; the
   value is multiplied by `√(1 − nx²)` (`nx` the NURBS normal's length component), which is the
   distance along the normal to first order (`nurbs-deviation.ts`). The NURBS vertices are not
-  in station rings, so the classic is measured at sections every 0.25 cm and interpolated in x.
+  in station rings, so the classic is measured at sections every 0.25 cm and interpolated in x,
+  except where that fails (review, below): within 1.5 cm of an end, or where the two
+  neighbouring stations disagree by more than 0.5 mm, the classic section at the vertex's own x
+  is used. A vertex within 0.5 cm of an end, or facing along the board (`|nx| > 0.9`), is no
+  data (grey), never "about zero", and does not enter the legend's range.
   Mean-curvature jumps at a station crease of the classic loft do not appear on the NURBS
   surface (nor do they need to), but nothing was done to make the NURBS surface smoother than
   its fit: it is what S7 produces.
@@ -2289,6 +2293,47 @@ importer with the worker shell `nurbs-worker.ts`). `render3d` gains the `Externa
 of `Board3DView` (`external-surface.ts`), `nurbs-deviation` in the analysis modes
 (`DeviationAnalysisMode`) and the exact modes' ready status from a supplied surface. Typed
 arrays come back from the worker as transferables.
+
+**Review of the viewer (2026-10-28).** An independent review found, and this fixed:
+
+- **The editor did not load offline with the setting saved.** The lazy layer import was
+  outside any error boundary and its chunk outside the precache, so the rejected import
+  reached the route error screen. The layer chunk is precached (the precache guard asserts
+  it, and that the worker and core stay out), the layer sits in a local `NurbsBoundary`
+  (classic view plus a short note), and `e2e:offline` loads the editor offline with the
+  setting saved.
+- **"Deviation from classic" was wrong near the ends.** Interpolating station-plane
+  distances between sections 0.25 cm apart fails where a section grows like `√x`: the
+  shortboard's vertex (0.0997, 2.362, 7.153), `nx = −0.80`, read +0.72 cm where the section at
+  its own x gives −0.09. The fix is above (own-x section near the ends and where neighbouring
+  stations disagree; no data within 0.5 cm of a tip and where `|nx| > 0.9`).
+  Reported ranges, before and after, measured on the three goldens at the standard quality
+  (cm, `−` inside the classic, `+` outside; p99 of |deviation| after the fix 0.049, 0.050 and
+  0.059; vertices without data 1,393 of 32,089, 502 of 20,916 and 394 of 22,657):
+
+  | board      | before          | after           |
+  | ---------- | --------------- | --------------- |
+  | shortboard | −0.130 … +0.722 | −0.122 … +0.034 |
+  | funboard   | −0.163 … +0.249 | −0.103 … +0.034 |
+  | longboard  | −0.256 … +0.985 | −0.181 … +0.027 |
+
+  The remaining extremes sit 0.5 to 0.6 cm from a tip, where the first-order estimate is
+  within 0.5 mm of a 3D distance of 0.08 to 0.13 cm. The extra sections cost about 0.7 s on the
+  shortboard (the deviation step goes from 0.15 s to 0.85 s in Node).
+  `nurbs-deviation.golden.test.ts` converts the shortboard and checks it against that 3D
+  oracle and a documented bound.
+
+- **Turning the engine off left the worker, an in-flight conversion and the cached meshes
+  alive.** The shared viewer is now disposed (`nurbs-session.ts`) when the setting goes off;
+  leaving the 3D pane still only pauses it.
+- **Undefined curvature in the scales.** Samples geom flags `SAMPLE_DEGENERATE` (mean 0,
+  capped radius) no longer weigh in the percentiles of the curvature display scales, as the
+  classic engine's cap vertices do not.
+- **The layer re-rendered on every drag move**: the viewer no longer publishes the board
+  (`model`, when set, is always the conversion of the hull on screen).
+- `tools/nurbs-preload.ts` finds NURBS hints whatever the attribute order, quoting or base
+  path, and an eslint pattern lets only `nurbs-worker.ts` import `workers/nurbs-core` at
+  runtime.
 
 **Tessellation sizing.** The classic mesh is a grid of about `faceSize` cells; geom's is
 adaptive, so `tessellationFor(faceSize)` sizes it by error: chord tolerance 5 % of the face size
@@ -2334,7 +2379,7 @@ deviation mode), the `Editing` docs page +2.4 KB. New chunks, fetched only with 
 297 KB (106 KB gzip: board2, geom, the converter, the kernel pieces they use) and
 `nurbs-core` 284 KB (101 KB gzip), which only the no-`Worker` fallback fetches and no browser
 does. board2 and geom are in no other chunk (grep of the build for the document format string
-and geom's issue codes finds only those two files). None of the three is precached, and none is preloaded: vite-react-ssg writes a
+and geom's issue codes finds only those two files). The layer is precached (12 KB: a saved engine setting imports it on every load, offline included); the worker and core are not, and none of the three is preloaded: vite-react-ssg writes a
 `modulepreload` hint into the prerendered page for every lazy chunk it can reach, which put all
 three (0.6 MB) on every `/app` load until `tools/nurbs-preload.ts` (run from `ssgOptions.onPageRendered`)
 stripped them and failed the build if one came back. The offline e2e suite caught it: the
@@ -2349,12 +2394,18 @@ preload of an unprecached chunk is a console error with the network cut.
   reason.
 - A conversion in flight is lost when the 3D pane is left and the board changes, and a refresh
   loses the cache (nothing is stored); a stored document would rebuild in 2 to 5 s (S7 table).
-- The NURBS chunks are not precached by the service worker (`assets/nurbs-*.js` is in
-  `globIgnores`), so the viewer needs a connection the first time it is used.
+- The NURBS worker and compute chunks (`assets/nurbs-worker-*.js`, `nurbs-core-*.js`, 0.6 MB) are
+  not precached by the service worker (`globIgnores`), so the first conversion needs a
+  connection. The 12 KB layer chunk is precached, so a saved engine setting never stops the
+  editor loading offline; offline the viewer reports a failed conversion (or the layer's
+  "NURBS viewer unavailable (offline?)" note, if even the layer cannot load) and the classic
+  mesh stays.
 - The band fit misses its target on every file (S7 deviation 7: 0.67 mm on the shortboard in
   the popover; the rocker files 8.8 mm), and "Deviation from classic" shows exactly that. The
-  deviation is measured at the NURBS vertices only, and is no data within a quarter of a
-  centimetre of a tip where the classic section degenerates.
+  deviation is measured at the NURBS vertices only, is no data within half a centimetre of a tip
+  (and where the surface faces along the board), and is a first-order normal distance: against
+  a brute-force 3D distance to a fine classic mesh it is off by at most 0.16 mm away from the
+  ends and 0.65 mm from 0.5 to 3 cm of one.
 - Curvature at a knot line of the band or the height fields where the surface is not C2 is
   read from one side.
 - Mesh quality "Fine" is slow (several seconds; the vertex count grows about with the square

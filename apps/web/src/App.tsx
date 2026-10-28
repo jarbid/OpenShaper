@@ -95,6 +95,7 @@ import { shareLinkMessage } from './share-url';
 import { loadSettings, saveSettings, type EditorSettings } from './settings';
 import { NurbsBoundary } from './nurbs-boundary';
 import { useEngineParam } from './nurbs-flag';
+import { useReleaseNurbsWhenOff } from './nurbs-session';
 import { CrossSectionControls } from './CrossSectionControls';
 import { LandscapeHint } from './LandscapeHint';
 import { CoffeeIcon } from './components/Support';
@@ -622,6 +623,8 @@ function AppShell() {
   // "Engine: NURBS (experimental)": the saved setting, or `?engine=nurbs` this session.
   const engineParam = useEngineParam();
   const nurbsEngine = settings.nurbsEngine || engineParam;
+  // Turning it off ends the worker (and any conversion in it) and drops the cached meshes.
+  useReleaseNurbsWhenOff(nurbsEngine);
   const handleSaveSettings = (s: EditorSettings) => {
     saveSettings(s);
     setSettings(s);
