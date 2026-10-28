@@ -80,13 +80,18 @@ export const NOTCH_MIN_LAMBDA = 0.05;
  * centres and edge midpoints stay within the tolerance itself.
  */
 export const MESH_DEV_FRACTION = 0.4;
+/**
+ * Share of the tolerance that the twist of a cell, `|a + d - b - c| / 4` for its corners, may use: a
+ * diagonal's midpoint sits that far from the cell's bilinear centre, on top of the sag.
+ */
+export const MESH_TWIST_FRACTION = 0.5;
 /** Seed columns per half (bottom to apex, apex to deck) before refinement. */
 export const MESH_SEED_COLS_PER_HALF = 10;
 /** Seed rows spaced uniformly in ξ, and spaced by outline arc length, before refinement. */
 export const MESH_SEED_ROWS_UNIFORM = 8;
 export const MESH_SEED_ROWS_ARC = 32;
 /** Columns probed when a row interval is tested (a stride through the column ladder). */
-export const MESH_PROBE_COLS = 32;
+export const MESH_PROBE_COLS = 64;
 /** Uniformly spaced probe rows added to the stations and their midpoints when testing columns. */
 export const MESH_PROBE_ROWS_UNIFORM = 6;
 /** Hard caps on the ladders (a guard against a runaway refinement). */

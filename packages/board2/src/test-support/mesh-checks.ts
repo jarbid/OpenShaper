@@ -123,6 +123,9 @@ export function meshDeviation(board: BuiltBoard, mesh: BoardMesh, stride = 1): D
   let checked = 0;
   for (let k = 0; k < mesh.indices.length; k += 3 * stride) {
     const v = [mesh.indices[k]!, mesh.indices[k + 1]!, mesh.indices[k + 2]!];
+    // the planar caps of a blunt end are not on the surface: skip triangles lying in an end row
+    const end = (x: number): boolean => x === board.xiMin || x === board.xiMax;
+    if (v.every((q) => end(pxi[q]!) && pxi[q] === pxi[v[0]!])) continue;
     const c = [0, 1, 2].map((a) => (P[3 * v[0]! + a]! + P[3 * v[1]! + a]! + P[3 * v[2]! + a]!) / 3);
     centre = Math.max(
       centre,

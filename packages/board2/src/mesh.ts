@@ -42,6 +42,7 @@ import {
   MESH_SEED_COLS_PER_HALF,
   MESH_SEED_ROWS_ARC,
   MESH_SEED_ROWS_UNIFORM,
+  MESH_TWIST_FRACTION,
   MESH_VERIFY_ROWS,
   PLAN_EXACT_TOL,
 } from './params';
@@ -300,6 +301,7 @@ function refineRows(
   seeds: readonly number[],
   probeT: readonly number[],
   tolDir: number,
+  twistTol: number,
   maxEdge: number,
 ): Float64Array {
   const stride = 3 * probeT.length;
@@ -337,10 +339,18 @@ function refineRows(
         M = evalRow(xm);
         const P = rows[j]!;
         const Q = rows[j + 1]!;
-        for (let k = 0; k < width; k += 3) {
-          if (segDist(P, k, Q, k, M, k) > tolDir || edgeLen(P, k, Q, k) > maxEdge) {
-            doSplit = true;
-            break;
+        for (let k = 0; k < width && !doSplit; k += 3) {
+          if (segDist(P, k, Q, k, M, k) > tolDir || edgeLen(P, k, Q, k) > maxEdge) doSplit = true;
+          // the twist of the cell between this probe column and the next (not across the sides)
+          if ((k / 3) % probeT.length < probeT.length - 1) {
+            const k3 = k + 3;
+            const twist =
+              Math.hypot(
+                P[k]! + Q[k3]! - P[k3]! - Q[k]!,
+                P[k + 1]! + Q[k3 + 1]! - P[k3 + 1]! - Q[k + 1]!,
+                P[k + 2]! + Q[k3 + 2]! - P[k3 + 2]! - Q[k + 2]!,
+              ) / 4;
+            if (twist > twistTol) doSplit = true;
           }
         }
       }
@@ -391,11 +401,12 @@ function deriveWith(
   maxEdge: number,
 ): Ladders {
   const tolDir = MESH_DEV_FRACTION * tolerance;
+  const twistTol = MESH_TWIST_FRACTION * tolerance;
   const sideList: readonly (0 | 1)[] = board.doc.symmetry === 'mirror' ? [0] : [0, 1];
   const half = MESH_SEED_COLS_PER_HALF;
   const seedT = Array.from({ length: 2 * half + 1 }, (_, j) => j / (2 * half));
   let t = refineCols(ev, sideList, probeRows(board), seedT, tolDir, maxEdge);
-  let xi = refineRows(ev, sideList, rowSeeds(board), probeCols(t), tolDir, maxEdge);
+  let xi = refineRows(ev, sideList, rowSeeds(board), probeCols(t), tolDir, twistTol, maxEdge);
   // a feature's lateral track moves along the board: check the columns at the rows found, and
   // if they had to grow, the rows against the new columns
   const stride = Math.max(1, Math.ceil(xi.length / MESH_VERIFY_ROWS));
@@ -404,7 +415,7 @@ function deriveWith(
   const t2 = refineCols(ev, sideList, verify, Array.from(t), tolDir, maxEdge);
   if (t2.length > t.length) {
     t = t2;
-    xi = refineRows(ev, sideList, Array.from(xi), probeCols(t), tolDir, maxEdge);
+    xi = refineRows(ev, sideList, Array.from(xi), probeCols(t), tolDir, twistTol, maxEdge);
   }
   return { xi, t };
 }

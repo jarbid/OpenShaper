@@ -166,7 +166,13 @@ function monotoneX(ks: K[], from: number, clampY: boolean): number {
 // ---------------------------------------------------------------------------
 
 type SliceResult =
-  | { readonly section: Section; readonly adjust: number; readonly added: number }
+  | {
+      readonly section: Section;
+      /** The largest control-point move (cm) the rules needed, and what it was. */
+      readonly adjust: number;
+      readonly why: string;
+      readonly added: number;
+    }
   | { readonly error: string };
 
 const sliceCache = new WeakMap<Spline, SliceResult>();
@@ -247,6 +253,13 @@ function normalise(spline: Spline): SliceResult {
 
   // normalise
   let adjust = 0;
+  let why = '';
+  const note = (cm: number, what: string): void => {
+    if (cm > adjust) {
+      adjust = cm;
+      why = what;
+    }
+  };
   for (const k of ks) {
     for (const q of [k.p, k.in, k.out]) {
       q[0] = q[0] / W;
@@ -259,7 +272,11 @@ function normalise(spline: Spline): SliceResult {
   f.p[1] = 0;
   l.p[0] = 0;
   l.p[1] = 1;
-  adjust = Math.max(adjust, Math.abs(f.out[1]) * T, Math.abs(l.in[1] - 1) * T);
+  note(
+    Math.abs(f.out[1]) * T,
+    'the bottom centre handle is not horizontal (it rises off the stringer)',
+  );
+  note(Math.abs(l.in[1] - 1) * T, 'the deck centre handle is not horizontal');
   f.out[1] = 0;
   l.in[1] = 1;
   f.in = [0, 0];
@@ -289,7 +306,7 @@ function normalise(spline: Spline): SliceResult {
       for (const k of ks) {
         for (const q of [k.p, k.in, k.out]) {
           const u = Math.min(Math.max(q[0], 0), 1);
-          adjust = Math.max(adjust, Math.abs(u - q[0]) * W);
+          note(Math.abs(u - q[0]) * W, 'a control point lies beyond the rail or the stringer');
           q[0] = u;
         }
       }
@@ -303,7 +320,7 @@ function normalise(spline: Spline): SliceResult {
     }
   }
   const section: Section = deepFreeze({ chain: toChain(ks), apex });
-  return { section, adjust, added };
+  return { section, adjust, why, added };
 }
 
 function sliceOf(cs: CrossSection): SliceResult {
@@ -429,19 +446,19 @@ function convert(board: BezierBoard, opts: ConvertOptions): Board2Result<Classic
       return;
     }
     lastX = cs.position;
+    if (r.adjust > CONVERT_MAX_ADJUST) {
+      errors.push(
+        issue(
+          'convert-slice',
+          `slice at x = ${cs.position}: ${r.why}; the section model would have to move a control point ${r.adjust.toPrecision(2)} cm`,
+          { station: id, value: r.adjust },
+        ),
+      );
+    }
     sectionAdjust = Math.max(sectionAdjust, r.adjust);
     added += r.added;
     sections.push({ x: cs.position, section: r.section });
   });
-  if (sectionAdjust > CONVERT_MAX_ADJUST) {
-    errors.push(
-      issue(
-        'convert-slice',
-        `a section would have to move a control point ${sectionAdjust.toPrecision(2)} cm to meet the section rules`,
-        { value: sectionAdjust },
-      ),
-    );
-  }
   if (errors.length > 0) return board2Err(errors);
   if (lineAdjust > CONVERT_SNAP || sectionAdjust > CONVERT_SNAP) {
     warnings.push(
