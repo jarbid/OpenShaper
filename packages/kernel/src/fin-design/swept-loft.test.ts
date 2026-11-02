@@ -21,6 +21,7 @@ import {
   sliceFreeSpan,
   sliceTipPoint,
   sliceWeight,
+  thicknessAlongSweep,
   thicknessAt,
   thicknessPathOf,
   tipLineEta,
@@ -481,5 +482,31 @@ describe('slices and the tip line (owner’s rules)', () => {
     const root = bladeSection(prepareBlade(half), 0);
     const was = bladeSection(b, 0);
     root.outside.forEach((_, j) => expect(width(root, j)).toBeCloseTo(width(was, j), 12));
+  });
+});
+
+describe('a heavily swept-back fin (the owner’s, docs/specs/fins/swept_back_tip.fin.json)', () => {
+  it('reads every other fin’s thickness curve by height, exactly as before', () => {
+    for (const [, make] of FINS.filter(([n]) => n !== 'steep tip line')) {
+      expect(thicknessAlongSweep(make())).toBe(0);
+    }
+  });
+
+  it('reads its thickness curve along the sweep: the arm thins toward the tip', () => {
+    // Owner testing: read by height, the arm reaching back to the tip spans little height,
+    // so it kept its full thickness to the tip line, then fell to the minimum in 20 mm.
+    const d = { ...ownerFin('swept_back_tip.fin.json'), slices: [] };
+    expect(thicknessAlongSweep(d)).toBeGreaterThan(0.9);
+    const b = prepareBlade(d);
+    const st = Array.from({ length: 101 }, (_, i) => i / 100);
+    for (const h of [17.7, 18.3]) {
+      const s = bladeSection(b, h, st);
+      const t = st.map((_, j) => Math.abs(s.outside[j]!.y - s.inside[j]!.y));
+      const most = Math.max(...t);
+      // Most of the way back it has thinned well down (it was still at its thickest).
+      expect(t[88]!).toBeLessThan(0.75 * most);
+      // And thins on steadily to the edge: no cliff over the last tenth.
+      for (let j = 90; j < 100; j++) expect(t[j]! - t[j + 1]!).toBeLessThan(0.2 * most);
+    }
   });
 });

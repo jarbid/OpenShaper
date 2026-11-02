@@ -615,6 +615,17 @@ interface SweptBlade {
    * easing from 1 at the base to the design's {@link FinDesign.tipScale} at the tip line.
    */
   readonly rowScale: Float64Array;
+  /**
+   * How far each row is along the sweep, base 0 to the tip edge 1, by the length of the
+   * thickness path out to it and then on across the tip (to the tip line's row).
+   */
+  readonly sweepEta: Float64Array;
+  /**
+   * How much the thickness curve is read along the sweep rather than up the height, 0 to
+   * 1: 0 on a fin whose thickness path runs up the blade, toward 1 the further it sweeps
+   * back ({@link alongSweepOf}).
+   */
+  readonly alongSweep: number;
   /** The tip line's middle height, as a fraction of the depth. */
   readonly tipEta: number;
   /** The tip line's ends (tab frame, cm): leading-edge side, trailing-edge side. */
@@ -630,6 +641,8 @@ interface SweptBlade {
    */
   readonly tipReach: Float64Array;
 }
+
+const tipReachCache = new WeakMap<SweepGrid, Float64Array>();
 
 /** Points along the tip line its distance to the tip edge is tabled at. */
 const TIP_REACH_SAMPLES = 256;
@@ -705,16 +718,34 @@ const sweptBlade = (b: PreparedBlade): SweptBlade => {
   if ((mid.x - ts.x) * normal.x + (mid.y - ts.y) * normal.y < 0) {
     normal = { x: -normal.x, y: -normal.y };
   }
+  // Depends only on the outline and tip line: kept with the sweep's grid.
+  let reach = tipReachCache.get(grid);
+  if (!reach) tipReachCache.set(grid, (reach = tipReach(edge, ts, te, normal)));
+  // Along the sweep: the thickness path's length out to each row, then on across the tip
+  // from its high point to the tip edge.
+  const sweepEta = new Float64Array(grid.tipRow + 1);
+  let run = 0;
+  let prev = sweepPointOn(grid, 0, path[0]!);
+  for (let i = 1; i <= grid.tipRow; i++) {
+    const p = sweepPointOn(grid, i, path[i]!);
+    run += Math.hypot(p.x - prev.x, p.y - prev.y);
+    sweepEta[i] = run;
+    prev = p;
+  }
+  const total = run + lerpTable(reach, path[grid.tipRow]!) || 1;
+  for (let i = 0; i <= grid.tipRow; i++) sweepEta[i] = sweepEta[i]! / total;
   const swept: SweptBlade = {
     grid,
     foils,
     path,
     pathZ,
     rowScale,
+    sweepEta,
+    alongSweep: alongSweepOf(run, pathZ[grid.tipRow]! - pathZ[0]!),
     tipEta: b.depth > 0 ? (grid.z[tipBase]! + grid.z[tipEnd]!) / 2 / b.depth : 1,
     tipLine: [ts, te],
     tipNormal: normal,
-    tipReach: tipReach(edge, ts, te, normal),
+    tipReach: reach,
   };
   sweptCache.set(b, swept);
   return swept;
@@ -756,29 +787,64 @@ export const sliceWeight = (d: FinDesign, eta: number): number => {
   return w;
 };
 
-/** How soft (cm) the turn in {@link sectionThickness} is: about a millimetre. */
+/**
+ * How swept back a fin must be for its thickness curve to be read along the sweep (owner
+ * testing: on a heavily swept-back fin the arm reaching back to the tip spans little
+ * height, so read up the height it kept its full thickness to the tip line and then fell
+ * to the minimum in the last 20 mm). Measured by the thickness path's rise over its
+ * length: from {@link SWEEP_RISE_UPRIGHT} (and above) read by height, as every fin was,
+ * to {@link SWEEP_RISE_SWEPT} (and below) read along the sweep, eased between. The default
+ * fins and the owners' rise 0.75–0.79 over their path's length, so read by height exactly
+ * as before; the owner's swept-back fin, 0.58.
+ */
+const SWEEP_RISE_UPRIGHT = 0.72;
+const SWEEP_RISE_SWEPT = 0.55;
+
+/** How much the thickness curve is read along the sweep (SweptBlade.alongSweep). */
+const alongSweepOf = (length: number, rise: number): number => {
+  if (!(length > 0)) return 0;
+  const q = rise / length;
+  return (
+    1 -
+    smoother(
+      Math.min(1, Math.max(0, (q - SWEEP_RISE_SWEPT) / (SWEEP_RISE_UPRIGHT - SWEEP_RISE_SWEPT))),
+    )
+  );
+};
+
+/** How much a design's thickness curve is read along the sweep, 0 to 1 (alongSweep). */
+export const thicknessAlongSweep = (d: FinDesign): number => sweptBlade(prepareBlade(d)).alongSweep;
+
+/** How soft (cm) the turn in {@link rowThickness} is: about a millimetre. */
 const THICKNESS_EASE = 0.1;
 
 /**
- * How thick (cm, the thickness curve's) a section thickest at height `peak` is at height
- * `z`: the curve at its thickest point, thinning with the curve above it, never thicker
- * below it. Near the tip the sections slant steeply, so read at each point's own height
- * the low end of one came out much thicker than its thickest point (owner testing: a
- * bulge along the hook), and read at the thickest point's height the high end came out
- * thicker than the curve allows up there (a fuller curve fattened the tip). The turn
- * between is eased over {@link THICKNESS_EASE}, so the surface doesn't crease along the
- * thickness path.
+ * How thick (cm) sweep row `i` is at height `z`. Read by height: the curve at the height
+ * of the row's thickest point, thinning with the curve above it, never thicker below it.
+ * Near the tip the sections slant steeply, so read at each point's own height the low end
+ * of one came out much thicker than its thickest point (owner testing: a bulge along the
+ * hook), and read at the thickest point's height the high end came out thicker than the
+ * curve allows up there (a fuller curve fattened the tip). The turn between is eased over
+ * {@link THICKNESS_EASE}, so the surface doesn't crease along the thickness path. Or, as
+ * far as the fin sweeps back, by how far along the sweep the
+ * row is ({@link SweptBlade.sweepEta}; past the tip line, `capV` of the way on to the tip
+ * edge).
  */
-const sectionThickness = (b: PreparedBlade, peak: number, z: number): number => {
+const rowThickness = (b: PreparedBlade, sw: SweptBlade, i: number, z: number, capV = 0): number => {
+  const peak = sw.pathZ[i]!;
   const d = z - peak;
-  // Level below, the curve's slope from the peak up, eased in tangent at the peak.
-  return thicknessAt(b, d > 0 ? peak + (d * d) / (d + THICKNESS_EASE) : peak);
+  const h = d > 0 ? peak + (d * d) / (d + THICKNESS_EASE) : peak;
+  const a = sw.alongSweep;
+  if (!(a > 0)) return thicknessAt(b, h);
+  const tip = sw.grid.tipRow;
+  const along = i >= tip ? sw.sweepEta[tip]! + (1 - sw.sweepEta[tip]!) * capV : sw.sweepEta[i]!;
+  return thicknessAt(b, h + a * (along * b.depth - h));
 };
 
 /**
  * Sweep row `i`'s faces at `along` (fraction of its length) and height `z`: its foil,
  * thickest on the thickness path, as thick as the thickness curve says there
- * (sectionThickness) times the row's scale, and that times `round` (the tip's rounding).
+ * (rowThickness) times the row's scale, and that times `round` (the tip's rounding).
  */
 const rowFaces = (
   b: PreparedBlade,
@@ -787,10 +853,11 @@ const rowFaces = (
   along: number,
   z: number,
   round: number,
+  capV = 0,
 ): [number, number] => {
   const f = sw.foils[i]!;
   const m = b.minThickness;
-  const t = sectionThickness(b, sw.pathZ[i]!, z);
+  const t = rowThickness(b, sw, i, z, capV);
   const k =
     f.thickest.thickness > 0
       ? (Math.max(0, t - m) * sw.rowScale[i]! * round) / f.thickest.thickness
@@ -837,7 +904,7 @@ const sweepFaces = (
     const reach = lerpTable(sw.tipReach, tc);
     // On the tip edge itself, the minimum exactly.
     const v = edge || !(reach > 0) ? 1 : Math.min(1, dist / reach);
-    return rowFaces(b, sw, tip, tc, z, v >= 1 ? 0 : Math.cos((Math.PI / 2) * v));
+    return rowFaces(b, sw, tip, tc, z, v >= 1 ? 0 : Math.cos((Math.PI / 2) * v), v);
   }
   if (edge && !(hit.row < 1 && hit.along > 1e-3 && hit.along < 1 - 1e-3)) return null;
   const i0 = Math.min(tip - 1, Math.floor(hit.row));
