@@ -8,6 +8,7 @@
  * Loaded lazily (`ThreeDPane` in App.tsx) and only with the engine flag on, so none
  * of this, nor the worker it starts, is downloaded otherwise.
  */
+import type { BoardDoc } from '@openshaper/board2';
 import { isExactAnalysis, type Board3DViewProps, type ExternalSurface } from '@openshaper/render3d';
 import type { BoardState } from '@openshaper/store';
 import { Info, LoaderCircle } from 'lucide-react';
@@ -16,6 +17,7 @@ import type { StoreApi } from 'zustand/vanilla';
 import { fmtSmallLen, fmtVol, type LengthUnit } from './format';
 import { createNurbsClient } from './nurbs-client';
 import { registerNurbsRelease } from './nurbs-session';
+import { boardStore } from './store';
 import { surfaceOf } from './nurbs-surface';
 import { localizeLengths, refusalHint, statusText } from './nurbs-text';
 import { createNurbsViewer, type NurbsViewer, type ViewerState } from './nurbs-viewer';
@@ -121,6 +123,13 @@ function InfoPanel({ state, units }: { state: ViewerState; units: LengthUnit }) 
                 This is one of the NURBS <strong>test boards</strong>, shown on its own. It is not
                 your board, and the classic editors do not change it.
               </>
+            ) : summary.source === 'doc' ? (
+              <>
+                This is the NURBS board you are editing. Its outline, rocker and deck are the lines
+                you drag, and its cross-sections (read-only for now) blend smoothly between the
+                stations. Use <strong>Deviation from classic</strong> to compare it with the board
+                you opened.
+              </>
             ) : (
               <>
                 The NURBS surface is built from the classic board&apos;s outline, rocker, deck and
@@ -176,8 +185,12 @@ function InfoPanel({ state, units }: { state: ViewerState; units: LengthUnit }) 
   );
 }
 
+/** A board store, and the section store's document when it is one (docs/design/m2-editor.md §1). */
+export type LayerStore = StoreApi<BoardState & { doc?: BoardDoc | null }>;
+
 export interface NurbsLayerProps {
-  store: StoreApi<BoardState>;
+  /** The store the editors edit: the classic store, or the section store (then jobs carry its document). */
+  store: LayerStore;
   /**
    * The analysis mode shown: an exact curvature mode has curvature computed on every
    * update, "Deviation from classic" the deviation.
@@ -210,6 +223,12 @@ export default function NurbsLayer({
     () => null,
   );
   const [infoOpen, setInfoOpen] = useState(false);
+  // The section store edits a document (the badge says editing, not read-only).
+  const docMode = useSyncExternalStore(
+    store.subscribe,
+    () => 'doc' in store.getState(),
+    () => false,
+  );
   const wantCurvature = isExactAnalysis(analysis);
   const wantDeviation = analysis === 'nurbs-deviation';
 
@@ -218,9 +237,13 @@ export default function NurbsLayer({
   useEffect(() => {
     const push = () => {
       const s = store.getState();
+      const doc = s.doc ?? null;
       viewer.setInput({
         enabled: true,
         board: s.board,
+        doc,
+        // A document is measured against the classic board it was imported from.
+        reference: doc && wantDeviation ? boardStore.getState().board : null,
         generation: s.loadCount,
         editing: s.editing,
         wantCurvature,
@@ -276,7 +299,7 @@ export default function NurbsLayer({
           data-vertices={model ? model.mesh.positions.length / 3 : undefined}
           className="rounded-md border border-amber-500/60 bg-card/90 px-2 py-1 font-medium text-amber-300 shadow-lg"
         >
-          NURBS (experimental) — read-only
+          {docMode ? 'NURBS (experimental) — editing' : 'NURBS (experimental) — read-only'}
         </span>
         {hasDetails && (
           <button

@@ -76,7 +76,7 @@ import {
   type SpecGroupId,
   type TabId,
 } from './sidebar-sections';
-import { boardStore } from './store';
+import { activeStore } from './store';
 import { MeasurementAxisSelect, OverlayToggle, Sel, SpecRow, UnitSelect } from './view-toolkit';
 import type { Longitudinal, MeasurementAxis } from './longitudinal';
 import { sectionHelp, type ToolbarHelpId } from './help-text';
@@ -241,10 +241,10 @@ export const Sidebar = memo(function Sidebar({
   longitudinal,
   onMeasurementAxisChange,
 }: SidebarProps) {
-  const past = useSyncExternalStore(boardStore.subscribe, () => boardStore.getState().past);
+  const past = useSyncExternalStore(activeStore.subscribe, () => activeStore.getState().past);
   const fins = useSyncExternalStore(
-    boardStore.subscribe,
-    () => boardStore.getState().board?.fins ?? null,
+    activeStore.subscribe,
+    () => activeStore.getState().board?.fins ?? null,
   );
 
   const overlaysOn = Object.values(overlayToggles).filter(Boolean).length;
@@ -273,10 +273,10 @@ export const Sidebar = memo(function Sidebar({
         formRef={resizeFormRef}
       />
     ),
-    controlPoint: <ControlPointInspector store={boardStore} units={units} />,
+    controlPoint: <ControlPointInspector store={activeStore} units={units} />,
     analysis: <AnalysisSection overlayToggles={overlayToggles} setOverlay={setOverlay} />,
     boardInfo: <BoardInfoSection meta={meta} setMeta={setMeta} />,
-    fins: <FinPanel store={boardStore} units={units} />,
+    fins: <FinPanel store={activeStore} units={units} />,
     weight: (
       <WeightSection
         foamType={foamType}
@@ -786,8 +786,13 @@ function SpecsSection({
   onSidebarChange: (next: SidebarState) => void;
 }) {
   const interpolationType = useSyncExternalStore(
-    boardStore.subscribe,
-    () => boardStore.getState().board?.interpolationType ?? 'controlPoint',
+    activeStore.subscribe,
+    () => activeStore.getState().board?.interpolationType ?? 'controlPoint',
+  );
+  // The interpolation model belongs to the classic engine; NURBS sections always blend smoothly.
+  const classicEngine = useSyncExternalStore(
+    activeStore.subscribe,
+    () => !('doc' in activeStore.getState()),
   );
   // Brief confirmation after copying the dimensions headline; resets itself.
   const [copied, setCopied] = useState(false);
@@ -890,18 +895,20 @@ function SpecsSection({
         <SpecRow label="Center of mass" value={position(specs.centerOfMass)} />
       </SpecBand>
 
-      <div className="flex items-center justify-between gap-2 pt-1">
-        <span className="text-muted-foreground">Interpolation</span>
-        <Sel
-          value={interpolationType}
-          onChange={(t) => boardStore.getState().setInterpolationType(t)}
-          options={[
-            { value: 'controlPoint', label: 'Control point' },
-            { value: 'sLinear', label: 'S-blend' },
-          ]}
-          title="Cross-section interpolation model"
-        />
-      </div>
+      {classicEngine && (
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <span className="text-muted-foreground">Interpolation</span>
+          <Sel
+            value={interpolationType}
+            onChange={(t) => activeStore.getState().setInterpolationType(t)}
+            options={[
+              { value: 'controlPoint', label: 'Control point' },
+              { value: 'sLinear', label: 'S-blend' },
+            ]}
+            title="Cross-section interpolation model"
+          />
+        </div>
+      )}
       <p className="pt-2 text-xs text-muted-foreground">
         Live from the kernel — every pane edits the same board, so changes sync across views and the
         specs update instantly.
@@ -972,7 +979,7 @@ function HistorySection({ past }: { past: readonly { label: string }[] }) {
             type="button"
             title="Revert to before this step"
             className="flex min-h-8 w-full items-center justify-between rounded px-2 py-1 text-left transition-colors hover:bg-accent hover:text-accent-foreground pointer-coarse:min-h-11"
-            onClick={() => boardStore.getState().jumpTo(index)}
+            onClick={() => activeStore.getState().jumpTo(index)}
           >
             <span>{e.label}</span>
             <span className="text-xs text-muted-foreground">#{index + 1}</span>

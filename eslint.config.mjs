@@ -222,9 +222,12 @@ const appConfigs = [
                 '@openshaper/geom may only be imported by the NURBS viewer worker modules (apps/web/src/workers/nurbs-core.ts, nurbs-worker.ts); load them lazily (docs/design/board2.md, "V1 viewer").',
             },
             {
+              // Types cost nothing at run time (the document the section store holds, the worker
+              // protocol); the code stays in the worker modules.
               group: ['@openshaper/board2', '@openshaper/board2/*'],
+              allowTypeImports: true,
               message:
-                '@openshaper/board2 may only be imported by the NURBS viewer worker modules (apps/web/src/workers/nurbs-core.ts, nurbs-worker.ts); load them lazily (docs/design/board2.md, "V1 viewer").',
+                '@openshaper/board2 code may only be imported by the NURBS viewer worker modules (apps/web/src/workers/nurbs-core.ts, nurbs-worker.ts); load them lazily (docs/design/board2.md, "V1 viewer"). `import type` is fine.',
             },
             {
               // The compute module carries board2 and geom (~0.3 MB): a static import

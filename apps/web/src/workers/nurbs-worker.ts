@@ -9,7 +9,7 @@
  * Instantiated lazily by the client with `new Worker(new URL(...), { type: 'module' })`,
  * so a user who never turns the experimental engine on never downloads it.
  */
-import { convertAndMesh, meshTestBoard } from './nurbs-core';
+import { convertAndMesh, convertToDoc, meshDocument, meshTestBoard } from './nurbs-core';
 import { meshTransferables, type NurbsRequest, type NurbsResponse } from './nurbs-protocol';
 
 // Local minimal worker-scope type, as in specs-worker.ts: the app's tsconfig loads the
@@ -22,11 +22,18 @@ const ctx = self as unknown as WorkerScope;
 
 ctx.onmessage = (e) => {
   const req = e.data;
+  if (req.kind === 'convert') {
+    const out = convertToDoc(req.board);
+    ctx.postMessage({ kind: 'converted', id: req.id, ...out });
+    return;
+  }
   // No progress messages: a job is milliseconds, and one is posted per pointer move.
   const out =
     req.kind === 'classic'
       ? convertAndMesh(req.board, req.options)
-      : meshTestBoard(req.name, req.options);
+      : req.kind === 'doc'
+        ? meshDocument(req.doc, req.reference, req.options)
+        : meshTestBoard(req.name, req.options);
   if (out.ok) {
     ctx.postMessage({ kind: 'done', id: req.id, ...out }, meshTransferables(out.mesh));
   } else {

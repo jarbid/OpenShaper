@@ -26,7 +26,7 @@ import { Button, Toast } from '@openshaper/ui';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { captureError } from './analytics';
 import { canUseServiceWorker, createIdleGate } from './pwa';
-import { boardStore } from './store';
+import { activeStore } from './store';
 
 export function UpdatePrompt() {
   const supported = canUseServiceWorker();
@@ -52,7 +52,7 @@ export function UpdatePrompt() {
   useEffect(() => {
     if (!needRefresh) return;
     setSettled(false);
-    const gate = createIdleGate({ subscribe: (cb) => boardStore.subscribe(cb) });
+    const gate = createIdleGate({ subscribe: (cb) => activeStore.subscribe(cb) });
     return gate.onSettled(() => setSettled(true));
   }, [needRefresh]);
 

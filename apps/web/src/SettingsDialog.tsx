@@ -227,6 +227,10 @@ export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProp
               value={draft.adjustCrossSectionThickness}
               onChange={(v) => set('adjustCrossSectionThickness', v)}
             />
+            <p className="text-xs text-muted-foreground">
+              Classic engine only. NURBS sections are always stored relative to the outline, rocker
+              and deck, so they follow them.
+            </p>
           </SettingsGroup>
 
           {/* --- Experimental --- */}
@@ -238,9 +242,11 @@ export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProp
               onChange={(v) => set('nurbsEngine', v)}
             />
             <p className="text-xs text-muted-foreground">
-              Shows a NURBS version of the board in the 3D view, built from the classic board and
-              updated as you edit. It is read-only: editing, saving and exporting stay classic. Turn
-              it off to return to the classic 3D view. You can also open the editor with{' '}
+              Converts the open board to NURBS curves and sections and shows its NURBS surface in
+              the 3D view, updated as you edit. You can edit the outline, rocker and deck; the
+              cross-sections are read-only for now. Saving, exporting and the autosave still use the
+              classic board you opened, so edits made on the NURBS board are not saved yet. Turn it
+              off to return to the classic editor. You can also open the editor with{' '}
               <code>?engine=nurbs</code> to turn it on for one session.
             </p>
           </SettingsGroup>

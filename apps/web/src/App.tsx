@@ -32,6 +32,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -107,7 +108,8 @@ import {
   type SidebarState,
 } from './sidebar-sections';
 import sampleBrd from './sample-board.brd?raw';
-import { boardStore } from './store';
+import { activeStore, boardStore, sectionStore } from './store';
+import { useSectionEngine } from './use-section-engine';
 import { SUPPORT_URL } from './support';
 import { BOARD_TEMPLATES } from './templates';
 import { clampSectionIndex, nearestMidpointSection } from './section-index';
@@ -215,13 +217,13 @@ const ThreeDPane = memo(function ThreeDPane({
 });
 
 function AppShell() {
-  const board = useSyncExternalStore(boardStore.subscribe, () => boardStore.getState().board);
+  const board = useSyncExternalStore(activeStore.subscribe, () => activeStore.getState().board);
   // Subscribe to history depth so the undo/redo buttons re-render with the right
   // enabled state, read live from the store rather than a render-time snapshot.
   const canUndo =
-    useSyncExternalStore(boardStore.subscribe, () => boardStore.getState().past.length) > 0;
+    useSyncExternalStore(activeStore.subscribe, () => activeStore.getState().past.length) > 0;
   const canRedo =
-    useSyncExternalStore(boardStore.subscribe, () => boardStore.getState().future.length) > 0;
+    useSyncExternalStore(activeStore.subscribe, () => activeStore.getState().future.length) > 0;
 
   // Silent session restore: rehydrate the autosaved working board (and ghost)
   // from IndexedDB; fall back to the bundled sample when nothing usable is
@@ -512,7 +514,7 @@ function AppShell() {
       setScrubX(null);
       // Cross-section markers and spline controls share one interaction focus.
       // Taking marker focus clears any selected endpoint/tangent in every pane.
-      boardStore.getState().select(null);
+      activeStore.getState().select(null);
     }
     focusedSectionRef.current = index;
     setFocusedSection(index);
@@ -604,7 +606,7 @@ function AppShell() {
   // read from the history stack at flush time rather than counted per edit, so
   // nothing is added to the drag path. See session-metrics.ts for why this is
   // an aggregate rather than a per-action stream.
-  useEffect(() => installSessionSummary(() => boardStore.getState().past.length), []);
+  useEffect(() => installSessionSummary(() => activeStore.getState().past.length), []);
   const [resize, setResize] = useState<ResizeFields>({ l: '', w: '', t: '' });
   const [templateKind, setTemplateKind] = useState<'hws' | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -625,6 +627,13 @@ function AppShell() {
   const nurbsEngine = settings.nurbsEngine || engineParam;
   // Turning it off ends the worker (and any conversion in it) and drops the cached meshes.
   useReleaseNurbsWhenOff(nurbsEngine);
+  // The engine picks the store the editors edit (docs/design/m2-editor.md §1): the section store with
+  // the engine on and the open board converted into it, the classic store otherwise. A board the NURBS
+  // model cannot hold stays classic, with the reasons in the 3D view's popover.
+  const sectionEngine = useSectionEngine(nurbsEngine);
+  useLayoutEffect(() => {
+    activeStore.use(sectionEngine.ready ? sectionStore : boardStore);
+  }, [sectionEngine.ready]);
   const handleSaveSettings = (s: EditorSettings) => {
     saveSettings(s);
     setSettings(s);
@@ -691,18 +700,18 @@ function AppShell() {
   // Cross-section management (legacy Cross-sections menu), shown in the cross-section pane header.
   /** Insert a station at an explicit board-length x (the rocker/outline right-click action). */
   const addSectionAt = (pos: number) => {
-    const idx = boardStore.getState().addCrossSection(pos);
+    const idx = activeStore.getState().addCrossSection(pos);
     if (idx > 0) {
       focusSection(null);
       setCsIndex(idx);
     }
   };
   const moveSection = (index: number, position: number) => {
-    boardStore.getState().moveCrossSection(index, position);
+    activeStore.getState().moveCrossSection(index, position);
     setCsIndex(index);
   };
   const addSection = () => {
-    const b = boardStore.getState().board;
+    const b = activeStore.getState().board;
     if (!b) return;
     const cur = b.crossSections[clampedCs]?.position ?? 0;
     const next = b.crossSections[clampedCs + 1]?.position ?? cur;
@@ -710,18 +719,18 @@ function AppShell() {
     addSectionAt(pos);
   };
   const deleteSectionAt = (index: number) => {
-    boardStore.getState().deleteCrossSection(index);
+    activeStore.getState().deleteCrossSection(index);
     focusSection(null);
-    const count = boardStore.getState().board?.crossSections.length ?? 0;
+    const count = activeStore.getState().board?.crossSections.length ?? 0;
     setCsIndex(clampSectionIndex(index, count));
   };
   const deleteSection = () => deleteSectionAt(clampedCs);
   const copySection = () => {
-    const b = boardStore.getState().board;
+    const b = activeStore.getState().board;
     if (b) setCsClipboard(b.crossSections[clampedCs]?.spline ?? null);
   };
   const pasteSection = () => {
-    if (csClipboard) boardStore.getState().pasteCrossSection(clampedCs, csClipboard);
+    if (csClipboard) activeStore.getState().pasteCrossSection(clampedCs, csClipboard);
   };
 
   // Resize: blank fields keep that dimension; others scale to the typed target.
@@ -733,7 +742,7 @@ function AppShell() {
       const v = parseLen(t, units);
       return v > 0 ? v / cur : 1;
     };
-    boardStore
+    activeStore
       .getState()
       .scaleBoard(
         factor(resize.l, specs.length),
@@ -1294,14 +1303,14 @@ function AppShell() {
       label: 'Undo',
       shortcut: 'Ctrl Z',
       disabled: !canUndo,
-      onSelect: () => boardStore.getState().undo(),
+      onSelect: () => activeStore.getState().undo(),
     },
     {
       kind: 'action',
       label: 'Redo',
       shortcut: 'Ctrl Y',
       disabled: !canRedo,
-      onSelect: () => boardStore.getState().redo(),
+      onSelect: () => activeStore.getState().redo(),
     },
     { kind: 'separator' },
     {
@@ -1383,22 +1392,27 @@ function AppShell() {
     ghost
       ? { kind: 'action', label: 'Clear ghost', onSelect: () => setGhost(null) }
       : { kind: 'action', label: 'Open ghost…', onSelect: () => ghostInput.current?.click() },
-    { kind: 'separator' },
-    // The model drives the integrated specs (volume / CoM / distribution); the 2D/3D
-    // previews always render the control-point surface (see kernel InterpolationType).
-    { kind: 'label', label: 'Interpolation' },
-    {
-      kind: 'checkbox',
-      label: 'Control point',
-      checked: interp === 'controlPoint',
-      onSelect: () => boardStore.getState().setInterpolationType('controlPoint'),
-    },
-    {
-      kind: 'checkbox',
-      label: 'S-blend',
-      checked: interp === 'sLinear',
-      onSelect: () => boardStore.getState().setInterpolationType('sLinear'),
-    },
+    // The interpolation model is a classic-engine setting: NURBS sections always blend smoothly.
+    ...(sectionEngine.ready
+      ? []
+      : ([
+          { kind: 'separator' },
+          // The model drives the integrated specs (volume / CoM / distribution); the 2D/3D
+          // previews always render the control-point surface (see kernel InterpolationType).
+          { kind: 'label', label: 'Interpolation' },
+          {
+            kind: 'checkbox',
+            label: 'Control point',
+            checked: interp === 'controlPoint',
+            onSelect: () => activeStore.getState().setInterpolationType('controlPoint'),
+          },
+          {
+            kind: 'checkbox',
+            label: 'S-blend',
+            checked: interp === 'sLinear',
+            onSelect: () => activeStore.getState().setInterpolationType('sLinear'),
+          },
+        ] satisfies MenuItem[])),
   ];
 
   const helpMenu: MenuItem[] = [
@@ -1451,7 +1465,7 @@ function AppShell() {
   // and the single-view layout so the two cannot drift apart.
   const threeDPane = (
     <ThreeDPane
-      store={boardStore}
+      store={activeStore}
       mode={view3d.mode}
       lighting={view3d.lighting}
       material={view3d.material}

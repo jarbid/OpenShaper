@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * Messages between the app and the NURBS worker (the experimental engine's read-only
- * viewer; docs/design/m1-model.md §3). Type-only, and free of board2 and geom types on
- * purpose: the main chunk imports this module, and must not pull either package in.
+ * Messages between the app and the NURBS worker (the experimental engine's viewer;
+ * docs/design/m1-model.md §3, docs/design/m2-editor.md §4). Type-only: the main chunk
+ * imports this module, and `import type` of board2 costs it nothing at run time.
  *
- * The classic board crosses by structured clone (plain immutable data). The result
- * comes back as typed arrays, listed for transfer by {@link meshTransferables}, so a
- * 20,000-vertex surface costs no copy.
+ * A classic board or a section document crosses by structured clone (plain immutable
+ * data). The result comes back as typed arrays, listed for transfer by
+ * {@link meshTransferables}, so a 20,000-vertex surface costs no copy.
  */
+import type { BoardDoc } from '@openshaper/board2';
 import type { BezierBoard } from '@openshaper/kernel';
 
 /** One finding of a conversion or build, as the popover lists it. */
@@ -69,8 +70,8 @@ export interface NurbsConversion {
 
 /** What the popover tells about the surface on screen (all lengths cm, areas cm², volume cm³). */
 export interface NurbsSummary {
-  /** A converted classic board, or one of board2's test boards. */
-  readonly source: 'classic' | 'test';
+  /** A converted classic board, an edited section document, or one of board2's test boards. */
+  readonly source: 'classic' | 'doc' | 'test';
   readonly conversion: NurbsConversion | null;
   /** Largest distance (cm) of a fitted station section from the stored one. */
   readonly stationFitError: number;
@@ -130,11 +131,46 @@ export type NurbsRequest =
       readonly id: number;
       readonly name: TestBoardName;
       readonly options: JobOptions;
+    }
+  | {
+      /**
+       * The section store's document: built and meshed with no converter in the loop (an edit
+       * costs the worker its build and mesh only). Sections that crossed the clone are matched by
+       * content to the earlier ones, so their fits stay warm.
+       */
+      readonly kind: 'doc';
+      readonly id: number;
+      readonly doc: BoardDoc;
+      /** The classic board "Deviation from classic" measures against (only when that mode is shown). */
+      readonly reference: BezierBoard | null;
+      readonly options: JobOptions;
+    }
+  | {
+      /** Convert a classic board to a section document (the engine switch, a file opened with it on). */
+      readonly kind: 'convert';
+      readonly id: number;
+      readonly board: BezierBoard;
     };
+
+/** The report of a conversion, as the app shows it. */
+export interface ConvertedDoc {
+  readonly doc: BoardDoc;
+  readonly conversion: NurbsConversion;
+  /** Warnings of the conversion (an adjusted handle, a reshaped notch). */
+  readonly issues: readonly NurbsIssue[];
+}
 
 /** worker → main. */
 export type NurbsResponse =
   | { readonly kind: 'progress'; readonly id: number; readonly stage: NurbsStage }
+  | ({ readonly kind: 'converted'; readonly id: number; readonly ok: true } & ConvertedDoc)
+  | {
+      readonly kind: 'converted';
+      readonly id: number;
+      readonly ok: false;
+      readonly error: string;
+      readonly issues: readonly NurbsIssue[];
+    }
   | {
       readonly kind: 'done';
       readonly id: number;

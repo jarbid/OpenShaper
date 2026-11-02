@@ -1,7 +1,7 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { getTargetSpline } from '@openshaper/store';
 import { isTextEntry, matches, SHORTCUTS, VIEW_KEYS } from './shortcuts';
-import { boardStore } from './store';
+import { activeStore } from './store';
 import type { View } from './view-toolkit';
 
 /**
@@ -37,7 +37,7 @@ export function useKeyboardShortcuts({
   useEffect(() => {
     /** Step the cross-section index, clamped to the editable stations. */
     const pageCrossSection = (delta: -1 | 1) => {
-      const b = boardStore.getState().board;
+      const b = activeStore.getState().board;
       const last = Math.max(1, (b?.crossSections.length ?? 0) - 2);
       setCsIndex((i) => {
         const cur = Math.min(Math.max(i, 1), last);
@@ -48,11 +48,11 @@ export function useKeyboardShortcuts({
     const run = (id: string): boolean => {
       switch (id) {
         case 'undo':
-          boardStore.getState().undo();
+          activeStore.getState().undo();
           return true;
         case 'redo':
         case 'redo-alt':
-          boardStore.getState().redo();
+          activeStore.getState().redo();
           return true;
         case 'save':
           onSave();
@@ -61,14 +61,14 @@ export function useKeyboardShortcuts({
           onCommandPalette();
           return true;
         case 'delete-point': {
-          const sel = boardStore.getState().selection;
+          const sel = activeStore.getState().selection;
           // Nothing selected: let the key through rather than swallowing it.
           if (!sel) return false;
-          boardStore.getState().deleteControlPoint(sel.target, sel.index);
+          activeStore.getState().deleteControlPoint(sel.target, sel.index);
           return true;
         }
         case 'toggle-lock': {
-          const { board, selection, setLocked } = boardStore.getState();
+          const { board, selection, setLocked } = activeStore.getState();
           const knot =
             board && selection && getTargetSpline(board, selection.target).knots[selection.index];
           // Nothing selected: let the key through rather than swallowing it.
@@ -85,8 +85,8 @@ export function useKeyboardShortcuts({
         // Clear either kind of editor focus. With nothing selected, let Escape
         // through to menus and dialogs instead of swallowing it.
         case 'cross-section-blur': {
-          const hadSplineSelection = boardStore.getState().selection !== null;
-          if (hadSplineSelection) boardStore.getState().select(null);
+          const hadSplineSelection = activeStore.getState().selection !== null;
+          if (hadSplineSelection) activeStore.getState().select(null);
           return clearSectionFocus() || hadSplineSelection;
         }
         default: {

@@ -219,6 +219,19 @@ describe('without a Worker', () => {
         calls.push(`test ${name}`);
         return ok;
       },
+      meshDocument: (_d: unknown, reference: unknown, o: JobOptions) => {
+        calls.push(`doc reference=${reference !== null} reuse=${o.reuseLadders}`);
+        return ok;
+      },
+      convertToDoc: () => {
+        calls.push('convert');
+        return {
+          ok: true as const,
+          doc: {} as never,
+          conversion: summary.conversion as never,
+          issues: [],
+        };
+      },
     });
     const client = createNurbsClient(() => null, core);
 
@@ -232,6 +245,10 @@ describe('without a Worker', () => {
 
     await expect(client.test('swallow', options)).resolves.toMatchObject({ ok: true });
     expect(calls).toEqual(['classic reuse=true', 'test swallow']);
+
+    await expect(client.doc({} as never, null, options)).resolves.toMatchObject({ ok: true });
+    await expect(client.convert(board)).resolves.toMatchObject({ ok: true });
+    expect(calls.slice(2)).toEqual(['doc reference=false reuse=false', 'convert']);
   });
 
   it('reports a failing core as a rejection', async () => {

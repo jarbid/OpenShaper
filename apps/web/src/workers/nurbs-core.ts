@@ -25,6 +25,11 @@
  * hands the converter the previous job's slice objects for slices that are unchanged,
  * which keeps both caches warm. The document is never revived from JSON per edit.
  *
+ * A document sent by the section store (`meshDocument`) crosses the same boundary, and its
+ * untouched `Section`s are fresh objects too: {@link canonicalDoc} gives each the earlier object
+ * of the same content (coordinates rounded to 1e-9), so `buildBoard`'s fit cache stays warm
+ * and an outline, rocker or deck edit refits nothing.
+ *
  * ## Ladders
  *
  * Deriving the row and column ladders is about 60 % of a fresh mesh. While an edit is
@@ -38,6 +43,7 @@ import {
   type BoardDoc,
   type BuiltBoard,
   type Ladders,
+  type Section,
 } from '@openshaper/board2';
 import { convertClassic } from '@openshaper/board2/classic';
 import {
@@ -50,6 +56,7 @@ import type { BezierBoard, Spline } from '@openshaper/kernel';
 import { curvatureArrays, curvatureScale, excludeUndefined, vertexAreas } from './nurbs-curvature';
 import { classicDeviation } from './nurbs-deviation';
 import type {
+  ConvertedDoc,
   JobOptions,
   NurbsConversion,
   NurbsIssue,
@@ -129,6 +136,57 @@ export const canonical = (board: BezierBoard): BezierBoard => {
   return replaced ? { ...board, crossSections } : board;
 };
 
+// --- Identity of the sections of a document ------------------------------------
+
+/** Sections of the previous jobs, by content; a few more than two boards' worth. */
+const SECTION_MEMORY = 192;
+const sections = new Map<string, Section>();
+const CONTENT_SCALE = 1e9;
+
+const sectionKey = (s: Section): string => {
+  const parts: string[] = [String(s.apex)];
+  for (const k of s.chain.knots) {
+    for (const q of [k.p, k.in, k.out]) {
+      parts.push(
+        String(Math.round(q[0] * CONTENT_SCALE)),
+        String(Math.round(q[1] * CONTENT_SCALE)),
+      );
+    }
+    parts.push(k.smooth ? 's' : 'c');
+  }
+  return parts.join(',');
+};
+
+const knownSection = (s: Section): Section => {
+  const key = sectionKey(s);
+  const known = sections.get(key);
+  if (known === undefined) {
+    sections.set(key, s);
+    if (sections.size > SECTION_MEMORY) sections.delete(sections.keys().next().value!);
+    return s;
+  }
+  // Refresh recency.
+  sections.delete(key);
+  sections.set(key, known);
+  return known;
+};
+
+/**
+ * `doc` with every section replaced by the object an earlier job saw with the same content. The
+ * document itself when nothing is replaced (the synchronous fallback, which has the live objects).
+ */
+export const canonicalDoc = (doc: BoardDoc): BoardDoc => {
+  let replaced = false;
+  const stations = doc.stations.map((st) => {
+    const plus = knownSection(st.plus);
+    const minus = st.minus === undefined ? undefined : knownSection(st.minus);
+    if (plus === st.plus && minus === st.minus) return st;
+    replaced = true;
+    return { ...st, plus, ...(minus === undefined ? {} : { minus }) };
+  });
+  return replaced ? { ...doc, stations } : doc;
+};
+
 // --- Ladders -----------------------------------------------------------------
 
 let lastLadders: Ladders | null = null;
@@ -154,6 +212,7 @@ const laddersFor = (
 export const resetCore = (): void => {
   lastLadders = null;
   splines.clear();
+  sections.clear();
 };
 
 // --- The job -----------------------------------------------------------------
@@ -170,6 +229,7 @@ interface Built {
 /** Mesh a built board and assemble everything the view draws. */
 const meshBuilt = (
   b: Built,
+  source: NurbsSummary['source'],
   classic: BezierBoard | null,
   options: JobOptions,
   t0: number,
@@ -221,7 +281,7 @@ const meshBuilt = (
     ok: true,
     issues: b.issues.map(issueOf),
     summary: {
-      source: classic ? 'classic' : 'test',
+      source,
       conversion: b.conversion,
       stationFitError: r.stationFitError,
       clampedControls: r.clampedControls,
@@ -303,6 +363,7 @@ export const convertAndMesh = (
         convertMs,
         buildMs: b.ms,
       },
+      'classic',
       live,
       options,
       t0,
@@ -334,11 +395,83 @@ export const meshTestBoard = (
     if ('refused' in b) return b.refused;
     return meshBuilt(
       { doc, built: b.built, conversion: null, issues: b.issues, convertMs: 0, buildMs: b.ms },
+      'test',
       null,
       options,
       t0,
       progress,
     );
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err), issues: [] };
+  }
+};
+
+/**
+ * Build and mesh the section store's document: no converter in the loop. The document is validated
+ * (a plan an edit made impossible is a refusal, and the viewer keeps the last good surface) and then
+ * built, with its sections matched to the earlier jobs' by content so their fits are reused.
+ * `reference` is the classic board "Deviation from classic" measures against, when that mode is shown.
+ */
+export const meshDocument = (
+  docIn: BoardDoc,
+  reference: BezierBoard | null,
+  options: JobOptions,
+  progress?: Progress,
+): NurbsOutcome => {
+  const t0 = now();
+  try {
+    progress?.('building');
+    const doc = canonicalDoc(docIn);
+    const b = build(doc, true, []);
+    if ('refused' in b) return b.refused;
+    return meshBuilt(
+      { doc, built: b.built, conversion: null, issues: b.issues, convertMs: 0, buildMs: b.ms },
+      'doc',
+      reference ? canonical(reference) : null,
+      options,
+      t0,
+      progress,
+    );
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err), issues: [] };
+  }
+};
+
+/** What a conversion answers with: the document, or the reasons it was refused. */
+export type ConvertOutcome =
+  | ({ readonly ok: true } & ConvertedDoc)
+  | { readonly ok: false; readonly error: string; readonly issues: readonly NurbsIssue[] };
+
+/**
+ * Convert a classic board to a section document (the engine switch, a file opened with the engine
+ * on). Never throws; a refusal carries the converter's reasons.
+ */
+export const convertToDoc = (board: BezierBoard): ConvertOutcome => {
+  try {
+    const c = convertClassic(canonical(board), {});
+    if (!c.ok) {
+      return {
+        ok: false,
+        error:
+          c.issues.find((i) => i.severity === 'error')?.message ??
+          'The board could not be converted.',
+        issues: c.issues.map(issueOf),
+      };
+    }
+    const rep = c.value.report;
+    return {
+      ok: true,
+      doc: c.value.doc,
+      conversion: {
+        stations: rep.stations,
+        tail: rep.tail,
+        zone: rep.zone,
+        lineAdjust: rep.lineAdjust,
+        sectionAdjust: rep.sectionAdjust,
+        addedKnots: rep.addedKnots,
+      },
+      issues: c.issues.map(issueOf),
+    };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err), issues: [] };
   }

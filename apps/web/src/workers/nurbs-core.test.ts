@@ -10,7 +10,16 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import sampleBrd from '../sample-board.brd?raw';
 import vBottomS3dx from '../../../../packages/io/src/__fixtures__/synthetic-rocker-absolute-deck.s3dx?raw';
 import pointedS3dx from '../../../../packages/io/src/__fixtures__/synthetic-clean-6x22x2-75.s3dx?raw';
-import { canonical, convertAndMesh, meshTestBoard, resetCore } from './nurbs-core';
+import type { BoardDoc } from '@openshaper/board2';
+import {
+  canonical,
+  canonicalDoc,
+  convertAndMesh,
+  convertToDoc,
+  meshDocument,
+  meshTestBoard,
+  resetCore,
+} from './nurbs-core';
 import { meshTransferables, TEST_BOARDS, type JobOptions } from './nurbs-protocol';
 
 const classic = parseBrd(sampleBrd).board;
@@ -159,6 +168,99 @@ describe('refusals', () => {
   it('never throws on a malformed board', () => {
     const out = convertAndMesh({} as typeof classic, NONE);
     expect(out.ok).toBe(false);
+  });
+});
+
+describe('convertToDoc', () => {
+  it('converts a classic board to a section document and says what it did', () => {
+    const out = convertToDoc(classic);
+    if (!out.ok) throw new Error(out.error);
+    expect(out.doc.format).toBe('openshaper');
+    expect(out.doc.stations.length).toBe(out.conversion.stations);
+    expect(out.conversion.tail).toBe('standard');
+  });
+
+  it('refuses a board it cannot hold, with the reasons, and never throws', () => {
+    const dipped = pointedS3dx.split('<z>6.985</z>').join('<z>-3</z>');
+    const out = convertToDoc(parseS3dx(dipped).board);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.issues.some((i) => i.severity === 'error')).toBe(true);
+    expect(convertToDoc({} as typeof classic).ok).toBe(false);
+  });
+});
+
+/** Move a chain point up by `dz` (the revived document is frozen; these are clones). */
+const bump = (q: readonly number[], dz: number): void => {
+  (q as number[])[1]! += dz;
+};
+
+describe('meshDocument (the section store’s document: no converter in the loop)', () => {
+  const docOf = (): BoardDoc => {
+    const c = convertToDoc(classic);
+    if (!c.ok) throw new Error(c.error);
+    return c.doc;
+  };
+
+  it('meshes exactly what the classic job meshes for the same board', () => {
+    const a = convertAndMesh(classic, NONE);
+    const b = meshDocument(docOf(), null, NONE);
+    if (!a.ok || !b.ok) throw new Error('refused');
+    expect(b.summary.source).toBe('doc');
+    expect(b.summary.conversion).toBeNull();
+    expect(b.timings.convertMs).toBe(0);
+    expect(Array.from(b.mesh.positions)).toEqual(Array.from(a.mesh.positions));
+    expect(b.summary.volume).toBe(a.summary.volume);
+  });
+
+  it('matches the sections of a structured clone to the earlier ones by content (fits stay warm)', () => {
+    const doc = docOf();
+    const first = canonicalDoc(structuredClone(doc));
+    // an outline edit: a new outline chain, the very same sections, all of them cloned afresh
+    const edited = structuredClone({
+      ...doc,
+      outline: { plus: { knots: [...doc.outline.plus.knots] } },
+    });
+    const second = canonicalDoc(edited);
+    expect(second.stations.length).toBe(first.stations.length);
+    second.stations.forEach((st, i) => expect(st.plus).toBe(first.stations[i]!.plus));
+    // a changed section is not matched
+    const moved = structuredClone(doc);
+    const k = moved.stations[1]!.plus.chain.knots[2]!;
+    bump(k.p, 0.01);
+    expect(canonicalDoc(moved).stations[1]!.plus).not.toBe(first.stations[1]!.plus);
+  });
+
+  it('follows an edit of the lines at once and reuses the ladders while dragging', () => {
+    const doc = docOf();
+    const a = meshDocument(structuredClone(doc), null, NONE);
+    const bumped = structuredClone(doc);
+    const knot = bumped.deck.knots[2]!;
+    for (const q of [knot.p, knot.in, knot.out]) bump(q, 1);
+    const b = meshDocument(bumped, null, { ...NONE, reuseLadders: true });
+    if (!a.ok || !b.ok) throw new Error('refused');
+    expect(b.mesh.laddersReused).toBe(true);
+    expect(b.summary.volume).toBeGreaterThan(a.summary.volume);
+  });
+
+  it('measures the deviation from the reference board when it is given', () => {
+    const out = meshDocument(docOf(), classic, { ...NONE, deviation: true });
+    if (!out.ok) throw new Error(out.error);
+    expect(out.mesh.deviation).not.toBeNull();
+    expect(out.mesh.deviationNoData).toBeGreaterThan(0);
+  });
+
+  it('refuses a document the edits made impossible, with the validator’s reason', () => {
+    const doc = structuredClone(docOf());
+    // the rocker pushed above the deck
+    for (const k of doc.rocker.knots) {
+      for (const q of [k.p, k.in, k.out]) bump(q, 50);
+    }
+    const out = meshDocument(doc, null, NONE);
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.issues.some((i) => i.code === 'thickness')).toBe(true);
+    expect(meshDocument({} as BoardDoc, null, NONE).ok).toBe(false);
   });
 });
 

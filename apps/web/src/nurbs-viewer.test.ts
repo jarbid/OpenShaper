@@ -6,6 +6,7 @@
  * replaces the classic one. A fake client stands in for the worker, so a job finishes
  * when the test says so.
  */
+import type { BoardDoc } from '@openshaper/board2';
 import type { BezierBoard } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
 import { SupersededError, type NurbsAnswer, type NurbsClient } from './nurbs-client';
@@ -49,8 +50,10 @@ const refusal: NurbsAnswer = {
 };
 
 interface Call {
-  kind: 'classic' | 'test';
+  kind: 'classic' | 'test' | 'doc';
   board?: BezierBoard;
+  doc?: BoardDoc;
+  reference?: BezierBoard | null;
   name?: TestBoardName;
   options: JobOptions;
   answer: Deferred<NurbsAnswer>;
@@ -86,6 +89,13 @@ const harness = () => {
       calls.push({ kind: 'test', name, options, answer });
       return answer.promise;
     },
+    doc(doc, reference, options) {
+      supersede();
+      const answer = deferred<NurbsAnswer>();
+      calls.push({ kind: 'doc', doc, reference, options, answer });
+      return answer.promise;
+    },
+    convert: () => new Promise(() => {}),
     cancel() {
       cancels++;
       supersede();
@@ -374,6 +384,103 @@ describe('test boards', () => {
     expect(h.calls[2]).toMatchObject({ kind: 'classic' });
     // Ladders carry over only between jobs for classic boards.
     expect(h.calls[2]!.options.reuseLadders).toBe(false);
+  });
+});
+
+/** A document whose parts are distinct objects, so `sameDocHull` can tell them apart. */
+const makeDoc = (): BoardDoc =>
+  ({
+    outline: { plus: {} },
+    rocker: {},
+    deck: {},
+    stations: [],
+    features: [],
+    tail: { kind: 'standard' },
+    symmetry: 'mirror',
+    build: {},
+    fins: null,
+  }) as unknown as BoardDoc;
+const lineEdit = (d: BoardDoc): BoardDoc => ({ ...d, deck: {} }) as unknown as BoardDoc;
+const docFinEdit = (d: BoardDoc): BoardDoc => ({ ...d, fins: { setup: 'twin' } }) as BoardDoc;
+
+describe('documents (the section store)', () => {
+  it('sends the document: no converter in the loop, and the projection is the board shown', async () => {
+    const h = harness();
+    const doc = makeDoc();
+    const board = makeBoard();
+    h.input({ board, doc });
+    expect(h.calls).toHaveLength(1);
+    expect(h.calls[0]).toMatchObject({ kind: 'doc', doc });
+    h.calls[0]!.answer.resolve(okAnswer('d'));
+    await h.flush();
+    expect(h.viewer.getState().model?.board).toBe(board);
+  });
+
+  it('starts a job for an edit of the lines and none for a fin edit', async () => {
+    const h = harness();
+    const doc = makeDoc();
+    const board = makeBoard();
+    h.input({ board, doc });
+    h.calls[0]!.answer.resolve(okAnswer('a'));
+    await h.flush();
+    h.input({ board: finEdit(board), doc: docFinEdit(doc) });
+    expect(h.calls).toHaveLength(1);
+    h.input({ board: hullEdit(board), doc: lineEdit(doc), editing: true });
+    expect(h.calls).toHaveLength(2);
+    expect(h.calls[1]).toMatchObject({ kind: 'doc', options: { reuseLadders: true } });
+  });
+
+  it('reuses ladders across a drag of documents and re-derives them when it settles', async () => {
+    const h = harness();
+    const doc = makeDoc();
+    const board = makeBoard();
+    h.input({ board, doc });
+    h.calls[0]!.answer.resolve(okAnswer('a'));
+    await h.flush();
+    const d2 = lineEdit(doc);
+    h.input({ board: hullEdit(board), doc: d2, editing: true });
+    expect(h.calls[1]!.options.reuseLadders).toBe(true);
+    h.calls[1]!.answer.resolve(okAnswer('b'));
+    await h.flush();
+    h.input({ board: hullEdit(board), doc: d2, editing: false });
+    expect(h.calls).toHaveLength(3);
+    expect(h.calls[2]!.options.reuseLadders).toBe(false);
+  });
+
+  it('sends the classic reference only while "Deviation from classic" is shown', () => {
+    const h = harness();
+    const reference = makeBoard();
+    h.input({ board: makeBoard(), doc: makeDoc(), reference: null, wantDeviation: false });
+    expect(h.calls[0]!.reference).toBeNull();
+    const h2 = harness();
+    h2.input({ board: makeBoard(), doc: makeDoc(), reference, wantDeviation: true });
+    expect(h2.calls[0]).toMatchObject({ kind: 'doc', reference });
+    expect(h2.calls[0]!.options.deviation).toBe(true);
+  });
+
+  it('switching between the classic board and a document starts a job', async () => {
+    const h = harness();
+    const board = makeBoard();
+    h.input({ board });
+    h.calls[0]!.answer.resolve(okAnswer('a'));
+    await h.flush();
+    h.input({ board, doc: makeDoc() });
+    expect(h.calls).toHaveLength(2);
+    expect(h.calls[1]!.kind).toBe('doc');
+  });
+
+  it('keeps the last good surface through a refused edit of the document, marked stale', async () => {
+    const h = harness();
+    const doc = makeDoc();
+    const board = makeBoard();
+    h.input({ board, doc });
+    h.calls[0]!.answer.resolve(okAnswer('a'));
+    await h.flush();
+    h.input({ board: hullEdit(board), doc: lineEdit(doc), editing: true });
+    h.calls[1]!.answer.resolve(refusal);
+    await h.flush();
+    expect(h.viewer.getState()).toMatchObject({ phase: 'failed', stale: true });
+    expect(h.viewer.getState().model?.board).toBe(board);
   });
 });
 

@@ -21,8 +21,10 @@
  * Nothing here imports board2 or geom: the worker (and the fallback's dynamic import)
  * is what carries them, so this module stays small.
  */
+import type { BoardDoc } from '@openshaper/board2';
 import type { BezierBoard } from '@openshaper/kernel';
 import type {
+  ConvertedDoc,
   JobOptions,
   NurbsIssue,
   NurbsMeshData,
@@ -52,6 +54,13 @@ export type NurbsAnswer =
       readonly mesh: NurbsMeshData;
     }
   | { readonly ok: false; readonly error: string; readonly issues: readonly NurbsIssue[] };
+
+/** The answer to a conversion: the document, or the reasons the board was refused. */
+export type ConvertAnswer =
+  | ({ readonly ok: true } & ConvertedDoc)
+  | { readonly ok: false; readonly error: string; readonly issues: readonly NurbsIssue[] };
+
+type Answer = NurbsAnswer | ConvertAnswer;
 
 /** What a worker looks like to the client; tests supply a fake. */
 export interface NurbsTransport {
@@ -94,6 +103,18 @@ export interface NurbsClient {
     options: JobOptions,
     onStage?: (s: NurbsStage) => void,
   ): Promise<NurbsAnswer>;
+  /**
+   * Build and mesh the section store's document: no converter in the loop. `reference` is the classic
+   * board "Deviation from classic" measures against (null when that mode is not shown).
+   */
+  doc(
+    doc: BoardDoc,
+    reference: BezierBoard | null,
+    options: JobOptions,
+    onStage?: (s: NurbsStage) => void,
+  ): Promise<NurbsAnswer>;
+  /** Convert a classic board to a section document. A refusal is an answer, not an exception. */
+  convert(board: BezierBoard): Promise<ConvertAnswer>;
   /** Drop the job in flight (its promise rejects with {@link SupersededError}). */
   cancel(): void;
   /** Cancel and release the worker. */
@@ -103,13 +124,16 @@ export interface NurbsClient {
 interface Pending {
   readonly id: number;
   readonly onStage?: (s: NurbsStage) => void;
-  resolve(answer: NurbsAnswer): void;
+  resolve(answer: Answer): void;
   reject(err: Error): void;
 }
 
 /** The compute module, loaded on demand for the synchronous fallback. */
 export type CoreLoader = () => Promise<
-  Pick<typeof import('./workers/nurbs-core'), 'convertAndMesh' | 'meshTestBoard'>
+  Pick<
+    typeof import('./workers/nurbs-core'),
+    'convertAndMesh' | 'convertToDoc' | 'meshDocument' | 'meshTestBoard'
+  >
 >;
 
 const loadCore: CoreLoader = () => import('./workers/nurbs-core');
@@ -173,7 +197,13 @@ export function createNurbsClient(
       const p = pending;
       if (p && res.id === p.id) {
         pending = null;
-        if (res.ok) {
+        if (res.kind === 'converted') {
+          p.resolve(
+            res.ok
+              ? { ok: true, doc: res.doc, conversion: res.conversion, issues: res.issues }
+              : { ok: false, error: res.error, issues: res.issues },
+          );
+        } else if (res.ok) {
           p.resolve({
             ok: true,
             issues: res.issues,
@@ -208,24 +238,28 @@ export function createNurbsClient(
     const out =
       req.kind === 'classic'
         ? compute.convertAndMesh(req.board, req.options, progress)
-        : compute.meshTestBoard(req.name, req.options, progress);
+        : req.kind === 'doc'
+          ? compute.meshDocument(req.doc, req.reference, req.options, progress)
+          : req.kind === 'convert'
+            ? compute.convertToDoc(req.board)
+            : compute.meshTestBoard(req.name, req.options, progress);
     if (pending !== p) return; // superseded during the (blocking) compute: drop
     pending = null;
     p.resolve(out);
   };
 
-  const submit = (
+  const submit = <A extends Answer>(
     build: (id: number) => NurbsRequest,
     onStage?: (s: NurbsStage) => void,
-  ): Promise<NurbsAnswer> => {
+  ): Promise<A> => {
     // The previous job, if it is still waiting for its answer, is stale from here on.
     const previous = pending;
     pending = null;
     previous?.reject(new SupersededError());
     const id = ++nextId;
     const req = build(id);
-    return new Promise<NurbsAnswer>((resolve, reject) => {
-      const p: Pending = { id, onStage, resolve, reject };
+    return new Promise<A>((resolve, reject) => {
+      const p: Pending = { id, onStage, resolve: resolve as (a: Answer) => void, reject };
       pending = p;
       let t: NurbsTransport | null;
       try {
@@ -249,9 +283,12 @@ export function createNurbsClient(
 
   return {
     classic: (board, options, onStage) =>
-      submit((id) => ({ kind: 'classic', id, board, options }), onStage),
+      submit<NurbsAnswer>((id) => ({ kind: 'classic', id, board, options }), onStage),
     test: (name, options, onStage) =>
-      submit((id) => ({ kind: 'test', id, name, options }), onStage),
+      submit<NurbsAnswer>((id) => ({ kind: 'test', id, name, options }), onStage),
+    doc: (doc, reference, options, onStage) =>
+      submit<NurbsAnswer>((id) => ({ kind: 'doc', id, doc, reference, options }), onStage),
+    convert: (board) => submit<ConvertAnswer>((id) => ({ kind: 'convert', id, board })),
     cancel() {
       const p = pending;
       pending = null;

@@ -44,9 +44,10 @@ export interface EditorSettings {
    */
   showTips: boolean;
   /**
-   * "Engine: NURBS (experimental)": show the board2 NURBS surface of the current board
-   * in the 3D view, read-only. Off by default; `?engine=nurbs` turns it on for a
-   * session without changing this (see nurbs-flag.ts).
+   * "Engine: NURBS (experimental)": convert the open board to the NURBS section model and
+   * edit that (outline, rocker and deck; sections are read-only for now), with its surface
+   * in the 3D view. Off by default; `?engine=nurbs` turns it on for a session without
+   * changing this (see nurbs-flag.ts).
    */
   nurbsEngine: boolean;
 }

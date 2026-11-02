@@ -5,8 +5,8 @@
  * Off by default. It is on when the user has turned it on in Settings (persisted with
  * the other editor settings, `EditorSettings.nurbsEngine`) or when the page was opened
  * with `?engine=nurbs`, which turns it on for that session only and is never written
- * back to the settings. Nothing about the flag touches editing, saving or exporting:
- * the viewer it enables is read-only (docs/design/geometry-overhaul.md §5).
+ * back to the settings. With it on the editors edit the NURBS section store
+ * (docs/design/m2-editor.md); saving and exporting still use the classic board.
  */
 import { useSyncExternalStore } from 'react';
 

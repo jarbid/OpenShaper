@@ -214,36 +214,51 @@ export default function DocsEditing() {
           off nothing about the editor changes.
         </p>
         <p>
-          With it on, the 3D view shows a NURBS version of your board, built from its outline,
-          rocker, deck and cross-sections. It updates on every edit, as you drag, not after a wait.
-          A <strong>NURBS (experimental) &mdash; read-only</strong> badge sits over the view, with a{' '}
-          <strong>Classic / NURBS</strong> switch to compare the same board on both, and an{' '}
+          With it on, the open board is converted to NURBS curves and sections, and the editors edit
+          that board: drag, lock, nudge and undo the <strong>outline</strong>,{' '}
+          <strong>rocker</strong> and <strong>deck</strong> exactly as you do in the classic editor.
+          The 3D view shows the NURBS surface and follows every drag, not after a wait.
+          Cross-sections are read-only for now, so dragging a point in the cross-section view, or
+          adding, moving or deleting a station, does nothing yet; the cross-sections stay as the
+          conversion made them and follow the outline, rocker and deck. The interpolation setting
+          and <em>Resize cross-sections to rocker/deck</em> belong to the classic engine and are
+          hidden or ignored.
+        </p>
+        <p>
+          A <strong>NURBS (experimental) &mdash; editing</strong> badge sits over the 3D view, with
+          a <strong>Classic / NURBS</strong> switch to compare the same board on both, and an{' '}
           <strong>i</strong> button that lists the volume, how closely the stations were fitted and
           any warnings. A <strong>Test board</strong> menu shows one of the NURBS model&rsquo;s own
           test boards (swallow, fish, asymmetric, analytic) on its own; your board is untouched.
         </p>
         <p>
-          It is a viewer only: editing, saving and every export stay classic, and the NURBS surface
-          is never written to a file. It is a different surface from the classic one: it matches the
-          outline, rocker, deck and every cross-section, and flows smoothly between the stations
-          where the classic loft blends them linearly, so the two differ by up to a few millimetres
-          between stations. The surface analysis modes above all work on it, read from the NURBS
-          surface&rsquo;s own exact derivatives, with no crease at the stations, and the menu gains
-          one more:
+          Saving, exporting and the autosave still use the classic board you opened, so edits made
+          on the NURBS board are not saved yet: turn the engine off and you are back at the classic
+          board as you opened it, and turn it on again to find the NURBS board where you left it
+          (opening another file converts that one). The NURBS surface is a different surface from
+          the classic one: it matches the outline, rocker, deck and every cross-section, and flows
+          smoothly between the stations where the classic loft blends them linearly, so the two
+          differ by up to a few millimetres between stations. The surface analysis modes above all
+          work on it, read from the NURBS surface&rsquo;s own exact derivatives, with no crease at
+          the stations, and the menu gains one more:
         </p>
         <Terms>
           <Term name="Deviation from classic">
             How far the NURBS surface lies from the classic surface of the same board, measured
             along the surface normal: red where the NURBS surface has more foam, blue where it has
-            less, in your display unit. The colour band is the same control as for the ghost
-            deviation. It is left blank within half a centimetre of the tips.
+            less, in your display unit. Once you have edited the NURBS board it shows how far the
+            edits took it from the board you opened. The colour band is the same control as for the
+            ghost deviation. It is left blank within half a centimetre of the tips.
           </Term>
         </Terms>
         <p>
           Every board the classic editor can open converts, including a V in the bottom of a
           cross-section, a board with no thickness at an end and a blunt tail. A board the model
           cannot hold, such as an outline that folds back on itself or a deck that dips below the
-          rocker, keeps the classic mesh on screen and the <strong>i</strong> button says why.
+          rocker, stays classic: the editors keep editing the classic board, the classic mesh stays
+          on screen and the <strong>i</strong> button says why. If a drag on the NURBS board makes
+          it something the model cannot hold, the 3D view keeps the last good surface until you drag
+          back.
         </p>
       </Section>
 

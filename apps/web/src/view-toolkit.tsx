@@ -33,7 +33,7 @@ import { useMemo } from 'react';
 import { fmtLen, fmtSmallLen, LENGTH_UNITS, type LengthUnit } from './format';
 import type { Longitudinal, MeasurementAxis } from './longitudinal';
 import { SelectedPointEditor } from './ControlPointInspector';
-import { boardStore } from './store';
+import { activeStore } from './store';
 import type { EditorSettings } from './settings';
 import { useIsCoarsePointer } from './useMediaQuery';
 import {
@@ -495,7 +495,7 @@ export function ThreeDControls({
  */
 export function makeReadout(kind: EditorKind, units: LengthUnit, longitudinal: Longitudinal) {
   return (world: Vec2): { label: string; value: string; color?: string }[] => {
-    const b = boardStore.getState().board;
+    const b = activeStore.getState().board;
     if (!b) return [];
     const L = (cm: number) => fmtLen(cm, units);
     const pos = (x: number) => ({
@@ -653,7 +653,7 @@ export function EditorPane({
           </ViewToggleTitle>
         )}
         <SelectedPointEditor
-          store={boardStore}
+          store={activeStore}
           units={units}
           targets={p.targets}
           fallback={
@@ -664,7 +664,7 @@ export function EditorPane({
       <PanelBody className="min-h-0 flex-1 p-0">
         <SplineEditor
           key={p.key}
-          store={boardStore}
+          store={activeStore}
           targets={p.targets}
           colors={p.colors}
           mirrorY={p.mirrorY}

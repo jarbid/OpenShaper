@@ -29,8 +29,13 @@
  *   until the new answer arrives.
  * - **Test boards.** With a test board chosen the viewer ignores the classic board and
  *   shows board2's test board (a standalone surface).
+ * - **Documents.** With the section store (docs/design/m2-editor.md §4) the input carries the
+ *   store's `BoardDoc`, and a job is a `doc` job: no converter in the loop. `board` is then the
+ *   document's classic projection (the 3D view places fins and guides by it) and a change to
+ *   the hull is a change to the document's lines, stations, features or tail (`sameDocHull`).
  * - **Read-only.** Nothing here writes to the board or the store.
  */
+import type { BoardDoc } from '@openshaper/board2';
 import { sameHull } from '@openshaper/render3d';
 import type { BezierBoard } from '@openshaper/kernel';
 import { SupersededError, type NurbsClient } from './nurbs-client';
@@ -46,9 +51,21 @@ import type {
 /** A job still running after this long shows as busy in the status line (ms). */
 export const BUSY_AFTER_MS = 250;
 
+/** Whether two documents have the same hull: the same lines, stations, features, tail and settings. */
+export const sameDocHull = (a: BoardDoc, b: BoardDoc): boolean =>
+  a === b ||
+  (a.outline === b.outline &&
+    a.rocker === b.rocker &&
+    a.deck === b.deck &&
+    a.stations === b.stations &&
+    a.features === b.features &&
+    a.tail === b.tail &&
+    a.symmetry === b.symmetry &&
+    a.build === b.build);
+
 /** The surface on screen. */
 export interface NurbsModel {
-  /** The classic board it was converted from; null for a test board. */
+  /** The classic board it was converted from (a document's projection); null for a test board. */
   readonly board: BezierBoard | null;
   /** The document generation it was made from ({@link ViewerInput.generation}). */
   readonly generation: number;
@@ -104,7 +121,12 @@ export const VIEWER_IDLE: ViewerState = {
 
 export interface ViewerInput {
   readonly enabled: boolean;
+  /** The classic board shown: the classic store's, or the projection of {@link doc}. */
   readonly board: BezierBoard | null;
+  /** The section store's document; null when the classic store is shown. */
+  readonly doc: BoardDoc | null;
+  /** The classic board "Deviation from classic" measures a document against. */
+  readonly reference: BezierBoard | null;
   /** The store's `loadCount`: changes when another document replaces the board. */
   readonly generation: number;
   /** The store is mid-gesture (a drag). */
@@ -120,6 +142,8 @@ export interface ViewerInput {
 export const VIEWER_INPUT_OFF: ViewerInput = {
   enabled: false,
   board: null,
+  doc: null,
+  reference: null,
   generation: 0,
   editing: false,
   wantCurvature: false,
@@ -153,6 +177,7 @@ export interface NurbsViewer {
 /** What the last job was asked for, to tell a repeated input from a new one. */
 interface Requested {
   readonly board: BezierBoard | null;
+  readonly doc: BoardDoc | null;
   readonly testBoard: TestBoardName | null;
   readonly generation: number;
   readonly curvature: boolean;
@@ -197,7 +222,12 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     if (i.testBoard !== null) return r.testBoard !== i.testBoard || (curvature && !r.curvature);
     if (r.testBoard !== null || !r.board || !i.board) return true;
     if (r.generation !== i.generation) return true;
-    if (!sameHull(r.board, i.board)) return true;
+    if ((r.doc === null) !== (i.doc === null)) return true;
+    if (r.doc !== null && i.doc !== null) {
+      if (!sameDocHull(r.doc, i.doc)) return true;
+    } else if (!sameHull(r.board, i.board)) {
+      return true;
+    }
     // The edit settled on the same hull: derive fresh ladders and add curvature.
     if (r.editing && !i.editing) return true;
     return (curvature && !r.curvature) || (deviation && !r.deviation);
@@ -208,6 +238,7 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     running = me;
     requested = {
       board: i.testBoard ? null : i.board,
+      doc: i.testBoard ? null : i.doc,
       testBoard: i.testBoard,
       generation: i.generation,
       curvature: options.curvature,
@@ -238,7 +269,12 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
         issues,
       });
     };
-    const job = testBoard ? client.test(testBoard, options) : client.classic(board, options);
+    const doc = i.doc;
+    const job = testBoard
+      ? client.test(testBoard, options)
+      : doc
+        ? client.doc(doc, options.deviation ? i.reference : null, options)
+        : client.classic(board, options);
     job
       .then((answer) => {
         if (running !== me) return;
@@ -288,7 +324,7 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     set({ generation: i.generation });
     // Curvature when an exact mode shows it, and on every settled board.
     const curvature = i.wantCurvature || !i.editing;
-    const deviation = i.wantDeviation && i.testBoard === null;
+    const deviation = i.wantDeviation && i.testBoard === null && (i.doc === null || !!i.reference);
     if (!needsJob(i, curvature, deviation)) return;
     // Ladders carry over only from a job for the same kind of board, while editing.
     const reuseLadders = i.editing && i.testBoard === null && state.model?.board != null;
