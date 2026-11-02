@@ -11,7 +11,13 @@
  * Instantiated lazily by the client with `new Worker(new URL(...), { type: 'module' })`,
  * so a user who never turns the experimental engine on never downloads it.
  */
-import { convertAndMesh, convertToDoc, meshDocument, meshTestBoard } from './nurbs-core';
+import {
+  convertAndMesh,
+  convertToDoc,
+  meshDocument,
+  meshTestBoard,
+  probeDocument,
+} from './nurbs-core';
 import { meshTransferables, type NurbsRequest, type NurbsResponse } from './nurbs-protocol';
 
 // Local minimal worker-scope type, as in specs-worker.ts: the app's tsconfig loads the
@@ -29,12 +35,21 @@ ctx.onmessage = (e) => {
     ctx.postMessage({ kind: 'converted', id: req.id, ...out });
     return;
   }
+  if (req.kind === 'probe') {
+    const out = probeDocument(req.doc, req.probes);
+    ctx.postMessage(
+      out.ok
+        ? { kind: 'probed', id: req.id, ok: true, probes: out.probes }
+        : { kind: 'probed', id: req.id, ok: false, error: out.error },
+    );
+    return;
+  }
   // No progress messages: a job is milliseconds, and one is posted per pointer move.
   const out =
     req.kind === 'classic'
       ? convertAndMesh(req.board, req.options)
       : req.kind === 'doc'
-        ? meshDocument(req.doc, req.reference, req.options)
+        ? meshDocument(req.doc, req.reference, req.options, undefined, req.probes)
         : meshTestBoard(req.name, req.options);
   if (out.ok) {
     ctx.postMessage({ kind: 'done', id: req.id, ...out }, meshTransferables(out.mesh));

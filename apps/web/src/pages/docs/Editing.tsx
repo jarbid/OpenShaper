@@ -217,12 +217,18 @@ export default function DocsEditing() {
           With it on, the open board is converted to NURBS curves and sections, and the editors edit
           that board: drag, lock, nudge and undo the <strong>outline</strong>,{' '}
           <strong>rocker</strong> and <strong>deck</strong> exactly as you do in the classic editor.
-          The 3D view shows the NURBS surface and follows every drag, not after a wait.
-          Cross-sections are read-only for now, so dragging a point in the cross-section view, or
-          adding, moving or deleting a station, does nothing yet; the cross-sections stay as the
-          conversion made them and follow the outline, rocker and deck. The interpolation setting
-          and <em>Resize cross-sections to rocker/deck</em> belong to the classic engine and are
-          hidden or ignored.
+          The 3D view shows the NURBS surface and follows every drag, not after a wait. The{' '}
+          <strong>cross-sections</strong> are edited too: pick a station in the outline or rocker
+          view, then drag its points and handles in the cross-section view. The centre points stay
+          where the outline, rocker and deck put them, the widest point moves up and down only, and
+          nothing goes wider than it, so a section can never change the outline, rocker or deck. You
+          can add a station (right-click the outline or rocker), drag it along the board, delete it,
+          paste a section onto it or give it a rail preset; each is one undo step. A dashed line in
+          the cross-section view is the section the NURBS surface really has there, and follows the
+          pointer as you move it along the outline. Sections follow the outline, rocker and deck
+          automatically, so the interpolation setting and{' '}
+          <em>Resize cross-sections to rocker/deck</em> belong to the classic engine and are hidden
+          or ignored.
         </p>
         <p>
           A <strong>NURBS (experimental) &mdash; editing</strong> badge sits over the 3D view, with

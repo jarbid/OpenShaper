@@ -33,6 +33,7 @@ import type {
   NurbsStage,
   NurbsSummary,
   NurbsTimings,
+  SectionProbe,
   TestBoardName,
 } from './workers/nurbs-protocol';
 
@@ -52,15 +53,22 @@ export type NurbsAnswer =
       readonly summary: NurbsSummary;
       readonly timings: NurbsTimings;
       readonly mesh: NurbsMeshData;
+      /** The as-built sections a `doc` job was asked for. */
+      readonly probes: readonly SectionProbe[];
     }
   | { readonly ok: false; readonly error: string; readonly issues: readonly NurbsIssue[] };
+
+/** The answer to a probe job: the sections, or why the document would not build. */
+export type ProbeAnswer =
+  | { readonly ok: true; readonly probes: readonly SectionProbe[] }
+  | { readonly ok: false; readonly error: string };
 
 /** The answer to a conversion: the document, or the reasons the board was refused. */
 export type ConvertAnswer =
   | ({ readonly ok: true } & ConvertedDoc)
   | { readonly ok: false; readonly error: string; readonly issues: readonly NurbsIssue[] };
 
-type Answer = NurbsAnswer | ConvertAnswer;
+type Answer = NurbsAnswer | ConvertAnswer | ProbeAnswer;
 
 /** What a worker looks like to the client; tests supply a fake. */
 export interface NurbsTransport {
@@ -112,7 +120,10 @@ export interface NurbsClient {
     reference: BezierBoard | null,
     options: JobOptions,
     onStage?: (s: NurbsStage) => void,
+    probes?: readonly number[],
   ): Promise<NurbsAnswer>;
+  /** The as-built sections of an unchanged document at `probes` (no mesh): the scrub preview. */
+  probe(doc: BoardDoc, probes: readonly number[]): Promise<ProbeAnswer>;
   /** Convert a classic board to a section document. A refusal is an answer, not an exception. */
   convert(board: BezierBoard): Promise<ConvertAnswer>;
   /** Drop the job in flight (its promise rejects with {@link SupersededError}). */
@@ -132,7 +143,7 @@ interface Pending {
 export type CoreLoader = () => Promise<
   Pick<
     typeof import('./workers/nurbs-core'),
-    'convertAndMesh' | 'convertToDoc' | 'meshDocument' | 'meshTestBoard'
+    'convertAndMesh' | 'convertToDoc' | 'meshDocument' | 'meshTestBoard' | 'probeDocument'
   >
 >;
 
@@ -197,7 +208,9 @@ export function createNurbsClient(
       const p = pending;
       if (p && res.id === p.id) {
         pending = null;
-        if (res.kind === 'converted') {
+        if (res.kind === 'probed') {
+          p.resolve(res.ok ? { ok: true, probes: res.probes } : { ok: false, error: res.error });
+        } else if (res.kind === 'converted') {
           p.resolve(
             res.ok
               ? { ok: true, doc: res.doc, conversion: res.conversion, issues: res.issues }
@@ -210,6 +223,7 @@ export function createNurbsClient(
             summary: res.summary,
             timings: res.timings,
             mesh: res.mesh,
+            probes: res.probes,
           });
         } else {
           p.resolve({ ok: false, error: res.error, issues: res.issues });
@@ -239,10 +253,12 @@ export function createNurbsClient(
       req.kind === 'classic'
         ? compute.convertAndMesh(req.board, req.options, progress)
         : req.kind === 'doc'
-          ? compute.meshDocument(req.doc, req.reference, req.options, progress)
-          : req.kind === 'convert'
-            ? compute.convertToDoc(req.board)
-            : compute.meshTestBoard(req.name, req.options, progress);
+          ? compute.meshDocument(req.doc, req.reference, req.options, progress, req.probes)
+          : req.kind === 'probe'
+            ? compute.probeDocument(req.doc, req.probes)
+            : req.kind === 'convert'
+              ? compute.convertToDoc(req.board)
+              : compute.meshTestBoard(req.name, req.options, progress);
     if (pending !== p) return; // superseded during the (blocking) compute: drop
     pending = null;
     p.resolve(out);
@@ -286,8 +302,9 @@ export function createNurbsClient(
       submit<NurbsAnswer>((id) => ({ kind: 'classic', id, board, options }), onStage),
     test: (name, options, onStage) =>
       submit<NurbsAnswer>((id) => ({ kind: 'test', id, name, options }), onStage),
-    doc: (doc, reference, options, onStage) =>
-      submit<NurbsAnswer>((id) => ({ kind: 'doc', id, doc, reference, options }), onStage),
+    doc: (doc, reference, options, onStage, probes = []) =>
+      submit<NurbsAnswer>((id) => ({ kind: 'doc', id, doc, reference, options, probes }), onStage),
+    probe: (doc, probes) => submit<ProbeAnswer>((id) => ({ kind: 'probe', id, doc, probes })),
     convert: (board) => submit<ConvertAnswer>((id) => ({ kind: 'convert', id, board })),
     cancel() {
       const p = pending;

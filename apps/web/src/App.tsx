@@ -109,6 +109,7 @@ import {
 } from './sidebar-sections';
 import sampleBrd from './sample-board.brd?raw';
 import { activeStore, boardStore, sectionStore } from './store';
+import { probeAt, probeSpline, setWantedProbes, useProbes } from './nurbs-probes';
 import { useSectionEngine } from './use-section-engine';
 import { SUPPORT_URL } from './support';
 import { BOARD_TEMPLATES } from './templates';
@@ -690,6 +691,16 @@ function AppShell() {
   // governs whether the guide is drawn, not whether the position is known.
   const activeSectionX = board ? (board.crossSections[clampedCs]?.position ?? null) : null;
 
+  // The sections the NURBS surface has at the selected station and under the scrub are drawn dashed in the
+  // cross-section pane; the layer over the 3D view asks the worker for them (nurbs-probes.ts).
+  const nurbsSections = sectionEngine.ready;
+  useEffect(() => {
+    const xs: number[] = [];
+    if (nurbsSections && activeSectionX != null) xs.push(activeSectionX);
+    if (nurbsSections && scrubX != null && scrubX !== activeSectionX) xs.push(scrubX);
+    setWantedProbes(xs);
+  }, [nurbsSections, activeSectionX, scrubX]);
+
   // Real cross-sections (skip the nose/tail dummies) as pickable outline markers.
   const sectionMarkers = board
     ? board.crossSections.slice(1, sectionCount - 1).map((cs, i) => ({
@@ -857,6 +868,7 @@ function AppShell() {
   // Read-only ghost splines per pane: the reference (ghost) board comparison, plus — for
   // the cross-section pane — the live interpolated section at the scrub x and faint
   // neighbour stations (fairing context).
+  const probes = useProbes();
   const ghostSplinesFor = (kind: EditorKind): Spline[] | undefined => {
     const out: Spline[] = [];
     if (ghost) {
@@ -871,7 +883,16 @@ function AppShell() {
       }
     }
     if (kind === 'crossSection' && board) {
-      if (scrubX != null) {
+      if (sectionEngine.ready) {
+        // The NURBS board: the sections the built surface really has (blend and all), from the
+        // worker, at the selected station and under the scrub. While a scrub answer is on its way
+        // the previous one stays (any probe that is not the station's), so the dashed line does not
+        // flicker between pointer moves.
+        const station = activeSectionX != null ? probeAt(probes, activeSectionX) : undefined;
+        if (station) out.push(probeSpline(station.plus));
+        const hovered = scrubX != null ? probes.find((p) => p.xi !== activeSectionX) : undefined;
+        if (hovered) out.push(probeSpline(hovered.plus));
+      } else if (scrubX != null) {
         // The lofted surface, so the section under the scrub reads the same here as it
         // does in the 3D view beside it.
         const preview = loftCrossSection(board, scrubX);
@@ -1139,8 +1160,15 @@ function AppShell() {
     </Button>
   );
 
-  // NURBS sections are read-only until the section editor (docs/design/m2-editor.md, step 2).
-  const csTitle = sectionEngine.ready ? 'Cross-section (read-only)' : 'Cross-section';
+  // A station inside a swallow or fish notch is cut across the rail (a chord from the stringer to the
+  // outline), not across the board: say so, so the shape is not mistaken for a plain section.
+  const csDoc = sectionEngine.ready ? sectionStore.getState().doc : null;
+  const inNotch =
+    csDoc !== null &&
+    csDoc.tail.kind === 'notched' &&
+    activeSectionX !== null &&
+    activeSectionX < csDoc.outline.plus.knots[0]!.p[0] + csDoc.tail.zone;
+  const csTitle = inNotch ? 'Cross-section (rail section)' : 'Cross-section';
 
   const csControls = (
     <CrossSectionControls

@@ -52,6 +52,7 @@ const done = (id: number): NurbsResponse => ({
   summary,
   timings,
   mesh,
+  probes: [],
 });
 
 describe('request ids and stale answers', () => {
@@ -209,7 +210,7 @@ describe('errors', () => {
 describe('without a Worker', () => {
   it('computes on this thread through the core, and drops a superseded job unrun', async () => {
     const calls: string[] = [];
-    const ok = { ok: true as const, issues: [], summary, timings, mesh };
+    const ok = { ok: true as const, issues: [], summary, timings, mesh, probes: [] };
     const core = async () => ({
       convertAndMesh: (_b: unknown, o: JobOptions) => {
         calls.push(`classic reuse=${o.reuseLadders}`);
@@ -222,6 +223,10 @@ describe('without a Worker', () => {
       meshDocument: (_d: unknown, reference: unknown, o: JobOptions) => {
         calls.push(`doc reference=${reference !== null} reuse=${o.reuseLadders}`);
         return ok;
+      },
+      probeDocument: () => {
+        calls.push('probe');
+        return { ok: true as const, probes: [] };
       },
       convertToDoc: () => {
         calls.push('convert');
@@ -247,8 +252,9 @@ describe('without a Worker', () => {
     expect(calls).toEqual(['classic reuse=true', 'test swallow']);
 
     await expect(client.doc({} as never, null, options)).resolves.toMatchObject({ ok: true });
+    await expect(client.probe({} as never, [10])).resolves.toMatchObject({ ok: true });
     await expect(client.convert(board)).resolves.toMatchObject({ ok: true });
-    expect(calls.slice(2)).toEqual(['doc reference=false reuse=false', 'convert']);
+    expect(calls.slice(2)).toEqual(['doc reference=false reuse=false', 'probe', 'convert']);
   });
 
   it('reports a failing core as a rejection', async () => {

@@ -33,6 +33,11 @@
  *   store's `BoardDoc`, and a job is a `doc` job: no converter in the loop. `board` is then the
  *   document's classic projection (the 3D view places fins and guides by it) and a change to
  *   the hull is a change to the document's lines, stations, features or tail (`sameDocHull`).
+ * - **Probes.** The input names station coordinates (the selected station, the scrub position) whose
+ *   as-built sections the section pane draws as ghosts. A `doc` job carries them, so they follow every
+ *   edit. When only the probes change (the pointer moves over the outline) and no job is running, a
+ *   probe job asks for them alone: no mesh, so the 3D view uploads nothing for a hover. A change that
+ *   arrives while a job runs waits for its answer.
  * - **Read-only.** Nothing here writes to the board or the store.
  */
 import type { BoardDoc } from '@openshaper/board2';
@@ -45,6 +50,7 @@ import type {
   NurbsMeshData,
   NurbsSummary,
   NurbsTimings,
+  SectionProbe,
   TestBoardName,
 } from './workers/nurbs-protocol';
 
@@ -84,6 +90,11 @@ export interface NurbsModel {
 
 export type ViewerPhase = 'idle' | 'converting' | 'ready' | 'failed';
 
+/** The as-built sections of the latest answer, by the station coordinate they were asked at. */
+export interface ViewerProbes {
+  readonly items: readonly SectionProbe[];
+}
+
 export interface ViewerJob {
   /** `now()` when it started, for the elapsed-time readout. */
   readonly startedAt: number;
@@ -107,6 +118,8 @@ export interface ViewerState {
   readonly stale: boolean;
   /** The document generation of the board now in the store; a model of another generation is another file's. */
   readonly generation: number;
+  /** The as-built sections last asked for (a document only); null before the first answer. */
+  readonly probes: ViewerProbes | null;
 }
 
 export const VIEWER_IDLE: ViewerState = {
@@ -117,6 +130,7 @@ export const VIEWER_IDLE: ViewerState = {
   issues: [],
   stale: false,
   generation: 0,
+  probes: null,
 };
 
 export interface ViewerInput {
@@ -137,6 +151,8 @@ export interface ViewerInput {
   readonly wantDeviation: boolean;
   /** Show this test board instead of the classic board. */
   readonly testBoard: TestBoardName | null;
+  /** Station coordinates (cm) whose as-built sections are wanted (a document only). */
+  readonly probes: readonly number[];
 }
 
 export const VIEWER_INPUT_OFF: ViewerInput = {
@@ -149,6 +165,7 @@ export const VIEWER_INPUT_OFF: ViewerInput = {
   wantCurvature: false,
   wantDeviation: false,
   testBoard: null,
+  probes: [],
 };
 
 export interface ViewerDeps {
@@ -199,6 +216,9 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
   let running: object | null = null;
   let busyTimer: unknown = null;
   let sequence = 0;
+  // The probes the newest request (a job or a probe job) was made with, and the probe job whose answer counts.
+  let requestedProbes: readonly number[] = [];
+  let probing: object | null = null;
 
   const set = (patch: Partial<ViewerState>): void => {
     const next = { ...state, ...patch };
@@ -236,6 +256,8 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
   const start = (i: ViewerInput, options: JobOptions): void => {
     const me = {};
     running = me;
+    probing = null;
+    requestedProbes = i.doc ? i.probes : [];
     requested = {
       board: i.testBoard ? null : i.board,
       doc: i.testBoard ? null : i.doc,
@@ -273,7 +295,7 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     const job = testBoard
       ? client.test(testBoard, options)
       : doc
-        ? client.doc(doc, options.deviation ? i.reference : null, options)
+        ? client.doc(doc, options.deviation ? i.reference : null, options, undefined, i.probes)
         : client.classic(board, options);
     job
       .then((answer) => {
@@ -298,7 +320,10 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
             error: null,
             issues: answer.issues,
             stale: false,
+            ...(doc ? { probes: { items: answer.probes } } : {}),
           });
+          // probes asked for while this job ran
+          reconcile();
         } else {
           refused(answer.error, answer.issues);
         }
@@ -311,12 +336,36 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
       });
   };
 
+  /** The section probes alone: no mesh, only when no job is running (it would be superseded). */
+  const startProbes = (i: ViewerInput): void => {
+    const doc = i.doc!;
+    const me = {};
+    probing = me;
+    requestedProbes = i.probes;
+    client
+      .probe(doc, i.probes)
+      .then((answer) => {
+        if (probing !== me) return;
+        probing = null;
+        if (answer.ok) set({ probes: { items: answer.probes } });
+      })
+      .catch((err: unknown) => {
+        if (err instanceof SupersededError || probing !== me) return;
+        probing = null;
+      });
+  };
+
+  const sameProbes = (a: readonly number[], b: readonly number[]): boolean =>
+    a.length === b.length && a.every((x, k) => x === b[k]);
+
   function reconcile(): void {
     const i = input;
     if (!i.enabled || (!i.board && !i.testBoard)) {
       clearBusy();
       running = null;
+      probing = null;
       requested = null;
+      requestedProbes = [];
       client.cancel();
       set(VIEWER_IDLE);
       return;
@@ -325,7 +374,17 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     // Curvature when an exact mode shows it, and on every settled board.
     const curvature = i.wantCurvature || !i.editing;
     const deviation = i.wantDeviation && i.testBoard === null && (i.doc === null || !!i.reference);
-    if (!needsJob(i, curvature, deviation)) return;
+    if (!needsJob(i, curvature, deviation)) {
+      if (
+        i.doc !== null &&
+        i.testBoard === null &&
+        running === null &&
+        !sameProbes(requestedProbes, i.probes)
+      ) {
+        startProbes(i);
+      }
+      return;
+    }
     // Ladders carry over only from a job for the same kind of board, while editing.
     const reuseLadders = i.editing && i.testBoard === null && state.model?.board != null;
     start(i, { curvature, deviation, reuseLadders });
@@ -345,6 +404,7 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     dispose() {
       clearBusy();
       running = null;
+      probing = null;
       requested = null;
       input = VIEWER_INPUT_OFF;
       set(VIEWER_IDLE);

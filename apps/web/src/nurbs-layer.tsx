@@ -16,6 +16,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
 import { fmtSmallLen, fmtVol, type LengthUnit } from './format';
 import { createNurbsClient } from './nurbs-client';
+import { getWantedProbes, publishProbes, subscribeWantedProbes } from './nurbs-probes';
 import { registerNurbsRelease } from './nurbs-session';
 import { boardStore } from './store';
 import { surfaceOf } from './nurbs-surface';
@@ -126,9 +127,9 @@ function InfoPanel({ state, units }: { state: ViewerState; units: LengthUnit }) 
             ) : summary.source === 'doc' ? (
               <>
                 This is the NURBS board you are editing. Its outline, rocker and deck are the lines
-                you drag, and its cross-sections (read-only for now) blend smoothly between the
-                stations. Use <strong>Deviation from classic</strong> to compare it with the board
-                you opened.
+                you drag, and its cross-sections, which you reshape at the stations, blend smoothly
+                between them. Use <strong>Deviation from classic</strong> to compare it with the
+                board you opened.
               </>
             ) : (
               <>
@@ -229,6 +230,12 @@ export default function NurbsLayer({
     () => 'doc' in store.getState(),
     () => false,
   );
+  // The section pane's ghosts: the station coordinates it wants, and (below) the answers it reads.
+  const probes = useSyncExternalStore(
+    subscribeWantedProbes,
+    getWantedProbes,
+    () => [] as readonly number[],
+  );
   const wantCurvature = isExactAnalysis(analysis);
   const wantDeviation = analysis === 'nurbs-deviation';
 
@@ -249,6 +256,7 @@ export default function NurbsLayer({
         wantCurvature,
         wantDeviation,
         testBoard,
+        probes: doc ? probes : [],
       });
     };
     push();
@@ -257,7 +265,14 @@ export default function NurbsLayer({
       unsubscribe();
       viewer.pause();
     };
-  }, [store, viewer, wantCurvature, wantDeviation, testBoard]);
+  }, [store, viewer, wantCurvature, wantDeviation, testBoard, probes]);
+
+  // Hand the answers to the section pane.
+  const answered = state.probes?.items;
+  useEffect(() => {
+    publishProbes(answered ?? []);
+  }, [answered]);
+  useEffect(() => () => publishProbes([]), []);
 
   // The surface the 3D view should draw.
   const model = state.model;

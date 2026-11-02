@@ -24,6 +24,7 @@ vi.mock('./nurbs-client', async (importActual) => ({
       classic: () => new Promise(() => {}), // a job that never finishes
       test: () => new Promise(() => {}),
       doc: () => new Promise(() => {}),
+      probe: () => new Promise(() => {}),
       convert: () => new Promise(() => {}),
       cancel: () => void rec.cancels++,
       dispose: () => void rec.disposed++,

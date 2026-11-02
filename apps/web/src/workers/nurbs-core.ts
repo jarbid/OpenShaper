@@ -40,10 +40,14 @@
  */
 import {
   buildBoard,
+  createChordFn,
+  createEvaluator,
   meshBoard,
+  probeSection,
   type Board2Issue,
   type BoardDoc,
   type BuiltBoard,
+  type ChordFn,
   type Ladders,
   type Section,
 } from '@openshaper/board2';
@@ -66,6 +70,7 @@ import type {
   NurbsStage,
   NurbsSummary,
   NurbsTimings,
+  SectionProbe,
   TestBoardName,
 } from './nurbs-protocol';
 
@@ -80,6 +85,7 @@ export type NurbsOutcome =
       readonly summary: NurbsSummary;
       readonly timings: NurbsTimings;
       readonly mesh: NurbsMeshData;
+      readonly probes: readonly SectionProbe[];
     }
   | { readonly ok: false; readonly error: string; readonly issues: readonly NurbsIssue[] };
 
@@ -217,6 +223,62 @@ export const resetCore = (): void => {
   sections.clear();
 };
 
+// --- Probes ------------------------------------------------------------------
+
+/** Points per probed section half: the section is a smooth cubic spline, 64 is a polyline to a few microns. */
+const PROBE_SAMPLES = 64;
+
+/** The as-built sections of `built` at the station coordinates `xis` (both sides on an asymmetric board). */
+const probesOf = (built: BuiltBoard, xis: readonly number[]): SectionProbe[] => {
+  if (xis.length === 0) return [];
+  const ev = createEvaluator(built);
+  const asymmetric = built.doc.symmetry === 'asymmetric';
+  return xis.map((xi) => {
+    const x = Math.min(built.xiMax, Math.max(built.xiMin, xi));
+    return {
+      xi,
+      plus: probeSection(built, ev, 0, x, PROBE_SAMPLES),
+      minus: asymmetric ? probeSection(built, ev, 1, x, PROBE_SAMPLES) : null,
+    };
+  });
+};
+
+// --- The notch-zone chord, for the section store ------------------------------
+
+/** What a chord depends on: the plus outline, the tail and the lines (the zone is picked by the validator). */
+interface ChordKey {
+  readonly outline: BoardDoc['outline']['plus'];
+  readonly tail: BoardDoc['tail'];
+  readonly rocker: BoardDoc['rocker'];
+  readonly deck: BoardDoc['deck'];
+}
+let chordMemory: { key: ChordKey; fn: ChordFn } | null = null;
+
+/**
+ * The chord-length function of a document, cached on what it depends on, so a section edit on a
+ * swallow board does not re-resolve the notch zone. The section store takes this by injection
+ * (`setNotchChords`): the main chunk may not import board2.
+ */
+export const notchChords = (doc: BoardDoc): ChordFn => {
+  const k = chordMemory?.key;
+  if (
+    chordMemory !== null &&
+    k !== undefined &&
+    k.outline === doc.outline.plus &&
+    k.tail === doc.tail &&
+    k.rocker === doc.rocker &&
+    k.deck === doc.deck
+  ) {
+    return chordMemory.fn;
+  }
+  const fn = createChordFn(doc);
+  chordMemory = {
+    key: { outline: doc.outline.plus, tail: doc.tail, rocker: doc.rocker, deck: doc.deck },
+    fn,
+  };
+  return fn;
+};
+
 // --- The job -----------------------------------------------------------------
 
 interface Built {
@@ -236,6 +298,7 @@ const meshBuilt = (
   options: JobOptions,
   t0: number,
   progress?: Progress,
+  probes: readonly number[] = [],
 ): NurbsOutcome => {
   progress?.('meshing');
   const t1 = now();
@@ -310,6 +373,7 @@ const meshBuilt = (
       deviationNoData,
       laddersReused: reused,
     },
+    probes: probesOf(b.built, probes),
   };
 };
 
@@ -419,6 +483,7 @@ export const meshDocument = (
   reference: BezierBoard | null,
   options: JobOptions,
   progress?: Progress,
+  probes: readonly number[] = [],
 ): NurbsOutcome => {
   const t0 = now();
   try {
@@ -433,9 +498,34 @@ export const meshDocument = (
       options,
       t0,
       progress,
+      probes,
     );
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err), issues: [] };
+  }
+};
+
+/** What a probe job answers with: the sections, or the reason the document would not build. */
+export type ProbeOutcome =
+  | { readonly ok: true; readonly probes: readonly SectionProbe[] }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * The as-built sections of a document at `probes`, with no validation and no mesh: the scrub preview.
+ * The build is warm (the sections are matched by content), about a millisecond.
+ */
+export const probeDocument = (docIn: BoardDoc, probes: readonly number[]): ProbeOutcome => {
+  try {
+    const r = buildBoard(canonicalDoc(docIn), { check: false });
+    if (!r.ok) {
+      return {
+        ok: false,
+        error: r.issues.find((i) => i.severity === 'error')?.message ?? 'The board did not build.',
+      };
+    }
+    return { ok: true, probes: probesOf(r.value, probes) };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 };
 

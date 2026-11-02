@@ -19,6 +19,7 @@
  */
 import { useEffect, useSyncExternalStore } from 'react';
 import { boardStore, sectionStore } from './store';
+import type { BoardDoc } from '@openshaper/board2';
 import type { NurbsIssue } from './workers/nurbs-protocol';
 
 interface Sync {
@@ -45,6 +46,19 @@ const subscribeSync = (l: () => void) => {
 
 /** Forget what was converted (tests). */
 export const resetSectionEngine = (): void => setSync({ convertedFrom: null, refused: null });
+
+/**
+ * Give the section store the notch-zone chord before a notched board is loaded (docs/design/m2-editor.md
+ * §4, step 2). A station inside a swallow or fish notch is edited in the frame of its chord across the rail,
+ * whose length needs board2's frame; the store may not import board2, so the code is loaded here, from the
+ * compute module the worker also carries (a lazy chunk), and only for a notched board: a standard tail's
+ * half-width is a function of x, which the store computes itself.
+ */
+export async function injectNotchChords(doc: BoardDoc): Promise<void> {
+  if (doc.tail.kind !== 'notched') return;
+  const { notchChords } = await import('./workers/nurbs-core');
+  sectionStore.getState().setNotchChords(notchChords);
+}
 
 export interface SectionEngine {
   /** The section store holds the document of the classic board now open: the editors may use it. */
@@ -86,9 +100,11 @@ export function useSectionEngine(engineOn: boolean): SectionEngine {
         const client = createNurbsClient();
         dispose = () => client.dispose();
         return client.convert(board).then(
-          (answer) => {
+          async (answer) => {
             if (cancelled) return;
             if (answer.ok) {
+              await injectNotchChords(answer.doc);
+              if (cancelled) return;
               sectionStore.getState().loadDoc(answer.doc);
               setSync({ convertedFrom: loadCount, refused: null });
             } else {

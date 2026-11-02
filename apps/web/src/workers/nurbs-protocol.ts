@@ -85,6 +85,20 @@ export interface NurbsSummary {
   readonly surfaceArea: number;
 }
 
+/**
+ * The as-built section at a station coordinate, for the section pane's ghost and the scrub preview
+ * (docs/design/m2-editor.md §3, §4): one polyline per side as `[x0, y0, x1, y1, …]` in the section
+ * editor's frame (distance along the chord from the stringer, height above the rocker scaled to the
+ * station's thickness), so it overlays the stored section of the station it was probed at.
+ */
+export interface SectionProbe {
+  /** The station coordinate the section was taken at (cm). */
+  readonly xi: number;
+  readonly plus: readonly number[];
+  /** The minus side of an asymmetric board; null on a mirror board. */
+  readonly minus: readonly number[] | null;
+}
+
 export interface NurbsTimings {
   /** `convertClassic` (0 for a test board). */
   readonly convertMs: number;
@@ -144,6 +158,19 @@ export type NurbsRequest =
       /** The classic board "Deviation from classic" measures against (only when that mode is shown). */
       readonly reference: BezierBoard | null;
       readonly options: JobOptions;
+      /** Station coordinates whose as-built sections the answer carries (the selected station, the scrub). */
+      readonly probes: readonly number[];
+    }
+  | {
+      /**
+       * Probes only: the sections at `probes` of an unchanged document, with no mesh. The scrub preview
+       * asks this as the pointer moves, so a hover costs a build (warm, about a millisecond) and no
+       * new surface for the 3D view to upload.
+       */
+      readonly kind: 'probe';
+      readonly id: number;
+      readonly doc: BoardDoc;
+      readonly probes: readonly number[];
     }
   | {
       /** Convert a classic board to a section document (the engine switch, a file opened with it on). */
@@ -179,6 +206,20 @@ export type NurbsResponse =
       readonly summary: NurbsSummary;
       readonly timings: NurbsTimings;
       readonly mesh: NurbsMeshData;
+      /** The as-built sections asked for (a `doc` job; empty for the others). */
+      readonly probes: readonly SectionProbe[];
+    }
+  | {
+      readonly kind: 'probed';
+      readonly id: number;
+      readonly ok: true;
+      readonly probes: readonly SectionProbe[];
+    }
+  | {
+      readonly kind: 'probed';
+      readonly id: number;
+      readonly ok: false;
+      readonly error: string;
     }
   | {
       readonly kind: 'done';

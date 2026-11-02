@@ -9,10 +9,16 @@
 import type { BoardDoc } from '@openshaper/board2';
 import type { BezierBoard } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
-import { SupersededError, type NurbsAnswer, type NurbsClient } from './nurbs-client';
+import {
+  SupersededError,
+  type NurbsAnswer,
+  type NurbsClient,
+  type ProbeAnswer,
+} from './nurbs-client';
 import {
   BUSY_AFTER_MS,
   createNurbsViewer,
+  sameDocHull,
   VIEWER_INPUT_OFF,
   type ViewerInput,
 } from './nurbs-viewer';
@@ -42,6 +48,7 @@ const okAnswer = (tag = 'm'): NurbsAnswer => ({
   summary: { source: 'classic' } as unknown as NurbsSummary,
   timings: { convertMs: 1, buildMs: 1, meshMs: 1, curvatureMs: 0, deviationMs: 0, totalMs: 3 },
   mesh: { tag } as unknown as NurbsMeshData,
+  probes: [{ xi: 20, plus: [0, 0, 1, 1], minus: null }],
 });
 const refusal: NurbsAnswer = {
   ok: false,
@@ -57,6 +64,7 @@ interface Call {
   name?: TestBoardName;
   options: JobOptions;
   answer: Deferred<NurbsAnswer>;
+  probes?: readonly number[];
 }
 interface Deferred<T> {
   promise: Promise<T>;
@@ -72,6 +80,8 @@ const deferred = <T>(): Deferred<T> => {
 
 const harness = () => {
   const calls: Call[] = [];
+  const probeCalls: { doc: BoardDoc; probes: readonly number[]; answer: Deferred<ProbeAnswer> }[] =
+    [];
   let disposed = false;
   let cancels = 0;
   // Like the real client: a newer request rejects the one before it.
@@ -89,10 +99,16 @@ const harness = () => {
       calls.push({ kind: 'test', name, options, answer });
       return answer.promise;
     },
-    doc(doc, reference, options) {
+    doc(doc, reference, options, _onStage, probes) {
       supersede();
       const answer = deferred<NurbsAnswer>();
-      calls.push({ kind: 'doc', doc, reference, options, answer });
+      calls.push({ kind: 'doc', doc, reference, options, answer, probes });
+      return answer.promise;
+    },
+    probe(doc, probes) {
+      supersede();
+      const answer = deferred<ProbeAnswer>();
+      probeCalls.push({ doc, probes, answer });
       return answer.promise;
     },
     convert: () => new Promise(() => {}),
@@ -134,6 +150,7 @@ const harness = () => {
     advance,
     flush,
     input,
+    probeCalls,
     cancels: () => cancels,
     disposed: () => disposed,
   };
@@ -402,6 +419,64 @@ const makeDoc = (): BoardDoc =>
   }) as unknown as BoardDoc;
 const lineEdit = (d: BoardDoc): BoardDoc => ({ ...d, deck: {} }) as unknown as BoardDoc;
 const docFinEdit = (d: BoardDoc): BoardDoc => ({ ...d, fins: { setup: 'twin' } }) as BoardDoc;
+/** A station edit: a new `stations` array, nothing else. */
+const stationEdit = (d: BoardDoc): BoardDoc => ({ ...d, stations: [] }) as unknown as BoardDoc;
+
+describe('a new stations array is a new hull', () => {
+  it('sameDocHull sees a station edit and ignores a fin edit', () => {
+    const d = makeDoc();
+    expect(sameDocHull(d, stationEdit(d))).toBe(false);
+    expect(sameDocHull(d, docFinEdit(d))).toBe(true);
+  });
+});
+
+describe('section probes', () => {
+  it('rides along with a document job, and the answer is published', async () => {
+    const h = harness();
+    const doc = makeDoc();
+    h.input({ board: makeBoard(), doc, probes: [20, 33] });
+    expect(h.calls[0]!.probes).toEqual([20, 33]);
+    h.calls[0]!.answer.resolve(okAnswer());
+    await h.flush();
+    expect(h.viewer.getState().probes?.items).toEqual([
+      { xi: 20, plus: [0, 0, 1, 1], minus: null },
+    ]);
+  });
+
+  it('a hover asks for the probes alone when idle, and waits behind a running job', async () => {
+    const h = harness();
+    const doc = makeDoc();
+    const board = makeBoard();
+    h.input({ board, doc, probes: [20] });
+    h.calls[0]!.answer.resolve(okAnswer());
+    await h.flush();
+    // idle: only the probes changed, so no mesh job
+    h.input({ board, doc, probes: [20, 41] });
+    expect(h.calls).toHaveLength(1);
+    expect(h.probeCalls).toHaveLength(1);
+    expect(h.probeCalls[0]!.probes).toEqual([20, 41]);
+    h.probeCalls[0]!.answer.resolve({
+      ok: true,
+      probes: [{ xi: 41, plus: [0, 0, 2, 2], minus: null }],
+    });
+    await h.flush();
+    expect(h.viewer.getState().probes?.items[0]!.xi).toBe(41);
+    // an edit while the probes are wanted: a full job carries them, the model is not replaced by a hover
+    const model = h.viewer.getState().model;
+    const edited = lineEdit(doc);
+    const editedBoard = hullEdit(board);
+    h.input({ board: editedBoard, doc: edited, probes: [20, 41], editing: true });
+    expect(h.calls).toHaveLength(2);
+    h.input({ board: editedBoard, doc: edited, probes: [20, 55], editing: true });
+    // a job is running: the new probes wait (the job was not superseded by a probe job)
+    expect(h.probeCalls).toHaveLength(1);
+    h.calls[1]!.answer.resolve(okAnswer('b'));
+    await h.flush();
+    expect(h.viewer.getState().model).not.toBe(model);
+    expect(h.probeCalls).toHaveLength(2);
+    expect(h.probeCalls[1]!.probes).toEqual([20, 55]);
+  });
+});
 
 describe('documents (the section store)', () => {
   it('sends the document: no converter in the loop, and the projection is the board shown', async () => {
