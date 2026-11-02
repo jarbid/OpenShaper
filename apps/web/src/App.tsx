@@ -571,7 +571,9 @@ function AppShell() {
   // metadata, or the ghost, snapshot the session to IndexedDB (debounced —
   // store commits land on pointer-up, so this coalesces bursts of edits).
   const persistSession = useCallback(() => {
-    const b = boardStore.getState().board;
+    // The board the editors edit: with the NURBS engine on, its classic projection (a session restore
+    // converts it again), so no edit is lost to a reload (docs/design/m2-editor.md §5 adds the document).
+    const b = activeStore.getState().board;
     if (!b || !hydrated.current) return;
     const m = metaRef.current;
     const metadata = Object.values(m).some(Boolean) ? (m as Record<string, unknown>) : undefined;
@@ -1137,7 +1139,8 @@ function AppShell() {
     </Button>
   );
 
-  const csTitle = 'Cross-section';
+  // NURBS sections are read-only until the section editor (docs/design/m2-editor.md, step 2).
+  const csTitle = sectionEngine.ready ? 'Cross-section (read-only)' : 'Cross-section';
 
   const csControls = (
     <CrossSectionControls

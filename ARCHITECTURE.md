@@ -15,6 +15,7 @@ import React, the DOM or three.js.
 | `packages/io`       | `.brd` (plain + legacy-encrypted) read/write, `.s3d`/`.s3dx`/`.srf` readers, `.board.json` (session/native), share-link codec (gzip + base64url in the URL fragment).           |
 | `packages/units`    | Metric/imperial parsing and formatting (fractions, ft·in).                                                                                                                      |
 | `packages/store`    | `createBoardStore()` — a vanilla **Zustand** store: board, undo/redo history, selection, drag grouping. Edits are pure functions in `edits.ts`; `selectors.ts` derives specs.   |
+| `store/sections`    | `createSectionStore()` (experiment branch): a `BoardState` over a board2 `BoardDoc` with a classic projection. See `docs/design/m2-editor.md`.                                  |
 | `packages/render2d` | `SplineEditor` — the canvas 2D editor (outline / rocker / cross-section) with viewport, hit-testing, drawing, context menu.                                                     |
 | `packages/render3d` | `Board3DView` (react-three-fiber) — hull mesh, fins, guides, viewcube; tessellation in a Web Worker (`tessellate.worker.ts`).                                                   |
 | `packages/export`   | PDF / DXF / STL / STEP exporters, spec sheet, construction templates (hollow-wood, rail bands).                                                                                 |

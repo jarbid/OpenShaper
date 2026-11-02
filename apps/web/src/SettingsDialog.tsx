@@ -244,10 +244,10 @@ export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProp
             <p className="text-xs text-muted-foreground">
               Converts the open board to NURBS curves and sections and shows its NURBS surface in
               the 3D view, updated as you edit. You can edit the outline, rocker and deck; the
-              cross-sections are read-only for now. Saving, exporting and the autosave still use the
-              classic board you opened, so edits made on the NURBS board are not saved yet. Turn it
-              off to return to the classic editor. You can also open the editor with{' '}
-              <code>?engine=nurbs</code> to turn it on for one session.
+              cross-sections are read-only for now. Saving, exporting and the autosave write the
+              NURBS board as a classic board (the smooth blend between stations is not in the file).
+              Turn it off to return to the classic board you opened. You can also open the editor
+              with <code>?engine=nurbs</code> to turn it on for one session.
             </p>
           </SettingsGroup>
 

@@ -55,14 +55,15 @@ const sectionHistoryHost: HistoryHost<SectionState, SectionHistoryEntry> = {
 /**
  * The plan rules the document adds to the classic junction pass: both halves of the plan lie on the
  * plus side (every control point has y >= 0, a handle too, which classic lets cross the stringer), and
- * a standard tail's outline starts on the stringer (classic leaves the tail's y free for a squash tail;
- * the document makes that edge an explicit knot, as the converter does).
+ * a standard tail's outline starts at the tail tip (0, 0) (classic leaves the tail's y free for a squash
+ * tail, and lets the tail tip move to another knot; the document makes a squash tail's edge an explicit
+ * knot, as the converter does).
  */
 const pinPlan = (b: BezierBoard, doc: BoardDoc): BezierBoard => {
   let outline = b.outline;
   const first = outline.knots[0];
-  if (doc.tail.kind === 'standard' && first && first.end.y !== 0) {
-    outline = moveKnotEnd(outline, 0, vec2(first.end.x, 0));
+  if (doc.tail.kind === 'standard' && first && (first.end.x !== 0 || first.end.y !== 0)) {
+    outline = moveKnotEnd(outline, 0, vec2(0, 0));
   }
   if (outline.knots.some((k) => k.tangentToPrev.y < 0 || k.tangentToNext.y < 0)) {
     outline = splineFromKnots(

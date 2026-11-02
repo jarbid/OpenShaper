@@ -220,11 +220,23 @@ describe('line editors', () => {
     expect(errorsOf(next)).toEqual([]);
   });
 
-  it('a standard tail keeps its first outline knot on the stringer', () => {
+  it('a standard tail keeps its first outline knot at the tail tip (0, 0)', () => {
     const store = opened(goldenDoc('shortboard'));
     store.getState().moveControlPoint({ kind: 'outline' }, 0, vec2(0, 3));
-    expect(store.getState().doc!.outline.plus.knots[0]!.p[1]).toBe(0);
+    expect(store.getState().doc!.outline.plus.knots[0]!.p).toEqual([0, 0]);
     expect(errorsOf(store.getState().doc!)).toEqual([]);
+    // dragged along the board, past the next point: still at the tip, and still a valid document
+    store.getState().moveControlPoint({ kind: 'outline' }, 0, vec2(4, 0));
+    expect(store.getState().doc!.outline.plus.knots[0]!.p).toEqual([0, 0]);
+    expect(errorsOf(store.getState().doc!).map((e) => e.code)).not.toContain('tail-start');
+  });
+
+  it('an outline handle dragged across the stringer stops on it', () => {
+    const store = opened(goldenDoc('shortboard'));
+    store.getState().moveTangent({ kind: 'outline' }, 2, 'next', vec2(60, -5));
+    const knot = store.getState().doc!.outline.plus.knots[2]!;
+    expect(knot.out[1]).toBe(0);
+    expect(errorsOf(store.getState().doc!).map((e) => e.code)).not.toContain('outline-endpoints');
   });
 
   it('sections are read-only in step 1', () => {
@@ -270,7 +282,7 @@ describe('line editors', () => {
     const rand = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
     for (const name of GOLDEN_NAMES) {
       const store = opened(goldenDoc(name));
-      for (let n = 0; n < 60; n++) {
+      for (let n = 0; n < 150; n++) {
         const b = store.getState().board!;
         const kind = (['outline', 'bottom', 'deck'] as const)[Math.floor(rand() * 3)]!;
         const spline = kind === 'outline' ? b.outline : kind === 'bottom' ? b.bottom : b.deck;
