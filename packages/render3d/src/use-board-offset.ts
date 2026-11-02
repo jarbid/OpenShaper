@@ -1,5 +1,5 @@
 import type { BezierBoard } from '@openshaper/kernel';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { boardCenter, tessellateAsync } from './geometry';
 
 /** Where board-coordinate geometry goes, and which board that placement is for. */
@@ -19,11 +19,23 @@ export interface BoardPlacement {
  * centred hull, and the board it belongs to. Read from the same (shared, cached)
  * tessellation as the hull, so it never disagrees with it. Null until the first
  * mesh arrives; on a failed or superseded tessellation the previous one stays.
+ *
+ * With `centre` (the bounding-box centre of a live external surface, which is drawn in place of the hull)
+ * the placement is that centre and for the live `board`, at once: the hull is not meshed for it.
  */
-export function useBoardOffset(board: BezierBoard, targetFaceSize: number): BoardPlacement | null {
+export function useBoardOffset(
+  board: BezierBoard,
+  targetFaceSize: number,
+  centre: readonly [number, number, number] | null = null,
+): BoardPlacement | null {
   const [placement, setPlacement] = useState<BoardPlacement | null>(null);
+  const external = useMemo<BoardPlacement | null>(
+    () => (centre ? { offset: [-centre[0], -centre[1], -centre[2]], board } : null),
+    [centre, board],
+  );
 
   useEffect(() => {
+    if (centre) return;
     let cancelled = false;
     const abort = new AbortController();
     tessellateAsync(board, targetFaceSize, abort.signal)
@@ -39,7 +51,7 @@ export function useBoardOffset(board: BezierBoard, targetFaceSize: number): Boar
       cancelled = true;
       abort.abort();
     };
-  }, [board, targetFaceSize]);
+  }, [board, targetFaceSize, centre]);
 
-  return placement;
+  return external ?? placement;
 }

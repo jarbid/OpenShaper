@@ -48,9 +48,12 @@ export function Guides3D({
   showSections,
   showApex,
   activeSectionX,
+  surfaceCentre = null,
 }: {
   board: BezierBoard;
   targetFaceSize: number;
+  /** The centre of the live external surface the board is drawn as (see `useBoardOffset`). */
+  surfaceCentre?: readonly [number, number, number] | null;
   showStringer: boolean;
   showSections: boolean;
   showApex: boolean;
@@ -58,7 +61,7 @@ export function Guides3D({
 }) {
   // Lines come from the board the hull on screen was meshed from, so they move with
   // it rather than ahead of it (and are not re-lofted on every drag move).
-  const placed = useBoardOffset(board, targetFaceSize);
+  const placed = useBoardOffset(board, targetFaceSize, surfaceCentre);
   const placedBoard = placed?.board ?? null;
 
   // The kernel swaps `board` on every edit, so adding or deleting a

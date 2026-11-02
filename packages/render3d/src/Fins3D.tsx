@@ -31,14 +31,17 @@ export function Fins3D({
   board,
   targetFaceSize,
   color = FIN_COLOR,
+  surfaceCentre = null,
 }: {
   board: BezierBoard;
   targetFaceSize: number;
   color?: string;
+  /** The centre of the live external surface the board is drawn as (see `useBoardOffset`). */
+  surfaceCentre?: readonly [number, number, number] | null;
 }) {
   // Built from the board the hull was meshed from, not the live one: the hull waits
   // for the worker, and fins built synchronously used to run ahead of it mid-drag.
-  const placed = useBoardOffset(board, targetFaceSize);
+  const placed = useBoardOffset(board, targetFaceSize, surfaceCentre);
   const placedBoard = placed?.board ?? null;
 
   const geometries = useMemo(

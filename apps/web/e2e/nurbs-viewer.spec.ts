@@ -3,11 +3,12 @@ import { expect, test, type ConsoleMessage, type Page } from '@playwright/test';
 import { editorReady } from './helpers';
 
 /**
- * The experimental NURBS viewer on the section model (docs/design/m1-model.md §3): with
- * `?engine=nurbs` the 3D view converts the board in a worker (tens of milliseconds) and
- * shows the NURBS surface under a read-only badge, updates it on every classic edit,
- * explains a board it refuses, and offers board2's test boards; without the flag the app
- * has none of it.
+ * The experimental NURBS engine on the section model (docs/design/m1-model.md §3,
+ * docs/design/m2-editor.md §6 step 1): with `?engine=nurbs` the open board is converted
+ * in a worker and the editors edit the NURBS document (outline, rocker and deck); the 3D
+ * view shows its surface under an "editing" badge and updates it on every edit, explains
+ * a board it refuses (the classic editors stay), and offers board2's test boards; without
+ * the flag the app has none of it.
  */
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -37,9 +38,11 @@ test.describe('NURBS viewer, flag on', () => {
     await open3D(page);
 
     const badge = page.getByTestId('nurbs-badge');
-    await expect(badge).toHaveText('NURBS (experimental) — read-only');
     await expect(badge).toHaveAttribute('data-phase', 'ready', { timeout: 30_000 });
     await expect(badge).toHaveAttribute('data-showing', 'nurbs');
+    // The open board was converted into the section store, which the editors now edit.
+    await expect(badge).toHaveText('NURBS (experimental) — editing', { timeout: 30_000 });
+    await expect(badge).toHaveAttribute('data-source', 'doc');
     await expect(page.getByTestId('nurbs-status')).toHaveText('Showing the NURBS surface');
 
     // Exact analysis on the NURBS surface, and the deviation from classic.
@@ -70,9 +73,7 @@ test.describe('NURBS viewer, flag on', () => {
     expect(errors).toEqual([]);
   });
 
-  test('a classic edit updates the NURBS surface at once, with no quiet period', async ({
-    page,
-  }) => {
+  test('an edit updates the NURBS surface at once, with no quiet period', async ({ page }) => {
     const errors = trackErrors(page);
     await page.goto('/app?engine=nurbs');
     await editorReady(page);
@@ -80,6 +81,7 @@ test.describe('NURBS viewer, flag on', () => {
     const badge = page.getByTestId('nurbs-badge');
     await expect(badge).toHaveAttribute('data-phase', 'ready', { timeout: 30_000 });
     await expect(badge).toHaveAttribute('data-showing', 'nurbs');
+    await expect(badge).toHaveAttribute('data-source', 'doc', { timeout: 30_000 });
 
     const box = (await page.locator('canvas').first().boundingBox())!;
     const L = 187.96;
@@ -118,6 +120,81 @@ test.describe('NURBS viewer, flag on', () => {
     // The gesture's end re-derives the ladders.
     await expect(badge).toHaveAttribute('data-ladders-reused', 'false', { timeout: 10_000 });
     await expect(badge).toHaveAttribute('data-showing', 'nurbs');
+    expect(errors).toEqual([]);
+  });
+
+  test('drags edit the NURBS board: the surface follows, undo restores it, and the document survives the engine being switched off and on', async ({
+    page,
+  }) => {
+    const errors = trackErrors(page);
+    // Started with the engine off, so the Settings toggle (not the URL) decides.
+    await page.goto('/app');
+    await editorReady(page);
+    await page.keyboard.press('1');
+    const setEngine = async (on: boolean) => {
+      await page.getByRole('menubar').getByRole('menuitem', { name: 'Edit', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Settings…' }).click();
+      const toggle = page.getByLabel('Engine: NURBS (experimental)');
+      await (on ? toggle.check() : toggle.uncheck());
+      await page.getByRole('button', { name: 'Apply' }).click();
+    };
+    await setEngine(true);
+    const badge = page.getByTestId('nurbs-badge');
+    await expect(badge).toHaveAttribute('data-source', 'doc', { timeout: 30_000 });
+    await expect(badge).toHaveAttribute('data-phase', 'ready');
+    await page.getByRole('button', { name: 'NURBS conversion details' }).click();
+    const volume = async () =>
+      (
+        await page.getByTestId('nurbs-info').locator('dt:text-is("Volume") + dd').innerText()
+      ).trim();
+    const original = await volume();
+
+    // Select the shortboard's wide outline point and drag it outwards.
+    const box = (await page.locator('canvas').first().boundingBox())!;
+    const s = (box.width - 48) / 187.96;
+    const wide = { x: box.x + 24 + 90.13362308681752 * s, y: box.y + box.height / 2 - 23.49 * s };
+    let from: { x: number; y: number } | null = null;
+    for (const c of [wide, { x: wide.x, y: box.y + box.height / 2 + 23.49 * s }]) {
+      await page.mouse.move(c.x, c.y);
+      await page.mouse.down();
+      await page.mouse.up();
+      if (
+        await page
+          .getByLabel(/ position editor$/)
+          .first()
+          .isVisible()
+          .catch(() => false)
+      ) {
+        from = c;
+        break;
+      }
+    }
+    expect(from).not.toBeNull();
+    await page.mouse.move(from!.x, from!.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 10; i++) {
+      await page.mouse.move(from!.x + i * 0.4, from!.y - i * 2);
+      await page.waitForTimeout(40);
+    }
+    await page.mouse.up();
+    await expect(badge).toHaveAttribute('data-ladders-reused', 'false', { timeout: 10_000 });
+    await expect.poll(volume, { timeout: 10_000 }).not.toBe(original);
+    const edited = await volume();
+    await expect(badge).toHaveAttribute('data-source', 'doc');
+
+    // Undo goes back through the section store's history to the converted board.
+    await page.keyboard.press('Control+z');
+    await expect.poll(volume, { timeout: 10_000 }).toBe(original);
+    await page.keyboard.press('Control+Shift+z');
+    await expect.poll(volume, { timeout: 10_000 }).toBe(edited);
+
+    // Engine off: the classic editor, with none of the NURBS UI. On again: the edited document is back.
+    await setEngine(false);
+    await expect(page.getByTestId('nurbs-badge')).toHaveCount(0);
+    await setEngine(true);
+    await expect(badge).toHaveAttribute('data-source', 'doc', { timeout: 30_000 });
+    await page.getByRole('button', { name: 'NURBS conversion details' }).click();
+    await expect.poll(volume, { timeout: 10_000 }).toBe(edited);
     expect(errors).toEqual([]);
   });
 

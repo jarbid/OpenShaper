@@ -18,7 +18,6 @@
  * the only conversion; edits go to the worker as documents (`nurbs-viewer.ts`).
  */
 import { useEffect, useSyncExternalStore } from 'react';
-import { createNurbsClient, SupersededError } from './nurbs-client';
 import { boardStore, sectionStore } from './store';
 import type { NurbsIssue } from './workers/nurbs-protocol';
 
@@ -76,35 +75,41 @@ export function useSectionEngine(engineOn: boolean): SectionEngine {
     if (!engineOn || !hasBoard || upToDate || refused) return;
     const board = boardStore.getState().board;
     if (!board) return;
-    const client = createNurbsClient();
     let cancelled = false;
-    client.convert(board).then(
-      (answer) => {
+    let dispose = () => {};
+    const refuse = (error: string, issues: readonly NurbsIssue[] = []) =>
+      setSync({ ...sync, refused: { loadCount, error, issues } });
+    // The client is loaded when a conversion is wanted, so the engine-off page never fetches it.
+    void import('./nurbs-client')
+      .then(({ createNurbsClient, SupersededError }) => {
         if (cancelled) return;
-        if (answer.ok) {
-          sectionStore.getState().loadDoc(answer.doc);
-          setSync({ convertedFrom: loadCount, refused: null });
-        } else {
-          setSync({ ...sync, refused: { loadCount, error: answer.error, issues: answer.issues } });
-        }
-        client.dispose();
-      },
-      (err: unknown) => {
-        client.dispose();
-        if (cancelled || err instanceof SupersededError) return;
-        setSync({
-          ...sync,
-          refused: {
-            loadCount,
-            error: err instanceof Error ? err.message : String(err),
-            issues: [],
+        const client = createNurbsClient();
+        dispose = () => client.dispose();
+        return client.convert(board).then(
+          (answer) => {
+            if (cancelled) return;
+            if (answer.ok) {
+              sectionStore.getState().loadDoc(answer.doc);
+              setSync({ convertedFrom: loadCount, refused: null });
+            } else {
+              refuse(answer.error, answer.issues);
+            }
+            client.dispose();
           },
-        });
-      },
-    );
+          (err: unknown) => {
+            client.dispose();
+            if (cancelled || err instanceof SupersededError) return;
+            refuse(err instanceof Error ? err.message : String(err));
+          },
+        );
+      })
+      .catch((err: unknown) => {
+        // the chunk would not load (offline, or removed by a deploy)
+        if (!cancelled) refuse(err instanceof Error ? err.message : String(err));
+      });
     return () => {
       cancelled = true;
-      client.dispose();
+      dispose();
     };
   }, [engineOn, hasBoard, loadCount, upToDate, refused]);
 

@@ -4,6 +4,7 @@ import { GizmoHelper, OrbitControls } from '@react-three/drei';
 import { Canvas, useThree, type ThreeEvent } from '@react-three/fiber';
 import {
   memo,
+  useDeferredValue,
   useEffect,
   useMemo,
   useRef,
@@ -29,6 +30,7 @@ import {
   deviationCenter,
   deviationStatus,
   isExactAnalysis,
+  ownSurfaceCenter,
   sameStatus,
   surfaceCenter,
   surfaceCurvatureStatus,
@@ -589,7 +591,13 @@ function BoardMesh({
   // it any more, so a job that has not started yet is dropped (mesh-queue.ts).
   const [hull, setHull] = useState<Hull | null>(null);
 
+  // A live external surface is drawn in place of the hull and placed by its own centre (analysis.ts,
+  // `surfaceCenter`), so the classic hull is not meshed per edit: a drag costs the app one mesh and one
+  // frame instead of two. Only the ghost deviation still reads the hull's centre.
+  const needHull = !(surface?.tracking === 'live') || analysis === 'ghost-deviation';
+
   useEffect(() => {
+    if (!needHull) return;
     let cancelled = false;
     const abort = new AbortController();
     tessellateAsync(board, targetFaceSize, abort.signal)
@@ -605,7 +613,7 @@ function BoardMesh({
       cancelled = true;
       abort.abort();
     };
-  }, [board, targetFaceSize]);
+  }, [board, targetFaceSize, needHull]);
 
   const geometry = hull?.geometry ?? null;
   // Free the previous geometry when it changes, and on unmount.
@@ -799,6 +807,10 @@ export function Board3DView({
   // An external surface counts only for the hull it was built from.
   const surface = surfaceProp && board && surfaceApplies(surfaceProp, board) ? surfaceProp : null;
   const standalone = surface?.tracking === 'standalone';
+  // Fins and guides sit on a live surface by its own centre (no hull to wait for), built for a board that
+  // follows the drag at a lower priority, so a burst of edits does not build them for each one.
+  const liveCentre = surface?.tracking === 'live' ? ownSurfaceCenter(surface) : null;
+  const overlayBoard = useDeferredValue(board);
   const exact = isExactAnalysis(analysis);
   const settled = useSettledBoard(store, board);
   // With an external surface the exact modes read its curvature: no hull fit needed.
@@ -857,11 +869,17 @@ export function Board3DView({
           />
         )}
         {board && !standalone && board.fins.setup !== 'none' && (
-          <Fins3D board={board} targetFaceSize={targetFaceSize} color={finColor} />
+          <Fins3D
+            board={liveCentre && overlayBoard ? overlayBoard : board}
+            targetFaceSize={targetFaceSize}
+            color={finColor}
+            surfaceCentre={liveCentre}
+          />
         )}
         {board && !standalone && (showStringer || showSections || showApex) && (
           <Guides3D
-            board={board}
+            board={liveCentre && overlayBoard ? overlayBoard : board}
+            surfaceCentre={liveCentre}
             targetFaceSize={targetFaceSize}
             showStringer={showStringer}
             showSections={showSections}

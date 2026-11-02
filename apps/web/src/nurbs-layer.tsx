@@ -295,6 +295,7 @@ export default function NurbsLayer({
           data-curvature-ms={model ? model.timings.curvatureMs.toFixed(1) : undefined}
           data-deviation-ms={model ? model.timings.deviationMs.toFixed(1) : undefined}
           data-ladders-reused={model ? String(model.mesh.laddersReused) : undefined}
+          data-source={model?.summary.source}
           data-test-board={shownTest ?? undefined}
           data-vertices={model ? model.mesh.positions.length / 3 : undefined}
           className="rounded-md border border-amber-500/60 bg-card/90 px-2 py-1 font-medium text-amber-300 shadow-lg"

@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   isDeviationAnalysis,
+  ownSurfaceCenter,
   sameStatus,
   surfaceCenter,
   surfaceCurvatureStatus,
@@ -63,7 +64,7 @@ describe('surfaceApplies and surfaceCenter', () => {
     expect(surfaceApplies({ board: null, curvature, deviation: null }, b)).toBe(false);
   });
 
-  it('places a standalone surface by its own centre and the others by the hull’s', () => {
+  it('places a standalone or live surface by its own centre and one tracking the hull by the hull’s', () => {
     const hull = { center: [1, 2, 3] as const };
     const own: ExternalSurface = {
       board: null,
@@ -72,7 +73,17 @@ describe('surfaceApplies and surfaceCenter', () => {
       deviation: null,
     };
     expect(surfaceCenter(hull, own, box)).toEqual([5, 2, 1]);
-    expect(surfaceCenter(hull, { ...own, tracking: 'live' }, box)).toEqual([1, 2, 3]);
+    // A live surface needs no hull (none is meshed for it): its own centre, with or without one.
+    expect(surfaceCenter(hull, { ...own, tracking: 'live' }, box)).toEqual([5, 2, 1]);
+    expect(surfaceCenter(null, { ...own, tracking: 'live' }, box)).toEqual([5, 2, 1]);
+    expect(surfaceCenter(hull, { ...own, tracking: 'hull' }, box)).toEqual([1, 2, 3]);
+    expect(surfaceCenter(hull, { ...own, tracking: undefined }, box)).toEqual([1, 2, 3]);
+  });
+
+  it('computes a surface’s own centre once per surface object', () => {
+    const s: ExternalSurface = { board: null, tracking: 'live', curvature: box, deviation: null };
+    expect(ownSurfaceCenter(s)).toBe(ownSurfaceCenter(s));
+    expect(ownSurfaceCenter(s)).toEqual([5, 2, 1]);
   });
 });
 

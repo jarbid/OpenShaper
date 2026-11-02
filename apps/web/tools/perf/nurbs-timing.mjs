@@ -1,20 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * Timings of the experimental NURBS viewer on the section model, in Chromium, against
- * the production build (docs/design/m1-model.md §3, "As built (step 3)").
+ * Timings of the experimental NURBS engine, in Chromium, against the production build
+ * (docs/design/m1-model.md §3, docs/design/m2-editor.md §6 step 1).
  *
  * Three measurements:
  *
  *  1. **Open**: for each sample file, open the app with `?engine=nurbs`, show the 3D
- *     view, load the file, and time until the NURBS surface of that file is on screen.
- *     Also the worker's own convert / build / mesh times for it.
+ *     view, load the file, and time until the NURBS surface of that file is on screen,
+ *     and until the NURBS board is editable (the badge says "editing": the file was
+ *     converted into the section store). Also the worker's own build / mesh times.
  *  2. **Engine switch**: with the engine off and the 3D view open, turn "Engine: NURBS
- *     (experimental)" on in Settings and time until the NURBS hull is on screen. This
- *     includes fetching the lazy layer chunk and starting the worker.
- *  3. **Drag**: with the quad view (2D outline + 3D) open, drag the shortboard's wide
- *     outline knot and record every NURBS update that arrives: request to answer on the
- *     main thread (clone, convert, build, mesh, transfer), and the worker's share.
- *     The target is a median under 50 ms.
+ *     (experimental)" on in Settings and time until the NURBS hull is on screen and the
+ *     board is editable. This includes fetching the lazy layer chunk and starting the worker.
+ *  3. **Drag**: with the engine on and the quad view (2D outline + 3D) open, so the
+ *     panes edit the section store, drag the shortboard's wide outline knot (the edit that
+ *     touches the most: every station's width) and then a rocker knot and a deck knot,
+ *     and record every NURBS update that arrives: request to answer on the main
+ *     thread (clone of the document, build, mesh, transfer), and the worker's share. No
+ *     converter runs in the loop. Targets (m2-editor.md step 1): median <= 35 ms, p95 <= 50 ms.
  *
  * Usage (after `pnpm build`):
  *   node tools/perf/nurbs-timing.mjs [--json out.json] [--only substring] [--throttle 4]
@@ -125,6 +128,22 @@ const waitSurface = (page, afterSeq, timeout = 60_000) =>
     { timeout, polling: 10 },
   );
 
+/** The board on screen is the section store's document: the editors edit NURBS curves. */
+const waitEditable = (page, timeout = 60_000) =>
+  page.waitForFunction(
+    () => {
+      const b = document.querySelector('[data-testid=nurbs-badge]');
+      return (
+        !!b &&
+        b.getAttribute('data-phase') === 'ready' &&
+        b.getAttribute('data-source') === 'doc' &&
+        b.textContent.includes('editing')
+      );
+    },
+    undefined,
+    { timeout, polling: 10 },
+  );
+
 /** The badge's data attributes as the browser shows them now. */
 const readBadge = (page) =>
   page.evaluate(() => {
@@ -165,6 +184,16 @@ async function measureOpen(browser) {
     const wallMs = Date.now() - t0;
     const u = await readBadge(page);
     const phase = u.phase;
+    // Then until the file is converted into the section store and the editors edit it.
+    let editableMs = null;
+    if (phase === 'ready') {
+      try {
+        await waitEditable(page, 20_000);
+        editableMs = Date.now() - t0;
+      } catch {
+        editableMs = null; // the board is refused by the NURBS model: the classic editors stay
+      }
+    }
     let reason = null;
     if (phase === 'failed') {
       await page.getByRole('button', { name: 'NURBS conversion details' }).click();
@@ -177,6 +206,7 @@ async function measureOpen(browser) {
       file: file.split('/').pop(),
       phase,
       wallMs,
+      editableMs,
       worker:
         u && phase === 'ready'
           ? { convert: u.convert, build: u.build, mesh: u.mesh, total: u.worker }
@@ -207,8 +237,17 @@ async function measureSwitch(browser) {
     await page.getByRole('button', { name: 'Apply' }).click();
     await waitSurface(page, 0);
     const ms = Date.now() - t0;
+    await waitEditable(page);
+    const editableMs = Date.now() - t0;
     const u = await readBadge(page);
-    const row = { run, applyToHullMs: ms, worker: u.worker, vertices: u.vertices, errors };
+    const row = {
+      run,
+      applyToHullMs: ms,
+      applyToEditableMs: editableMs,
+      worker: u.worker,
+      vertices: u.vertices,
+      errors,
+    };
     out.push(row);
     console.log(JSON.stringify(row));
     await context.close();
@@ -216,58 +255,65 @@ async function measureSwitch(browser) {
   return out;
 }
 
-/** Screen position of an outline point (board cm) in the quad view's 2D outline pane. */
-async function dragKnot(page) {
-  const view = await page.evaluate(() => {
-    // The outline pane is the first canvas; the 3D one is later in the DOM.
-    const c = document.querySelector('canvas');
-    const r = c.getBoundingClientRect();
+const LENGTH = 187.96; // the shortboard, cm
+const positionEditorShown = (page) =>
+  page
+    .getByLabel(/ position editor$/)
+    .first()
+    .isVisible()
+    .catch(() => false);
+
+/** A click at `p` that selects a control point (the pane's position editor appears). */
+async function clickSelects(page, p) {
+  await page.mouse.move(p.x, p.y);
+  await page.mouse.down();
+  await page.mouse.up();
+  return positionEditorShown(page);
+}
+
+const paneRect = (page, index) =>
+  page.evaluate((i) => {
+    // Quad order: outline, cross-section, rocker, 3D.
+    const r = document.querySelectorAll('canvas')[i].getBoundingClientRect();
     return { x: r.x, y: r.y, w: r.width, h: r.height };
-  });
-  const L = 187.96;
-  const s = (view.w - 48) / L;
+  }, index);
+
+/** The shortboard's wide outline point, in the quad view's outline pane. */
+async function findOutlineKnot(page) {
+  const view = await paneRect(page, 0);
+  const s = (view.w - 48) / LENGTH;
   const cands = [
     { x: view.x + 24 + 90.13362308681752 * s, y: view.y + view.h / 2 - 23.49499750470692 * s },
     { x: view.x + 24 + 90.13362308681752 * s, y: view.y + view.h / 2 + 23.49499750470692 * s },
   ];
-  let start = null;
-  for (const c of cands) {
-    await page.mouse.move(c.x, c.y);
-    await page.mouse.down();
-    await page.mouse.up();
-    if (
-      await page
-        .getByLabel(/ position editor$/)
-        .first()
-        .isVisible()
-        .catch(() => false)
-    ) {
-      start = c;
-      break;
-    }
-  }
-  return start;
+  for (const c of cands) if (await clickSelects(page, c)) return c;
+  return null;
 }
 
-async function measureDrag(browser) {
-  const { context, page, errors } = await newPage(browser);
-  await page.goto(`${BASE}/app?engine=nurbs`);
-  await page.locator('canvas').first().waitFor();
-  await page.keyboard.press('1'); // quad: outline, profile, section and 3D
-  await waitSurface(page, 0);
-  await page.waitForTimeout(500);
-  // The 3D view's analysis mode does not matter here; curvature is computed on settle.
-  const start = await dragKnot(page);
-  if (!start) {
-    await context.close();
-    return { error: 'could not select the wide-point knot', errors };
-  }
+/**
+ * A rocker or deck point at x = 93.899 cm in the rocker pane: scan the pane's column from the
+ * top (the deck is the upper curve) or from the bottom (the rocker).
+ */
+async function findProfileKnot(page, fromTop) {
+  const view = await paneRect(page, 2);
+  const s = (view.w - 48) / LENGTH;
+  const x = view.x + 24 + 93.899 * s;
+  await page.keyboard.press('Escape'); // no point selected: its handles would be in the way
+  const ys = [];
+  for (let y = 8; y < view.h - 8; y += 3) ys.push(view.y + y);
+  if (!fromTop) ys.reverse();
+  for (const y of ys) if (await clickSelects(page, { x, y })) return { x, y };
+  return null;
+}
+
+/** Drag from `start` for DRAG_MOVES pointer moves and collect the NURBS updates that arrive. */
+async function dragAndRecord(page, start, step) {
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
   await page.evaluate(() => (window.__updates.length = 0));
   const t0 = await page.evaluate(() => performance.now());
   for (let i = 1; i <= DRAG_MOVES; i++) {
-    await page.mouse.move(start.x + i * 0.5, start.y - i * 0.3);
+    await page.mouse.move(start.x + i * step.x, start.y + i * step.y);
     await page.evaluate(
       () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
     );
@@ -288,7 +334,7 @@ async function measureDrag(browser) {
     ),
     max: r1(Math.max(...during.map((u) => u[key]))),
   });
-  const res = {
+  return {
     moves: DRAG_MOVES,
     updatesDuringDrag: during.length,
     updatesPerSecond: r1(during.length / ((tEnd - t0) / 1000)),
@@ -311,9 +357,37 @@ async function measureDrag(browser) {
     series: process.env.NURBS_SERIES
       ? during.map((u) => [u.convert, u.build, u.mesh, u.worker, u.roundTrip])
       : undefined,
-    errors,
   };
-  console.log(JSON.stringify(res));
+}
+
+/**
+ * Drag the shortboard's outline, deck and rocker points with the engine on, so the panes edit the
+ * section store and the viewer sends documents (no converter in the loop).
+ */
+async function measureDrag(browser) {
+  const { context, page, errors } = await newPage(browser);
+  await page.goto(`${BASE}/app?engine=nurbs`);
+  await page.locator('canvas').first().waitFor();
+  await page.keyboard.press('1'); // quad: outline, section, rocker and 3D
+  await waitSurface(page, 0);
+  await waitEditable(page);
+  await page.waitForTimeout(500);
+  const res = { errors };
+  const drags = [
+    ['outline', () => findOutlineKnot(page), { x: 0.5, y: -0.3 }],
+    ['deck', () => findProfileKnot(page, true), { x: 0, y: -0.25 }],
+    ['rocker', () => findProfileKnot(page, false), { x: 0, y: 0.25 }],
+  ];
+  for (const [name, find, step] of drags) {
+    const start = await find();
+    if (!start) {
+      res[name] = { error: `could not select the ${name} knot` };
+      continue;
+    }
+    res[name] = await dragAndRecord(page, start, step);
+    res[name].source = await page.getByTestId('nurbs-badge').getAttribute('data-source');
+    console.log(JSON.stringify({ [name]: res[name] }));
+  }
   await context.close();
   return res;
 }

@@ -278,23 +278,34 @@ export const deviationCenter = (
   mesh: BoardMesh,
 ): readonly [number, number, number] => (hull ? hull.center : boardCenter(mesh));
 
-const standaloneCenters = new WeakMap<object, readonly [number, number, number]>();
+const ownCenters = new WeakMap<object, readonly [number, number, number]>();
+
+/** The bounding-box centre of an external surface's own mesh, one computation per surface object. */
+export const ownSurfaceCenter = (surface: ExternalSurface): readonly [number, number, number] => {
+  let c = ownCenters.get(surface);
+  if (!c) {
+    c = boardCenter(surface.curvature);
+    ownCenters.set(surface, c);
+  }
+  return c;
+};
 
 /**
- * The centre an external surface is placed around (negated, as for the hull): the
- * hull's, like the deviation map, so the surface stays registered with the fins and
- * guides; a standalone surface (not the store's board) is centred on itself.
+ * The centre an external surface is placed around (negated, as for the hull).
+ *
+ * - **Live** (the app replaces it on every edit): its own. The classic hull is not even meshed
+ *   while it applies, so a drag costs one mesh and one frame per edit instead of two; fins and guides
+ *   are placed by the same centre (`useBoardOffset`), so they stay registered with it. The classic hull's
+ *   centre differs by the classic and the NURBS surface's difference at the extremes (about a millimetre).
+ * - **Tracking the hull**: the hull's, like the deviation map, so the surface stays registered with the
+ *   fins and guides.
+ * - **Standalone** (not the store's board): its own, as it is not on the hull at all.
  */
 export const surfaceCenter = (
   hull: { readonly center: readonly [number, number, number] } | null,
   surface: ExternalSurface,
   mesh: BoardMesh,
-): readonly [number, number, number] => {
-  if (surface.tracking !== 'standalone') return deviationCenter(hull, mesh);
-  let c = standaloneCenters.get(surface);
-  if (!c) {
-    c = boardCenter(mesh);
-    standaloneCenters.set(surface, c);
-  }
-  return c;
-};
+): readonly [number, number, number] =>
+  surface.tracking === 'standalone' || surface.tracking === 'live'
+    ? ownSurfaceCenter(surface)
+    : deviationCenter(hull, mesh);

@@ -1,9 +1,10 @@
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { assertNoNurbsCodeOutsideWorker } from './tools/nurbs-bundle-guard';
 import { assertNoNurbsPreloads, stripNurbsPreloads } from './tools/nurbs-preload';
 import { assertEditorPrecache, rewriteAppShellUrl } from './tools/precache-guard';
 
@@ -166,6 +167,15 @@ export default defineConfig({
       assertNoNurbsPreloads(route, out);
       return out;
     },
-    onFinished: (outDir: string) => writeSitemap(outDir),
+    onFinished: (outDir: string) => {
+      writeSitemap(outDir);
+      // board2 and geom ride in the NURBS worker only (tools/nurbs-bundle-guard.ts).
+      const assets = join(outDir, 'assets');
+      assertNoNurbsCodeOutsideWorker(
+        readdirSync(assets)
+          .filter((file) => file.endsWith('.js'))
+          .map((file) => ({ file, text: readFileSync(join(assets, file), 'utf8') })),
+      );
+    },
   },
 });
