@@ -17,6 +17,8 @@ export { BOARD2_ISSUE_CODES, board2Err, board2Ok, hasErrors } from './issues';
 export { deriveLadders, meshBoard, meshProperties, meshVertex } from './mesh';
 export type { BoardMesh, Ladders, MeshLayout, MeshOptions } from './mesh';
 export { DEFAULT_BUILD } from './params';
+export { createChordFn, probeSection } from './probe';
+export type { ChordFn } from './probe';
 export { MEASURE, buildBoard, createEvaluator } from './surface';
 export type {
   BuildReport,

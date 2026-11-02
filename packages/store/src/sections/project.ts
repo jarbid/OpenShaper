@@ -15,8 +15,9 @@
  * - **Stations.** Each station becomes a physical slice `(u * w(xi), v * T(xi))`: `w` the half-width
  *   and `T` the stringer thickness at xi, the exact inverse of the converter's normalisation. Classic's
  *   dummy end slices bracket the list, so index-based code is unchanged (slice i is station i - 1).
- *   Inside a notch zone the true chord is longer than the plan half-width at x = xi; step 1 shows
- *   the plain half-width there (sections are read-only until the section editor).
+ *   Inside a notch zone the true chord is longer than the plan half-width at x = xi: the chord comes
+ *   from an injected {@link NotchChords} (board2's frame; this package may not import its code), and
+ *   falls back to the plan's outer rail without one.
  * - **Fins** pass through (`doc.fins` is classic's fin configuration).
  *
  * Everything is cached by the identity of what it was made from, so an edit that touches one curve
@@ -202,9 +203,19 @@ const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
  * (the bound that keeps a section inside the blank). The inverse of {@link sectionToSlice} for a slice
  * it made, to rounding (1e-12 in the tests). `apex` is the section's apex knot index.
  */
-export function sliceToSection(slice: Spline, w: number, T: number, apex: number): Section {
+export function sliceToSection(
+  slice: Spline,
+  w: number,
+  T: number,
+  apex: number,
+  /** The height of the bottom centre, for a slice that does not start at y = 0. */
+  y0 = 0,
+): Section {
   const n = slice.knots.length;
-  const norm = (v: { readonly x: number; readonly y: number }): Pair => [clamp01(v.x / w), v.y / T];
+  const norm = (v: { readonly x: number; readonly y: number }): Pair => [
+    clamp01(v.x / w),
+    (v.y - y0) / T,
+  ];
   const knots: ChainKnot[] = slice.knots.map((k, i) => {
     const p = norm(k.end);
     const lock =
@@ -231,14 +242,23 @@ interface SliceEntry {
   readonly spline: Spline;
 }
 const slices = new WeakMap<Section, SliceEntry>();
+const sliceDimensions = new WeakMap<Spline, { readonly w: number; readonly T: number }>();
 
 const sliceOf = (section: Section, w: number, T: number): Spline => {
   const held = slices.get(section);
   if (held !== undefined && held.w === w && held.T === T) return held.spline;
   const spline = sectionToSlice(section, w, T);
   slices.set(section, { w, T, spline });
+  sliceDimensions.set(spline, { w, T });
   return spline;
 };
+
+/**
+ * The half-width (chord) and thickness a projected slice was scaled by, or undefined for a spline the
+ * projection did not make. A slice edit is divided by these to become a section again.
+ */
+export const sliceDims = (slice: Spline): { readonly w: number; readonly T: number } | undefined =>
+  sliceDimensions.get(slice);
 
 // ---------------------------------------------------------------------------
 // The board
@@ -246,25 +266,50 @@ const sliceOf = (section: Section, w: number, T: number): Spline => {
 
 const NO_FINS: FinConfig = noFins();
 
+/**
+ * The chord length `w(xi)` of a document's plus side, for a notched tail: the distance from the stringer
+ * point to the outline point the station's chord ends at (board2's `createChordFn`). Injected by the app,
+ * because this package may not import board2's code. The function it returns is cached by the provider on
+ * what the chord depends on, so a section edit does not rebuild it.
+ */
+export type NotchChords = (doc: BoardDoc) => (xi: number) => number;
+
 interface ListEntry {
   readonly outline: Spline;
   readonly rocker: Spline;
   readonly deck: Spline;
+  readonly tail: BoardDoc['tail'];
+  readonly chords: NotchChords | undefined;
   readonly list: readonly CrossSection[];
 }
 const lists = new WeakMap<object, ListEntry>();
 
-function crossSectionsOf(doc: BoardDoc, outline: Spline, rocker: Spline, deck: Spline) {
+function crossSectionsOf(
+  doc: BoardDoc,
+  outline: Spline,
+  rocker: Spline,
+  deck: Spline,
+  chords: NotchChords | undefined,
+) {
   const held = lists.get(doc.stations);
-  if (held && held.outline === outline && held.rocker === rocker && held.deck === deck) {
+  if (
+    held &&
+    held.outline === outline &&
+    held.rocker === rocker &&
+    held.deck === deck &&
+    held.tail === doc.tail &&
+    held.chords === chords
+  ) {
     return held.list;
   }
   const L = doc.outline.plus.knots[doc.outline.plus.knots.length - 1]!.p[0];
-  // Half-width at x: the outline's value; for a notched tail (a non-function outline) its outer rail.
+  // Half-width at x: the outline's value; for a notched tail (a non-function outline) the chord of the
+  // station when a provider is injected, else the plan's outer rail at x.
   const notched = doc.tail.kind === 'notched';
-  const bare = notched ? board(outline, rocker, deck, [], 'controlPoint', NO_FINS) : null;
+  const chord = notched && chords ? chords(doc) : null;
+  const bare = notched && !chord ? board(outline, rocker, deck, [], 'controlPoint', NO_FINS) : null;
   const halfWidthAt = (x: number): number =>
-    Math.max(0, bare ? widthBoundsAt(bare, x).yOut : valueAt(outline, x));
+    Math.max(0, chord ? chord(x) : bare ? widthBoundsAt(bare, x).yOut : valueAt(outline, x));
   const dummy = (position: number): CrossSection =>
     crossSection(position, splineFromKnots([knot(vec2(0, 0), vec2(0, 0), vec2(0, 0), true)]));
   const list: CrossSection[] = [dummy(0)];
@@ -274,18 +319,22 @@ function crossSectionsOf(doc: BoardDoc, outline: Spline, rocker: Spline, deck: S
     list.push(crossSection(st.x, sliceOf(st.plus, w, T)));
   }
   list.push(dummy(L));
-  lists.set(doc.stations, { outline, rocker, deck, list });
+  lists.set(doc.stations, { outline, rocker, deck, tail: doc.tail, chords, list });
   return list;
 }
 
-const boards = new WeakMap<BoardDoc, BezierBoard>();
+const boards = new WeakMap<
+  BoardDoc,
+  { readonly chords: NotchChords | undefined; board: BezierBoard }
+>();
 
 /**
  * The classic board a document projects to, memoised per document. The pieces of one document that
  * another shares (an edit replaces the curves it touches) are the same objects in both projections.
  */
-export function projectDoc(doc: BoardDoc): BezierBoard {
-  let b = boards.get(doc);
+export function projectDoc(doc: BoardDoc, chords?: NotchChords): BezierBoard {
+  const held = boards.get(doc);
+  let b = held !== undefined && held.chords === chords ? held.board : undefined;
   if (b === undefined) {
     const outline = chainToSpline(doc.outline.plus);
     const rocker = chainToSpline(doc.rocker);
@@ -295,11 +344,11 @@ export function projectDoc(doc: BoardDoc): BezierBoard {
       outline,
       rocker,
       deck,
-      crossSectionsOf(doc, outline, rocker, deck),
+      crossSectionsOf(doc, outline, rocker, deck, chords),
       'controlPoint',
       fins,
     );
-    boards.set(doc, b);
+    boards.set(doc, { chords, board: b });
   }
   return b;
 }

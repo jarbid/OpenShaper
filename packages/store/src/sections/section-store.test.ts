@@ -252,20 +252,6 @@ describe('line editors', () => {
     expect(errorsOf(store.getState().doc!).map((e) => e.code)).not.toContain('outline-endpoints');
   });
 
-  it('sections are read-only in step 1', () => {
-    const doc = goldenDoc('shortboard');
-    const store = opened(doc);
-    const slice = store.getState().board!.crossSections[2]!.spline;
-    const k = slice.knots[2]!.end;
-    store.getState().moveControlPoint({ kind: 'crossSection', index: 2 }, 2, vec2(k.x * 0.9, k.y));
-    store.getState().setLocked({ kind: 'crossSection', index: 2 }, 2, true);
-    expect(store.getState().addCrossSection(50)).toBe(-1);
-    store.getState().deleteCrossSection(2);
-    store.getState().setInterpolationType('sLinear');
-    expect(store.getState().doc).toBe(doc);
-    expect(store.getState().past).toHaveLength(0);
-  });
-
   it('fin edits are written to the document', () => {
     const doc = goldenDoc('shortboard');
     const store = opened(doc);
@@ -380,7 +366,8 @@ describe('history', () => {
     expect(s().past).toHaveLength(1);
     const before = s().doc;
     s().beginEdit();
-    s().moveControlPoint({ kind: 'crossSection', index: 1 }, 1, vec2(1, 1));
+    // a centre point is the blank's: the edit is taken back whole
+    s().moveControlPoint({ kind: 'crossSection', index: 1 }, 0, vec2(1, 1));
     s().endEdit();
     expect(s().past).toHaveLength(1);
     expect(s().doc).toBe(before);

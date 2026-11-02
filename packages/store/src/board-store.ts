@@ -1,21 +1,15 @@
 import type { BezierBoard, RailPresetId, Vec2 } from '@openshaper/kernel';
-import {
-  adjustCrossSectionsToThicknessAndWidth,
-  applyRailProfile,
-  railPresetById,
-} from '@openshaper/kernel';
+import { adjustCrossSectionsToThicknessAndWidth } from '@openshaper/kernel';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { FinSetup, FinSpec, FinSystem, InterpolationType, Spline } from '@openshaper/kernel';
-import { createFinActions, createSplineActions } from './board-actions';
+import { createFinActions, createSectionShapeActions, createSplineActions } from './board-actions';
 import {
   enforceJunctions,
-  fitSectionToBlank,
   getTargetSpline,
   insertCrossSection,
   moveCrossSectionPosition,
   removeCrossSection,
   withInterpolationType,
-  withSpline,
   type KnotHandles,
   type SplineTarget,
 } from './edits';
@@ -281,35 +275,7 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         commit(next, 'Move cross-section');
       },
 
-      pasteCrossSection: (index, spline) => {
-        const { board } = get();
-        if (!board) return;
-        const target: SplineTarget = { kind: 'crossSection', index };
-        // The shape is pasted; the station keeps its own blank, as for any slice edit.
-        const fitted = fitSectionToBlank(getTargetSpline(board, target), spline);
-        commit(enforceJunctions(withSpline(board, target, fitted), target), 'Paste cross-section');
-      },
-
-      applyRailPreset: (index, presetId) => {
-        const { board } = get();
-        if (!board) return;
-        // The nose and tail dummies bookend the list and have no rail to shape.
-        if (index <= 0 || index >= board.crossSections.length - 1) return;
-        const cs = board.crossSections[index];
-        const preset = railPresetById(presetId);
-        if (!cs || !preset) return;
-        const next = applyRailProfile(cs, preset.params);
-        // Nothing to shape — a nose/tail dummy, or a collapsed station.
-        if (next === cs) return;
-        const target: SplineTarget = { kind: 'crossSection', index };
-        commit(
-          enforceJunctions(withSpline(board, target, next.spline), target),
-          `Rail preset: ${preset.label}`,
-        );
-        // The profile is rebuilt from scratch, so any selected control point index is
-        // now meaningless — and may not even exist on the new spline.
-        set({ selection: null });
-      },
+      ...createSectionShapeActions(ctx),
 
       setInterpolationType: (type) => {
         const { board } = get();
