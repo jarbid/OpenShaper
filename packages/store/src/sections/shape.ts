@@ -37,8 +37,8 @@ const START_ZONE = 1.5;
 const TIP_SHARE = { swallow: 0.42, fish: 0.5 } as const;
 /** Outline knots nearer the tail than this share of the length belong to the tail being replaced. */
 const TAIL_KNOT_SHARE = 0.08;
-/** A wall whose handles stray more than this share of its length from the straight line is a fish's. */
-const FISH_BULGE = 0.08;
+/** A wall whose handles stray more than this (in the wall's unit square) from the straight line is a fish's. */
+const FISH_BULGE = 0.1;
 /** Stations stay at least this far (cm) apart. */
 const STATION_GAP = 1e-3;
 /** The fewest stations a board keeps (same as `edits.ts`). */
@@ -50,8 +50,6 @@ const corner = (p: Pair, inn?: Pair, out?: Pair): ChainKnot => ({
   out: out ?? p,
   smooth: false,
 });
-
-const dist = (a: Pair, b: Pair): number => Math.hypot(a[0] - b[0], a[1] - b[1]);
 
 /** Index of the rearmost knot: the tail tip of a notched outline (its first knot is the notch bottom). */
 const tipIndex = (c: Chain): number => {
@@ -120,12 +118,13 @@ export function tailTypeOf(doc: BoardDoc): TailType {
   const tip = tipIndex(doc.outline.plus);
   // a wall of several segments is not one of ours: call it a fish (a rounded wall)
   if (tip !== 1) return 'fish';
-  const [a, b, c, e] = [knots[0]!.p, knots[0]!.out, knots[1]!.in, knots[1]!.p];
-  const len = dist(a, e);
-  if (len === 0) return 'swallow';
-  const off = (q: Pair): number =>
-    Math.abs((q[0] - a[0]) * (e[1] - a[1]) - (q[1] - a[1]) * (e[0] - a[0])) / len;
-  return Math.max(off(b), off(c)) > FISH_BULGE * len ? 'fish' : 'swallow';
+  const d = knots[0]!.p[0];
+  const w = knots[1]!.p[1];
+  if (!(d > 0 && w > 0)) return 'swallow';
+  // in the wall's own unit square (x / d, y / w) a straight wall's handles lie on the diagonal x + y = 1,
+  // whatever the notch depth, so a deeper notch does not turn a fish into a swallow
+  const off = (q: Pair): number => Math.abs(q[0] / d + q[1] / w - 1) / Math.SQRT2;
+  return Math.max(off(knots[0]!.out), off(knots[1]!.in)) > FISH_BULGE ? 'fish' : 'swallow';
 }
 
 /** The inner wall from the notch bottom `(d, 0)` to the tip `(0, w)`: [notch bottom, tip] with their wall handles. */
