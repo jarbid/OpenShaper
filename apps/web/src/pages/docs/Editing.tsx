@@ -312,6 +312,12 @@ export default function DocsEditing() {
           board, so the cross-section view calls it a <em>rail section</em>.
         </p>
         <p>
+          Not yet for an asymmetric board: saving, exporting, sharing and the autosave write it as a
+          classic board, which has one half only (the first, mirrored), so the other half is not in
+          the file. The specs readout is of that mirrored board too; the volume in the 3D
+          view&rsquo;s <strong>i</strong> button is of the whole surface.
+        </p>
+        <p>
           A very deep or narrow notch, or an outline edit near the tail, can make the rail fold so
           the notch&rsquo;s cross-cuts would cross the outline at a shallow angle. The model then
           refuses the board: the 3D view keeps the last good surface until you drag back, and the{' '}

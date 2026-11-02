@@ -472,3 +472,134 @@ tighter than this container's noise; on a quiet machine or with a GPU it should 
   `station + 1`; both still hold.
 - The ghosts need the 3D view mounted (the layer owns the worker). A two-sided section pane adds a second
   ghost; `probeAt(items, xi)` matches on the exact coordinate asked.
+
+## 10. As built (step 3)
+
+Landed: symmetry, tail type and notch depth. With the engine on, a **Board shape** section in the Shape tab
+makes the board asymmetric (each half gets its own outline and its own section at every station) or mirror
+symmetric again (asking which half to keep), and sets a standard, swallow or fish tail and its notch depth. The
+outline and cross-section panes show both halves of an asymmetric board and edit either. With the engine off
+nothing changes (the classic characterization snapshots are untouched).
+
+**Where it is.**
+
+- `packages/store/src/sections`: `shape.ts` (`setSymmetry`, `setTail`, `setNotchDepth`, `tailTypeOf`,
+  `defaultNotchDepth`, `notchDepthRange`; all pure), `edits.ts` (`applyMinusEdit`, `alignEnds`, `scalePlan`;
+  `addStation` takes a section from each half), `project.ts` (the minus projection), `section-store.ts` (the
+  `side: 'minus'` dispatch and the three new actions on `SectionState`). `packages/store/src/edits.ts` has
+  `SidedBoard`, `minusHalf` and `findTargetSpline`; `getTargetSpline` reads a minus target from the minus half.
+- `packages/render2d`: `sides.ts` and the `splitSides` prop of `SplineEditor` (and `axis` in the context-menu
+  request). `packages/board2`: `createChordFn(doc, side?)`.
+- `apps/web`: `BoardShapeSection.tsx`, `KeepSideDialog.tsx`, `board-shape.ts` (`TAIL_TYPES`), the `boardShape`
+  entry in `sidebar-sections.ts` (with `SIZING.segment` in `Sidebar.tsx`), `paneProps` in `view-toolkit.tsx`,
+  the ghosts and copy/paste in `App.tsx`, `loadNotchChords` in `use-section-engine.ts`, the docs section
+  `board-shape` on `/docs/editing` with a registry kind `tail-type`.
+
+**The minus half.** An asymmetric document projects to a plus board with a second classic board attached,
+`board.minus` (`SidedBoard`): its outline is the minus outline, its stations the minus sections (projected with
+the minus half-width or chord), and its rocker, deck and fins the very same objects. Everything that reads
+`getTargetSpline(board, target)` (the panes, the inspector, nudging, the context menu) therefore reads a
+`side: 'minus'` target without change. The writers take the same route: the section store builds the shared spline
+actions twice, once over the plus board and once over `board.minus`, and sends a minus target (named without its
+side) to the second. So a minus edit is the classic edit with the classic rules (`enforceJunctions`,
+`constrainSectionToBlank`, the Phase 0 section rules), and `applyMinusEdit` writes back the minus outline and the
+touched minus sections only. Paste and the rail presets take an optional `side`.
+
+- **Shared end points.** The nose and the notch bottom are on both halves. A plus edit that moves one carries the
+  minus end with it (`alignEnds`); the minus outline's ends are held on the plus outline's, so dragging the minus
+  nose in x does nothing. The rocker, deck, stations and features are never written by a minus edit.
+- A whole-board resize scales the minus outline with the plus one.
+- `setTail` and `setNotchDepth` act on both outlines.
+
+**Panes.** In an asymmetric board the outline pane draws the plus half above the centre line and the minus half
+below it; the cross-section pane draws the plus section to the right of the centre line and the minus section
+to the left. Each is edited where it is drawn: `SplineEditor` (`splitSides`) works on a reflected copy of the
+minus spline (one object per spline, `sides.ts`) for drawing and hit testing, and reflects every point it hands
+back. Ghosts (the as-built probes, the scrub preview, neighbouring stations, the classic ghost board) are drawn
+on both sides. The keep-side dialog names the halves as the outline view draws them: the upper rail and the
+lower rail.
+
+**Notch depth.** The outline's first knot of a notched tail is the handle: a drag of it (or a typed X in the
+inspector) is `setNotchDepth`, y is ignored, and a drag is one undo step. The section has a field in the display
+unit, held between 0.5% and 30% of the length. The wall scales in x with the depth; the tail tips stay at x = 0.
+
+**Tails.** `setTail` replaces the outline's tail knots. A swallow is a straight inner wall from the notch bottom to
+a corner tip, a fish a rounded wall; the default depth is 6% (swallow) and 3.5% (fish) of the length, the tip's
+half-width 42% and 50% of the greatest half-width, and the tail is marked `auto` (zone 1.5 d to start). Going to
+standard rebuilds a round tail from the tip's rise.
+
+**Deviations from the design above.**
+
+1. **The tail type is not stored.** `tailTypeOf` reads it back from the wall: a straight wall (handles on the
+   diagonal of the wall's own unit square) is a swallow, a bowed one a fish. A converted classic notch, or the
+   fish test board (whose wall is nearly straight), may read as the other kind; no data is wrong, only the label.
+   Switching between swallow and fish keeps the depth and the tip and rebuilds the wall.
+2. **`setNotchDepth` moves the station on the notch bottom with it and drops the ones it passes** (the design only
+   moved the notch bottom). Changing the tail to or from a notch, and a depth drag past a station, drops stations
+   behind the new notch bottom as designed; undo restores them. Stations inside the zone are kept (the converter
+   drops them; here the user keeps what they drew).
+3. **Bottom feature keys are not moved** by a tail change. A feature whose keys then lie behind the notch bottom is
+   `feature-invalid` and the surface is refused (stale, below). The feature functions are step 4.
+4. **A refusal keeps the last good surface only for a gesture.** A drag of the notch handle, a point or a section
+   does (`editing`); a typed depth or a tail change that the model refuses shows the classic mesh and the reason
+   (the viewer's existing rule, M1 §12.7, unchanged).
+5. **Specs, save, share and the autosave of an asymmetric board** use the plus half mirrored (step 1's deviations 9
+   and 10 still hold): the file has one half. The 3D view and the popover's volume are the whole board. Step 5
+   (the document is what is saved) removes this; the docs page says so.
+6. **The minus nose cannot be dragged in x** (it is held on the plus nose); drag the plus one.
+7. **`NotchChords` takes a side**, and `notchChords` in the worker core keeps one memory per side; the key includes
+   the other half's outline, since the notch zone is picked on both.
+8. **`BoardState.pasteCrossSection` and `applyRailPreset` gained an optional `side`** (classic ignores it).
+
+**Acceptance (tests).**
+
+| Check                                                                                                                                  | Result                                                                                                                                                                                                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Characterization snapshots (`board-store`, kernel, io)                                                                                 | Unchanged (324 store tests, the 249 classic ones among them, pass without edits)                                                                                                                                                                                                                      |
+| Asymmetric shares the `Section` objects, no refit                                                                                      | Holds on the 3 goldens: every `minus` is the `plus` object, the minus outline is the plus chain, and the lines, features and fins are the same objects (the fit cache is keyed by `Section` identity)                                                                                                 |
+| Back to mirror keeps the chosen side bit for bit                                                                                       | Holds for both halves of the asymmetric test board: the kept chain and every kept section are the very objects, and the JSON is equal                                                                                                                                                                 |
+| A swallow and a fish made from each golden validate                                                                                    | Pass (6 boards), also built, switched to the other kind and back to standard                                                                                                                                                                                                                          |
+| Notch-depth drags over 0.5 to 2 x the default depth (31 steps) validate or are refused with reasons, never a throw                     | Fish: 31 of 31 valid on all 3 goldens. Swallow: valid up to 1.75 x (shortboard, 25 of 31), 1.70 x (funboard, 24) and 1.50 x (longboard, 20); deeper is refused with `notch-chord-angle`. In the browser the drag keeps the last good surface ("last good surface shown") and recovers on the way back |
+| Fuzz of every handle of every station (step 2) extended to the minus side of an asymmetric board                                       | Pass: the asymmetric test board and the three goldens made asymmetric, minus side; also the plus side of the asymmetric board. No `section-*` error; the lines and the other half never move                                                                                                          |
+| A minus edit changes only the minus half; a plus end-point move carries the minus end; one undo step                                   | Pass                                                                                                                                                                                                                                                                                                  |
+| `SplineEditor` with `splitSides`: a drag of a minus point below the stringer edits the minus spline in its own frame                   | Pass (jsdom)                                                                                                                                                                                                                                                                                          |
+| e2e: make the shortboard asymmetric, drag one rail's outline point, only that side changes, undo                                       | Pass                                                                                                                                                                                                                                                                                                  |
+| Gate: `pnpm lint`, `pnpm typecheck`, `CI=1 turbo run test --concurrency=2`, `pnpm build` (bundle guard), `e2e` (48), `e2e:offline` (8) | All pass. Nothing flaky seen in these runs.                                                                                                                                                                                                                                                           |
+
+**Timings** (`nurbs-timing.mjs --skip open,switch`, one run: Chromium, software WebGL, production build, 4-core
+container, 60 pointer moves per drag, quad view, the shortboard). Request to answer on the main thread, median (p95),
+and the worker's:
+
+| Drag               | Round trip, ms | Worker, ms | Build, ms (median) | Mesh, ms (median) |
+| ------------------ | -------------- | ---------- | ------------------ | ----------------- |
+| Outline wide point | 11 (19)        | 5.4 (14.6) | 0.5                | 4.8               |
+| Deck point         | 10 (17)        | 6.1 (16.0) | 0.4                | 5.6               |
+| Rocker point       | 11 (16)        | 6.8 (11.3) | 0.5                | 6.3               |
+| Section apex       | 12 (40)        | 9.0 (24.1) | 1.5                | 7.4               |
+
+The line and section drags are where step 2 left them (step 2: lines median 10 to 12 ms and worker p95 11 to 23;
+section median 10 to 12 ms, round trip p95 16 to 76, worker p95 15 to 28): this step adds nothing to the worker or to
+a symmetric board's drag, and the build is as warm (0.4 to 0.5 ms). The step 2 caveat stands: the section drag's worker
+p95 is above its 15 ms target in this container and the line drags' is at or just above it (deck 16.0); the
+medians are far inside. An asymmetric board's drag was not timed (one run, no new targets); the worker builds the
+minus side's sections with the same cache.
+
+**What step 4 must know.**
+
+- Feature keys must lie strictly inside `(xi0, L)` where `xi0` is the notch bottom `d`, and the first and last values
+  are zero. `setTail` and `setNotchDepth` do not touch the features, so the feature functions have to keep their keys
+  clear of `d` (or move them) when the tail changes: today a swallow made under a feature that starts behind the notch
+  bottom is refused as `feature-invalid`.
+- The features and the rocker are shared by both halves of an asymmetric board, but the feature validator's chord limits
+  are the narrower of the two halves (`minChord(frames, ...)`): a minus-side outline edit can make a channel too wide for
+  the board (`feature-invalid`, refused: the 3D view goes stale).
+- A new action that edits a spline should be added to `SPLINE_ACTIONS` in `section-store.ts` only if it takes a target
+  first, as all of them do; the minus half is reached by that list. Anything that takes a station index (paste, presets,
+  a station edit) must say which half (`side`) or act on both.
+- `tailTypeOf` is derived: do not store a tail kind next to `tail` without adding it to `BoardDoc` and its revive.
+- `projectDoc(doc).minus` is the minus half's board; `getTargetSpline(board, target)` reads a `side: 'minus'` target
+  from it. A new reader that builds its own board from `board.outline` must carry `.minus` or ask for the half it wants.
+- The classic specs, save, share and the autosave still write the plus half mirrored (deviation 5); step 5 replaces
+  them with the document.
+- Typed values that the model refuses (a depth, a tail) show the classic mesh with the reason; only gestures keep the
+  stale surface (deviation 4). If step 4's feature fields commit one value at a time, they will show the same.

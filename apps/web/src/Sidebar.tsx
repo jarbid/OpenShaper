@@ -138,6 +138,8 @@ const SIZING = {
   pinnedPanel: 'max-h-[45%]',
   /** The support bar across the bottom. */
   support: 'h-9 pointer-coarse:h-11',
+  /** One button of a segmented choice (Board shape's symmetry and tail), at the 44px finger floor. */
+  segment: 'min-h-8 flex-1 px-2 text-xs pointer-coarse:min-h-11',
 } as const;
 
 export interface ResizeFields {
@@ -284,7 +286,9 @@ export const Sidebar = memo(function Sidebar({
         formRef={resizeFormRef}
       />
     ),
-    ...(nurbsEngine ? { boardShape: <BoardShapeSection units={units} /> } : {}),
+    ...(nurbsEngine
+      ? { boardShape: <BoardShapeSection units={units} segmentClass={SIZING.segment} /> }
+      : {}),
     controlPoint: <ControlPointInspector store={activeStore} units={units} />,
     analysis: <AnalysisSection overlayToggles={overlayToggles} setOverlay={setOverlay} />,
     boardInfo: <BoardInfoSection meta={meta} setMeta={setMeta} />,

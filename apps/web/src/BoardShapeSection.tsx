@@ -29,9 +29,14 @@ export function boardShapeSummary(): string | undefined {
   return doc.symmetry === 'asymmetric' ? `${tail}, asymmetric` : tail;
 }
 
-const SEGMENT = 'min-h-8 flex-1 px-2 text-xs pointer-coarse:min-h-11';
-
-export function BoardShapeSection({ units }: { units: LengthUnit }) {
+export function BoardShapeSection({
+  units,
+  segmentClass,
+}: {
+  units: LengthUnit;
+  /** Classes of one button of a segmented choice (`SIZING.segment` in `Sidebar.tsx`). */
+  segmentClass: string;
+}) {
   const doc = useSyncExternalStore(sectionStore.subscribe, () => sectionStore.getState().doc);
   const [asking, setAsking] = useState(false);
   if (!doc) return null;
@@ -59,7 +64,7 @@ export function BoardShapeSection({ units }: { units: LengthUnit }) {
             size="sm"
             variant={asymmetric ? 'ghost' : 'secondary'}
             aria-pressed={!asymmetric}
-            className={SEGMENT}
+            className={segmentClass}
             onClick={() => asymmetric && setAsking(true)}
           >
             Mirrored
@@ -68,7 +73,7 @@ export function BoardShapeSection({ units }: { units: LengthUnit }) {
             size="sm"
             variant={asymmetric ? 'secondary' : 'ghost'}
             aria-pressed={asymmetric}
-            className={SEGMENT}
+            className={segmentClass}
             onClick={() => !asymmetric && sectionStore.getState().setSymmetry('asymmetric')}
           >
             Asymmetric
@@ -92,7 +97,7 @@ export function BoardShapeSection({ units }: { units: LengthUnit }) {
               variant={tail === t.value ? 'secondary' : 'ghost'}
               aria-pressed={tail === t.value}
               title={t.hint}
-              className={SEGMENT}
+              className={segmentClass}
               onClick={() => void setTail(t.value)}
             >
               {t.label}

@@ -74,6 +74,7 @@ Three deliberate calls, each of which looked like a coin-flip and was not:
 | Change a tab's **icon**                                             | `TAB_ICONS` in `Sidebar.tsx`                                      |
 | Change the **strip width, tab height, panel width, pinned ceiling** | `SIZING` in `Sidebar.tsx`                                         |
 | Change a shut section's **summary**                                 | the `summaries` map in `Sidebar.tsx`                              |
+| Show a tool only while a **feature** is on                          | omit its `bodies` entry when off, as `boardShape` is              |
 | Change the **spec bands** or their shut summaries                   | `SPEC_GROUPS` and `SpecsSection`                                  |
 | Make the active tab **close on a second click**                     | `selectTab` — JetBrains does this; it was considered and left out |
 | Open a tool from a **menu or palette command**                      | `revealSection`; Board ▸ Resize… in `App.tsx` is the example      |
