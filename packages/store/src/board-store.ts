@@ -5,7 +5,7 @@ import type { FinSetup, FinSpec, FinSystem, InterpolationType, Spline } from '@o
 import { createFinActions, createSectionShapeActions, createSplineActions } from './board-actions';
 import {
   enforceJunctions,
-  getTargetSpline,
+  findTargetSpline,
   insertCrossSection,
   moveCrossSectionPosition,
   removeCrossSection,
@@ -178,9 +178,7 @@ export const selectionAfterHistory = (
   selectedFin: number | null,
 ): { selection: Selection | null; selectedFin: number | null } => {
   const knotCount = (b: BezierBoard, t: SplineTarget): number | null =>
-    t.kind === 'crossSection'
-      ? (b.crossSections[t.index]?.spline.knots.length ?? null)
-      : getTargetSpline(b, t).knots.length;
+    findTargetSpline(b, t)?.knots.length ?? null;
   const keep =
     selection !== null &&
     knotCount(to, selection.target) !== null &&

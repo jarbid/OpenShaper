@@ -14,10 +14,11 @@ import {
 } from '@openshaper/board2';
 import { vec2 } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
-import { createSectionStore, projectDoc, type NotchChords } from './index';
+import { createSectionStore, projectDoc, setSymmetry, type NotchChords } from './index';
+import { minusHalf } from '../edits';
 import { GOLDEN_NAMES, goldenDoc, testDocs } from './test-support/docs';
 
-const chords: NotchChords = (doc) => createChordFn(doc);
+const chords: NotchChords = (doc, side) => createChordFn(doc, side);
 
 const opened = (doc: BoardDoc) => {
   const store = createSectionStore();
@@ -103,18 +104,27 @@ describe('slice edits', () => {
 });
 
 describe('fuzz: no drag of any handle of any station breaks a section rule', () => {
-  it.each(testDocs.filter(([n]) => n !== 'asymmetric'))('%s', (_name, make) => {
+  /**
+   * Seeded random drags of every knot and both handles of each, of every station of `doc`, on the side
+   * `side` (the minus half of an asymmetric board, or the only half of a mirror one).
+   */
+  const fuzz = (doc: BoardDoc, side: 'plus' | 'minus') => {
     const rand = lcg(20261102);
-    const store = opened(make());
+    const store = opened(doc);
     const stations = store.getState().doc!.stations.length;
+    const half = () =>
+      side === 'minus' ? minusHalf(store.getState().board!)! : store.getState().board!;
     let moves = 0;
     for (let index = 1; index <= stations; index++) {
-      const target = { kind: 'crossSection' as const, index };
-      const count = store.getState().board!.crossSections[index]!.spline.knots.length;
+      const target =
+        side === 'minus'
+          ? { kind: 'crossSection' as const, index, side: 'minus' as const }
+          : { kind: 'crossSection' as const, index };
+      const count = half().crossSections[index]!.spline.knots.length;
       for (let k = 0; k < count; k++) {
         for (const handle of ['end', 'prev', 'next'] as const) {
           for (let n = 0; n < 4; n++) {
-            const spline = store.getState().board!.crossSections[index]!.spline;
+            const spline = half().crossSections[index]!.spline;
             const knot = spline.knots[k]!;
             const at =
               handle === 'end'
@@ -136,8 +146,32 @@ describe('fuzz: no drag of any handle of any station breaks a section rule', () 
       }
     }
     expect(moves).toBeGreaterThan(100);
+    const first = store.getState().past[0]!.doc;
+    const last = store.getState().doc!;
     // the lines never moved
-    expect(store.getState().doc!.outline).toBe(store.getState().past[0]!.doc.outline);
+    expect(last.outline).toBe(first.outline);
+    expect(last.rocker).toBe(first.rocker);
+    expect(last.deck).toBe(first.deck);
+    return { first, last };
+  };
+
+  it.each(testDocs.filter(([n]) => n !== 'asymmetric'))('%s', (_name, make) => {
+    fuzz(make(), 'plus');
+  });
+
+  it.each(['asymmetric', ...GOLDEN_NAMES])('%s as an asymmetric board: the minus side', (name) => {
+    const made = testDocs.find(([n]) => n === name)![1];
+    const doc = setSymmetry(made(), 'asymmetric');
+    const { first, last } = fuzz(doc, 'minus');
+    // only the minus sections changed
+    last.stations.forEach((s, i) => expect(s.plus).toBe(first.stations[i]!.plus));
+    expect(last.stations.some((s, i) => s.minus !== first.stations[i]!.minus)).toBe(true);
+  });
+
+  it('the plus side of an asymmetric board, with the minus left alone', () => {
+    const doc = testDocs.find(([n]) => n === 'asymmetric')![1]();
+    const { first, last } = fuzz(doc, 'plus');
+    last.stations.forEach((s, i) => expect(s.minus).toBe(first.stations[i]!.minus));
   });
 });
 

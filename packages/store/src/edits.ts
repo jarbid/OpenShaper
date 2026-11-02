@@ -54,16 +54,50 @@ export const sameTarget = (a: SplineTarget, b: SplineTarget): boolean =>
   (a.kind === 'deck' || a.kind === 'bottom' || a.side === (b as typeof a).side) &&
   (a.kind !== 'crossSection' || (b.kind === 'crossSection' && b.index === a.index));
 
+/**
+ * A board with the minus half of an asymmetric NURBS board attached: a second classic board over the same
+ * rocker, deck and fins, whose outline is the minus outline and whose stations are the minus sections. Only
+ * the section store makes one (`sections/project.ts`); the classic store's boards have no `minus`.
+ */
+export interface SidedBoard extends BezierBoard {
+  readonly minus?: BezierBoard;
+}
+
+/** The minus half of a board, when it has one. */
+export const minusHalf = (b: BezierBoard): BezierBoard | undefined => (b as SidedBoard).minus;
+
+/** The board a target's spline is in: the minus half for a minus target of a board that has one. */
+const halfFor = (b: BezierBoard, t: SplineTarget): BezierBoard | null =>
+  (t.kind === 'outline' || t.kind === 'crossSection') && t.side === 'minus'
+    ? (minusHalf(b) ?? null)
+    : b;
+
+/** A target's spline, or null for a minus target of a board without a minus half. */
+export const findTargetSpline = (b: BezierBoard, t: SplineTarget): Spline | null => {
+  const half = halfFor(b, t);
+  if (half === null) return null;
+  switch (t.kind) {
+    case 'outline':
+      return half.outline;
+    case 'deck':
+      return half.deck;
+    case 'bottom':
+      return half.bottom;
+    case 'crossSection':
+      return half.crossSections[t.index]?.spline ?? null;
+  }
+};
+
 export const getTargetSpline = (b: BezierBoard, t: SplineTarget): Spline => {
   switch (t.kind) {
     case 'outline':
-      return b.outline;
+      return (halfFor(b, t) ?? b).outline;
     case 'deck':
       return b.deck;
     case 'bottom':
       return b.bottom;
     case 'crossSection':
-      return b.crossSections[t.index]!.spline;
+      return (halfFor(b, t) ?? b).crossSections[t.index]!.spline;
   }
 };
 

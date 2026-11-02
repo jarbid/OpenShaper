@@ -12,13 +12,15 @@ import type {
   BoardDoc,
   BottomFeature,
   Chain,
+  ChainKnot,
   JsonValue,
   KeyedCurve,
+  Pair,
   Section,
   Station,
 } from '@openshaper/board2';
 import type { BezierBoard, Spline } from '@openshaper/kernel';
-import { insertCrossSection, sectionApexIndex, type SplineTarget } from '../edits';
+import { insertCrossSection, minusHalf, sectionApexIndex, type SplineTarget } from '../edits';
 import {
   projectDoc,
   sliceDims,
@@ -78,6 +80,12 @@ export function scaleLength(doc: BoardDoc, f: number): BoardDoc {
     stations: doc.stations.map((s) => ({ ...s, x: s.x * f })),
     features,
   };
+}
+
+/** `chain` scaled in the plan: x by `fL`, y by `fW`. */
+export function scalePlan(chain: Chain, fL: number, fW: number): Chain {
+  const q = (p: Pair): Pair => [p[0] * fL, p[1] * fW];
+  return { knots: chain.knots.map((k) => ({ ...k, p: q(k.p), in: q(k.in), out: q(k.out) })) };
 }
 
 const lengthOf = (c: Chain): number => c.knots[c.knots.length - 1]!.p[0];
@@ -140,11 +148,16 @@ function sectionOfSlice(slice: Spline, was: Spline, dims: { w: number; T: number
 }
 
 /**
- * The stations of `doc` with every slice the edit changed written back as a section. A slice is divided
- * by the half-width (chord) and thickness it was projected with, so a section edit moves one `Section`
- * and leaves every other object alone: `buildBoard` refits exactly that section.
+ * The stations of `doc` with every slice the edit changed written back as a section of `side`. A slice is
+ * divided by the half-width (chord) and thickness it was projected with, so a section edit moves one
+ * `Section` and leaves every other object alone: `buildBoard` refits exactly that section.
  */
-function writeSlices(doc: BoardDoc, before: BezierBoard, after: BezierBoard): BoardDoc {
+function writeSlices(
+  doc: BoardDoc,
+  before: BezierBoard,
+  after: BezierBoard,
+  side: 'plus' | 'minus' = 'plus',
+): BoardDoc {
   let stations: Station[] | null = null;
   for (let i = 1; i < before.crossSections.length - 1; i++) {
     const was = before.crossSections[i]!.spline;
@@ -152,12 +165,38 @@ function writeSlices(doc: BoardDoc, before: BezierBoard, after: BezierBoard): Bo
     if (is === undefined || sameSlice(was, is)) continue;
     const dims = sliceDims(was);
     const st = doc.stations[i - 1];
+    const old = st === undefined ? undefined : side === 'minus' ? st.minus : st.plus;
     // a station with no width or no thickness (a tip, a blunt end) is a point or a line: nothing to edit
-    if (dims === undefined || st === undefined || !(dims.w > 0 && dims.T > 0)) continue;
+    if (dims === undefined || st === undefined || old === undefined || !(dims.w > 0 && dims.T > 0))
+      continue;
     stations ??= [...doc.stations];
-    stations[i - 1] = { ...st, plus: sectionOfSlice(is, was, dims, st.plus) };
+    stations[i - 1] = { ...st, [side]: sectionOfSlice(is, was, dims, old) };
   }
   return stations === null ? doc : { ...doc, stations };
+}
+
+/**
+ * `minus` with its first and last knots on the stringer points `plus` starts and ends at (the validator
+ * requires both halves to meet there): the knot and its handle move by the same offset. The chain itself
+ * when it already does.
+ */
+export function alignEnds(minus: Chain, plus: Chain): Chain {
+  const n = minus.knots.length;
+  const want = [plus.knots[0]!.p[0], plus.knots[plus.knots.length - 1]!.p[0]] as const;
+  const dx0 = want[0] - minus.knots[0]!.p[0];
+  const dx1 = want[1] - minus.knots[n - 1]!.p[0];
+  if (dx0 === 0 && dx1 === 0) return minus;
+  const shift = (k: ChainKnot, dx: number): ChainKnot => ({
+    ...k,
+    p: [k.p[0] + dx, k.p[1]],
+    in: [k.in[0] + dx, k.in[1]],
+    out: [k.out[0] + dx, k.out[1]],
+  });
+  return {
+    knots: minus.knots.map((k, i) =>
+      i === 0 && dx0 !== 0 ? shift(k, dx0) : i === n - 1 && dx1 !== 0 ? shift(k, dx1) : k,
+    ),
+  };
 }
 
 /**
@@ -177,7 +216,10 @@ function writeSlices(doc: BoardDoc, before: BezierBoard, after: BezierBoard): Bo
 export function applyBoardEdit(doc: BoardDoc, before: BezierBoard, after: BezierBoard): BoardDoc {
   let next = doc;
   if (after.outline !== before.outline) {
-    next = { ...next, outline: { ...next.outline, plus: splineToChain(after.outline) } };
+    const plus = splineToChain(after.outline);
+    // the shared end points (the nose, a notch bottom) move on both halves
+    const minus = next.outline.minus && alignEnds(next.outline.minus, plus);
+    next = { ...next, outline: { plus, ...(minus === undefined ? {} : { minus }) } };
   }
   if (after.bottom !== before.bottom) next = { ...next, rocker: splineToChain(after.bottom) };
   if (after.deck !== before.deck) next = { ...next, deck: splineToDeckChain(after.deck) };
@@ -194,6 +236,22 @@ export function applyBoardEdit(doc: BoardDoc, before: BezierBoard, after: Bezier
   const now = lengthOf(next.outline.plus);
   if (was > 0 && now > 0 && now !== was) next = scaleLength(next, now / was);
   return next;
+}
+
+/**
+ * The document after the minus half of an asymmetric board (`before`, the projection's `minus`) was edited
+ * into `after`. Only the minus outline and the minus sections are written back: the rocker, deck, features
+ * and fins are shared with the plus half, so they are the plus half's to edit, and the minus outline's
+ * end points are held on the plus outline's (`alignEnds`). Returns `doc` itself when nothing changed.
+ */
+export function applyMinusEdit(doc: BoardDoc, before: BezierBoard, after: BezierBoard): BoardDoc {
+  if (doc.outline.minus === undefined) return doc;
+  let next = doc;
+  if (after.outline !== before.outline) {
+    const minus = alignEnds(splineToChain(after.outline), doc.outline.plus);
+    next = { ...next, outline: { ...next.outline, minus } };
+  }
+  return writeSlices(next, before, after, 'minus');
 }
 
 // ---------------------------------------------------------------------------
@@ -230,7 +288,32 @@ export function addStation(
   const L = lengthOf(doc.outline.plus);
   if (!(x > xi0 + STATION_GAP && x < L - STATION_GAP)) return null;
   if (doc.stations.some((s) => Math.abs(s.x - x) < STATION_GAP)) return null;
-  const result = insertCrossSection(projectDoc(doc, chords), x);
+  const projected = projectDoc(doc, chords);
+  const plus = insertedSection(projected, x);
+  if (plus === null) return null;
+  // an asymmetric board gets the new section from each half
+  let minus: Section | undefined;
+  const half = minusHalf(projected);
+  if (doc.outline.minus !== undefined && half !== undefined) {
+    const m = insertedSection(half, x);
+    if (m === null) return null;
+    minus = m;
+  }
+  const at = doc.stations.findIndex((s) => s.x > x);
+  const index = at < 0 ? doc.stations.length : at;
+  const station: Station = {
+    id: stationIdFor(doc.stations),
+    x,
+    plus,
+    ...(minus === undefined ? {} : { minus }),
+  };
+  const stations = [...doc.stations.slice(0, index), station, ...doc.stations.slice(index)];
+  return { doc: { ...doc, stations }, index: index + 1 };
+}
+
+/** The section classic's `insertCrossSection` puts at `x` on `board`, normalised by its own width and thickness. */
+function insertedSection(board: BezierBoard, x: number): Section | null {
+  const result = insertCrossSection(board, x);
   if (!result) return null;
   const slice = result.board.crossSections[result.index]!.spline;
   const apex = sectionApexIndex(slice);
@@ -239,12 +322,7 @@ export function addStation(
   const w = slice.knots[apex]!.end.x;
   const T = slice.knots[slice.knots.length - 1]!.end.y - first.y;
   if (!(w > 0 && T > 0)) return null;
-  const section = sliceToSection(slice, w, T, apex, first.y);
-  const at = doc.stations.findIndex((s) => s.x > x);
-  const index = at < 0 ? doc.stations.length : at;
-  const station: Station = { id: stationIdFor(doc.stations), x, plus: section };
-  const stations = [...doc.stations.slice(0, index), station, ...doc.stations.slice(index)];
-  return { doc: { ...doc, stations }, index: index + 1 };
+  return sliceToSection(slice, w, T, apex, first.y);
 }
 
 /** The document without station `index` (classic slice index; the end dummies are not stations). */

@@ -8,12 +8,26 @@ export { createSectionStore, type SectionHistoryEntry, type SectionState } from 
 export {
   MIN_STATIONS,
   addStation,
+  alignEnds,
   applyBoardEdit,
+  applyMinusEdit,
   moveStation,
   removeStation,
   scaleLength,
   withChain,
 } from './edits';
+export {
+  defaultNotchDepth,
+  notchDepthRange,
+  setNotchDepth,
+  setSymmetry,
+  setTail,
+  tailTypeOf,
+  toAsymmetric,
+  toMirror,
+  type KeepSide,
+  type TailType,
+} from './shape';
 export {
   chainToSpline,
   deckToSpline,

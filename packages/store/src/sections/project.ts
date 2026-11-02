@@ -24,6 +24,7 @@
  * gives back the same spline objects for the others, and React re-renders only what changed.
  */
 import type { BoardDoc, Chain, ChainKnot, Pair, Section } from '@openshaper/board2';
+import type { SidedBoard } from '../edits';
 import {
   board,
   crossSection,
@@ -241,14 +242,19 @@ interface SliceEntry {
   readonly T: number;
   readonly spline: Spline;
 }
-const slices = new WeakMap<Section, SliceEntry>();
+// One cache per side: an asymmetric board starts with plus and minus sharing every `Section` object, and
+// the two sides' widths part as soon as an outline is edited.
+const slices = {
+  plus: new WeakMap<Section, SliceEntry>(),
+  minus: new WeakMap<Section, SliceEntry>(),
+};
 const sliceDimensions = new WeakMap<Spline, { readonly w: number; readonly T: number }>();
 
-const sliceOf = (section: Section, w: number, T: number): Spline => {
-  const held = slices.get(section);
+const sliceOf = (side: Side, section: Section, w: number, T: number): Spline => {
+  const held = slices[side].get(section);
   if (held !== undefined && held.w === w && held.T === T) return held.spline;
   const spline = sectionToSlice(section, w, T);
-  slices.set(section, { w, T, spline });
+  slices[side].set(section, { w, T, spline });
   sliceDimensions.set(spline, { w, T });
   return spline;
 };
@@ -272,7 +278,9 @@ const NO_FINS: FinConfig = noFins();
  * because this package may not import board2's code. The function it returns is cached by the provider on
  * what the chord depends on, so a section edit does not rebuild it.
  */
-export type NotchChords = (doc: BoardDoc) => (xi: number) => number;
+export type NotchChords = (doc: BoardDoc, side?: 'minus') => (xi: number) => number;
+
+type Side = 'plus' | 'minus';
 
 interface ListEntry {
   readonly outline: Spline;
@@ -282,16 +290,17 @@ interface ListEntry {
   readonly chords: NotchChords | undefined;
   readonly list: readonly CrossSection[];
 }
-const lists = new WeakMap<object, ListEntry>();
+const lists = { plus: new WeakMap<object, ListEntry>(), minus: new WeakMap<object, ListEntry>() };
 
 function crossSectionsOf(
+  side: Side,
   doc: BoardDoc,
   outline: Spline,
   rocker: Spline,
   deck: Spline,
   chords: NotchChords | undefined,
 ) {
-  const held = lists.get(doc.stations);
+  const held = lists[side].get(doc.stations);
   if (
     held &&
     held.outline === outline &&
@@ -306,7 +315,7 @@ function crossSectionsOf(
   // Half-width at x: the outline's value; for a notched tail (a non-function outline) the chord of the
   // station when a provider is injected, else the plan's outer rail at x.
   const notched = doc.tail.kind === 'notched';
-  const chord = notched && chords ? chords(doc) : null;
+  const chord = notched && chords ? chords(doc, side === 'minus' ? 'minus' : undefined) : null;
   const bare = notched && !chord ? board(outline, rocker, deck, [], 'controlPoint', NO_FINS) : null;
   const halfWidthAt = (x: number): number =>
     Math.max(0, chord ? chord(x) : bare ? widthBoundsAt(bare, x).yOut : valueAt(outline, x));
@@ -316,10 +325,11 @@ function crossSectionsOf(
   for (const st of doc.stations) {
     const w = halfWidthAt(st.x);
     const T = valueAt(deck, st.x) - valueAt(rocker, st.x);
-    list.push(crossSection(st.x, sliceOf(st.plus, w, T)));
+    const section = side === 'minus' ? (st.minus ?? st.plus) : st.plus;
+    list.push(crossSection(st.x, sliceOf(side, section, w, T)));
   }
   list.push(dummy(L));
-  lists.set(doc.stations, { outline, rocker, deck, tail: doc.tail, chords, list });
+  lists[side].set(doc.stations, { outline, rocker, deck, tail: doc.tail, chords, list });
   return list;
 }
 
@@ -331,6 +341,10 @@ const boards = new WeakMap<
 /**
  * The classic board a document projects to, memoised per document. The pieces of one document that
  * another shares (an edit replaces the curves it touches) are the same objects in both projections.
+ *
+ * An asymmetric document projects its plus half as the board and its minus half as `board.minus` (a
+ * second classic board over the same rocker, deck and fins: its outline is the minus outline and its
+ * stations are the minus sections), see {@link SidedBoard}. The editors read a `side: 'minus'` target from it.
  */
 export function projectDoc(doc: BoardDoc, chords?: NotchChords): BezierBoard {
   const held = boards.get(doc);
@@ -344,10 +358,22 @@ export function projectDoc(doc: BoardDoc, chords?: NotchChords): BezierBoard {
       outline,
       rocker,
       deck,
-      crossSectionsOf(doc, outline, rocker, deck, chords),
+      crossSectionsOf('plus', doc, outline, rocker, deck, chords),
       'controlPoint',
       fins,
     );
+    if (doc.outline.minus !== undefined) {
+      const minusOutline = chainToSpline(doc.outline.minus);
+      const minus = board(
+        minusOutline,
+        rocker,
+        deck,
+        crossSectionsOf('minus', doc, minusOutline, rocker, deck, chords),
+        'controlPoint',
+        fins,
+      );
+      b = { ...b, minus } as SidedBoard;
+    }
     boards.set(doc, { chords, board: b });
   }
   return b;

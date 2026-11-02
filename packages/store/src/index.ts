@@ -18,8 +18,10 @@ export {
   extendKnotTangent,
   fairKnot,
   fitSectionToBlank,
+  findTargetSpline,
   getTargetSpline,
   insertCrossSection,
+  minusHalf,
   insertKnotAt,
   moveKnotEnd,
   moveKnotTangent,
@@ -39,6 +41,7 @@ export {
   withSpline,
   type KnotHandles,
   type LockedAxes,
+  type SidedBoard,
   type SplineTarget,
 } from './edits';
 export { selectSpecs, type BoardSpecs } from './selectors';

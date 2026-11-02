@@ -29,13 +29,24 @@ import {
   createFinActions,
   createSectionShapeActions,
   createSplineActions,
+  type ActionContext,
+  type SplineActionNames,
   type SplineActions,
 } from '../board-actions';
 import { selectionAfterHistory, type BoardState, type HistoryEntry } from '../board-store';
-import { moveKnotEnd } from '../edits';
+import { minusHalf, moveKnotEnd, type SplineTarget } from '../edits';
 import { createHistory, type HistoryHost } from '../history';
-import { addStation, applyBoardEdit, moveStation, removeStation } from './edits';
+import {
+  addStation,
+  alignEnds,
+  applyBoardEdit,
+  applyMinusEdit,
+  moveStation,
+  removeStation,
+  scalePlan,
+} from './edits';
 import { projectDoc, type NotchChords } from './project';
+import { setNotchDepth, setSymmetry, setTail, type KeepSide, type TailType } from './shape';
 
 /** An undo step of the section store: the classic projection, and the document that restores it. */
 export interface SectionHistoryEntry extends HistoryEntry {
@@ -57,6 +68,18 @@ export interface SectionState extends BoardState {
    * not an undo step. Call it before `loadDoc` where possible, so no board is shown with the plan's rail.
    */
   setNotchChords: (chords: NotchChords | undefined) => void;
+  /**
+   * Make the board asymmetric (the minus half starts as the plus half, sharing every object) or mirror
+   * symmetric again, keeping the half `keep` names (default plus). One undo step.
+   */
+  setSymmetry: (symmetry: BoardDoc['symmetry'], keep?: KeepSide) => void;
+  /**
+   * Change the tail type, optionally with a notch depth `d` (cm). A notched tail needs the app's chord
+   * provider ({@link SectionState.setNotchChords}) loaded first. One undo step.
+   */
+  setTail: (type: TailType, d?: number) => void;
+  /** Move the notch bottom to depth `d` (cm) of a swallow or fish tail. One undo step per drag. */
+  setNotchDepth: (d: number) => void;
 }
 
 /**
@@ -88,6 +111,43 @@ const pinPlan = (b: BezierBoard, doc: BoardDoc): BezierBoard => {
   return outline === b.outline ? b : { ...b, outline };
 };
 
+const SPLINE_ACTIONS: readonly SplineActionNames[] = [
+  'moveSegmentTangents',
+  'moveControlPoint',
+  'moveTangent',
+  'setTangentLength',
+  'rotateTangent',
+  'stepTangentLength',
+  'addControlPoint',
+  'deleteControlPoint',
+  'setContinuous',
+  'setLocked',
+  'fairControlPoint',
+  'zeroTangent',
+  'extendTangent',
+  'alignTangentsHorizontal',
+  'alignTangentsVertical',
+];
+
+const isMinus = (t: SplineTarget): boolean =>
+  (t.kind === 'outline' || t.kind === 'crossSection') && t.side === 'minus';
+
+/** The target as the minus half's own board names it (no side). */
+const plain = (t: SplineTarget): SplineTarget =>
+  t.kind === 'outline'
+    ? { kind: 'outline' }
+    : t.kind === 'crossSection'
+      ? { kind: 'crossSection', index: t.index }
+      : t;
+
+/** A target of the plus board as the section store names it on the minus half. */
+const onMinus = (t: SplineTarget): SplineTarget =>
+  t.kind === 'outline'
+    ? { kind: 'outline', side: 'minus' }
+    : t.kind === 'crossSection'
+      ? { kind: 'crossSection', index: t.index, side: 'minus' }
+      : t;
+
 export const createSectionStore = (): StoreApi<SectionState> =>
   createStore<SectionState>((set, get) => {
     let chords: NotchChords | undefined;
@@ -112,20 +172,80 @@ export const createSectionStore = (): StoreApi<SectionState> =>
       history.commit({ doc: nextDoc, board: project(nextDoc) }, label);
     };
 
+    /** The whole-board resize in progress: the minus outline scales with the plus one. */
+    let resize: { readonly fL: number; readonly fW: number } | null = null;
+
     /** Write the edited board's changed curves and slices into the document and record the step. */
     const commit = (next: BezierBoard, label: string) => {
       const { doc, board } = get();
       if (!doc || !board) return;
       // Nothing the document holds changed (the junction rules took the edit back): no empty step.
-      commitDoc(applyBoardEdit(doc, board, pinPlan(next, doc)), label);
+      let nextDoc = applyBoardEdit(doc, board, pinPlan(next, doc));
+      if (resize !== null && nextDoc !== doc && nextDoc.outline.minus !== undefined) {
+        // the old minus outline scaled, not the one `applyBoardEdit` aligned to the unscaled-by-us plus
+        const scaled = scalePlan(doc.outline.minus!, resize.fL, resize.fW);
+        const minus = alignEnds(scaled, nextDoc.outline.plus);
+        nextDoc = { ...nextDoc, outline: { ...nextDoc.outline, minus } };
+      }
+      commitDoc(nextDoc, label);
     };
 
-    const ctx = {
+    /** The same, for an edit of the minus half (`board.minus` edited into `next`). */
+    const commitMinus = (next: BezierBoard, label: string) => {
+      const { doc, board } = get();
+      const half = board && minusHalf(board);
+      if (!doc || !half) return;
+      commitDoc(applyMinusEdit(doc, half, pinPlan(next, doc)), label);
+    };
+
+    const ctx: ActionContext = {
       get: (): BoardState => get(),
       set: (patch: Partial<BoardState>) => set(patch as Partial<SectionState>),
       commit,
     };
-    const spline: SplineActions = createSplineActions(ctx);
+    // The minus half is edited by the same actions on its own board (the rocker, deck and fins are shared
+    // objects), with the minus target named without its side and a selection it makes named with it.
+    const minusCtx: ActionContext = {
+      get: (): BoardState => {
+        const s = get();
+        return { ...s, board: (s.board && minusHalf(s.board)) ?? null };
+      },
+      set: (patch) =>
+        set(
+          (patch.selection
+            ? {
+                ...patch,
+                selection: { ...patch.selection, target: onMinus(patch.selection.target) },
+              }
+            : patch) as Partial<SectionState>,
+        ),
+      commit: commitMinus,
+    };
+    const plusActions: SplineActions = createSplineActions(ctx);
+    const minusActions: SplineActions = createSplineActions(minusCtx);
+    const spline = Object.fromEntries(
+      SPLINE_ACTIONS.map((name) => [
+        name,
+        (target: SplineTarget, ...rest: unknown[]) => {
+          const fn = (isMinus(target) ? minusActions : plusActions)[name] as (
+            ...args: unknown[]
+          ) => void;
+          // the notch bottom is a depth, not a point: dragging it along the stringer sets the depth
+          const { doc } = get();
+          if (
+            name === 'moveControlPoint' &&
+            target.kind === 'outline' &&
+            rest[0] === 0 &&
+            doc?.tail.kind === 'notched'
+          ) {
+            commitDoc(setNotchDepth(doc, (rest[1] as { x: number }).x), 'Move notch depth');
+            return;
+          }
+          fn(isMinus(target) ? plain(target) : target, ...rest);
+        },
+      ]),
+    ) as unknown as SplineActions;
+    const fins = createFinActions(ctx);
 
     return {
       doc: null,
@@ -166,7 +286,44 @@ export const createSectionStore = (): StoreApi<SectionState> =>
 
       ...spline,
 
-      ...createFinActions(ctx),
+      ...fins,
+
+      scaleBoard: (fL, fW, fT) => {
+        resize = { fL, fW };
+        try {
+          fins.scaleBoard(fL, fW, fT);
+        } finally {
+          resize = null;
+        }
+      },
+
+      setSymmetry: (symmetry, keep) => {
+        const { doc, selection } = get();
+        if (!doc) return;
+        const next = setSymmetry(doc, symmetry, keep);
+        if (next === doc) return;
+        commitDoc(next, symmetry === 'asymmetric' ? 'Make asymmetric' : 'Make symmetric');
+        if (selection && isMinus(selection.target)) set({ selection: null });
+      },
+
+      setTail: (type, d) => {
+        const { doc } = get();
+        if (!doc) return;
+        const next = setTail(doc, type, d);
+        if (next === doc) return;
+        commitDoc(
+          next,
+          type === 'standard' ? 'Standard tail' : `${type === 'swallow' ? 'Swallow' : 'Fish'} tail`,
+        );
+        // the outline's knots are new ones: an index into the old outline means nothing now
+        set({ selection: null });
+      },
+
+      setNotchDepth: (d) => {
+        const { doc } = get();
+        if (!doc) return;
+        commitDoc(setNotchDepth(doc, d), 'Set notch depth');
+      },
 
       addCrossSection: (position) => {
         const { doc } = get();

@@ -31,12 +31,15 @@ const chordOf = (frame: PlanFrame, xi: number): number => {
 };
 
 /**
- * The chord-length function of a document's plus side. The notch zone is resolved the way `buildBoard`
- * resolves it (`resolveTail`), so a station is measured on the chords the surface is built with.
+ * The chord-length function of a document's plus side (or its minus side, when `side` is 'minus' and the
+ * board is asymmetric). The notch zone is resolved the way `buildBoard` resolves it (`resolveTail`), so a
+ * station is measured on the chords the surface is built with.
  */
-export function createChordFn(doc: BoardDoc): ChordFn {
+export function createChordFn(doc: BoardDoc, side?: 'minus'): ChordFn {
   const resolved = resolveTail(doc);
-  const frame = makeFrame(compileChain(resolved.outline.plus), resolved.tail);
+  const outline =
+    side === 'minus' ? (resolved.outline.minus ?? resolved.outline.plus) : resolved.outline.plus;
+  const frame = makeFrame(compileChain(outline), resolved.tail);
   return (xi) => chordOf(frame, xi);
 }
 
