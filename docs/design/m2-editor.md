@@ -212,3 +212,129 @@ Save is allowed (revive accepts shape-valid docs, which can then be repaired).
   or users will cut boards from it.
 - **Share-link size** of a v3 doc is unmeasured: absolute handles and two sides on an asymmetric
   board.
+
+## 8. As built (step 1)
+
+Landed: the section store, the shared history and edit code, the line editors, the engine switch and the
+worker's `doc` job. With the engine on, the outline, rocker and deck are edited in the NURBS document and
+the 3D view follows. Sections are read-only. With the engine off nothing changes: the classic store, its
+characterization snapshots and the flag-off page are untouched.
+
+**Where it is.**
+
+- `packages/store`: `history.ts` (undo, redo, `jumpTo`, drag grouping, shared by both stores),
+  `board-actions.ts` (the spline, fin and resize actions, which both stores take from here, so there is one
+  body of edit rules), `sections/` (`project.ts`, `edits.ts`, `section-store.ts`; the `./sections` entry).
+  `SplineTarget` has `side?: 'minus'` (classic never sets it, `sameTarget` compares it). The package depends on
+  board2 for **types only**: a separate ESLint layer for `store/sections` allows `import type` and nothing
+  else.
+- `packages/board2`: `ChainKnot.lock` (types, revive, writer; the geometry ignores it).
+- `apps/web`: `store.ts` (`boardStore`, `sectionStore`, `activeStore`), `store-switch.ts`,
+  `use-section-engine.ts`, the worker's `doc` and `convert` jobs (`nurbs-protocol.ts`, `-client.ts`,
+  `-core.ts`, `-worker.ts`), the viewer's document input, and `tools/nurbs-bundle-guard.ts`.
+- `packages/render3d`: a live surface is placed by its own centre (see Performance).
+
+**Deviations from the design above.**
+
+1. **The editors hold a switch, not a store they are passed.** `activeStore` (`StoreSwitch`) stands for
+   whichever store the engine picks; `App` points it in a layout effect (`activeStore.use(...)`) and
+   everything that read `boardStore` (panes, inspector, sidebar, shortcuts, 3D view, update prompt) reads
+   `activeStore` instead, so no editor needed a new prop. App still uses `boardStore` where it means the
+   classic document (loading files, the classic reference for the deviation view).
+2. **The conversion runs in the NURBS worker** (`kind: 'convert'`), not in a main-thread chunk: the main
+   chunk never imports board2, and the worker is already there. The doc comes back by structured clone;
+   the next `doc` job matches its sections by content, so fits stay warm.
+3. **A refused board leaves the classic store in charge**, not "the previous doc stays" plus the import
+   dialog: the section store keeps its old document, but `activeStore` is the classic store until a board
+   converts, so the user edits the board they actually opened. The reasons are in the 3D popover (the
+   viewer's classic path reports them). `ImportWarningsDialog` for this is step 5.
+4. **No probes in the `doc` request.** They carry the ghosts, which are step 2.
+5. **Stations inside a notch zone are projected with the plan half-width at x = ξ**, not the chord. The
+   projection is the only place that matters (the section pane), and sections are read-only; step 2 moves
+   it to the chord frame (it needs board2's `makeFrame`, which the store may not import).
+6. **Two plan rules are added to the classic junction pass** in the section store's `commit`
+   (`pinPlan`): every control point of the outline has y ≥ 0 (classic lets a handle cross the stringer) and
+   a standard tail's first knot is the tail tip (0, 0) (classic lets the tip move to another knot). Without
+   them a drag could make the document refuse itself at `outline-endpoints` or `tail-start`.
+7. **The deck's end walls.** The document drops classic's vertical walls (the converter does); the
+   projection puts a collapsed corner knot back at the rocker's end heights, and the write-back takes it off
+   and moves the chain's end knot to the wall's x. So the junction pass keeps working unchanged, dragging the
+   deck's wall knot moves the rocker's tip as in classic, and a nose drag carries the deck's last knot.
+8. **Length change** (the nose moves) scales the stations and the feature keys by L′/L, as designed; it is
+   in `applyBoardEdit` and tested.
+9. **Saving, exporting, sharing and the autosave write the projection** (`activeStore`'s board), not the
+   classic board the engine was switched on with. So no NURBS edit is lost to a reload, at the cost of the
+   engine-off view then being the projection. The docs page and the Settings text say so. Step 5 replaces the
+   autosave with the document.
+10. **The classic specs worker runs on the projection**: volume and the rest are the classic loft's of the
+    NURBS board's stations. The mesh's volume is in the 3D popover. Step 5 moves the specs to the mesh.
+
+**Classic hull no longer meshed per edit (`render3d`).** The M2 note's §4 had this under "Live 3D"; it turned
+out to be what the step 1 timing needs (below). While a `live` external surface applies, `BoardMesh` does not
+tessellate the classic hull (the ghost deviation still asks for it), the surface is placed by the centre of
+its own mesh, and `Fins3D` and `Guides3D` take that centre through `useBoardOffset` (built for the board
+on a deferred value, so a burst of edits does not build them for each one). The classic hull's centre and the
+surface's differ by the two surfaces' difference at the extremes (expected about a millimetre; not
+measured), so the fins sit that much differently on the surface. Applies to the M1 classic path too (also `live`).
+
+**Acceptance (tests).**
+
+| Check                                                                                                 | Result                                                                                                                                                              |
+| ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Characterization snapshots (`board-store`, kernel, io)                                                | Unchanged; the 249 existing store tests pass unmodified after the history and actions extraction                                                                    |
+| chain → spline → chain, outline, rocker and deck, 3 goldens + swallow, fish, asymmetric               | Bit-identical (deep equality, `-0` checked)                                                                                                                         |
+| slice ↔ section on the 3 goldens                                                                      | 1.1e-16 worst (limit 1e-12)                                                                                                                                         |
+| An outline, rocker or deck edit keeps every `Section` object                                          | Holds on the 3 goldens; an edit also keeps the untouched chains, the stations and the fins                                                                          |
+| The edit is the classic edit: same curves and same history labels as the classic store                | Holds for move, lock, rotate, step length, corner, fair, align (outline, rocker, deck)                                                                              |
+| undo, redo, `jumpTo` on documents; a drag is one step; a refused drag leaves none                     | Pass                                                                                                                                                                |
+| Random drags (150 per golden, seeded) never break a rule the editor owns                              | Pass (`thickness`, a knot dragged past its neighbour and the notch angle are the user's to fix, as in classic, and the 3D view keeps its last good surface)         |
+| Flag-off bundle guard                                                                                 | `tools/nurbs-bundle-guard.ts`: after the build, only `nurbs-core-*` and `nurbs-worker-*` contain board2's code; a deliberate leak fails the build (checked by hand) |
+| Flag-off page requests no NURBS module (e2e), and the editor with the engine on edits the NURBS board | Pass; the e2e also drags, undoes, redoes and switches the engine off and on (the document survives)                                                                 |
+
+**Timings** (Chromium, software WebGL, production build, 4-core container,
+`node apps/web/tools/perf/nurbs-timing.mjs`; the quad view, the shortboard, 60 pointer moves per drag, three
+runs). Request to answer on the main thread per update, median (p95):
+
+| Drag                        | Round trip, ms            | Worker, ms               | Build, ms          | Mesh, ms          |
+| --------------------------- | ------------------------- | ------------------------ | ------------------ | ----------------- |
+| Outline wide point (3 runs) | 12 (23), 12 (17), 11 (17) | 5.6, 5.7, 5.3 (p95 ≤ 13) | 0.7 to 0.8 (≤ 1.7) | 4.6 to 4.9 (≤ 12) |
+| Deck point (3 runs)         | 12 (16), 10 (17), 12 (22) | 6.2 to 6.8 (p95 ≤ 21)    | 0.6 to 0.7         | 5.6 to 6.1        |
+| Rocker point (3 runs)       | 11 (26), 10 (16), 12 (17) | 6.5 to 7.1 (p95 ≤ 23)    | 0.6 to 0.7         | 5.8 to 6.3        |
+
+The targets (median ≤ 35 ms, p95 ≤ 50 ms) are met with a wide margin; the largest single update in the nine
+runs was 75 ms (one stall in the first rocker run; the others top at 17 to 29). The warm build is
+0.7 ms: no converter, and no refit (the sections are matched by content in the worker). After release one
+more job re-derives the ladders and the curvature: 31 to 78 ms in the worker.
+
+Before the render3d change the same drags measured median 16 to 17 ms (one run 53) with **p95 65 to 83 ms**
+(worker median 7 ms): the classic hull was meshed, built into a geometry and drawn on every edit as well, so every
+other answer waited behind a software-WebGL frame. With a throttled CPU (4×, a phone) the median is 52 to
+57 ms and p95 129 to 146 ms, nearly all of it the main thread's frames (worker median 5 to 7 ms): the same
+limit as in M1 §10.
+
+Opening the shortboard with the engine on (one run): NURBS surface on screen in 108 ms, the board editable (converted
+into the section store, in the worker) 289 ms after the file input. Turning the engine on in Settings with the
+3D view open, hull on screen and board editable in 0.5 to 0.6 s (includes fetching the lazy layer chunk and
+starting two workers).
+
+**What step 2 must know.**
+
+- Sections go through `withChain(doc, { kind: 'crossSection', index, side? }, chain)` (index is the classic
+  slice index, station `index - 1`) and `sliceToSection(slice, w, T, apex)` (divides by the half-width and
+  thickness, clamps u to [0, 1]). The section store's `lines()` guard turns every spline action on a
+  cross-section into a no-op, and the classic-only station actions are stubs: step 2 replaces both. The
+  shared actions already run `constrainSectionToBlank` for a `crossSection` target; they only need the
+  write-back (`applyBoardEdit` compares only the three lines).
+- A section edit changes the section's content, so the worker refits that one section (`canonicalDoc` finds no
+  match); every other section keeps its fit. `sameDocHull` in the viewer compares `stations` by identity, so a
+  station edit must produce a new `stations` array.
+- `w(ξ)` and `T(ξ)` of the projection (`crossSectionsOf`) are the half-width at x = ξ and the stringer
+  thickness at ξ, so a section's physical slice changes with any line edit even though the `Section` does
+  not. In a notch zone `w` is wrong (deviation 5); use board2's frame there, in the worker or an injected function.
+- The deck's wall knots exist only in the projection (deviation 7): indices in the rocker pane are the
+  projection's, and a station marker's `index` is `station + 1`.
+- The viewer asks for the classic reference only for "Deviation from classic" (`reference` on the `doc`
+  request), and `activeStore` is what the layer subscribes to: it re-reads when the engine switches.
+- The classic board is still loaded by file open; `use-section-engine.ts` converts it when `loadCount`
+  changes. Anything that loads the classic store with the engine on has a window (about 0.1 to 0.3 s) in which
+  the classic board is edited, and an edit made in it is dropped by the conversion that follows.

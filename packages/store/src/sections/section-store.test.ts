@@ -201,6 +201,19 @@ describe('line editors', () => {
     expect(store.getState().board!.outline.knots[k]!.lock).toBeDefined();
   });
 
+  it('the deck’s wall knot is the rocker’s tip: dragging it moves the rocker, not the deck line', () => {
+    const doc = goldenDoc('shortboard');
+    const store = opened(doc);
+    const wall = store.getState().board!.deck.knots[0]!.end;
+    store.getState().moveControlPoint({ kind: 'deck' }, 0, vec2(wall.x, wall.y - 0.5));
+    const next = store.getState().doc!;
+    expect(next.rocker.knots[0]!.p[1]).toBeCloseTo(doc.rocker.knots[0]!.p[1] - 0.5, 9);
+    // the deck's own first knot (the wall's top) stays, so the tail gets 0.5 cm thicker
+    expect(next.deck.knots[0]!.p).toEqual(doc.deck.knots[0]!.p);
+    expect(store.getState().board!.deck.knots[0]!.end.y).toBeCloseTo(wall.y - 0.5, 9);
+    expect(errorsOf(next)).toEqual([]);
+  });
+
   it('moving the nose stretches the stations with the board', () => {
     const doc = goldenDoc('shortboard');
     const store = opened(doc);

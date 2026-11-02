@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * The NURBS viewer's worker: converts a classic board to a board2 document, builds
- * and meshes it, off the main thread (milliseconds per job, one job per edit).
+ * The NURBS engine's worker: builds and meshes the section store's document (no converter in the
+ * loop), converts a classic board to a document (once, when the engine switches on or a file is
+ * opened with it on), and meshes a classic board or a test board for the viewer, off the main
+ * thread (milliseconds per job, one job per edit).
  * Requests are processed in arrival order, and the client posts one at a time;
  * "cancellation" is supersession: the main thread drops stale answers by id
  * (`nurbs-client.ts`).

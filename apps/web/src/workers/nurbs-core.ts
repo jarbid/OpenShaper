@@ -11,10 +11,12 @@
  *
  * ## One job
  *
- * `convertClassic(classic)` → `buildBoard(doc, { check: false })` → `meshBoard(built, …)`,
+ * The section store's document (`meshDocument`, an edit in the NURBS engine) or a classic
+ * board (`convertAndMesh`: `convertClassic` first): `buildBoard(doc)` → `meshBoard(built, …)`,
  * then the typed arrays the 3D view draws: positions, exact normals, the view's three
  * curvature quantities from k1 / k2 (when asked), and the deviation from the classic
- * board (when asked). Every step is milliseconds, so a job runs for every edit.
+ * board (when asked). Every step is milliseconds, so a job runs for every edit. `convertToDoc`
+ * is the conversion alone, for the engine switch.
  *
  * ## Identity
  *
