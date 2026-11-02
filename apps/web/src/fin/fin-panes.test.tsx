@@ -7,6 +7,9 @@
 import { defaultFinDesign, FIN_MIN_THICKNESS, foilShare } from '@openshaper/kernel';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { readFinJson } from '@openshaper/io';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { lengthUnitByKey } from '../format';
 import { MOUSE, installLayoutStubs, pane, removeLayoutStubs } from '../test/spline-editor-harness';
 import { FinOutlinePane } from './FinOutlinePane';
@@ -212,6 +215,20 @@ describe('dragging in the panes', () => {
     const after = design().section.outside.knots[1]!.end;
     expect(after.x).toBeGreaterThan(before.x);
     expect(after.y).toBeCloseTo(before.y, 9);
+  });
+});
+
+describe('the thickness view on a swept-back fin', () => {
+  it('notes when it is read along the sweep, and only then', () => {
+    act(() => finStore.getState().load(defaultFinDesign('side', 'right')));
+    const { unmount } = render(<FinTaperPane store={finStore} units={lengthUnitByKey('mm')} />);
+    expect(screen.queryByTestId('taper-along-sweep')).toBeNull();
+    unmount();
+    // Tests run from apps/web.
+    const file = resolve(process.cwd(), '../../docs/specs/fins/swept_back_tip.fin.json');
+    act(() => finStore.getState().load(readFinJson(readFileSync(file, 'utf8')).design));
+    render(<FinTaperPane store={finStore} units={lengthUnitByKey('mm')} />);
+    expect(screen.getByTestId('taper-along-sweep').textContent).toMatch(/along the sweep/);
   });
 });
 

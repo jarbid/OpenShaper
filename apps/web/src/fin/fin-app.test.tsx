@@ -372,48 +372,57 @@ describe('FinApp', () => {
     );
   });
 
-  it('adds a foil slice from the profile, edits it from its tab, and removes it', () => {
-    localStorage.removeItem('bs.fin.views');
-    render(<FinApp />);
-    fireEvent.click(screen.getByRole('button', { name: 'Add slice (twist)' }));
-    const d = () => finStore.getState().design!;
-    expect(d().slices).toHaveLength(1);
-    expect(d().slices[0]!.height).toBe(0.5); // halfway up: the biggest gap
-    // The foil view's tools come with it into the large pane.
-    fireEvent.click(screen.getByRole('button', { name: 'Show Foil section in the large pane' }));
-    const tabs = within(screen.getByRole('tablist', { name: 'Foil' }));
-    expect(tabs.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Base', 'Tip', '50.0 mm']);
-    expect(screen.getByTestId('foil-title').textContent).toMatch(
-      /^Horizontal slice foil · 50\.0 mm/,
-    );
-    expect(tabs.getByRole('tab', { name: '50.0 mm' }).getAttribute('aria-selected')).toBe('true');
-    fireEvent.change(screen.getByLabelText('NACA preset'), { target: { value: '0008' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
-    expect(d().slices[0]!.section.inside).toBeNull(); // the slice took the NACA foil
-    expect(d().section.inside).not.toBeNull(); // the root kept its flat inside
-    fireEvent.click(tabs.getByRole('tab', { name: 'Tip' }));
-    expect(finStore.getState().activeFoil).toBe(-1);
-    expect(screen.getByTestId('foil-title').textContent).toMatch(/^Foil sweep end \(tip\)/);
-    // The tip foil is its own: a preset here leaves the base foil alone.
-    fireEvent.change(screen.getByLabelText('NACA preset'), { target: { value: '2410' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
-    expect(d().tipSection).toBeDefined();
-    expect(d().section.inside).not.toBeNull();
-    fireEvent.click(tabs.getByRole('tab', { name: 'Base' }));
-    expect(finStore.getState().activeFoil).toBe(0);
-    expect(screen.getByTestId('foil-title').textContent).toMatch(/^Foil sweep start \(base\)/);
-    // Remove slice sits beside Add slice in the profile's toolbar, not in the foil view's.
-    expect(screen.queryByRole('button', { name: 'Remove slice' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Show Profile in the large pane' }));
-    const remove = () => screen.getByRole('button', { name: 'Remove slice' }) as HTMLButtonElement;
-    expect(remove().disabled).toBe(true); // the root is selected: no slice to remove
-    act(() => finStore.getState().setActiveFoil(1));
-    expect(remove().disabled).toBe(false);
-    fireEvent.click(remove());
-    expect(d().slices).toHaveLength(0);
-    expect(screen.queryByRole('button', { name: 'Remove slice' })).toBeNull(); // none left
-    localStorage.removeItem('bs.fin.views');
-  });
+  it(
+    'adds a foil slice from the profile, edits it from its tab, and removes it',
+    () => {
+      localStorage.removeItem('bs.fin.views');
+      render(<FinApp />);
+      fireEvent.click(screen.getByRole('button', { name: 'Add slice (twist)' }));
+      const d = () => finStore.getState().design!;
+      expect(d().slices).toHaveLength(1);
+      expect(d().slices[0]!.height).toBe(0.5); // halfway up: the biggest gap
+      // The foil view's tools come with it into the large pane.
+      fireEvent.click(screen.getByRole('button', { name: 'Show Foil section in the large pane' }));
+      const tabs = within(screen.getByRole('tablist', { name: 'Foil' }));
+      expect(tabs.getAllByRole('tab').map((t) => t.textContent)).toEqual([
+        'Base',
+        'Tip',
+        '50.0 mm',
+      ]);
+      expect(screen.getByTestId('foil-title').textContent).toMatch(
+        /^Horizontal slice foil · 50\.0 mm/,
+      );
+      expect(tabs.getByRole('tab', { name: '50.0 mm' }).getAttribute('aria-selected')).toBe('true');
+      fireEvent.change(screen.getByLabelText('NACA preset'), { target: { value: '0008' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+      expect(d().slices[0]!.section.inside).toBeNull(); // the slice took the NACA foil
+      expect(d().section.inside).not.toBeNull(); // the root kept its flat inside
+      fireEvent.click(tabs.getByRole('tab', { name: 'Tip' }));
+      expect(finStore.getState().activeFoil).toBe(-1);
+      expect(screen.getByTestId('foil-title').textContent).toMatch(/^Foil sweep end \(tip\)/);
+      // The tip foil is its own: a preset here leaves the base foil alone.
+      fireEvent.change(screen.getByLabelText('NACA preset'), { target: { value: '2410' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+      expect(d().tipSection).toBeDefined();
+      expect(d().section.inside).not.toBeNull();
+      fireEvent.click(tabs.getByRole('tab', { name: 'Base' }));
+      expect(finStore.getState().activeFoil).toBe(0);
+      expect(screen.getByTestId('foil-title').textContent).toMatch(/^Foil sweep start \(base\)/);
+      // Remove slice sits beside Add slice in the profile's toolbar, not in the foil view's.
+      expect(screen.queryByRole('button', { name: 'Remove slice' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Show Profile in the large pane' }));
+      const remove = () =>
+        screen.getByRole('button', { name: 'Remove slice' }) as HTMLButtonElement;
+      expect(remove().disabled).toBe(true); // the root is selected: no slice to remove
+      act(() => finStore.getState().setActiveFoil(1));
+      expect(remove().disabled).toBe(false);
+      fireEvent.click(remove());
+      expect(d().slices).toHaveLength(0);
+      expect(screen.queryByRole('button', { name: 'Remove slice' })).toBeNull(); // none left
+      localStorage.removeItem('bs.fin.views');
+    },
+    HEAVY,
+  ); // makes a slice from the fin, which builds its section
 
   it('moves a fin onto the FCS single tab: centred, cant set by the plug', () => {
     render(<FinApp />);

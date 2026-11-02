@@ -273,7 +273,11 @@ export default function DocsFinDesigner() {
           thicker than the curve says at each height, the loft rounding it off to the edge, so a
           fuller curve near the tip gives a fuller tip and no more. A slice&apos;s tip-line dot (see{' '}
           <a href="#slices">Foil slices and twist</a>) scales the tip foil against the curve.{' '}
-          <strong>Root thickness</strong> scales the whole curve.
+          <strong>Root thickness</strong> scales the whole curve. On a heavily swept-back fin, whose
+          arm reaches back to the tip spanning little height, the curve is read along the sweep
+          instead — from the root, along the orange thickness path, to the tip — so the arm thins
+          toward its tip rather than keeping its full thickness to the tip line. The thickness view
+          says so when it does; fins that rise as they sweep back are read by height, as always.
         </p>
       </Section>
 

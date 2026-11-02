@@ -6,9 +6,11 @@
  * the depth, thickness); it is drawn with height up at the fin's true depth, so it lines
  * up with the profile, and thickness across, stretched so it reads. Straight then
  * curving toward the tip is the usual shape: the curve is what controls flex. The
- * dashed line is the design minimum (0.5 mm); the store stops a point there.
+ * dashed line is the design minimum (0.5 mm); the store stops a point there. On a
+ * heavily swept-back fin the curve is read along the sweep instead (kernel
+ * thicknessAlongSweep), which the pane notes, as its height no longer lines up.
  */
-import { FIN_MIN_THICKNESS, finReadouts } from '@openshaper/kernel';
+import { FIN_MIN_THICKNESS, finReadouts, thicknessAlongSweep } from '@openshaper/kernel';
 import { FinCurveEditor, type ViewMap } from '@openshaper/render2d';
 import type { FinState } from '@openshaper/store';
 import { memo, useCallback, useMemo } from 'react';
@@ -110,8 +112,10 @@ export const FinTaperPane = memo(function FinTaperPane({
     [units, root],
   );
 
+  const alongSweep = useMemo(() => (design ? thicknessAlongSweep(design) : 0), [design]);
+
   if (!design || !taper) return null;
-  return (
+  const editor = (
     <FinCurveEditor
       label="Thickness taper"
       layers={layers}
@@ -125,5 +129,17 @@ export const FinTaperPane = memo(function FinTaperPane({
       {...guideHandlers}
       {...handlers}
     />
+  );
+  if (!(alongSweep > 0.05)) return editor;
+  return (
+    <div className="relative h-full">
+      <span
+        className="pointer-events-none absolute right-2 top-1 z-10 max-w-[60%] text-right text-xs text-muted-foreground"
+        data-testid="taper-along-sweep"
+      >
+        Swept-back fin: read along the sweep, root to tip
+      </span>
+      {editor}
+    </div>
   );
 });
