@@ -171,13 +171,22 @@ function meta(r: Reader, v: unknown): BoardMeta {
   return out;
 }
 
+function lock(r: Reader, v: unknown, path: string): NonNullable<ChainKnot['lock']> {
+  const o = rec(r, v, path, [], ['prev', 'next']);
+  return {
+    ...(o.prev === undefined ? {} : { prev: pair(r, o.prev, `${path}.prev`) }),
+    ...(o.next === undefined ? {} : { next: pair(r, o.next, `${path}.next`) }),
+  };
+}
+
 function knot(r: Reader, v: unknown, path: string): ChainKnot {
-  const o = rec(r, v, path, ['p', 'in', 'out', 'smooth']);
+  const o = rec(r, v, path, ['p', 'in', 'out', 'smooth'], ['lock']);
   return {
     p: pair(r, o.p, `${path}.p`),
     in: pair(r, o.in, `${path}.in`),
     out: pair(r, o.out, `${path}.out`),
     smooth: bool(r, o.smooth, `${path}.smooth`),
+    ...(o.lock === undefined ? {} : { lock: lock(r, o.lock, `${path}.lock`) }),
   };
 }
 
@@ -374,7 +383,20 @@ export function boardDocToJson(doc: BoardDoc): string {
 }
 
 function ordered(doc: BoardDoc): unknown {
-  const k = (c: ChainKnot) => ({ p: [...c.p], in: [...c.in], out: [...c.out], smooth: c.smooth });
+  const k = (c: ChainKnot) => ({
+    p: [...c.p],
+    in: [...c.in],
+    out: [...c.out],
+    smooth: c.smooth,
+    ...(c.lock === undefined
+      ? {}
+      : {
+          lock: {
+            ...(c.lock.prev === undefined ? {} : { prev: [...c.lock.prev] }),
+            ...(c.lock.next === undefined ? {} : { next: [...c.lock.next] }),
+          },
+        }),
+  });
   const ch = (c: Chain) => ({ knots: c.knots.map(k) });
   const sec = (s: Section) => ({ chain: ch(s.chain), apex: s.apex });
   const keyed = (c: KeyedCurve) => ({

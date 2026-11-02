@@ -34,6 +34,16 @@ const LAYERS = {
   store: {
     pkgs: ['io', 'units', 'render2d', 'render3d', 'export', 'ui', 'geom', 'board2'],
     ui: true,
+    ignores: ['packages/store/src/sections/**'],
+  },
+  // The section store (docs/design/m2-editor.md §1) edits board2's document, so it may name board2's
+  // *types*; a runtime import would put board2 and geom into the main chunk.
+  'store/sections': {
+    files: ['packages/store/src/sections/**/*.{ts,tsx}'],
+    pkgs: ['io', 'units', 'render2d', 'render3d', 'export', 'ui', 'geom'],
+    typeOnly: ['board2'],
+    ui: true,
+    ignores: ['**/test-support/**'],
   },
   render2d: { pkgs: ['io', 'units', 'render3d', 'export', 'geom', 'board2'], ui: false },
   render3d: { pkgs: ['io', 'units', 'render2d', 'export', 'ui', 'geom', 'board2'], ui: false },
@@ -142,7 +152,7 @@ const LAYERS = {
 };
 
 const layerConfigs = Object.entries(LAYERS).map(
-  ([name, { pkgs, ui, node = false, extra = [], files, ignores = [] }]) => ({
+  ([name, { pkgs, typeOnly = [], ui, node = false, extra = [], files, ignores = [] }]) => ({
     files: files ?? [`packages/${name}/src/**/*.{ts,tsx}`],
     ignores: ['**/*.test.{ts,tsx}', '**/*.bench.ts', ...ignores],
     rules: {
@@ -154,6 +164,11 @@ const layerConfigs = Object.entries(LAYERS).map(
               group: pkgs.map((p) => `@openshaper/${p}`),
               message: `@openshaper/${name} may not depend on this package (see the layering in .claude/CLAUDE.md).`,
             },
+            ...typeOnly.map((p) => ({
+              group: [`@openshaper/${p}`, `@openshaper/${p}/*`],
+              allowTypeImports: true,
+              message: `@openshaper/${name} may import the types of this package only (see the layering in .claude/CLAUDE.md).`,
+            })),
             ...(ui
               ? [
                   {

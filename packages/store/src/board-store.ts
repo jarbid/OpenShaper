@@ -6,42 +6,20 @@ import {
 } from '@openshaper/kernel';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { FinSetup, FinSpec, FinSystem, InterpolationType, Spline } from '@openshaper/kernel';
+import { createFinActions, createSplineActions } from './board-actions';
 import {
-  alignTangentsHorizontal,
-  alignTangentsVertical,
-  canDeleteKnot,
-  capSectionHandleLengths,
-  constrainSectionToBlank,
-  deleteKnot,
   enforceJunctions,
-  extendKnotTangent,
-  fairKnot,
   fitSectionToBlank,
   getTargetSpline,
   insertCrossSection,
-  insertKnotAt,
-  moveKnotEnd,
-  moveKnotTangent,
-  moveSegmentTangents,
   moveCrossSectionPosition,
   removeCrossSection,
-  rotateKnotTangent,
-  scaleBoard,
-  setFinFromPlanPoint,
-  setFinSetup,
-  setFinSymmetrical,
-  setFinSystem,
-  setKnotContinuous,
-  setKnotLock,
-  setKnotTangentLength,
-  stepKnotTangentLength,
-  zeroKnotTangent,
-  updateFinSpec,
   withInterpolationType,
   withSpline,
   type KnotHandles,
   type SplineTarget,
 } from './edits';
+import { createHistory, type HistoryHost } from './history';
 
 /** A selected control point, for the inspector / highlight. */
 export interface Selection {
@@ -190,12 +168,6 @@ export interface BoardState {
   jumpTo: (index: number) => void;
 }
 
-const MAX_HISTORY = 200;
-
-/** Whether two handle positions agree to well below anything an edit could mean (cm). */
-const samePoint = (a: Vec2, b: Vec2): boolean =>
-  Math.abs(a.x - b.x) <= 1e-9 && Math.abs(a.y - b.y) <= 1e-9;
-
 /**
  * What survives of the selection when history replaces `from` with `to`.
  *
@@ -205,7 +177,7 @@ const samePoint = (a: Vec2, b: Vec2): boolean =>
  * an index into a removed station would crash the inspector, and one into a spline
  * that gained or lost knots would silently point at a different knot.
  */
-const selectionAfterHistory = (
+export const selectionAfterHistory = (
   from: BezierBoard,
   to: BezierBoard,
   selection: Selection | null,
@@ -225,131 +197,31 @@ const selectionAfterHistory = (
   };
 };
 
+const classicHistoryHost: HistoryHost<BoardState, HistoryEntry> = {
+  snapshot: (s, label) => (s.board ? { board: s.board, label } : null),
+  restore: (s, entry) => ({
+    ...selectionAfterHistory(s.board!, entry.board, s.selection, s.selectedFin),
+    board: entry.board,
+  }),
+};
+
 export const createBoardStore = (): StoreApi<BoardState> =>
   createStore<BoardState>((set, get) => {
-    /** Whether the open grouped edit (`beginEdit`) has yet to record its undo step. */
-    let stepPending = false;
+    const history = createHistory<BoardState, HistoryEntry>(get, set, classicHistoryHost);
 
     /** Apply an edited board, recording a labelled history step unless mid-drag. */
     const commit = (next: BezierBoard, label: string) => {
-      const { board, editing, past, adjustThickness } = get();
+      const { board, adjustThickness } = get();
       if (!board) return;
       // Slave the stored cross-sections to the rocker/deck (thickness) and outline
       // (width) at their stations, so editing a global curve resizes the sections in
       // that area (legacy adjustCrosssectionsToThicknessAndWidth on every change). When
       // `adjustThickness` is off (legacy JC-4-y), the sections keep their own profile.
       const settled = adjustThickness ? adjustCrossSectionsToThicknessAndWidth(next) : next;
-      if (editing && !stepPending) {
-        // The drag's step is already recorded — give it this action's name.
-        // Keep the same `past` array when the label is unchanged (every move of a
-        // drag after the first), so history subscribers don't re-render per move.
-        const last = past[past.length - 1];
-        set({
-          board: settled,
-          past:
-            last && last.label !== label
-              ? [...past.slice(0, -1), { board: last.board, label }]
-              : past,
-        });
-      } else {
-        // A new step: a single edit, or the first commit of a drag.
-        stepPending = false;
-        set({
-          board: settled,
-          past: [...past, { board, label }].slice(-MAX_HISTORY),
-          future: [],
-        });
-      }
+      history.commit({ board: settled }, label);
     };
 
-    /**
-     * `target`'s spline in `board` edited from `before` to `after`, as it will be stored. A
-     * slice is held inside the blank first: the outline, rocker and deck define the blank,
-     * and a slice edit refines it without ever moving them (`constrainSectionToBlank`).
-     * Then the shared junctions are re-pinned, so curves can't be pulled apart.
-     */
-    const settle = (board: BezierBoard, target: SplineTarget, before: Spline, after: Spline) => {
-      const held = target.kind === 'crossSection' ? constrainSectionToBlank(before, after) : after;
-      return { held, board: enforceJunctions(withSpline(board, target, held), target) };
-    };
-
-    /**
-     * Whether knot `index`'s handles come through {@link settle} where `after` puts them.
-     * The junction pass clamps a handle past a limit back onto it, and the blank slides
-     * one pushed out past a slice's apex onto the apex line; either turns or shortens it.
-     * An edit that promises to keep a handle's angle or length checks this first, and does
-     * not happen rather than land as something else.
-     */
-    const settlesAsAsked = (target: SplineTarget, before: Spline, after: Spline, index: number) => {
-      const { board } = get();
-      if (!board) return false;
-      const want = after.knots[index];
-      const got = getTargetSpline(settle(board, target, before, after).board, target).knots[index];
-      return (
-        !!want &&
-        !!got &&
-        samePoint(want.tangentToPrev, got.tangentToPrev) &&
-        samePoint(want.tangentToNext, got.tangentToNext)
-      );
-    };
-
-    /**
-     * A handle length edit of knot `index`: on a slice stopped where the handle meets the
-     * apex line, along its own direction, and refused if the blank would still turn it.
-     * (The outline, rocker and deck keep their junction pass's say, as before.)
-     */
-    const editLength = (target: SplineTarget, index: number, fn: (s: Spline) => Spline) => {
-      const { board } = get();
-      if (!board) return;
-      const spline = getTargetSpline(board, target);
-      let next = fn(spline);
-      // A collapsed free handle has no direction to change length along: no step to record.
-      if (next === spline) return;
-      if (target.kind === 'crossSection') {
-        next = capSectionHandleLengths(spline, next, index);
-        // Already on the line: stopping there again changes nothing, so records nothing.
-        const was = spline.knots[index]!;
-        const got = next.knots[index]!;
-        if (
-          samePoint(was.tangentToPrev, got.tangentToPrev) &&
-          samePoint(was.tangentToNext, got.tangentToNext)
-        )
-          return;
-        if (!settlesAsAsked(target, spline, next, index)) return;
-      }
-      editSpline(target, 'Set handle length', () => next);
-    };
-
-    /**
-     * Align knot `index`'s handles. On a slice they keep their lengths, as the buttons
-     * promise, or the align does not happen: lying an apex's handles flat would push one
-     * out past the apex line, where the blank would collapse it onto the point.
-     */
-    const editAlign = (
-      target: SplineTarget,
-      index: number,
-      align: (s: Spline, index: number) => Spline,
-    ) => {
-      const { board } = get();
-      if (!board) return;
-      const spline = getTargetSpline(board, target);
-      const next = align(spline, index);
-      if (target.kind === 'crossSection' && !settlesAsAsked(target, spline, next, index)) return;
-      editSpline(target, 'Align tangents', () => next);
-    };
-
-    /** Replace `target`'s spline with `fn` of it, through {@link settle}, as one commit. */
-    const editSpline = (target: SplineTarget, label: string, fn: (s: Spline) => Spline) => {
-      const { board } = get();
-      if (!board) return;
-      const before = getTargetSpline(board, target);
-      const after = fn(before);
-      const settled = settle(board, target, before, after);
-      // The blank took the whole edit back (a slice's centre point dragged, its apex pushed
-      // sideways): there is nothing to record.
-      if (settled.held === before && after !== before) return;
-      commit(settled.board, label);
-    };
+    const ctx = { get, set, commit };
 
     return {
       board: null,
@@ -377,93 +249,11 @@ export const createBoardStore = (): StoreApi<BoardState> =>
       select: (selection) => set({ selection, selectedFin: null }),
       selectFin: (index) => set({ selectedFin: index, selection: null }),
 
-      beginEdit: () => {
-        const { board, editing } = get();
-        if (!board || editing) return;
-        stepPending = true;
-        set({ editing: true });
-      },
-      endEdit: () => set({ editing: false }),
+      beginEdit: history.beginEdit,
+      endEdit: history.endEdit,
 
-      moveControlPoint: (target, index, end) =>
-        editSpline(target, 'Move control point', (s) => moveKnotEnd(s, index, end)),
-
-      moveTangent: (target, index, which, pos) =>
-        editSpline(target, 'Move tangent', (s) => moveKnotTangent(s, index, which, pos)),
-
-      setTangentLength: (target, index, which, length) =>
-        editLength(target, index, (s) => setKnotTangentLength(s, index, which, length)),
-      rotateTangent: (target, index, which, radians) => {
-        const { board } = get();
-        if (!board) return;
-        const spline = getTargetSpline(board, target);
-        const turned = rotateKnotTangent(spline, index, which, radians);
-        // Locked, collapsed, or no angle: nothing turned, so no step to record.
-        if (turned === spline) return;
-        // A turn keeps its length or does not happen.
-        if (!settlesAsAsked(target, spline, turned, index)) return;
-        editSpline(target, which === 'both' ? 'Rotate handles' : 'Rotate handle', () => turned);
-      },
-      stepTangentLength: (target, index, which, delta) =>
-        editLength(target, index, (s) => stepKnotTangentLength(s, index, which, delta)),
-      moveSegmentTangents: (target, index, first, last) => {
-        const { board } = get();
-        if (!board) return;
-        const spline = getTargetSpline(board, target);
-        const next = moveSegmentTangents(spline, index, first, last);
-        if (next === spline) return;
-        editSpline(target, 'Adjust Tunni handles', () => next);
-      },
-
-      addControlPoint: (target, p) => {
-        const { board } = get();
-        if (!board) return;
-        const result = insertKnotAt(getTargetSpline(board, target), p);
-        if (!result) return;
-        editSpline(target, 'Add control point', () => result.spline);
-        set({ selection: { target, index: result.index, kind: 'end' } });
-      },
-
-      deleteControlPoint: (target, index) => {
-        const { board } = get();
-        if (!board) return;
-        const spline = getTargetSpline(board, target);
-        if (!canDeleteKnot(spline, index, target)) return;
-        // Delete pressed mid-drag: close the drag's step first, so the deletion is its
-        // own undo step rather than relabelling the drag's (the editor then drops the
-        // drag, whose knot index no longer means the same point).
-        if (get().editing) set({ editing: false });
-        editSpline(target, 'Delete control point', () => deleteKnot(spline, index));
-        set({ selection: null });
-      },
-
-      setContinuous: (target, index, continuous) =>
-        editSpline(target, continuous ? 'Smooth control point' : 'Corner control point', (s) =>
-          setKnotContinuous(s, index, continuous),
-        ),
-
-      setLocked: (target, index, locked) => {
-        const { board } = get();
-        if (!board) return;
-        const spline = getTargetSpline(board, target);
-        const next = setKnotLock(spline, index, locked);
-        // A click that changes nothing must not leave an empty undo step.
-        if (next === spline) return;
-        editSpline(target, locked ? 'Lock handle angles' : 'Unlock handle angles', () => next);
-      },
-
-      fairControlPoint: (target, index) =>
-        editSpline(target, 'Fair curve', (s) => fairKnot(s, index)),
-
-      zeroTangent: (target, index, which) =>
-        editSpline(target, 'Set handle length to zero', (s) => zeroKnotTangent(s, index, which)),
-
-      extendTangent: (target, index, which) =>
-        editSpline(target, 'Extend handle', (s) => extendKnotTangent(s, index, which)),
-
-      alignTangentsHorizontal: (target, index) => editAlign(target, index, alignTangentsHorizontal),
-
-      alignTangentsVertical: (target, index) => editAlign(target, index, alignTangentsVertical),
+      ...createSplineActions(ctx),
+      ...createFinActions(ctx),
 
       addCrossSection: (position) => {
         const { board } = get();
@@ -521,100 +311,16 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         set({ selection: null });
       },
 
-      scaleBoard: (fL, fW, fT) => {
-        const { board } = get();
-        if (!board) return;
-        if (fL === 1 && fW === 1 && fT === 1) return;
-        commit(enforceJunctions(scaleBoard(board, fL, fW, fT)), 'Resize board');
-      },
-
       setInterpolationType: (type) => {
         const { board } = get();
         if (!board || board.interpolationType === type) return;
         commit(withInterpolationType(board, type), 'Change interpolation');
       },
 
-      setFinSetup: (setup) => {
-        const { board } = get();
-        if (!board || board.fins.setup === setup) return;
-        commit(setFinSetup(board, setup), 'Change fin setup');
-        set({ selectedFin: null });
-      },
-
-      setFinSystem: (system) => {
-        const { board } = get();
-        if (!board || board.fins.system === system) return;
-        commit(setFinSystem(board, system), 'Change fin system');
-      },
-
-      setFinSymmetrical: (symmetrical) => {
-        const { board } = get();
-        if (!board || board.fins.symmetrical === symmetrical) return;
-        commit(setFinSymmetrical(board, symmetrical), 'Toggle fin symmetry');
-      },
-
-      updateFin: (index, patch) => {
-        const { board } = get();
-        if (!board) return;
-        const next = updateFinSpec(board, index, patch);
-        if (next === board) return;
-        commit(next, 'Edit fin');
-      },
-
-      moveFin: (index, point) => {
-        const { board } = get();
-        if (!board) return;
-        const next = setFinFromPlanPoint(board, index, point);
-        if (next === board) return;
-        commit(next, 'Move fin');
-      },
-
-      undo: () => {
-        const { past, future, board, selection, selectedFin } = get();
-        if (past.length === 0 || !board) return;
-        const prev = past[past.length - 1]!;
-        set({
-          ...selectionAfterHistory(board, prev.board, selection, selectedFin),
-          board: prev.board,
-          past: past.slice(0, -1),
-          // The redo entry re-applies the action we just undid, so it keeps its label.
-          future: [{ board, label: prev.label }, ...future],
-          editing: false,
-        });
-      },
-      redo: () => {
-        const { past, future, board, selection, selectedFin } = get();
-        if (future.length === 0 || !board) return;
-        const next = future[0]!;
-        set({
-          ...selectionAfterHistory(board, next.board, selection, selectedFin),
-          board: next.board,
-          past: [...past, { board, label: next.label }],
-          future: future.slice(1),
-          editing: false,
-        });
-      },
-      canUndo: () => get().past.length > 0,
-      canRedo: () => get().future.length > 0,
-
-      jumpTo: (index) => {
-        const { past, future, board, selection, selectedFin } = get();
-        if (!board || index < 0 || index >= past.length) return;
-        // Equivalent to (past.length - index) undos in one step: walk back from the
-        // current board, pushing each undone step onto the redo stack.
-        let cur = board;
-        const undone: HistoryEntry[] = [];
-        for (let i = past.length - 1; i >= index; i--) {
-          undone.push({ board: cur, label: past[i]!.label });
-          cur = past[i]!.board;
-        }
-        set({
-          ...selectionAfterHistory(board, cur, selection, selectedFin),
-          board: cur,
-          past: past.slice(0, index),
-          future: [...undone.reverse(), ...future],
-          editing: false,
-        });
-      },
+      undo: history.undo,
+      redo: history.redo,
+      canUndo: history.canUndo,
+      canRedo: history.canRedo,
+      jumpTo: history.jumpTo,
     };
   });

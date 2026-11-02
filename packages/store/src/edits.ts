@@ -37,16 +37,21 @@ import {
  * spline / board; the store swaps the reference. No mutation, fully testable.
  */
 
-/** Identifies which spline on the board an edit targets. */
+/**
+ * Identifies which spline on the board an edit targets. `side: 'minus'` names the minus half of an
+ * asymmetric NURBS board (its outline, or a station's minus section); classic boards never set it, and
+ * absent means the plus half.
+ */
 export type SplineTarget =
-  | { kind: 'outline' }
+  | { kind: 'outline'; side?: 'minus' }
   | { kind: 'deck' }
   | { kind: 'bottom' }
-  | { kind: 'crossSection'; index: number };
+  | { kind: 'crossSection'; index: number; side?: 'minus' };
 
-/** Whether two targets name the same spline (same kind, and same station for sections). */
+/** Whether two targets name the same spline (same kind, same side, and same station for sections). */
 export const sameTarget = (a: SplineTarget, b: SplineTarget): boolean =>
   a.kind === b.kind &&
+  (a.kind === 'deck' || a.kind === 'bottom' || a.side === (b as typeof a).side) &&
   (a.kind !== 'crossSection' || (b.kind === 'crossSection' && b.index === a.index));
 
 export const getTargetSpline = (b: BezierBoard, t: SplineTarget): Spline => {

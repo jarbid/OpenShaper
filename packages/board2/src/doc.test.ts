@@ -53,6 +53,22 @@ describe('canonical JSON', () => {
     expect(revive(JSON.parse(text)).fins).toEqual(doc.fins);
   });
 
+  it('carries a knot lock (handle directions) and leaves unlocked knots without the key', () => {
+    const doc = mutated(analyticBoard(), (d) => {
+      d.rocker.knots[1].lock = { prev: [-1, 0], next: [0.6, 0.8] };
+      d.deck.knots[1].lock = { next: [1, 0] };
+    });
+    const text = boardDocToJson(doc);
+    const back = revive(JSON.parse(text));
+    expect(back.rocker.knots[1]!.lock).toEqual({ prev: [-1, 0], next: [0.6, 0.8] });
+    expect(back.deck.knots[1]!.lock).toEqual({ next: [1, 0] });
+    expect('lock' in back.rocker.knots[0]!).toBe(false);
+    expect(boardDocToJson(back)).toBe(text);
+    const bad = JSON.parse(text);
+    bad.rocker.knots[1].lock.sideways = [1, 0];
+    expect(reviveBoardDoc(bad).ok).toBe(false);
+  });
+
   it('reads -0 as 0 and keeps full double precision', () => {
     const doc = mutated(analyticBoard(), (d) => {
       d.stations[0].x = Math.PI * 16;

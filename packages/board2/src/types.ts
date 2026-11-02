@@ -32,6 +32,11 @@ export interface ChainKnot {
   readonly in: Pair;
   readonly out: Pair;
   readonly smooth: boolean;
+  /**
+   * Handle directions the editor keeps (unit vectors from `p`), as classic's lock. The geometry
+   * ignores it; it rides along so undo, save and reload keep a locked point locked.
+   */
+  readonly lock?: { readonly prev?: Pair; readonly next?: Pair };
 }
 
 /** Cubic Bézier segments through consecutive knots; at least two knots. */

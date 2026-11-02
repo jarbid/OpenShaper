@@ -326,6 +326,9 @@ importers:
 
   packages/store:
     dependencies:
+      '@openshaper/board2':
+        specifier: workspace:*
+        version: link:../board2
       '@openshaper/kernel':
         specifier: workspace:*
         version: link:../kernel
