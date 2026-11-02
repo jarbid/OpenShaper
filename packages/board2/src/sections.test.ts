@@ -331,3 +331,23 @@ describe('the bounded blend (u stays within [0, 1], continuously in the stations
     }
   });
 });
+
+describe('fitSide with a span hint (an edit in progress)', () => {
+  const items = [20, 60, 100].map((x, i) => ({
+    id: `s${i}`,
+    x,
+    section: section(0.88, 0.06 + 0.01 * i, 0.38, 0.86, 0.78),
+    scale: 20,
+  }));
+
+  it('takes a hinted rung that fits every station, and ignores one that does not or is not a rung', () => {
+    const settled = fitSide(items)!;
+    for (const m of [settled.m, 48]) {
+      const hinted = fitSide(items, m)!;
+      expect(hinted.m).toBe(m);
+      expect(Math.max(...hinted.stationError)).toBeLessThanOrEqual(SECTION_FIT_TOL * 1.01);
+    }
+    // not a rung of the ladder: the usual climb
+    expect(fitSide(items, 13)!.m).toBe(settled.m);
+  });
+});

@@ -18,6 +18,8 @@
  *     and record every NURBS update that arrives: request to answer on the main
  *     thread (clone of the document, build, mesh, transfer), and the worker's share. No
  *     converter runs in the loop. Targets (m2-editor.md step 1): median <= 35 ms, p95 <= 50 ms.
+ *     Then (step 2) a station's apex in the cross-section pane: the section drag refits one
+ *     section. Targets: worker p95 <= 15 ms, round trip p95 <= 50 ms.
  *
  * Usage (after `pnpm build`):
  *   node tools/perf/nurbs-timing.mjs [--json out.json] [--only substring] [--throttle 4]
@@ -306,6 +308,26 @@ async function findProfileKnot(page, fromTop) {
   return null;
 }
 
+/**
+ * The apex of the selected station in the quad view's cross-section pane (pane 1): the section's
+ * rightmost point, a margin in from the pane's right edge. The inspector names it, so click along
+ * the edge with nothing selected until it says "Apex".
+ */
+async function findSectionApex(page) {
+  const view = await paneRect(page, 1);
+  const apex = page.getByLabel('Apex position editor').first();
+  for (let x = view.x + view.w - 8; x > view.x + view.w - 48; x -= 4) {
+    for (let y = view.y + 8; y < view.y + view.h - 8; y += 4) {
+      await page.keyboard.press('Escape');
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      await page.mouse.up();
+      if (await apex.isVisible().catch(() => false)) return { x, y };
+    }
+  }
+  return null;
+}
+
 /** Drag from `start` for DRAG_MOVES pointer moves and collect the NURBS updates that arrive. */
 async function dragAndRecord(page, start, step) {
   await page.mouse.move(start.x, start.y);
@@ -377,6 +399,16 @@ async function measureDrag(browser) {
     ['outline', () => findOutlineKnot(page), { x: 0.5, y: -0.3 }],
     ['deck', () => findProfileKnot(page, true), { x: 0, y: -0.25 }],
     ['rocker', () => findProfileKnot(page, false), { x: 0, y: 0.25 }],
+    [
+      'section',
+      async () => {
+        // a station towards the middle of the board (the earlier drags may have moved the selection)
+        const next = page.getByRole('button', { name: 'Next cross-section' });
+        for (let i = 0; i < 2 && (await next.isEnabled()); i++) await next.click();
+        return findSectionApex(page);
+      },
+      { x: 0, y: -0.4 },
+    ],
   ];
   for (const [name, find, step] of drags) {
     const start = await find();

@@ -150,12 +150,29 @@ export type Blend = Omit<SideBlend, 'stationError' | 'stationNormal' | 'clamped'
  * otherwise the last rung is used even if it misses {@link SECTION_FIT_TOL}
  * (the miss is in `stationError`).
  */
-export function fitSide(items: readonly SideItem[]): SideBlend | null {
+export function fitSide(items: readonly SideItem[], hint?: number): SideBlend | null {
   // Climb the ladder until the worst station is within the limit, or until the error stops improving
   // (a corner knot of a classic slice converges slowly and may not be resolved at all).
   let chosen: { m: number; fits: SectionFit[] } | null = null;
+  // An edit in progress passes the span the last build chose: when it still fits every station within the
+  // limit it is taken, and the climb from the bottom of the ladder (a handful of fits of the section being
+  // dragged, which changes at every pointer move) is skipped. It is at least as fine as the rung the climb
+  // would stop at, so the surface only differs from the settled one by less than the fit tolerance.
+  if (hint !== undefined && SECTION_SPAN_LADDER.includes(hint)) {
+    const fits: SectionFit[] = [];
+    let worst = 0;
+    for (const it of items) {
+      const f = fitSection(it.section, hint);
+      if (f === null) break;
+      fits.push(f);
+      worst = Math.max(worst, fitCost(f, it));
+    }
+    if (fits.length === items.length && worst <= SECTION_FIT_TOL * (1 + SECTION_COST_TIE)) {
+      chosen = { m: hint, fits };
+    }
+  }
   const climb = ladderClimb();
-  for (const m of SECTION_SPAN_LADDER) {
+  for (const m of chosen ? [] : SECTION_SPAN_LADDER) {
     const fits: SectionFit[] = [];
     // the rung's worst station cost, in cm (see fitCost): within the tolerance only when both the
     // position and the tangent direction are, and an improvement in either counts

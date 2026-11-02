@@ -198,6 +198,65 @@ test.describe('NURBS viewer, flag on', () => {
     expect(errors).toEqual([]);
   });
 
+  test('select a station, drag the rail in the cross-section view, undo', async ({ page }) => {
+    const errors = trackErrors(page);
+    await page.goto('/app?engine=nurbs');
+    await editorReady(page);
+    await page.keyboard.press('1'); // quad: outline, cross-section, rocker, 3D
+    const badge = page.getByTestId('nurbs-badge');
+    await expect(badge).toHaveAttribute('data-source', 'doc', { timeout: 30_000 });
+    await expect(badge).toHaveAttribute('data-phase', 'ready');
+    await page.getByRole('button', { name: 'NURBS conversion details' }).click();
+    const volume = async () =>
+      (
+        await page.getByTestId('nurbs-info').locator('dt:text-is("Volume") + dd').innerText()
+      ).trim();
+    const original = await volume();
+
+    // Pick a station (the pane header steps through them), then find the rail's widest point (the
+    // apex, which the inspector names) by clicking along the section pane from its right edge.
+    await page.getByRole('button', { name: 'Next cross-section' }).click();
+    await page.getByRole('button', { name: 'Next cross-section' }).click();
+    const section = page.locator('canvas').nth(1);
+    const box = (await section.boundingBox())!;
+    const apex = page.getByLabel('Apex position editor').first();
+    let at: { x: number; y: number } | null = null;
+    // The apex is the section's rightmost point, a margin in from the pane's right edge. Nothing is
+    // selected between clicks, so a selected point's handles are not in the way of the next.
+    scan: for (let x = box.x + box.width - 8; x > box.x + box.width - 48; x -= 4) {
+      for (let y = box.y + 8; y < box.y + box.height - 8; y += 4) {
+        await page.keyboard.press('Escape');
+        await page.mouse.move(x, y);
+        await page.mouse.down();
+        await page.mouse.up();
+        if (await apex.isVisible().catch(() => false)) {
+          at = { x, y };
+          break scan;
+        }
+      }
+    }
+    expect(at, 'the apex of the station is in the section pane').not.toBeNull();
+
+    // Raise the apex: it moves vertically only, the surface follows, one undo step.
+    await page.mouse.move(at!.x, at!.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 8; i++) {
+      await page.mouse.move(at!.x - i * 0.5, at!.y - i * 3);
+      await page.waitForTimeout(40);
+    }
+    await page.mouse.up();
+    await expect(badge).toHaveAttribute('data-ladders-reused', 'false', { timeout: 10_000 });
+    await expect.poll(volume, { timeout: 10_000 }).not.toBe(original);
+    const edited = await volume();
+    await expect(badge).toHaveAttribute('data-source', 'doc');
+
+    await page.keyboard.press('Control+z');
+    await expect.poll(volume, { timeout: 10_000 }).toBe(original);
+    await page.keyboard.press('Control+Shift+z');
+    await expect.poll(volume, { timeout: 10_000 }).toBe(edited);
+    expect(errors).toEqual([]);
+  });
+
   test('the test-board picker shows a board2 test board in every analysis mode', async ({
     page,
   }) => {

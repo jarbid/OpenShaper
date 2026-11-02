@@ -104,10 +104,12 @@ function stationScale(
  * Builds the evaluator data of a document. Runs `validateBoard` first (pass
  * `{ check: false }` for a document already validated). A section fit that
  * misses {@link SECTION_FIT_TOL} (position) or {@link SECTION_NORMAL_TOL} (tangent direction), or a blend that leaves the bounds, is a warning.
+ * `spanHint` is a rung of the span ladder to try first (an edit in progress passes the last build's, so a
+ * dragged section is fitted once, not climbed to); it is used only when it fits every station within the tolerance.
  */
 export function buildBoard(
   docIn: BoardDoc,
-  opts: { readonly check?: boolean } = {},
+  opts: { readonly check?: boolean; readonly spanHint?: number } = {},
 ): Board2Result<BuiltBoard> {
   const doc = resolveTail(docIn);
   const issues: Board2Issue[] = [];
@@ -127,7 +129,7 @@ export function buildBoard(
       section: pick === 'plus' ? s.plus : (s.minus ?? s.plus),
       ...stationScale(frame, rocker, deck, s.x),
     }));
-    const blend = fitSide(items);
+    const blend = fitSide(items, opts.spanHint);
     if (blend === null) {
       issues.push(
         makeIssue('geom', `the ${pick} sections could not be fitted`, { at: { side: pick } }),

@@ -198,6 +198,11 @@ export const canonicalDoc = (doc: BoardDoc): BoardDoc => {
 // --- Ladders -----------------------------------------------------------------
 
 let lastLadders: Ladders | null = null;
+/**
+ * The span of the section ladder the last build chose. While an edit is in progress it is offered to the next
+ * build (`buildBoard`'s `spanHint`), so the section being dragged is fitted once instead of climbed to.
+ */
+let lastSpan: number | undefined;
 
 /** Ladders for `built`: the last job's when reuse is asked for and they fit this board. */
 const laddersFor = (
@@ -219,6 +224,7 @@ const laddersFor = (
 /** Forget the held ladders and slice splines (tests). */
 export const resetCore = (): void => {
   lastLadders = null;
+  lastSpan = undefined;
   splines.clear();
   sections.clear();
 };
@@ -382,14 +388,16 @@ const build = (
   doc: BoardDoc,
   check: boolean,
   inherited: readonly Board2Issue[],
+  spanHint?: number,
 ): { built: BuiltBoard; issues: Board2Issue[]; ms: number } | { refused: NurbsOutcome } => {
   const t = now();
-  const r = buildBoard(doc, { check });
+  const r = buildBoard(doc, { check, ...(spanHint === undefined ? {} : { spanHint }) });
   if (!r.ok) {
     return {
       refused: refusal([...inherited, ...r.issues], 'The NURBS surface could not be built.'),
     };
   }
+  lastSpan = r.value.report.sectionSpans[0];
   return { built: r.value, issues: [...inherited, ...r.issues], ms: now() - t };
 };
 
@@ -489,7 +497,7 @@ export const meshDocument = (
   try {
     progress?.('building');
     const doc = canonicalDoc(docIn);
-    const b = build(doc, true, []);
+    const b = build(doc, true, [], options.reuseLadders ? lastSpan : undefined);
     if ('refused' in b) return b.refused;
     return meshBuilt(
       { doc, built: b.built, conversion: null, issues: b.issues, convertMs: 0, buildMs: b.ms },
