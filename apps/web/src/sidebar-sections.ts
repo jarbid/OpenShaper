@@ -28,6 +28,7 @@ import type { View } from './view-toolkit';
 export type SectionId =
   | 'specs'
   | 'resize'
+  | 'boardShape'
   | 'controlPoint'
   | 'analysis'
   | 'boardInfo'
@@ -129,6 +130,15 @@ export interface SidebarSection {
 export const SIDEBAR_SECTIONS: readonly SidebarSection[] = [
   { id: 'specs', title: 'Specs', tab: 'specs', relevantTo: 'all', defaultOpen: true },
   { id: 'resize', title: 'Resize', tab: 'shape', relevantTo: [], defaultOpen: false },
+  {
+    id: 'boardShape',
+    title: 'Board shape',
+    tab: 'shape',
+    // Listed only with the NURBS engine on (`Sidebar.tsx` renders no body without it). Symmetry and the
+    // tail are plan-view choices; the notch handle lives in the outline.
+    relevantTo: ['outline', 'quad'],
+    defaultOpen: false,
+  },
   {
     id: 'controlPoint',
     title: 'Control point',

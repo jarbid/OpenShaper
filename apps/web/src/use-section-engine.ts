@@ -56,8 +56,22 @@ export const resetSectionEngine = (): void => setSync({ convertedFrom: null, ref
  */
 export async function injectNotchChords(doc: BoardDoc): Promise<void> {
   if (doc.tail.kind !== 'notched') return;
-  const { notchChords } = await import('./workers/nurbs-core');
-  sectionStore.getState().setNotchChords(notchChords);
+  await loadNotchChords();
+}
+
+/**
+ * Load the chord provider into the section store (idempotent: the chunk is loaded once). A tail change to
+ * a swallow or fish needs it before the notched document is committed, or the projection shows the plan's
+ * outer rail for the stations in the notch zone. A chunk that will not load (offline after a deploy)
+ * leaves the plan rail in use; the edit still goes ahead.
+ */
+export async function loadNotchChords(): Promise<void> {
+  try {
+    const { notchChords } = await import('./workers/nurbs-core');
+    sectionStore.getState().setNotchChords(notchChords);
+  } catch {
+    // keep the fallback
+  }
 }
 
 export interface SectionEngine {

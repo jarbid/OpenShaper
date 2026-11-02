@@ -56,6 +56,7 @@ export {
   type SectionHandle,
   type EditorOverlays,
 } from './draw';
+export { reflectSpline } from './sides';
 export { SplineEditor, type SplineEditorProps, type Calibration } from './SplineEditor';
 export {
   solveSimilarity,

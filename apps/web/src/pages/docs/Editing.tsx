@@ -15,6 +15,7 @@ export default function DocsEditing() {
         { id: 'guides', label: 'Guides in 3D' },
         { id: 'analysis', label: 'Surface analysis in 3D' },
         { id: 'nurbs', label: 'Experimental NURBS engine' },
+        { id: 'board-shape', label: 'Asymmetric boards & tail types (NURBS)' },
         { id: 'points', label: 'Control points & tangents' },
         { id: 'locks', label: 'Locking handle angles' },
         { id: 'keyboard', label: 'Nudging from the keyboard' },
@@ -266,6 +267,55 @@ export default function DocsEditing() {
           on screen and the <strong>i</strong> button says why. If a drag on the NURBS board makes
           it something the model cannot hold, the 3D view keeps the last good surface until you drag
           back.
+        </p>
+      </Section>
+
+      <Section id="board-shape" title="Asymmetric boards & tail types (NURBS)">
+        <p>
+          With the NURBS engine on, the <strong>Board shape</strong> section of the Shape tab sets
+          the board&rsquo;s symmetry and tail. Each change is one undo step.
+        </p>
+        <Terms>
+          <Term name="Asymmetric">
+            Gives each half of the board its own outline and its own cross-section at every station.
+            The two halves start as exact copies, so nothing about the surface changes until you
+            edit one. The outline view then shows both rails, the first above the centre line and
+            the second below it, and the cross-section view shows the first half on the right of the
+            centre line and the second on the left. Drag a point on either: only that half changes.
+            The rocker, the deck, the stations and the nose and tail points are shared, so moving a
+            shared end point moves it on both halves. Copy and paste, and a rail preset, go to the
+            half you last selected a point on.
+          </Term>
+          <Term name="Mirrored">
+            Switching back asks which half to keep (the upper or the lower rail, as the outline view
+            draws them). The other half is dropped, so the board is mirrored from the one you keep.
+            Undo brings both back.
+          </Term>
+          <Term name="Standard">
+            The tail is a tip on the centre line, as in the classic editor.
+          </Term>
+          <Term name="Swallow">
+            A V notch cut into the tail: a straight inner wall from the notch bottom on the centre
+            line to a corner tip at each side. Switching to it replaces the tail&rsquo;s knots with
+            the notch and drops any station behind the notch bottom; undo restores them.
+          </Term>
+          <Term name="Fish">
+            The same notch with a rounded inner wall, and by default a shallower one.
+          </Term>
+        </Terms>
+        <p>
+          <strong>Notch depth</strong> is the distance from the tail tips to the notch bottom. Type
+          it in the section, in your display unit, or drag the point on the centre line of the
+          outline view along the stringer. It is held between half a percent and thirty percent of
+          the board&rsquo;s length. A station on the notch bottom follows it, and one the notch
+          bottom passes is dropped. Near a notch a station is cut across the rail, not across the
+          board, so the cross-section view calls it a <em>rail section</em>.
+        </p>
+        <p>
+          A very deep or narrow notch, or an outline edit near the tail, can make the rail fold so
+          the notch&rsquo;s cross-cuts would cross the outline at a shallow angle. The model then
+          refuses the board: the 3D view keeps the last good surface until you drag back, and the{' '}
+          <strong>i</strong> button says why. Nothing is lost, and the document stays editable.
         </p>
       </Section>
 

@@ -246,6 +246,8 @@ export const createSectionStore = (): StoreApi<SectionState> =>
       ]),
     ) as unknown as SplineActions;
     const fins = createFinActions(ctx);
+    const plusShape = createSectionShapeActions(ctx);
+    const minusShape = createSectionShapeActions(minusCtx);
 
     return {
       doc: null,
@@ -349,7 +351,11 @@ export const createSectionStore = (): StoreApi<SectionState> =>
         commitDoc(moveStation(doc, index, position), 'Move cross-section');
       },
 
-      ...createSectionShapeActions(ctx),
+      // paste and the rail presets go to the half `side` names (the minus half of an asymmetric board)
+      pasteCrossSection: (index, spline, side) =>
+        (side === 'minus' ? minusShape : plusShape).pasteCrossSection(index, spline),
+      applyRailPreset: (index, preset, side) =>
+        (side === 'minus' ? minusShape : plusShape).applyRailPreset(index, preset),
 
       // Sections always follow the outline, rocker and deck (they are normalised): nothing to switch.
       setInterpolationType: () => {},

@@ -346,6 +346,12 @@ export const HELP_TEXT: Readonly<Record<string, HelpEntry>> = {
     route: '/docs/specs',
     anchor: 'resize',
   },
+  'section:boardShape': {
+    description:
+      'Mirrored or asymmetric outline, and a standard, swallow or fish tail (NURBS engine).',
+    route: '/docs/editing',
+    anchor: 'board-shape',
+  },
   'section:controlPoint': {
     description: 'Exact position and tangents of the selected control point.',
     route: '/docs/editing',

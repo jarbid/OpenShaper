@@ -18,7 +18,7 @@ import {
   type EditorOverlays,
   type SectionMarker,
 } from '@openshaper/render2d';
-import type { SplineTarget } from '@openshaper/store';
+import { minusHalf, type SplineTarget } from '@openshaper/store';
 import {
   Button,
   Checkbox,
@@ -507,10 +507,14 @@ export function makeReadout(kind: EditorKind, units: LengthUnit, longitudinal: L
     // (position + the span it measures) are coloured to match it.
     const cyan = MEASURE_COLORS.fromCl;
     if (kind === 'outline') {
-      const halfW = getWidthAtPos(b, world.x) / 2;
+      // An asymmetric board has a different half-width on each side of the stringer.
+      const half = minusHalf(b);
+      const plusW = getWidthAtPos(b, world.x) / 2;
+      const minusW = half ? getWidthAtPos(half, world.x) / 2 : plusW;
+      const halfW = half && world.y < 0 ? minusW : plusW;
       return [
         pos(world.x),
-        { label: 'Width', value: L(getWidthAtPos(b, world.x)), color: cyan },
+        { label: 'Width', value: L(plusW + minusW), color: cyan },
         { label: 'From rail', value: L(Math.max(0, halfW - Math.abs(world.y))) },
       ];
     }
@@ -534,13 +538,26 @@ export function makeReadout(kind: EditorKind, units: LengthUnit, longitudinal: L
 }
 
 /** Resolve the SplineEditor props for a single editor kind. */
-function paneProps(kind: EditorKind, csIndex: number, settings?: EditorSettings) {
+function paneProps(
+  kind: EditorKind,
+  csIndex: number,
+  settings?: EditorSettings,
+  asymmetric = false,
+) {
+  // An asymmetric board has a spline for each half: the pane shows both, the minus half reflected.
   const targets: SplineTarget[] =
     kind === 'outline'
-      ? [{ kind: 'outline' }]
+      ? asymmetric
+        ? [{ kind: 'outline' }, { kind: 'outline', side: 'minus' }]
+        : [{ kind: 'outline' }]
       : kind === 'rocker'
         ? [{ kind: 'deck' }, { kind: 'bottom' }]
-        : [{ kind: 'crossSection', index: csIndex }];
+        : asymmetric
+          ? [
+              { kind: 'crossSection', index: csIndex },
+              { kind: 'crossSection', index: csIndex, side: 'minus' },
+            ]
+          : [{ kind: 'crossSection', index: csIndex }];
   // Resolve per-pane curve colors from settings when provided, falling back to
   // the hardcoded theme defaults so callers that pass nothing are unchanged.
   let colors: string[] | undefined;
@@ -548,15 +565,18 @@ function paneProps(kind: EditorKind, csIndex: number, settings?: EditorSettings)
     colors = [settings?.deckColor ?? '#22D3EE', settings?.bottomColor ?? '#F472B6'];
   } else if (kind === 'outline') {
     colors = [settings?.outlineColor ?? '#22D3EE'];
+    if (asymmetric) colors.push(settings?.deckColor ?? '#A78BFA');
   } else {
     // crossSection
     colors = [settings?.crossSectionColor ?? '#2DD4BF'];
+    if (asymmetric) colors.push(settings?.bottomColor ?? '#F472B6');
   }
   return {
     targets,
     colors,
     mirrorY: kind === 'outline',
     mirrorX: kind === 'crossSection',
+    splitSides: asymmetric && kind !== 'rocker',
     key: kind === 'crossSection' ? `cs-${csIndex}` : kind,
   };
 }
@@ -566,6 +586,7 @@ export function EditorPane({
   titleControl,
   kind,
   csIndex,
+  asymmetric = false,
   units,
   longitudinal,
   sectionMarkers,
@@ -596,6 +617,8 @@ export function EditorPane({
   titleControl?: React.ReactNode;
   kind: EditorKind;
   csIndex: number;
+  /** The NURBS board is asymmetric: the outline and cross-section panes show and edit both halves. */
+  asymmetric?: boolean;
   units: LengthUnit;
   /** Converts board-length positions for the marker labels and the cursor readout. */
   longitudinal: Longitudinal;
@@ -625,7 +648,10 @@ export function EditorPane({
 }) {
   // Stable across re-renders so the editor's target set (and the SplineEditor
   // re-fit/draw effects keyed on it) only changes when the pane actually changes.
-  const p = useMemo(() => paneProps(kind, csIndex, settings), [kind, csIndex, settings]);
+  const p = useMemo(
+    () => paneProps(kind, csIndex, settings, asymmetric),
+    [kind, csIndex, settings, asymmetric],
+  );
   // Only the length-wise views have anything to gain from turning the board — a
   // cross-section is already the shape of the pane it sits in. Gated on the pointer
   // rather than on width so a narrow desktop window does not suddenly rotate under
@@ -669,6 +695,7 @@ export function EditorPane({
           colors={p.colors}
           mirrorY={p.mirrorY}
           mirrorX={p.mirrorX}
+          splitSides={p.splitSides}
           sectionMarkers={kind !== 'crossSection' ? sectionMarkers : undefined}
           onPickSection={kind !== 'crossSection' ? onPickSection : undefined}
           focusedSection={focusedSection}

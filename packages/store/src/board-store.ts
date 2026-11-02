@@ -132,12 +132,12 @@ export interface BoardState {
   /** Move a real cross-section to a new longitudinal position. */
   moveCrossSection: (index: number, position: number) => void;
   /** Replace a cross-section's whole spline (e.g. paste a copied section shape). */
-  pasteCrossSection: (index: number, spline: Spline) => void;
+  pasteCrossSection: (index: number, spline: Spline, side?: 'minus') => void;
   /**
    * Restyle a cross-section's rail to a named preset (50/50, 60/40 tucked, …), keeping
    * the station's width and thickness. The result is an ordinary editable profile.
    */
-  applyRailPreset: (index: number, preset: RailPresetId) => void;
+  applyRailPreset: (index: number, preset: RailPresetId, side?: 'minus') => void;
   /** Scale the board by independent length / width / thickness factors. */
   scaleBoard: (fL: number, fW: number, fT: number) => void;
   /** Switch the cross-section interpolation model (control-point ↔ sLinear). */

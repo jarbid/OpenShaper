@@ -251,37 +251,50 @@ const probesOf = (built: BuiltBoard, xis: readonly number[]): SectionProbe[] => 
 
 // --- The notch-zone chord, for the section store ------------------------------
 
-/** What a chord depends on: the plus outline, the tail and the lines (the zone is picked by the validator). */
+/** What a chord depends on: the outline(s), the tail and the lines (the zone is picked by the validator). */
 interface ChordKey {
   readonly outline: BoardDoc['outline']['plus'];
+  readonly other: BoardDoc['outline']['minus'];
   readonly tail: BoardDoc['tail'];
   readonly rocker: BoardDoc['rocker'];
   readonly deck: BoardDoc['deck'];
 }
 let chordMemory: { key: ChordKey; fn: ChordFn } | null = null;
+let minusChordMemory: { key: ChordKey; fn: ChordFn } | null = null;
 
 /**
  * The chord-length function of a document, cached on what it depends on, so a section edit on a
  * swallow board does not re-resolve the notch zone. The section store takes this by injection
  * (`setNotchChords`): the main chunk may not import board2.
  */
-export const notchChords = (doc: BoardDoc): ChordFn => {
-  const k = chordMemory?.key;
+export const notchChords = (doc: BoardDoc, side?: 'minus'): ChordFn => {
+  const memory = side === 'minus' ? minusChordMemory : chordMemory;
+  const k = memory?.key;
+  const outline = side === 'minus' ? (doc.outline.minus ?? doc.outline.plus) : doc.outline.plus;
   if (
-    chordMemory !== null &&
+    memory !== null &&
     k !== undefined &&
-    k.outline === doc.outline.plus &&
+    k.outline === outline &&
+    k.other === (side === 'minus' ? doc.outline.plus : doc.outline.minus) &&
     k.tail === doc.tail &&
     k.rocker === doc.rocker &&
     k.deck === doc.deck
   ) {
-    return chordMemory.fn;
+    return memory.fn;
   }
-  const fn = createChordFn(doc);
-  chordMemory = {
-    key: { outline: doc.outline.plus, tail: doc.tail, rocker: doc.rocker, deck: doc.deck },
+  const fn = createChordFn(doc, side);
+  const entry = {
+    key: {
+      outline,
+      other: side === 'minus' ? doc.outline.plus : doc.outline.minus,
+      tail: doc.tail,
+      rocker: doc.rocker,
+      deck: doc.deck,
+    },
     fn,
   };
+  if (side === 'minus') minusChordMemory = entry;
+  else chordMemory = entry;
   return fn;
 };
 

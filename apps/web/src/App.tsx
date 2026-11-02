@@ -7,9 +7,9 @@ import {
   type BezierBoard,
   type Spline,
 } from '@openshaper/kernel';
-import { type EditorOverlays, type SimilarityParams } from '@openshaper/render2d';
+import { reflectSpline, type EditorOverlays, type SimilarityParams } from '@openshaper/render2d';
 import type { AnalysisStatus, Board3DViewProps, ExternalSurface } from '@openshaper/render3d';
-import { selectSpecs } from '@openshaper/store';
+import { minusHalf, selectSpecs } from '@openshaper/store';
 import {
   BottomSheet,
   Button,
@@ -684,6 +684,8 @@ function AppShell() {
   });
 
   const sectionCount = board?.crossSections.length ?? 0;
+  // An asymmetric NURBS board has a spline for each half: the outline and cross-section panes show both.
+  const asymmetric = board ? minusHalf(board) !== undefined : false;
   const lastReal = Math.max(1, sectionCount - 2);
   const clampedCs = clampSectionIndex(csIndex, sectionCount);
 
@@ -738,12 +740,20 @@ function AppShell() {
     setCsIndex(clampSectionIndex(index, count));
   };
   const deleteSection = () => deleteSectionAt(clampedCs);
+  // On an asymmetric board copy and paste act on the half whose point is selected, else the plus half.
+  const sectionSide = (): 'minus' | undefined => {
+    const t = activeStore.getState().selection?.target;
+    return t?.kind === 'crossSection' && t.side === 'minus' ? 'minus' : undefined;
+  };
   const copySection = () => {
     const b = activeStore.getState().board;
-    if (b) setCsClipboard(b.crossSections[clampedCs]?.spline ?? null);
+    if (!b) return;
+    const half = sectionSide() === 'minus' ? (minusHalf(b) ?? b) : b;
+    setCsClipboard(half.crossSections[clampedCs]?.spline ?? null);
   };
   const pasteSection = () => {
-    if (csClipboard) activeStore.getState().pasteCrossSection(clampedCs, csClipboard);
+    if (csClipboard)
+      activeStore.getState().pasteCrossSection(clampedCs, csClipboard, sectionSide());
   };
 
   // Resize: blank fields keep that dimension; others scale to the typed target.
@@ -871,27 +881,39 @@ function AppShell() {
   const probes = useProbes();
   const ghostSplinesFor = (kind: EditorKind): Spline[] | undefined => {
     const out: Spline[] = [];
+    // A pane that shows both halves of an asymmetric board does not mirror its ghosts, so a ghost of a
+    // symmetric thing (the classic ghost board) is drawn on both sides, and one of a half gets its own.
+    const axis = kind === 'outline' ? 'y' : 'x';
+    const both = (spline: Spline) => {
+      out.push(spline);
+      if (asymmetric) out.push(reflectSpline(spline, axis));
+    };
     if (ghost) {
-      if (kind === 'outline') out.push(ghost.outline);
+      if (kind === 'outline') both(ghost.outline);
       else if (kind === 'rocker') out.push(ghost.deck, ghost.bottom);
       else {
         const pos = board?.crossSections[clampedCs]?.position;
         if (pos !== undefined) {
           const cs = loftCrossSection(ghost, pos);
-          if (cs) out.push(cs.spline);
+          if (cs) both(cs.spline);
         }
       }
     }
     if (kind === 'crossSection' && board) {
+      // The two halves of a probed section: the minus one is drawn on the far side of the centre line.
+      const probed = (p: { plus: readonly number[]; minus: readonly number[] | null }) => {
+        out.push(probeSpline(p.plus));
+        if (asymmetric && p.minus) out.push(reflectSpline(probeSpline(p.minus), 'x'));
+      };
       if (sectionEngine.ready) {
         // The NURBS board: the sections the built surface really has (blend and all), from the
         // worker, at the selected station and under the scrub. While a scrub answer is on its way
         // the previous one stays (any probe that is not the station's), so the dashed line does not
         // flicker between pointer moves.
         const station = activeSectionX != null ? probeAt(probes, activeSectionX) : undefined;
-        if (station) out.push(probeSpline(station.plus));
+        if (station) probed(station);
         const hovered = scrubX != null ? probes.find((p) => p.xi !== activeSectionX) : undefined;
-        if (hovered) out.push(probeSpline(hovered.plus));
+        if (hovered) probed(hovered);
       } else if (scrubX != null) {
         // The lofted surface, so the section under the scrub reads the same here as it
         // does in the 3D view beside it.
@@ -902,8 +924,13 @@ function AppShell() {
       const last = board.crossSections.length - 1;
       const prev = clampedCs - 1;
       const next = clampedCs + 1;
-      if (prev >= 1) out.push(board.crossSections[prev]!.spline);
-      if (next <= last - 1) out.push(board.crossSections[next]!.spline);
+      const half = minusHalf(board);
+      for (const i of [prev, next]) {
+        if (i < 1 || i > last - 1) continue;
+        out.push(board.crossSections[i]!.spline);
+        const m = asymmetric && half ? half.crossSections[i]?.spline : undefined;
+        if (m) out.push(reflectSpline(m, 'x'));
+      }
     }
     return out.length ? out : undefined;
   };
@@ -1523,6 +1550,7 @@ function AppShell() {
     title: kind === 'outline' ? 'Outline' : kind === 'rocker' ? 'Rocker (deck + bottom)' : csTitle,
     kind,
     csIndex: clampedCs,
+    asymmetric,
     units,
     longitudinal,
     // The cross-section pane has no length axis, so `EditorPane` drops the station
@@ -1599,6 +1627,7 @@ function AppShell() {
   const sidebarFor = (collapsible: boolean) => (
     <Sidebar
       collapsible={collapsible}
+      nurbsEngine={sectionEngine.ready}
       specs={specs}
       units={units}
       resize={resize}

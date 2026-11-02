@@ -19,6 +19,7 @@ import { FIN_PROFILES_LIST, FIN_SETUPS, FIN_SYSTEMS, RAIL_PRESETS } from '@opens
 import { describe, expect, it } from 'vitest';
 import { EXPORT_FORMATS } from '../file-io';
 import { SHORTCUTS } from '../shortcuts';
+import { TAIL_TYPES } from '../board-shape';
 import { BOARD_TEMPLATES } from '../templates';
 import { ANALYSIS_3D } from '../view3d-settings';
 import { DOC_ENTRIES, DOCS_ROUTES, documentedIds, type FeatureKind } from './registry';
@@ -81,6 +82,13 @@ describe('docs coverage', () => {
     expectDocumented(
       'analysis-mode',
       ANALYSIS_3D.map((o) => o.value).filter((v) => v !== 'none'),
+    );
+  });
+
+  it('documents every tail type', () => {
+    expectDocumented(
+      'tail-type',
+      TAIL_TYPES.map((t) => t.value),
     );
   });
 

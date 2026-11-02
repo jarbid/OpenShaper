@@ -37,6 +37,7 @@ export type FeatureKind =
   | 'board-template'
   | 'rail-preset'
   | 'analysis-mode'
+  | 'tail-type'
   | 'shortcut';
 
 export interface DocEntry {
@@ -100,6 +101,8 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
   ...entries('analysis-mode', '/docs/specs', ['ghost-deviation']),
   // Only offered with the experimental NURBS engine on; documented in its section.
   ...entries('analysis-mode', '/docs/editing', ['nurbs-deviation']),
+  // The Board shape section's tail types (NURBS engine only); documented in its section.
+  ...entries('tail-type', '/docs/editing', ['standard', 'swallow', 'fish']),
   ...entries('shortcut', '/docs/shortcuts', [
     'undo',
     'redo',

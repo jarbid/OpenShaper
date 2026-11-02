@@ -52,6 +52,7 @@ import {
   type Ref,
   type SetStateAction,
 } from 'react';
+import { BoardShapeSection, boardShapeSummary } from './BoardShapeSection';
 import { ControlPointInspector } from './ControlPointInspector';
 import { CoffeeIcon } from './components/Support';
 import { SUPPORT_URL } from './support';
@@ -76,7 +77,7 @@ import {
   type SpecGroupId,
   type TabId,
 } from './sidebar-sections';
-import { activeStore } from './store';
+import { activeStore, sectionStore } from './store';
 import { MeasurementAxisSelect, OverlayToggle, Sel, SpecRow, UnitSelect } from './view-toolkit';
 import type { Longitudinal, MeasurementAxis } from './longitudinal';
 import { sectionHelp, type ToolbarHelpId } from './help-text';
@@ -209,6 +210,11 @@ export interface SidebarProps {
   /** Converts board-length positions (wide point, centre of mass) for display. */
   longitudinal: Longitudinal;
   onMeasurementAxisChange?: (axis: MeasurementAxis) => void;
+  /**
+   * The NURBS document is open for editing: the Board shape section (symmetry, tail type, notch depth)
+   * is listed. Off, there is no such section and nothing about the sidebar changes.
+   */
+  nurbsEngine?: boolean;
 }
 
 /**
@@ -240,6 +246,7 @@ export const Sidebar = memo(function Sidebar({
   onUnitChange,
   longitudinal,
   onMeasurementAxisChange,
+  nurbsEngine = false,
 }: SidebarProps) {
   const past = useSyncExternalStore(activeStore.subscribe, () => activeStore.getState().past);
   const fins = useSyncExternalStore(
@@ -247,6 +254,10 @@ export const Sidebar = memo(function Sidebar({
     () => activeStore.getState().board?.fins ?? null,
   );
 
+  // A string, so a drag (which replaces the document many times a second) re-renders nothing here.
+  const shapeSummary = useSyncExternalStore(sectionStore.subscribe, () =>
+    nurbsEngine ? boardShapeSummary() : undefined,
+  );
   const overlaysOn = Object.values(overlayToggles).filter(Boolean).length;
   const hasTrace = Boolean(trace.traces.outline || trace.traces.rocker);
 
@@ -273,6 +284,7 @@ export const Sidebar = memo(function Sidebar({
         formRef={resizeFormRef}
       />
     ),
+    ...(nurbsEngine ? { boardShape: <BoardShapeSection units={units} /> } : {}),
     controlPoint: <ControlPointInspector store={activeStore} units={units} />,
     analysis: <AnalysisSection overlayToggles={overlayToggles} setOverlay={setOverlay} />,
     boardInfo: <BoardInfoSection meta={meta} setMeta={setMeta} />,
@@ -297,6 +309,7 @@ export const Sidebar = memo(function Sidebar({
   /** Header digests — what a shut section is still worth reading. */
   const summaries: Partial<Record<SectionId, ReactNode>> = {
     specs: specs ? fmtVol(specs.volume) : undefined,
+    boardShape: shapeSummary,
     analysis: overlaysOn > 0 ? `${overlaysOn} on` : undefined,
     boardInfo: meta.model || undefined,
     fins: fins ? FIN_SETUP_LABELS[fins.setup] : undefined,

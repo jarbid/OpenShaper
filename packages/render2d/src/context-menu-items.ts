@@ -10,7 +10,6 @@ import {
 import {
   canDeleteKnot,
   canLockKnot,
-  getTargetSpline,
   sameTarget,
   type BoardState,
   type SplineTarget,
@@ -20,6 +19,7 @@ import type { MenuItem } from '@openshaper/ui';
 import type { StoreApi } from 'zustand/vanilla';
 import { handleKindForVisualSide, handleSideName } from './handle-side';
 import { hitTest } from './hit';
+import { isMinus, toTargetSpace, viewSpline, type ReflectAxis } from './sides';
 import type { SectionMarker } from './draw';
 import { screenToWorld, type ScreenPoint, type Viewport } from './viewport';
 
@@ -63,6 +63,8 @@ export interface ContextMenuRequest {
   tolPx?: number;
   mirrorY: boolean;
   mirrorX: boolean;
+  /** The axis a split (asymmetric) pane reflects its minus targets across, or null (see `sides.ts`). */
+  axis?: ReflectAxis | null;
   store: StoreApi<BoardState>;
   /** Re-home the viewport to fit the curves (owned by the editor). */
   onFitView: () => void;
@@ -113,6 +115,7 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
     screen,
     mirrorX,
     mirrorY,
+    axis = null,
     store,
     onFitView,
     onAddSectionAt,
@@ -167,10 +170,15 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
   // The nose and tail dummies carry a single knot and have no rail to shape. `App.tsx`
   // clamps the active section away from them, but this builder is pure and unit-tested
   // standalone, so it guards for itself.
-  const csTarget = targets.find(
+  const sections = targets.filter(
     (t): t is Extract<SplineTarget, { kind: 'crossSection' }> =>
       t.kind === 'crossSection' && t.index > 0 && t.index < board.crossSections.length - 1,
   );
+  // In a split pane the preset goes to the half under the pointer (the minus half is drawn at -x).
+  const csTarget =
+    (axis === 'x' && screenToWorld(vp, screen).x < 0 ? sections.find(isMinus) : undefined) ??
+    sections.find((t) => !isMinus(t)) ??
+    sections[0];
   const railGroup: MenuItem[] = csTarget
     ? [
         {
@@ -179,7 +187,14 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
           items: RAIL_PRESETS.map((preset) => ({
             kind: 'action' as const,
             label: preset.label,
-            onSelect: () => store.getState().applyRailPreset(csTarget.index, preset.id),
+            onSelect: () =>
+              store
+                .getState()
+                .applyRailPreset(
+                  csTarget.index,
+                  preset.id,
+                  isMinus(csTarget) ? 'minus' : undefined,
+                ),
           })),
         },
       ]
@@ -188,7 +203,7 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
 
   // 1. Did we land on a control point or tangent handle?
   for (const target of targets) {
-    const spline = getTargetSpline(board, target);
+    const spline = viewSpline(board, target, axis);
     const selected = store.getState().selection;
     const preferred =
       selected && sameTarget(selected.target, target)
@@ -263,7 +278,7 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
   const tolWorld = 14 / vp.scale;
   let best: { target: SplineTarget; dist: number } | null = null;
   for (const target of targets) {
-    const dist = splineDistance(getTargetSpline(board, target), world);
+    const dist = splineDistance(viewSpline(board, target, axis), world);
     if (!best || dist < best.dist) best = { target, dist };
   }
   const items: MenuItem[] = [];
@@ -272,7 +287,8 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
     items.push({
       kind: 'action',
       label: 'Add point here',
-      onSelect: () => store.getState().addControlPoint(addTarget, world),
+      onSelect: () =>
+        store.getState().addControlPoint(addTarget, toTargetSpace(addTarget, axis, world)),
     });
   }
   if ((!best || best.dist > tolWorld) && req.onSetReferenceCurve) {

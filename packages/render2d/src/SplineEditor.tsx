@@ -53,6 +53,7 @@ import {
   type SectionMarker,
 } from './draw';
 import { handlePoint, hitTest, type Hit } from './hit';
+import { isMinus as isMinusTarget, splitAxis, toTargetSpace, viewSpline } from './sides';
 import { boundsOf, sampleSpline } from './sample';
 import {
   fitToBounds,
@@ -87,6 +88,11 @@ export interface SplineEditorProps {
   mirrorY?: boolean;
   /** Mirror across x=0 (for cross-sections, drawn on the +x half). */
   mirrorX?: boolean;
+  /**
+   * An asymmetric board: the pane has a target for each half. `side: 'minus'` targets are drawn reflected
+   * across the axis `mirrorX` / `mirrorY` names, the others as they are, and neither is mirrored.
+   */
+  splitSides?: boolean;
   /** Per-target curve colors (cycled if shorter than targets). */
   colors?: string[];
   /** Pickable cross-section position markers (e.g. drawn along the outline). */
@@ -443,8 +449,9 @@ const calibrationHint = (cal: NonNullable<Calibration>): string => {
 export function SplineEditor({
   store,
   targets,
-  mirrorY = false,
-  mirrorX = false,
+  mirrorY: mirrorYProp = false,
+  mirrorX: mirrorXProp = false,
+  splitSides = false,
   colors,
   sectionMarkers,
   onPickSection,
@@ -475,6 +482,10 @@ export function SplineEditor({
   allowTurn = false,
   className,
 }: SplineEditorProps) {
+  // A split pane draws each half where it is (no mirror) and reflects the minus one; see ./sides.ts.
+  const axis = splitAxis(splitSides, mirrorXProp, mirrorYProp);
+  const mirrorY = splitSides ? false : mirrorYProp;
+  const mirrorX = splitSides ? false : mirrorXProp;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const board = useBoard(store);
@@ -526,8 +537,8 @@ export function SplineEditor({
   const referenceSplines = reference?.key === key ? reference.splines : undefined;
   const setReferenceCurve = useCallback(() => {
     const current = store.getState().board;
-    if (current) setReference({ key, splines: targets.map((t) => getTargetSpline(current, t)) });
-  }, [store, key, targets]);
+    if (current) setReference({ key, splines: targets.map((t) => viewSpline(current, t, axis)) });
+  }, [store, key, targets, axis]);
   const clearReferenceCurve = useCallback(() => setReference(null), []);
   // Tunni controls are an app-level overlay (View menu); the context menu flips it too.
   const tunniEnabled = overlays?.tunni ?? false;
@@ -587,13 +598,13 @@ export function SplineEditor({
    */
   const bounds = useMemo(() => {
     if (!board) return null;
-    const all = targets.flatMap((t) => sampleSpline(getTargetSpline(board, t)));
+    const all = targets.flatMap((t) => sampleSpline(viewSpline(board, t, axis)));
     if (all.length === 0) return null;
     let pts = all;
     if (mirrorY) pts = pts.flatMap((p) => [p, { x: p.x, y: -p.y }]);
     if (mirrorX) pts = pts.flatMap((p) => [p, { x: -p.x, y: p.y }]);
     return boundsOf(pts);
-  }, [board, targets, mirrorX, mirrorY]);
+  }, [board, targets, mirrorX, mirrorY, axis]);
 
   /**
    * TURNED: draw the board nose-up, by rotating the canvas ELEMENT rather than the
@@ -772,12 +783,12 @@ export function SplineEditor({
     if (overlays?.curvatureComb) {
       drawCurvatureComb(
         ctx,
-        targets.map((t) => getTargetSpline(board, t)),
+        targets.map((t) => viewSpline(board, t, axis)),
         vp,
       );
     }
     targets.forEach((t, i) => {
-      const spline = getTargetSpline(board, t);
+      const spline = viewSpline(board, t, axis);
       const style: DrawStyle = {
         ...defaultStyle,
         curve: palette[i % palette.length]!,
@@ -801,7 +812,7 @@ export function SplineEditor({
         selection?.kind ?? 'end',
         hovered,
         // A slice's centre points and apex carry a mark for what the blank holds of them.
-        blankLocks(t, spline),
+        blankLocks(t, getTargetSpline(board, t)),
       );
     });
     // Sliding-location probes: a closed board outline for the pane lets the cursor /
@@ -811,7 +822,16 @@ export function SplineEditor({
     const wantProbe = (measureCursor && hover) || overlays?.scrubProbe != null;
     if (wantProbe) {
       let profile: Vec2[] | null = null;
-      if ((mirrorX || mirrorY) && targets[0]) {
+      if (axis !== null) {
+        // both halves are drawn: the plus one and the reflected minus one close the profile
+        const plus = targets.find((t) => !isMinusTarget(t));
+        const minus = targets.find(isMinusTarget);
+        if (plus && minus) {
+          const a = sampleSpline(viewSpline(board, plus, axis));
+          const b = sampleSpline(viewSpline(board, minus, axis));
+          if (a.length > 1 && b.length > 1) profile = [...a, ...[...b].reverse()];
+        }
+      } else if ((mirrorX || mirrorY) && targets[0]) {
         const pts = sampleSpline(getTargetSpline(board, targets[0]));
         if (pts.length > 1) {
           const m = mirrorX
@@ -841,6 +861,7 @@ export function SplineEditor({
     key,
     mirrorX,
     mirrorY,
+    axis,
     colors,
     targets,
     sectionMarkers,
@@ -925,24 +946,24 @@ export function SplineEditor({
           selection && sameTarget(selection.target, t)
             ? { index: selection.index, kind: selection.kind ?? ('end' as const) }
             : undefined;
-        const hit = hitTest(getTargetSpline(board, t), vp, p, tolPx, preferred);
+        const hit = hitTest(viewSpline(board, t, axis), vp, p, tolPx, preferred);
         if (hit) return { target: t, hit };
       }
       return null;
     },
-    [vp, board, targets, selection],
+    [vp, board, targets, selection, axis],
   );
 
   const hitTunni = useCallback(
     (p: Vec2, tolerance = HIT_TOL_PX) => {
       if (!tunniEnabled || !vp || !board) return null;
       for (const target of targets) {
-        const hit = hitTunniControls(getTargetSpline(board, target), vp, p, tolerance);
+        const hit = hitTunniControls(viewSpline(board, target, axis), vp, p, tolerance);
         if (hit) return { target, hit };
       }
       return null;
     },
-    [tunniEnabled, vp, board, targets],
+    [tunniEnabled, vp, board, targets, axis],
   );
 
   const sectionMarkerAt = useCallback(
@@ -1037,6 +1058,7 @@ export function SplineEditor({
             tolPx: TOUCH_HIT_TOL_PX,
             mirrorX,
             mirrorY,
+            axis,
             store,
             onFitView: fitView,
             onSetReferenceCurve: setReferenceCurve,
@@ -1105,7 +1127,7 @@ export function SplineEditor({
         // first move — up to the hit radius in one frame, which is most of a phone's
         // board width. That snap is what made mobile edits jump.
         const handle = handlePoint(
-          getTargetSpline(board, picked.target).knots[picked.hit.index]!,
+          viewSpline(board, picked.target, axis).knots[picked.hit.index]!,
           picked.hit.kind,
         );
         const at = screenToWorld(vp, p);
@@ -1189,6 +1211,7 @@ export function SplineEditor({
       targets,
       mirrorX,
       mirrorY,
+      axis,
       fitView,
       setReferenceCurve,
       tunniEnabled,
@@ -1394,7 +1417,14 @@ export function SplineEditor({
           store.getState().beginEdit('Adjust Tunni handles');
           d.started = true;
         }
-        store.getState().moveSegmentTangents(d.target, d.hit.index, result[0], result[1]);
+        store
+          .getState()
+          .moveSegmentTangents(
+            d.target,
+            d.hit.index,
+            toTargetSpace(d.target, axis, result[0]),
+            toTargetSpace(d.target, axis, result[1]),
+          );
         return;
       }
       // GRAB_OFFSET: what the pointer moves, the handle moves — it is never assigned
@@ -1417,10 +1447,11 @@ export function SplineEditor({
         store.getState().moveFin(d.index, held);
         return;
       }
-      if (d.hit.kind === 'end') store.getState().moveControlPoint(d.target, d.hit.index, held);
-      else store.getState().moveTangent(d.target, d.hit.index, d.hit.kind, held);
+      const at = toTargetSpace(d.target, axis, held);
+      if (d.hit.kind === 'end') store.getState().moveControlPoint(d.target, d.hit.index, at);
+      else store.getState().moveTangent(d.target, d.hit.index, d.hit.kind, at);
     },
-    [localPoint, vp, store, cancelLongPress, onMoveSection],
+    [localPoint, vp, store, cancelLongPress, onMoveSection, axis],
   );
 
   const onPointerUp = useCallback(
@@ -1472,6 +1503,7 @@ export function SplineEditor({
           screen: p,
           mirrorX,
           mirrorY,
+          axis,
           store,
           onFitView: fitView,
           onSetReferenceCurve: setReferenceCurve,
@@ -1496,6 +1528,7 @@ export function SplineEditor({
       targets,
       mirrorX,
       mirrorY,
+      axis,
       hitAny,
       fitView,
       setReferenceCurve,
@@ -1566,7 +1599,7 @@ export function SplineEditor({
       const p = localPoint(e);
       // Don't stack a new point on top of an existing handle.
       for (const t of targets) {
-        if (hitTest(getTargetSpline(board, t), vp, p)) return;
+        if (hitTest(viewSpline(board, t, axis), vp, p)) return;
       }
       const tunni = hitTunni(p);
       if (tunni) {
@@ -1575,7 +1608,12 @@ export function SplineEditor({
           if (handles)
             store
               .getState()
-              .moveSegmentTangents(tunni.target, tunni.hit.index, handles[0], handles[1]);
+              .moveSegmentTangents(
+                tunni.target,
+                tunni.hit.index,
+                toTargetSpace(tunni.target, axis, handles[0]),
+                toTargetSpace(tunni.target, axis, handles[1]),
+              );
         }
         return;
       }
@@ -1588,17 +1626,17 @@ export function SplineEditor({
       const tolWorld = 14 / vp.scale;
       let best: { target: SplineTarget; dist: number } | null = null;
       for (const t of targets) {
-        const dist = splineDistance(getTargetSpline(board, t), world);
+        const dist = splineDistance(viewSpline(board, t, axis), world);
         if (!best || dist < best.dist) best = { target: t, dist };
       }
       if (best && best.dist <= tolWorld) {
-        store.getState().addControlPoint(best.target, world);
+        store.getState().addControlPoint(best.target, toTargetSpace(best.target, axis, world));
         return;
       }
       // Empty space (no nearby curve): re-home the view to fit the curves.
       fitView();
     },
-    [vp, board, store, targets, mirrorX, mirrorY, fitView, localPoint, hitTunni],
+    [vp, board, store, targets, mirrorX, mirrorY, axis, fitView, localPoint, hitTunni],
   );
 
   return (
