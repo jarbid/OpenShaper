@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test';
-import { editorReady } from './helpers';
+import { editorReady, openSection } from './helpers';
 
 /**
  * The experimental NURBS engine on the section model (docs/design/m1-model.md §3,
@@ -254,6 +254,65 @@ test.describe('NURBS viewer, flag on', () => {
     await expect.poll(volume, { timeout: 10_000 }).toBe(original);
     await page.keyboard.press('Control+Shift+z');
     await expect.poll(volume, { timeout: 10_000 }).toBe(edited);
+    expect(errors).toEqual([]);
+  });
+
+  test('make the shortboard asymmetric, drag one rail of the outline, only that side changes, undo', async ({
+    page,
+  }) => {
+    const errors = trackErrors(page);
+    await page.goto('/app?engine=nurbs');
+    await editorReady(page);
+    await page.keyboard.press('1'); // quad: outline first
+    const badge = page.getByTestId('nurbs-badge');
+    await expect(badge).toHaveAttribute('data-source', 'doc', { timeout: 30_000 });
+    await expect(badge).toHaveAttribute('data-phase', 'ready');
+
+    // Board shape ▸ Asymmetric: both halves start as copies, so the board does not change.
+    await openSection(page, 'Board shape');
+    const asymmetric = page.getByRole('button', { name: 'Asymmetric', exact: true });
+    await asymmetric.click();
+    await expect(asymmetric).toHaveAttribute('aria-pressed', 'true');
+
+    // The shortboard's wide outline point, above the centre line (the first rail) and below it (the second).
+    const box = (await page.locator('canvas').first().boundingBox())!;
+    const s = (box.width - 48) / 187.96;
+    const x = box.x + 24 + 90.13362308681752 * s;
+    const mid = box.y + box.height / 2;
+    const upper = { x, y: mid - 23.49 * s };
+    const lower = { x, y: mid + 23.49 * s };
+    const halfWidth = async (at: { x: number; y: number }): Promise<number> => {
+      await page.keyboard.press('Escape');
+      await page.mouse.move(at.x, at.y);
+      await page.mouse.down();
+      await page.mouse.up();
+      const editor = page.getByLabel('Point position editor').first();
+      await expect(editor).toBeVisible();
+      return Number(await editor.locator('input').nth(1).inputValue());
+    };
+    const upperWas = await halfWidth(upper);
+    const lowerWas = await halfWidth(lower);
+    expect(lowerWas).toBeCloseTo(upperWas, 3);
+
+    // Drag the lower rail's point outwards.
+    await page.mouse.move(lower.x, lower.y);
+    await page.mouse.down();
+    for (let i = 1; i <= 10; i++) {
+      await page.mouse.move(lower.x, lower.y + i * 2);
+      await page.waitForTimeout(40);
+    }
+    await page.mouse.up();
+    await expect(badge).toHaveAttribute('data-ladders-reused', 'false', { timeout: 10_000 });
+    const lowerNow = await halfWidth({ x: lower.x, y: lower.y + 20 });
+    expect(lowerNow).toBeGreaterThan(lowerWas + 0.1);
+    // The first rail did not move.
+    expect(await halfWidth(upper)).toBeCloseTo(upperWas, 6);
+
+    // Undo puts the second rail back.
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Control+z');
+    await expect.poll(() => halfWidth(lower), { timeout: 10_000 }).toBeCloseTo(lowerWas, 6);
+    expect(await halfWidth(upper)).toBeCloseTo(upperWas, 6);
     expect(errors).toEqual([]);
   });
 
