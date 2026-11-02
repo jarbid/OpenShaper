@@ -338,3 +338,137 @@ starting two workers).
 - The classic board is still loaded by file open; `use-section-engine.ts` converts it when `loadCount`
   changes. Anything that loads the classic store with the engine on has a window (about 0.1 to 0.3 s) in which
   the classic board is edited, and an edit made in it is dropped by the conversion that follows.
+
+## 9. As built (step 2)
+
+Landed: the section editor. With the engine on, a station's section is edited in the cross-section pane under
+the Phase 0 rules, stations are added, deleted and moved, sections are pasted and given rail presets, and the
+pane draws the as-built section (what the NURBS surface really has) as a dashed ghost at the selected station
+and under the scrub. With the engine off nothing changes (the classic characterization snapshots are untouched).
+
+**Where it is.**
+
+- `packages/store/src/sections`: `edits.ts` (`addStation`, `removeStation`, `moveStation`, and the slice
+  write-back inside `applyBoardEdit`), `project.ts` (the injected chord, `sliceDims`), `section-store.ts` (the
+  `lines()` guard and the station stubs are gone; `setNotchChords`). `board-actions.ts` gained
+  `createSectionShapeActions` (paste and the rail presets), which both stores now take from there.
+- `packages/board2`: `probe.ts` (`createChordFn`, `probeSection`), and `buildBoard`'s `spanHint`
+  (see Performance).
+- `apps/web`: the worker's `probes` on the `doc` request and a probes-only `probe` request
+  (`workers/nurbs-protocol.ts`, `-core.ts`, `-worker.ts`, `nurbs-client.ts`), `nurbs-viewer.ts` (probes in
+  the input and the state), `nurbs-probes.ts` (the channel between the editor and the layer, and the polyline
+  as a spline), `nurbs-layer.tsx`, `App.tsx` (the ghosts), `use-section-engine.ts` (`injectNotchChords`).
+
+**How a section edit is written back.** The slice actions are the classic ones (`constrainSectionToBlank`
+holds the centre points, the apex's width and `u <= apex`). `applyBoardEdit` then looks at every slice of the
+projection: one that differs from the projection's is divided by the half-width (chord) and thickness it was
+projected with (`sliceDims`, remembered per slice object) and replaces that station's `Section`; the
+station list is a new array and every other `Section` is the same object. It only does so when the outline,
+rocker and deck were not touched by the edit: a whole-board resize scales the slices with the lines, and the
+normalised sections do not change, so they are left alone (a step 1 test pins this). The apex knot is
+recomputed (the old one if it still sits at `u = 1` and the knot count is unchanged, else the same point, else
+the first widest knot), so inserting or deleting a knot cannot leave `section-apex-index` or
+`section-apex-moved` behind. A station whose chord or thickness is zero (a tip, a blunt end) has nothing to
+edit and an edit there is taken back.
+
+**The notch-zone chord.** `w(xi)` is board2's `createChordFn(doc)`: the length of the fan chord from `(xi, 0)`
+to the outline point `P(xi)`, on the resolved notch zone. The store takes it by injection
+(`setNotchChords`, a `NotchChords = (doc) => (xi) => number`), and `projectDoc(doc, chords)` keys its
+cache on it. The app loads it from `workers/nurbs-core.ts` (the module the worker also bundles, a lazy chunk,
+so the flag-off bundle guard still holds) in `use-section-engine.ts` before a **notched** board is loaded; a
+standard board never loads it (its half-width is a function of x, which the store computes). The provider
+caches the function on (outline, tail, rocker, deck), so a section edit on a swallow does not re-resolve the
+zone. The pane title says "(rail section)" for a station inside the zone (by the stored zone).
+
+**Probes.** `doc` requests carry `probes` (station coordinates) and the answer carries, per coordinate, both
+sides' as-built section as a polyline in the pane's frame: `x` the distance along the chord from the stringer,
+`y = v * T(xi)` with `v` the surface's own normalised height at the point, so a feature's depth will show as a
+dip and the section at a station overlays the stored one to the fit tolerance. When only the probes change (the
+pointer moves along the outline) and no job is running, a `probe` request asks for them alone: a warm build and
+no mesh, so a hover uploads nothing to the 3D view; a change that arrives during a job waits for its answer. The
+App asks for the selected station and the scrub position (`nurbs-probes.ts`); the layer over the 3D view owns
+the worker, so the ghosts need the 3D view on screen (quad, split or 3D): in the single cross-section view the
+scrub ghost is the classic loft of the projection, as before.
+
+**Deviations from the design above.**
+
+1. **Station insertion is within 1.1 mm, not 1 mm, of the surface it was added to.** It is classic's
+   `insertCrossSection` on the projection, normalised by its own width and thickness. Measured on the midpoints
+   of every gap of the three goldens (the section at `x` of the new board against the old surface, 96 points,
+   both directions): shortboard 0.65 mm, funboard 1.07 mm, longboard 1.03 mm worst. The difference is the
+   classic loft against the NURBS blend (M1 §13), not the fit. Closing it needs the blend's section as a chain
+   with few knots, which the converter's fitting does not give; not done. The test bound is 1.1 mm.
+2. **Chord by injection from the lazy core chunk, on the main thread, for notched boards only.** Computing it
+   in the worker would make every projection asynchronous. Cost: the 0.3 MB core is also parsed on the main
+   thread when a swallow or fish is opened with the engine on.
+3. **`probe` is a second request kind**, besides `probes` on the `doc` request, for the hover (above).
+4. **`buildBoard({ spanHint })` while editing** (board2). Not in the design; see Performance.
+5. **The minus side is not edited** (step 3): `side: 'minus'` targets are not produced by the UI yet, and the
+   pane shows the plus section on an asymmetric board. The probe carries both sides.
+6. **Paste and the rail presets** share their bodies with the classic store (`createSectionShapeActions`)
+   instead of being separate pure functions; the section store's write-back is what normalises them. A pasted
+   control that passes the apex line is clamped to `u = 1` by the write-back.
+7. **`sameDocHull` already compared `stations` by identity**; a test pins that a station edit is a new hull
+   and a fin edit is not.
+
+**Acceptance (tests).**
+
+| Check                                                                                                                                                                   | Result                                                                                                                                      |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Characterization snapshots (`board-store`, kernel, io)                                                                                                                  | Unchanged (297 store tests, the 249 classic ones among them, pass without edits)                                                            |
+| Seeded random drags of every knot, and both handles of each, of every station (4 drags each, drags of up to 6 cm in each direction), 3 goldens, swallow, fish           | No `section-*` validator error, ever; the lines never move                                                                                  |
+| An added station lies within 1 mm of the earlier surface                                                                                                                | Not quite: 1.07 mm worst (deviation 1)                                                                                                      |
+| A section drag refits one section                                                                                                                                       | Holds on the 3 goldens: one `Section` replaced, every other the same object, outline, rocker, deck and fins the same objects, one undo step |
+| Undo and redo of add, remove, move station and of section drags                                                                                                         | Pass (labels and the projection follow; a station cannot pass its neighbour; at least two stations stay)                                    |
+| Centre points held, apex vertical only, swallow station on its chord                                                                                                    | Pass                                                                                                                                        |
+| Paste and rail preset write one valid section                                                                                                                           | Pass                                                                                                                                        |
+| e2e: select a station, drag the apex in the cross-section pane, undo and redo                                                                                           | Pass (volume 27.3 L, 27.5 L edited, 27.3 L after undo)                                                                                      |
+| Gate: `pnpm lint`, `pnpm typecheck`, `CI=1 turbo run test --concurrency=2`, `pnpm build` (bundle guard), `pnpm --filter @openshaper/web e2e` (47) and `e2e:offline` (8) | All pass. Nothing flaky seen in these runs.                                                                                                 |
+
+**Performance.** The section drag (the apex of a mid-board station, 60 pointer moves, same setup as step 1:
+Chromium, software WebGL, production build, 4-core container, `nurbs-timing.mjs`) built one section per
+move at 3.1 to 3.3 ms median (p95 8 to 14 ms) because the fit climbs the span ladder from 12 spans for the new
+section at every move, and the rung it stops on jumps between 12 and 48. `buildBoard` now takes a `spanHint`:
+while an edit is in progress the worker offers it the span the last build chose, and it is taken when it fits
+every station within the tolerance, so the dragged section is fitted once; the settled job after the release
+climbs as before. The hinted rung is at least as fine as the one the climb would have stopped at, so the
+surface during the drag differs from the settled one by less than the fit tolerance (0.5 mm).
+
+Six runs (the first three are the ones before the hint, for reference), request to answer on the main thread,
+median (p95), worker median (p95), and the build and mesh medians:
+
+| Section drag      | Round trip, ms                                       | Worker, ms                                                              | Build, ms (median)          | Mesh, ms (median)             |
+| ----------------- | ---------------------------------------------------- | ----------------------------------------------------------------------- | --------------------------- | ----------------------------- |
+| Before the hint   | 13 (72), 14 (61), 13 (21)                            | 11.1 (31.7), 11.7 (25.0), 11.0 (19.7)                                   | 3.1 to 3.3                  | 7.5 to 8.3                    |
+| With the hint, 6x | 10 (68), 11 (30), 10 (16), 12 (19), 11 (41), 12 (76) | 9.1 (25.1), 9.4 (28.1), 8.5 (15.1), 9.6 (18.3), 10.0 (19.7), 9.4 (27.6) | 1.4 to 1.6 (p95 4.6 to 9.1) | 6.9 to 8.3 (p95 12.6 to 20.8) |
+
+For comparison the same runs for the line drags (worker p95): outline 10.8 to 12.4 ms, deck 16.3 to 19.7, rocker
+11.3 to 12.6; round trip median 10 to 11 for all three.
+
+**The targets are not met reliably.** The medians are far inside them (worker 8.5 to 10 ms, round trip 10 to
+12 ms). Worker p95 is 15.1 to 28.1 ms against a target of 15: it met it once in six runs. Round trip p95 is
+16 to 76 ms against 50: it met it in four of six. What is left is not the fit any more (build p95 4.6 to 9 ms,
+median 1.5) but the mesh (p95 13 to 21 ms, the same as the unedited deck drag's 16 to 20 ms in the same
+sessions) and main-thread stalls behind software-WebGL frames, the limit M1 §10 and step 1 already named.
+A deck drag, which edits no section, misses the 15 ms worker p95 too in this container, so the target is
+tighter than this container's noise; on a quiet machine or with a GPU it should hold, but that is not measured.
+
+**What step 3 must know.**
+
+- A tail change to or from a notched tail must call `injectNotchChords(doc)` (`use-section-engine.ts`) before
+  the document is loaded or the projection shows the plan's outer rail for stations in the notch zone. The
+  provider is per store (`setNotchChords`), set once, and keyed on (outline, tail, rocker, deck) identity.
+- `side: 'minus'` is accepted by `withChain` for a station and by `applyBoardEdit` not at all: the slice
+  write-back handles the plus section only (`st.plus`), and `sliceDims` and `projectDoc` project the plus
+  side only. Two-sided panes need a second projection (or a side argument) and a write-back per side. The
+  probes already carry `minus`.
+- The apex index is recomputed on every write-back (`sectionOfSlice`); keep that for the minus section.
+- `addStation` and `moveStation` use the plus outline's range `[xi0, L]` (`xi0` is `d` on a notched board);
+  `setTail` must drop or move stations at `xi < d` itself (`validateBoard` reports `station-order`).
+- `setNotchDepth` changes the chord of every station in the zone: the sections are normalised, so they follow,
+  and the projection re-derives `w` through the injected function (new outline chain, new cache entry).
+- `buildBoard`'s `spanHint` is the worker's, from `lastSpan`; a document job with `reuseLadders` uses it.
+- Rocker-pane indices are projection indices (the deck's wall knots), and a station marker's index is
+  `station + 1`; both still hold.
+- The ghosts need the 3D view mounted (the layer owns the worker). A two-sided section pane adds a second
+  ghost; `probeAt(items, xi)` matches on the exact coordinate asked.
