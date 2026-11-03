@@ -21,9 +21,15 @@
  *     Then (step 2) a station's apex in the cross-section pane: the section drag refits one
  *     section. Targets: worker p95 <= 15 ms, round trip p95 <= 50 ms.
  *
+ *  4. **Feature** (step 4): add a double concave in the Bottom features section and change its
+ *     depth with the slider. Two series: single changes 100 ms apart, timed in the page from the
+ *     input event to the badge's next update (the change reaching the 3D view, target median < 50 ms),
+ *     and a 60-event burst at 16 ms like a drag, with the worker's build and mesh shares (a feature
+ *     edit refits no section, so the build is the warm one).
+ *
  * Usage (after `pnpm build`):
  *   node tools/perf/nurbs-timing.mjs [--json out.json] [--only substring] [--throttle 4]
- *        [--skip open|switch|drag]
+ *        [--skip open|switch|drag|feature]
  * Serves dist/ itself via tools/serve-dist.mjs on port 4179.
  */
 import { spawn } from 'node:child_process';
@@ -424,6 +430,135 @@ async function measureDrag(browser) {
   return res;
 }
 
+/** Sets the Depth slider's value the way a pointer drag does (an input event), marking the time first. */
+const setDepth = (page, fraction) =>
+  page.evaluate((f) => {
+    const el = document.querySelector('input[type=range][aria-label="Depth slider"]');
+    const min = Number(el.min);
+    const max = Number(el.max);
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
+    window.__mark = performance.now();
+    set.call(el, String(min + (max - min) * f));
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, fraction);
+
+/** The slider's pointer going down or up: a drag is one grouped edit (the viewer then reuses its ladders). */
+const sliderPointer = (page, type) =>
+  page.evaluate((t) => {
+    const el = document.querySelector('input[type=range][aria-label="Depth slider"]');
+    el.dispatchEvent(new PointerEvent(t, { bubbles: true, pointerId: 1 }));
+  }, type);
+
+/**
+ * Add a double concave to the shortboard and change its depth: single changes (page-timed end to end)
+ * and a burst like a slider drag.
+ */
+async function measureFeature(browser) {
+  const { context, page, errors } = await newPage(browser);
+  await page.goto(`${BASE}/app?engine=nurbs`);
+  await page.locator('canvas').first().waitFor();
+  await page.keyboard.press('1');
+  await waitSurface(page, 0);
+  await waitEditable(page);
+  await page.waitForTimeout(500);
+  await page.getByRole('tab', { name: 'Shape' }).click();
+  const header = page.getByRole('button', { name: 'Bottom features', exact: true });
+  if ((await header.getAttribute('aria-expanded')) !== 'true') await header.click();
+  const before = (await readBadge(page)).seq;
+  await page.getByRole('button', { name: 'Double concave', exact: true }).click();
+  await waitSurface(page, before);
+  await page.waitForTimeout(500);
+  const res = { errors };
+
+  const summary = (steps) => {
+    const lat = steps.map((u) => u.latency);
+    const st = (key) => ({
+      median: r1(median(steps.map((u) => u[key]))),
+      p95: r1(
+        pct(
+          steps.map((u) => u[key]),
+          0.95,
+        ),
+      ),
+    });
+    return {
+      changes: steps.length,
+      endToEndMs: { median: r1(median(lat)), p95: r1(pct(lat, 0.95)), max: r1(Math.max(...lat)) },
+      roundTripMs: st('roundTrip'),
+      workerMs: st('worker'),
+      buildMs: st('build'),
+      meshMs: st('mesh'),
+      laddersReused: steps.filter((u) => u.reused).length,
+    };
+  };
+  // single changes, 100 ms apart: from the input event to the update the 3D view receives
+  const changes = async (grouped) => {
+    const steps = [];
+    if (grouped) await sliderPointer(page, 'pointerdown');
+    for (let i = 0; i < 30; i++) {
+      const seq = (await readBadge(page)).seq;
+      await setDepth(page, i % 2 ? 0.3 : 0.8);
+      await page.waitForFunction((n) => window.__updates.some((u) => u.seq > n), seq, {
+        timeout: 10_000,
+      });
+      steps.push(
+        await page.evaluate((n) => {
+          const up = window.__updates.find((q) => q.seq > n);
+          return { latency: up.t - window.__mark, ...up };
+        }, seq),
+      );
+      await page.waitForTimeout(100);
+    }
+    if (grouped) await sliderPointer(page, 'pointerup');
+    return steps;
+  };
+  // a typed value or a lone change: not inside a drag, so the mesh derives its ladders afresh
+  res.single = summary(await changes(false));
+  console.log(JSON.stringify({ featureSingle: res.single }));
+  // changes inside a slider drag (pointer down): the viewer reuses its ladders
+  res.slider = summary(await changes(true));
+  console.log(JSON.stringify({ featureSlider: res.slider }));
+  await page.waitForTimeout(500);
+
+  // a burst like a drag: 60 input events a frame apart
+  await page.evaluate(() => (window.__updates.length = 0));
+  await sliderPointer(page, 'pointerdown');
+  const t0 = await page.evaluate(() => performance.now());
+  for (let i = 1; i <= DRAG_MOVES; i++) {
+    await setDepth(page, 0.2 + (0.6 * i) / DRAG_MOVES);
+    await page.evaluate(
+      () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))),
+    );
+  }
+  const tEnd = await page.evaluate(() => performance.now());
+  await sliderPointer(page, 'pointerup');
+  await page.waitForTimeout(800);
+  const during = (await page.evaluate(() => window.__updates.slice())).filter(
+    (u) => u.t >= t0 && u.t <= tEnd,
+  );
+  const stat = (key) => ({
+    median: r1(median(during.map((u) => u[key]))),
+    p95: r1(
+      pct(
+        during.map((u) => u[key]),
+        0.95,
+      ),
+    ),
+  });
+  res.burst = {
+    moves: DRAG_MOVES,
+    updatesDuringDrag: during.length,
+    laddersReused: during.filter((u) => u.reused).length,
+    roundTripMs: stat('roundTrip'),
+    workerMs: stat('worker'),
+    buildMs: stat('build'),
+    meshMs: stat('mesh'),
+  };
+  console.log(JSON.stringify({ featureBurst: res.burst }));
+  await context.close();
+  return res;
+}
+
 const server = spawn(process.execPath, [join(HERE, '..', 'serve-dist.mjs'), String(PORT)], {
   stdio: 'ignore',
 });
@@ -438,6 +573,7 @@ try {
     if (!SKIP.has('open')) result.open = await measureOpen(browser);
     if (!SKIP.has('switch')) result.switch = await measureSwitch(browser);
     if (!SKIP.has('drag')) result.drag = await measureDrag(browser);
+    if (!SKIP.has('feature')) result.feature = await measureFeature(browser);
   } finally {
     await browser.close();
   }
