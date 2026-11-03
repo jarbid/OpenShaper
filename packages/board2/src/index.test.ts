@@ -12,6 +12,7 @@ describe('@openshaper/board2 public API', () => {
         'BOARD2_ISSUE_CODES',
         'DEFAULT_BUILD',
         'MEASURE',
+        'StepFitError',
         'board2Err',
         'board2Ok',
         'boardDocToJson',
