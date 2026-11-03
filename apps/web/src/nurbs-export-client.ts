@@ -102,7 +102,7 @@ export function startNurbsExport(
   try {
     transport = spawn({
       onMessage(res) {
-        if (res.id !== id) return;
+        if (res.id !== id || settled) return;
         if (res.kind === 'export-progress') onStage?.(res.stage);
         else {
           settle(() =>

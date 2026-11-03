@@ -50,7 +50,10 @@ export function useNurbsExport(handlers: {
     if (run.current) return;
     label.current = name;
     setActive({ label: name, stage: 'building' });
-    const r = startNurbsExport(doc, job, (stage) => setActive({ label: name, stage }));
+    let live = true; // a stage that arrives after the export has ended must not bring the chip back
+    const r = startNurbsExport(doc, job, (stage) => {
+      if (live) setActive({ label: name, stage });
+    });
     run.current = r;
     r.result
       .then((a) => {
@@ -64,6 +67,7 @@ export function useNurbsExport(handlers: {
         else on.current.onError(err instanceof Error ? err.message : String(err), name);
       })
       .finally(() => {
+        live = false;
         if (run.current === r) run.current = null;
         setActive(null);
       });
@@ -71,13 +75,13 @@ export function useNurbsExport(handlers: {
 
   const cancel = useCallback(() => run.current?.cancel(), []);
   // Leaving the editor stops the export: nobody is waiting for the file.
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    gone.current = false; // a remount (StrictMode) must not leave later exports undelivered
+    return () => {
       gone.current = true;
       run.current?.cancel();
-    },
-    [],
-  );
+    };
+  }, []);
 
   return { active, start, cancel };
 }
