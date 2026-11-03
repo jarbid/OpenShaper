@@ -9,7 +9,8 @@
  * {@link meshTransferables}, so a 20,000-vertex surface costs no copy.
  */
 import type { BoardDoc } from '@openshaper/board2';
-import type { BezierBoard } from '@openshaper/kernel';
+import type { BoardPdf1to1Options, DxfCurveMode } from '@openshaper/export';
+import type { BezierBoard, ResolvedFin } from '@openshaper/kernel';
 
 /** One finding of a conversion or build, as the popover lists it. */
 export interface NurbsIssue {
@@ -266,3 +267,80 @@ export const meshTransferables = (m: NurbsMeshData): ArrayBuffer[] =>
   ]
     .filter((a): a is NonNullable<typeof a> => a != null)
     .map((a) => a.buffer as ArrayBuffer);
+
+// --- Exports (docs/design/m3-exports.md) -----------------------------------------------------
+
+/** The default STL face size (cm): the longest edge of the export mesh. The live mesh has no cap. */
+export const DEFAULT_STL_FACE_SIZE = 0.5;
+
+/**
+ * What an export job writes. The document crosses by structured clone, so the export is of the board as
+ * it was when asked, whatever is edited meanwhile.
+ */
+export type ExportJob =
+  | {
+      readonly format: 'stl';
+      /** Longest edge of the mesh, cm. */
+      readonly faceSize: number;
+      /** File name stem. */
+      readonly slug: string;
+    }
+  | {
+      readonly format: 'dxf';
+      readonly curveMode: DxfCurveMode;
+      /** Stations drawn (evenly spaced along the stringer). */
+      readonly crossSectionCount: number;
+      /** The comparison board of the GHOST layer. */
+      readonly ghost: BezierBoard | null;
+      /** The fins to draw (the document's fin setup, resolved on the main thread). */
+      readonly fins: readonly ResolvedFin[];
+      readonly slug: string;
+    }
+  | {
+      readonly format: 'pdf-1to1';
+      readonly options: BoardPdf1to1Options;
+      readonly fins: readonly ResolvedFin[];
+      readonly slug: string;
+    };
+
+export type ExportFormatName = ExportJob['format'];
+
+export type ExportStage = 'building' | 'meshing' | 'sampling' | 'drawing' | 'writing';
+
+/** main → worker: one export of a document. */
+export interface ExportRequest {
+  readonly kind: 'export';
+  readonly id: number;
+  readonly doc: BoardDoc;
+  readonly job: ExportJob;
+}
+
+/** One file an export produced. */
+export interface ExportedFile {
+  readonly name: string;
+  /** Media type for the download. */
+  readonly type: string;
+  readonly bytes: Uint8Array;
+}
+
+/** worker → main. */
+export type ExportResponse =
+  | { readonly kind: 'export-progress'; readonly id: number; readonly stage: ExportStage }
+  | {
+      readonly kind: 'exported';
+      readonly id: number;
+      readonly ok: true;
+      readonly files: readonly ExportedFile[];
+      /** The whole job in the worker, ms. */
+      readonly ms: number;
+    }
+  | {
+      readonly kind: 'exported';
+      readonly id: number;
+      readonly ok: false;
+      readonly error: string;
+    };
+
+/** Every buffer of an export's files, for the worker to transfer back. */
+export const exportTransferables = (files: readonly ExportedFile[]): ArrayBuffer[] =>
+  files.map((f) => f.bytes.buffer as ArrayBuffer);

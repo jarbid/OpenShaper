@@ -83,8 +83,10 @@ export default function DocsFiles() {
             shown.
           </Term>
           <Term name="Not in the file">
-            The exports use the classic projection of a NURBS board for now, so bottom features and
-            the smooth blend between stations are not in an exported STL, DXF, PDF or STEP.
+            STL, DXF and PDF 1:1 are made from the NURBS board itself, with its bottom features,
+            both halves of an asymmetric board and the smooth blend between stations. STEP, rail
+            bands and the legacy <code>.brd</code> still use the classic projection for now, so
+            those are not in them.
           </Term>
         </Terms>
       </Section>

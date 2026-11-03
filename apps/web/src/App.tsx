@@ -52,9 +52,12 @@ import {
   downloadBoard,
   downloadBoardText,
   downloadBrd,
+  downloadFiles,
   downloadPdf1to1,
+  pdf1to1Options,
   downloadRailBands,
   downloadStep,
+  slugifyName,
   exportBoard,
   openBoardFile,
   SectionsFileError,
@@ -64,6 +67,8 @@ import {
   toBoardMeta,
 } from './file-io';
 import { captureError, track } from './analytics';
+import { EXPORT_STAGE_TEXT, useNurbsExport } from './use-nurbs-export';
+import { DEFAULT_STL_FACE_SIZE, type ExportJob } from './workers/nurbs-protocol';
 import {
   installSessionSummary,
   markExport,
@@ -1089,6 +1094,35 @@ function AppShell() {
     toastTimer.current = window.setTimeout(() => setToast(null), 6000);
   };
 
+  // STL, DXF and PDF 1:1 of the NURBS document are made in a worker of their own (docs/design/m3-exports.md):
+  // the menu shows the stage and a Cancel, and an edit made meanwhile does not change the export.
+  const nurbsExport = useNurbsExport({
+    onDone: (files, label, ms, job) => {
+      downloadFiles(files);
+      track('export_board', {
+        format:
+          job.format === 'dxf'
+            ? job.curveMode === 'spline'
+              ? 'dxf-spline'
+              : 'dxf'
+            : job.format === 'pdf-1to1'
+              ? 'pdf-1to1-custom'
+              : job.format,
+      });
+      markExport();
+      if (ms > 3000) showToast(`${label} exported (${(ms / 1000).toFixed(1)} s).`);
+    },
+    onError: (message, label) => showToast(`Could not export ${label}: ${message}`),
+    onCancel: (label) => showToast(`${label} export cancelled.`),
+  });
+  /** Start an export of the NURBS document as it is now; false when the engine is off (the classic path runs). */
+  const startEngineExport = (label: string, job: ExportJob): boolean => {
+    const doc = sectionEngine.ready ? sectionStore.getState().doc : null;
+    if (!doc) return false;
+    nurbsExport.start(label, doc, job);
+    return true;
+  };
+
   /**
    * Download the board as a native `.board` document. Shared by File > Save and
    * by the Share dialog, which offers it when a board is too large to link.
@@ -1559,9 +1593,11 @@ function AppShell() {
   // filled in.
   const stepSupport = board ? stepExportSupport(board) : null;
 
-  // With the NURBS document open the exports are still its classic projection (until M3): say so on the
-  // items, and on the first export of each document name what this board's export misses (review R2).
+  // With the NURBS document open, STL, DXF and PDF 1:1 are made from it (M3). STEP, rail bands and the
+  // legacy .brd are still its classic projection: say so on those items, and on the first export of each
+  // document name what this board's export misses (review R2).
   const projSuffix = sectionEngine.ready ? ' (classic projection)' : '';
+  const exporting = nurbsExport.active;
   const notedDoc = useRef<unknown>(null);
   const noteProjection = () => {
     const doc = sectionEngine.ready ? sectionStore.getState().doc : null;
@@ -1577,6 +1613,16 @@ function AppShell() {
     );
   };
   const exportMenu: MenuItem[] = [
+    ...(exporting
+      ? ([
+          {
+            kind: 'label',
+            label: `Exporting ${exporting.label}: ${EXPORT_STAGE_TEXT[exporting.stage]}…`,
+          },
+          { kind: 'action', label: 'Cancel export', onSelect: nurbsExport.cancel },
+          { kind: 'separator' },
+        ] satisfies MenuItem[])
+      : []),
     ...(
       [
         ['stl', 'STL'],
@@ -1585,12 +1631,23 @@ function AppShell() {
       ] as [ExportFormat, string][]
     ).map(([f, label]) => ({
       kind: 'action' as const,
-      label: label + projSuffix,
-      disabled: !board,
+      label,
+      disabled: !board || exporting !== null,
       onSelect: () => {
         if (!board) return;
-        noteProjection();
-        exportBoard(board, f, meta, units, ghost ?? undefined);
+        const slug = slugifyName(meta?.model);
+        const started =
+          f === 'stl'
+            ? startEngineExport('STL', { format: 'stl', faceSize: DEFAULT_STL_FACE_SIZE, slug })
+            : startEngineExport(label, {
+                format: 'dxf',
+                curveMode: f === 'dxf-spline' ? 'spline' : 'polyline',
+                crossSectionCount: 7,
+                ghost: ghost ?? null,
+                fins: resolvedFins,
+                slug,
+              });
+        if (!started) exportBoard(board, f, meta, units, ghost ?? undefined);
         track('export_board', { format: f });
         markExport();
       },
@@ -1607,10 +1664,9 @@ function AppShell() {
     },
     {
       kind: 'action',
-      label: `PDF 1:1${projSuffix}…`,
-      disabled: !board,
+      label: 'PDF 1:1…',
+      disabled: !board || exporting !== null,
       onSelect: () => {
-        noteProjection();
         setPdfDialogOpen(true);
       },
     },
@@ -2224,6 +2280,20 @@ function AppShell() {
         </BottomSheet>
       )}
 
+      {exporting && (
+        <Toast
+          role="status"
+          data-testid="export-progress"
+          className="flex cursor-default items-center gap-3"
+        >
+          <span>
+            Exporting {exporting.label}: {EXPORT_STAGE_TEXT[exporting.stage]}…
+          </span>
+          <Button size="sm" variant="ghost" onClick={nurbsExport.cancel}>
+            Cancel
+          </Button>
+        </Toast>
+      )}
       {toast && <Toast onClick={() => setToast(null)}>{toast}</Toast>}
 
       {pendingImport && (
@@ -2391,9 +2461,17 @@ function AppShell() {
           onExport={(s) => {
             savePdf1to1(s);
             setPdf1to1(s);
-            downloadPdf1to1(board, s, meta, units);
-            track('export_board', { format: 'pdf-1to1-custom' });
-            markExport();
+            const started = startEngineExport('PDF 1:1', {
+              format: 'pdf-1to1',
+              options: pdf1to1Options(s, meta, units),
+              fins: resolvedFins,
+              slug: slugifyName(meta?.model),
+            });
+            if (!started) {
+              downloadPdf1to1(board, s, meta, units);
+              track('export_board', { format: 'pdf-1to1-custom' });
+              markExport();
+            }
           }}
           onClose={() => setPdfDialogOpen(false)}
         />

@@ -47,7 +47,7 @@ export const splineSegments = (
   s.curves.map((c) => ({ p0: map(c.p0), c1: map(c.c1), c2: map(c.c2), p3: map(c.p3) }));
 
 /** Reverse a segment's direction (p0↔p3, c1↔c2) and mirror its y (for the far rail). */
-const reverseMirrorY = (s: CurveSeg): CurveSeg => ({
+export const reverseMirrorY = (s: CurveSeg): CurveSeg => ({
   p0: { x: s.p3.x, y: -s.p3.y },
   c1: { x: s.c2.x, y: -s.c2.y },
   c2: { x: s.c1.x, y: -s.c1.y },
@@ -96,6 +96,45 @@ export const flattenBeziers = (segs: readonly CurveSeg[], perSeg: number): Pt[] 
   for (const s of segs) {
     const continuous = prev !== null && prev.x === s.p0.x && prev.y === s.p0.y;
     for (let i = continuous ? 1 : 0; i <= steps; i++) pts.push(cubicPt(s, i / steps));
+    prev = s.p3;
+  }
+  return pts;
+};
+
+/**
+ * Flatten exact bezier segments to a polyline that stays within `tol` (cm) of the curve: each segment
+ * is split in halves until its control points lie within `tol` of its chord (the curve is then within
+ * three quarters of that), so tight bends get many points and straight runs few. Continuity is
+ * handled as in {@link flattenBeziers}.
+ */
+export const flattenAdaptive = (segs: readonly CurveSeg[], tol: number): Pt[] => {
+  const pts: Pt[] = [];
+  const dist = (p: Pt, a: Pt, b: Pt): number => {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len = Math.hypot(dx, dy);
+    return len === 0 ? Math.hypot(p.x - a.x, p.y - a.y) : Math.abs(dx * (p.y - a.y) - dy * (p.x - a.x)) / len; // prettier-ignore
+  };
+  const mid = (a: Pt, b: Pt): Pt => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  const split = (s: CurveSeg, depth: number): void => {
+    const flat = Math.max(dist(s.c1, s.p0, s.p3), dist(s.c2, s.p0, s.p3)) <= tol;
+    if (flat || depth >= 20) {
+      pts.push(s.p3);
+      return;
+    }
+    const a = mid(s.p0, s.c1);
+    const b = mid(s.c1, s.c2);
+    const c = mid(s.c2, s.p3);
+    const d = mid(a, b);
+    const e = mid(b, c);
+    const m = mid(d, e);
+    split({ p0: s.p0, c1: a, c2: d, p3: m }, depth + 1);
+    split({ p0: m, c1: e, c2: c, p3: s.p3 }, depth + 1);
+  };
+  let prev: Pt | null = null;
+  for (const s of segs) {
+    if (!(prev !== null && prev.x === s.p0.x && prev.y === s.p0.y)) pts.push(s.p0);
+    split(s, 0);
     prev = s.p3;
   }
   return pts;

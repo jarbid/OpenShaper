@@ -945,6 +945,33 @@ describe('drawFeatureDepth', () => {
     expect(calls.at(-1)).toBe('restore');
   });
 
+  it('stacks the labels of features that overlap instead of printing them on top of each other', () => {
+    const { ctx } = makeCtx();
+    const fill = vi.fn();
+    (ctx as unknown as { fillText: unknown }).fillText = fill;
+    // two features whose deepest points are 10 px apart, with labels wider than that
+    drawFeatureDepth(
+      ctx,
+      [series(0.25, 'Channels 2.5 mm'), series(0.3, 'Double concave 3 mm')],
+      VP,
+      400,
+    );
+    const [a, b] = fill.mock.calls as [string, number, number][];
+    expect(a![0]).toBe('Channels 2.5 mm');
+    expect(b![0]).toBe('Double concave 3 mm');
+    // same deepest x here, so the second label is one row (12 px) above the first
+    expect(a![2] - b![2]).toBe(12);
+    // far apart along the board, they share a row
+    fill.mockClear();
+    const far = {
+      ...series(0.3, 'B'),
+      points: series(0.3).points.map((p) => ({ ...p, x: p.x + 400 })),
+    };
+    drawFeatureDepth(ctx, [series(0.25, 'A'), far], VP, 400);
+    const [c, d] = fill.mock.calls as [string, number, number][];
+    expect(c![2]).toBe(d![2]);
+  });
+
   it('draws nothing for no depth', () => {
     const { ctx } = makeCtx();
     drawFeatureDepth(ctx, [series(0)], VP, 400);

@@ -17,6 +17,7 @@
 import { getLength, resolveFins, valueAt, type BezierBoard, type ResolvedFin } from '@openshaper/kernel'; // prettier-ignore
 import {
   bbox,
+  flattenBeziers,
   crossSectionBeziers,
   crossSectionHalfBeziers,
   crossSectionHalfRing,
@@ -29,6 +30,14 @@ import {
   ySpan,
   type Pt,
 } from './board-curves';
+import {
+  curveYAtX,
+  curvesOutlineLoop,
+  curvesOutlinePoints,
+  curvesSectionRing,
+  isAsymmetric,
+  type BoardCurves,
+} from './curves-input';
 import { buildPdf, type PageDoc } from './pdf-core';
 import { orient, POINTS_PER_CM } from './paper';
 import { buildDrawing, type Box, type DrawCtx } from './pdf-draw';
@@ -325,15 +334,8 @@ const partToPages = (part: TaggedPart, tiling: PdfTiling | null | undefined): Pa
   });
 };
 
-/**
- * Export the board's 1:1 geometry to one or more PDF files according to `opts`
- * (part selection, optional paper-size tiling, and combined/per-part packaging).
- */
-export const exportBoardPdf1to1Files = (
-  board: BezierBoard,
-  opts: BoardPdf1to1Options = {},
-): PdfExportResult => {
-  const parts = buildParts(board, opts);
+/** Package the part drawings per `opts` (tiling, combined or one file per part). */
+const packageParts = (parts: readonly TaggedPart[], opts: BoardPdf1to1Options): PdfExportResult => {
   const tiling = opts.tiling ?? null;
 
   if (opts.packaging === 'per-part') {
@@ -353,6 +355,150 @@ export const exportBoardPdf1to1Files = (
   const pages = parts.flatMap((p) => partToPages(p, tiling));
   return { files: [{ name: 'board-1to1.pdf', bytes: buildPdf(pages) }] };
 };
+
+/**
+ * Export the board's 1:1 geometry to one or more PDF files according to `opts`
+ * (part selection, optional paper-size tiling, and combined/per-part packaging).
+ */
+export const exportBoardPdf1to1Files = (
+  board: BezierBoard,
+  opts: BoardPdf1to1Options = {},
+): PdfExportResult => packageParts(buildParts(board, opts), opts);
+
+/**
+ * The part drawings from a NURBS document's curves ({@link BoardCurves}): the outline (both halves
+ * when asymmetric), the rocker and deck from the document's chains, and one page per station with the
+ * as-built section. An asymmetric board is always printed whole: a half template would hide a half.
+ */
+const buildPartsFromCurves = (curves: BoardCurves, opts: BoardPdf1to1Options): TaggedPart[] => {
+  const lengthSteps = Math.max(2, opts.lengthSteps ?? DEFAULT_LENGTH_STEPS);
+  const inches = opts.units === 'in';
+  const name = opts.meta?.model || 'Surfboard';
+  const sel = opts.parts ?? {};
+  const want = (key: keyof PdfPartSelection): boolean => sel[key] ?? true;
+  const calibration = want('calibration');
+  const asym = isAsymmetric(curves);
+  const { length } = curves;
+  const eps = Math.min(0.01, length / (lengthSteps * 4));
+  const { from: stringerFrom, to: stringerTo } = curves.stringer;
+  const L = (cm: number): string =>
+    inches ? `${(cm / 2.54).toFixed(2)} in` : `${cm.toFixed(1)} cm`;
+  const note = `${name} · 1:1 — print at 100% scale · units ${inches ? 'in' : 'cm'} · openshaper.com`;
+
+  const parts: TaggedPart[] = [];
+
+  if (want('outline')) {
+    const halfTpl = (opts.halfOutline ?? true) && !asym;
+    const perSegN = Math.max(8, Math.round(lengthSteps / Math.max(1, curves.outlinePlus.length)));
+    const pts = halfTpl
+      ? flattenBeziers(curves.outlinePlus, perSegN)
+      : curvesOutlinePoints(curves, perSegN);
+    const bb = bbox(pts);
+    parts.push(
+      buildPart(
+        'outline',
+        `${name} · Outline${halfTpl ? ' half' : ''} (1:1)`,
+        halfTpl ? `${note} · half template — flip about the centreline` : note,
+        halfTpl ? { ...bb, minY: Math.min(0, bb.minY) } : bb,
+        (ctx) => {
+          ctx.bezier(halfTpl ? curves.outlinePlus : curvesOutlineLoop(curves), {
+            closed: !halfTpl,
+            width: 0.8,
+          });
+          ctx.seg(
+            { x: stringerFrom + eps, y: 0 },
+            { x: stringerTo - eps, y: 0 },
+            halfTpl ? { width: 0.6, gray: 0 } : { width: 0.3, gray: 0.55 },
+          );
+          for (const sec of curves.sections) {
+            const start = halfTpl ? { x: sec.pos, y: 0 } : sec.chordMinus;
+            ctx.seg(start, sec.chordPlus, { width: 0.3, dashed: true, gray: 0.55 });
+            // The width label stays the FULL width — what the shaper measures.
+            const full = sec.chordPlus.y - sec.chordMinus.y;
+            ctx.label(
+              { x: sec.chordPlus.x + 0.4, y: sec.chordPlus.y + 0.6 },
+              `${L(sec.pos)} · w ${L(full)}`,
+              7,
+            );
+          }
+          if (want('fins')) {
+            const fins = curves.fins ?? [];
+            drawFins(ctx, halfTpl ? fins.filter((f) => f.side >= 0) : fins);
+          }
+        },
+        calibration,
+        inches,
+      ),
+    );
+  }
+
+  if (want('rocker')) {
+    const bottom = flattenBeziers(curves.bottom, Math.max(8, lengthSteps / 8));
+    const deck = flattenBeziers(curves.deck, Math.max(8, lengthSteps / 8));
+    parts.push(
+      buildPart(
+        'rocker',
+        `${name} · Rocker (1:1)`,
+        note,
+        bbox([...bottom, ...deck]),
+        (ctx) => {
+          ctx.bezier(curves.bottom, { width: 0.8 });
+          ctx.bezier(curves.deck, { width: 0.8 });
+          for (const sec of curves.sections) {
+            const b = curveYAtX(curves.bottom, sec.pos);
+            const d = curveYAtX(curves.deck, sec.pos);
+            ctx.seg({ x: sec.pos, y: b }, { x: sec.pos, y: d }, { width: 0.3, dashed: true, gray: 0.55 }); // prettier-ignore
+            ctx.label({ x: sec.pos + 0.4, y: Math.max(b, d) + 0.4 }, `t ${L(Math.abs(d - b))}`, 7);
+          }
+        },
+        calibration,
+        inches,
+      ),
+    );
+  }
+
+  if (want('crossSections')) {
+    const halfSec = (opts.halfSections ?? true) && !asym;
+    for (const sec of curves.sections) {
+      const ring: Pt[] = halfSec ? [...sec.plus] : curvesSectionRing(sec);
+      if (ring.length < 2) continue;
+      const bb = bbox(ring);
+      const rail = sec.rail ? ' · rail section' : '';
+      parts.push(
+        buildPart(
+          'sections',
+          `${name} · Section${halfSec ? ' half' : ''} @ ${L(sec.pos)}${rail} (1:1)`,
+          halfSec ? `${note} · half template — flip about the stringer` : note,
+          halfSec ? { ...bb, minX: Math.min(0, bb.minX) } : bb,
+          (ctx) => {
+            ctx.poly(ring, { closed: !halfSec, width: 0.8 });
+            const sy = ySpan(ring);
+            ctx.seg(
+              { x: 0, y: sy.lo },
+              { x: 0, y: sy.hi },
+              halfSec ? { width: 0.6, gray: 0 } : { width: 0.3, dashed: true, gray: 0.55 },
+            );
+          },
+          calibration,
+          inches,
+        ),
+      );
+    }
+  }
+
+  return parts;
+};
+
+/**
+ * {@link exportBoardPdf1to1Files} for a NURBS document's curves: the same pages, tiling and
+ * packaging, drawn from the document rather than its classic projection. `crossSectionCount`,
+ * `lengthSteps` and `ringSteps` are the caller's to apply when it builds the curves (the stations are
+ * in {@link BoardCurves.sections}).
+ */
+export const exportBoardPdf1to1FilesFromCurves = (
+  curves: BoardCurves,
+  opts: BoardPdf1to1Options = {},
+): PdfExportResult => packageParts(buildPartsFromCurves(curves, opts), opts);
 
 /**
  * Back-compat: export the board as a single combined, untiled 1:1 PDF (one oversized

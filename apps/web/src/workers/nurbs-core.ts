@@ -49,6 +49,7 @@ import {
   type Board2Issue,
   type BoardDoc,
   type BuiltBoard,
+  type Chain,
   type ChordFn,
   type Ladders,
   type Section,
@@ -60,11 +61,23 @@ import {
   fishBoard,
   swallowBoard,
 } from '@openshaper/board2/testing';
+import {
+  exportBoardPdf1to1FilesFromCurves,
+  exportDxfCurves,
+  stlFromMesh,
+  type BoardCurves,
+  type CurveSection,
+  type CurveSeg,
+  type Pt,
+} from '@openshaper/export';
 import type { BezierBoard, Spline } from '@openshaper/kernel';
 import { curvatureArrays, curvatureScale, excludeUndefined, vertexAreas } from './nurbs-curvature';
 import { classicDeviation } from './nurbs-deviation';
 import type {
   ConvertedDoc,
+  ExportedFile,
+  ExportJob,
+  ExportStage,
   JobOptions,
   MeshMeasure,
   NurbsConversion,
@@ -697,5 +710,201 @@ export const docFromJson = (json: unknown): ReviveOutcome => {
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err), issues: [] };
+  }
+};
+
+// --- Exports ---------------------------------------------------------------------------------
+
+/** A chain's Bézier segments (the document's own curve; exact). */
+const chainSegments = (chain: Chain): CurveSeg[] => {
+  const segs: CurveSeg[] = [];
+  const pt = (p: readonly [number, number]): Pt => ({ x: p[0], y: p[1] });
+  for (let i = 0; i + 1 < chain.knots.length; i++) {
+    const a = chain.knots[i]!;
+    const b = chain.knots[i + 1]!;
+    segs.push({ p0: pt(a.p), c1: pt(a.out), c2: pt(b.in), p3: pt(b.p) });
+  }
+  return segs;
+};
+
+/**
+ * A section half is probed at this many points (uniform in the section parameter), then thinned: dense
+ * enough for the steep walls of a channel, never the file size.
+ */
+const EXPORT_SECTION_SAMPLES = 400;
+
+/** How far (cm) the thinned section may stray from the probed one: 0.05 mm, a tenth of the 0.5 mm tolerance. */
+const EXPORT_SECTION_TOL = 0.005;
+
+/** Douglas-Peucker: the points of `pts` that keep every dropped one within `tol` of the polyline. */
+const thin = (pts: readonly Pt[], tol: number): Pt[] => {
+  const keep = new Uint8Array(pts.length);
+  keep[0] = 1;
+  keep[pts.length - 1] = 1;
+  const stack: [number, number][] = [[0, pts.length - 1]];
+  while (stack.length > 0) {
+    const [a, b] = stack.pop()!;
+    const pa = pts[a]!;
+    const pb = pts[b]!;
+    const dx = pb.x - pa.x;
+    const dy = pb.y - pa.y;
+    const len = Math.hypot(dx, dy);
+    let worst = -1;
+    let at = -1;
+    for (let i = a + 1; i < b; i++) {
+      const p = pts[i]!;
+      const d =
+        len === 0
+          ? Math.hypot(p.x - pa.x, p.y - pa.y)
+          : Math.abs(dx * (p.y - pa.y) - dy * (p.x - pa.x)) / len;
+      if (d > worst) {
+        worst = d;
+        at = i;
+      }
+    }
+    if (worst > tol) {
+      keep[at] = 1;
+      stack.push([a, at], [at, b]);
+    }
+  }
+  return pts.filter((_, i) => keep[i] === 1);
+};
+
+/** The apex line is sampled at this many steps along the stringer. */
+const EXPORT_APEX_STEPS = 200;
+
+/**
+ * Everything the DXF and 1:1 PDF drawings read from a built board ({@link BoardCurves}): the
+ * document's chains, and the as-built section at each of `count` stations (`probeSection`, bottom
+ * features included). Plain data; the drawing code in `@openshaper/export` imports no board model.
+ */
+export const curvesOfBuilt = (
+  built: BuiltBoard,
+  count: number,
+  fins: BoardCurves['fins'],
+  progress?: (done: number) => void,
+): BoardCurves => {
+  const doc = built.doc;
+  const asymmetric = doc.symmetry === 'asymmetric';
+  const ev = createEvaluator(built);
+  const { xiMin, xiMax } = built;
+  const notch = doc.tail.kind === 'notched' ? xiMin + doc.tail.zone : -Infinity;
+  const out = new Float64Array(3);
+  const pairs = (flat: readonly number[]): Pt[] => {
+    const pts: Pt[] = [];
+    for (let i = 0; i + 1 < flat.length; i += 2) pts.push({ x: flat[i]!, y: flat[i + 1]! });
+    return thin(pts, EXPORT_SECTION_TOL);
+  };
+  /** The outline end of the station's chord (the section's apex), plan view. */
+  const chordEnd = (side: 0 | 1, xi: number): Pt => {
+    ev.row(side, xi, 0);
+    ev.eval(0.5, 0, out);
+    return { x: out[0]!, y: out[1]! };
+  };
+
+  const sections: CurveSection[] = [];
+  const n = Math.max(0, Math.floor(count));
+  for (let i = 0; i < n; i++) {
+    const xi = xiMin + ((xiMax - xiMin) * (i + 0.5)) / n;
+    const plus = pairs(probeSection(built, ev, 0, xi, EXPORT_SECTION_SAMPLES));
+    const minus = asymmetric ? pairs(probeSection(built, ev, 1, xi, EXPORT_SECTION_SAMPLES)) : null;
+    const cp = chordEnd(0, xi);
+    const cm = asymmetric ? chordEnd(1, xi) : { x: cp.x, y: -cp.y };
+    sections.push({ pos: xi, plus, minus, chordPlus: cp, chordMinus: cm, rail: xi < notch });
+    progress?.((i + 1) / n);
+  }
+
+  const apex: Pt[] = [];
+  for (let k = 0; k <= EXPORT_APEX_STEPS; k++) {
+    const xi = xiMin + ((xiMax - xiMin) * k) / EXPORT_APEX_STEPS;
+    ev.row(0, xi, 0);
+    ev.eval(0.5, 0, out);
+    apex.push({ x: out[0]!, y: out[2]! });
+  }
+
+  const plusSegs = chainSegments(doc.outline.plus);
+  return {
+    length: doc.outline.plus.knots[doc.outline.plus.knots.length - 1]!.p[0],
+    stringer: { from: xiMin, to: xiMax },
+    outlinePlus: plusSegs,
+    outlineMinus: asymmetric ? chainSegments(doc.outline.minus ?? doc.outline.plus) : null,
+    bottom: chainSegments(doc.rocker),
+    deck: chainSegments(doc.deck),
+    apex,
+    sections,
+    ...(fins ? { fins } : {}),
+  };
+};
+
+/** What an export job answers with: the files, or the reason it could not be made. */
+export type ExportOutcome =
+  | { readonly ok: true; readonly files: readonly ExportedFile[]; readonly ms: number }
+  | { readonly ok: false; readonly error: string };
+
+const utf8 = (text: string): Uint8Array => new TextEncoder().encode(text);
+
+/**
+ * One export of a document, from the document itself (docs/design/m3-exports.md): STL from the grid mesh at
+ * the export face size, welded; DXF and PDF 1:1 from the document's chains and the as-built sections.
+ * Validates and builds first, so a document the model refuses is an outcome, not an exception. Runs for
+ * as long as it takes (the one place a multi-second wait is accepted); `progress` names the stage.
+ */
+export const exportDocument = (
+  docIn: BoardDoc,
+  job: ExportJob,
+  progress?: (stage: ExportStage) => void,
+): ExportOutcome => {
+  const t0 = now();
+  try {
+    progress?.('building');
+    const doc = canonicalDoc(docIn);
+    const b = build(doc, true, []);
+    if ('refused' in b) {
+      return { ok: false, error: b.refused.ok ? 'The NURBS surface could not be built.' : b.refused.error }; // prettier-ignore
+    }
+    const built = b.built;
+    let files: ExportedFile[];
+    if (job.format === 'stl') {
+      progress?.('meshing');
+      const m = meshBoard(built, { maxEdge: job.faceSize });
+      progress?.('writing');
+      files = [
+        {
+          name: `${job.slug}.stl`,
+          type: 'model/stl',
+          bytes: stlFromMesh(m, { name: job.slug }),
+        },
+      ];
+    } else if (job.format === 'dxf') {
+      progress?.('sampling');
+      const curves = curvesOfBuilt(built, job.crossSectionCount, job.fins);
+      progress?.('drawing');
+      const text = exportDxfCurves(curves, {
+        curveMode: job.curveMode,
+        ...(job.ghost ? { ghostBoard: job.ghost } : {}),
+      });
+      progress?.('writing');
+      files = [
+        {
+          name: job.curveMode === 'spline' ? `${job.slug}-spline.dxf` : `${job.slug}.dxf`,
+          type: 'application/dxf',
+          bytes: utf8(text),
+        },
+      ];
+    } else {
+      progress?.('sampling');
+      const curves = curvesOfBuilt(built, job.options.crossSectionCount ?? 7, job.fins);
+      progress?.('drawing');
+      const res = exportBoardPdf1to1FilesFromCurves(curves, job.options);
+      progress?.('writing');
+      files = res.files.map((f) => ({
+        name: f.name.replace(/^board/, job.slug),
+        type: 'application/pdf',
+        bytes: f.bytes,
+      }));
+    }
+    return { ok: true, files, ms: now() - t0 };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 };

@@ -9,11 +9,15 @@
  */
 export { BRAND_LINE } from './brand';
 export { exportStl, exportStlAscii, type StlOptions } from './stl';
-export { exportDxf, type DxfOptions, type DxfCurveMode } from './dxf';
+export { exportDxf, exportDxfCurves, type DxfOptions, type DxfCurveMode } from './dxf';
+export { isAsymmetric, type BoardCurves, type CurveSection } from './curves-input';
+export type { CurveSeg, Pt } from './board-curves';
+export { stlFromMesh, type StlMeshInput } from './stl-mesh';
 export { exportStep, stepExportSupport, type StepOptions, type StepSupport } from './step';
 export {
   exportBoardPdf1to1,
   exportBoardPdf1to1Files,
+  exportBoardPdf1to1FilesFromCurves,
   type BoardPdf1to1Options,
   type PdfMeta,
   type PdfPartSelection,

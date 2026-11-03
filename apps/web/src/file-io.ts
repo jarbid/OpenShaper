@@ -2,6 +2,7 @@ import {
   customPaper,
   exportBoardPdf1to1,
   exportBoardPdf1to1Files,
+  type BoardPdf1to1Options,
   exportDxf,
   exportRailBandsPdf,
   exportStep,
@@ -469,12 +470,15 @@ export function downloadRailBands(
   return res.warnings;
 }
 
-export function downloadPdf1to1(
-  board: BezierBoard,
+/**
+ * The 1:1 PDF export options for the dialog `settings`; shared by the classic path
+ * ({@link downloadPdf1to1}) and the NURBS worker's, so both print the same choices.
+ */
+export function pdf1to1Options(
   settings: Pdf1to1Settings,
   meta?: BoardMeta,
   units?: LengthUnit,
-): void {
+): BoardPdf1to1Options {
   const pdfUnit: 'cm' | 'in' = units?.unit === Unit.INCHES ? 'in' : 'cm';
   const pdfMeta = {
     designer: meta?.designer,
@@ -494,7 +498,7 @@ export function downloadPdf1to1(
         labels: settings.labels,
       }
     : null;
-  const { files } = exportBoardPdf1to1Files(board, {
+  return {
     units: pdfUnit,
     meta: pdfMeta,
     crossSectionCount: settings.crossSectionCount,
@@ -509,7 +513,27 @@ export function downloadPdf1to1(
     },
     tiling,
     packaging: settings.packaging,
+  };
+}
+
+/** Download the files of an export, spaced so the browser takes them all (see {@link MULTI_DOWNLOAD_GAP_MS}). */
+export function downloadFiles(
+  files: readonly { name: string; type: string; bytes: Uint8Array }[],
+): void {
+  files.forEach((f, i) => {
+    const save = () => download(f.bytes as unknown as BlobPart, f.name, f.type);
+    if (i === 0) save();
+    else setTimeout(save, i * MULTI_DOWNLOAD_GAP_MS);
   });
+}
+
+export function downloadPdf1to1(
+  board: BezierBoard,
+  settings: Pdf1to1Settings,
+  meta?: BoardMeta,
+  units?: LengthUnit,
+): void {
+  const { files } = exportBoardPdf1to1Files(board, pdf1to1Options(settings, meta, units));
   // The export package names files 'board-1to1[-part].pdf'; swap in the model slug.
   const slug = slugifyName(meta?.model);
   files.forEach((f, i) => {

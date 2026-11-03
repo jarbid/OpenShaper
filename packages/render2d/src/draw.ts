@@ -787,6 +787,9 @@ export const drawDistribution = (
 /** Space above the depth strip for the labels (px), the strip's tallest height and its top margin. */
 const DEPTH_LABEL_ROOM = 14;
 const DEPTH_STRIP_MAX = 36;
+/** Height of one label row, and the gap kept between two labels in a row (px). */
+const DEPTH_LABEL_ROW = 12;
+const DEPTH_LABEL_GAP = 6;
 
 /**
  * The depth of bottom features over the board's length as a strip across the top of the pane: depth grows
@@ -802,11 +805,25 @@ export const drawFeatureDepth = (
   const deepest = drawn.reduce((m, s) => Math.max(m, ...s.points.map((p) => p.depth)), 0);
   if (drawn.length === 0 || !(deepest > 0)) return;
   const stripH = Math.min(DEPTH_STRIP_MAX, height * 0.18);
-  const base = DEPTH_LABEL_ROOM;
   const sx = (x: number) => worldToScreen(vp, { x, y: 0 }).x;
   ctx.save();
   ctx.lineWidth = 1.5;
   ctx.font = '10px sans-serif';
+  // Each label sits over its feature's deepest point. Two features that overlap along the board would
+  // print their labels on top of each other, so a label that would touch an earlier one in its row
+  // goes to the next row up, and the strip makes room for the rows.
+  const rowEnds: number[] = [];
+  const labelRow = new Map<DepthSeries, { x: number; row: number }>();
+  for (const s of drawn) {
+    if (!s.label) continue;
+    const deep = s.points.reduce((a, p) => (p.depth > a.depth ? p : a), s.points[0]!);
+    const x = sx(deep.x);
+    let row = rowEnds.findIndex((end) => x >= end + DEPTH_LABEL_GAP);
+    if (row < 0) row = rowEnds.length;
+    rowEnds[row] = x + ctx.measureText(s.label).width;
+    labelRow.set(s, { x, row });
+  }
+  const base = DEPTH_LABEL_ROOM + DEPTH_LABEL_ROW * Math.max(0, rowEnds.length - 1);
   for (const s of drawn) {
     const pts = s.points;
     ctx.strokeStyle = s.color;
@@ -825,10 +842,8 @@ export const drawFeatureDepth = (
     ctx.globalAlpha = 0.15;
     ctx.fill();
     ctx.globalAlpha = 1;
-    if (s.label) {
-      const deep = pts.reduce((a, p) => (p.depth > a.depth ? p : a), pts[0]!);
-      ctx.fillText(s.label, sx(deep.x), base - 3);
-    }
+    const at = labelRow.get(s);
+    if (s.label && at) ctx.fillText(s.label, at.x, base - 3 - DEPTH_LABEL_ROW * at.row);
   }
   ctx.restore();
 };

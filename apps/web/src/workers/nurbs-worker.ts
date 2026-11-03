@@ -13,24 +13,48 @@
  */
 import {
   convertAndMesh,
+  exportDocument,
   convertToDoc,
   meshDocument,
   measureDocument,
   meshTestBoard,
   probeDocument,
 } from './nurbs-core';
-import { meshTransferables, type NurbsRequest, type NurbsResponse } from './nurbs-protocol';
+import {
+  exportTransferables,
+  meshTransferables,
+  type ExportRequest,
+  type ExportResponse,
+  type NurbsRequest,
+  type NurbsResponse,
+} from './nurbs-protocol';
 
 // Local minimal worker-scope type, as in specs-worker.ts: the app's tsconfig loads the
 // DOM lib, which types `self` as Window.
 interface WorkerScope {
-  onmessage: ((e: MessageEvent<NurbsRequest>) => void) | null;
-  postMessage(message: NurbsResponse, transfer?: Transferable[]): void;
+  onmessage: ((e: MessageEvent<NurbsRequest | ExportRequest>) => void) | null;
+  postMessage(message: NurbsResponse | ExportResponse, transfer?: Transferable[]): void;
 }
 const ctx = self as unknown as WorkerScope;
 
 ctx.onmessage = (e) => {
   const req = e.data;
+  if (req.kind === 'export') {
+    // An export has its own worker (nurbs-export-client.ts), so it never delays an edit's mesh and a
+    // cancel is a terminate. Progress is posted between its stages.
+    const out = exportDocument(req.doc, req.job, (stage) =>
+      ctx.postMessage({ kind: 'export-progress', id: req.id, stage }),
+    );
+    if (out.ok) {
+      ctx.postMessage(
+        { kind: 'exported', id: req.id, ok: true, files: out.files, ms: out.ms },
+        exportTransferables(out.files),
+      );
+    } else {
+      ctx.postMessage({ kind: 'exported', id: req.id, ok: false, error: out.error });
+    }
+    return;
+  }
   if (req.kind === 'convert') {
     const out = convertToDoc(req.board);
     ctx.postMessage({ kind: 'converted', id: req.id, ...out });

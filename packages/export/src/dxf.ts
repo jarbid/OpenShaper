@@ -2,6 +2,7 @@ import { apexLine, getLength, resolveFins, valueAt, type BezierBoard, type Resol
 import {
   chainSegs,
   crossSectionBeziers,
+  flattenAdaptive,
   flattenBeziers,
   mapSeg,
   planOutlineBeziers,
@@ -12,6 +13,7 @@ import {
   type Pt,
 } from './board-curves';
 import { BRAND_LINE } from './brand';
+import { curvesOutlineLoop, curvesSectionRing, type BoardCurves } from './curves-input';
 import { dxfText } from './dxf-text';
 
 /**
@@ -47,6 +49,9 @@ export interface DxfOptions {
 const DEFAULT_LENGTH_STEPS = 200;
 const DEFAULT_RING_STEPS = 64;
 const DEFAULT_CS_COUNT = 7;
+
+/** How far (cm) a polyline of the NURBS drawing may stray from the document's curve: 5 microns. */
+const CURVE_TOL = 0.0005;
 
 /** Drawing layers, each on its own logical band so a DXF viewer reads cleanly. */
 const LAYERS = {
@@ -340,6 +345,110 @@ export const exportDxf = (board: BezierBoard, opts: DxfOptions = {}): string => 
     const tickX = cursorX + sectionW / 2;
     line(out, { x: tickX, y: csBandTop }, { x: tickX, y: csBandTop - labelH }, 'CENTERLINE'); // prettier-ignore
     text(out, sx.lo + centerX, csBandTop + labelH * 0.4, labelH, `x=${pos.toFixed(1)}`, 'LABELS');
+    cursorX += sectionW + gap;
+  }
+
+  out.push('0', 'ENDSEC');
+  out.push('0', 'EOF');
+  return out.join('\n') + '\n';
+};
+
+/**
+ * The same drawing from a NURBS document's curves ({@link BoardCurves}) instead of a classic board:
+ * the same bands, layers and units as {@link exportDxf}, but the outline is both halves of the
+ * document's own chains (an asymmetric board shows both), the rocker and deck are its chains, and
+ * every cross-section is the as-built section sampled from the surface (bottom features included),
+ * drawn as a polyline in either curve mode. A station in a notch zone is drawn on its chord and
+ * labelled "rail section". The classic {@link exportDxf} is untouched.
+ */
+export const exportDxfCurves = (curves: BoardCurves, opts: DxfOptions = {}): string => {
+  const lengthSteps = Math.max(2, opts.lengthSteps ?? DEFAULT_LENGTH_STEPS);
+  const mode = opts.curveMode ?? 'polyline';
+  const { length } = curves;
+  const eps = Math.min(0.01, length / (lengthSteps * 4));
+  const { from: stringerFrom, to: stringerTo } = curves.stringer;
+
+  const out: string[] = [];
+  const curve = (
+    segs: readonly CurveSeg[],
+    layer: Layer,
+    closed: boolean,
+    lineType?: string,
+  ): void => {
+    if (mode === 'spline') {
+      spline(out, chainSegs(segs, closed), layer, { closed, lineType });
+    } else {
+      polyline(out, flattenAdaptive(segs, CURVE_TOL), layer, {
+        closed,
+        lineType,
+      });
+    }
+  };
+
+  out.push('999', 'DXF export from openshaper.com', '999', dxfText(BRAND_LINE));
+  if (mode === 'spline') headerSection(out);
+  tablesSection(out);
+  out.push('0', 'SECTION', '2', 'ENTITIES');
+
+  // --- Plan view: both halves of the document's outline. ---
+  const outlineSegs = curvesOutlineLoop(curves);
+  const outlinePts = flattenAdaptive(outlineSegs, CURVE_TOL);
+  const maxHalf = outlinePts.reduce((m, p) => Math.max(m, Math.abs(p.y)), 0);
+  curve(outlineSegs, 'OUTLINE', true);
+
+  line(out, { x: stringerFrom + eps, y: 0 }, { x: stringerTo - eps, y: 0 }, 'CENTERLINE', 'CENTER');
+  const labelH = Math.max(1, maxHalf * 0.12);
+  for (const sec of curves.sections) {
+    // the chord of the station: an x-plane on a standard board, a fan chord in a notch zone
+    line(out, sec.chordMinus, sec.chordPlus, 'MARKERS', 'DASHED');
+    text(out, sec.chordPlus.x + labelH * 0.3, sec.chordPlus.y + labelH * 0.4, labelH, `${sec.pos.toFixed(1)}`, 'LABELS'); // prettier-ignore
+  }
+  drawFins(out, curves.fins ?? []);
+
+  // --- Rocker band below the plan view. ---
+  const gap = Math.max(4, maxHalf * 0.4);
+  const bottomPts = flattenAdaptive(curves.bottom, CURVE_TOL);
+  const deckPts = flattenAdaptive(curves.deck, CURVE_TOL);
+  const rocker = ySpan([...bottomPts, ...deckPts]);
+  const rockerShift = -maxHalf - gap - rocker.hi;
+  const lift = (pts: Pt[]): Pt[] => pts.map((p) => ({ x: p.x, y: p.y + rockerShift }));
+  const liftSeg = (s: CurveSeg): CurveSeg => mapSeg(s, (p) => ({ x: p.x, y: p.y + rockerShift }));
+  curve(curves.bottom.map(liftSeg), 'ROCKER', false);
+  curve(curves.deck.map(liftSeg), 'ROCKER', false);
+  if (curves.apex.length > 1) polyline(out, lift([...curves.apex]), 'APEX', { lineType: 'DASHED' });
+  line(out, { x: stringerFrom + eps, y: rockerShift }, { x: stringerTo - eps, y: rockerShift }, 'CENTERLINE', 'CENTER'); // prettier-ignore
+
+  if (opts.ghostBoard) {
+    const g = opts.ghostBoard;
+    const dashed = { lineType: 'DASHED' };
+    const gOutline = planOutlineBeziers(g);
+    const gBottom = splineSegments(g.bottom);
+    const gDeck = splineSegments(g.deck);
+    polyline(out, flattenBeziers(gOutline, perSeg(gOutline.length, lengthSteps)), 'GHOST', { closed: true, ...dashed }); // prettier-ignore
+    polyline(out, lift(flattenBeziers(gBottom, perSeg(gBottom.length, lengthSteps))), 'GHOST', dashed); // prettier-ignore
+    polyline(out, lift(flattenBeziers(gDeck, perSeg(gDeck.length, lengthSteps))), 'GHOST', dashed);
+  }
+
+  // --- Cross-section band: the as-built sections, true scale, left to right. ---
+  const rockerBottom = rocker.lo + rockerShift;
+  const csBandTop = rockerBottom - gap;
+  let cursorX = 0;
+  for (const sec of curves.sections) {
+    const ring = curvesSectionRing(sec);
+    const sx = ySpanX(ring);
+    const sy = ySpan(ring);
+    const sectionW = sx.hi - sx.lo;
+    const centerX = cursorX + sectionW / 2 - (sx.lo + sx.hi) / 2;
+    const shiftY = csBandTop - sy.hi;
+    polyline(
+      out,
+      ring.map((p) => ({ x: p.x + centerX, y: p.y + shiftY })),
+      'CROSSSECTION',
+      { closed: true },
+    );
+    const tickX = cursorX + sectionW / 2;
+    line(out, { x: tickX, y: csBandTop }, { x: tickX, y: csBandTop - labelH }, 'CENTERLINE');
+    text(out, sx.lo + centerX, csBandTop + labelH * 0.4, labelH, `x=${sec.pos.toFixed(1)}${sec.rail ? ' rail section' : ''}`, 'LABELS'); // prettier-ignore
     cursorX += sectionW + gap;
   }
 
