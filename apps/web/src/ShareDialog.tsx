@@ -21,11 +21,13 @@
  *
  * Modeled on ExportStepDialog (backdrop + Panel card, Escape-to-close).
  */
-import { encodeShareFragment, shareCodecSupported } from '@openshaper/io';
+import type { BoardDoc } from '@openshaper/board2';
+import { encodeShareFragment, encodeShareText, shareCodecSupported } from '@openshaper/io';
 import type { BezierBoard } from '@openshaper/kernel';
 import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { BoardMeta } from './file-io';
+import { sectionsText } from './section-files';
 import { buildShareUrl, copyToClipboard, shareSize, shareSizeLabel } from './share-url';
 import { Modal } from './components/modal';
 
@@ -33,6 +35,13 @@ import { Modal } from './components/modal';
 const INCLUDED = [
   'Outline, rocker and every cross-section',
   'Interpolation type and the fin setup',
+  'Board Info: designer, model, surfer, comments, fin/foam type, glass schedule',
+];
+/** The same, for a NURBS board: the whole document, which the classic list does not describe. */
+const INCLUDED_NURBS = [
+  'Outline (both halves of an asymmetric board), rocker and deck',
+  'Every cross-section, the tail type and the bottom features',
+  'Fin setup',
   'Board Info: designer, model, surfer, comments, fin/foam type, glass schedule',
 ];
 const EXCLUDED = [
@@ -50,6 +59,11 @@ type LinkState =
 
 export interface ShareDialogProps {
   board: BezierBoard;
+  /**
+   * The NURBS document being edited, when the engine is on: the link then carries it (the same `v1`
+   * envelope, the document's text as the payload), not the classic projection `board`.
+   */
+  sections?: BoardDoc | null;
   meta: BoardMeta;
   /** The same setter the sidebar's Board info panel uses. */
   setMeta: Dispatch<SetStateAction<BoardMeta>>;
@@ -62,6 +76,7 @@ export interface ShareDialogProps {
 
 export function ShareDialog({
   board,
+  sections = null,
   meta,
   setMeta,
   onCopied,
@@ -89,7 +104,10 @@ export function ShareDialog({
     }
     let cancelled = false;
     setState({ kind: 'encoding' });
-    void encodeShareFragment(board, metadata).then(
+    const fragment = sections
+      ? sectionsText(sections, meta).then(encodeShareText)
+      : encodeShareFragment(board, metadata);
+    void fragment.then(
       (fragment) => {
         if (!cancelled) setState({ kind: 'ready', url: buildShareUrl(fragment) });
       },
@@ -100,7 +118,7 @@ export function ShareDialog({
     return () => {
       cancelled = true;
     };
-  }, [board, metadata]);
+  }, [board, sections, meta, metadata]);
 
   // The manual field only exists once the clipboard has refused, and the point
   // of it is that Ctrl+C works immediately.
@@ -197,7 +215,7 @@ export function ShareDialog({
             <div>
               <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide">Included</h3>
               <ul className="list-disc space-y-0.5 pl-4 text-xs text-muted-foreground">
-                {INCLUDED.map((x) => (
+                {(sections ? INCLUDED_NURBS : INCLUDED).map((x) => (
                   <li key={x}>{x}</li>
                 ))}
               </ul>

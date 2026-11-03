@@ -47,7 +47,10 @@ function converted(name: string, brd: string): BoardDoc {
 export function makeNurbsTemplates(): MadeTemplate[] {
   const shortboard = converted('Shortboard', shortboardBrd);
   type Made = { name: string; file: string; doc: BoardDoc };
-  const named = (doc: BoardDoc, name: string): BoardDoc => ({ ...doc, meta: { ...doc.meta, name } });
+  const named = (doc: BoardDoc, name: string): BoardDoc => ({
+    ...doc,
+    meta: { ...doc.meta, name },
+  });
   const chords = (doc: BoardDoc, side?: 'minus') => createChordFn(doc, side);
   const docs: Made[] = [
     { name: 'Shortboard', file: 'shortboard.board', doc: shortboard },

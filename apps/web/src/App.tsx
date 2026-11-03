@@ -1,5 +1,13 @@
 import { stepExportSupport } from '@openshaper/export';
-import { decodeShareFragment, parseBrd, readBoardJson, writeBoardJson } from '@openshaper/io';
+import type { BoardDoc } from '@openshaper/board2';
+import {
+  decodeShareFile,
+  parseBrd,
+  readBoardJson,
+  readBoardText,
+  writeBoardJson,
+  type BoardFile,
+} from '@openshaper/io';
 import {
   loftCrossSection,
   getLength,
@@ -10,6 +18,7 @@ import {
 import { reflectSpline, type EditorOverlays, type SimilarityParams } from '@openshaper/render2d';
 import type { AnalysisStatus, Board3DViewProps, ExternalSurface } from '@openshaper/render3d';
 import { minusHalf, selectSpecs } from '@openshaper/store';
+import { projectDoc } from '@openshaper/store/sections';
 import {
   BottomSheet,
   Button,
@@ -41,12 +50,13 @@ import {
 import {
   decideImport,
   downloadBoard,
+  downloadBoardText,
   downloadBrd,
   downloadPdf1to1,
   downloadRailBands,
   downloadStep,
   exportBoard,
-  openBoardFile,
+  openAnyBoardFile,
   sourceExtension,
   type BoardMeta,
   type ExportFormat,
@@ -90,6 +100,7 @@ import { HelpTooltip, ShowTipsProvider } from './help-tips';
 import { ConstructionPanel } from './ConstructionPanel';
 import { SettingsDialog } from './SettingsDialog';
 import { ShareDialog } from './ShareDialog';
+import { NurbsOpenPrompt } from './NurbsOpenPrompt';
 import { SharedBoardPrompt } from './SharedBoardPrompt';
 import { clearSharedPayload, peekSharedPayload } from './share-bootstrap';
 import { shareLinkMessage } from './share-url';
@@ -111,9 +122,18 @@ import sampleBrd from './sample-board.brd?raw';
 import { depthSeries } from './bottom-features';
 import { activeStore, boardStore, sectionStore } from './store';
 import { probeAt, probeSpline, setWantedProbes, useProbes } from './nurbs-probes';
-import { useSectionEngine } from './use-section-engine';
+import { metaOfDoc, sectionsName, sectionsText, sectionsTextNow } from './section-files';
+import {
+  attachSectionDoc,
+  currentSections,
+  holdSectionsText,
+  openSectionDoc,
+  prepareSectionDoc,
+  useSectionEngine,
+} from './use-section-engine';
+import { localizeLengths, refusalHint } from './nurbs-text';
 import { SUPPORT_URL } from './support';
-import { BOARD_TEMPLATES } from './templates';
+import { BOARD_TEMPLATES, NURBS_TEMPLATES } from './templates';
 import { clampSectionIndex, nearestMidpointSection } from './section-index';
 import { VIEW_KEYS } from './shortcuts';
 import { useKeyboardShortcuts } from './use-keyboard-shortcuts';
@@ -220,6 +240,21 @@ const ThreeDPane = memo(function ThreeDPane({
   );
 });
 
+/** A NURBS document on its way to being the open board (see `openSections` in AppShell). */
+interface SectionsOpen {
+  doc: BoardDoc;
+  /** The name it takes in the recent list. */
+  recentName: string;
+  /** Called once it is open (a template or a recent board also clears the ghost). */
+  onOpened?: () => void;
+}
+
+/** The notice after an import that was repaired: what changed, or nothing to say. */
+const importedNotice = (info: readonly ImportWarning[]) =>
+  info.length > 0
+    ? { title: 'Imported with changes:', messages: info.map((w) => w.message) }
+    : null;
+
 function AppShell() {
   const board = useSyncExternalStore(activeStore.subscribe, () => activeStore.getState().board);
   // Subscribe to history depth so the undo/redo buttons re-render with the right
@@ -241,10 +276,22 @@ function AppShell() {
    * makes *Keep current* a true no-op and lets autosave keep running
    * underneath without blurring the two choices.
    */
-  const [pendingShare, setPendingShare] = useState<{
-    board: BezierBoard;
-    metadata?: Record<string, unknown>;
-  } | null>(null);
+  const [pendingShare, setPendingShare] = useState<BoardFile | null>(null);
+  // The engine setting, for the one effect below that closes over the first render.
+  const nurbsOnRef = useRef(false);
+
+  /** The bundled sample, when there is no session (or it cannot be restored). */
+  const loadSample = () => {
+    try {
+      const { board } = parseBrd(sampleBrd);
+      hydrated.current = true;
+      boardStore.getState().load(board);
+    } catch (e) {
+      console.error('Failed to load sample board', e);
+      // A bundled asset we ship failing to parse — the editor opens empty.
+      captureError('sample_board', e);
+    }
+  };
 
   useEffect(() => {
     if (boardStore.getState().board) {
@@ -253,8 +300,15 @@ function AppShell() {
     }
     let cancelled = false;
 
-    /** Restore the autosaved workspace; fall back to the bundled sample. */
-    const restoreOrSample = (session: Awaited<ReturnType<typeof loadSession>>): boolean => {
+    /**
+     * Restore the autosaved workspace; fall back to the bundled sample. A NURBS document in the session
+     * is restored with the engine on (revived first, so the classic store and the section store change
+     * together and nothing is edited in between). With the engine off its text is held and written back
+     * unchanged, and turning the engine on revives it.
+     */
+    const restoreOrSample = async (
+      session: Awaited<ReturnType<typeof loadSession>>,
+    ): Promise<boolean> => {
       if (session) {
         try {
           const { board: sBoard, metadata } = readBoardJson(session.boardJson);
@@ -266,9 +320,25 @@ function AppShell() {
               // A broken ghost snapshot must not block restoring the board.
             }
           }
+          let sections: BoardDoc | null = null;
+          if (session.sectionsJson && nurbsOnRef.current) {
+            try {
+              const r = await prepareSectionDoc(JSON.parse(session.sectionsJson) as unknown);
+              if (r.ok) sections = r.doc;
+            } catch {
+              // A document that will not read: the classic board is restored, and converted.
+            }
+            if (cancelled) return false;
+          }
           hydrated.current = true;
           boardStore.getState().load(sBoard);
-          setMeta(toBoardMeta(metadata));
+          if (sections) {
+            attachSectionDoc(sections);
+            setMeta(metaOfDoc(sections.meta));
+          } else {
+            if (session.sectionsJson && !nurbsOnRef.current) holdSectionsText(session.sectionsJson);
+            setMeta(toBoardMeta(metadata));
+          }
           if (sGhost) setGhost(sGhost);
           return true;
         } catch (e) {
@@ -278,15 +348,7 @@ function AppShell() {
           captureError('session_restore', e);
         }
       }
-      try {
-        const { board } = parseBrd(sampleBrd);
-        hydrated.current = true;
-        boardStore.getState().load(board);
-      } catch (e) {
-        console.error('Failed to load sample board', e);
-        // A bundled asset we ship failing to parse — the editor opens empty.
-        captureError('sample_board', e);
-      }
+      loadSample();
       return false;
     };
 
@@ -298,10 +360,10 @@ function AppShell() {
       const session = await loadSession();
       if (cancelled) return;
 
-      let shared: { board: BezierBoard; metadata?: Record<string, unknown> } | null = null;
+      let shared: BoardFile | null = null;
       if (payload) {
         try {
-          shared = await decodeShareFragment(payload);
+          shared = await decodeShareFile(payload);
         } catch (e) {
           // A bad link is a bad input, not our bug — so a message, not a
           // captureError, and never the payload or the parser's own words.
@@ -314,13 +376,14 @@ function AppShell() {
       // A valid link into an empty browser opens straight away: there is
       // nothing to replace, so there is nothing to ask about.
       if (shared && !session) {
-        adoptRef.current(shared.board, shared.metadata);
+        void adoptRef.current(shared);
         return;
       }
 
-      const hadSession = restoreOrSample(session);
+      const hadSession = await restoreOrSample(session);
+      if (cancelled) return;
       if (shared && hadSession) setPendingShare(shared);
-      else if (shared) adoptRef.current(shared.board, shared.metadata);
+      else if (shared) void adoptRef.current(shared);
     })();
     return () => {
       cancelled = true;
@@ -573,18 +636,33 @@ function AppShell() {
   // Continuous autosave: after every committed change to the board, its
   // metadata, or the ghost, snapshot the session to IndexedDB (debounced —
   // store commits land on pointer-up, so this coalesces bursts of edits).
+  const saveSeq = useRef(0);
   const persistSession = useCallback(() => {
-    // The board the editors edit: with the NURBS engine on, its classic projection (a session restore
-    // converts it again), so no edit is lost to a reload (docs/design/m2-editor.md §5 adds the document).
-    const b = activeStore.getState().board;
-    if (!b || !hydrated.current) return;
+    // The classic document is the board that was opened; with the NURBS engine on, the section document
+    // is what was edited, and it is saved beside it (docs/design/m2-editor.md §5): a restore brings back
+    // both, and the engine setting picks the one shown.
+    const classic = boardStore.getState().board;
+    if (!classic || !hydrated.current) return;
     const m = metaRef.current;
     const metadata = Object.values(m).some(Boolean) ? (m as Record<string, unknown>) : undefined;
     const g = ghostRef.current;
-    void saveSession({
-      boardJson: writeBoardJson(b, metadata),
-      ...(g ? { ghostJson: writeBoardJson(g) } : {}),
-    });
+    const seq = ++saveSeq.current;
+    const write = (sectionsJson?: string) => {
+      if (seq !== saveSeq.current) return; // a newer snapshot has been taken
+      void saveSession({
+        boardJson: writeBoardJson(classic, metadata),
+        ...(g ? { ghostJson: writeBoardJson(g) } : {}),
+        ...(sectionsJson !== undefined ? { sectionsJson } : {}),
+      });
+    };
+    const sections = currentSections();
+    if (!sections) return write();
+    if ('text' in sections) return write(sections.text);
+    // The file code is started loading when a document is attached; at pagehide there is no time to wait
+    // for it, but a snapshot taken after that (the debounced one) has it.
+    const now = sectionsTextNow(sections.doc, m);
+    if (now !== null) return write(now);
+    void sectionsText(sections.doc, m).then(write, () => write());
   }, []);
   const sessionSaveTimer = useRef<number | undefined>(undefined);
   useEffect(() => {
@@ -630,6 +708,7 @@ function AppShell() {
   // "Engine: NURBS (experimental)": the saved setting, or `?engine=nurbs` this session.
   const engineParam = useEngineParam();
   const nurbsEngine = settings.nurbsEngine || engineParam;
+  nurbsOnRef.current = nurbsEngine;
   // Turning it off ends the worker (and any conversion in it) and drops the cached meshes.
   useReleaseNurbsWhenOff(nurbsEngine);
   // The engine picks the store the editors edit (docs/design/m2-editor.md §1): the section store with
@@ -639,6 +718,25 @@ function AppShell() {
   useLayoutEffect(() => {
     activeStore.use(sectionEngine.ready ? sectionStore : boardStore);
   }, [sectionEngine.ready]);
+  // A board the NURBS model cannot hold stays classic; say why, as an import notice (the 3D popover has the
+  // converter's own words too). Lengths in the message follow the display unit.
+  const [engineNotice, setEngineNotice] = useState<string[] | null>(null);
+  const refusal = sectionEngine.refusal;
+  useEffect(() => {
+    if (!refusal) {
+      setEngineNotice(null);
+      return;
+    }
+    const reasons = refusal.issues
+      .filter((i) => i.severity === 'error')
+      .map((i) => refusalHint(i.code) ?? localizeLengths(i.message, units));
+    setEngineNotice(
+      [...new Set(reasons.length > 0 ? reasons : [localizeLengths(refusal.error, units)])].slice(
+        0,
+        4,
+      ),
+    );
+  }, [refusal, units]);
   // The specs: the classic worker's readouts, and with the NURBS document open the volume, plan area and
   // centre of mass of its mesh instead (features and asymmetry show), computed in a worker as well.
   const meshSpecs = useMeshSpecs(sectionEngine.ready);
@@ -959,7 +1057,10 @@ function AppShell() {
   // Transient error notice (file-open / pop-up failures), auto-dismissed.
   const [toast, setToast] = useState<string | null>(null);
   // Info-only repairs: a persistent dismissible notice (not the 6s error toast).
-  const [importNotice, setImportNotice] = useState<ImportWarning[] | null>(null);
+  const [importNotice, setImportNotice] = useState<{
+    title: string;
+    messages: string[];
+  } | null>(null);
   // Pending data-loss import awaiting user confirmation.
   const [pendingImport, setPendingImport] = useState<{
     fileName: string;
@@ -984,6 +1085,26 @@ function AppShell() {
    */
   const saveBoardFile = () => {
     if (!board) return;
+    // With the NURBS document open the file is the document (asymmetric halves, tail settings, bottom
+    // features and all), not its classic projection; opening it tells the two kinds apart by version.
+    const doc = sectionEngine.ready ? sectionStore.getState().doc : null;
+    if (doc) {
+      const done = (text: string) => {
+        downloadBoardText(text, meta);
+        track('save_board', { format: 'board' });
+        markSave();
+        setRecentBoards(getRecentBoards());
+      };
+      // At once when the file code is loaded (it starts loading with the document), so the download
+      // stays inside the click; otherwise after the chunk arrives.
+      const now = sectionsTextNow(doc, meta);
+      if (now !== null) done(now);
+      else
+        void sectionsText(doc, meta).then(done, () =>
+          showToast('Could not save the board: the NURBS engine could not be loaded.'),
+        );
+      return;
+    }
     downloadBoard(board, meta);
     track('save_board', { format: 'board' });
     markSave();
@@ -1019,7 +1140,52 @@ function AppShell() {
       return;
     }
     commit();
-    setImportNotice(info.length > 0 ? info : null);
+    setImportNotice(importedNotice(info));
+  };
+
+  /**
+   * Open a NURBS document as the board (an opened file, a share link, a recent board). With the engine on
+   * it loads at once; with it off the person is asked (`NurbsOpenPrompt`): turn the engine on and open it,
+   * or open a classic copy.
+   */
+  const [pendingSections, setPendingSections] = useState<SectionsOpen | null>(null);
+  const commitSections = (o: SectionsOpen) => {
+    openSectionDoc(o.doc);
+    hydrated.current = true;
+    const m = metaOfDoc(o.doc.meta);
+    setMeta(m);
+    void sectionsText(o.doc, m).then(
+      (text) => {
+        recordRecentBoard(o.recentName, text);
+        setRecentBoards(getRecentBoards());
+      },
+      () => {},
+    );
+    o.onOpened?.();
+  };
+  const openClassicCopy = (o: SectionsOpen) => {
+    boardStore.getState().load(projectDoc(o.doc));
+    hydrated.current = true;
+    setMeta(metaOfDoc(o.doc.meta));
+    showToast(
+      'Opened a classic copy of the NURBS board. The file is not changed; saving writes a classic file.',
+    );
+    o.onOpened?.();
+  };
+  const openSections = (o: SectionsOpen) => {
+    if (nurbsEngine) commitSections(o);
+    else setPendingSections(o);
+  };
+  /** Revive a parsed NURBS document and open it; the reasons are a toast when it is not one. */
+  const openSectionsJson = async (json: unknown, o: Omit<SectionsOpen, 'doc'>, label: string) => {
+    const r = await prepareSectionDoc(json);
+    if (!r.ok) {
+      showToast(`Could not open ${label}: ${r.error}`);
+      if (!boardStore.getState().board) loadSample();
+      return false;
+    }
+    openSections({ ...o, doc: r.doc });
+    return true;
   };
 
   const fileInput = useRef<HTMLInputElement>(null);
@@ -1027,15 +1193,28 @@ function AppShell() {
     const file = e.target.files?.[0];
     e.target.value = ''; // allow re-opening the same file
     if (!file) return;
+    // Record in the recent list under the file's base name (extension stripped).
+    const baseName = file.name.replace(/\.(board\.json|json|board|brd|s3dx|s3d|srf)$/i, '');
     try {
-      const { board, meta, warnings } = await openBoardFile(file);
+      const opened = await openAnyBoardFile(file);
+      if (opened.kind === 'sections') {
+        // A NURBS document: nothing is dropped or repaired, so there is no import warning to weigh.
+        if (await openSectionsJson(opened.json, { recentName: baseName }, file.name)) {
+          track('board_imported', {
+            source: sourceExtension(file.name),
+            warning_count: 0,
+            dropped_count: 0,
+          });
+          markImport();
+        }
+        return;
+      }
+      const { board, meta, warnings } = opened;
       const commit = () => {
         boardStore.getState().load(board);
         setMeta(meta);
-        // Record in the recent list. Use the file's base name (strip extension) as
-        // the display name; re-serialise to canonical .board.json so the snapshot
+        // Record in the recent list. Re-serialise to canonical .board.json so the snapshot
         // is always in the native format regardless of the source format (.brd etc.)
-        const baseName = file.name.replace(/\.(board\.json|json|brd|s3dx|s3d|srf)$/i, '');
         const metadata =
           meta && Object.values(meta).some(Boolean) ? (meta as Record<string, unknown>) : undefined;
         recordRecentBoard(baseName, writeBoardJson(board, metadata));
@@ -1072,8 +1251,15 @@ function AppShell() {
     e.target.value = '';
     if (!file) return;
     try {
-      const { board, warnings } = await openBoardFile(file);
-      applyImport(file.name, warnings, () => setGhost(board));
+      const opened = await openAnyBoardFile(file);
+      if (opened.kind === 'sections') {
+        // A NURBS board as the comparison: its classic projection (the lines and the stations).
+        const r = await prepareSectionDoc(opened.json);
+        if (!r.ok) throw new Error(r.error);
+        setGhost(projectDoc(r.doc));
+        return;
+      }
+      applyImport(file.name, opened.warnings, () => setGhost(opened.board));
     } catch (err) {
       console.error('Failed to open ghost board', err);
       showToast(`Could not open ${file.name}: ${(err as Error).message}`);
@@ -1082,6 +1268,10 @@ function AppShell() {
 
   // New board from a type template — loads the authentic legacy .brd geometry.
   const newFromTemplate = (name: string) => {
+    if (nurbsEngine) {
+      void newFromNurbsTemplate(name);
+      return;
+    }
     const t = BOARD_TEMPLATES.find((x) => x.name === name);
     if (!t) return;
     try {
@@ -1102,10 +1292,51 @@ function AppShell() {
     }
   };
 
-  /** Load a board that was previously recorded in the recent list. */
-  const loadFromRecent = (entry: { name: string; boardJson: string }, position: number) => {
+  /** The same templates with the NURBS engine on: documents of the section model, opened as they are. */
+  const newFromNurbsTemplate = async (name: string) => {
+    const t = NURBS_TEMPLATES.find((x) => x.name === name);
+    if (!t) return;
     try {
-      const { board: rBoard, metadata } = readBoardJson(entry.boardJson);
+      const text = await t.load();
+      const opened = await openSectionsJson(
+        JSON.parse(text) as unknown,
+        {
+          recentName: t.name,
+          onOpened: () => {
+            setGhost(null);
+            track('template_loaded', { template: t.name });
+            markTemplate();
+          },
+        },
+        t.name,
+      );
+      if (!opened) captureError('template_load', new Error(`NURBS template ${t.name}`));
+    } catch (err) {
+      console.error('Failed to load template', err);
+      captureError('template_load', err);
+      showToast(`Could not load the ${t.name} template.`);
+    }
+  };
+
+  /** Load a board that was previously recorded in the recent list. */
+  const loadFromRecent = async (entry: { name: string; boardJson: string }, position: number) => {
+    try {
+      const file = readBoardText(entry.boardJson);
+      if (file.kind === 'sections') {
+        await openSectionsJson(
+          file.json,
+          {
+            recentName: entry.name,
+            onOpened: () => {
+              setGhost(null);
+              track('recent_board_opened', { position });
+            },
+          },
+          entry.name,
+        );
+        return;
+      }
+      const { board: rBoard, metadata } = file;
       boardStore.getState().load(rBoard);
       setMeta(toBoardMeta(metadata));
       setGhost(null);
@@ -1135,8 +1366,27 @@ function AppShell() {
    * the board. The recipient's own units and 3D appearance settings are left
    * alone — those are preferences, not state belonging to this board.
    */
-  const adoptSharedBoard = (sBoard: BezierBoard, metadata?: Record<string, unknown>) => {
-    const sMeta = toBoardMeta(metadata);
+  const adoptSharedBoard = async (file: BoardFile) => {
+    if (file.kind === 'sections') {
+      // A NURBS board: the same open as a file, then the same fresh presentation.
+      clearSharedPayload();
+      setPendingShare(null);
+      const name = sectionsName(file.json);
+      await openSectionsJson(
+        file.json,
+        {
+          recentName: name ? `${name} (shared)` : 'Shared board',
+          onOpened: () => {
+            setGhost(null);
+            presentSharedBoard();
+          },
+        },
+        'the shared board',
+      );
+      return;
+    }
+    const sMeta = toBoardMeta(file.metadata);
+    const sBoard = file.board;
     // load() resets past/future, so undo cannot reach back past a board that
     // was never edited here.
     boardStore.getState().load(sBoard);
@@ -1152,16 +1402,20 @@ function AppShell() {
     // replaces the older — the same de-duplication every other entry gets.
     recordRecentBoard(
       model ? `${model} (shared)` : 'Shared board',
-      writeBoardJson(sBoard, metadata),
+      writeBoardJson(sBoard, file.metadata),
     );
     setRecentBoards(getRecentBoards());
-
+    presentSharedBoard();
+  };
+  /** What opening a shared board resets, whichever kind it is (it needs the board to be open already). */
+  const presentSharedBoard = () => {
+    const sBoard = boardStore.getState().board;
     // A share link never carries a trace, so the recipient's own trace would
     // otherwise sit under a stranger's outline. Hidden, not deleted.
     trace.hideAll();
 
     setPickedView('quad');
-    setCsIndex(nearestMidpointSection(sBoard));
+    if (sBoard) setCsIndex(nearestMidpointSection(sBoard));
     // Drop any restored framing so the panes fit this board, not the last one.
     pendingViews2d.current = {};
     liveViewState.current = { ...liveViewState.current, views2d: {} };
@@ -1243,7 +1497,9 @@ function AppShell() {
 
   const fileMenu: MenuItem[] = [
     { kind: 'label', label: 'New' },
-    ...BOARD_TEMPLATES.map((t) => ({
+    // With the NURBS engine on the chooser lists the documents of the section model (the same three boards,
+    // already converted, and the swallow and fish shortboards); otherwise the classic templates.
+    ...(nurbsEngine ? NURBS_TEMPLATES : BOARD_TEMPLATES).map((t) => ({
       kind: 'action' as const,
       label: t.name,
       onSelect: () => newFromTemplate(t.name),
@@ -1272,7 +1528,7 @@ function AppShell() {
           ...recentBoards.map((e, i) => ({
             kind: 'action' as const,
             label: e.name,
-            onSelect: () => loadFromRecent(e, i),
+            onSelect: () => void loadFromRecent(e, i),
           })),
           { kind: 'separator' } as MenuItem,
           {
@@ -1943,16 +2199,29 @@ function AppShell() {
           onCancel={() => setPendingImport(null)}
           onImportAnyway={() => {
             pendingImport.commit();
-            setImportNotice(pendingImport.info.length > 0 ? pendingImport.info : null);
+            setImportNotice(importedNotice(pendingImport.info));
             setPendingImport(null);
           }}
         />
       )}
 
+      {engineNotice && (
+        <Toast onClick={() => setEngineNotice(null)} data-testid="engine-refusal">
+          <span className="font-medium">
+            The NURBS engine cannot hold this board, so the classic editor is shown:
+          </span>{' '}
+          {engineNotice.map((m, i) => (
+            <span key={i} className="block">
+              {m}
+            </span>
+          ))}
+        </Toast>
+      )}
+
       {importNotice && (
         <Toast onClick={() => setImportNotice(null)}>
-          <span className="font-medium">Imported with changes:</span>{' '}
-          {importNotice.map((w) => w.message).join(' · ')}
+          <span className="font-medium">{importNotice.title}</span>{' '}
+          {importNotice.messages.join(' · ')}
         </Toast>
       )}
 
@@ -1981,22 +2250,47 @@ function AppShell() {
         />
       )}
 
+      {pendingSections && (
+        <NurbsOpenPrompt
+          name={pendingSections.doc.meta.name || undefined}
+          onTurnOn={() => {
+            handleSaveSettings({ ...settings, nurbsEngine: true });
+            commitSections(pendingSections);
+            setPendingSections(null);
+          }}
+          onOpenCopy={() => {
+            openClassicCopy(pendingSections);
+            setPendingSections(null);
+          }}
+          onCancel={() => {
+            setPendingSections(null);
+            // a link into an empty browser has nothing else to show
+            if (!boardStore.getState().board) loadSample();
+          }}
+        />
+      )}
+
       {pendingShare && (
         <SharedBoardPrompt
-          model={toBoardMeta(pendingShare.metadata).model}
+          model={
+            pendingShare.kind === 'sections'
+              ? sectionsName(pendingShare.json)
+              : toBoardMeta(pendingShare.metadata).model
+          }
           onKeepCurrent={() => {
             // The shared board never entered the store, so declining is a
             // no-op beyond forgetting it.
             clearSharedPayload();
             setPendingShare(null);
           }}
-          onOpenShared={() => adoptSharedBoard(pendingShare.board, pendingShare.metadata)}
+          onOpenShared={() => void adoptSharedBoard(pendingShare)}
         />
       )}
 
       {shareOpen && board && (
         <ShareDialog
           board={board}
+          sections={sectionEngine.ready ? sectionStore.getState().doc : null}
           meta={meta}
           setMeta={setMeta}
           onCopied={() => {

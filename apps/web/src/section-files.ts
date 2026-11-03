@@ -131,3 +131,10 @@ export async function readSections(json: unknown): Promise<ReadSections> {
   const r = c.docFromJson(json);
   return r.ok ? { ok: true, doc: r.doc } : { ok: false, error: r.error };
 }
+
+/** The name in a section document's `meta`, read without reviving it (the share prompt names the board). */
+export function sectionsName(json: unknown): string | undefined {
+  if (!isObject(json) || !isObject(json.meta)) return undefined;
+  const name = json.meta.name;
+  return typeof name === 'string' && name.trim() !== '' ? name : undefined;
+}

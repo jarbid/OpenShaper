@@ -35,9 +35,15 @@ export interface NurbsTemplate {
 }
 
 export const NURBS_TEMPLATES: NurbsTemplate[] = [
-  { name: 'Shortboard', load: async () => (await import('./templates/shortboard.board?raw')).default },
+  {
+    name: 'Shortboard',
+    load: async () => (await import('./templates/shortboard.board?raw')).default,
+  },
   { name: 'Funboard', load: async () => (await import('./templates/funboard.board?raw')).default },
-  { name: 'Longboard', load: async () => (await import('./templates/longboard.board?raw')).default },
+  {
+    name: 'Longboard',
+    load: async () => (await import('./templates/longboard.board?raw')).default,
+  },
   {
     name: 'Swallow shortboard',
     load: async () => (await import('./templates/swallow-shortboard.board?raw')).default,
