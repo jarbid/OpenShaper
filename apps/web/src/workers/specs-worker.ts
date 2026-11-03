@@ -43,9 +43,10 @@ ctx.onmessage = (e) => {
     wantDistribution = false,
     distributionIntervals = 40,
     wantApex = false,
+    wantIntegrals = true,
   } = e.data;
   try {
-    const specs = selectSpecs(board);
+    const specs = selectSpecs(board, wantIntegrals);
     const distribution = wantDistribution
       ? computeDistribution(board, distributionIntervals)
       : undefined;

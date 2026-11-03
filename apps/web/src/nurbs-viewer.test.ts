@@ -18,6 +18,7 @@ import {
 import {
   BUSY_AFTER_MS,
   createNurbsViewer,
+  SETTLE_AFTER_MS,
   sameDocHull,
   VIEWER_INPUT_OFF,
   type ViewerInput,
@@ -521,6 +522,27 @@ describe('documents (the section store)', () => {
     h.input({ board: hullEdit(board), doc: d2, editing: false });
     expect(h.calls).toHaveLength(3);
     expect(h.calls[2]!.options.reuseLadders).toBe(false);
+  });
+
+  it('a lone change reuses the ladders first, then derives fresh ones when the input goes quiet', async () => {
+    const h = harness();
+    const doc = makeDoc();
+    const board = makeBoard();
+    h.input({ board, doc });
+    h.calls[0]!.answer.resolve(okAnswer('a'));
+    await h.flush();
+    const d2 = lineEdit(doc);
+    h.input({ board: hullEdit(board), doc: d2 });
+    expect(h.calls).toHaveLength(2);
+    expect(h.calls[1]!.options).toMatchObject({ reuseLadders: true, curvature: false });
+    h.calls[1]!.answer.resolve(okAnswer('b'));
+    await h.flush();
+    // not yet: the input has not been quiet
+    h.advance(SETTLE_AFTER_MS - 1);
+    expect(h.calls).toHaveLength(2);
+    h.advance(1);
+    expect(h.calls).toHaveLength(3);
+    expect(h.calls[2]!.options).toMatchObject({ reuseLadders: false, curvature: true });
   });
 
   it('sends the classic reference only while "Deviation from classic" is shown', () => {

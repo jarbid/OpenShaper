@@ -32,6 +32,11 @@ export interface SpecsWorkerOptions {
    * re-issues a new request whenever this flag changes.
    */
   wantApex?: boolean;
+  /**
+   * When false, skip the volume, plan area and centre of mass (NaN in the result): the NURBS mesh's
+   * replace them. Defaults to true.
+   */
+  wantIntegrals?: boolean;
 }
 
 /** Result returned by useSpecsWorker — null while the first result is pending. */
@@ -54,7 +59,12 @@ export function useSpecsWorker(
   board: BezierBoard | null,
   options: SpecsWorkerOptions = {},
 ): SpecsWorkerResult | null {
-  const { wantDistribution = false, distributionIntervals = 40, wantApex = false } = options;
+  const {
+    wantDistribution = false,
+    distributionIntervals = 40,
+    wantApex = false,
+    wantIntegrals = true,
+  } = options;
 
   const workerRef = useRef<Worker | null>(null);
   const idRef = useRef(0);
@@ -105,7 +115,7 @@ export function useSpecsWorker(
     }
     if (!HAS_WORKER || workerFailed) {
       // Synchronous fallback: same logic as the worker so tests exercise the same path.
-      const specs = selectSpecs(board);
+      const specs = selectSpecs(board, wantIntegrals);
       let distribution: DistributionSample[] | undefined;
       if (wantDistribution) {
         const len = getLength(board);
@@ -124,9 +134,10 @@ export function useSpecsWorker(
       wantDistribution,
       distributionIntervals,
       wantApex,
+      wantIntegrals,
     };
     workerRef.current?.postMessage(request);
-  }, [board, wantDistribution, distributionIntervals, wantApex, workerFailed]);
+  }, [board, wantDistribution, distributionIntervals, wantApex, wantIntegrals, workerFailed]);
 
   return result;
 }

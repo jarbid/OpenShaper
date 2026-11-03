@@ -81,7 +81,12 @@ const TAIL_TIP_INSET = 0.001;
 // evaluations and ride along on the same cache for free.
 const cache = new WeakMap<BezierBoard, BoardSpecs>();
 
-export const selectSpecs = (b: BezierBoard): BoardSpecs => {
+/**
+ * The derived specs of `b`. With `integrals: false` the volume, plan area and centre of mass (the
+ * integrals, the costly part) are NaN and nothing is cached: for a caller that takes them from elsewhere
+ * (the NURBS mesh), so the classic integration is not run for numbers that are replaced.
+ */
+export const selectSpecs = (b: BezierBoard, integrals = true): BoardSpecs => {
   const hit = cache.get(b);
   if (hit) return hit;
 
@@ -92,7 +97,9 @@ export const selectSpecs = (b: BezierBoard): BoardSpecs => {
   const tailTwoFoot = 2 * FOOT;
 
   // One section-area integral serves both (exactly what the separate getters return).
-  const { volume, centerOfMass } = getVolumeAndCenterOfMass(b);
+  const { volume, centerOfMass } = integrals
+    ? getVolumeAndCenterOfMass(b)
+    : { volume: NaN, centerOfMass: NaN };
   const maxT = getMaxThicknessAndPos(b);
   const specs: BoardSpecs = {
     length,
@@ -120,9 +127,9 @@ export const selectSpecs = (b: BezierBoard): BoardSpecs => {
 
     volume,
     volumeLiters: volume / 1000,
-    area: getArea(b),
+    area: integrals ? getArea(b) : NaN,
     centerOfMass,
   };
-  cache.set(b, specs);
+  if (integrals) cache.set(b, specs);
   return specs;
 };

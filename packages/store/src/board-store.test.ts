@@ -62,6 +62,18 @@ describe('board store: editing + undo/redo', () => {
     store.getState().endEdit();
   });
 
+  it('selectSpecs without the integrals leaves them NaN, keeps the rest and does not poison the cache', () => {
+    const board = makeBoard();
+    const quick = selectSpecs(board, false);
+    expect(quick.volume).toBeNaN();
+    expect(quick.area).toBeNaN();
+    expect(quick.centerOfMass).toBeNaN();
+    const full = selectSpecs(board);
+    expect(full.volume).not.toBeNaN();
+    expect(full.maxWidth).toBe(quick.maxWidth);
+    expect(selectSpecs(board)).toBe(full);
+  });
+
   it('moves a control point and records undo history', () => {
     const store = createBoardStore();
     const original = makeBoard();

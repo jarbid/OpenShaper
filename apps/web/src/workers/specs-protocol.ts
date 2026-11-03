@@ -28,6 +28,11 @@ export interface SpecsRequest {
   id: number;
   board: BezierBoard;
   /**
+   * When false the volume, plan area and centre of mass are not integrated (NaN): the NURBS mesh's
+   * replace them. Defaults to true.
+   */
+  wantIntegrals?: boolean;
+  /**
    * When true the worker also computes the cross-sectional-area distribution
    * (step 4 of the specs-worker migration). Defaults to false.
    */

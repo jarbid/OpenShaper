@@ -200,7 +200,12 @@ interface Requested {
   readonly curvature: boolean;
   readonly deviation: boolean;
   readonly editing: boolean;
+  /** A lone change's first frame: made with the last ladders, no curvature; fresh ones follow when input is quiet. */
+  readonly quick: boolean;
 }
+
+/** How long the input is quiet before a lone change gets its fresh ladders and curvature (ms). */
+export const SETTLE_AFTER_MS = 300;
 
 export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
   const { client } = deps;
@@ -215,6 +220,7 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
   // The job whose answer counts; a newer one replaces it.
   let running: object | null = null;
   let busyTimer: unknown = null;
+  let settleTimer: unknown = null;
   let sequence = 0;
   // The probes the newest request (a job or a probe job) was made with, and the probe job whose answer counts.
   let requestedProbes: readonly number[] = [];
@@ -235,8 +241,23 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     }
   };
 
-  /** Whether the input asks for something the last job did not deliver. */
-  const needsJob = (i: ViewerInput, curvature: boolean, deviation: boolean): boolean => {
+  const clearSettle = (): void => {
+    if (settleTimer !== null) {
+      clearTimer(settleTimer);
+      settleTimer = null;
+    }
+  };
+
+  /**
+   * Whether the input asks for something the last job did not deliver. `waiting`: the last job was a
+   * lone change's first frame and the input has not been quiet long enough for the settled one.
+   */
+  const needsJob = (
+    i: ViewerInput,
+    curvature: boolean,
+    deviation: boolean,
+    waiting: boolean,
+  ): boolean => {
     const r = requested;
     if (!r) return true;
     if (i.testBoard !== null) return r.testBoard !== i.testBoard || (curvature && !r.curvature);
@@ -250,11 +271,13 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     }
     // The edit settled on the same hull: derive fresh ladders and add curvature.
     if (r.editing && !i.editing) return true;
+    if (r.quick && !i.editing && !waiting) return true;
     return (curvature && !r.curvature) || (deviation && !r.deviation);
   };
 
-  const start = (i: ViewerInput, options: JobOptions): void => {
+  const start = (i: ViewerInput, options: JobOptions, quick: boolean): void => {
     const me = {};
+    clearSettle();
     running = me;
     probing = null;
     requestedProbes = i.doc ? i.probes : [];
@@ -266,6 +289,7 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
       curvature: options.curvature,
       deviation: options.deviation,
       editing: i.editing,
+      quick,
     };
     const t0 = now();
     clearBusy();
@@ -358,10 +382,11 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
   const sameProbes = (a: readonly number[], b: readonly number[]): boolean =>
     a.length === b.length && a.every((x, k) => x === b[k]);
 
-  function reconcile(): void {
+  function reconcile(settleNow = false): void {
     const i = input;
     if (!i.enabled || (!i.board && !i.testBoard)) {
       clearBusy();
+      clearSettle();
       running = null;
       probing = null;
       requested = null;
@@ -371,10 +396,26 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
       return;
     }
     set({ generation: i.generation });
+    // A lone change of a document that has a model is a drag's frame (the last ladders, no curvature);
+    // the settled job, with fresh ladders and curvature, follows once the input has been quiet.
+    const quickable =
+      !i.editing &&
+      !requested?.editing && // the end of a drag settles at once
+      i.testBoard === null &&
+      i.doc !== null &&
+      state.model?.board != null &&
+      state.model.generation === i.generation;
+    const waiting = !!requested?.quick && !i.editing && !settleNow;
     // Curvature when an exact mode shows it, and on every settled board.
-    const curvature = i.wantCurvature || !i.editing;
+    const curvature = i.wantCurvature || (!i.editing && !waiting);
     const deviation = i.wantDeviation && i.testBoard === null && (i.doc === null || !!i.reference);
-    if (!needsJob(i, curvature, deviation)) {
+    if (!needsJob(i, curvature, deviation, waiting)) {
+      if (waiting && running === null && settleTimer === null) {
+        settleTimer = setTimer(() => {
+          settleTimer = null;
+          reconcile(true);
+        }, SETTLE_AFTER_MS);
+      }
       if (
         i.doc !== null &&
         i.testBoard === null &&
@@ -386,8 +427,13 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
       return;
     }
     // Ladders carry over only from a job for the same kind of board, while editing.
-    const reuseLadders = i.editing && i.testBoard === null && state.model?.board != null;
-    start(i, { curvature, deviation, reuseLadders });
+    const quick = quickable && !settleNow;
+    const reuseLadders = (i.editing || quick) && i.testBoard === null && state.model?.board != null;
+    start(
+      i,
+      { curvature: i.wantCurvature || (!i.editing && !quick), deviation, reuseLadders },
+      quick,
+    );
   }
 
   return {
@@ -398,11 +444,16 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     },
     setInput(next) {
       input = next;
+      clearSettle();
       reconcile();
     },
-    pause: clearBusy,
+    pause: () => {
+      clearBusy();
+      clearSettle();
+    },
     dispose() {
       clearBusy();
+      clearSettle();
       running = null;
       probing = null;
       requested = null;
