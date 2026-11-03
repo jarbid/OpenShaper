@@ -564,9 +564,6 @@ export const probeDocument = (docIn: BoardDoc, probes: readonly number[]): Probe
     }
     return { ok: true, probes: probesOf(r.value, probes) };
   } catch (err) {
-    if (err instanceof StepFitError && job.format === 'step') {
-      return { ok: false, error: stepFitMessage(err, job.unit) };
-    }
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 };
@@ -929,6 +926,9 @@ export const exportDocument = (
     }
     return { ok: true, files, ms: now() - t0 };
   } catch (err) {
+    if (err instanceof StepFitError && job.format === 'step') {
+      return { ok: false, error: stepFitMessage(err, job.unit) };
+    }
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 };
