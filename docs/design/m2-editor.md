@@ -725,3 +725,133 @@ column shows. A slider drag, the case that must feel live, is in line with the l
 - A new action that edits `features` goes through `featureEdit` in `section-store.ts` (label, `chords`, one step).
 - The strip's polyline repeats board2's auto-slope rule (deviation 4); a shared pure function in board2's `types`-only
   neighbour would remove the copy if the main chunk is ever allowed a small board2 helper.
+
+## 12. As built (step 5)
+
+Landed: files, templates, share and session. With the engine on, Save, the share link and the session autosave write
+the NURBS document itself (`.board` version 3), so the asymmetric minus half, the tail settings and the bottom features
+are no longer dropped; a `.board` of version 3 opens (or asks, with the engine off); the New menu lists NURBS starter
+templates including a swallow and a fish; the sidebar's volume, plan area and centre of mass are measured on the NURBS
+mesh; and an edit made while a classic file is still converting is no longer lost. With the engine off nothing changes
+(classic characterization snapshots untouched).
+
+**Where it is.**
+
+- `packages/board2`: `BoardMeta.extra` (opaque JSON, optional, so the version stays 3).
+- `packages/io`: `readBoardText` (`{ kind: 'classic' | 'sections' }`, sniffs the version only), `encodeShareText`,
+  `decodeShareFile`; `decodeShareFragment` stays for classic links. The envelope is still `v1`.
+- `apps/web`:
+  - `section-files.ts` (Board info in `meta`, `sectionsText`, `readSections`; board2's code arrives through the
+    `workers/nurbs-core` chunk, so the bundle guard is unchanged);
+  - `use-section-engine.ts` (the conversion loop, `openSectionDoc`, `attachSectionDoc`, `holdSectionsText`,
+    `currentSections`, `prepareSectionDoc`);
+  - `NurbsOpenPrompt.tsx`; `templates.ts` (`NURBS_TEMPLATES`) with `src/templates/*.board` made by
+    `tools/make-nurbs-templates.ts`;
+  - `use-mesh-specs.ts`, `nurbs-specs.ts` and the worker's `measure` job;
+  - `App.tsx` (open, save, recent, templates, share, restore), `session-store.ts` (`sectionsJson`), the docs pages
+    (`/docs/files#nurbs-files`, templates, the Editing note), the registry, `e2e/nurbs-files.spec.ts`.
+
+**How it works.**
+
+- **Save and open.** The text is `boardDocToJson(doc with Board info)`. Board info maps onto `meta` (model to `name`,
+  designer to `author`, comments to `comment`) and the other four fields to `meta.extra`; unknown `extra` keys and `source`
+  are kept in order, so open then save is byte for byte the same text.
+- **Classic import, engine on.** The file is read classically into the classic store (the reference) and converted in the
+  worker, as in step 1. A refusal now shows a notice (`data-testid="engine-refusal"`) with the reasons (the converter's
+  hint where it has one, else its message in the display unit); the classic editor stays in charge.
+- **Version 3 file, engine off.** `NurbsOpenPrompt`: **Turn on and open** (saves the setting) or **Open a classic copy**
+  or Cancel. A share link or a recent entry that holds a version 3 document goes through the same prompt.
+- **Documents arrive whole.** `openSectionDoc` loads the section store with the document and the classic store with its
+  projection, then marks them in step (no conversion follows).
+- **Session.** `SessionSnapshot.sectionsJson` is additive (`SESSION_VERSION` stays 1). `boardJson` is the classic board
+  that was opened (no longer the projection); `sectionsJson` is the document, written when it belongs to that board. A
+  restore with the engine on revives the document before touching either store, so both change in one tick. With the
+  engine off the text is held, written back unchanged by the next autosave, and revived (not converted) when the engine
+  is turned on.
+- **Specs.** `useMeshSpecs` sends the _settled_ document to its own NURBS client (`measure`: build, mesh, four numbers,
+  no surface back). `specsFromMesh` replaces volume, plan area and centre of mass in the classic worker's result; the
+  lengths, widths, thicknesses and rockers stay the exact classic readouts. While a new value is computed the last one
+  holds; a refused document falls back to the classic specs of the projection. The volume-distribution overlay and the
+  spec sheet's other integrals are still the classic loft's.
+- **Early edits.** The conversion loop converts the _current_ classic board, and a result whose board was edited meanwhile
+  (or is being dragged) is dropped and the board converted again, so the document that lands contains the edit. No
+  blocking UI. The undo history of that window starts over with the document, like any load.
+
+**Share-link sizes** (whole URL, with a 33-character origin; measured in `files.test.ts`; the classic link is about 2.9 KB;
+warn at 30,000, refuse at 50,000):
+
+| Board                                         | Link, characters    |
+| --------------------------------------------- | ------------------- |
+| Shortboard (golden)                           | 3,078               |
+| Funboard (golden)                             | 2,948               |
+| Longboard (golden)                            | 3,074               |
+| Swallow shortboard (setTail)                  | 2,850               |
+| Fish shortboard (setTail)                     | 2,855               |
+| Asymmetric shortboard (minus half is a copy)  | 3,344               |
+| Shortboard with double concave, channels, vee | 3,439               |
+| board2 test boards: swallow, fish, asymmetric | 2,102, 2,002, 2,679 |
+
+A NURBS link is no larger than a classic one in practice (absolute handles compress as well as the classic tangents),
+and the largest board measured is 11% of the warning threshold. `SHARE_DECODED_MAX_BYTES` needed no change.
+
+**Deviations from the design above.**
+
+1. **"Open the projection read-only" is "Open a classic copy".** The classic editors have no read-only mode, so the copy is
+   an ordinary classic board; the file is never overwritten (saving a copy writes a classic file) and the prompt says so.
+2. **The three classic templates are listed once.** The NURBS templates carry the same names (Shortboard, Funboard,
+   Longboard) and replace the classic list in the New menu when the engine is on; the registry has one entry per name,
+   plus Swallow shortboard and Fish shortboard. `make-nurbs-templates.test.ts` fails when the committed files drift from
+   the generator (regenerate with `NURBS_TEMPLATES_WRITE=1`).
+3. **A refused classic import keeps the classic editor** (step 1's deviation 3 stands) and the notice is a toast, not
+   `ImportWarningsDialog`: nothing is dropped, so there is nothing to confirm.
+4. **The session's `boardJson` is the classic board opened**, not the projection (step 1's deviation 9 is retired for the
+   session; exports still use the projection, with the Settings and docs text saying so).
+5. **Specs run in their own worker client**, not the 3D view's, so they exist with the 3D view hidden (a second NURBS
+   worker while the engine is on).
+6. **A NURBS file as the comparison (ghost) board** is its classic projection.
+7. **`openBoardFile` throws `SectionsFileError`** (carrying the JSON) for a version 3 file, so the existing import path and
+   its mocks are unchanged.
+
+**Acceptance (tests).**
+
+| Check                                                                                                                                                                                                            | Result                                                                                                                         |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Save then open: byte-identical text for the goldens, swallow and fish shortboards, asymmetric, shortboard with features, and board2's three test boards                                                          | Pass (`files.test.ts`, 10 boards; the app path with Board info in `section-files.test.ts`)                                     |
+| Share encode then decode gives the same document                                                                                                                                                                 | Pass for the same 10 boards                                                                                                    |
+| A session with both documents restores (engine on); the document is held and written back (engine off)                                                                                                           | Pass (`App.session-restore.test.tsx`)                                                                                          |
+| Docs coverage for the templates                                                                                                                                                                                  | Pass (`coverage.test.ts`: Swallow shortboard, Fish shortboard added)                                                           |
+| Edits made while converting are in the document that lands                                                                                                                                                       | Pass (`use-section-engine.test.tsx`; also waits for a drag to end)                                                             |
+| Mesh specs agree with the classic specs of the same board (shortboard)                                                                                                                                           | Volume 0.11% low, plan area 0.03% low, centre of mass 0.05 cm from the classic (`section-files.test.ts` bounds 2%, 1%, 1.5 cm) |
+| Classic characterization snapshots (kernel, io roundtrip, store)                                                                                                                                                 | Unchanged                                                                                                                      |
+| e2e: template, edit, reload, same saved text; `.brd` with the engine on; v3 with the engine off (copy, then turn on, text identical); refusal notice                                                             | Pass (`e2e/nurbs-files.spec.ts`, `nurbs-viewer.spec.ts`)                                                                       |
+| Gate: `pnpm lint`, `pnpm typecheck`, `CI=1 turbo run test --concurrency=2` (store 428, board2 330, io 200, render2d 133, web 937, ...), `pnpm build` (bundle and precache guards), `e2e` (52), `e2e:offline` (8) | All pass. Nothing flaky seen.                                                                                                  |
+
+**Timing** (`nurbs-timing.mjs --skip switch,drag,feature`): one run each, Chromium, software WebGL, production build, 4-core container (slower than the step 1 to 4 runs: the container had just restarted).
+
+| Open with the engine on       | Surface on screen, ms | Board editable, ms | Worker convert / build / mesh, ms |
+| ----------------------------- | --------------------- | ------------------ | --------------------------------- |
+| shortboard.board (v3)         | 518                   | **524**            | 0 / 1.5 / 36                      |
+| swallow-shortboard.board (v3) | 470                   | **475**            | 0 / 1.4 / 58                      |
+| shortboard.brd (classic)      | 633                   | 776                | 0 / 1 / 39                        |
+| funboard.brd, longboard.brd   | 436, 481              | 651, 705           | 2 / 20, 26 / 37, 88               |
+
+A saved document is editable the moment its surface is on screen (5 ms later); a classic file waits for the conversion
+(143 to 240 ms after the surface, as in step 1: 181 ms). The absolute times are higher than step 1's (108 and 289 ms for
+the shortboard) because of the container, not the code: the surface-to-editable gap is the same. Drags are unchanged
+(round trip median, p95): outline 11 (16), deck 10 (21), rocker 10 (14), section apex 9 (34) ms; the step 3 numbers were
+11 (19), 10 (17), 11 (16), 12 (40).
+
+**Still open, for the M2 review and for M3.**
+
+- Exports (STL, DXF, PDF, STEP) of a NURBS board still use its classic projection: no bottom features, no smooth blend,
+  the plus half of an asymmetric board. That is M3. The Settings text, the docs and the share dialog say so.
+- The volume-distribution overlay, the spec sheet and the weight estimate's other inputs still come from the classic loft
+  of the projection; only volume, plan area and centre of mass are the mesh's.
+- A classic copy of a NURBS file loses the minus half, the features and the blend; a real NURBS to classic conversion is
+  not planned.
+- Edits made in the conversion window are kept, but their undo steps are not (history restarts with the document).
+- Loading a NURBS document (or turning the engine on with one held) starts a second NURBS worker for the specs, and the
+  main thread loads the `nurbs-core` chunk (63 KB) for Save and the autosave; both only with the engine on.
+- A hand-edited file whose features no longer fit opens and is refused by the validator (`feature-invalid`);
+  `refitFeatures` could repair it on open.
+- Per-document view state (selected station, framing) is not in the file or the session's document.
