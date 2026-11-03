@@ -112,6 +112,7 @@ const harness = () => {
       return answer.promise;
     },
     convert: () => new Promise(() => {}),
+    measure: () => new Promise(() => {}),
     cancel() {
       cancels++;
       supersede();

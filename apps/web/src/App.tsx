@@ -119,6 +119,8 @@ import { VIEW_KEYS } from './shortcuts';
 import { useKeyboardShortcuts } from './use-keyboard-shortcuts';
 import { useSettledBoard } from './use-settled-board';
 import { isShortViewport, useIsDesktop, useIsPhone, useIsShortViewport } from './useMediaQuery';
+import { specsFromMesh } from './nurbs-specs';
+import { useMeshSpecs } from './use-mesh-specs';
 import { useSpecsWorker } from './use-specs-worker';
 import { useTrace, type TraceView } from './use-trace';
 import {
@@ -359,7 +361,6 @@ function AppShell() {
     distributionIntervals: 40,
     wantApex: overlayToggles.apex,
   });
-  const specs = workerResult?.specs ?? null;
   // Volume-distribution overlay: computed off-thread when the overlay is enabled.
   // When disabled the worker skips the sampling, saving ~41 getCrossSectionAreaAt
   // calls per settled-board change.
@@ -638,6 +639,14 @@ function AppShell() {
   useLayoutEffect(() => {
     activeStore.use(sectionEngine.ready ? sectionStore : boardStore);
   }, [sectionEngine.ready]);
+  // The specs: the classic worker's readouts, and with the NURBS document open the volume, plan area and
+  // centre of mass of its mesh instead (features and asymmetry show), computed in a worker as well.
+  const meshSpecs = useMeshSpecs(sectionEngine.ready);
+  const classicSpecs = workerResult?.specs ?? null;
+  const specs = useMemo(
+    () => (classicSpecs ? specsFromMesh(classicSpecs, meshSpecs) : null),
+    [classicSpecs, meshSpecs],
+  );
   const handleSaveSettings = (s: EditorSettings) => {
     saveSettings(s);
     setSettings(s);

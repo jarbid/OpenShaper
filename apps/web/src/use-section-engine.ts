@@ -12,12 +12,23 @@
  * - **On to off.** Nothing to do: the classic store is shown as it was.
  * - **Refusal.** A board the converter cannot hold (and a worker that cannot load) leaves the previous
  *   document in the section store and `ready` false, so the app keeps editing the classic board, with
- *   the reasons in `refusal`. The 3D view's own classic path explains them in its popover.
+ *   the reasons in `refusal` (the app shows them as an import notice; the 3D view's popover has them too).
+ * - **Edits while converting.** The classic board is the one edited until the document is ready. An edit
+ *   made in that window (a conversion takes 0.1 to 0.3 s) would be lost when the document replaced the
+ *   board, so a conversion whose board was edited meanwhile (or is being dragged) is thrown away and
+ *   made again from the edited board: the document that lands always includes every edit. The undo
+ *   history of the window starts over with the document, like any load.
+ * - **Documents that arrive whole.** A saved NURBS document (an opened `.board` file, a share link, a
+ *   restored session) is loaded as the section store's document directly ({@link openSectionDoc},
+ *   {@link attachSectionDoc}), with its classic projection as the classic store's board: no conversion.
+ *   A session restored with the engine off holds the document's text ({@link holdSectionsText}), and
+ *   turning the engine on revives it instead of converting.
  *
  * The converter runs in the NURBS worker (`kind: 'convert'`): the main chunk never imports board2. This is
  * the only conversion; edits go to the worker as documents (`nurbs-viewer.ts`).
  */
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import { loadNurbsCore, readSections } from './section-files';
 import { boardStore, sectionStore } from './store';
 import type { BoardDoc } from '@openshaper/board2';
 import type { NurbsIssue } from './workers/nurbs-protocol';
@@ -44,8 +55,76 @@ const subscribeSync = (l: () => void) => {
   return () => void listeners.delete(l);
 };
 
+/** The text of a saved document waiting for the engine to be turned on, for one load of the classic store. */
+let held: { readonly loadCount: number; readonly text: string } | null = null;
+
 /** Forget what was converted (tests). */
-export const resetSectionEngine = (): void => setSync({ convertedFrom: null, refused: null });
+export const resetSectionEngine = (): void => {
+  held = null;
+  setSync({ convertedFrom: null, refused: null });
+};
+
+/**
+ * Keep the text of a saved NURBS document for the classic board just loaded (a session restored while the
+ * engine is off). The next autosave writes it back unchanged, and turning the engine on revives it.
+ */
+export const holdSectionsText = (text: string): void => {
+  held = { loadCount: boardStore.getState().loadCount, text };
+};
+
+/** The held text for the classic board now open, if any. */
+const heldFor = (loadCount: number): string | null =>
+  held && held.loadCount === loadCount ? held.text : null;
+
+/**
+ * The section document that belongs to the classic board now open: the section store's, when it was
+ * converted from or loaded with this board; else the held text. Null when there is none (the engine has
+ * not run for this board). What the session autosave writes.
+ */
+export function currentSections(): { doc: BoardDoc } | { text: string } | null {
+  const loadCount = boardStore.getState().loadCount;
+  const doc = sectionStore.getState().doc;
+  if (doc && sync.convertedFrom === loadCount) return { doc };
+  const text = heldFor(loadCount);
+  return text === null ? null : { text };
+}
+
+/**
+ * Revive a saved document and get it ready to load: board2's code is loaded (the section store's
+ * notch-zone chord comes from it, and the document is revived and written by it), the chord provider is
+ * injected for a notched tail. The reasons come back when it is not a NURBS board document.
+ */
+export async function prepareSectionDoc(
+  json: unknown,
+): Promise<{ ok: true; doc: BoardDoc } | { ok: false; error: string }> {
+  const r = await readSections(json);
+  if (r.ok) await injectNotchChords(r.doc);
+  return r;
+}
+
+/**
+ * Make `doc` the section store's document for the classic board that is open now (call it right after the
+ * classic store loaded that board: a restored session). Starts loading the file code in the background,
+ * which autosave and Save need.
+ */
+export function attachSectionDoc(doc: BoardDoc): void {
+  sectionStore.getState().loadDoc(doc);
+  held = null;
+  setSync({ convertedFrom: boardStore.getState().loadCount, refused: null });
+  void loadNurbsCore().catch(() => {});
+}
+
+/**
+ * Open `doc` as the board: the section store takes it, and the classic store takes its projection (what the
+ * engine-off view, the "Deviation from classic" reference and the ghost see), so no conversion follows.
+ * The document must have been through {@link prepareSectionDoc}.
+ */
+export function openSectionDoc(doc: BoardDoc): void {
+  sectionStore.getState().loadDoc(doc);
+  const projection = sectionStore.getState().board;
+  if (projection) boardStore.getState().load(projection);
+  attachSectionDoc(doc);
+}
 
 /**
  * Give the section store the notch-zone chord before a notched board is loaded (docs/design/m2-editor.md
@@ -67,7 +146,7 @@ export async function injectNotchChords(doc: BoardDoc): Promise<void> {
  */
 export async function loadNotchChords(): Promise<void> {
   try {
-    const { notchChords } = await import('./workers/nurbs-core');
+    const { notchChords } = await loadNurbsCore();
     sectionStore.getState().setNotchChords(notchChords);
   } catch {
     // keep the fallback
@@ -98,55 +177,98 @@ export function useSectionEngine(engineOn: boolean): SectionEngine {
 
   const upToDate = current.convertedFrom === loadCount && sectionStore.getState().doc !== null;
   const refused = current.refused?.loadCount === loadCount ? current.refused : null;
+  // One object per refusal, so an effect that reports it runs once.
+  const refusal = useMemo(
+    () => (refused ? { error: refused.error, issues: refused.issues } : null),
+    [refused],
+  );
 
   useEffect(() => {
     if (!engineOn || !hasBoard || upToDate || refused) return;
-    const board = boardStore.getState().board;
-    if (!board) return;
     let cancelled = false;
-    let dispose = () => {};
+    const cleanups = new Set<() => void>();
     const refuse = (error: string, issues: readonly NurbsIssue[] = []) =>
       setSync({ ...sync, refused: { loadCount, error, issues } });
-    // The client is loaded when a conversion is wanted, so the engine-off page never fetches it.
-    void import('./nurbs-client')
-      .then(({ createNurbsClient, SupersededError }) => {
-        if (cancelled) return;
-        const client = createNurbsClient();
-        dispose = () => client.dispose();
-        return client.convert(board).then(
-          async (answer) => {
-            if (cancelled) return;
-            if (answer.ok) {
-              await injectNotchChords(answer.doc);
-              if (cancelled) return;
-              sectionStore.getState().loadDoc(answer.doc);
-              setSync({ convertedFrom: loadCount, refused: null });
-            } else {
-              refuse(answer.error, answer.issues);
-            }
-            client.dispose();
-          },
-          (err: unknown) => {
-            client.dispose();
-            if (cancelled || err instanceof SupersededError) return;
-            refuse(err instanceof Error ? err.message : String(err));
-          },
-        );
-      })
-      .catch((err: unknown) => {
-        // the chunk would not load (offline, or removed by a deploy)
-        if (!cancelled) refuse(err instanceof Error ? err.message : String(err));
+    /** Resolves when the classic board is not being dragged (at once if it is not). */
+    const settled = (): Promise<void> =>
+      new Promise((resolve) => {
+        if (!boardStore.getState().editing) return resolve();
+        const unsubscribe = boardStore.subscribe((s) => {
+          if (s.editing) return;
+          unsubscribe();
+          cleanups.delete(unsubscribe);
+          resolve();
+        });
+        cleanups.add(unsubscribe);
       });
+
+    const run = async (): Promise<void> => {
+      // A saved document waiting for the engine (a session restored with it off) is revived, not converted.
+      const text = heldFor(loadCount);
+      if (text !== null) {
+        let json: unknown;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          json = null;
+        }
+        const r = await prepareSectionDoc(json);
+        if (cancelled) return;
+        if (r.ok) {
+          attachSectionDoc(r.doc);
+          return;
+        }
+        held = null; // not a document after all: convert the classic board
+      }
+      // The client is loaded when a conversion is wanted, so the engine-off page never fetches it.
+      const { createNurbsClient, SupersededError } = await import('./nurbs-client');
+      if (cancelled) return;
+      const client = createNurbsClient();
+      cleanups.add(() => client.dispose());
+      for (;;) {
+        await settled();
+        if (cancelled) return;
+        const board = boardStore.getState().board;
+        if (!board) return;
+        let answer: Awaited<ReturnType<typeof client.convert>>;
+        try {
+          answer = await client.convert(board);
+          if (answer.ok) await injectNotchChords(answer.doc);
+        } catch (err) {
+          if (cancelled || err instanceof SupersededError) return;
+          refuse(err instanceof Error ? err.message : String(err));
+          return;
+        }
+        if (cancelled) return;
+        // The board was edited while it converted: the answer is for an older board. Convert again, so
+        // the edit is in the document that lands rather than lost to it.
+        const now = boardStore.getState();
+        if (now.board !== board || now.editing) continue;
+        if (answer.ok) {
+          sectionStore.getState().loadDoc(answer.doc);
+          setSync({ convertedFrom: loadCount, refused: null });
+          void loadNurbsCore().catch(() => {});
+        } else {
+          refuse(answer.error, answer.issues);
+        }
+        client.dispose();
+        return;
+      }
+    };
+    run().catch((err: unknown) => {
+      // the chunk would not load (offline, or removed by a deploy)
+      if (!cancelled) refuse(err instanceof Error ? err.message : String(err));
+    });
     return () => {
       cancelled = true;
-      dispose();
+      for (const c of cleanups) c();
     };
   }, [engineOn, hasBoard, loadCount, upToDate, refused]);
 
   if (!engineOn) return OFF;
   return {
     ready: upToDate,
-    refusal: refused ? { error: refused.error, issues: refused.issues } : null,
+    refusal,
     converting: hasBoard && !upToDate && !refused,
   };
 }

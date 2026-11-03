@@ -26,6 +26,7 @@ vi.mock('./nurbs-client', async (importActual) => ({
       doc: () => new Promise(() => {}),
       probe: () => new Promise(() => {}),
       convert: () => new Promise(() => {}),
+      measure: () => new Promise(() => {}),
       cancel: () => void rec.cancels++,
       dispose: () => void rec.disposed++,
     };

@@ -35,6 +35,15 @@ describe('session-store', () => {
     expect(s!.ghostJson).toBeUndefined();
   });
 
+  it('holds both documents of a NURBS session, and a record without one reads as before', async () => {
+    await saveSession({ boardJson: '{"board":1}', sectionsJson: '{"doc":1}' }, factory);
+    const s = await loadSession(factory);
+    expect(s!.boardJson).toBe('{"board":1}');
+    expect(s!.sectionsJson).toBe('{"doc":1}');
+    await saveSession({ boardJson: '{"board":2}' }, factory);
+    expect((await loadSession(factory))!.sectionsJson).toBeUndefined();
+  });
+
   it('keeps a single record — the latest save wins', async () => {
     await saveSession({ boardJson: 'first' }, factory);
     await saveSession({ boardJson: 'second' }, factory);

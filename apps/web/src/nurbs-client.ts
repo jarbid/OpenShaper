@@ -26,6 +26,7 @@ import type { BezierBoard } from '@openshaper/kernel';
 import type {
   ConvertedDoc,
   JobOptions,
+  MeshMeasure,
   NurbsIssue,
   NurbsMeshData,
   NurbsRequest,
@@ -68,7 +69,12 @@ export type ConvertAnswer =
   | ({ readonly ok: true } & ConvertedDoc)
   | { readonly ok: false; readonly error: string; readonly issues: readonly NurbsIssue[] };
 
-type Answer = NurbsAnswer | ConvertAnswer | ProbeAnswer;
+/** The answer to a measure job: the mesh's numbers, or why the document would not build. */
+export type MeasureAnswer =
+  | ({ readonly ok: true } & MeshMeasure)
+  | { readonly ok: false; readonly error: string };
+
+type Answer = NurbsAnswer | ConvertAnswer | ProbeAnswer | MeasureAnswer;
 
 /** What a worker looks like to the client; tests supply a fake. */
 export interface NurbsTransport {
@@ -126,6 +132,8 @@ export interface NurbsClient {
   probe(doc: BoardDoc, probes: readonly number[]): Promise<ProbeAnswer>;
   /** Convert a classic board to a section document. A refusal is an answer, not an exception. */
   convert(board: BezierBoard): Promise<ConvertAnswer>;
+  /** Volume, areas and the centroid of a document's mesh (the sidebar's specs). No surface comes back. */
+  measure(doc: BoardDoc): Promise<MeasureAnswer>;
   /** Drop the job in flight (its promise rejects with {@link SupersededError}). */
   cancel(): void;
   /** Cancel and release the worker. */
@@ -143,7 +151,12 @@ interface Pending {
 export type CoreLoader = () => Promise<
   Pick<
     typeof import('./workers/nurbs-core'),
-    'convertAndMesh' | 'convertToDoc' | 'meshDocument' | 'meshTestBoard' | 'probeDocument'
+    | 'convertAndMesh'
+    | 'convertToDoc'
+    | 'measureDocument'
+    | 'meshDocument'
+    | 'meshTestBoard'
+    | 'probeDocument'
   >
 >;
 
@@ -208,7 +221,10 @@ export function createNurbsClient(
       const p = pending;
       if (p && res.id === p.id) {
         pending = null;
-        if (res.kind === 'probed') {
+        if (res.kind === 'measured') {
+          const { kind: _kind, id: _id, ...answer } = res;
+          p.resolve(answer);
+        } else if (res.kind === 'probed') {
           p.resolve(res.ok ? { ok: true, probes: res.probes } : { ok: false, error: res.error });
         } else if (res.kind === 'converted') {
           p.resolve(
@@ -258,7 +274,9 @@ export function createNurbsClient(
             ? compute.probeDocument(req.doc, req.probes)
             : req.kind === 'convert'
               ? compute.convertToDoc(req.board)
-              : compute.meshTestBoard(req.name, req.options, progress);
+              : req.kind === 'measure'
+                ? compute.measureDocument(req.doc)
+                : compute.meshTestBoard(req.name, req.options, progress);
     if (pending !== p) return; // superseded during the (blocking) compute: drop
     pending = null;
     p.resolve(out);
@@ -306,6 +324,7 @@ export function createNurbsClient(
       submit<NurbsAnswer>((id) => ({ kind: 'doc', id, doc, reference, options, probes }), onStage),
     probe: (doc, probes) => submit<ProbeAnswer>((id) => ({ kind: 'probe', id, doc, probes })),
     convert: (board) => submit<ConvertAnswer>((id) => ({ kind: 'convert', id, board })),
+    measure: (doc) => submit<MeasureAnswer>((id) => ({ kind: 'measure', id, doc })),
     cancel() {
       const p = pending;
       pending = null;

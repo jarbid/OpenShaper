@@ -15,6 +15,7 @@ import {
   convertAndMesh,
   convertToDoc,
   meshDocument,
+  measureDocument,
   meshTestBoard,
   probeDocument,
 } from './nurbs-core';
@@ -33,6 +34,11 @@ ctx.onmessage = (e) => {
   if (req.kind === 'convert') {
     const out = convertToDoc(req.board);
     ctx.postMessage({ kind: 'converted', id: req.id, ...out });
+    return;
+  }
+  if (req.kind === 'measure') {
+    const out = measureDocument(req.doc);
+    ctx.postMessage({ kind: 'measured', id: req.id, ...out });
     return;
   }
   if (req.kind === 'probe') {

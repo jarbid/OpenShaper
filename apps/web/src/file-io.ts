@@ -29,7 +29,7 @@ import {
   parseS3d,
   parseS3dx,
   parseSrf,
-  readBoardJson,
+  readBoardText,
   writeBoardJson,
   writeBrd,
 } from '@openshaper/io';
@@ -127,7 +127,15 @@ export function toBoardMeta(raw: unknown): BoardMeta {
 export function downloadBoard(board: BezierBoard, meta?: BoardMeta): void {
   const metadata =
     meta && Object.values(meta).some(Boolean) ? (meta as Record<string, unknown>) : undefined;
-  const boardJson = writeBoardJson(board, metadata);
+  downloadBoardText(writeBoardJson(board, metadata), meta);
+}
+
+/**
+ * The same download for a document's text already written: a classic `.board.json`, or the NURBS
+ * section document (`boardDocToJson`, docs/design/m2-editor.md §5). Both are `.board` files; opening
+ * one tells them apart by the document's version.
+ */
+export function downloadBoardText(boardJson: string, meta?: BoardMeta): void {
   const stem = slugifyName(meta?.model); // 'board' when the model name is missing
   download(boardJson, `${stem}.board`, 'application/json');
   recordRecentBoard(meta?.model?.trim() || stem, boardJson);
@@ -200,18 +208,52 @@ const BOARD_FILE_READERS: Record<string, BoardFileReader> = {
   },
 };
 
-const readBoardJsonFile: BoardFileReader = async (file) => {
-  const { board, metadata } = readBoardJson(await file.text());
-  return { board, meta: toBoardMeta(metadata), warnings: [] };
-};
+/** A file that holds a NURBS section document: left as parsed JSON for the lazily loaded engine to revive. */
+export interface OpenedSections {
+  readonly kind: 'sections';
+  readonly json: unknown;
+}
 
-/** Read a user-picked file: a format importer by extension, else native .board.json. */
+export interface OpenedClassic {
+  readonly kind: 'classic';
+  readonly board: BezierBoard;
+  readonly meta: BoardMeta;
+  readonly warnings: readonly ImportWarning[];
+}
+
+/** What a picked file holds: a classic board (any format), or a NURBS document (`.board` version 3). */
+export type OpenedBoard = OpenedClassic | OpenedSections;
+
+/** Read a user-picked file: a format importer by extension, else native .board.json (either kind). */
+export async function openAnyBoardFile(file: File): Promise<OpenedBoard> {
+  const name = file.name.toLowerCase();
+  const ext = Object.keys(BOARD_FILE_READERS).find((e) => name.endsWith(e));
+  if (ext) return { kind: 'classic', ...(await BOARD_FILE_READERS[ext]!(file)) };
+  const read = readBoardText(await file.text());
+  if (read.kind === 'sections') return { kind: 'sections', json: read.json };
+  return {
+    kind: 'classic',
+    board: read.board,
+    meta: toBoardMeta(read.metadata),
+    warnings: [],
+  };
+}
+
+/** The file holds a NURBS document, and the caller can only take a classic board. */
+export class SectionsFileError extends Error {
+  constructor() {
+    super('This file is a NURBS board, which this cannot take.');
+    this.name = 'SectionsFileError';
+  }
+}
+
+/** Read a user-picked classic board file (any format); a NURBS document is refused. */
 export async function openBoardFile(
   file: File,
 ): Promise<{ board: BezierBoard; meta: BoardMeta; warnings: readonly ImportWarning[] }> {
-  const name = file.name.toLowerCase();
-  const ext = Object.keys(BOARD_FILE_READERS).find((e) => name.endsWith(e));
-  return ext ? BOARD_FILE_READERS[ext]!(file) : readBoardJsonFile(file);
+  const opened = await openAnyBoardFile(file);
+  if (opened.kind === 'sections') throw new SectionsFileError();
+  return { board: opened.board, meta: opened.meta, warnings: opened.warnings };
 }
 
 /**

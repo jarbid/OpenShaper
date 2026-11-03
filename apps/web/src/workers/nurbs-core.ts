@@ -39,11 +39,13 @@
  * request that follows the edit derives them afresh.
  */
 import {
+  boardDocToJson,
   buildBoard,
   createChordFn,
   createEvaluator,
   meshBoard,
   probeSection,
+  reviveBoardDoc,
   type Board2Issue,
   type BoardDoc,
   type BuiltBoard,
@@ -64,6 +66,7 @@ import { classicDeviation } from './nurbs-deviation';
 import type {
   ConvertedDoc,
   JobOptions,
+  MeshMeasure,
   NurbsConversion,
   NurbsIssue,
   NurbsMeshData,
@@ -584,6 +587,113 @@ export const convertToDoc = (board: BezierBoard): ConvertOutcome => {
         addedKnots: rep.addedKnots,
       },
       issues: c.issues.map(issueOf),
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err), issues: [] };
+  }
+};
+
+// --- The mesh's specs --------------------------------------------------------
+
+/**
+ * The centroid along x of a closed mesh's volume (signed tetrahedra about the bounding-box centre, as
+ * `meshProperties` does for the volume). The classic specs' "centre of mass" is this number for the
+ * classic loft; the mesh gives it for the surface the document describes, features and all.
+ */
+export const meshCentreX = (positions: Float32Array, indices: Uint32Array): number => {
+  if (positions.length === 0) return 0;
+  let x0 = Infinity,
+    x1 = -Infinity,
+    y0 = Infinity,
+    y1 = -Infinity,
+    z0 = Infinity,
+    z1 = -Infinity;
+  for (let i = 0; i < positions.length; i += 3) {
+    x0 = Math.min(x0, positions[i]!);
+    x1 = Math.max(x1, positions[i]!);
+    y0 = Math.min(y0, positions[i + 1]!);
+    y1 = Math.max(y1, positions[i + 1]!);
+    z0 = Math.min(z0, positions[i + 2]!);
+    z1 = Math.max(z1, positions[i + 2]!);
+  }
+  const cx = 0.5 * (x0 + x1);
+  const cy = 0.5 * (y0 + y1);
+  const cz = 0.5 * (z0 + z1);
+  let vol = 0;
+  let moment = 0;
+  for (let k = 0; k < indices.length; k += 3) {
+    const a = 3 * indices[k]!;
+    const b = 3 * indices[k + 1]!;
+    const c = 3 * indices[k + 2]!;
+    const ax = positions[a]! - cx;
+    const ay = positions[a + 1]! - cy;
+    const az = positions[a + 2]! - cz;
+    const bx = positions[b]! - cx;
+    const by = positions[b + 1]! - cy;
+    const bz = positions[b + 2]! - cz;
+    const px = positions[c]! - cx;
+    const py = positions[c + 1]! - cy;
+    const pz = positions[c + 2]! - cz;
+    const dv = (ax * (by * pz - bz * py) + ay * (bz * px - bx * pz) + az * (bx * py - by * px)) / 6;
+    vol += dv;
+    moment += (dv * (ax + bx + px)) / 4;
+  }
+  return vol === 0 ? cx : cx + moment / vol;
+};
+
+/** What a measure job answers with: the mesh's numbers, or the reason the document would not build. */
+export type MeasureOutcome =
+  | ({ readonly ok: true } & MeshMeasure)
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * The specs of a settled document from its mesh (docs/design/m2-editor.md §4): validate, build and mesh at
+ * the document's tolerance, then volume, plan area, surface area and the volume's centroid along x. The
+ * surface is not sent back. A document the model refuses is an outcome, not an exception.
+ */
+export const measureDocument = (docIn: BoardDoc): MeasureOutcome => {
+  try {
+    const b = build(canonicalDoc(docIn), true, []);
+    if ('refused' in b) {
+      const r = b.refused;
+      return { ok: false, error: r.ok ? 'The NURBS surface could not be built.' : r.error };
+    }
+    const m = meshBoard(b.built, { curvature: false });
+    return {
+      ok: true,
+      volume: m.volume,
+      planArea: m.planArea,
+      surfaceArea: m.surfaceArea,
+      centreX: meshCentreX(m.positions, m.indices),
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+};
+
+// --- Files: the saved document ---------------------------------------------------
+
+/** The canonical text of a document: what a `.board` file of the NURBS engine holds, and a share link carries. */
+export const docToText = (doc: BoardDoc): string => boardDocToJson(doc);
+
+/** What reading a saved document answers with: the document, or the reasons it is not one. */
+export type ReviveOutcome =
+  | { readonly ok: true; readonly doc: BoardDoc }
+  | { readonly ok: false; readonly error: string; readonly issues: readonly NurbsIssue[] };
+
+/**
+ * Revive a parsed section document (an opened file, a share link, a session). Never throws. Only the
+ * document's shape is checked here, not the board's design: a document that is shaped right and designed
+ * badly opens, and the viewer reports the refusal (`validateBoard`), so it can be repaired.
+ */
+export const docFromJson = (json: unknown): ReviveOutcome => {
+  try {
+    const r = reviveBoardDoc(json);
+    if (r.ok) return { ok: true, doc: r.value };
+    return {
+      ok: false,
+      error: r.issues.find((i) => i.severity === 'error')?.message ?? 'Not a NURBS board document.',
+      issues: r.issues.map(issueOf),
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err), issues: [] };

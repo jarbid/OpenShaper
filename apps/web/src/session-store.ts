@@ -26,6 +26,13 @@ export interface SessionSnapshot {
   boardJson: string;
   /** Serialized ghost/comparison board, when one is loaded. */
   ghostJson?: string;
+  /**
+   * The NURBS document (`boardDocToJson`, with the board info in its `meta`), when one belongs to the
+   * board in `boardJson`. Optional and additive, so older records still read and `SESSION_VERSION`
+   * stays 1. The engine setting picks which of the two documents is shown after a restore
+   * (docs/design/m2-editor.md §5).
+   */
+  sectionsJson?: string;
 }
 
 interface StoredSession extends SessionSnapshot {
@@ -56,6 +63,7 @@ export async function saveSession(snapshot: SessionSnapshot, factory?: IDBFactor
         version: SESSION_VERSION,
         boardJson: snapshot.boardJson,
         ...(snapshot.ghostJson !== undefined ? { ghostJson: snapshot.ghostJson } : {}),
+        ...(snapshot.sectionsJson !== undefined ? { sectionsJson: snapshot.sectionsJson } : {}),
         savedAt: Date.now(),
       };
       await promisify(store(db, 'readwrite').put(rec));
@@ -86,6 +94,7 @@ export async function loadSession(factory?: IDBFactory): Promise<SessionSnapshot
       return {
         boardJson: rec.boardJson,
         ...(typeof rec.ghostJson === 'string' ? { ghostJson: rec.ghostJson } : {}),
+        ...(typeof rec.sectionsJson === 'string' ? { sectionsJson: rec.sectionsJson } : {}),
       };
     } finally {
       db.close();

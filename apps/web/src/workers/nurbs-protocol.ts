@@ -177,7 +177,24 @@ export type NurbsRequest =
       readonly kind: 'convert';
       readonly id: number;
       readonly board: BezierBoard;
+    }
+  | {
+      /**
+       * The sidebar's specs of a settled document, from its mesh (docs/design/m2-editor.md §4, step 5):
+       * build, mesh, measure; the answer carries four numbers and no surface.
+       */
+      readonly kind: 'measure';
+      readonly id: number;
+      readonly doc: BoardDoc;
     };
+
+/** What the mesh of a document measures (cm, cm², cm³; `centreX` is the volume's centroid along x). */
+export interface MeshMeasure {
+  readonly volume: number;
+  readonly planArea: number;
+  readonly surfaceArea: number;
+  readonly centreX: number;
+}
 
 /** The report of a conversion, as the app shows it. */
 export interface ConvertedDoc {
@@ -217,6 +234,13 @@ export type NurbsResponse =
     }
   | {
       readonly kind: 'probed';
+      readonly id: number;
+      readonly ok: false;
+      readonly error: string;
+    }
+  | ({ readonly kind: 'measured'; readonly id: number; readonly ok: true } & MeshMeasure)
+  | {
+      readonly kind: 'measured';
       readonly id: number;
       readonly ok: false;
       readonly error: string;

@@ -228,6 +228,10 @@ describe('without a Worker', () => {
         calls.push('probe');
         return { ok: true as const, probes: [] };
       },
+      measureDocument: () => {
+        calls.push('measure');
+        return { ok: true as const, volume: 1, planArea: 2, surfaceArea: 3, centreX: 4 };
+      },
       convertToDoc: () => {
         calls.push('convert');
         return {
@@ -254,7 +258,19 @@ describe('without a Worker', () => {
     await expect(client.doc({} as never, null, options)).resolves.toMatchObject({ ok: true });
     await expect(client.probe({} as never, [10])).resolves.toMatchObject({ ok: true });
     await expect(client.convert(board)).resolves.toMatchObject({ ok: true });
-    expect(calls.slice(2)).toEqual(['doc reference=false reuse=false', 'probe', 'convert']);
+    await expect(client.measure({} as never)).resolves.toEqual({
+      ok: true,
+      volume: 1,
+      planArea: 2,
+      surfaceArea: 3,
+      centreX: 4,
+    });
+    expect(calls.slice(2)).toEqual([
+      'doc reference=false reuse=false',
+      'probe',
+      'convert',
+      'measure',
+    ]);
   });
 
   it('reports a failing core as a rejection', async () => {
