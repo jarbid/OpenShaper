@@ -161,13 +161,14 @@ function json(r: Reader, v: unknown, path: string, depth = 0): JsonValue {
 // ---------------------------------------------------------------------------
 
 function meta(r: Reader, v: unknown): BoardMeta {
-  const o = rec(r, v, 'meta', ['name'], ['author', 'comment', 'source']);
+  const o = rec(r, v, 'meta', ['name'], ['author', 'comment', 'source', 'extra']);
   const out: { -readonly [K in keyof BoardMeta]: BoardMeta[K] } = {
     name: str(r, o.name, 'meta.name'),
   };
   for (const k of ['author', 'comment', 'source'] as const) {
     if (o[k] !== undefined) out[k] = str(r, o[k], `meta.${k}`);
   }
+  if (o.extra !== undefined) out.extra = json(r, o.extra, 'meta.extra');
   return out;
 }
 
@@ -427,6 +428,7 @@ function ordered(doc: BoardDoc): unknown {
       ...(doc.meta.author === undefined ? {} : { author: doc.meta.author }),
       ...(doc.meta.comment === undefined ? {} : { comment: doc.meta.comment }),
       ...(doc.meta.source === undefined ? {} : { source: doc.meta.source }),
+      ...(doc.meta.extra === undefined ? {} : { extra: doc.meta.extra }),
     },
     symmetry: doc.symmetry,
     tail:

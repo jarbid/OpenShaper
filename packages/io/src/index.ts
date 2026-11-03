@@ -21,11 +21,16 @@ export {
   readBoardJson,
   BoardJsonError,
   BOARD_JSON_VERSION,
+  SECTIONS_JSON_VERSION,
+  readBoardText,
+  type BoardFile,
   type BoardJson,
 } from './board-json';
 export {
   encodeShareFragment,
+  encodeShareText,
   decodeShareFragment,
+  decodeShareFile,
   shareCodecSupported,
   ShareLinkError,
   SHARE_ENVELOPE_VERSION,

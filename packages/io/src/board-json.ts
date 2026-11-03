@@ -143,7 +143,19 @@ export const writeBoardJson = (b: BezierBoard, metadata?: Record<string, unknown
   return JSON.stringify(doc, null, 2);
 };
 
+/**
+ * The version of the NURBS section document (`model: 'sections'`, docs/design/m2-editor.md §5). It is
+ * written and read by `@openshaper/board2`; this package only recognises it, so that it (and the main
+ * chunk) stay free of board2.
+ */
+export const SECTIONS_JSON_VERSION = 3;
+
 export class BoardJsonError extends Error {}
+
+/** What a board file holds: a classic board, or a NURBS section document left for board2 to revive. */
+export type BoardFile =
+  | { readonly kind: 'classic'; board: BezierBoard; metadata?: Record<string, unknown> }
+  | { readonly kind: 'sections'; readonly json: unknown };
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -229,4 +241,26 @@ export const readBoardJson = (
     finConfigFromDoc(doc),
   );
   return doc.metadata ? { board: b, metadata: doc.metadata } : { board: b };
+};
+
+/**
+ * Read a native document of either kind. Only the format marker and the version are looked at to tell
+ * them apart (`version` 3 is the section document); the section document itself is returned as parsed
+ * JSON for `reviveBoardDoc` in the lazily loaded NURBS chunk, so this package never imports board2.
+ */
+export const readBoardText = (text: string): BoardFile => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    throw new BoardJsonError(`Not valid JSON: ${(e as Error).message}`);
+  }
+  if (
+    isObject(parsed) &&
+    (parsed.format === 'openshaper' || parsed.format === 'board-studio') &&
+    parsed.version === SECTIONS_JSON_VERSION
+  ) {
+    return { kind: 'sections', json: parsed };
+  }
+  return { kind: 'classic', ...readBoardJson(text) };
 };

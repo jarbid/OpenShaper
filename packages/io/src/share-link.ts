@@ -15,6 +15,11 @@
  * rather than DOM APIs, so this module stays framework-free and testable in
  * plain Node — the layering rule in `.claude/CLAUDE.md` holds.
  *
+ * A NURBS board (a section document, `.board.json` version 3) travels the same way: the payload is the
+ * text of that document, and the decoder tells the two apart by the document's version, as opening a
+ * file does (`readBoardText`). The envelope stays `v1`; this package only recognises the version and
+ * hands the parsed JSON on, so it never imports board2.
+ *
  * What travels is exactly what `writeBoardJson` writes: geometry, interpolation
  * type, the fin config and the board metadata. Trace images, the comparison
  * ghost, undo history, the recent list and every view/app setting live in other
@@ -27,7 +32,7 @@
  * allocation.
  */
 import type { BezierBoard } from '@openshaper/kernel';
-import { readBoardJson, writeBoardJson } from './board-json';
+import { readBoardText, writeBoardJson, type BoardFile } from './board-json';
 
 /** Envelope version this module writes. Readers accept only this one. */
 export const SHARE_ENVELOPE_VERSION = 'v1';
@@ -194,8 +199,17 @@ export async function encodeShareFragment(
   b: BezierBoard,
   metadata?: Record<string, unknown>,
 ): Promise<string> {
+  return encodeShareText(writeBoardJson(b, metadata));
+}
+
+/**
+ * Encode the text of a board document into a share fragment: a classic `.board.json`, or a NURBS section
+ * document (`boardDocToJson`). The envelope stays `v1` for both: the payload is the file's text, and the
+ * decoder tells them apart by the document's own version, as opening a file does.
+ */
+export async function encodeShareText(text: string): Promise<string> {
   requireCodec();
-  const bytes = new TextEncoder().encode(writeBoardJson(b, metadata));
+  const bytes = new TextEncoder().encode(text);
   const gzipped = await pump(bytes, new CompressionStream('gzip'));
   return `${SHARE_ENVELOPE_VERSION}.${toBase64Url(gzipped)}`;
 }
@@ -212,6 +226,24 @@ export async function encodeShareFragment(
 export async function decodeShareFragment(
   fragment: string,
 ): Promise<{ board: BezierBoard; metadata?: Record<string, unknown> }> {
+  const file = await decodeShareFile(fragment);
+  if (file.kind !== 'classic') {
+    throw new ShareLinkError(
+      'bad-board',
+      'This link holds a NURBS board; open it with decodeShareFile.',
+    );
+  }
+  return file.metadata ? { board: file.board, metadata: file.metadata } : { board: file.board };
+}
+
+/**
+ * Decode a share fragment into the file it carries: a classic board, or a NURBS section document left
+ * as parsed JSON for board2 to revive (this package never imports board2). The same checks as
+ * {@link decodeShareFragment}, which is this for a classic board.
+ *
+ * @throws ShareLinkError — and nothing else.
+ */
+export async function decodeShareFile(fragment: string): Promise<BoardFile> {
   requireCodec();
 
   const dot = fragment.indexOf('.');
@@ -251,7 +283,7 @@ export async function decodeShareFragment(
   }
 
   try {
-    return readBoardJson(json);
+    return readBoardText(json);
   } catch (e) {
     // Includes "document version N is newer than supported" from readBoardJson.
     throw new ShareLinkError('bad-board', (e as Error).message);

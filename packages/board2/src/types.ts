@@ -84,6 +84,11 @@ export interface BoardMeta {
   readonly author?: string;
   readonly comment?: string;
   readonly source?: string;
+  /**
+   * App metadata that has no slot of its own (the surfer, the fin and foam types, the glass schedule),
+   * carried as opaque JSON. Optional and additive: a document without it is unchanged (version stays 3).
+   */
+  readonly extra?: JsonValue;
 }
 
 /** Any JSON value; for opaque carried data. */

@@ -45,12 +45,21 @@ describe('canonical JSON', () => {
   it('carries optional fields: meta details and opaque fins', () => {
     const doc: BoardDoc = {
       ...asymmetricBoard(),
-      meta: { name: 'n', author: 'a', comment: 'c', source: 's' },
+      meta: {
+        name: 'n',
+        author: 'a',
+        comment: 'c',
+        source: 's',
+        extra: { surfer: 'x', n: [1, 2] },
+      },
       fins: { systems: ['fcs2', { count: 3, toe: -0.5 }], on: true, none: null },
     };
     const text = boardDocToJson(doc);
     expect(boardDocToJson(revive(JSON.parse(text)))).toBe(text);
     expect(revive(JSON.parse(text)).fins).toEqual(doc.fins);
+    expect(revive(JSON.parse(text)).meta.extra).toEqual({ surfer: 'x', n: [1, 2] });
+    // a document without it writes no key
+    expect(boardDocToJson(asymmetricBoard())).not.toContain('"extra"');
   });
 
   it('carries a knot lock (handle directions) and leaves unlocked knots without the key', () => {

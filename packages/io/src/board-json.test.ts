@@ -17,7 +17,7 @@ import {
   type Spline,
 } from '@openshaper/kernel';
 import { parseBrd } from './brd-reader';
-import { BoardJsonError, readBoardJson, writeBoardJson } from './board-json';
+import { BoardJsonError, readBoardJson, readBoardText, writeBoardJson } from './board-json';
 
 const goldenDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../../docs/specs/golden');
 const loadBrd = (name: string) =>
@@ -208,5 +208,33 @@ describe('board-json handle-angle locks', () => {
     );
     doc.outline[1]!.l = 'locked';
     expect(() => readBoardJson(JSON.stringify(doc))).toThrow(BoardJsonError);
+  });
+});
+
+describe('readBoardText', () => {
+  it('reads a classic document as before', () => {
+    const b = loadBrd('shortboard');
+    const file = readBoardText(writeBoardJson(b, { model: 'x' }));
+    expect(file.kind).toBe('classic');
+    if (file.kind === 'classic') {
+      expect(getLength(file.board)).toBe(getLength(b));
+      expect(file.metadata).toEqual({ model: 'x' });
+    }
+  });
+
+  it('sniffs the section document (version 3) and hands its JSON on without reading it', () => {
+    const text = JSON.stringify({ format: 'openshaper', version: 3, model: 'sections', x: [1] });
+    const file = readBoardText(text);
+    expect(file).toEqual({ kind: 'sections', json: JSON.parse(text) });
+  });
+
+  it('still refuses what it cannot read', () => {
+    expect(() => readBoardText('nope')).toThrow(BoardJsonError);
+    expect(() => readBoardText(JSON.stringify({ format: 'other', version: 3 }))).toThrow(
+      BoardJsonError,
+    );
+    expect(() => readBoardText(JSON.stringify({ format: 'openshaper', version: 4 }))).toThrow(
+      /newer than supported/,
+    );
   });
 });

@@ -26,8 +26,10 @@ import {
 import { parseBrd } from './brd-reader';
 import { writeBoardJson } from './board-json';
 import {
+  decodeShareFile,
   decodeShareFragment,
   encodeShareFragment,
+  encodeShareText,
   SHARE_DECODED_MAX_BYTES,
   SHARE_ENVELOPE_VERSION,
   SHARE_URL_MAX_CHARS,
@@ -63,6 +65,26 @@ const codeOf = async (p: Promise<unknown>): Promise<string> => {
   }
   throw new Error('expected the promise to reject');
 };
+
+describe('a NURBS section document', () => {
+  const doc = JSON.stringify(
+    { format: 'openshaper', version: 3, model: 'sections', a: [1, 2] },
+    null,
+    2,
+  );
+
+  it('travels under the same v1 envelope and comes back as the parsed document', async () => {
+    const fragment = await encodeShareText(doc);
+    expect(fragment.startsWith(`${SHARE_ENVELOPE_VERSION}.`)).toBe(true);
+    expect(await decodeShareFile(fragment)).toEqual({ kind: 'sections', json: JSON.parse(doc) });
+  });
+
+  it('is a classic board to decodeShareFile too, and refused by decodeShareFragment', async () => {
+    const classic = await encodeShareFragment(loadBrd('shortboard').board);
+    expect((await decodeShareFile(classic)).kind).toBe('classic');
+    expect(await codeOf(decodeShareFragment(await encodeShareText(doc)))).toBe('bad-board');
+  });
+});
 
 describe('round-trip', () => {
   for (const name of ['shortboard', 'funboard', 'longboard']) {
