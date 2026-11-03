@@ -129,8 +129,13 @@ describe('STEP from the document', () => {
     '%s: a Part 21 solid, with progress',
     (_name, make) => {
       const stages: ExportStage[] = [];
+      const passes: number[] = [];
       const out = ok(
-        exportDocument(make(), { format: 'step', unit: 'mm', slug: 'b' }, (s) => stages.push(s)),
+        exportDocument(make(), { format: 'step', unit: 'mm', slug: 'b' }, (s, pass) => {
+          // 'fitting' is posted once per refinement pass, with its number
+          if (s !== stages[stages.length - 1]) stages.push(s);
+          if (pass !== undefined) passes.push(pass);
+        }),
       );
       expect(out.files).toHaveLength(1);
       expect(out.files[0]!.name).toBe('b.step');
@@ -141,6 +146,8 @@ describe('STEP from the document', () => {
       expect(text).toContain('MANIFOLD_SOLID_BREP');
       expect(text).toContain('.MILLI.');
       expect(stages).toEqual(['building', 'fitting', 'writing']);
+      expect(passes.length).toBeGreaterThan(1);
+      expect(passes).toEqual(passes.map((_, i) => i + 1));
     },
     60_000,
   );

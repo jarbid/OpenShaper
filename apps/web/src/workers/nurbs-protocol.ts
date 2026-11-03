@@ -271,7 +271,7 @@ export const meshTransferables = (m: NurbsMeshData): ArrayBuffer[] =>
 // --- Exports (docs/design/m3-exports.md) -----------------------------------------------------
 
 /** The default STL face size (cm): the longest edge of the export mesh. The live mesh has no cap. */
-export const DEFAULT_STL_FACE_SIZE = 0.5;
+export const DEFAULT_STL_FACE_SIZE = 1;
 
 /**
  * What an export job writes. The document crosses by structured clone, so the export is of the board as
