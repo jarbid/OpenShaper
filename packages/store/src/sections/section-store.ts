@@ -50,6 +50,7 @@ import {
   addFeatureKey,
   featureKindOf,
   featureLimits,
+  refitFeatures,
   removeFeature,
   removeFeatureKey,
   setFeatureDepth,
@@ -217,6 +218,26 @@ export const createSectionStore = (): StoreApi<SectionState> =>
       commitDoc(edit(doc), `${verb} ${FEATURE_LABELS[featureKindOf(f)].toLowerCase()}`);
     };
 
+    /**
+     * The document when the open drag began (`beginEdit`), cleared at `endEdit`. Edits that depend on how
+     * far a handle has moved (the notch depth, the channel refit) are computed from it, so they are pure
+     * functions of the pointer: dragging back restores the stations and the feature keys that going
+     * further had dropped or squeezed. The history still records one step.
+     */
+    let dragOrigin: BoardDoc | null = null;
+
+    /**
+     * An outline edit can leave channels wider than the chord: bring them inside it, from the features the
+     * drag began with (so a narrowing drag that is undone in the same gesture restores them).
+     */
+    const refitChannels = (doc: BoardDoc, nextDoc: BoardDoc): BoardDoc => {
+      if (nextDoc.outline === doc.outline) return nextDoc;
+      const base = dragOrigin?.features ?? doc.features;
+      if (!base.some((f) => f.enabled && featureKindOf(f) === 'channels')) return nextDoc;
+      const features = refitFeatures({ ...nextDoc, features: base }, chords);
+      return features === nextDoc.features ? nextDoc : { ...nextDoc, features };
+    };
+
     /** The whole-board resize in progress: the minus outline scales with the plus one. */
     let resize: { readonly fL: number; readonly fW: number } | null = null;
 
@@ -232,7 +253,7 @@ export const createSectionStore = (): StoreApi<SectionState> =>
         const minus = alignEnds(scaled, nextDoc.outline.plus);
         nextDoc = { ...nextDoc, outline: { ...nextDoc.outline, minus } };
       }
-      commitDoc(nextDoc, label);
+      commitDoc(refitChannels(doc, nextDoc), label);
     };
 
     /** The same, for an edit of the minus half (`board.minus` edited into `next`). */
@@ -240,7 +261,7 @@ export const createSectionStore = (): StoreApi<SectionState> =>
       const { doc, board } = get();
       const half = board && minusHalf(board);
       if (!doc || !half) return;
-      commitDoc(applyMinusEdit(doc, half, pinPlan(next, doc)), label);
+      commitDoc(refitChannels(doc, applyMinusEdit(doc, half, pinPlan(next, doc))), label);
     };
 
     const ctx: ActionContext = {
@@ -283,7 +304,10 @@ export const createSectionStore = (): StoreApi<SectionState> =>
             rest[0] === 0 &&
             doc?.tail.kind === 'notched'
           ) {
-            commitDoc(setNotchDepth(doc, (rest[1] as { x: number }).x, chords), 'Move notch depth');
+            commitDoc(
+              setNotchDepth(dragOrigin ?? doc, (rest[1] as { x: number }).x, chords),
+              'Move notch depth',
+            );
             return;
           }
           fn(isMinus(target) ? plain(target) : target, ...rest);
@@ -305,7 +329,8 @@ export const createSectionStore = (): StoreApi<SectionState> =>
       selection: null,
       selectedFin: null,
 
-      loadDoc: (doc) =>
+      loadDoc: (doc) => {
+        dragOrigin = null;
         set({
           doc,
           board: project(doc),
@@ -315,7 +340,8 @@ export const createSectionStore = (): StoreApi<SectionState> =>
           editing: false,
           selection: null,
           selectedFin: null,
-        }),
+        });
+      },
       setNotchChords: (next) => {
         chords = next;
         const { doc } = get();
@@ -328,8 +354,14 @@ export const createSectionStore = (): StoreApi<SectionState> =>
       select: (selection) => set({ selection, selectedFin: null }),
       selectFin: (index) => set({ selectedFin: index, selection: null }),
 
-      beginEdit: history.beginEdit,
-      endEdit: history.endEdit,
+      beginEdit: () => {
+        if (!get().editing) dragOrigin = get().doc;
+        history.beginEdit();
+      },
+      endEdit: () => {
+        dragOrigin = null;
+        history.endEdit();
+      },
 
       ...spline,
 
