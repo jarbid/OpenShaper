@@ -592,9 +592,6 @@ function PlacementTools({
   );
 }
 
-const OUTLINE_CURVES = ['outline'] as const;
-const TAPER_CURVES = ['taper'] as const;
-
 /**
  * Where a new slice goes: halfway up the biggest gap between the root, the slices and
  * the tip, so repeated clicks spread them out.
@@ -620,7 +617,7 @@ function OutlineTools({ units }: { units: LengthUnit }) {
         units={units}
         onCommit={(cm) => finStore.getState().setDepth(cm)}
       />
-      <PointTools store={finStore} curves={OUTLINE_CURVES} />
+      <PointTools store={finStore} />
       <Tooltip label="Add a foil slice: drag its line to place it, then shape its foil, or give the blade above it a twist (its own cant and toe) in the 3D view">
         <Button
           variant="outline"
@@ -666,7 +663,7 @@ function TaperTools({ units }: { units: LengthUnit }) {
         units={units}
         onCommit={(cm) => finStore.getState().setRootThickness(cm)}
       />
-      <PointTools store={finStore} curves={TAPER_CURVES} />
+      <PointTools store={finStore} />
     </>
   );
 }

@@ -101,8 +101,6 @@ const SECTION_FRAME = { minX: 0, maxX: 1, minY: -0.12, maxY: 0.02 };
 /** The presets in the dropdown; "Other…" takes any 4-digit code. */
 const SUGGESTED = ['0008', '0010', '0012', '2408', '2410', '2412', '4409', '4412', '6409'];
 
-const SECTION_CURVES = ['outside', 'inside'] as const;
-
 const OUTSIDE = '#22D3EE';
 const INSIDE = '#A78BFA';
 const GUIDE = 'rgba(138,155,179,0.7)';
@@ -271,7 +269,7 @@ export const FinSectionTools = memo(function FinSectionTools({
         </div>
       )}
       <NacaPicker store={store} centre={centre} />
-      <PointTools store={store} curves={SECTION_CURVES} />
+      <PointTools store={store} />
       <PanelTools store={store} minThickness={minThickness} />
     </>
   );

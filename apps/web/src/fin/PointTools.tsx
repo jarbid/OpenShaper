@@ -2,17 +2,13 @@
 /**
  * Point tools for a curve view's toolbar (docs/design/fin-designer.md, round 1, R4):
  * add a point halfway along the selected span, delete the selected point, and make it
- * smooth or a corner. They act on the selected point when it is on one of `curves`, and
- * are greyed out otherwise. A curve's two end points can't be deleted or made smooth:
- * they are pinned to the base, the tip or the chord.
+ * smooth or a corner. They act on the selected point whichever view it is in, on the foil
+ * being edited (owner testing: they read the base foil, and greyed out for a slice's or
+ * the tip foil's later points; and a point picked in a small pane greyed out the large
+ * pane's tools), and are greyed out with nothing selected. A curve's two end points
+ * can't be deleted or made smooth: they are pinned to the base, the tip or the chord.
  */
-import {
-  canDeleteKnot,
-  getFinCurve,
-  selectedEnds,
-  type FinCurve,
-  type FinState,
-} from '@openshaper/store';
+import { canDeleteKnot, getFinCurve, selectedEnds, type FinState } from '@openshaper/store';
 import { Button, Tooltip } from '@openshaper/ui';
 import { Minus, Plus } from 'lucide-react';
 import { memo } from 'react';
@@ -20,17 +16,11 @@ import type { StoreApi } from 'zustand/vanilla';
 import { shortcutKeys } from '../shortcuts';
 import { useFinState } from './use-fin';
 
-export const PointTools = memo(function PointTools({
-  store,
-  curves,
-}: {
-  store: StoreApi<FinState>;
-  curves: readonly FinCurve[];
-}) {
-  const selection = useFinState(store, (s) => s.selection);
+export const PointTools = memo(function PointTools({ store }: { store: StoreApi<FinState> }) {
+  const sel = useFinState(store, (s) => s.selection);
   const design = useFinState(store, (s) => s.design);
-  const sel = selection && curves.includes(selection.curve) ? selection : null;
-  const spline = sel && design ? getFinCurve(design, sel.curve) : null;
+  const activeFoil = useFinState(store, (s) => s.activeFoil);
+  const spline = sel && design ? getFinCurve(design, sel.curve, activeFoil) : null;
   const k = sel && spline ? spline.knots[sel.index] : undefined;
   const interior = !!spline && !!sel && sel.index > 0 && sel.index < spline.knots.length - 1;
   const s = store.getState;
