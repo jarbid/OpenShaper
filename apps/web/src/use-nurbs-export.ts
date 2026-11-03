@@ -14,8 +14,9 @@ export const EXPORT_STAGE_TEXT: Record<ExportStage, string> = {
   building: 'building the surface',
   meshing: 'meshing',
   sampling: 'sampling the sections',
+  fitting: 'fitting the surfaces',
   drawing: 'drawing',
-  writing: 'writing the file',
+  writing: 'checking and writing the file',
 };
 
 export interface ActiveExport {

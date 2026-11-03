@@ -68,7 +68,8 @@ import {
 } from './file-io';
 import { captureError, track } from './analytics';
 import { EXPORT_STAGE_TEXT, useNurbsExport } from './use-nurbs-export';
-import { DEFAULT_STL_FACE_SIZE, type ExportJob } from './workers/nurbs-protocol';
+import { engineQuickJob, stepUnitOf } from './engine-export-job';
+import type { ExportJob } from './workers/nurbs-protocol';
 import {
   installSessionSummary,
   markExport,
@@ -1115,6 +1116,21 @@ function AppShell() {
     onError: (message, label) => showToast(`Could not export ${label}: ${message}`),
     onCancel: (label) => showToast(`${label} export cancelled.`),
   });
+  /**
+   * The one-click exports (no dialog) of a format: with the NURBS document open each is made from it, with the
+   * dialogs' saved settings for PDF 1:1 and STEP, so `exportBoard`'s classic output is only the engine-off path.
+   * False when the engine is off or the format has no NURBS export (the caller runs the classic one).
+   */
+  const exportQuick = (format: ExportFormat, label: string): boolean => {
+    const job = engineQuickJob(format, {
+      slug: slugifyName(meta?.model),
+      ghost: ghost ?? null,
+      fins: resolvedFins,
+      pdf: pdf1to1Options(pdf1to1, meta, units),
+      stepUnit: stepUnitOf(stepSettings, units),
+    });
+    return job !== null && startEngineExport(label, job);
+  };
   /** Start an export of the NURBS document as it is now; false when the engine is off (the classic path runs). */
   const startEngineExport = (label: string, job: ExportJob): boolean => {
     const doc = sectionEngine.ready ? sectionStore.getState().doc : null;
@@ -1593,7 +1609,7 @@ function AppShell() {
   // filled in.
   const stepSupport = board ? stepExportSupport(board) : null;
 
-  // With the NURBS document open, STL, DXF and PDF 1:1 are made from it (M3). STEP, rail bands and the
+  // With the NURBS document open, STL, DXF, PDF 1:1 and STEP are made from it (M3). Rail bands and the
   // legacy .brd are still its classic projection: say so on those items, and on the first export of each
   // document name what this board's export misses (review R2).
   const projSuffix = sectionEngine.ready ? ' (classic projection)' : '';
@@ -1635,30 +1651,20 @@ function AppShell() {
       disabled: !board || exporting !== null,
       onSelect: () => {
         if (!board) return;
-        const slug = slugifyName(meta?.model);
-        const started =
-          f === 'stl'
-            ? startEngineExport('STL', { format: 'stl', faceSize: DEFAULT_STL_FACE_SIZE, slug })
-            : startEngineExport(label, {
-                format: 'dxf',
-                curveMode: f === 'dxf-spline' ? 'spline' : 'polyline',
-                crossSectionCount: 7,
-                ghost: ghost ?? null,
-                fins: resolvedFins,
-                slug,
-              });
-        if (!started) exportBoard(board, f, meta, units, ghost ?? undefined);
-        track('export_board', { format: f });
-        markExport();
+        if (!exportQuick(f, label)) {
+          exportBoard(board, f, meta, units, ghost ?? undefined);
+          track('export_board', { format: f });
+          markExport();
+        }
       },
     })),
     {
       kind: 'action',
-      label: `STEP (surfaces)${projSuffix}…`,
-      disabled: !board || stepSupport?.ok === false,
-      title: stepSupport?.ok === false ? stepSupport.reason : undefined,
+      label: 'STEP (surfaces)…',
+      // The NURBS board models a swallow or fish tail; only the classic projection cannot.
+      disabled: !board || exporting !== null || (!sectionEngine.ready && stepSupport?.ok === false),
+      title: !sectionEngine.ready && stepSupport?.ok === false ? stepSupport.reason : undefined,
       onSelect: () => {
-        noteProjection();
         setStepDialogOpen(true);
       },
     },
@@ -2426,13 +2432,21 @@ function AppShell() {
       {stepDialogOpen && board && (
         <ExportStepDialog
           units={units}
+          engine={sectionEngine.ready}
           settings={stepSettings}
           onExport={(s) => {
             saveStep(s);
             setStepSettings(s);
-            downloadStep(board, s, meta, units);
-            track('export_board', { format: 'step' });
-            markExport();
+            const started = startEngineExport('STEP', {
+              format: 'step',
+              unit: stepUnitOf(s, units),
+              slug: slugifyName(meta?.model),
+            });
+            if (!started) {
+              downloadStep(board, s, meta, units);
+              track('export_board', { format: 'step' });
+              markExport();
+            }
           }}
           onClose={() => setStepDialogOpen(false)}
         />

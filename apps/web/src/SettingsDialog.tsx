@@ -246,8 +246,8 @@ export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProp
               the 3D view, updated as you edit. You can edit the outline, rocker, deck and
               cross-sections, and add, move and delete stations. Saving, sharing and the autosave
               write the NURBS board itself (a version 3 <code>.board</code> file), with both halves,
-              the tail and the bottom features. STL, DXF and PDF 1:1 exports are made from the NURBS
-              board itself; STEP, rail bands and the legacy <code>.brd</code> still use its classic
+              the tail and the bottom features. STL, DXF, PDF 1:1 and STEP exports are made from the
+              NURBS board itself; rail bands and the legacy <code>.brd</code> still use its classic
               projection, without the bottom features or the smooth blend between stations. Turn it
               off to return to the classic board you opened. You can also open the editor with{' '}
               <code>?engine=nurbs</code> to turn it on for one session.

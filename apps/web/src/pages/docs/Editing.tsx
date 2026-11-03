@@ -242,22 +242,23 @@ export default function DocsEditing() {
         <p>
           Saving, sharing and the autosave write the NURBS board itself (see{' '}
           <Link to="/docs/files#nurbs-files">Files &amp; templates</Link>): both halves of an
-          asymmetric board, the tail and the bottom features are in the file. STL, DXF and the 1:1
-          PDF are made from the NURBS board itself, in a worker, with a progress note and a Cancel
-          in the Export menu; an edit made while one runs does not change it. STEP, rail bands and
-          the legacy <code>.brd</code> still write its classic projection, which has neither the
-          bottom features nor the smooth blend between the stations, so a board cut from those
-          differs from the NURBS surface by the amount below. Turning the engine off returns to the
-          classic board you opened, and turning it on again finds the NURBS board where you left it;
-          opening another classic file converts that one, and a board the converter cannot hold
-          stays classic, with the reason shown in a notice. In this mode the specs in the sidebar
-          (volume, area, centre of mass) are measured on the NURBS surface, so the bottom features
-          and an asymmetric outline show in them. The NURBS surface is a different surface from the
-          classic one: it matches the outline, rocker, deck and every cross-section, and flows
-          smoothly between the stations where the classic loft blends them linearly, so the two
-          differ by up to a few millimetres between stations. The surface analysis modes above all
-          work on it, read from the NURBS surface&rsquo;s own exact derivatives, with no crease at
-          the stations, and the menu gains one more:
+          asymmetric board, the tail and the bottom features are in the file. STL, DXF, the 1:1 PDF
+          and STEP are made from the NURBS board itself, in a worker, with a progress note and a
+          Cancel in the Export menu; an edit made while one runs does not change it. The STEP
+          surfaces are fitted to within 0.5 mm of the NURBS surface, a swallow or fish tail
+          included. Rail bands and the legacy <code>.brd</code> still write its classic projection,
+          which has neither the bottom features nor the smooth blend between the stations, so a
+          board cut from those differs from the NURBS surface by the amount below. Turning the
+          engine off returns to the classic board you opened, and turning it on again finds the
+          NURBS board where you left it; opening another classic file converts that one, and a board
+          the converter cannot hold stays classic, with the reason shown in a notice. In this mode
+          the specs in the sidebar (volume, area, centre of mass) are measured on the NURBS surface,
+          so the bottom features and an asymmetric outline show in them. The NURBS surface is a
+          different surface from the classic one: it matches the outline, rocker, deck and every
+          cross-section, and flows smoothly between the stations where the classic loft blends them
+          linearly, so the two differ by up to a few millimetres between stations. The surface
+          analysis modes above all work on it, read from the NURBS surface&rsquo;s own exact
+          derivatives, with no crease at the stations, and the menu gains one more:
         </p>
         <Terms>
           <Term name="Deviation from classic">

@@ -41,6 +41,7 @@
 import {
   boardDocToJson,
   buildBoard,
+  boardStep,
   createChordFn,
   createEvaluator,
   meshBoard,
@@ -891,6 +892,15 @@ export const exportDocument = (
           bytes: utf8(text),
         },
       ];
+    } else if (job.format === 'step') {
+      progress?.('fitting');
+      const out = boardStep(built, {
+        name: job.slug,
+        unit: job.unit,
+        timestamp: new Date().toISOString().slice(0, 19),
+        onWrite: () => progress?.('writing'),
+      });
+      files = [{ name: `${job.slug}.step`, type: 'model/step', bytes: utf8(out.text) }];
     } else {
       progress?.('sampling');
       const curves = curvesOfBuilt(built, job.options.crossSectionCount ?? 7, job.fins);

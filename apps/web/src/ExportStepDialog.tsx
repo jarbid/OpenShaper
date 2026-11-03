@@ -37,9 +37,17 @@ export interface ExportStepDialogProps {
   /** Called with the chosen settings to persist + run the export. */
   onExport: (settings: StepSettings) => void;
   onClose: () => void;
+  /** The NURBS board is open: its surfaces are fitted to a fixed 0.5 mm, so there is no accuracy choice. */
+  engine?: boolean;
 }
 
-export function ExportStepDialog({ units, settings, onExport, onClose }: ExportStepDialogProps) {
+export function ExportStepDialog({
+  units,
+  settings,
+  onExport,
+  onClose,
+  engine = false,
+}: ExportStepDialogProps) {
   const [draft, setDraft] = useState<StepSettings>({ ...settings });
 
   const set = <K extends keyof StepSettings>(key: K, value: StepSettings[K]): void =>
@@ -92,20 +100,30 @@ export function ExportStepDialog({ units, settings, onExport, onClose }: ExportS
             changes the numbers inside it.
           </p>
 
-          <SelectRow
-            label="Accuracy"
-            value={draft.accuracy}
-            options={[
-              { value: 'draft', label: 'Draft' },
-              { value: 'standard', label: 'Standard' },
-              { value: 'fine', label: 'Fine' },
-            ]}
-            onChange={(v) => set('accuracy', v as StepAccuracy)}
-          />
-          <p className="-mt-3 text-xs text-muted-foreground">
-            {ACCURACY_NOTES[draft.accuracy]} Surfaces are fitted to within about{' '}
-            {fmtSmallLen(toleranceCm, units)} of the design.
-          </p>
+          {engine ? (
+            <p className="text-xs text-muted-foreground">
+              Made from the NURBS board itself: both halves, the tail, the bottom features and the
+              blend between stations. The surfaces are fitted to within {fmtSmallLen(0.05, units)}{' '}
+              of it.
+            </p>
+          ) : (
+            <>
+              <SelectRow
+                label="Accuracy"
+                value={draft.accuracy}
+                options={[
+                  { value: 'draft', label: 'Draft' },
+                  { value: 'standard', label: 'Standard' },
+                  { value: 'fine', label: 'Fine' },
+                ]}
+                onChange={(v) => set('accuracy', v as StepAccuracy)}
+              />
+              <p className="-mt-3 text-xs text-muted-foreground">
+                {ACCURACY_NOTES[draft.accuracy]} Surfaces are fitted to within about{' '}
+                {fmtSmallLen(toleranceCm, units)} of the design.
+              </p>
+            </>
+          )}
         </PanelBody>
 
         <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-3">

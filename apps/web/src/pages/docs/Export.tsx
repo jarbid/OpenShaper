@@ -257,14 +257,17 @@ export default function DocsExport() {
           into the file — it states its own unit, so the board lands at the right size either way.
           <strong> Accuracy</strong> is how closely the exported surfaces track your design; even
           the draft setting is finer than a blank cutter&rsquo;s finishing pass, so there is rarely
-          a reason to leave Standard.
+          a reason to leave Standard. With the NURBS engine on there is no accuracy choice: the
+          surfaces are always fitted to within 0.5 mm of the NURBS board, which is made, fitted and
+          checked in a worker with a progress note and a Cancel.
         </p>
         <p>
           Two things to know about the STEP file. It is the bare blank surface: fin boxes and plug
           footprints are not cut into it, and live instead on the DXF's fin layer at true scale and
-          position. And boards with a concave tail — a swallow or fish — cannot be exported yet,
-          because the notch needs surfaces of its own; the menu item is disabled for those, and STL
-          or DXF still work.
+          position. And on the classic engine, boards with a concave tail — a swallow or fish —
+          cannot be exported yet, because the notch needs surfaces of its own; the menu item is
+          disabled for those, and STL or DXF still work. With the NURBS engine on a swallow or fish
+          tail is exported as it is, the two sides meeting in one edge at the bottom of the notch.
         </p>
         <p>
           The editor does not yet generate machine G-code directly; you take the STEP, DXF or STL

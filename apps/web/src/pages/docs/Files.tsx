@@ -83,10 +83,10 @@ export default function DocsFiles() {
             shown.
           </Term>
           <Term name="Not in the file">
-            STL, DXF and PDF 1:1 are made from the NURBS board itself, with its bottom features,
-            both halves of an asymmetric board and the smooth blend between stations. STEP, rail
-            bands and the legacy <code>.brd</code> still use the classic projection for now, so
-            those are not in them.
+            STL, DXF, PDF 1:1 and STEP are made from the NURBS board itself, with its bottom
+            features, both halves of an asymmetric board, a swallow or fish tail and the smooth
+            blend between stations. Rail bands and the legacy <code>.brd</code> still use the
+            classic projection for now, so those are not in them.
           </Term>
         </Terms>
       </Section>

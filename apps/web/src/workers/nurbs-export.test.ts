@@ -124,6 +124,28 @@ describe('STL from the document', () => {
   });
 });
 
+describe('STEP from the document', () => {
+  it.each([BOARDS[0]!, BOARDS[3]!])(
+    '%s: a Part 21 solid, with progress',
+    (_name, make) => {
+      const stages: ExportStage[] = [];
+      const out = ok(
+        exportDocument(make(), { format: 'step', unit: 'mm', slug: 'b' }, (s) => stages.push(s)),
+      );
+      expect(out.files).toHaveLength(1);
+      expect(out.files[0]!.name).toBe('b.step');
+      expect(out.files[0]!.type).toBe('model/step');
+      const text = new TextDecoder().decode(out.files[0]!.bytes);
+      expect(text.startsWith('ISO-10303-21;')).toBe(true);
+      expect(text.trimEnd().endsWith('END-ISO-10303-21;')).toBe(true);
+      expect(text).toContain('MANIFOLD_SOLID_BREP');
+      expect(text).toContain('.MILLI.');
+      expect(stages).toEqual(['building', 'fitting', 'writing']);
+    },
+    60_000,
+  );
+});
+
 /** The polylines of one DXF layer: R12 POLYLINE / VERTEX records. */
 const dxfPolylines = (dxf: string, layer: string): { x: number; y: number }[][] => {
   const lines = dxf.split('\n');

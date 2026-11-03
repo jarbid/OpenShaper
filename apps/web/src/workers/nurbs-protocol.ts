@@ -301,11 +301,17 @@ export type ExportJob =
       readonly options: BoardPdf1to1Options;
       readonly fins: readonly ResolvedFin[];
       readonly slug: string;
+    }
+  | {
+      readonly format: 'step';
+      /** The unit the file declares and its coordinates are written in. The surfaces are held within 0.5 mm of the board. */
+      readonly unit: 'mm' | 'cm' | 'in';
+      readonly slug: string;
     };
 
 export type ExportFormatName = ExportJob['format'];
 
-export type ExportStage = 'building' | 'meshing' | 'sampling' | 'drawing' | 'writing';
+export type ExportStage = 'building' | 'meshing' | 'sampling' | 'fitting' | 'drawing' | 'writing';
 
 /** main → worker: one export of a document. */
 export interface ExportRequest {

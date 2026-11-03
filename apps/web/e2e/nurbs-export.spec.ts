@@ -3,8 +3,8 @@ import { expect, test, type Page } from '@playwright/test';
 import { editorReady } from './helpers';
 
 /**
- * Exports from the NURBS document (docs/design/m3-exports.md, step 1): with the engine on, STL, DXF and the
- * 1:1 PDF each download a non-empty file of the right type, made in the export worker, and lose the
+ * Exports from the NURBS document (docs/design/m3-exports.md, steps 1 and 2): with the engine on, STL, DXF,
+ * STEP and the 1:1 PDF each download a non-empty file of the right type, made in the export worker, and lose the
  * "(classic projection)" label; the exports that are still the projection keep it.
  */
 const menu = (page: Page, name: string) =>
@@ -24,14 +24,10 @@ test.describe('NURBS exports', () => {
   test('the labels: only the projection exports say so', async ({ page }) => {
     await openEngineEditor(page);
     await menu(page, 'Export').click();
-    for (const name of ['STL', 'DXF (polyline)', 'DXF (spline)', 'PDF 1:1…']) {
+    for (const name of ['STL', 'DXF (polyline)', 'DXF (spline)', 'STEP (surfaces)…', 'PDF 1:1…']) {
       await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
     }
-    for (const name of [
-      'STEP (surfaces) (classic projection)…',
-      'Rail bands (classic projection)…',
-      'Legacy .brd (classic projection)',
-    ]) {
+    for (const name of ['Rail bands (classic projection)…', 'Legacy .brd (classic projection)']) {
       await expect(page.getByRole('menuitem', { name, exact: true })).toBeVisible();
     }
   });
@@ -62,6 +58,22 @@ test.describe('NURBS exports', () => {
     expect(text).toContain('ENTITIES');
     expect(text).toContain('CROSSSECTION');
     expect(text.trimEnd().endsWith('EOF')).toBe(true);
+  });
+
+  test('STEP downloads a solid made from the NURBS board', async ({ page }) => {
+    await openEngineEditor(page);
+    await menu(page, 'Export').click();
+    await page.getByRole('menuitem', { name: 'STEP (surfaces)…', exact: true }).click();
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Export', exact: true }).click(),
+    ]);
+    expect(download.suggestedFilename()).toMatch(/\.step$/);
+    const text = readFileSync((await download.path())!, 'utf8');
+    expect(text.startsWith('ISO-10303-21;')).toBe(true);
+    expect(text).toContain('MANIFOLD_SOLID_BREP');
+    expect(text.trimEnd().endsWith('END-ISO-10303-21;')).toBe(true);
+    expect(text.length).toBeGreaterThan(50_000);
   });
 
   test('PDF 1:1 downloads a PDF from its dialog', async ({ page }) => {
