@@ -19,11 +19,13 @@ import {
   sectionThickest,
   sliceFoilMovedTo,
   sliceFreeSpan,
+  sliceTipCrossing,
   sliceTipPoint,
   sliceWeight,
   thicknessAlongSweep,
   thicknessAt,
   thicknessPathOf,
+  tipFoilOf,
   tipLineEta,
 } from './blade';
 import { defaultFinDesign, defaultKeel, defaultSingleFin, defaultTwinFin } from './fin-defaults';
@@ -508,5 +510,20 @@ describe('a heavily swept-back fin (the owner’s, docs/specs/fins/swept_back_ti
       // And thins on steadily to the edge: no cliff over the last tenth.
       for (let j = 90; j < 100; j++) expect(t[j]! - t[j + 1]!).toBeLessThan(0.2 * most);
     }
+  });
+
+  it('shows each foil the other where a slice made from the fin crosses the tip line', () => {
+    // Owner's rules: a green dot in the slice for the tip, an aqua one in the tip foil for
+    // the slice. A slice made from the fin is the fin there, so the two agree.
+    const plain = { ...ownerFin('swept_back_tip.fin.json'), slices: [] };
+    const eta = 0.872;
+    const d = { ...plain, slices: [{ height: eta, section: bladeFoilAt(plain, eta) }] };
+    const c = sliceTipCrossing(d, 0)!;
+    expect(c.sliceAt).toBeGreaterThan(0.5);
+    expect(c.tipInSlice.outside).toBeCloseTo(yAtX(d.slices[0]!.section.outside, c.sliceAt), 3);
+    const tip = tipFoilOf(d);
+    const rel = c.sliceInTip.outside / yAtX(tip.outside, c.tipAt);
+    expect(Math.abs(rel - 1)).toBeLessThan(0.03); // to the fit, a percent or two
+    expect(sliceTipCrossing(defaultFinDesign('side', 'left'), 0)).toBeNull();
   });
 });

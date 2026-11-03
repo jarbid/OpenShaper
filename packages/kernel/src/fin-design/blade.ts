@@ -337,6 +337,19 @@ export const prepareBlade = (
   };
 };
 
+const designBladeCache = new WeakMap<FinDesign, PreparedBlade>();
+
+/**
+ * The finished blade of a design (no laminate, the design minimum), kept per design: the
+ * editor's helpers (a slice's crossing, its free span, a new slice's foil) all ask for it
+ * after each edit, and each built its sweep afresh.
+ */
+const designBlade = (d: FinDesign): PreparedBlade => {
+  let b = designBladeCache.get(d);
+  if (!b) designBladeCache.set(d, (b = prepareBlade(d)));
+  return b;
+};
+
 /** Leading- and trailing-edge x where the outline is `h` above the tab top. */
 export const chordAt = (b: PreparedBlade, h: number): { leading: number; trailing: number } => {
   if (!(h >= 0 && h <= b.depth)) {
@@ -813,7 +826,7 @@ const alongSweepOf = (length: number, rise: number): number => {
 };
 
 /** How much a design's thickness curve is read along the sweep, 0 to 1 (alongSweep). */
-export const thicknessAlongSweep = (d: FinDesign): number => sweptBlade(prepareBlade(d)).alongSweep;
+export const thicknessAlongSweep = (d: FinDesign): number => sweptBlade(designBlade(d)).alongSweep;
 
 /** How soft (cm) the turn in {@link rowThickness} is: about a millimetre. */
 const THICKNESS_EASE = 0.1;
@@ -1194,7 +1207,7 @@ export const tipLineEta = (b: PreparedBlade): number => sweptBlade(b).tipEta;
  * chord crosses it. The rest is the tip's, shown locked in the slice's foil view.
  */
 export const sliceFreeSpan = (d: FinDesign, eta: number): readonly [number, number] => {
-  const b = prepareBlade(d);
+  const b = designBlade(d);
   return freeSpanAt(b, sweepGrid(d), eta * b.depth);
 };
 
@@ -1209,7 +1222,7 @@ export const sliceTipPoint = (
 ): { at: number; outside: number; inside: number } | null => {
   const sl = d.slices[index];
   if (!sl) return null;
-  const b = prepareBlade(d);
+  const b = designBlade(d);
   const sw = sweptBlade(b);
   const r = sliceRef(b, sw, index);
   if (!r) return null;
@@ -1218,6 +1231,62 @@ export const sliceTipPoint = (
   const at = a > 0 ? a : c;
   const k = r.thick > 0 ? r.own / r.thick : 0;
   return { at, outside: lerpStations(r.out, at) * k, inside: lerpStations(r.ins, at) * k };
+};
+
+/** Where a slice crosses the tip line, as each foil view shows it ({@link sliceTipCrossing}). */
+export interface SliceTipCrossing {
+  /** Chord fraction along the slice where it crosses the tip line. */
+  readonly sliceAt: number;
+  /** The tip there in the slice foil's units (its green reference dot). */
+  readonly tipInSlice: { readonly outside: number; readonly inside: number };
+  /** Chord fraction along the tip foil where the slice crosses it. */
+  readonly tipAt: number;
+  /** The slice there in the tip foil's units (the tip foil's aqua reference dot). */
+  readonly sliceInTip: { readonly outside: number; readonly inside: number };
+}
+
+/**
+ * Where slice `index` (0-based) crosses the tip line, in both foils (owner's rules): the
+ * slice shapes its chord up to there and the tip foil the rest, so each foil view shows
+ * the other's faces at the crossing as a reference dot, to match by hand. Null if its
+ * chord doesn't cross the tip line.
+ */
+export const sliceTipCrossing = (d: FinDesign, index: number): SliceTipCrossing | null => {
+  const sl = d.slices[index];
+  const tp = sliceTipPoint(d, index);
+  if (!sl || !tp) return null;
+  const b = designBlade(d);
+  const sw = sweptBlade(b);
+  const r = sliceRef(b, sw, index)!;
+  const h = sl.height * b.depth;
+  const { leading, trailing } = chordAt(b, h);
+  const x = leading + (trailing - leading) * tp.at;
+  const [ts, te] = sw.tipLine;
+  const lx = te.x - ts.x;
+  const lz = te.y - ts.y;
+  const tc = Math.min(
+    1,
+    Math.max(0, ((x - ts.x) * lx + (h - ts.y) * lz) / (lx * lx + lz * lz || 1)),
+  );
+  const tip = sw.grid.tipRow;
+  const f = sw.foils[tip]!;
+  // The tip foil's scale (cm per unit of its shape) there, as rowFaces lays it.
+  const kTip =
+    f.thickest.thickness > 0
+      ? (Math.max(0, rowThickness(b, sw, tip, h) - b.minThickness) * sw.rowScale[tip]!) /
+        f.thickest.thickness
+      : 0;
+  const [so, si] = sectionShapeAt(sl.section, tp.at);
+  const toCm = r.own > 0 ? r.thick / r.own : 0;
+  return {
+    sliceAt: tp.at,
+    tipInSlice: { outside: tp.outside, inside: tp.inside },
+    tipAt: foilFractionAt(tc, sw.path[tip]!, f.thickest.at),
+    sliceInTip: {
+      outside: kTip > 0 ? (so * toCm) / kTip : 0,
+      inside: kTip > 0 ? (si * toCm) / kTip : 0,
+    },
+  };
 };
 
 /** The fin's horizontal section sampled as a foil (bladeShapeAt). */
@@ -1234,7 +1303,7 @@ interface BladeShape {
 }
 
 const bladeShapeAt = (d: FinDesign, eta: number): BladeShape => {
-  const b = prepareBlade(d);
+  const b = designBlade(d);
   const sw = sweptBlade(b);
   const h = Math.min(b.depth, Math.max(0, eta * b.depth));
   const { leading, trailing } = chordAt(b, h);
