@@ -36,6 +36,26 @@ are not precached, and so is a chunk that returns 404 after a redeploy. Every NU
 
 All of them are cheap to fix. After the fix pass below, M2 is ready for the shaper preview.
 
+## Fix status
+
+The fix pass ran in the order of the recommended list. Commits are on `experiment/nurbs-overhaul`.
+
+| Finding  | Status   | Commit / note                                                                                                                                                                                                       |
+| -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1       | Fixed    | 96e1167. `readSections` returns `reason: unavailable \| invalid`; an unavailable chunk keeps the held text and refuses with a notice; `CacheFirst` runtime cache `nurbs-chunks`; unit test and an offline e2e case. |
+| R2       | Fixed    | 0a9c5fe. "(classic projection)" suffix on the export items and a toast, once per document, listing what is missing.                                                                                                 |
+| R3       | Fixed    | 96e1167. A toast with a button when a session NURBS document is held with the engine off.                                                                                                                           |
+| R4       | Skipped  | Out of the budget of this pass; still open.                                                                                                                                                                         |
+| R5       | Fixed    | 5a51b0d. `dragOrigin` in the section store; the notch intercept computes from it.                                                                                                                                   |
+| R6       | Fixed    | 5a51b0d. Channels are refitted on outline commits (plus and minus) from the drag origin.                                                                                                                            |
+| R7.1     | Fixed    | 50c718b. Lone feature change median 43.2 to 21.6 ms, p95 78.0 to 36.1 ms.                                                                                                                                           |
+| R7.2     | Skipped  | Out of the budget of this pass; still open.                                                                                                                                                                         |
+| R7.3     | Fixed    | 50c718b. The specs worker skips the classic integrals once the mesh numbers exist.                                                                                                                                  |
+| R8       | Skipped  | Out of the budget of this pass.                                                                                                                                                                                     |
+| R9       | Deferred | Not in the pass.                                                                                                                                                                                                    |
+| R10      | Skipped  | Out of the budget of this pass.                                                                                                                                                                                     |
+| R11, R12 | Deferred | Not in the pass.                                                                                                                                                                                                    |
+
 ## Findings
 
 ### Blocker
