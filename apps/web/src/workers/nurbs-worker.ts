@@ -42,8 +42,13 @@ ctx.onmessage = (e) => {
   if (req.kind === 'export') {
     // An export has its own worker (nurbs-export-client.ts), so it never delays an edit's mesh and a
     // cancel is a terminate. Progress is posted between its stages.
-    const out = exportDocument(req.doc, req.job, (stage) =>
-      ctx.postMessage({ kind: 'export-progress', id: req.id, stage }),
+    const out = exportDocument(req.doc, req.job, (stage, pass) =>
+      ctx.postMessage({
+        kind: 'export-progress',
+        id: req.id,
+        stage,
+        ...(pass === undefined ? {} : { pass }),
+      }),
     );
     if (out.ok) {
       ctx.postMessage(

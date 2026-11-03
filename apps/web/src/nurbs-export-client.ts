@@ -78,7 +78,7 @@ const loadCore: ExportCoreLoader = () => import('./workers/nurbs-core');
 export function startNurbsExport(
   doc: BoardDoc,
   job: ExportJob,
-  onStage?: (s: ExportStage) => void,
+  onStage?: (s: ExportStage, pass?: number) => void,
   spawn: ExportTransportFactory = spawnExportWorker,
   core: ExportCoreLoader = loadCore,
 ): ExportRun {
@@ -103,7 +103,7 @@ export function startNurbsExport(
     transport = spawn({
       onMessage(res) {
         if (res.id !== id || settled) return;
-        if (res.kind === 'export-progress') onStage?.(res.stage);
+        if (res.kind === 'export-progress') onStage?.(res.stage, res.pass);
         else {
           settle(() =>
             finish(

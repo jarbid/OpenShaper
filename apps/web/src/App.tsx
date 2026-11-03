@@ -67,7 +67,7 @@ import {
   toBoardMeta,
 } from './file-io';
 import { captureError, track } from './analytics';
-import { EXPORT_STAGE_TEXT, useNurbsExport } from './use-nurbs-export';
+import { exportStageText, useNurbsExport } from './use-nurbs-export';
 import { engineQuickJob, stepUnitOf } from './engine-export-job';
 import type { ExportJob } from './workers/nurbs-protocol';
 import {
@@ -1633,7 +1633,7 @@ function AppShell() {
       ? ([
           {
             kind: 'label',
-            label: `Exporting ${exporting.label}: ${EXPORT_STAGE_TEXT[exporting.stage]}…`,
+            label: `Exporting ${exporting.label}: ${exportStageText(exporting)}…`,
           },
           { kind: 'action', label: 'Cancel export', onSelect: nurbsExport.cancel },
           { kind: 'separator' },
@@ -2293,7 +2293,7 @@ function AppShell() {
           className="flex cursor-default items-center gap-3"
         >
           <span>
-            Exporting {exporting.label}: {EXPORT_STAGE_TEXT[exporting.stage]}…
+            Exporting {exporting.label}: {exportStageText(exporting)}…
           </span>
           <Button size="sm" variant="ghost" onClick={nurbsExport.cancel}>
             Cancel

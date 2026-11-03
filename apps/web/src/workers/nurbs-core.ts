@@ -42,6 +42,7 @@ import {
   boardDocToJson,
   buildBoard,
   boardStep,
+  StepFitError,
   createChordFn,
   createEvaluator,
   meshBoard,
@@ -563,8 +564,20 @@ export const probeDocument = (docIn: BoardDoc, probes: readonly number[]): Probe
     }
     return { ok: true, probes: probesOf(r.value, probes) };
   } catch (err) {
+    if (err instanceof StepFitError && job.format === 'step') {
+      return { ok: false, error: stepFitMessage(err, job.unit) };
+    }
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+};
+
+/** The STEP fit failure, worded in the unit the file is written in (the editor's display unit). */
+const stepFitMessage = (err: StepFitError, unit: 'mm' | 'cm' | 'in'): string => {
+  const per = unit === 'mm' ? 10 : unit === 'cm' ? 1 : 1 / 2.54;
+  const digits = unit === 'mm' ? 2 : 3;
+  const f = (cm: number): string => `${(cm * per).toFixed(digits)} ${unit}`;
+  if (err.kind === 'budget') return `${err.message}`;
+  return `The surface could not be fitted within ${f(err.tolerance)} (it reached ${f(err.deviation)}). Try fewer stations near the tail or a smaller feature.`;
 };
 
 /** What a conversion answers with: the document, or the reasons it was refused. */
@@ -853,7 +866,7 @@ const utf8 = (text: string): Uint8Array => new TextEncoder().encode(text);
 export const exportDocument = (
   docIn: BoardDoc,
   job: ExportJob,
-  progress?: (stage: ExportStage) => void,
+  progress?: (stage: ExportStage, pass?: number) => void,
 ): ExportOutcome => {
   const t0 = now();
   try {
@@ -898,6 +911,7 @@ export const exportDocument = (
         name: job.slug,
         unit: job.unit,
         timestamp: new Date().toISOString().slice(0, 19),
+        onPass: (pass) => progress?.('fitting', pass),
         onWrite: () => progress?.('writing'),
       });
       files = [{ name: `${job.slug}.step`, type: 'model/step', bytes: utf8(out.text) }];

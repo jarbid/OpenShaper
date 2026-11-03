@@ -23,7 +23,15 @@ export interface ActiveExport {
   /** What is being made, e.g. "STL". */
   readonly label: string;
   readonly stage: ExportStage;
+  /** The fit pass, while fitting. */
+  readonly pass?: number;
 }
+
+/** The words for the running stage, with the fit pass when there is one. */
+export const exportStageText = (a: ActiveExport): string =>
+  a.stage === 'fitting' && a.pass !== undefined
+    ? `${EXPORT_STAGE_TEXT.fitting}, pass ${a.pass}`
+    : EXPORT_STAGE_TEXT[a.stage];
 
 export interface NurbsExportControl {
   /** The running export, or null. */
@@ -51,8 +59,8 @@ export function useNurbsExport(handlers: {
     label.current = name;
     setActive({ label: name, stage: 'building' });
     let live = true; // a stage that arrives after the export has ended must not bring the chip back
-    const r = startNurbsExport(doc, job, (stage) => {
-      if (live) setActive({ label: name, stage });
+    const r = startNurbsExport(doc, job, (stage, pass) => {
+      if (live) setActive({ label: name, stage, ...(pass === undefined ? {} : { pass }) });
     });
     run.current = r;
     r.result

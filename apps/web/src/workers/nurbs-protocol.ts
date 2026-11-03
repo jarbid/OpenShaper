@@ -331,7 +331,12 @@ export interface ExportedFile {
 
 /** worker → main. */
 export type ExportResponse =
-  | { readonly kind: 'export-progress'; readonly id: number; readonly stage: ExportStage }
+  | {
+      readonly kind: 'export-progress';
+      readonly id: number;
+      readonly stage: ExportStage;
+      readonly pass?: number;
+    }
   | {
       readonly kind: 'exported';
       readonly id: number;
