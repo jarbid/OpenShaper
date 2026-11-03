@@ -49,6 +49,7 @@ import {
   addFeature,
   addFeatureKey,
   featureKindOf,
+  featureLimits,
   removeFeature,
   removeFeatureKey,
   setFeatureDepth,
@@ -99,6 +100,8 @@ export interface SectionState extends BoardState {
    * `Section` of the document is the same object afterwards. Values are held to `featureLimits`.
    */
   addFeature: (kind: FeatureKind) => void;
+  /** The ranges a feature's fields are held to on this board (null for an unknown id). */
+  featureLimits: (id: string) => ReturnType<typeof featureLimits> | null;
   removeFeature: (id: string) => void;
   setFeatureEnabled: (id: string, enabled: boolean) => void;
   setFeatureParams: (id: string, patch: FeatureParams) => void;
@@ -373,6 +376,11 @@ export const createSectionStore = (): StoreApi<SectionState> =>
         const { doc } = get();
         if (!doc) return;
         commitDoc(addFeature(doc, kind, chords), `Add ${FEATURE_LABELS[kind]}`);
+      },
+      featureLimits: (id) => {
+        const { doc } = get();
+        const f = doc?.features.find((q) => q.id === id);
+        return doc && f ? featureLimits(doc, f, chords) : null;
       },
       removeFeature: (id) => featureEdit(id, (d) => removeFeature(d, id), 'Remove'),
       setFeatureEnabled: (id, enabled) =>

@@ -29,6 +29,7 @@ export type SectionId =
   | 'specs'
   | 'resize'
   | 'boardShape'
+  | 'bottomFeatures'
   | 'controlPoint'
   | 'analysis'
   | 'boardInfo'
@@ -137,6 +138,15 @@ export const SIDEBAR_SECTIONS: readonly SidebarSection[] = [
     // Listed only with the NURBS engine on (`Sidebar.tsx` renders no body without it). Symmetry and the
     // tail are plan-view choices; the notch handle lives in the outline.
     relevantTo: ['outline', 'quad'],
+    defaultOpen: false,
+  },
+  {
+    id: 'bottomFeatures',
+    title: 'Bottom features',
+    tab: 'shape',
+    // Listed only with the NURBS engine on, like Board shape. The depth strip is in the rocker pane,
+    // the as-built ghost in the cross-section pane and the surface in 3D.
+    relevantTo: ['rocker', 'crossSection', '3d', 'quad'],
     defaultOpen: false,
   },
   {

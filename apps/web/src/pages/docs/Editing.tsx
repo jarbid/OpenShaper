@@ -16,6 +16,7 @@ export default function DocsEditing() {
         { id: 'analysis', label: 'Surface analysis in 3D' },
         { id: 'nurbs', label: 'Experimental NURBS engine' },
         { id: 'board-shape', label: 'Asymmetric boards & tail types (NURBS)' },
+        { id: 'bottom-features', label: 'Bottom features (NURBS)' },
         { id: 'points', label: 'Control points & tangents' },
         { id: 'locks', label: 'Locking handle angles' },
         { id: 'keyboard', label: 'Nudging from the keyboard' },
@@ -322,6 +323,62 @@ export default function DocsEditing() {
           the notch&rsquo;s cross-cuts would cross the outline at a shallow angle. The model then
           refuses the board: the 3D view keeps the last good surface until you drag back, and the{' '}
           <strong>i</strong> button says why. Nothing is lost, and the document stays editable.
+        </p>
+      </Section>
+
+      <Section id="bottom-features" title="Bottom features (NURBS)">
+        <p>
+          With the NURBS engine on, the <strong>Bottom features</strong> section of the Shape tab
+          adds a vee, a concave or channels to the bottom. A feature is a depth that changes along
+          the board, so it is zero at both ends, and a shape across the bottom. Each feature has a
+          switch to turn it off without losing its settings, and a Remove button. Every change is
+          one undo step, and dragging a slider is one step in all. Nothing else in the board is
+          refitted by it, so the 3D view follows as you drag.
+        </p>
+        <Terms>
+          <Term name="Vee">
+            The bottom rises towards the rails by the depth and is flat at the stringer.{' '}
+            <em>Stringer blend</em> is how much of the half-width is rounded off at the stringer, so
+            a small value gives a sharp ridge and a large one a soft one.
+          </Term>
+          <Term name="Single concave">
+            One hollow across the middle of the bottom, deepest on the stringer and fading to
+            nothing towards the rails. <em>Width</em> is its half-width as a share of the half-width
+            of the bottom.
+          </Term>
+          <Term name="Double concave">
+            Two hollows, one each side of the stringer. <em>Hollow width</em> and{' '}
+            <em>Hollow centre</em> are shares of the half-width of the bottom. The hollows stay
+            apart from each other and off the outline: widening one moves the centre if it has to.
+          </Term>
+          <Term name="Channels">
+            Narrow grooves parallel to the rails. You set how many there are, their width, the
+            spacing from one to the next and the distance of the outer one from the outline. They
+            cannot reach the stringer, so the fields stop where the narrowest part of the board
+            under the feature ends.
+          </Term>
+        </Terms>
+        <p>
+          <strong>Depth</strong> is the greatest depth, in your display unit. <strong>From</strong>{' '}
+          and <strong>To</strong> are where the feature starts and ends, measured from the tail. The
+          depth between them follows a smooth curve through its <em>depth keys</em>: open{' '}
+          <em>Depth keys</em> to move an inner key along the board or change its depth, add a key or
+          remove one. A feature always keeps its two ends and one key between them. Every field has
+          a slider and a box, and both are held to what the board can take: a value past the end of
+          the range is moved back to it.
+        </p>
+        <p>
+          The rocker view draws each feature&rsquo;s depth along the board as a coloured strip
+          across the top of the view, on one scale, with the greatest depth written beside it. It is
+          read-only. The cross-section view&rsquo;s dashed line is the section the surface really
+          has at the selected station, so it dips where a feature is. The dashed line, like the 3D
+          view, needs the 3D view to be open (quad, split or 3D).
+        </p>
+        <p>
+          A feature must lie between the notch bottom and the nose. When a tail change or a deeper
+          notch would put the start of a feature behind the notch bottom, the feature is squeezed
+          into the room that is left instead of being refused; undo restores it. Bottom features are
+          in the 3D view and the volume, but not yet in exported files.
         </p>
       </Section>
 

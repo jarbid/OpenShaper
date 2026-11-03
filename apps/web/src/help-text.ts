@@ -352,6 +352,11 @@ export const HELP_TEXT: Readonly<Record<string, HelpEntry>> = {
     route: '/docs/editing',
     anchor: 'board-shape',
   },
+  'section:bottomFeatures': {
+    description: 'Vee, single and double concave and channels on the bottom (NURBS engine).',
+    route: '/docs/editing',
+    anchor: 'bottom-features',
+  },
   'section:controlPoint': {
     description: 'Exact position and tangents of the selected control point.',
     route: '/docs/editing',

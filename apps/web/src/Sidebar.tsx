@@ -53,6 +53,7 @@ import {
   type SetStateAction,
 } from 'react';
 import { BoardShapeSection, boardShapeSummary } from './BoardShapeSection';
+import { BottomFeaturesSection, bottomFeaturesSummary } from './BottomFeaturesSection';
 import { ControlPointInspector } from './ControlPointInspector';
 import { CoffeeIcon } from './components/Support';
 import { SUPPORT_URL } from './support';
@@ -140,6 +141,10 @@ const SIZING = {
   support: 'h-9 pointer-coarse:h-11',
   /** One button of a segmented choice (Board shape's symmetry and tail), at the 44px finger floor. */
   segment: 'min-h-8 flex-1 px-2 text-xs pointer-coarse:min-h-11',
+  /** One button that adds a bottom feature: four in two rows, so a name like "Double concave" fits. */
+  addButton: 'min-h-8 basis-[calc(50%-0.125rem)] px-2 text-xs pointer-coarse:min-h-11',
+  /** A range input of the Bottom features section, with the 44px finger floor. */
+  slider: 'w-full accent-[var(--primary)] pointer-coarse:h-11',
 } as const;
 
 export interface ResizeFields {
@@ -260,6 +265,9 @@ export const Sidebar = memo(function Sidebar({
   const shapeSummary = useSyncExternalStore(sectionStore.subscribe, () =>
     nurbsEngine ? boardShapeSummary() : undefined,
   );
+  const featuresSummary = useSyncExternalStore(sectionStore.subscribe, () =>
+    nurbsEngine ? bottomFeaturesSummary() : undefined,
+  );
   const overlaysOn = Object.values(overlayToggles).filter(Boolean).length;
   const hasTrace = Boolean(trace.traces.outline || trace.traces.rocker);
 
@@ -287,7 +295,16 @@ export const Sidebar = memo(function Sidebar({
       />
     ),
     ...(nurbsEngine
-      ? { boardShape: <BoardShapeSection units={units} segmentClass={SIZING.segment} /> }
+      ? {
+          boardShape: <BoardShapeSection units={units} segmentClass={SIZING.segment} />,
+          bottomFeatures: (
+            <BottomFeaturesSection
+              units={units}
+              segmentClass={SIZING.addButton}
+              sliderClass={SIZING.slider}
+            />
+          ),
+        }
       : {}),
     controlPoint: <ControlPointInspector store={activeStore} units={units} />,
     analysis: <AnalysisSection overlayToggles={overlayToggles} setOverlay={setOverlay} />,
@@ -314,6 +331,7 @@ export const Sidebar = memo(function Sidebar({
   const summaries: Partial<Record<SectionId, ReactNode>> = {
     specs: specs ? fmtVol(specs.volume) : undefined,
     boardShape: shapeSummary,
+    bottomFeatures: featuresSummary,
     analysis: overlaysOn > 0 ? `${overlaysOn} on` : undefined,
     boardInfo: meta.model || undefined,
     fins: fins ? FIN_SETUP_LABELS[fins.setup] : undefined,

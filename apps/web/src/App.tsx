@@ -108,6 +108,7 @@ import {
   type SidebarState,
 } from './sidebar-sections';
 import sampleBrd from './sample-board.brd?raw';
+import { depthSeries } from './bottom-features';
 import { activeStore, boardStore, sectionStore } from './store';
 import { probeAt, probeSpline, setWantedProbes, useProbes } from './nurbs-probes';
 import { useSectionEngine } from './use-section-engine';
@@ -851,6 +852,15 @@ function AppShell() {
     [specs, foamType, glassSchedule],
   );
 
+  // The depth of the NURBS board's bottom features, drawn as a strip across the rocker view.
+  const features = useSyncExternalStore(sectionStore.subscribe, () =>
+    nurbsSections ? sectionStore.getState().doc?.features : undefined,
+  );
+  const depthStrip = useMemo(
+    () => (features ? depthSeries(features, units) : undefined),
+    [features, units],
+  );
+
   const overlaysFor = (kind: EditorKind): EditorOverlays => {
     const longitudinal = kind === 'outline' || kind === 'rocker';
     const verticalMarkers: { x: number; color: string; label?: string }[] = [];
@@ -872,6 +882,7 @@ function AppShell() {
       fins:
         (kind === 'outline' || kind === 'rocker') && resolvedFins.length ? resolvedFins : undefined,
       finView: kind === 'rocker' ? 'profile' : 'plan',
+      featureDepth: kind === 'rocker' ? depthStrip : undefined,
     };
   };
 

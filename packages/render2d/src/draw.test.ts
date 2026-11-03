@@ -21,6 +21,7 @@ import {
   clear,
   defaultStyle,
   drawApexHeight,
+  drawFeatureDepth,
   drawControlPoints,
   drawCurvatureComb,
   drawFinsPlan,
@@ -913,5 +914,41 @@ describe('drawApexHeight', () => {
     const { ctx, calls } = makeCtx();
     drawApexHeight(ctx, pts.slice(0, 1), VP);
     expect(calls).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// bottom-feature depth strip (rocker view, NURBS engine)
+// ---------------------------------------------------------------------------
+
+describe('drawFeatureDepth', () => {
+  const series = (depth: number, label?: string) => ({
+    color: '#fff',
+    ...(label ? { label } : {}),
+    points: [
+      { x: 20, depth: 0 },
+      { x: 60, depth },
+      { x: 100, depth: 0 },
+    ],
+  });
+
+  it('draws one filled line per feature on the scale of the deepest, and labels the deepest point', () => {
+    const { ctx, calls } = makeCtx();
+    (ctx as unknown as { fillText: unknown }).fillText = vi.fn();
+    drawFeatureDepth(ctx, [series(0.3, '3 mm'), series(0.15)], VP, 400);
+    expect(ctx.stroke).toHaveBeenCalledTimes(2);
+    expect(ctx.fill).toHaveBeenCalledTimes(2);
+    expect(
+      (ctx as unknown as { fillText: ReturnType<typeof vi.fn> }).fillText,
+    ).toHaveBeenCalledTimes(1);
+    expect(calls[0]).toBe('save');
+    expect(calls.at(-1)).toBe('restore');
+  });
+
+  it('draws nothing for no depth', () => {
+    const { ctx } = makeCtx();
+    drawFeatureDepth(ctx, [series(0)], VP, 400);
+    drawFeatureDepth(ctx, [], VP, 400);
+    expect(ctx.stroke).not.toHaveBeenCalled();
   });
 });

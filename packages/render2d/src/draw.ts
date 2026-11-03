@@ -399,6 +399,14 @@ export const drawGrid = (
   ctx.restore();
 };
 
+/** One feature's depth over x for {@link drawFeatureDepth}. */
+export interface DepthSeries {
+  readonly color: string;
+  /** Written beside the line's deepest point, already formatted (this package has no unit preferences). */
+  readonly label?: string;
+  readonly points: readonly { readonly x: number; readonly depth: number }[];
+}
+
 /** Toggleable analysis overlays drawn on a 2D editor pane. */
 export interface EditorOverlays {
   /** Faint reference grid + emphasized baseline/centerline axes. */
@@ -421,6 +429,11 @@ export interface EditorOverlays {
    * board height of each station's widest point), drawn dashed. Rocker pane only.
    */
   apexHeight?: readonly { x: number; z: number }[];
+  /**
+   * Depth of the bottom features along the board (NURBS engine), drawn as a strip across the top of the
+   * pane, one line per feature on a shared scale. Rocker pane only; read-only.
+   */
+  featureDepth?: readonly DepthSeries[];
   /** Resolved fins to draw on this pane (placement + box/blade geometry). */
   fins?: readonly ResolvedFin[];
   /** How to draw fins: `'plan'` (footprint + box, default) or `'profile'` (blade silhouette). */
@@ -769,6 +782,55 @@ export const drawDistribution = (
   ctx.globalAlpha = 0.15;
   ctx.fill();
   ctx.globalAlpha = 1;
+};
+
+/** Space above the depth strip for the labels (px), the strip's tallest height and its top margin. */
+const DEPTH_LABEL_ROOM = 14;
+const DEPTH_STRIP_MAX = 36;
+
+/**
+ * The depth of bottom features over the board's length as a strip across the top of the pane: depth grows
+ * downward from a baseline, one filled line per feature, all on the scale of the deepest. Read-only.
+ */
+export const drawFeatureDepth = (
+  ctx: CanvasRenderingContext2D,
+  series: readonly DepthSeries[],
+  vp: Viewport,
+  height: number,
+): void => {
+  const drawn = series.filter((s) => s.points.length >= 2);
+  const deepest = drawn.reduce((m, s) => Math.max(m, ...s.points.map((p) => p.depth)), 0);
+  if (drawn.length === 0 || !(deepest > 0)) return;
+  const stripH = Math.min(DEPTH_STRIP_MAX, height * 0.18);
+  const base = DEPTH_LABEL_ROOM;
+  const sx = (x: number) => worldToScreen(vp, { x, y: 0 }).x;
+  ctx.save();
+  ctx.lineWidth = 1.5;
+  ctx.font = '10px sans-serif';
+  for (const s of drawn) {
+    const pts = s.points;
+    ctx.strokeStyle = s.color;
+    ctx.fillStyle = s.color;
+    ctx.beginPath();
+    pts.forEach((p, i) => {
+      const x = sx(p.x);
+      const y = base + (p.depth / deepest) * stripH;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.lineTo(sx(pts[pts.length - 1]!.x), base);
+    ctx.lineTo(sx(pts[0]!.x), base);
+    ctx.closePath();
+    ctx.globalAlpha = 0.15;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    if (s.label) {
+      const deep = pts.reduce((a, p) => (p.depth > a.depth ? p : a), pts[0]!);
+      ctx.fillText(s.label, sx(deep.x), base - 3);
+    }
+  }
+  ctx.restore();
 };
 
 /** The 3D apex guide's lime (render3d `Guides3D`), so the two read as one line. */

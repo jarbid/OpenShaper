@@ -35,6 +35,7 @@ import {
   drawCurvatureComb,
   drawDistribution,
   drawApexHeight,
+  drawFeatureDepth,
   drawGrid,
   drawMeasureCursor,
   drawVProbe,
@@ -757,6 +758,7 @@ export function SplineEditor({
       else drawFinsPlan(ctx, overlays.fins, vp, selectedFin);
     }
     if (overlays?.apexHeight) drawApexHeight(ctx, overlays.apexHeight, vp);
+    if (overlays?.featureDepth) drawFeatureDepth(ctx, overlays.featureDepth, vp, size.h);
     if (ghostSplines) {
       for (const g of ghostSplines) drawGhostSpline(ctx, g, vp, { mirrorX, mirrorY }, ghostColor);
     }

@@ -39,6 +39,8 @@ export {
   fillTextUpright,
   drawDistribution,
   drawApexHeight,
+  drawFeatureDepth,
+  type DepthSeries,
   drawFinsPlan,
   drawFinsProfile,
   hitFin,
