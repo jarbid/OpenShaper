@@ -437,6 +437,43 @@ describe('slices and the tip line (owner’s rules)', () => {
     }
   });
 
+  it('carries a foil’s edge off the chord line to the blade’s edge, and into a new slice', () => {
+    // Owner's request, to blend twists: the root foil's trailing edge moved 1% of the
+    // chord outboard, both faces with it.
+    const side = defaultFinDesign('side');
+    const lift = (s: FinDesign['section']['outside']) =>
+      splineFromKnots(
+        s.knots.map((k) => {
+          const up = (p: { x: number; y: number }) => vec2(p.x, p.y + 0.01 * p.x);
+          return knot(up(k.end), up(k.tangentToPrev), up(k.tangentToNext), k.continuous);
+        }),
+      );
+    const moved = {
+      ...side,
+      section: { outside: lift(side.section.outside), inside: lift(side.section.inside!) },
+    };
+    const a = prepareBlade(side);
+    const b = prepareBlade(moved);
+    const st = [0.99, 0.999, 1];
+    const mid = (s: ReturnType<typeof bladeSection>, j: number) =>
+      (s.outside[j]!.y + s.inside[j]!.y) / 2;
+    for (const eta of [0.1, 0.3]) {
+      const p = bladeSection(a, eta * a.depth, st);
+      const q = bladeSection(b, eta * b.depth, st);
+      // The edge itself moves, as far as the face just short of it: no crease there.
+      const shift = Math.abs(mid(q, 2) - mid(p, 2));
+      expect(shift).toBeGreaterThan(0.02);
+      expect(Math.abs(mid(q, 1) - mid(p, 1) - (mid(q, 2) - mid(p, 2)))).toBeLessThan(0.1 * shift);
+      // Still the minimum there.
+      expect(width(q, 2)).toBeCloseTo(width(p, 2), 6);
+    }
+    // A new slice copies the edge, its faces meeting there.
+    const sec = bladeFoilAt({ ...moved, slices: [] }, 0.3);
+    const end = (s: FinDesign['section']['outside']) => s.knots[s.knots.length - 1]!.end.y;
+    expect(end(sec.outside)).toBeGreaterThan(0.002);
+    expect(end(sec.inside!)).toBe(end(sec.outside));
+  });
+
   it('fits a new slice with as few points as a foil drawn by hand', () => {
     // Owner testing: a slice came with seven points where one between the edges drew
     // the same curve. The default fin's section is its three-point foil, scaled.

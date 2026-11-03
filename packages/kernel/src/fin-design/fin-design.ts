@@ -80,8 +80,10 @@ export const FIN_EXPORT_MIN_THICKNESS = { default: 0.1, min: FIN_MIN_THICKNESS, 
 /**
  * The horizontal foil, as two faces offset from the chord line. Frame: x = chord fraction
  * u (0 leading edge → 1 trailing edge), y = offset in chords, + toward the outside face.
- * Both faces run (0, 0) → (1, 0). Only the shape matters: step 4 scales the section so
- * its thickest point matches the taper.
+ * Both faces run from the leading edge (x 0) to the trailing edge (x 1), and meet there:
+ * on the chord line for a symmetric foil, anywhere either side of it otherwise (an edge
+ * moved off the line, to blend a twist). Only the shape matters: step 4 scales the
+ * section so its thickest point matches the taper, edges' offsets with the rest.
  */
 export interface FinSection {
   /** The outside (outboard) face. */

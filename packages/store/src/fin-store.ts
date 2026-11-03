@@ -39,6 +39,7 @@ import {
   applyNaca,
   clampEdit,
   constrainKnot,
+  edgesFree,
   withCrossingPoints,
   getFinCurve,
   newFin,
@@ -378,7 +379,7 @@ export const createFinStore = (): StoreApi<FinState> =>
         const from = s.knots[index]!.end;
         // Constrain the target, not each step: every constraint is a line or a point, so
         // the straight drag to a constrained target stays on it.
-        const to = constrainKnot(s, curve, index, p);
+        const to = constrainKnot(s, curve, index, p, edgesFree(get().design!, get().activeFoil));
         if (to.x === from.x && to.y === from.y) return false;
         return drag('Move control point', from, to, (q) =>
           withFinCurve(get().design!, curve, moveKnotEnd(s, index, q), get().activeFoil),
@@ -402,7 +403,8 @@ export const createFinStore = (): StoreApi<FinState> =>
         const ids = [...new Set(indices)].filter((i) => s.knots[i]);
         if (ids.length <= 1) return get().moveControlPoint(curve, lead, p);
         const from = s.knots[lead]!.end;
-        const to = constrainKnot(s, curve, lead, p);
+        const edges = edgesFree(design, activeFoil);
+        const to = constrainKnot(s, curve, lead, p, edges);
         const dx = to.x - from.x;
         const dy = to.y - from.y;
         if (dx === 0 && dy === 0) return false;
@@ -414,7 +416,7 @@ export const createFinStore = (): StoreApi<FinState> =>
             moved = moveKnotEnd(
               moved,
               i,
-              constrainKnot(s, curve, i, vec2(e.x + dx * t, e.y + dy * t)),
+              constrainKnot(s, curve, i, vec2(e.x + dx * t, e.y + dy * t), edges),
             );
           }
           return withFinCurve(design, curve, moved, activeFoil);

@@ -206,10 +206,15 @@ export default function DocsFinDesigner() {
             back. Each face gets a point halfway round its radius and one where it meets the line,
             to reshape it from. The sizes are true to the fin: its thickness and chord at the root,
             or at the slice being edited. The split goes from 100 / 0 down to 51 / 49: an even split
-            is a symmetric foil, which has its own button.
+            is a symmetric foil, which has its own button. An asymmetric foil&apos;s leading- and
+            trailing-edge points can be dragged off the chord line, outboard or inboard, to blend a
+            twist: both faces move with them, so the edge stays closed and at the minimum thickness,
+            and the edge moves with the foil as it scales. A new slice copies the edge where the fin
+            has it. Making the foil symmetric or flat inside brings its edges back to the line.
           </Term>
           <Term name="Symmetric">
-            The same curve on both faces — always the case on a centre fin.
+            The same curve on both faces — always the case on a centre fin. Its edges stay on the
+            chord line.
           </Term>
           <Term name="NACA presets">
             Pick a NACA 4-digit foil from the list (2412, 0010, …), or Other… to type any code, and

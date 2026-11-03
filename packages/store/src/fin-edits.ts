@@ -55,7 +55,7 @@ import {
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
-import { insertKnotAt, setKnotContinuous } from './edits';
+import { insertKnotAt, moveKnotEnd, setKnotContinuous } from './edits';
 
 /** The editable curves of a fin. */
 export type FinCurve = 'outline' | 'outside' | 'inside' | 'taper';
@@ -95,6 +95,41 @@ export const getFinCurve = (d: FinDesign, c: FinCurve, foil: FinFoilIndex = 0): 
   }
 };
 
+/**
+ * `face` with its leading- and trailing-edge points where `to`'s are, their handles
+ * carried with them: the two faces of a foil meet at its edges. `face` itself if they
+ * already do.
+ */
+const withEdgesOf = (face: Spline, to: Spline): Spline => {
+  let s = face;
+  for (const [i, j] of [
+    [0, 0],
+    [face.knots.length - 1, to.knots.length - 1],
+  ] as const) {
+    const e = to.knots[j]!.end;
+    if (s.knots[i]!.end.y !== e.y) s = moveKnotEnd(s, i, vec2(s.knots[i]!.end.x, e.y));
+  }
+  return s;
+};
+
+/** `face` with its edges back on the chord line: for a foil made symmetric or flat inside. */
+const edgesOnChord = (face: Spline): Spline =>
+  withEdgesOf(
+    face,
+    splineFromKnots([
+      knot(vec2(0, 0), vec2(0, 0), vec2(0, 0), false),
+      knot(vec2(1, 0), vec2(1, 0), vec2(1, 0), false),
+    ]),
+  );
+
+/**
+ * Whether the edges of foil `foil` may leave the chord line (constrainKnot): a foil with
+ * its own inside face, whose faces then move their edges together. A symmetric foil's
+ * stay on the line (owner's choice): its inside face mirrors the outside.
+ */
+export const edgesFree = (d: FinDesign, foil: FinFoilIndex = 0): boolean =>
+  !!getFoil(d, foil)?.inside;
+
 export const withFinCurve = (
   d: FinDesign,
   c: FinCurve,
@@ -105,10 +140,13 @@ export const withFinCurve = (
   switch (c) {
     case 'outline':
       return { ...d, outline: s };
+    // A face's edges move the other face's with them: the foil stays closed there.
     case 'outside':
-      return sec ? withFoil(d, foil, { ...sec, outside: s }) : d;
+      return sec
+        ? withFoil(d, foil, { outside: s, inside: sec.inside && withEdgesOf(sec.inside, s) })
+        : d;
     case 'inside':
-      return sec ? withFoil(d, foil, { ...sec, inside: s }) : d;
+      return sec ? withFoil(d, foil, { outside: withEdgesOf(sec.outside, s), inside: s }) : d;
     case 'taper':
       return { ...d, taper: s };
   }
@@ -227,16 +265,23 @@ export const moveSlice = (
 /**
  * Where a knot of `curve` may go when dragged toward `p`:
  * - the outline's two ends slide along the base (y = 0);
- * - a section face's ends are the leading and trailing edges, fixed at (0, 0), (1, 0);
+ * - a section face's ends are the leading and trailing edges: they move only across the
+ *   chord, and only with `edges` free ({@link edgesFree}), else fixed at (0, 0), (1, 0);
  * - the taper's ends keep their heights (0 at the root, 1 at the tip).
  */
-export const constrainKnot = (s: Spline, c: FinCurve, index: number, p: Vec2): Vec2 => {
+export const constrainKnot = (
+  s: Spline,
+  c: FinCurve,
+  index: number,
+  p: Vec2,
+  edges = false,
+): Vec2 => {
   const end = index === 0 || index === s.knots.length - 1;
   if (!end) return p;
   const at = s.knots[index]!.end;
   if (c === 'outline') return vec2(p.x, 0);
-  if (c === 'taper') return vec2(at.x, p.y);
-  return at; // section faces: pinned
+  if (c === 'taper' || edges) return vec2(at.x, p.y);
+  return at; // a symmetric foil's edges: on the chord line
 };
 
 /** Rule codes `next` breaks that `prev` did not (`prev` may be its issue codes). */
@@ -356,7 +401,13 @@ export const setInsideFace = (
 ): FinDesign | null => {
   if (kind === 'flat' && d.position === 'centre') return null;
   const sec = getFoil(d, foil);
-  return sec ? withFoil(d, foil, { ...sec, inside: kind === 'flat' ? flatFace() : null }) : null;
+  // Edges off the chord line come back to it: flat or mirrored, the faces meet there.
+  return sec
+    ? withFoil(d, foil, {
+        outside: edgesOnChord(sec.outside),
+        inside: kind === 'flat' ? flatFace() : null,
+      })
+    : null;
 };
 
 /**

@@ -115,13 +115,36 @@ describe('fin store: drags stay inside the rules', () => {
     expect(knotAt(s, 0).x).toBeGreaterThan(le.x);
   });
 
-  it('pins a section face to the leading and trailing edges', () => {
-    const s = storeWith();
+  it('pins a symmetric foil’s faces to the leading and trailing edges', () => {
+    const s = storeWith(defaultFinDesign('centre'));
     const before = design(s);
+    expect(before.section.inside).toBeNull();
     expect(s.getState().moveControlPoint('outside', 0, vec2(0.2, 0.1))).toBe(false);
-    expect(s.getState().moveControlPoint('outside', 2, vec2(0.8, 0.1))).toBe(false);
+    const last = before.section.outside.knots.length - 1;
+    expect(s.getState().moveControlPoint('outside', last, vec2(0.8, 0.1))).toBe(false);
     expect(design(s)).toBe(before); // nothing changed, and no undo step
     expect(s.getState().canUndo()).toBe(false);
+  });
+
+  it('moves an edge of a foil with its own inside face across the chord, both faces', () => {
+    // Owner's request: edges off the chord line, to blend twists. The edge stays at the
+    // edge (x), and the faces still meet there.
+    const s = storeWith();
+    const last = design(s).section.outside.knots.length - 1;
+    s.getState().beginEdit();
+    expect(s.getState().moveControlPoint('outside', last, vec2(0.8, 0.01))).toBe(true);
+    s.getState().endEdit();
+    const { outside, inside } = design(s).section;
+    expect(outside.knots[last]!.end).toEqual(vec2(1, 0.01));
+    expect(inside!.knots[inside!.knots.length - 1]!.end).toEqual(vec2(1, 0.01));
+    expect(validateFinDesign(design(s))).toEqual([]);
+    // From the inside face too, the leading edge.
+    s.getState().moveControlPoint('inside', 0, vec2(0.1, -0.004));
+    expect(design(s).section.outside.knots[0]!.end).toEqual(vec2(0, -0.004));
+    // Made symmetric, the edges come back to the chord line.
+    expect(s.getState().setInsideFace('symmetric')).toBe(true);
+    expect(design(s).section.outside.knots[0]!.end).toEqual(vec2(0, 0));
+    expect(design(s).section.outside.knots[last]!.end).toEqual(vec2(1, 0));
   });
 
   it('keeps the taper ends at the root and the tip, and above the minimum', () => {

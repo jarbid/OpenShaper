@@ -44,6 +44,7 @@ export {
   applyNaca,
   clampEdit,
   constrainKnot,
+  edgesFree,
   getFinCurve,
   getFoil,
   tipSpanOf,

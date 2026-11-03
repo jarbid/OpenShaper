@@ -142,15 +142,18 @@ const checkTabContact = (d: FinDesign, issues: FinIssue[]): void => {
   }
 };
 
-/** The face must run (0, 0) → (1, 0), always moving toward the trailing edge. */
-const checkFace = (face: Spline, name: string, issues: FinIssue[]): boolean => {
+/**
+ * The face must run from the leading edge to the trailing edge (x 0 → 1), always moving
+ * toward the trailing edge; with `onChord`, its ends on the chord line (y = 0).
+ */
+const checkFace = (face: Spline, name: string, issues: FinIssue[], onChord: boolean): boolean => {
   if (face.curves.length === 0) {
     issues.push({ code: 'section-ends', message: `The ${name} face has no curve.` });
     return false;
   }
   const a = first(face);
   const b = last(face);
-  if (!near(a.x, 0) || !near(a.y, 0) || !near(b.x, 1) || !near(b.y, 0)) {
+  if (!near(a.x, 0) || !near(b.x, 1) || (onChord && (!near(a.y, 0) || !near(b.y, 0)))) {
     issues.push({
       code: 'section-ends',
       message: `The ${name} face must run from the leading edge to the trailing edge.`,
@@ -176,9 +179,20 @@ const checkFoil = (d: FinDesign, sec: FinSection, where: string, issues: FinIssu
       message: `A centre fin has a symmetric foil${where}.`,
     });
   }
-  const outsideOk = checkFace(outside, `outside${where}`, issues);
-  const insideOk = inside === null || checkFace(inside, `inside${where}`, issues);
+  // A symmetric foil's edges are on the chord line; any other's may be off it.
+  const outsideOk = checkFace(outside, `outside${where}`, issues, inside === null);
+  const insideOk = inside === null || checkFace(inside, `inside${where}`, issues, false);
   if (!outsideOk || !insideOk) return;
+  if (
+    inside &&
+    (!near(first(outside).y, first(inside).y) || !near(last(outside).y, last(inside).y))
+  ) {
+    issues.push({
+      code: 'section-ends',
+      message: `The faces must meet at the leading and trailing edges${where}.`,
+    });
+    return;
+  }
 
   // The inside face mirrors the outside when the foil is symmetric.
   const insideAt = (u: number) => (inside ? valueAt(inside, u) : -valueAt(outside, u));

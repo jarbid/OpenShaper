@@ -146,6 +146,21 @@ describe('validateFinDesign', () => {
       ]);
     });
 
+    it('lets the edges leave the chord line where both faces meet them', () => {
+      // Owner's request, to blend twists: a foil with its own inside face only.
+      const lift = (s: Spline) => mapSpline(s, (p) => vec2(p.x, p.y + 0.01 * p.x));
+      const off = { outside: lift(side.section.outside), inside: lift(side.section.inside!) };
+      expect(codes({ ...side, section: off })).toEqual([]);
+      // The faces apart at the trailing edge: open.
+      expect(codes({ ...side, section: { ...off, inside: side.section.inside } })).toEqual([
+        'section-ends',
+      ]);
+      // A symmetric foil mirrors its outside face: its edges stay on the line.
+      expect(codes({ ...side, section: { outside: off.outside, inside: null } })).toEqual([
+        'section-ends',
+      ]);
+    });
+
     it('rejects a face that turns back toward the leading edge', () => {
       const k = side.section.outside.knots[1]!;
       const back = withKnot(

@@ -13,6 +13,9 @@ type P = readonly [number, number, number];
 const sub = (a: P, b: P) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]] as const;
 const len = (v: readonly number[]) => Math.hypot(...v);
 
+/** Per test, for the pose searches: slow on a loaded CI runner. */
+const HEAVY = 20_000;
+
 describe('panel fit in the app', () => {
   it('has nothing to say without a panel', () => {
     expect(panelFitOf(defaultFinDesign('side', 'left'), 0.1)).toBeNull();
@@ -50,21 +53,25 @@ describe('panel fit in the app', () => {
     expect(o.angle).toBe(10);
   });
 
-  it('fits a canted Futures keel in a 3/8" panel by tilting it, and leans the outline', () => {
-    const keel = defaultKeel();
-    const d: FinDesign = { ...keel, panel: { thickness: 0.9525, angle: 0 } };
-    expect(panelFitOf(d, 0.1)!.fits).toBe(false); // upright, the leaning blade sticks out
-    const pose = bestPoseOf(d, 0.1);
-    expect(pose.tilt).toBeGreaterThan(0);
-    const fit = panelFitOf({ ...d, panel: { ...d.panel!, ...pose } }, 0.1)!;
-    expect(fit.fits).toBe(true);
-    // A left fin leans to +Y: the outline's long sides lean that way by the tilt.
-    const [a, , , dd] = panelOutline(fit).corners as [P, P, P, P];
-    const up = sub(dd, a);
-    expect((Math.atan2(up[1], up[2]) * 180) / Math.PI).toBeCloseTo(pose.tilt, 6);
-    // A right keel is the mirror: its outline leans to −Y.
-    const right: FinDesign = { ...defaultKeel('right'), panel: { thickness: 0.9525, ...pose } };
-    const [ra, , , rd] = panelOutline(panelFitOf(right, 0.1)!).corners as [P, P, P, P];
-    expect(rd[1] - ra[1]).toBeCloseTo(-up[1], 3);
-  });
+  it(
+    'fits a canted Futures keel in a 3/8" panel by tilting it, and leans the outline',
+    () => {
+      const keel = defaultKeel();
+      const d: FinDesign = { ...keel, panel: { thickness: 0.9525, angle: 0 } };
+      expect(panelFitOf(d, 0.1)!.fits).toBe(false); // upright, the leaning blade sticks out
+      const pose = bestPoseOf(d, 0.1);
+      expect(pose.tilt).toBeGreaterThan(0);
+      const fit = panelFitOf({ ...d, panel: { ...d.panel!, ...pose } }, 0.1)!;
+      expect(fit.fits).toBe(true);
+      // A left fin leans to +Y: the outline's long sides lean that way by the tilt.
+      const [a, , , dd] = panelOutline(fit).corners as [P, P, P, P];
+      const up = sub(dd, a);
+      expect((Math.atan2(up[1], up[2]) * 180) / Math.PI).toBeCloseTo(pose.tilt, 6);
+      // A right keel is the mirror: its outline leans to −Y.
+      const right: FinDesign = { ...defaultKeel('right'), panel: { thickness: 0.9525, ...pose } };
+      const [ra, , , rd] = panelOutline(panelFitOf(right, 0.1)!).corners as [P, P, P, P];
+      expect(rd[1] - ra[1]).toBeCloseTo(-up[1], 3);
+    },
+    HEAVY,
+  );
 });

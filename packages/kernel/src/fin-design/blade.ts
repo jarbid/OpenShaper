@@ -902,9 +902,9 @@ const rowFaces = (
 
 /**
  * The sweep's faces at (x, z) (tab frame, cm): each section's foil, read where the point
- * falls on it, or the tip past the tip line. Null off the sweep. `edge` lets a point on
- * the outline count: only along the base, where a raised rear's underside is the base's
- * foil cut off, as thick as the foil there.
+ * falls on it, or the tip past the tip line. Null off the sweep. `edge` marks a point on
+ * the outline: the foils' edge there, except along the base, where a raised rear's
+ * underside is the base's foil cut off, as thick as the foil there.
  *
  * **The tip** (owner's rules): out from each point of the tip line toward the tip edge,
  * the tip foil there rounds down along a quarter cosine, level at the tip line and down
@@ -940,11 +940,14 @@ const sweepFaces = (
     const v = edge || !(reach > 0) ? 1 : Math.min(1, dist / reach);
     return rowFaces(b, sw, tip, tc, z, v >= 1 ? 0 : Math.cos((Math.PI / 2) * v), v);
   }
-  if (edge && !(hit.row < 1 && hit.along > 1e-3 && hit.along < 1 - 1e-3)) return null;
+  // Off the base, an edge is the foils' own edge: the minimum, where their faces meet
+  // (on the chord line, or off it where an edge was moved to blend a twist).
+  const onBase = hit.row < 1 && hit.along > 1e-3 && hit.along < 1 - 1e-3;
+  const along = edge && !onBase ? (hit.along < 0.5 ? 0 : 1) : hit.along;
   const i0 = Math.min(tip - 1, Math.floor(hit.row));
   const a = hit.row - i0;
-  const [o0, n0] = rowFaces(b, sw, i0, hit.along, z, 1);
-  const [o1, n1] = rowFaces(b, sw, i0 + 1, hit.along, z, 1);
+  const [o0, n0] = rowFaces(b, sw, i0, along, z, 1);
+  const [o1, n1] = rowFaces(b, sw, i0 + 1, along, z, 1);
   return [o0 + (o1 - o0) * a, n0 + (n1 - n0) * a];
 };
 
@@ -1354,10 +1357,13 @@ const FOIL_STATIONS = cosineStations(200);
 /** A foil fitted to a sampled section, with a point where it crosses the tip line. */
 const fitShape = (s: BladeShape): FinSection => {
   const must = s.free.filter((x) => x > 1e-3 && x < 1 - 1e-3);
-  const outside = fitFace(s.us, s.out, must);
-  if (s.symmetric) return { outside, inside: null };
+  if (s.symmetric) return { outside: fitFace(s.us, s.out, must), inside: null };
+  // The edges, where the faces meet: off the chord line if a foil's are.
+  const n = s.us.length - 1;
+  const ends: [number, number] = [(s.out[0]! + s.ins[0]!) / 2, (s.out[n]! + s.ins[n]!) / 2];
+  const outside = fitFace(s.us, s.out, must, ends);
   const flat = s.ins.every((y) => Math.abs(y) < 1e-7);
-  return { outside, inside: flat ? straightFace() : fitFace(s.us, s.ins, must) };
+  return { outside, inside: flat ? straightFace() : fitFace(s.us, s.ins, must, ends) };
 };
 
 /**
@@ -1455,14 +1461,20 @@ const straightFace = (): Spline =>
   ]);
 
 /**
- * A foil face through samples (`us` from 0 to 1, rising): points at the ends, at `must`,
+ * A foil face through samples (`us` from 0 to 1, rising): points at the ends (at `ends`'
+ * heights, where the faces meet), at `must`,
  * at its furthest from the chord line, and then wherever it misses by most, until it
  * misses by no more than FIT_TOLERANCE of its furthest, square to the face (or fourteen
  * points). Smooth at each point, its slope there read off the samples, and each stretch's
  * two handles as long as fit it best; square to the chord at the leading edge, as a
  * rounded nose is, and at the trailing edge sloped as fits best.
  */
-const fitFace = (us: readonly number[], ys: readonly number[], must: readonly number[]): Spline => {
+const fitFace = (
+  us: readonly number[],
+  ys: readonly number[],
+  must: readonly number[],
+  ends: readonly [number, number] = [0, 0],
+): Spline => {
   /** A stretch's handle lengths, and the trailing edge's slope on the last. */
   type Fit = [number, number, number?];
   const at = (x: number): number => {
@@ -1494,9 +1506,9 @@ const fitFace = (us: readonly number[], ys: readonly number[], must: readonly nu
     }
     return (lo + hi) / 2;
   };
-  /** A point of the face: on the samples, the ends on the chord line. */
+  /** A point of the face: on the samples, the ends at the edges. */
   const pointAt = (xs: readonly number[], k: number) =>
-    vec2(xs[k]!, k === 0 || k === xs.length - 1 ? 0 : at(xs[k]!));
+    vec2(xs[k]!, k === 0 ? ends[0] : k === xs.length - 1 ? ends[1] : at(xs[k]!));
   /**
    * Stretch `k`'s handles: from point k along its slope (straight up at the nose, `a`
    * its height), `a` and `c` of the stretch long. At the trailing edge the slope is the
