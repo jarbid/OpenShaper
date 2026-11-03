@@ -619,6 +619,10 @@ interface SweptBlade {
   readonly grid: SweepGrid;
   /** Per grid row: the foil laid along it, blended from the base foil to the tip foil. */
   readonly foils: readonly Foil[];
+  /** The base and tip foils themselves: each row lays both on its thickness path (rowFaces). */
+  readonly ends: readonly [Foil, Foil];
+  /** Per grid row: how far from the base foil to the tip foil it is, 0 to 1. */
+  readonly foilW: Float64Array;
   /** Per grid row: where the section is thickest (fraction along it). */
   readonly path: Float64Array;
   /** Per grid row up to the tip line: the height of that thickest point (cm). */
@@ -705,9 +709,10 @@ const sweptBlade = (b: PreparedBlade): SweptBlade => {
   const d = b.design;
   const grid = sweepGrid(d);
   const tip = tipFoilOf(d);
-  const foils = Array.from({ length: grid.rows }, (_, i) =>
-    blendFoils(d.section, tip, smoother(Math.min(1, i / grid.tipRow))),
+  const foilW = Float64Array.from({ length: grid.rows }, (_, i) =>
+    smoother(Math.min(1, i / grid.tipRow)),
   );
+  const foils = Array.from({ length: grid.rows }, (_, i) => blendFoils(d.section, tip, foilW[i]!));
   const path = new Float64Array(grid.rows);
   const way = thicknessPathOf(d);
   // Up to the tip line; past it the tip carries the tip line's foil out (sweepFaces).
@@ -750,6 +755,8 @@ const sweptBlade = (b: PreparedBlade): SweptBlade => {
   const swept: SweptBlade = {
     grid,
     foils,
+    ends: [pureFoil(d.section), pureFoil(tip)],
+    foilW,
     path,
     pathZ,
     rowScale,
@@ -868,15 +875,27 @@ const rowFaces = (
   round: number,
   capV = 0,
 ): [number, number] => {
-  const f = sw.foils[i]!;
   const m = b.minThickness;
   const t = rowThickness(b, sw, i, z, capV);
-  const k =
-    f.thickest.thickness > 0
-      ? (Math.max(0, t - m) * sw.rowScale[i]! * round) / f.thickest.thickness
-      : 0;
-  const [o, n] = f.shapeAt(foilFractionAt(along, sw.path[i]!, f.thickest.at));
-  return [o * k + m * f.outsideShare, n * k - m * (1 - f.outsideShare)];
+  const k = Math.max(0, t - m) * sw.rowScale[i]! * round;
+  // The base and tip foils each laid thickest on the path, as fractions of their thickest,
+  // then blended. Blending the foils first and finding where the blend is thickest jumped
+  // between rows where it had two humps nearly as high (owner testing: a base foil
+  // thickest at 32% and a tip foil at 49%, a 1 mm step across the blade).
+  const [fa, fb] = sw.ends;
+  const w = sw.foilW[i]!;
+  const read = (f: Foil): [number, number] => {
+    if (!(f.thickest.thickness > 0)) return [0, 0];
+    const [o, n] = f.shapeAt(foilFractionAt(along, sw.path[i]!, f.thickest.at));
+    return [o / f.thickest.thickness, n / f.thickest.thickness];
+  };
+  const [oa, na] = read(fa);
+  const [o, n] =
+    w > 0 && fb !== fa
+      ? (([ob, nb]) => [oa + (ob - oa) * w, na + (nb - na) * w])(read(fb))
+      : [oa, na];
+  const share = sw.foils[i]!.outsideShare;
+  return [o * k + m * share, n * k - m * (1 - share)];
 };
 
 /**

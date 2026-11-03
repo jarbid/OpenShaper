@@ -58,6 +58,8 @@ const ownerFin = (name: string): FinDesign => {
     slices?: { height: number; section: Section; twist?: FinTwist }[];
     taper: Row[];
     tipLine?: { start: number; end: number };
+    tipSection?: Section;
+    thicknessMid?: number;
   };
   const spline = (rows: Row[], fx: number, fy: number) =>
     splineFromKnots(
@@ -86,6 +88,8 @@ const ownerFin = (name: string): FinDesign => {
     })),
     taper: spline(file.taper, 1, 0.1),
     ...(file.tipLine ? { tipLine: file.tipLine } : {}),
+    ...(file.tipSection ? { tipSection: section(file.tipSection) } : {}),
+    ...(file.thicknessMid !== undefined ? { thicknessMid: file.thicknessMid } : {}),
   };
 };
 
@@ -525,5 +529,23 @@ describe('a heavily swept-back fin (the owner’s, docs/specs/fins/swept_back_ti
     const rel = c.sliceInTip.outside / yAtX(tip.outside, c.tipAt);
     expect(Math.abs(rel - 1)).toBeLessThan(0.03); // to the fit, a percent or two
     expect(sliceTipCrossing(defaultFinDesign('side', 'left'), 0)).toBeNull();
+  });
+
+  it('steps nowhere where its base and tip foils are thickest in different places', () => {
+    // Owner testing: a base foil thickest at 32% and a tip foil at 49%. Blended, the foil
+    // had two humps nearly as high, and where the blend was thickest jumped from one to the
+    // other between two rows: 1.1 mm down across 3 mm of a cut 152 mm up. Now each foil is
+    // laid on the path and then blended. (What's left is the tip foil's own shoulder
+    // between its points at 45% and 49%, 0.026 mm here.)
+    const d = { ...ownerFin('swept_back_two_foils.fin.json'), slices: [] };
+    const b = prepareBlade(d);
+    const st = Array.from({ length: 301 }, (_, i) => i / 300);
+    for (const h of [15.21, 17.83]) {
+      const s = bladeSection(b, h, st);
+      const t = st.map((_, i) => Math.abs(s.outside[i]!.y - s.inside[i]!.y));
+      for (let i = 20; i < 280; i++) {
+        expect(Math.abs(t[i + 1]! - 2 * t[i]! + t[i - 1]!)).toBeLessThan(5e-3); // was 0.023
+      }
+    }
   });
 });
