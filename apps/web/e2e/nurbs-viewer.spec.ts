@@ -421,6 +421,8 @@ test.describe('NURBS viewer, flag on', () => {
     await page.getByRole('button', { name: 'NURBS conversion details' }).click();
     await expect(page.getByTestId('nurbs-refusal')).toContainText('cannot hold this board yet');
     await expect(page.getByTestId('nurbs-info')).toContainText('no thickness');
+    // The refusal is also a notice, with the reason, for someone who never opens the popover.
+    await expect(page.getByTestId('engine-refusal')).toContainText('cannot hold this board');
     // The classic 3D view is still there.
     await expect(page.locator('canvas').first()).toBeVisible();
     expect(errors).toEqual([]);

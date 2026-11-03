@@ -8,7 +8,8 @@
  *  1. **Open**: for each sample file, open the app with `?engine=nurbs`, show the 3D
  *     view, load the file, and time until the NURBS surface of that file is on screen,
  *     and until the NURBS board is editable (the badge says "editing": the file was
- *     converted into the section store). Also the worker's own build / mesh times.
+ *     converted into the section store). Also the worker's own build / mesh times. The `.board`
+ *     files in the list are saved NURBS documents (step 5): they open with no conversion.
  *  2. **Engine switch**: with the engine off and the 3D view open, turn "Engine: NURBS
  *     (experimental)" on in Settings and time until the NURBS hull is on screen and the
  *     board is editable. This includes fetching the lazy layer chunk and starting the worker.
@@ -56,6 +57,9 @@ const FILES = [
   'docs/specs/golden/funboard.brd',
   'docs/specs/golden/longboard.brd',
   'packages/io/src/__fixtures__/self-authored-shortboard.brd',
+  // a saved NURBS document (step 5): opened as it is, with no conversion
+  'apps/web/src/templates/shortboard.board',
+  'apps/web/src/templates/swallow-shortboard.board',
   ...readdirSync(fixtures)
     .filter((f) => f.endsWith('.s3dx'))
     .sort()

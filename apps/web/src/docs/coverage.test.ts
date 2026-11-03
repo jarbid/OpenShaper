@@ -21,7 +21,7 @@ import { EXPORT_FORMATS } from '../file-io';
 import { SHORTCUTS } from '../shortcuts';
 import { BOTTOM_FEATURES } from '../bottom-features';
 import { TAIL_TYPES } from '../board-shape';
-import { BOARD_TEMPLATES } from '../templates';
+import { BOARD_TEMPLATES, NURBS_TEMPLATES } from '../templates';
 import { ANALYSIS_3D } from '../view3d-settings';
 import { DOC_ENTRIES, DOCS_ROUTES, documentedIds, type FeatureKind } from './registry';
 
@@ -66,10 +66,9 @@ describe('docs coverage', () => {
   });
 
   it('documents every starter template', () => {
-    expectDocumented(
-      'board-template',
-      BOARD_TEMPLATES.map((t) => t.name),
-    );
+    expectDocumented('board-template', [
+      ...new Set([...BOARD_TEMPLATES, ...NURBS_TEMPLATES].map((t) => t.name)),
+    ]);
   });
 
   it('documents every rail preset', () => {

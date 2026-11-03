@@ -241,18 +241,21 @@ export async function openAnyBoardFile(file: File): Promise<OpenedBoard> {
 
 /** The file holds a NURBS document, and the caller can only take a classic board. */
 export class SectionsFileError extends Error {
-  constructor() {
-    super('This file is a NURBS board, which this cannot take.');
+  constructor(
+    /** The parsed document, for the caller that can take it (the NURBS engine revives it). */
+    readonly json: unknown,
+  ) {
+    super('This file is a NURBS board, which needs the NURBS engine.');
     this.name = 'SectionsFileError';
   }
 }
 
-/** Read a user-picked classic board file (any format); a NURBS document is refused. */
+/** Read a user-picked classic board file (any format); a NURBS document throws {@link SectionsFileError}. */
 export async function openBoardFile(
   file: File,
 ): Promise<{ board: BezierBoard; meta: BoardMeta; warnings: readonly ImportWarning[] }> {
   const opened = await openAnyBoardFile(file);
-  if (opened.kind === 'sections') throw new SectionsFileError();
+  if (opened.kind === 'sections') throw new SectionsFileError(opened.json);
   return { board: opened.board, meta: opened.meta, warnings: opened.warnings };
 }
 

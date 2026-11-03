@@ -240,16 +240,22 @@ export default function DocsEditing() {
           test boards (swallow, fish, asymmetric, analytic) on its own; your board is untouched.
         </p>
         <p>
-          Saving, exporting, sharing and the autosave write the NURBS board as a classic board: its
-          outline, rocker, deck and cross-sections as stored, without the smooth blend between the
-          stations, so a file opened classic again differs from the NURBS surface by the amount
-          below. Turning the engine off returns to the classic board you opened, and turning it on
-          again finds the NURBS board where you left it; opening another file converts that one. The
-          NURBS surface is a different surface from the classic one: it matches the outline, rocker,
-          deck and every cross-section, and flows smoothly between the stations where the classic
-          loft blends them linearly, so the two differ by up to a few millimetres between stations.
-          The surface analysis modes above all work on it, read from the NURBS surface&rsquo;s own
-          exact derivatives, with no crease at the stations, and the menu gains one more:
+          Saving, sharing and the autosave write the NURBS board itself (see{' '}
+          <Link to="/docs/files#nurbs-files">Files &amp; templates</Link>): both halves of an
+          asymmetric board, the tail and the bottom features are in the file. The exports (STL, DXF,
+          PDF, STEP) still write its classic projection, which has neither the bottom features nor
+          the smooth blend between the stations, so a board cut from an export differs from the
+          NURBS surface by the amount below. Turning the engine off returns to the classic board you
+          opened, and turning it on again finds the NURBS board where you left it; opening another
+          classic file converts that one, and a board the converter cannot hold stays classic, with
+          the reason shown in a notice. In this mode the specs in the sidebar (volume, area, centre
+          of mass) are measured on the NURBS surface, so the bottom features and an asymmetric
+          outline show in them. The NURBS surface is a different surface from the classic one: it
+          matches the outline, rocker, deck and every cross-section, and flows smoothly between the
+          stations where the classic loft blends them linearly, so the two differ by up to a few
+          millimetres between stations. The surface analysis modes above all work on it, read from
+          the NURBS surface&rsquo;s own exact derivatives, with no crease at the stations, and the
+          menu gains one more:
         </p>
         <Terms>
           <Term name="Deviation from classic">

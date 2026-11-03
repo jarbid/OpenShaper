@@ -75,7 +75,13 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
     'pdf-1to1',
     'rail-bands',
   ]),
-  ...entries('board-template', '/docs/files', ['Shortboard', 'Funboard', 'Longboard']),
+  ...entries('board-template', '/docs/files', [
+    'Shortboard',
+    'Funboard',
+    'Longboard',
+    'Swallow shortboard',
+    'Fish shortboard',
+  ]),
   // Spelled out rather than imported from the kernel on purpose: the registry is an
   // independent claim that the coverage test diffs against `RAIL_PRESETS`. Import the
   // array here and the assertion becomes `x === x`.

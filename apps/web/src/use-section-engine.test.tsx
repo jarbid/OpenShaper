@@ -11,7 +11,16 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import sampleBrd from './sample-board.brd?raw';
 import pointedS3dx from '../../../packages/io/src/__fixtures__/synthetic-clean-6x22x2-75.s3dx?raw';
 import { boardStore, sectionStore } from './store';
-import { resetSectionEngine, useSectionEngine } from './use-section-engine';
+import { vec2 } from '@openshaper/kernel';
+import swallowDoc from './templates/swallow-shortboard.board?raw';
+import {
+  currentSections,
+  holdSectionsText,
+  openSectionDoc,
+  prepareSectionDoc,
+  resetSectionEngine,
+  useSectionEngine,
+} from './use-section-engine';
 
 const sample = parseBrd(sampleBrd).board;
 const other = parseS3dx(pointedS3dx).board;
@@ -78,5 +87,66 @@ describe('useSectionEngine', () => {
     act(() => boardStore.getState().load(other));
     await waitFor(() => expect(result.current.ready).toBe(true));
     expect(result.current.refusal).toBeNull();
+  });
+});
+
+describe('edits made while the board converts', () => {
+  it('are in the document that lands: a conversion of an edited board is made again', async () => {
+    const before = boardStore.getState().board!;
+    const { result } = renderHook(() => useSectionEngine(true));
+    expect(result.current.converting).toBe(true);
+    // the person drags the nose out 3 cm before the first conversion has landed
+    const nose = before.outline.knots.length - 1;
+    const end = before.outline.knots[nose]!.end;
+    act(() => {
+      boardStore.getState().moveControlPoint({ kind: 'outline' }, nose, vec2(end.x + 3, end.y));
+    });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    const doc = sectionStore.getState().doc!;
+    const noseX = doc.outline.plus.knots[doc.outline.plus.knots.length - 1]!.p[0];
+    expect(noseX).toBeCloseTo(end.x + 3, 6);
+  });
+
+  it('waits for a drag in progress to end', async () => {
+    act(() => boardStore.getState().beginEdit());
+    const { result } = renderHook(() => useSectionEngine(true));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(result.current.ready).toBe(false);
+    act(() => boardStore.getState().endEdit());
+    await waitFor(() => expect(result.current.ready).toBe(true));
+  });
+});
+
+describe('documents that arrive whole', () => {
+  it('a prepared document opens without a conversion: the classic store gets its projection', async () => {
+    const r = await prepareSectionDoc(JSON.parse(swallowDoc));
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const { result } = renderHook(() => useSectionEngine(true));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    act(() => openSectionDoc(r.doc));
+    // ready at once, with that document, and nothing is converting over it
+    expect(result.current.ready).toBe(true);
+    expect(result.current.converting).toBe(false);
+    expect(sectionStore.getState().doc).toBe(r.doc);
+    expect(boardStore.getState().board).not.toBeNull();
+    expect(currentSections()).toEqual({ doc: r.doc });
+  });
+
+  it('a held document is revived when the engine turns on, not converted', async () => {
+    const { result, rerender } = renderHook(({ on }) => useSectionEngine(on), {
+      initialProps: { on: false },
+    });
+    holdSectionsText(swallowDoc);
+    expect(currentSections()).toEqual({ text: swallowDoc });
+    rerender({ on: true });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(sectionStore.getState().doc!.meta.name).toBe('Swallow shortboard');
+    expect(sectionStore.getState().doc!.tail.kind).toBe('notched');
+  });
+
+  it('refuses what is not a document, with the reason', async () => {
+    const r = await prepareSectionDoc({ format: 'openshaper', version: 3, model: 'sections' });
+    expect(r.ok).toBe(false);
   });
 });

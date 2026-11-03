@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { BOARD_TEMPLATES } from '../../templates';
+import { Link } from 'react-router-dom';
+import { BOARD_TEMPLATES, NURBS_TEMPLATES } from '../../templates';
 import { DocsPage, Section, Term, Terms } from './DocsPage';
 
-/** Starter templates are listed from BOARD_TEMPLATES so the list can't go stale. */
+/** Starter templates are listed from BOARD_TEMPLATES and NURBS_TEMPLATES so the list can't go stale. */
+const TEMPLATE_NAMES = [...new Set([...BOARD_TEMPLATES, ...NURBS_TEMPLATES].map((t) => t.name))];
+
 export default function DocsFiles() {
   return (
     <DocsPage
@@ -12,6 +15,7 @@ export default function DocsFiles() {
       toc={[
         { id: 'templates', label: 'Starter templates' },
         { id: 'saving', label: 'Saving & opening' },
+        { id: 'nurbs-files', label: 'NURBS boards (experimental)' },
         { id: 'share', label: 'Sharing a link' },
         { id: 'import', label: 'Importing from other tools' },
         { id: 'warnings', label: 'Import warnings' },
@@ -22,12 +26,14 @@ export default function DocsFiles() {
       <Section id="templates" title="Starter templates">
         <p>
           Three boards to start from, each real geometry rather than an approximation — inherited
-          from BoardCAD, which OpenShaper descends from.
+          from BoardCAD, which OpenShaper descends from. With the experimental NURBS engine on, the
+          New menu lists the same three already converted to NURBS, and two more with a concave
+          tail.
         </p>
         <Terms>
-          {BOARD_TEMPLATES.map((t) => (
-            <Term key={t.name} name={t.name}>
-              {TEMPLATE_NOTES[t.name] ?? 'Starter board.'}
+          {TEMPLATE_NAMES.map((name) => (
+            <Term key={name} name={name}>
+              {TEMPLATE_NOTES[name] ?? 'Starter board.'}
             </Term>
           ))}
         </Terms>
@@ -48,6 +54,39 @@ export default function DocsFiles() {
           Saving downloads a file through the browser. Recently opened boards are listed so you can
           get back to them without hunting through a downloads folder.
         </p>
+      </Section>
+
+      <Section id="nurbs-files" title="NURBS boards (experimental)">
+        <p>
+          With <strong>Engine: NURBS (experimental)</strong> on (see{' '}
+          <Link to="/docs/editing#nurbs">Editing</Link>), Save writes the NURBS board itself: a{' '}
+          <code>.board</code> file of version 3. It holds both halves of an asymmetric board, the
+          tail type and the bottom features, which the classic format cannot, and opening it gives
+          the same board back, to the last digit. The file is plain JSON, like the classic one, and
+          opening a <code>.board</code> file tells the two kinds apart by their version.
+        </p>
+        <Terms>
+          <Term name="Opening a classic file">
+            A <code>.brd</code>, <code>.s3dx</code>, <code>.srf</code> or classic{' '}
+            <code>.board</code> file is converted to NURBS when the engine is on. If the converter
+            cannot hold the board, a notice says why and the classic editor stays in charge.
+          </Term>
+          <Term name="Opening a NURBS file with the engine off">
+            You are asked: turn the engine on and open it, or open a classic copy. The copy is the
+            classic projection of the board (the plus half of an asymmetric board, no bottom
+            features, no smooth blend between stations). The file is not changed either way, and
+            saving the copy writes a classic file.
+          </Term>
+          <Term name="Autosave and restore">
+            The autosave keeps both the classic board you opened and the NURBS document you are
+            editing, so a reload brings back your NURBS edits. The engine setting picks the one
+            shown.
+          </Term>
+          <Term name="Not in the file">
+            The exports use the classic projection of a NURBS board for now, so bottom features and
+            the smooth blend between stations are not in an exported STL, DXF, PDF or STEP.
+          </Term>
+        </Terms>
       </Section>
 
       <Section id="share" title="Sharing a link">
@@ -79,11 +118,14 @@ export default function DocsFiles() {
           </Term>
         </Terms>
         <p>
-          A normal board makes a link of roughly three kilobytes. Past 30,000 characters the app
-          warns that some forums may truncate or reject it, and past 50,000 it will not make one at
-          all — send the <code>.board</code> file instead. A URL shortener such as TinyURL may help
-          with a long link, but be aware it receives the complete board link, and may not accept or
-          preserve it; OpenShaper never submits your link anywhere by itself.
+          A normal board makes a link of roughly three kilobytes, and so does a NURBS board (the
+          same link format carries its version 3 file; an asymmetric board with bottom features
+          measures about 3.4 kilobytes). With the NURBS engine on, the link carries the whole NURBS
+          board and someone with the engine off is asked how to open it, as for a file. Past 30,000
+          characters the app warns that some forums may truncate or reject it, and past 50,000 it
+          will not make one at all — send the <code>.board</code> file instead. A URL shortener such
+          as TinyURL may help with a long link, but be aware it receives the complete board link,
+          and may not accept or preserve it; OpenShaper never submits your link anywhere by itself.
         </p>
         <p>
           Share links need a current browser (they use the built-in Compression Streams APIs). In an
@@ -144,4 +186,6 @@ const TEMPLATE_NOTES: Record<string, string> = {
   Shortboard: 'A performance shortboard — the default board the editor opens with.',
   Funboard: 'A mid-length, between a shortboard and a longboard.',
   Longboard: 'A traditional longboard outline and rocker.',
+  'Swallow shortboard': 'The shortboard with a swallow tail (NURBS engine only).',
+  'Fish shortboard': 'The shortboard with a fish tail, a rounded notch (NURBS engine only).',
 };

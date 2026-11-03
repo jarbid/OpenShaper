@@ -56,7 +56,8 @@ import {
   downloadRailBands,
   downloadStep,
   exportBoard,
-  openAnyBoardFile,
+  openBoardFile,
+  SectionsFileError,
   sourceExtension,
   type BoardMeta,
   type ExportFormat,
@@ -1196,20 +1197,7 @@ function AppShell() {
     // Record in the recent list under the file's base name (extension stripped).
     const baseName = file.name.replace(/\.(board\.json|json|board|brd|s3dx|s3d|srf)$/i, '');
     try {
-      const opened = await openAnyBoardFile(file);
-      if (opened.kind === 'sections') {
-        // A NURBS document: nothing is dropped or repaired, so there is no import warning to weigh.
-        if (await openSectionsJson(opened.json, { recentName: baseName }, file.name)) {
-          track('board_imported', {
-            source: sourceExtension(file.name),
-            warning_count: 0,
-            dropped_count: 0,
-          });
-          markImport();
-        }
-        return;
-      }
-      const { board, meta, warnings } = opened;
+      const { board, meta, warnings } = await openBoardFile(file);
       const commit = () => {
         boardStore.getState().load(board);
         setMeta(meta);
@@ -1234,6 +1222,18 @@ function AppShell() {
       markImport();
       applyImport(file.name, warnings, commit);
     } catch (err) {
+      if (err instanceof SectionsFileError) {
+        // A NURBS document: nothing is dropped or repaired, so there is no import warning to weigh.
+        if (await openSectionsJson(err.json, { recentName: baseName }, file.name)) {
+          track('board_imported', {
+            source: sourceExtension(file.name),
+            warning_count: 0,
+            dropped_count: 0,
+          });
+          markImport();
+        }
+        return;
+      }
       console.error('Failed to open board', err);
       // A visitor who cannot open their own board is the worst outcome in the
       // app, and until now it failed silently as far as analytics went.
@@ -1251,16 +1251,16 @@ function AppShell() {
     e.target.value = '';
     if (!file) return;
     try {
-      const opened = await openAnyBoardFile(file);
-      if (opened.kind === 'sections') {
+      const { board, warnings } = await openBoardFile(file);
+      applyImport(file.name, warnings, () => setGhost(board));
+    } catch (err) {
+      if (err instanceof SectionsFileError) {
         // A NURBS board as the comparison: its classic projection (the lines and the stations).
-        const r = await prepareSectionDoc(opened.json);
-        if (!r.ok) throw new Error(r.error);
-        setGhost(projectDoc(r.doc));
+        const r = await prepareSectionDoc(err.json);
+        if (r.ok) setGhost(projectDoc(r.doc));
+        else showToast(`Could not open ${file.name}: ${r.error}`);
         return;
       }
-      applyImport(file.name, opened.warnings, () => setGhost(opened.board));
-    } catch (err) {
       console.error('Failed to open ghost board', err);
       showToast(`Could not open ${file.name}: ${(err as Error).message}`);
     }
