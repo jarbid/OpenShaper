@@ -115,7 +115,12 @@ export function sectionsTextNow(doc: BoardDoc, meta: BoardMeta): string | null {
 /** A document read from parsed JSON, or the reasons it is not one. */
 export type ReadSections =
   | { readonly ok: true; readonly doc: BoardDoc }
-  | { readonly ok: false; readonly error: string };
+  | {
+      readonly ok: false;
+      readonly error: string;
+      /** `unavailable`: the code would not load (offline, a stale app shell); the text may be fine. */
+      readonly reason: 'unavailable' | 'invalid';
+    };
 
 /** Revive a parsed section document (an opened file, a share link, a session). */
 export async function readSections(json: unknown): Promise<ReadSections> {
@@ -126,10 +131,11 @@ export async function readSections(json: unknown): Promise<ReadSections> {
     return {
       ok: false,
       error: 'The NURBS engine could not be loaded (offline, or the app was just updated).',
+      reason: 'unavailable',
     };
   }
   const r = c.docFromJson(json);
-  return r.ok ? { ok: true, doc: r.doc } : { ok: false, error: r.error };
+  return r.ok ? { ok: true, doc: r.doc } : { ok: false, error: r.error, reason: 'invalid' };
 }
 
 /** The name in a section document's `meta`, read without reviving it (the share prompt names the board). */

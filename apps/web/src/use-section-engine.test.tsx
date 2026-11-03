@@ -7,7 +7,7 @@
  */
 import { parseBrd, parseS3dx } from '@openshaper/io';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import sampleBrd from './sample-board.brd?raw';
 import pointedS3dx from '../../../packages/io/src/__fixtures__/synthetic-clean-6x22x2-75.s3dx?raw';
 import { boardStore, sectionStore } from './store';
@@ -21,6 +21,19 @@ import {
   resetSectionEngine,
   useSectionEngine,
 } from './use-section-engine';
+
+// `unavailable` stands for the compute chunk failing to load (offline, a stale app shell).
+const chunk = vi.hoisted(() => ({ unavailable: false }));
+vi.mock('./section-files', async (importOriginal) => {
+  const m = await importOriginal<typeof import('./section-files')>();
+  return {
+    ...m,
+    readSections: (json: unknown) =>
+      chunk.unavailable
+        ? Promise.resolve({ ok: false as const, error: 'offline', reason: 'unavailable' as const })
+        : m.readSections(json),
+  };
+});
 
 const sample = parseBrd(sampleBrd).board;
 const other = parseS3dx(pointedS3dx).board;
@@ -148,5 +161,32 @@ describe('documents that arrive whole', () => {
   it('refuses what is not a document, with the reason', async () => {
     const r = await prepareSectionDoc({ format: 'openshaper', version: 3, model: 'sections' });
     expect(r.ok).toBe(false);
+  });
+});
+
+describe('a saved document that cannot be revived (M2 review R1)', () => {
+  it('is kept, not converted over, when the code would not load', async () => {
+    chunk.unavailable = true;
+    try {
+      const r = await prepareSectionDoc(JSON.parse(swallowDoc));
+      expect(r).toMatchObject({ ok: false, reason: 'unavailable' });
+      holdSectionsText(swallowDoc);
+      const { result } = renderHook(() => useSectionEngine(true));
+      await waitFor(() => expect(result.current.refusal).not.toBeNull());
+      expect(result.current.refusal!.error).toMatch(/kept/);
+      expect(result.current.ready).toBe(false);
+      expect(sectionStore.getState().doc).toBeNull();
+      // what the next autosave writes is the saved text
+      expect(currentSections()).toEqual({ text: swallowDoc });
+    } finally {
+      chunk.unavailable = false;
+    }
+  });
+
+  it('an invalid document is told apart, and the classic board is converted instead', async () => {
+    holdSectionsText('{"format":"openshaper","version":3,"model":"sections"}');
+    const { result } = renderHook(() => useSectionEngine(true));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(sectionStore.getState().doc).not.toBeNull();
   });
 });

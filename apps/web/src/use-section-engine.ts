@@ -96,7 +96,9 @@ export function currentSections(): { doc: BoardDoc } | { text: string } | null {
  */
 export async function prepareSectionDoc(
   json: unknown,
-): Promise<{ ok: true; doc: BoardDoc } | { ok: false; error: string }> {
+): Promise<
+  { ok: true; doc: BoardDoc } | { ok: false; error: string; reason: 'unavailable' | 'invalid' }
+> {
   const r = await readSections(json);
   if (r.ok) await injectNotchChords(r.doc);
   return r;
@@ -216,6 +218,14 @@ export function useSectionEngine(engineOn: boolean): SectionEngine {
         if (cancelled) return;
         if (r.ok) {
           attachSectionDoc(r.doc);
+          return;
+        }
+        if (r.reason === 'unavailable') {
+          // The code would not load (offline, a stale app shell): the saved document is intact, so it is
+          // kept (the autosave writes it back) and nothing is converted over it.
+          refuse(
+            'The saved NURBS board could not be loaded (offline?). It is kept; the classic board is shown.',
+          );
           return;
         }
         held = null; // not a document after all: convert the classic board

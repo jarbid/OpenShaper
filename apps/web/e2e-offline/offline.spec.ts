@@ -86,6 +86,69 @@ test.describe('offline editor', () => {
     await expect(page.locator('canvas').first()).toBeVisible();
   });
 
+  /**
+   * M2 review R1: a session's NURBS document must survive a reload in which the NURBS chunks cannot be
+   * loaded (offline, or a stale app shell). They are cached at first use, not precached; here the cache is
+   * emptied as well, so they are really unavailable. The document is kept, and the notice says so.
+   */
+  test('a session NURBS document is kept when the NURBS chunks cannot load', async ({
+    page,
+    context,
+  }) => {
+    await warmServiceWorker(page);
+    await page.evaluate(() => localStorage.setItem('bs.settings', '{"nurbsEngine":true}'));
+    await page.reload();
+    await page.locator('canvas').first().waitFor();
+    const sessionText = () =>
+      page.evaluate(
+        () =>
+          new Promise<string | null>((resolve) => {
+            const req = indexedDB.open('bs.session');
+            req.onerror = () => resolve(null);
+            req.onsuccess = () => {
+              const db = req.result;
+              if (!db.objectStoreNames.contains('session')) return resolve(null);
+              const get = db.transaction('session').objectStore('session').get('current');
+              get.onsuccess = () => {
+                const v = get.result as { sectionsJson?: string } | undefined;
+                db.close();
+                resolve(v?.sectionsJson ?? null);
+              };
+              get.onerror = () => resolve(null);
+            };
+          }),
+      );
+    // the document was converted, loaded and autosaved with the chunks available
+    await expect.poll(sessionText, { timeout: 60_000 }).not.toBeNull();
+    const before = await sessionText();
+
+    // The chunks become unavailable: what the service worker holds for them is replaced by something
+    // that is not a script, which stands for a 404 after a deploy or a miss offline (Chromium's offline
+    // emulation does not always reach the fetches behind a cached module).
+    const replaced = await page.evaluate(async () => {
+      const urls = performance
+        .getEntriesByType('resource')
+        .map((e) => e.name)
+        .filter((n) => /\/assets\/nurbs-(core|worker)-[^/]+\.js$/.test(n));
+      await caches.delete('nurbs-chunks');
+      const cache = await caches.open('nurbs-chunks');
+      for (const u of urls) {
+        await cache.put(u, new Response('gone', { headers: { 'content-type': 'text/plain' } }));
+      }
+      return urls.length;
+    });
+    expect(replaced).toBeGreaterThan(0);
+    await context.setOffline(true);
+    await page.reload();
+    await page.locator('canvas').first().waitFor();
+    await expect(page.getByText(/could not be loaded \(offline\?\)/)).toBeVisible({
+      timeout: 30_000,
+    });
+    // let the debounced autosave run; the saved document is the one that was there
+    await page.waitForTimeout(2000);
+    expect(await sessionText()).toBe(before);
+  });
+
   // Docs are precached deliberately: being unable to read how a feature works is
   // worst precisely when there's no signal. This also pins the URL rewrite —
   // they're emitted as docs/fins/index.html but navigated to as /docs/fins, and

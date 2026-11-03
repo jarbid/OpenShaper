@@ -23,7 +23,7 @@
 import { clientsClaim } from 'workbox-core';
 import { createHandlerBoundToURL, matchPrecache, precacheAndRoute } from 'workbox-precaching';
 import { registerRoute, setCatchHandler } from 'workbox-routing';
-import { NetworkOnly } from 'workbox-strategies';
+import { CacheFirst, NetworkOnly } from 'workbox-strategies';
 
 // tsconfig has both DOM and WebWorker libs, so `self` is typed as Window here.
 // Alias rather than `declare const self`, which would be a redeclaration.
@@ -38,6 +38,16 @@ const APP_PATH = /^\/app(?:\/|$)/;
 // the precache list by string-replacing that exact token in the built worker, so
 // routing it through the `sw` alias above makes the build fail.
 precacheAndRoute((self as unknown as ServiceWorkerGlobalScope).__WB_MANIFEST);
+
+// The experimental NURBS engine's compute chunks (~0.6 MB) are not precached, so a user who never turns
+// the engine on does not download them. They are cached at their first use instead: a session whose NURBS
+// board is reopened offline can revive it (docs/design/m2-review.md R1). Content-hashed, so CacheFirst is safe.
+registerRoute(
+  ({ url }) =>
+    url.origin === sw.location.origin &&
+    /^\/assets\/nurbs-(core|worker)-[^/]+\.js$/.test(url.pathname),
+  new CacheFirst({ cacheName: 'nurbs-chunks' }),
+);
 
 // Editor navigations → the precached shell. A bare `/app` is already served by
 // the precache route registered above; this covers the trailing-slash and

@@ -280,6 +280,8 @@ function AppShell() {
   const [pendingShare, setPendingShare] = useState<BoardFile | null>(null);
   // The engine setting, for the one effect below that closes over the first render.
   const nurbsOnRef = useRef(false);
+  /** A session NURBS document is held while the engine is off: offer to turn it on. */
+  const [heldPrompt, setHeldPrompt] = useState(false);
 
   /** The bundled sample, when there is no session (or it cannot be restored). */
   const loadSample = () => {
@@ -327,7 +329,7 @@ function AppShell() {
               const r = await prepareSectionDoc(JSON.parse(session.sectionsJson) as unknown);
               if (r.ok) sections = r.doc;
             } catch {
-              // A document that will not read: the classic board is restored, and converted.
+              // A document that will not read: held below, and tried again by the engine.
             }
             if (cancelled) return false;
           }
@@ -337,7 +339,12 @@ function AppShell() {
             attachSectionDoc(sections);
             setMeta(metaOfDoc(sections.meta));
           } else {
-            if (session.sectionsJson && !nurbsOnRef.current) holdSectionsText(session.sectionsJson);
+            // Never drop a saved NURBS document: hold it when it is not revived here (engine off, or a
+            // chunk that would not load); the engine revives it, or says why it could not.
+            if (session.sectionsJson) {
+              holdSectionsText(session.sectionsJson);
+              if (!nurbsOnRef.current) setHeldPrompt(true);
+            }
             setMeta(toBoardMeta(metadata));
           }
           if (sGhost) setGhost(sGhost);
@@ -2248,6 +2255,19 @@ function AppShell() {
           onSave={handleSaveSettings}
           onClose={() => setSettingsOpen(false)}
         />
+      )}
+
+      {heldPrompt && !nurbsEngine && (
+        <Toast onClick={() => setHeldPrompt(false)}>
+          This session has a NURBS board, and the NURBS engine is off.{' '}
+          <button
+            type="button"
+            className="underline"
+            onClick={() => handleSaveSettings({ ...settings, nurbsEngine: true })}
+          >
+            Turn the NURBS engine on to keep editing it
+          </button>
+        </Toast>
       )}
 
       {pendingSections && (
