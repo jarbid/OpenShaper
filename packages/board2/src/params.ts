@@ -252,3 +252,5 @@ export const STEP_DIRECTION_SHARE = 0.5;
 export const STEP_CAP_MARGIN = 1;
 /** Weight of the data on the boundary rows of a fit (the stringer, the notch edge, the caps), which `snap` then makes exact. */
 export const STEP_EDGE_WEIGHT = 100;
+/** A station closer than this (parameter units) to a break of the first s knots is not added as a break of its own. */
+export const STEP_STATION_GAP = 1e-3;

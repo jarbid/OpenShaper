@@ -69,6 +69,7 @@ import {
   STEP_MIN_SPAN,
   STEP_START_HALF_SPANS,
   STEP_START_SPANS,
+  STEP_STATION_GAP,
   STEP_TIP_CHORD,
   STEP_TIP_THICKNESS,
   STEP_TOLERANCE,
@@ -447,7 +448,7 @@ export function boardSolid(built: BuiltBoard, opts: BoardSolidOptions = {}): Boa
   const ub = uniformBreaks(STEP_START_SPANS);
   for (const x of built.sides[0].blend.xs) {
     const s = (x - lo) / (hi - lo);
-    if (ub.every((b) => Math.abs(b - s) > 1e-3) && s > 0 && s < 1) ub.push(s);
+    if (ub.every((b) => Math.abs(b - s) > STEP_STATION_GAP) && s > 0 && s < 1) ub.push(s);
   }
   ub.sort((a, b) => a - b);
   const vb = uniformBreaks(2 * STEP_START_HALF_SPANS);

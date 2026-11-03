@@ -202,3 +202,116 @@ chunks only); `e2e` 56 passed (52 plus the 4 new); `e2e:offline` 9 passed. Nothi
 - The `Files`, `Editing` and Settings text now say STL, DXF and PDF 1:1 are made from the NURBS board and STEP,
   rail bands and `.brd` are the projection; step 2 removes STEP from that list.
 - Remaining labels: `projSuffix` in `App.tsx` is applied to STEP, Rail bands and Legacy `.brd`.
+
+## As built (step 2)
+
+Landed: STEP from the NURBS board, as the `step` format of the export job, with the engine on. With the engine
+off nothing changes (`packages/export/src/step.ts`, its tests and snapshots are untouched).
+
+**Where it is.**
+
+- `packages/board2/src/step.ts` (`boardSolid`, `boardStep`; constants in `params.ts` under "STEP solid"): the fit, the
+  B-rep and the file. board2 now also imports `writeStep`, `makeBrep`, `orientBrep` and `approximateSurface` from
+  geom (it already depended on it). `packages/board2/src/step.occt.test.ts` is the OCCT check.
+- `apps/web`: `ExportJob` gains `{ format: 'step', unit, slug }`, `ExportStage` gains `fitting`
+  (`building` → `fitting` → `writing`, where `writing` is the `checkBrep` and the file); `exportDocument` has the
+  case; `engine-export-job.ts` (`engineQuickJob`, `stepUnitOf`) is the one place that says which job a format
+  runs; the STEP dialog hides the accuracy choice with the engine on (the fit is fixed at 0.5 mm).
+- Root `test:occt` now runs geom's suite and board2's (`pnpm --workspace-concurrency=1 --filter
+@openshaper/geom --filter @openshaper/board2 test:occt`); board2's default config excludes `*.occt.test.ts`.
+
+**Face layout.** Each side is one rectangle in (s, t), `s = (ξ − lo)/(hi − lo)`, on a notched tail too: the notch zone
+changes the chord map inside the same rectangle (m1-model.md §2). The notch bottom is the row `s = 0` collapsed
+to the vertical stringer line at x = d (chord 0, thickness > 0). So the classic shell holds, with one change:
+
+- Standard tail and nose: 4 faces (plus hull, minus hull, two planar caps), 4 vertices, 6 edges. Same as classic.
+- Notched tail (swallow, fish): 3 faces and 5 edges. The two sides meet along one shared vertical edge at the notch
+  bottom, so there is no tail cap (a cap would have zero area). The nose has its cap.
+- Untrimmed hull faces, trimmed plane caps; `writeStep` is called with `pcurves: 'trimmedOnly'`, so only the caps carry
+  pcurves.
+
+**Fit.**
+
+- Cubic in both directions, a triple knot at t = ½ (the section's apex is C0, as in the evaluator). `approximateSurface` on
+  evaluator samples at known (s, t) (3 per span per direction), start grid 12 × 8 spans plus the stations.
+- Refinement: measure the distance to the evaluator at the same (s, t) on a dense grid (6 points per span, offset from the
+  data), bisect the spans of cells over 0.8 × 0.5 mm. A cell's miss is assigned to s, t or both by the fourth
+  difference of the evaluator's samples along each (a channel wall adds t knots only, a tip s knots only).
+- Seams: the plus and minus sides share their s and t knots. Boundary rows (stringer, notch edge, caps) are held by a
+  data weight of 100 and then **snapped exactly** (stringer y = 0, cap rows in their x-plane, notch row on x = d, y = 0), and the minus side's
+  stringer and notch rows take the plus side's control points. A symmetric board's minus is the plus with `0 − y`.
+  The deviation is measured after the snap. (A first version used point constraints, which solved the same fit with a
+  Schur complement; it was 5 to 6 times slower for the same deviation.)
+- Tips: the surface is clipped where the half-chord reaches 2.5 mm (the classic export's 5 mm `MIN_DIM`) and the thickness
+  0.5 mm, and a planar cap closes the clip. A rounded tip is cut within 0.2 mm of its end; a thin or sharp one (the
+  asymmetric board's tail) by up to 1.5 mm. The clip lengths are in `BoardSolidReport.clipped`.
+
+**Channels.** Not needed: the refinement is local in t already, so no separate knot insertion near the walls. Control points
+(s × t), with and without the feature: swallow 65 × 72 with vee and double concave, 69 × 71 without (equal within the
+fit's noise); asymmetric 54 × 44 with its two channels, 41 × 26 without (2.2 times the control points, 1.7 times the t
+knots); the swallow with all three feature kinds 75 × 81 (1.3 times the plain swallow). All under the 4 times of the risk note.
+What drives the knot count is the rail radius and the notch fan, not the features.
+
+**Acceptance.**
+
+| Check                                                                                                                                                                             | Result                                                                                                     |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `checkBrep` ok, positive volume, within 0.5 mm of the evaluator on an independent 7 per span grid                                                                                 | Pass on the three goldens, swallow, fish, asymmetric (channels) and the swallow with every feature kind    |
+| Shared stringer rows bit-equal, y = 0, a mirror board's minus is `0 − y` of the plus                                                                                              | Pass (same test)                                                                                           |
+| OCCT (`occt-wasm` 5.3.5, `pnpm test:occt`): one solid, one shell, `isValid`, counts, no tolerance growth, mesh volume within area × deflection of ours, inside and outside probes | Pass for the shortboard, the swallow and the asymmetric board (runs in this container, 38 s for the three) |
+| Job: Part 21 file, unit, stages `building`, `fitting`, `writing`                                                                                                                  | Pass (shortboard and swallow)                                                                              |
+| Labels: STEP has no suffix with the engine on, is not in the misses toast, is enabled for a notched tail                                                                          | Pass (e2e labels test)                                                                                     |
+| e2e with the engine on: STEP downloads, starts `ISO-10303-21;`, non-empty                                                                                                         | Pass (`e2e/nurbs-export.spec.ts`)                                                                          |
+| `engineQuickJob` gives an engine job for every format but rail bands                                                                                                              | Pass                                                                                                       |
+
+**Times and sizes** (the job in the worker module, Node via Vitest, median of three for the shortboard after a warm-up and
+one run for the others, 4-core container; the browser worker runs the same code):
+
+| Board                  | Export time, ms | File size | Control points s × t | Passes | Fitted deviation, mm | Ends            |
+| ---------------------- | --------------- | --------- | -------------------- | ------ | -------------------- | --------------- |
+| shortboard             | 1,050           | 350 KB    | 46 × 40              | 9      | 0.26                 | cap, cap        |
+| funboard               | 680             | 325 KB    | 56 × 31              | 6      | 0.38                 | cap, cap        |
+| longboard              | 1,860           | 567 KB    | 66 × 46              | 9      | 0.35                 | cap, cap        |
+| swallow                | 3,560           | 854 KB    | 65 × 72              | 8      | 0.39                 | notch edge, cap |
+| fish                   | 2,040           | 597 KB    | 63 × 52              | 8      | 0.28                 | notch edge, cap |
+| asymmetric (channels)  | 2,010           | 448 KB    | 54 × 44              | 8      | 0.28                 | cap, cap        |
+| swallow, every feature | 4,570           | 1.11 MB   | 75 × 81              | 8      | 0.39                 | notch edge, cap |
+
+The shortboard target (under 10 s) is met by a factor of 9.
+
+**Gate** (one run, at the end): `pnpm lint` pass; `pnpm typecheck` pass (12 tasks); `CI=1 turbo run test --concurrency=2`
+pass (store 431, io 200, kernel 537, units 42, render3d 131, geom 1,310, worker 14, export 201, board2 338, render2d 134,
+web 971); `pnpm build` pass (bundle guard and precache guard); `e2e` 57 passed (56 plus the STEP one); `e2e:offline` 9
+passed; `pnpm test:occt` pass (geom 85, board2 3), which runs in this container. Nothing flaky seen. The first test run
+failed once: `no-magic-tolerances` caught a `1e-3` literal in `step.ts`, now `STEP_STATION_GAP`.
+test runs.
+
+**Deviations from the design above.**
+
+1. **Point constraints replaced by data weights and a snap** for the shared rows (above): not exact in the solve, exact
+   after it, and the 0.5 mm is measured on the snapped surface.
+2. **Tip clips are not tiny on a thin tip.** A knife-thin tail (the asymmetric test board) is clipped by 1.5 mm; the cap is 5 mm wide.
+   The classic export does the same with a 5 mm flat, but its clip is the lofted floor, not a measured length.
+3. **A notch bottom with no thickness would be clipped and capped like a tip**; none of the test boards has one.
+4. **The accuracy choice of the STEP dialog is hidden with the engine on.** The classic dialog's 0.02 to 0.002 cm
+   presets are 2.5 to 25 times tighter than the plan's 0.5 mm and would cost many more knots; the fit has the one tolerance.
+5. **A fit that does not reach 0.5 mm in 30 passes fails the export** with the deviation it reached, instead of writing
+   a looser file. No test board needed more than 9 passes.
+6. **Quick exports.** There was no menu or palette path to `exportBoard('pdf-1to1')` in this branch (the palette is derived
+   from the menus, whose PDF item opens the dialog), so "routing" it means the one wrapper `exportQuick` in `App.tsx`
+   (via `engineQuickJob`) that the STL and DXF items now use, and which maps pdf-1to1 and step to engine jobs with the
+   saved dialog settings. `exportBoard` is reached only with the engine off or for rail bands.
+7. **Docs.** Files, Editing and Settings lose the caveat for STEP too; the Export page also says that the accuracy choice
+   and the concave-tail refusal belong to the classic engine.
+
+**Open for the M3 review.**
+
+- Open the files in Rhino, Fusion, FreeCAD and the CAM software (the planned stop for testing). OCCT is happy; the
+  commercial importers are not tested.
+- File size: 0.3 to 1.1 MB, mostly the swallow's notch fan and the rail radius. A degree 5 fit or a smarter knot placement could halve it; not
+  tried.
+- The surface has a triple knot at t = ½ (the section's apex is C0 in the model), so it is C0 in t there, and stays tangent-continuous only as far as the fit makes it. Not measured separately.
+- Tip clips (2.5 mm half-chord): measure what a CAM user thinks of the 5 mm flats at the tail and nose.
+- The fit's time grows with the control net (swallow with all features 4.6 s): the slow step is the banded solve
+  per pass, 8 to 11 passes. Starting from the previous export's knots would skip most of it.
+- No UI for the STL face size or the STEP tolerance (still fixed).
