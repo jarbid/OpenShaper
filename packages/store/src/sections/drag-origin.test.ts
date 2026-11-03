@@ -61,7 +61,11 @@ describe('channels follow an outline edit', () => {
         const s = createSectionStore();
         s.getState().loadDoc(base);
         s.getState().beginEdit();
-        s.getState().moveControlPoint({ kind: 'outline', side }, i, vec2(x, y * 0.1));
+        s.getState().moveControlPoint(
+          side === 'minus' ? { kind: 'outline', side } : { kind: 'outline' },
+          i,
+          vec2(x, y * 0.1),
+        );
         s.getState().endEdit();
         const doc = s.getState().doc!;
         expect(doc).not.toBe(base);

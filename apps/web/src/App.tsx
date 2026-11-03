@@ -1557,6 +1557,23 @@ function AppShell() {
   // filled in.
   const stepSupport = board ? stepExportSupport(board) : null;
 
+  // With the NURBS document open the exports are still its classic projection (until M3): say so on the
+  // items, and on the first export of each document name what this board's export misses (review R2).
+  const projSuffix = sectionEngine.ready ? ' (classic projection)' : '';
+  const notedDoc = useRef<unknown>(null);
+  const noteProjection = () => {
+    const doc = sectionEngine.ready ? sectionStore.getState().doc : null;
+    if (!doc || notedDoc.current === doc) return;
+    notedDoc.current = doc;
+    const missing = [
+      ...(doc.features.length > 0 ? ['the bottom features'] : []),
+      ...(doc.outline.minus !== undefined ? ['the second half of the asymmetric board'] : []),
+      'the smooth blend between stations',
+    ];
+    showToast(
+      `This export is the classic projection of the NURBS board. It leaves out ${missing.join(', ')}.`,
+    );
+  };
   const exportMenu: MenuItem[] = [
     ...(
       [
@@ -1566,10 +1583,11 @@ function AppShell() {
       ] as [ExportFormat, string][]
     ).map(([f, label]) => ({
       kind: 'action' as const,
-      label,
+      label: label + projSuffix,
       disabled: !board,
       onSelect: () => {
         if (!board) return;
+        noteProjection();
         exportBoard(board, f, meta, units, ghost ?? undefined);
         track('export_board', { format: f });
         markExport();
@@ -1577,22 +1595,29 @@ function AppShell() {
     })),
     {
       kind: 'action',
-      label: 'STEP (surfaces)…',
+      label: `STEP (surfaces)${projSuffix}…`,
       disabled: !board || stepSupport?.ok === false,
       title: stepSupport?.ok === false ? stepSupport.reason : undefined,
-      onSelect: () => setStepDialogOpen(true),
+      onSelect: () => {
+        noteProjection();
+        setStepDialogOpen(true);
+      },
     },
     {
       kind: 'action',
-      label: 'PDF 1:1…',
-      disabled: !board,
-      onSelect: () => setPdfDialogOpen(true),
-    },
-    {
-      kind: 'action',
-      label: 'Rail bands…',
+      label: `PDF 1:1${projSuffix}…`,
       disabled: !board,
       onSelect: () => {
+        noteProjection();
+        setPdfDialogOpen(true);
+      },
+    },
+    {
+      kind: 'action',
+      label: `Rail bands${projSuffix}…`,
+      disabled: !board,
+      onSelect: () => {
+        noteProjection();
         // Opening is interest, exporting is use; the gap between the two is the signal —
         // the same pair `hws_template_opened` / `hws_template_exported` measures. It
         // matters more here than for a one-click format, because this dialog asks the
@@ -1627,10 +1652,11 @@ function AppShell() {
     { kind: 'separator' },
     {
       kind: 'action',
-      label: 'Legacy .brd',
+      label: `Legacy .brd${projSuffix}`,
       disabled: !board,
       onSelect: () => {
         if (!board) return;
+        noteProjection();
         downloadBrd(board, meta);
         track('save_board', { format: 'brd' });
         markSave();

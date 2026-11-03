@@ -53,7 +53,8 @@ export const commandsFromMenus = (
       if (item.kind === 'label') group = item.label;
       if (item.kind === 'separator') group = undefined;
       if (item.kind !== 'action' && item.kind !== 'checkbox') return [];
-      const entry = help?.(menu, item.label, group);
+      // the export items say " (classic projection)" with the NURBS document open; their help is the same
+      const entry = help?.(menu, item.label.replace(' (classic projection)', ''), group);
       return [
         {
           id: `${menu}/${item.label}`,
