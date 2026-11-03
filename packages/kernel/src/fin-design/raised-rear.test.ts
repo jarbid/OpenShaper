@@ -562,9 +562,9 @@ describe('the underside of a hooked tip (the owner’s hatchet, docs/specs/fins/
     for (let h = 9.0; h <= 12.4; h += 0.2) {
       const a = bladeSection(sliced, h, st);
       const c = bladeSection(pb, h, st);
-      // To 0.05 mm: the slice is fitted with a few points, to a percent of its thickness.
-      a.outside.forEach((p, j) => expect(Math.abs(p.y - c.outside[j]!.y)).toBeLessThan(5e-3));
-      a.inside.forEach((p, j) => expect(Math.abs(p.y - c.inside[j]!.y)).toBeLessThan(5e-3));
+      // To 0.1 mm: the slice is fitted with a few points, to two percent of its thickness.
+      a.outside.forEach((p, j) => expect(Math.abs(p.y - c.outside[j]!.y)).toBeLessThan(1e-2));
+      a.inside.forEach((p, j) => expect(Math.abs(p.y - c.inside[j]!.y)).toBeLessThan(1e-2));
     }
   });
 });

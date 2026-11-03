@@ -437,6 +437,27 @@ describe('slices and the tip line (owner’s rules)', () => {
     }
   });
 
+  it('fits a new slice with as few points as a foil drawn by hand', () => {
+    // Owner testing: a slice came with seven points where one between the edges drew
+    // the same curve. The default fin's section is its three-point foil, scaled.
+    const twin = { ...ownerFin('twin_fin_default.fin.json'), slices: [] };
+    expect(bladeFoilAt(twin, 0.4).outside.knots).toHaveLength(3);
+    // A swept fin whose section ends in a thick edge's drop: not a point per step of it
+    // (nine, before the fit chose the slope there).
+    const swept = { ...ownerFin('swept_back_two_foils.fin.json'), slices: [] };
+    expect(bladeFoilAt(swept, 0.6).outside.knots.length).toBeLessThanOrEqual(4);
+  });
+
+  it('moves a slice that was never reshaped as the fin’s own section', () => {
+    // Its fit's own error is not a reshaping, even at a steep nose (the raised-rear fin
+    // read as reshaped at every height before the miss was taken square to the face).
+    const fin = { ...ownerFin('a4c_raised_rear.fin.json'), slices: [] };
+    for (const at of [0.3, 0.75]) {
+      const d = { ...fin, slices: [{ height: at, section: bladeFoilAt(fin, at) }] };
+      expect(sliceFoilMovedTo(d, 0, at + 0.05)).toEqual(bladeFoilAt(fin, at + 0.05));
+    }
+  });
+
   it('leaves the tip past the tip line to the tip foil', () => {
     // The owner's slice is the base foil, not the fin's section: it reshapes the chord up
     // to the tip line, and not past it.

@@ -231,10 +231,10 @@ export default function DocsFinDesigner() {
           another: it waits just short of it, then hops to the other side. Each slice has its own
           foil: pick its tab in the foil view (Root, then each slice by height) and shape it with
           the same tools, NACA presets included. A new slice starts as the fin&apos;s own section at
-          its height, so adding one changes nothing until you reshape it. Dragging a slice moves it
-          the way the analysis cut moves: one you haven&apos;t reshaped shows the fin&apos;s section
-          at its new height, and one you have keeps your changes, laid on the fin&apos;s section
-          there.
+          its height, drawn with as few points as follow it to within 2% of its thickness, so adding
+          one changes nothing you could measure until you reshape it. Dragging a slice moves it the
+          way the analysis cut moves: one you haven&apos;t reshaped shows the fin&apos;s section at
+          its new height, and one you have keeps your changes, laid on the fin&apos;s section there.
         </p>
         <p>
           What you change in a slice&apos;s foil holds at its height and blends smoothly into the

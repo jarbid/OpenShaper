@@ -1364,16 +1364,16 @@ const fitShape = (s: BladeShape): FinSection => {
  * The fin's horizontal section at `eta` (fraction of the depth) as a foil, chord
  * fractions both ways, less the minimum thickness: what a new slice starts as, so adding
  * it changes nothing (owner's rules). Fitted with as few points as follow it to within
- * a percent of its thickness, with a point where it crosses the tip line.
+ * FIT_TOLERANCE of its thickness, with a point where it crosses the tip line.
  */
 export const bladeFoilAt = (d: FinDesign, eta: number): FinSection =>
   fitShape(bladeShapeAt(d, eta));
 
 /**
- * How far (a fraction of its thickest) a slice must differ from the fin's section to
- * count as reshaped: less is the fit's own error (a percent).
+ * How far (a fraction of its thickest, square to the face) a slice must differ from the
+ * fin's section to count as reshaped: less is the fit's own error (FIT_TOLERANCE).
  */
-const RESHAPED = 0.015;
+const RESHAPED = 0.03;
 
 const sliceEditsCache = new WeakMap<FinSlice, { o: Float64Array; i: Float64Array } | null>();
 
@@ -1397,12 +1397,22 @@ const sliceEdits = (d: FinDesign, index: number): { o: Float64Array; i: Float64A
   });
   const o = new Float64Array(n);
   const i = new Float64Array(n);
+  // The faces' slopes there: a miss where a face is steep, as at the nose, is mostly height.
+  const slopeOf = (ys: readonly number[], j: number): number => {
+    const a = Math.max(0, j - 1);
+    const b = Math.min(n - 1, j + 1);
+    return (ys[b]! - ys[a]!) / (fin.us[b]! - fin.us[a]! || 1);
+  };
   let most = 0;
   fin.us.forEach((u, j) => {
     if (u < fin.free[0] || u > fin.free[1]) return; // the tip's: never the slice's
     o[j] = shape[j]![0] / (own || 1) - fin.out[j]! / finMax;
     i[j] = shape[j]![1] / (own || 1) - fin.ins[j]! / finMax;
-    most = Math.max(most, Math.abs(o[j]!), Math.abs(i[j]!));
+    most = Math.max(
+      most,
+      Math.abs(o[j]!) / Math.hypot(1, slopeOf(fin.out, j)),
+      Math.abs(i[j]!) / Math.hypot(1, slopeOf(fin.ins, j)),
+    );
   });
   const edits = most > RESHAPED ? { o, i } : null;
   sliceEditsCache.set(sl, edits);
@@ -1430,6 +1440,13 @@ export const sliceFoilMovedTo = (d: FinDesign, index: number, eta: number): FinS
   });
 };
 
+/**
+ * How far (a fraction of its thickest, square to the face) a fitted foil may miss the
+ * section it follows: two percent, under 0.2 mm on any fin. A percent was finer than the
+ * fit can follow a section with few points: it added points that changed next to nothing.
+ */
+const FIT_TOLERANCE = 0.02;
+
 /** The straight face y = 0, as a flat inside face. */
 const straightFace = (): Spline =>
   splineFromKnots([
@@ -1440,11 +1457,14 @@ const straightFace = (): Spline =>
 /**
  * A foil face through samples (`us` from 0 to 1, rising): points at the ends, at `must`,
  * at its furthest from the chord line, and then wherever it misses by most, until it
- * misses by no more than a percent of its furthest (or fourteen points). Smooth at each
- * point, its slope there read off the samples, and each stretch's two handles as long as
- * fit it best; square to the chord at the leading edge, as a rounded nose is.
+ * misses by no more than FIT_TOLERANCE of its furthest, square to the face (or fourteen
+ * points). Smooth at each point, its slope there read off the samples, and each stretch's
+ * two handles as long as fit it best; square to the chord at the leading edge, as a
+ * rounded nose is, and at the trailing edge sloped as fits best.
  */
 const fitFace = (us: readonly number[], ys: readonly number[], must: readonly number[]): Spline => {
+  /** A stretch's handle lengths, and the trailing edge's slope on the last. */
+  type Fit = [number, number, number?];
   const at = (x: number): number => {
     let j = 1;
     while (j < us.length - 1 && us[j]! < x) j++;
@@ -1479,21 +1499,27 @@ const fitFace = (us: readonly number[], ys: readonly number[], must: readonly nu
     vec2(xs[k]!, k === 0 || k === xs.length - 1 ? 0 : at(xs[k]!));
   /**
    * Stretch `k`'s handles: from point k along its slope (straight up at the nose, `a`
-   * its height), `a` and `c` of the stretch long.
+   * its height), `a` and `c` of the stretch long. At the trailing edge the slope is the
+   * fit's own, `s`: the samples' there can be a thick edge's drop, too steep to follow.
    */
-  const handles = (xs: readonly number[], k: number, a: number, c: number): [Vec2, Vec2] => {
+  const handles = (
+    xs: readonly number[],
+    k: number,
+    a: number,
+    c: number,
+    s = slope(xs[k + 1]!),
+  ): [Vec2, Vec2] => {
     const p = pointAt(xs, k);
     const q = pointAt(xs, k + 1);
     const dx = q.x - p.x;
     const s0 = slope(p.x);
-    const s1 = slope(q.x);
     return [
       k === 0 ? vec2(p.x, p.y + a) : vec2(p.x + a * dx, p.y + s0 * a * dx),
-      vec2(q.x - c * dx, q.y - s1 * c * dx),
+      vec2(q.x - c * dx, q.y - s * c * dx),
     ];
   };
-  /** Stretch `k`'s handles, fitted to its samples by turns. */
-  const fitStretch = (xs: readonly number[], k: number): [number, number] => {
+  /** Stretch `k`'s handles (and the trailing edge's slope), fitted to its samples by turns. */
+  const fitStretch = (xs: readonly number[], k: number): Fit => {
     const p = pointAt(xs, k);
     const q = pointAt(xs, k + 1);
     // Its samples, every few: plenty to fit two handles to.
@@ -1501,8 +1527,8 @@ const fitFace = (us: readonly number[], ys: readonly number[], must: readonly nu
     for (let j = 0; j < us.length; j++) if (us[j]! > p.x && us[j]! < q.x) js.push(j);
     const step = Math.max(1, Math.floor(js.length / 24));
     const fitTo = js.filter((_, i) => i % step === 0);
-    const err = (a: number, c: number) => {
-      const [h0, h1] = handles(xs, k, a, c);
+    const err = (a: number, c: number, s?: number) => {
+      const [h0, h1] = handles(xs, k, a, c, s);
       const sp = splineFromKnots([knot(p, p, h0, false), knot(q, h1, q, false)]);
       let e = 0;
       for (const j of fitTo) e += (yAtX(sp, us[j]!) - ys[j]!) ** 2;
@@ -1512,15 +1538,26 @@ const fitFace = (us: readonly number[], ys: readonly number[], must: readonly nu
     const [lo, hi] = k === 0 ? [Math.min(0, reach), Math.max(0, reach)] : [0.02, 0.95];
     let a = k === 0 ? reach / 3 : 1 / 3;
     let c = 1 / 3;
-    for (let round = 0; round < 2; round++) {
-      a = golden(lo, hi, (v) => err(v, c));
-      c = golden(0.02, 0.95, (v) => err(a, v));
+    if (k < xs.length - 2) {
+      for (let round = 0; round < 2; round++) {
+        a = golden(lo, hi, (v) => err(v, c));
+        c = golden(0.02, 0.95, (v) => err(a, v));
+      }
+      return [a, c];
     }
-    return [a, c];
+    // Up to four times as steep as the stretch, on average: a sharp edge's is less.
+    const steep = (4 * (q.y - p.y)) / (q.x - p.x);
+    let s = steep / 4;
+    for (let round = 0; round < 3; round++) {
+      s = golden(Math.min(0, steep), Math.max(0, steep), (v) => err(a, c, v));
+      a = golden(lo, hi, (v) => err(v, c, s));
+      c = golden(0.02, 0.95, (v) => err(a, v, s));
+    }
+    return [a, c, s];
   };
   // A stretch's fit depends only on its ends: kept as points are added between others.
-  const fitted = new Map<string, [number, number]>();
-  const fitOf = (xs: readonly number[], k: number): [number, number] => {
+  const fitted = new Map<string, Fit>();
+  const fitOf = (xs: readonly number[], k: number): Fit => {
     const key = `${xs[k]},${xs[k + 1]}`;
     let f = fitted.get(key);
     if (!f) fitted.set(key, (f = fitStretch(xs, k)));
@@ -1542,7 +1579,8 @@ const fitFace = (us: readonly number[], ys: readonly number[], must: readonly nu
     let worst = { at: 0.5, by: 0 };
     for (let j = 1; j < us.length - 1; j++) {
       if (xs.some((x) => Math.abs(x - us[j]!) < 1e-3)) continue;
-      const by = Math.abs(yAtX(sp, us[j]!) - ys[j]!);
+      // Square to the face: where it is steep, as at the nose, height misleads.
+      const by = Math.abs(yAtX(sp, us[j]!) - ys[j]!) / Math.hypot(1, slope(us[j]!));
       if (by > worst.by) worst = { at: us[j]!, by };
     }
     return worst;
@@ -1553,7 +1591,7 @@ const fitFace = (us: readonly number[], ys: readonly number[], must: readonly nu
   let sp = build(xs);
   for (let k = xs.length; k < 14; k++) {
     const w = miss(sp, xs);
-    if (w.by <= 1e-2 * peak) break;
+    if (w.by <= FIT_TOLERANCE * peak) break;
     xs.push(w.at);
     xs.sort((p, q) => p - q);
     sp = build(xs);
