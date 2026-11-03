@@ -17,6 +17,26 @@ export {
   withChain,
 } from './edits';
 export {
+  FEATURE_KINDS,
+  addFeature,
+  addFeatureKey,
+  depthPolyline,
+  featureKindOf,
+  featureLimits,
+  featureRange,
+  refitFeatures,
+  removeFeature,
+  removeFeatureKey,
+  setFeatureDepth,
+  setFeatureEnabled,
+  setFeatureKey,
+  setFeatureParams,
+  type FeatureKind,
+  type FeatureParamName,
+  type FeatureParams,
+  type Range as FeatureRange,
+} from './features';
+export {
   defaultNotchDepth,
   notchDepthRange,
   setNotchDepth,

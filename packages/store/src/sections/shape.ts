@@ -13,6 +13,8 @@
  * back from the wall.
  */
 import type { BoardDoc, Chain, ChainKnot, Pair, Station } from '@openshaper/board2';
+import { refitFeatures } from './features';
+import type { NotchChords } from './project';
 
 /** What the sidebar offers for the tail. */
 export type TailType = 'standard' | 'swallow' | 'fish';
@@ -210,7 +212,7 @@ function stationsFrom(
  * depth and the tip and rebuilds the wall. An asymmetric board gets the same tail on both halves. Returns
  * the document itself for no change, or when it would leave fewer than two stations.
  */
-export function setTail(doc: BoardDoc, type: TailType, d?: number): BoardDoc {
+export function setTail(doc: BoardDoc, type: TailType, d?: number, chords?: NotchChords): BoardDoc {
   const L = lengthOf(doc.outline.plus);
   const was = tailTypeOf(doc);
   if (type === 'standard') {
@@ -219,7 +221,9 @@ export function setTail(doc: BoardDoc, type: TailType, d?: number): BoardDoc {
       plus: standardOutline(doc.outline.plus),
       ...(doc.outline.minus === undefined ? {} : { minus: standardOutline(doc.outline.minus) }),
     };
-    return { ...doc, tail: { kind: 'standard' }, outline };
+    // the station range starts at the tip again: a feature's keys stay valid, a channel is rechecked
+    const next = { ...doc, tail: { kind: 'standard' as const }, outline };
+    return { ...next, features: refitFeatures(next, chords) };
   }
   const fromStandard = was === 'standard';
   const current = fromStandard ? undefined : firstX(doc.outline.plus);
@@ -233,7 +237,7 @@ export function setTail(doc: BoardDoc, type: TailType, d?: number): BoardDoc {
       ? {}
       : { minus: notchedOutline(doc.outline.minus, type, depth, fromStandard) }),
   };
-  return {
+  const next: BoardDoc = {
     ...doc,
     tail: { kind: 'notched', zone: START_ZONE * depth, auto: true },
     outline,
@@ -242,6 +246,8 @@ export function setTail(doc: BoardDoc, type: TailType, d?: number): BoardDoc {
         ? doc.stations
         : stations,
   };
+  // the notch bottom is the station range's start: feature keys behind it are squeezed in, never refused
+  return { ...next, features: refitFeatures(next, chords) };
 }
 
 // ---------------------------------------------------------------------------
@@ -281,7 +287,7 @@ function movedNotch(chain: Chain, d: number): Chain {
  * new notch bottom passes are dropped. A standard tail has no notch: returns the document itself, as it
  * does for no change or when the move would leave fewer than two stations.
  */
-export function setNotchDepth(doc: BoardDoc, d: number): BoardDoc {
+export function setNotchDepth(doc: BoardDoc, d: number, chords?: NotchChords): BoardDoc {
   if (doc.tail.kind !== 'notched' || !Number.isFinite(d)) return doc;
   const L = lengthOf(doc.outline.plus);
   const was = firstX(doc.outline.plus);
@@ -297,5 +303,6 @@ export function setNotchDepth(doc: BoardDoc, d: number): BoardDoc {
     doc.tail.kind === 'notched' && doc.tail.auto === true
       ? { kind: 'notched' as const, zone: START_ZONE * depth, auto: true }
       : doc.tail;
-  return { ...doc, outline, tail, stations };
+  const next: BoardDoc = { ...doc, outline, tail, stations };
+  return { ...next, features: refitFeatures(next, chords) };
 }

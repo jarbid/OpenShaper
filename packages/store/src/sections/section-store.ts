@@ -45,6 +45,19 @@ import {
   removeStation,
   scalePlan,
 } from './edits';
+import {
+  addFeature,
+  addFeatureKey,
+  featureKindOf,
+  removeFeature,
+  removeFeatureKey,
+  setFeatureDepth,
+  setFeatureEnabled,
+  setFeatureKey,
+  setFeatureParams,
+  type FeatureKind,
+  type FeatureParams,
+} from './features';
 import { projectDoc, type NotchChords } from './project';
 import { setNotchDepth, setSymmetry, setTail, type KeepSide, type TailType } from './shape';
 
@@ -80,6 +93,20 @@ export interface SectionState extends BoardState {
   setTail: (type: TailType, d?: number) => void;
   /** Move the notch bottom to depth `d` (cm) of a swallow or fish tail. One undo step per drag. */
   setNotchDepth: (d: number) => void;
+  /**
+   * Bottom features (docs/design/m2-editor.md §3, step 4). Each is one undo step, and a drag of a slider
+   * or field (`beginEdit` … `endEdit`) is one step in all. A feature edit refits nothing: every
+   * `Section` of the document is the same object afterwards. Values are held to `featureLimits`.
+   */
+  addFeature: (kind: FeatureKind) => void;
+  removeFeature: (id: string) => void;
+  setFeatureEnabled: (id: string, enabled: boolean) => void;
+  setFeatureParams: (id: string, patch: FeatureParams) => void;
+  setFeatureDepth: (id: string, depth: number) => void;
+  /** One key of the depth curve: the first and last move along x only. */
+  setFeatureKey: (id: string, index: number, patch: { s?: number; value?: number }) => void;
+  addFeatureKey: (id: string, s?: number) => void;
+  removeFeatureKey: (id: string, index: number) => void;
 }
 
 /**
@@ -129,6 +156,13 @@ const SPLINE_ACTIONS: readonly SplineActionNames[] = [
   'alignTangentsVertical',
 ];
 
+const FEATURE_LABELS: Record<FeatureKind, string> = {
+  vee: 'Vee',
+  'single-concave': 'Single concave',
+  'double-concave': 'Double concave',
+  channels: 'Channels',
+};
+
 const isMinus = (t: SplineTarget): boolean =>
   (t.kind === 'outline' || t.kind === 'crossSection') && t.side === 'minus';
 
@@ -170,6 +204,14 @@ export const createSectionStore = (): StoreApi<SectionState> =>
       const { doc } = get();
       if (!doc || nextDoc === doc) return;
       history.commit({ doc: nextDoc, board: project(nextDoc) }, label);
+    };
+
+    /** A bottom-feature edit as one step named "<verb> <feature>" (the feature's kind, lower case). */
+    const featureEdit = (id: string, edit: (doc: BoardDoc) => BoardDoc, verb: string) => {
+      const { doc } = get();
+      const f = doc?.features.find((q) => q.id === id);
+      if (!doc || !f) return;
+      commitDoc(edit(doc), `${verb} ${FEATURE_LABELS[featureKindOf(f)].toLowerCase()}`);
     };
 
     /** The whole-board resize in progress: the minus outline scales with the plus one. */
@@ -238,7 +280,7 @@ export const createSectionStore = (): StoreApi<SectionState> =>
             rest[0] === 0 &&
             doc?.tail.kind === 'notched'
           ) {
-            commitDoc(setNotchDepth(doc, (rest[1] as { x: number }).x), 'Move notch depth');
+            commitDoc(setNotchDepth(doc, (rest[1] as { x: number }).x, chords), 'Move notch depth');
             return;
           }
           fn(isMinus(target) ? plain(target) : target, ...rest);
@@ -311,7 +353,7 @@ export const createSectionStore = (): StoreApi<SectionState> =>
       setTail: (type, d) => {
         const { doc } = get();
         if (!doc) return;
-        const next = setTail(doc, type, d);
+        const next = setTail(doc, type, d, chords);
         if (next === doc) return;
         commitDoc(
           next,
@@ -324,8 +366,30 @@ export const createSectionStore = (): StoreApi<SectionState> =>
       setNotchDepth: (d) => {
         const { doc } = get();
         if (!doc) return;
-        commitDoc(setNotchDepth(doc, d), 'Set notch depth');
+        commitDoc(setNotchDepth(doc, d, chords), 'Set notch depth');
       },
+
+      addFeature: (kind) => {
+        const { doc } = get();
+        if (!doc) return;
+        commitDoc(addFeature(doc, kind, chords), `Add ${FEATURE_LABELS[kind]}`);
+      },
+      removeFeature: (id) => featureEdit(id, (d) => removeFeature(d, id), 'Remove'),
+      setFeatureEnabled: (id, enabled) =>
+        featureEdit(
+          id,
+          (d) => setFeatureEnabled(d, id, enabled, chords),
+          enabled ? 'Enable' : 'Disable',
+        ),
+      setFeatureParams: (id, patch) =>
+        featureEdit(id, (d) => setFeatureParams(d, id, patch, chords), 'Set'),
+      setFeatureDepth: (id, depth) =>
+        featureEdit(id, (d) => setFeatureDepth(d, id, depth), 'Set depth of'),
+      setFeatureKey: (id, index, patch) =>
+        featureEdit(id, (d) => setFeatureKey(d, id, index, patch, chords), 'Move a key of'),
+      addFeatureKey: (id, s) => featureEdit(id, (d) => addFeatureKey(d, id, s), 'Add a key to'),
+      removeFeatureKey: (id, index) =>
+        featureEdit(id, (d) => removeFeatureKey(d, id, index), 'Remove a key from'),
 
       addCrossSection: (position) => {
         const { doc } = get();
