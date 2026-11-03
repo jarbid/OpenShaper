@@ -1,7 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { lengthUnitByKey } from './format';
-import { fieldText, parseField, sameShown, type FieldKind } from './bottom-features';
+import {
+  endReadout,
+  fieldText,
+  fromNoseToS,
+  holdEnd,
+  noseEndRange,
+  parseField,
+  sameShown,
+  sToFromNose,
+  spanReadout,
+  type FieldKind,
+} from './bottom-features';
 
 /** Field values round-trip through the text a field shows, in every unit the editor offers. */
 describe('bottom feature fields', () => {
@@ -54,5 +65,50 @@ describe('bottom feature fields', () => {
     expect(mm).toBeCloseTo(0.3, 12);
     expect(parseField('0.3', 'length', lengthUnitByKey('cm'))).toBeCloseTo(mm, 12);
     expect(parseField('0.118', 'length', lengthUnitByKey('in'))!).toBeCloseTo(mm, 2);
+  });
+});
+
+/** The two ends are named for the board end: the tail end from the tail, the nose end from the nose. */
+describe('bottom feature ends', () => {
+  const L = 183;
+  it.each(['mm', 'cm', 'in'])('the nose end round-trips from nose and stored s in %s', (key) => {
+    const units = lengthUnitByKey(key);
+    for (const s of [20.5, 60, 152.4, 182.5]) {
+      const text = fieldText(sToFromNose(s, L), 'length', units);
+      const back = fromNoseToS(parseField(text, 'length', units)!, L);
+      const step = { mm: 0.05, cm: 0.005, in: 0.0005 * 2.54 }[key]!;
+      expect(Math.abs(back - s)).toBeLessThanOrEqual(step + 1e-9);
+    }
+  });
+
+  it('the nose-end range counts from the nose, the other way round', () => {
+    expect(noseEndRange({ min: 10, max: 180 }, L)).toEqual({ min: 3, max: 173 });
+  });
+
+  it('holds each end to the board and keeps the nose end on the nose side', () => {
+    const room = { min: 0.5, max: 182.5 };
+    expect(holdEnd('from', 170, 100, room, 2)).toBe(98);
+    expect(holdEnd('from', -5, 100, room, 2)).toBe(0.5);
+    expect(holdEnd('to', 50, 100, room, 2)).toBe(102);
+    expect(holdEnd('to', 999, 100, room, 2)).toBe(182.5);
+  });
+
+  it('a slider moved right moves both ends toward the nose', () => {
+    // both sliders carry the stored x, so a larger value is nearer the nose: less distance from the nose
+    for (const [a, b] of [
+      [40, 60],
+      [100, 150],
+    ] as const) {
+      expect(sToFromNose(b, L)).toBeLessThan(sToFromNose(a, L));
+      expect(b).toBeGreaterThan(a);
+    }
+  });
+
+  it('reads each end in the other reference, and the run', () => {
+    const cm = lengthUnitByKey('cm');
+    expect(endReadout('to', 152.4, L, false, cm)).toContain('from tail');
+    expect(endReadout('from', 30, L, false, cm)).toContain('from nose');
+    expect(endReadout('from', 0.5, L, true, cm)).toBe('Runs out the tail');
+    expect(spanReadout(30, 150, cm)).toMatch(/^Runs 120/);
   });
 });

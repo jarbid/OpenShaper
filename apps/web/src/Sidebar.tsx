@@ -145,6 +145,8 @@ const SIZING = {
   addButton: 'min-h-8 basis-[calc(50%-0.125rem)] px-2 text-xs pointer-coarse:min-h-11',
   /** A range input of the Bottom features section, with the 44px finger floor. */
   slider: 'w-full accent-[var(--primary)] pointer-coarse:h-11',
+  /** The read-only strip of a bottom feature's span along the board (tail left, nose right). */
+  extentBar: 'h-2.5 w-full',
 } as const;
 
 export interface ResizeFields {
@@ -302,6 +304,7 @@ export const Sidebar = memo(function Sidebar({
               units={units}
               segmentClass={SIZING.addButton}
               sliderClass={SIZING.slider}
+              extentClass={SIZING.extentBar}
             />
           ),
         }

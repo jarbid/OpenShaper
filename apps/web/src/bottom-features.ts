@@ -17,6 +17,7 @@ import {
 } from '@openshaper/store/sections';
 import {
   cmToUnitNumber,
+  fmtLen,
   fmtSmallLen,
   parseTypedLen,
   unitDecimals,
@@ -73,9 +74,70 @@ export interface FieldDef {
 
 const COMMON: readonly FieldDef[] = [
   { key: 'depth', label: 'Depth', kind: 'length', hint: 'The greatest depth along the board.' },
-  { key: 'from', label: 'From', kind: 'length', hint: 'Where the feature starts, from the tail.' },
-  { key: 'to', label: 'To', kind: 'length', hint: 'Where the feature ends, from the tail.' },
+  {
+    key: 'from',
+    label: 'Tail end — from tail',
+    kind: 'length',
+    hint: 'Where the feature ends at the tail side, measured from the tail. The least it can be means it runs out the tail.',
+  },
+  {
+    key: 'to',
+    label: 'Nose end — from nose',
+    kind: 'length',
+    hint: 'Where the feature ends at the nose side, measured back from the nose tip.',
+  },
 ];
+
+/**
+ * The two ends of a feature along the board, in the order the views draw it (tail on the left, nose on
+ * the right). The document stores both as `s`, cm from the tail; the nose end is shown from the nose.
+ */
+export type EndKey = 'from' | 'to';
+export const isEndKey = (key: FieldKey): key is EndKey => key === 'from' || key === 'to';
+
+/** Stored `s` (cm from the tail) to the distance back from the nose tip, and back again. */
+export const sToFromNose = (s: number, length: number): number => length - s;
+export const fromNoseToS = (fromNose: number, length: number): number => length - fromNose;
+
+/** The range a nose-end field takes (from the nose), given the range of the stored `s`. */
+export const noseEndRange = (r: { min: number; max: number }, length: number) => ({
+  min: sToFromNose(r.max, length),
+  max: sToFromNose(r.min, length),
+});
+
+/**
+ * A typed value of an end, held to the board and to the other end: the tail end stays at least `minSpan`
+ * on the tail side of the nose end and vice versa. Returns the stored `s`.
+ */
+export function holdEnd(
+  end: EndKey,
+  s: number,
+  other: number,
+  room: { min: number; max: number },
+  minSpan: number,
+): number {
+  const lo = end === 'from' ? room.min : other + minSpan;
+  const hi = end === 'from' ? other - minSpan : room.max;
+  return Math.min(Math.max(s, lo), Math.max(lo, hi));
+}
+
+/** What the quiet line under an end says, in the other reference. */
+export function endReadout(
+  end: EndKey,
+  s: number,
+  length: number,
+  atTail: boolean,
+  units: LengthUnit,
+): string {
+  if (end === 'from') {
+    return atTail ? 'Runs out the tail' : `= ${fmtLen(sToFromNose(s, length), units)} from nose`;
+  }
+  return `= ${fmtLen(s, units)} from tail`;
+}
+
+/** The "Runs 120.0 cm" line: the feature's length along the board. */
+export const spanReadout = (tailS: number, noseS: number, units: LengthUnit): string =>
+  `Runs ${fmtLen(noseS - tailS, units)}`;
 
 const KIND_FIELDS: Record<FeatureKind, readonly FieldDef[]> = {
   vee: [

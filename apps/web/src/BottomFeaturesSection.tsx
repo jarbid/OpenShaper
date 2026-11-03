@@ -9,7 +9,7 @@
  * model refuse the board.
  */
 import type { BottomFeature } from '@openshaper/board2';
-import { featureKindOf, type FeatureRange } from '@openshaper/store/sections';
+import { featureKindOf, featureRange, type FeatureRange } from '@openshaper/store/sections';
 import { Button, Checkbox, Input } from '@openshaper/ui';
 import { useEffect, useSyncExternalStore } from 'react';
 import {
@@ -18,6 +18,12 @@ import {
   fieldText,
   fieldValue,
   fieldsFor,
+  fromNoseToS,
+  isEndKey,
+  noseEndRange,
+  endReadout,
+  spanReadout,
+  sToFromNose,
   parseField,
   sameShown,
   type FieldDef,
@@ -39,15 +45,20 @@ export function BottomFeaturesSection({
   units,
   segmentClass,
   sliderClass,
+  extentClass,
 }: {
   units: LengthUnit;
   /** Classes of one add button (`SIZING.segment` in `Sidebar.tsx`). */
   segmentClass: string;
   /** Classes of a range input (`SIZING.slider`). */
   sliderClass: string;
+  /** Classes of the extent bar (`SIZING.extentBar`). */
+  extentClass: string;
 }) {
   const doc = useSyncExternalStore(sectionStore.subscribe, () => sectionStore.getState().doc);
   if (!doc) return null;
+  const outline = doc.outline.plus.knots;
+  const length = outline[outline.length - 1]!.p[0];
 
   return (
     <div className="space-y-3 text-sm">
@@ -77,7 +88,14 @@ export function BottomFeaturesSection({
       )}
 
       {doc.features.map((f) => (
-        <FeatureCard key={f.id} feature={f} units={units} sliderClass={sliderClass} />
+        <FeatureCard
+          key={f.id}
+          feature={f}
+          units={units}
+          sliderClass={sliderClass}
+          extentClass={extentClass}
+          length={length}
+        />
       ))}
     </div>
   );
@@ -87,10 +105,14 @@ function FeatureCard({
   feature: f,
   units,
   sliderClass,
+  extentClass,
+  length,
 }: {
   feature: BottomFeature;
   units: LengthUnit;
   sliderClass: string;
+  extentClass: string;
+  length: number;
 }) {
   const kind = featureKindOf(f);
   const limits = sectionStore.getState().featureLimits(f.id);
@@ -124,6 +146,16 @@ function FeatureCard({
         </Button>
       </div>
 
+      {f.enabled && (
+        <ExtentBar
+          className={extentClass}
+          color={color}
+          length={length}
+          from={keys[0]!.s}
+          to={keys[keys.length - 1]!.s}
+        />
+      )}
+
       {f.enabled &&
         limits &&
         fieldsFor(kind).map((def) => {
@@ -137,6 +169,8 @@ function FeatureCard({
               range={range}
               units={units}
               sliderClass={sliderClass}
+              length={length}
+              roomMin={featureRange(sectionStore.getState().doc!).min}
             />
           );
         })}
@@ -151,7 +185,7 @@ function FeatureCard({
               i === 0 || i === keys.length - 1 ? null : (
                 <div key={i} className="flex items-end gap-1">
                   <NumberBox
-                    label={`Key ${i} position`}
+                    label={`Point ${i} — from tail`}
                     kind="length"
                     value={k.s}
                     range={{ min: keys[i - 1]!.s, max: keys[i + 1]!.s }}
@@ -159,7 +193,7 @@ function FeatureCard({
                     onCommit={(s) => st().setFeatureKey(f.id, i, { s })}
                   />
                   <NumberBox
-                    label={`Key ${i} depth`}
+                    label={`Point ${i} — depth`}
                     kind="length"
                     value={k.value}
                     range={limits?.depth ?? { min: 0, max: 1 }}
@@ -194,14 +228,23 @@ function FeatureField({
   range,
   units,
   sliderClass,
+  length,
+  roomMin,
 }: {
   def: FieldDef;
   feature: BottomFeature;
   range: FeatureRange;
   units: LengthUnit;
   sliderClass: string;
+  length: number;
+  roomMin: number;
 }) {
-  const value = fieldValue(f, def.key);
+  const stored = fieldValue(f, def.key);
+  const isEnd = isEndKey(def.key);
+  // the nose end is typed from the nose; the slider keeps the stored x, so right is toward the nose
+  const nose = def.key === 'to';
+  const value = nose ? sToFromNose(stored, length) : stored;
+  const boxRange = nose ? noseEndRange(range, length) : range;
   const last = f.depth.keys.length - 1;
   const apply = (v: number) => {
     const st = sectionStore.getState();
@@ -210,6 +253,18 @@ function FeatureField({
     else if (def.key === 'to') st.setFeatureKey(f.id, last, { s: v });
     else st.setFeatureParams(f.id, { [def.key]: v });
   };
+  const readout = isEnd ? (
+    <div className="text-xs text-muted-foreground">
+      {endReadout(
+        def.key as 'from' | 'to',
+        stored,
+        length,
+        def.key === 'from' && stored <= roomMin + 0.05,
+        units,
+      )}
+      {def.key === 'to' && ` · ${spanReadout(f.depth.keys[0]!.s, stored, units)}`}
+    </div>
+  ) : null;
   return (
     <div className="space-y-1">
       <NumberBox
@@ -217,23 +272,58 @@ function FeatureField({
         hint={def.hint}
         kind={def.kind}
         value={value}
-        range={range}
+        range={boxRange}
         units={units}
-        onCommit={apply}
-        inline
+        onCommit={nose ? (d) => apply(fromNoseToS(d, length)) : apply}
+        inline={!isEnd}
       />
+      {readout}
       {range.max > range.min && (
         <Slider
           label={def.label}
           min={range.min}
           max={range.max}
-          value={Math.min(range.max, Math.max(range.min, value))}
+          value={Math.min(range.max, Math.max(range.min, stored))}
           step={def.kind === 'count' ? 1 : (range.max - range.min) / 200}
           valueText={fieldText(value, def.kind, units)}
           className={sliderClass}
           onChange={apply}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * A read-only strip of the board, tail on the left and nose on the right as the outline and rocker views
+ * draw it, with the span of the feature shaded in its colour.
+ */
+function ExtentBar({
+  className,
+  color,
+  length,
+  from,
+  to,
+}: {
+  className: string;
+  color: string;
+  length: number;
+  from: number;
+  to: number;
+}) {
+  const pct = (s: number) => Math.min(100, Math.max(0, (s / length) * 100));
+  return (
+    <div className="text-[10px] leading-none text-muted-foreground" aria-hidden="true">
+      <div className={`relative rounded-sm bg-muted ${className}`}>
+        <div
+          className="absolute inset-y-0 rounded-sm opacity-80"
+          style={{ left: `${pct(from)}%`, width: `${pct(to) - pct(from)}%`, background: color }}
+        />
+      </div>
+      <div className="mt-0.5 flex justify-between">
+        <span>Tail</span>
+        <span>Nose</span>
+      </div>
     </div>
   );
 }
@@ -329,7 +419,7 @@ function NumberBox({
             : `${label}. ${fmtRange(range, kind, units)}`
         }
       >
-        {inline ? label : label.replace(/^Key \d+ /, '')}
+        {inline ? label : label.replace(/^Point \d+ — /, '')}
       </span>
       <span className="flex min-w-0 items-center gap-1">
         <Input

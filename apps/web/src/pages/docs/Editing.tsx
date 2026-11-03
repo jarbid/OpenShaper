@@ -365,13 +365,20 @@ export default function DocsEditing() {
           </Term>
         </Terms>
         <p>
-          <strong>Depth</strong> is the greatest depth, in your display unit. <strong>From</strong>{' '}
-          and <strong>To</strong> are where the feature starts and ends, measured from the tail. The
-          depth between them follows a smooth curve through its <em>depth keys</em>: open{' '}
-          <em>Depth keys</em> to move an inner key along the board or change its depth, add a key or
-          remove one. A feature always keeps its two ends and one key between them. Every field has
-          a slider and a box, and both are held to what the board can take: a value past the end of
-          the range is moved back to it.
+          <strong>Depth</strong> is the greatest depth, in your display unit. A feature has two
+          ends, named for the end of the board they are on and drawn in the same order as the
+          outline and rocker views, tail on the left: <strong>Tail end &mdash; from tail</strong> is
+          measured from the tail, so its least value means the feature runs out through the tail,
+          and <strong>Nose end &mdash; from nose</strong> is measured back from the nose tip. Under
+          each the other reading is written (&ldquo;= 152.4 cm from tail&rdquo;) with the length the
+          feature <em>Runs</em>, and a small strip above the fields shades the span between{' '}
+          <em>Tail</em> and <em>Nose</em>. A slider moved to the right moves that end towards the
+          nose, and the nose end always stays on the nose side of the tail end. The depth between
+          them follows a smooth curve through its <em>depth keys</em>: open <em>Depth keys</em> to
+          move an inner point (measured from the tail) along the board or change its depth, add a
+          key or remove one. A feature always keeps its two ends and one key between them. Every
+          field has a slider and a box, and both are held to what the board can take: a value past
+          the end of the range is moved back to it.
         </p>
         <p>
           The rocker view draws each feature&rsquo;s depth along the board as a coloured strip

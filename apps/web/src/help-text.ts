@@ -353,7 +353,8 @@ export const HELP_TEXT: Readonly<Record<string, HelpEntry>> = {
     anchor: 'board-shape',
   },
   'section:bottomFeatures': {
-    description: 'Vee, single and double concave and channels on the bottom (NURBS engine).',
+    description:
+      'Vee, single and double concave and channels on the bottom, with the tail end set from the tail and the nose end from the nose (NURBS engine).',
     route: '/docs/editing',
     anchor: 'bottom-features',
   },
