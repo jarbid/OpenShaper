@@ -15,12 +15,12 @@ import {
   FIN_MIN_THICKNESS,
   FIN_SLICE_MIN_GAP,
   FIN_THICKNESS_PATH_LIMITS,
-  FIN_TIP_SCALE_LIMITS,
   bladeFoilAt,
   chordAt,
   sliceFoilMovedTo,
   sliceFreeSpan,
-  sliceTipPoint,
+  sliceTipCrossing,
+  yAtX,
   moveFoilThickest,
   sectionThickest,
   tipFoilOf,
@@ -55,7 +55,7 @@ import {
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
-import { setKnotContinuous } from './edits';
+import { insertKnotAt, setKnotContinuous } from './edits';
 
 /** The editable curves of a fin. */
 export type FinCurve = 'outline' | 'outside' | 'inside' | 'taper';
@@ -557,11 +557,12 @@ export const resetThicknessPath = (d: FinDesign): FinDesign => {
 
 /**
  * The part of slice `foil`'s chord (fractions, 0 the leading edge) that is the tip's:
- * past where its chord crosses the tip line (kernel sliceFreeSpan). Locked: the tip is
- * the tip foil's, scaled from the slice's point on the tip line ({@link setSliceTipPoint}).
- * Null for the base and tip foils, and a slice whose chord doesn't reach the tip line.
+ * past where its chord crosses the tip line (kernel sliceFreeSpan). The tip foil shapes
+ * it, so the slice's foil view shades it; the slice's points there may still be dragged
+ * but change nothing (owner's rules). Null for the base and tip foils, and a slice whose
+ * chord doesn't reach the tip line.
  */
-export const lockedSpan = (d: FinDesign, foil: FinFoilIndex): readonly [number, number] | null => {
+export const tipSpanOf = (d: FinDesign, foil: FinFoilIndex): readonly [number, number] | null => {
   const sl = foil >= 1 ? d.slices[foil - 1] : undefined;
   if (!sl) return null;
   const [a, c] = sliceFreeSpan(d, sl.height);
@@ -569,66 +570,41 @@ export const lockedSpan = (d: FinDesign, foil: FinFoilIndex): readonly [number, 
   return a > 0 ? [0, a] : [c, 1];
 };
 
-/** How far clear of the locked span (chord fractions) a slice's own points stay. */
-const LOCK_CLEARANCE = 0.005;
+/** A point closer than this (chord fraction) to a crossing already marks it. */
+const CROSSING_NEAR = 0.01;
 
-/** Whether `x` (chord fraction) is in `span`: a point there is the tip's, not the slice's. */
-export const inLockedSpan = (span: readonly [number, number] | null, x: number): boolean =>
-  !!span && x >= span[0] - 1e-6 && x <= span[1] + 1e-6;
+/** `s` with a point at chord fraction `x` on it, its shape unchanged, unless one is near. */
+const withPointAt = (s: Spline, x: number): Spline => {
+  if (!(x > CROSSING_NEAR && x < 1 - CROSSING_NEAR)) return s;
+  if (s.knots.some((k) => Math.abs(k.end.x - x) < CROSSING_NEAR)) return s;
+  return insertKnotAt(s, vec2(x, yAtX(s, x)))?.spline ?? s;
+};
 
-/** `p` moved along the chord to stay clear of `span`, on the slice's side of it. */
-export const clearOfLockedSpan = (span: readonly [number, number] | null, p: Vec2): Vec2 => {
-  if (!span) return p;
-  if (span[0] <= 0 && span[1] < 1) return vec2(Math.max(p.x, span[1] + LOCK_CLEARANCE), p.y);
-  if (span[1] >= 1 && span[0] > 0) return vec2(Math.min(p.x, span[0] - LOCK_CLEARANCE), p.y);
-  return p;
+const sectionWithPointAt = (sec: FinSection, x: number): FinSection => {
+  const outside = withPointAt(sec.outside, x);
+  const inside = sec.inside ? withPointAt(sec.inside, x) : null;
+  return outside === sec.outside && inside === sec.inside ? sec : { outside, inside };
 };
 
 /**
- * Slice `foil`'s point on the tip line dragged to `outside` (its outside face, in the
- * slice foil's units): the tip foil's thickness scaled to match (FinDesign.tipScale),
- * within FIN_TIP_SCALE_LIMITS, and each slice's locked tip part scaled with it so its
- * foil view keeps showing the fin.
+ * The design with a point where each slice crosses the tip line, in the slice's foil and
+ * in the tip foil (owner's rules: each foil view shows the other's faces there as a dot,
+ * and its own point there is what to match it with). The shapes are unchanged; a point
+ * already near a crossing is kept. The same design if every crossing has its points.
  */
-export const setSliceTipPoint = (d: FinDesign, foil: FinFoilIndex, outside: number): FinDesign => {
-  const sl = d.slices[foil - 1];
-  const tp = sliceTipPoint(d, foil - 1);
-  if (!sl || !tp || !Number.isFinite(outside)) return d;
-  // A symmetric slice's inside face mirrors its outside.
-  const inside = (o: number) => (sl.section.inside ? tp.inside : -o);
-  const was = tp.outside - inside(tp.outside);
-  const now = outside - inside(outside);
-  if (!(was > 0) || !(now > 0)) return d;
-  const old = d.tipScale ?? 1;
-  const { min, max } = FIN_TIP_SCALE_LIMITS;
-  const scale = Math.round(Math.min(max, Math.max(min, (old * now) / was)) * 1e4) / 1e4;
-  if (scale === old) return d;
-  const k = scale / old;
-  const scaled = (span: readonly [number, number] | null, s: Spline): Spline => {
-    if (!span) return s;
-    const y = (p: Vec2) => vec2(p.x, p.y * k);
-    return splineFromKnots(
-      s.knots.map((kn) =>
-        inLockedSpan(span, kn.end.x)
-          ? knot(y(kn.end), y(kn.tangentToPrev), y(kn.tangentToNext), kn.continuous)
-          : kn,
-      ),
-    );
-  };
-  const next = { ...d, tipScale: scale };
-  return {
-    ...next,
-    slices: d.slices.map((s, i) => {
-      const span = lockedSpan(d, i + 1);
-      if (!span) return s;
-      const sec = s.section;
-      return {
-        ...s,
-        section: {
-          outside: scaled(span, sec.outside),
-          inside: sec.inside ? scaled(span, sec.inside) : null,
-        },
-      };
-    }),
-  };
+export const withCrossingPoints = (d: FinDesign): FinDesign => {
+  let tip = tipFoilOf(d);
+  let changed = false;
+  const slices = d.slices.map((sl, i) => {
+    const c = sliceTipCrossing(d, i);
+    if (!c) return sl;
+    tip = sectionWithPointAt(tip, c.tipAt);
+    const section = sectionWithPointAt(sl.section, c.sliceAt);
+    if (section === sl.section) return sl;
+    changed = true;
+    return { ...sl, section };
+  });
+  const tipChanged = tip !== tipFoilOf(d);
+  if (!changed && !tipChanged) return d;
+  return { ...d, slices, ...(tipChanged ? { tipSection: tip } : {}) };
 };

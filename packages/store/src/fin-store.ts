@@ -38,11 +38,8 @@ import {
   addSlice,
   applyNaca,
   clampEdit,
-  clearOfLockedSpan,
   constrainKnot,
-  inLockedSpan,
-  lockedSpan,
-  setSliceTipPoint,
+  withCrossingPoints,
   getFinCurve,
   newFin,
   moveSlice,
@@ -204,11 +201,6 @@ export interface FinState {
   setThicknessPath: (index: 0 | 1 | 2, fraction: number) => boolean;
   /** The thickness path's middle back to halfway between its ends. */
   resetThicknessPath: () => boolean;
-  /**
-   * Drag slice `foil`'s point on the tip line to `outside` (its outside face, in the slice
-   * foil's units): scales the tip foil's thickness. Wrap a drag in beginEdit / endEdit.
-   */
-  setSliceTipPoint: (foil: number, outside: number) => boolean;
   /** Reshape foil `foil` so it is thickest at `fraction` of its chord. Wrap a drag in beginEdit / endEdit. */
   setFoilThickest: (foil: number, fraction: number) => boolean;
   /** Arrow buttons: move the fin along the tab (cm, + toward the nose). */
@@ -303,23 +295,6 @@ export const createFinStore = (): StoreApi<FinState> =>
     /** Where the slice being dragged started: its design and index (moveSlice). */
     let sliceDrag: { design: FinDesign; index: number } | null = null;
 
-    /**
-     * The part of the active slice's chord that is the tip's (fin-edits lockedSpan), for
-     * a section curve: its points there can't be moved, added or deleted.
-     */
-    const lockOf = (curve: FinCurve): readonly [number, number] | null => {
-      const { design, activeFoil } = get();
-      return design && (curve === 'outside' || curve === 'inside')
-        ? lockedSpan(design, activeFoil)
-        : null;
-    };
-    const knotLocked = (curve: FinCurve, index: number): boolean => {
-      const span = lockOf(curve);
-      const { design, activeFoil } = get();
-      const k = span && design ? getFinCurve(design, curve, activeFoil)?.knots[index] : undefined;
-      return !!k && inLockedSpan(span, k.end.x);
-    };
-
     return {
       design: null,
       past: [],
@@ -378,10 +353,18 @@ export const createFinStore = (): StoreApi<FinState> =>
         set({ editing: true, past: [...past, { design, label }].slice(-MAX_HISTORY), future: [] });
       },
       endEdit: () => {
-        const { editing, past, design } = get();
+        const { editing, past } = get();
         if (!editing) return;
-        // A drag that changed nothing leaves no undo step.
+        sliceDrag = null;
+        let design = get().design;
+        // A drag that moved a slice, the tip line or the outline may leave a slice crossing
+        // the tip line somewhere new: give both foils a point there (withCrossingPoints).
         const last = past[past.length - 1];
+        if (design && last && last.design !== design && design.slices.length) {
+          const marked = withCrossingPoints(design);
+          if (marked !== design) set({ design: (design = marked) });
+        }
+        // A drag that changed nothing leaves no undo step.
         set(
           last && last.design === design
             ? { editing: false, past: past.slice(0, -1) }
@@ -392,11 +375,10 @@ export const createFinStore = (): StoreApi<FinState> =>
       moveControlPoint: (curve, index, p) => {
         const s = get().design && getFinCurve(get().design!, curve, get().activeFoil);
         if (!s || !s.knots[index]) return false;
-        if (knotLocked(curve, index)) return false;
         const from = s.knots[index]!.end;
         // Constrain the target, not each step: every constraint is a line or a point, so
         // the straight drag to a constrained target stays on it.
-        const to = clearOfLockedSpan(lockOf(curve), constrainKnot(s, curve, index, p));
+        const to = constrainKnot(s, curve, index, p);
         if (to.x === from.x && to.y === from.y) return false;
         return drag('Move control point', from, to, (q) =>
           withFinCurve(get().design!, curve, moveKnotEnd(s, index, q), get().activeFoil),
@@ -406,7 +388,7 @@ export const createFinStore = (): StoreApi<FinState> =>
       moveTangent: (curve, index, which, p) => {
         const s = get().design && getFinCurve(get().design!, curve, get().activeFoil);
         const k = s?.knots[index];
-        if (!s || !k || knotLocked(curve, index)) return false;
+        if (!s || !k) return false;
         const from = which === 'prev' ? k.tangentToPrev : k.tangentToNext;
         return drag('Move handle', from, p, (q) =>
           withFinCurve(get().design!, curve, moveKnotTangent(s, index, which, q), get().activeFoil),
@@ -417,11 +399,10 @@ export const createFinStore = (): StoreApi<FinState> =>
         const { design, activeFoil } = get();
         const s = design && getFinCurve(design, curve, activeFoil);
         if (!design || !s || !s.knots[lead]) return false;
-        const ids = [...new Set(indices)].filter((i) => s.knots[i] && !knotLocked(curve, i));
-        if (!ids.includes(lead)) return false;
+        const ids = [...new Set(indices)].filter((i) => s.knots[i]);
         if (ids.length <= 1) return get().moveControlPoint(curve, lead, p);
         const from = s.knots[lead]!.end;
-        const to = clearOfLockedSpan(lockOf(curve), constrainKnot(s, curve, lead, p));
+        const to = constrainKnot(s, curve, lead, p);
         const dx = to.x - from.x;
         const dy = to.y - from.y;
         if (dx === 0 && dy === 0) return false;
@@ -445,7 +426,7 @@ export const createFinStore = (): StoreApi<FinState> =>
       addControlPoint: (curve, p) => {
         const { design } = get();
         const s = design && getFinCurve(design, curve, get().activeFoil);
-        if (!design || !s || inLockedSpan(lockOf(curve), p.x)) return false;
+        if (!design || !s) return false;
         const r = insertKnotAt(s, p);
         if (!r) return false;
         const ok = commitChecked(
@@ -466,7 +447,7 @@ export const createFinStore = (): StoreApi<FinState> =>
       deleteControlPoint: (curve, index) => {
         const { design } = get();
         const s = design && getFinCurve(design, curve, get().activeFoil);
-        if (!design || !s || !canDeleteKnot(s, index) || knotLocked(curve, index)) return false;
+        if (!design || !s || !canDeleteKnot(s, index)) return false;
         if (get().editing) set({ editing: false });
         const ok = commitChecked(
           withFinCurve(design, curve, deleteKnot(s, index), get().activeFoil),
@@ -486,7 +467,7 @@ export const createFinStore = (): StoreApi<FinState> =>
         // Highest index first, so the ones still to go keep their indices.
         let next = s;
         for (const i of [...ends].sort((a, b) => b - a)) {
-          if (canDeleteKnot(next, i) && !knotLocked(selection.curve, i)) next = deleteKnot(next, i);
+          if (canDeleteKnot(next, i)) next = deleteKnot(next, i);
         }
         if (next === s) return false;
         if (get().editing) set({ editing: false });
@@ -600,7 +581,7 @@ export const createFinStore = (): StoreApi<FinState> =>
       addSlice: (height) => {
         const d = get().design;
         const r = d && addSlice(d, height);
-        if (!r || !commitChecked(r.design, 'Add foil slice')) return false;
+        if (!r || !commitChecked(withCrossingPoints(r.design), 'Add foil slice')) return false;
         set({ activeFoil: r.foil, selection: null });
         return true;
       },
@@ -625,10 +606,6 @@ export const createFinStore = (): StoreApi<FinState> =>
         return (
           !!d && commitChecked(setThicknessPath(d, index, fraction), 'Move the thickness path')
         );
-      },
-      setSliceTipPoint: (foil, outside) => {
-        const d = get().design;
-        return !!d && commitChecked(setSliceTipPoint(d, foil, outside), 'Scale the tip');
       },
       setFoilThickest: (foil, fraction) => {
         const d = get().design;

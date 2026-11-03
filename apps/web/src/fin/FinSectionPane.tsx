@@ -6,8 +6,10 @@
  * face; the other is shown mirrored, dashed. NACA 4-digit presets replace both faces,
  * which stay editable afterwards. The dashed vertical marks the thickest point, where
  * the taper's thickness applies. A horizontal slice whose chord crosses the tip line
- * shows the tip past it shaded and locked, with a point on the tip line to drag up or
- * down: the tip foil's thickness follows. An asymmetric foil shows how its thickness is shared
+ * shows the part past it, which the tip foil shapes, shaded, and a green dot for the tip
+ * there; the tip foil shows an aqua dot where each slice crosses it, for the slice there.
+ * Both foils get a point at the crossing to match the dots with (owner's rules). An
+ * asymmetric foil shows how its thickness is shared
  * (outside / inside, top left); typing a share rebuilds the foil as leading-edge radii
  * and straight lines (split-foil.ts).
  */
@@ -20,7 +22,7 @@ import {
   parseNaca4,
   prepareBlade,
   sectionThickest,
-  sliceTipPoint,
+  sliceTipCrossing,
   splineFromKnots,
   sweepGrid,
   sweepPointOn,
@@ -33,7 +35,7 @@ import {
   type Spline,
 } from '@openshaper/kernel';
 import { FinCurveEditor, type FinCurveLayer } from '@openshaper/render2d';
-import { getFoil, lockedSpan, TIP_FOIL, type FinState } from '@openshaper/store';
+import { getFoil, tipSpanOf, TIP_FOIL, type FinState } from '@openshaper/store';
 import { Button, Tooltip } from '@openshaper/ui';
 import { memo, useCallback, useMemo, useState } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
@@ -104,11 +106,12 @@ const SECTION_CURVES = ['outside', 'inside'] as const;
 const OUTSIDE = '#22D3EE';
 const INSIDE = '#A78BFA';
 const GUIDE = 'rgba(138,155,179,0.7)';
-/** The tip past the tip line on a slice: shaded, locked. */
-const LOCKED = 'rgba(138,155,179,0.16)';
-/** The slice's point on the tip line, in the profile's tip-line green. */
-const TIP_COLOR = SWEEP_LINE;
-const TIP_POINT = 'tip-point';
+/** The tip past the tip line on a slice: shaded, the tip foil shapes it. */
+const TIP_PART = 'rgba(138,155,179,0.16)';
+/** In a slice, the tip at the crossing: the profile's tip-line green. */
+const TIP_DOT = SWEEP_LINE;
+/** In the tip foil, a slice at the crossing: aqua. */
+const SLICE_DOT = '#2DD4BF';
 
 const mirrored = (s: Spline): Spline =>
   splineFromKnots(
@@ -424,48 +427,47 @@ export const FinSectionPane = memo(function FinSectionPane({
   // horizontal slice starts as the fin's own section, thickest where the fin is, so it
   // has no handle.
   const thickestAt = useMemo(() => (section ? sectionThickest(section).at : null), [section]);
-  // A slice's chord past the tip line is the tip's (owner's rules): shaded and locked,
-  // with the point where it crosses the tip line to drag, scaling the tip foil.
-  const locked = useMemo(
-    () => (design && activeFoil > 0 ? lockedSpan(design, activeFoil) : null),
+  // A slice's chord past the tip line is the tip's (owner's rules): shaded. Where a slice
+  // crosses the tip line, each foil shows the other there as a dot to match by hand.
+  const tipPart = useMemo(
+    () => (design && activeFoil > 0 ? tipSpanOf(design, activeFoil) : null),
     [design, activeFoil],
   );
-  const tipPoint = useMemo(
-    () => (design && locked ? sliceTipPoint(design, activeFoil - 1) : null),
-    [design, locked, activeFoil],
-  );
+  const dots = useMemo((): { x: number; o: number; i: number; color: string }[] => {
+    if (!design) return [];
+    if (activeFoil > 0) {
+      const c = tipPart ? sliceTipCrossing(design, activeFoil - 1) : null;
+      return c
+        ? [{ x: c.sliceAt, o: c.tipInSlice.outside, i: c.tipInSlice.inside, color: TIP_DOT }]
+        : [];
+    }
+    if (activeFoil !== TIP_FOIL) return [];
+    return design.slices.flatMap((_, k) => {
+      const c = sliceTipCrossing(design, k);
+      return c
+        ? [{ x: c.tipAt, o: c.sliceInTip.outside, i: c.sliceInTip.inside, color: SLICE_DOT }]
+        : [];
+    });
+  }, [design, activeFoil, tipPart]);
   const markers = useMemo(
     () =>
-      tipPoint
-        ? [
+      thickestAt === null || activeFoil > 0
+        ? []
+        : [
             {
-              id: TIP_POINT,
-              at: { x: tipPoint.at, y: tipPoint.outside },
-              color: TIP_COLOR,
-              label: 'Tip thickness at the tip line: drag up or down',
+              id: 'thickest',
+              at: { x: thickestAt, y: 0 },
+              color: PATH_COLOR,
+              label: 'Thickest point',
             },
-          ]
-        : thickestAt === null || activeFoil > 0
-          ? []
-          : [
-              {
-                id: 'thickest',
-                at: { x: thickestAt, y: 0 },
-                color: PATH_COLOR,
-                label: 'Thickest point',
-              },
-            ],
-    [thickestAt, activeFoil, tipPoint],
+          ],
+    [thickestAt, activeFoil],
   );
   const markerHandlers = useMemo(
     () => ({
-      onMarkerDragStart: (id: string) =>
-        store.getState().beginEdit(id === TIP_POINT ? 'Scale the tip' : 'Move the thickest point'),
-      onMarkerDrag: (id: string, to: { x: number; y: number }) => {
-        const st = store.getState();
-        if (id === TIP_POINT) st.setSliceTipPoint(st.activeFoil, to.y);
-        else st.setFoilThickest(st.activeFoil, to.x);
-      },
+      onMarkerDragStart: () => store.getState().beginEdit('Move the thickest point'),
+      onMarkerDrag: (_id: string, to: { x: number }) =>
+        store.getState().setFoilThickest(store.getState().activeFoil, to.x),
       onMarkerDragEnd: () => store.getState().endEdit(),
     }),
     [store],
@@ -507,12 +509,25 @@ export const FinSectionPane = memo(function FinSectionPane({
         ctx.stroke();
       };
       ctx.save();
-      if (locked) {
-        // The tip past the tip line, full height: the slice doesn't shape it.
-        const a = toScreen({ x: locked[0], y: 0 }).x;
-        const b = toScreen({ x: locked[1], y: 0 }).x;
-        ctx.fillStyle = LOCKED;
+      if (tipPart) {
+        // The tip past the tip line, full height: the tip foil shapes it, not the slice.
+        const a = toScreen({ x: tipPart[0], y: 0 }).x;
+        const b = toScreen({ x: tipPart[1], y: 0 }).x;
+        ctx.fillStyle = TIP_PART;
         ctx.fillRect(a, 0, b - a, ctx.canvas.height);
+      }
+      // The other foil at a crossing: a reference, not a handle. A symmetric foil's inside
+      // face is its outside mirrored, so one dot does.
+      for (const dot of dots) {
+        for (const y of section?.inside ? [dot.o, dot.i] : [dot.o]) {
+          const p = toScreen({ x: dot.x, y });
+          // A ring, wider than a curve point: matched, the point sits in it.
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 9, 0, Math.PI * 2);
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = dot.color;
+          ctx.stroke();
+        }
       }
       ctx.strokeStyle = GUIDE;
       ctx.fillStyle = GUIDE;
@@ -537,13 +552,15 @@ export const FinSectionPane = memo(function FinSectionPane({
       };
       label('Leading edge', 0, 16, 'left');
       label('Trailing edge', 1, 16, 'right');
-      if (locked)
+      if (tipPart)
         label(
-          'Tip past the tip line · locked',
-          locked[1] >= 1 ? 1 : 0,
+          'Past the tip line: shaped by the tip foil',
+          tipPart[1] >= 1 ? 1 : 0,
           32,
-          locked[1] >= 1 ? 'right' : 'left',
+          tipPart[1] >= 1 ? 'right' : 'left',
         );
+      if (activeFoil === TIP_FOIL && dots.length)
+        label('Aqua: a slice where it crosses', 1, 32, 'right');
       if (thickestAt !== null) label('thickest', thickestAt, 32, 'center');
       if (panelLines) {
         ctx.strokeStyle = panelLines.fits ? PANEL_FIT : PANEL_OVER;
@@ -565,7 +582,7 @@ export const FinSectionPane = memo(function FinSectionPane({
       }
       ctx.restore();
     },
-    [thickestAt, panelLines, units, locked],
+    [thickestAt, panelLines, units, tipPart, dots, section, activeFoil],
   );
 
   if (!design || !section) return null;

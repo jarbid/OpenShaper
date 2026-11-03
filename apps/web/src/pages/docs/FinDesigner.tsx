@@ -243,12 +243,15 @@ export default function DocsFinDesigner() {
           that hold their changes all the way between them. The thickness still comes from the
           thickness curve, so a slice changes the foil&apos;s shape, not how thick it is; it has no
           thickest-point handle. Where a slice&apos;s chord crosses the tip line (the profile notes
-          it), the part past the tip line is the tip&apos;s: the foil view shades it and locks its
-          points. A green dot sits where the slice crosses the tip line: drag it up or down to make
-          the tip foil thicker or thinner, and the sweep eases to it from the base.{' '}
-          <strong>Remove slice</strong>, next to Add slice, takes the selected slice away: click a
-          slice&apos;s line (or its foil tab) to select it. Slices keep at least 2% of the depth
-          from each other and from the root and tip.
+          it), the part past the tip line is the tip&apos;s: the tip foil shapes it, and the
+          slice&apos;s foil view shades it (its points there still move, but change nothing). Both
+          foils get a point where the slice crosses the tip line, and each shows the other there as
+          a dot: green in the slice for the tip, aqua in the <strong>Tip</strong> foil for the
+          slice. Drag either foil&apos;s point at the crossing to match the other&apos;s dot, so the
+          slice and the tip meet smoothly. Move the tip line or the slice and the new crossing gets
+          its points too. <strong>Remove slice</strong>, next to Add slice, takes the selected slice
+          away: click a slice&apos;s line (or its foil tab) to select it. Slices keep at least 2% of
+          the depth from each other and from the root and tip.
         </p>
         <p>
           A slice can also change the cant and toe above it, bending the upper blade out and
