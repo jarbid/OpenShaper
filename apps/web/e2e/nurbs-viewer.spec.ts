@@ -316,6 +316,45 @@ test.describe('NURBS viewer, flag on', () => {
     expect(errors).toEqual([]);
   });
 
+  test('add a double concave, change its depth, 3D follows, undo', async ({ page }) => {
+    const errors = trackErrors(page);
+    await page.goto('/app?engine=nurbs');
+    await editorReady(page);
+    await page.keyboard.press('1'); // quad: outline, cross-section, rocker, 3D
+    const badge = page.getByTestId('nurbs-badge');
+    await expect(badge).toHaveAttribute('data-source', 'doc', { timeout: 30_000 });
+    await expect(badge).toHaveAttribute('data-phase', 'ready');
+    await page.getByRole('button', { name: 'NURBS conversion details' }).click();
+    const info = page.getByTestId('nurbs-info');
+    const volume = async () =>
+      Number((await info.locator('dt:text-is("Volume") + dd').innerText()).replace(/[^\d.]/g, ''));
+    const original = await volume();
+
+    // Bottom features ▸ Double concave: a hollow raises the bottom into the board, so there is less foam.
+    await openSection(page, 'Bottom features');
+    await page.getByRole('button', { name: 'Double concave', exact: true }).click();
+    await expect(page.getByRole('group', { name: /^Double concave/ })).toBeVisible();
+    await expect.poll(volume, { timeout: 10_000 }).toBeLessThan(original);
+    const withHollow = await volume();
+
+    // Double the depth by typing it (the display unit is mm): the surface follows, one more step.
+    const depth = page.getByLabel('Depth', { exact: true });
+    const was = Number(await depth.inputValue());
+    await depth.fill(String(was * 2));
+    await depth.press('Enter');
+    await expect.poll(volume, { timeout: 10_000 }).toBeLessThan(withHollow);
+    await expect.poll(async () => Number(await depth.inputValue())).toBeCloseTo(was * 2, 3);
+
+    await page.locator('body').click({ position: { x: 2, y: 2 } });
+    await page.keyboard.press('Control+z');
+    await expect.poll(volume, { timeout: 10_000 }).toBe(withHollow);
+    await expect.poll(async () => Number(await depth.inputValue())).toBeCloseTo(was, 3);
+    await page.keyboard.press('Control+z');
+    await expect.poll(volume, { timeout: 10_000 }).toBe(original);
+    await expect(page.getByRole('group', { name: /^Double concave/ })).toHaveCount(0);
+    expect(errors).toEqual([]);
+  });
+
   test('the test-board picker shows a board2 test board in every analysis mode', async ({
     page,
   }) => {

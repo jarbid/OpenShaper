@@ -213,6 +213,45 @@ describe('meshDocument (the section store’s document: no converter in the loop
     expect(b.summary.volume).toBe(a.summary.volume);
   });
 
+  it('the as-built section ghost carries the bottom features and follows an edit of one', () => {
+    const doc = docOf();
+    const station = doc.stations[Math.floor(doc.stations.length / 2)]!.x;
+    const probe = (d: BoardDoc) => {
+      const out = meshDocument(d, null, NONE, undefined, [station]);
+      if (!out.ok) throw new Error('refused');
+      return out.probes[0]!.plus;
+    };
+    const plain = probe(doc);
+    const deep = (value: number): BoardDoc => ({
+      ...doc,
+      features: [
+        {
+          kind: 'concave',
+          id: 'c',
+          enabled: true,
+          layout: 'single',
+          centre: 0,
+          width: 0.7,
+          depth: {
+            keys: [
+              { s: station - 30, value: 0 },
+              { s: station, value },
+              { s: station + 30, value: 0 },
+            ],
+          },
+        },
+      ],
+    });
+    const lift = (a: readonly number[]) =>
+      Math.max(...a.map((y, i) => (i % 2 ? y - plain[i]! : 0)));
+    // the bottom of the section rises into the board by about the feature's depth; the deck does not move
+    expect(lift(probe(deep(0.3)))).toBeGreaterThan(0.2);
+    expect(lift(probe(deep(0.3)))).toBeLessThan(0.35);
+    expect(lift(probe(deep(0.1)))).toBeLessThan(lift(probe(deep(0.3))));
+    const lastY = plain.length - 1;
+    expect(probe(deep(0.3))[lastY]).toBeCloseTo(plain[lastY]!, 6);
+  });
+
   it('matches the sections of a structured clone to the earlier ones by content (fits stay warm)', () => {
     const doc = docOf();
     const first = canonicalDoc(structuredClone(doc));
