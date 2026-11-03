@@ -603,3 +603,125 @@ minus side's sections with the same cache.
   them with the document.
 - Typed values that the model refuses (a depth, a tail) show the classic mesh with the reason; only gestures keep the
   stale surface (deviation 4). If step 4's feature fields commit one value at a time, they will show the same.
+
+## 11. As built (step 4)
+
+Landed: bottom features. With the engine on, a **Bottom features** section in the Shape tab adds a vee, a single
+or double concave or channels, switches each on and off, and sets its depth, its extent along the board and its
+shape, in the display unit. The rocker pane draws the depth of every enabled feature as a read-only strip, the
+cross-section pane's dashed as-built section shows the features, and a tail or notch change no longer refuses a
+board whose features reach behind the new notch bottom. With the engine off nothing changes (the classic
+characterization snapshots are untouched).
+
+**Where it is.**
+
+- `packages/store/src/sections`: `features.ts` (all the feature edits, the field ranges, `refitFeatures`,
+  `depthPolyline`), `shape.ts` (`setTail` and `setNotchDepth` call `refitFeatures`), `section-store.ts` (the
+  eight feature actions and `featureLimits` on `SectionState`).
+- `packages/render2d`: `drawFeatureDepth` and the `featureDepth` overlay (`EditorOverlays`).
+- `apps/web`: `bottom-features.ts` (the kinds, the fields of each, text and parse, the strip's series),
+  `BottomFeaturesSection.tsx`, the `bottomFeatures` entry in `sidebar-sections.ts` (with `SIZING.addButton` and
+  `SIZING.slider` in `Sidebar.tsx`), `help-text.ts`, the docs section `bottom-features` on `/docs/editing` with a
+  registry kind `bottom-feature` (and its coverage test), `App.tsx` (the strip), `e2e/nurbs-viewer.spec.ts`, and a
+  feature measurement in `tools/perf/nurbs-timing.mjs`.
+
+**The edits** (`features.ts`; pure, take and return a `BoardDoc`, and replace `features` only, so every `Chain`,
+`Section` and `Station` is the same object):
+
+| Function                                             | Behaviour                                                                                                                                                                                                                                      |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `addFeature(doc, kind)`                              | Appends an enabled feature (`vee`, `single-concave`, `double-concave`, `channels`) with a four-key plateau depth over a share of the station range, fitted to the board. Ids are `kind`, `kind-2`, ...                                         |
+| `removeFeature`, `setFeatureEnabled`                 | A disabled feature keeps its settings and is not validated or built.                                                                                                                                                                           |
+| `setFeatureParams(doc, id, patch)`                   | Stringer blend, width, centre, channel count, width, spacing, rail inset; each clamped to its range given the others.                                                                                                                          |
+| `setFeatureDepth(doc, id, d)`                        | Scales the inner keys so the greatest depth is `d`.                                                                                                                                                                                            |
+| `setFeatureKey`, `addFeatureKey`, `removeFeatureKey` | The first and last key move along x only (they are the feature's From and To); an inner key moves between its neighbours and has a depth; a curve keeps its ends and one key between.                                                          |
+| `featureLimits(doc, f, chords?)`                     | The range of every field. The sidebar clamps to it and the edits clamp to it, so a value inside it is never refused.                                                                                                                           |
+| `refitFeatures(doc, chords?)`                        | After a tail or notch change: a curve that starts behind the new notch bottom (or ends past the nose) is squeezed into the room that is left (an affine remap of its keys, handles scaled with it), and channels are brought inside the chord. |
+
+The store actions are one undo step each, labelled "Add vee", "Set depth of double concave", and so on; a slider
+drag (`beginEdit` ... `endEdit`, wired to the pointer and the arrow keys) is one step in all.
+
+**Ranges.** Fractions of the chord stay in [5%, 100%] (a double concave: width up to 50%, centre between the width
+and one minus the width, so the bumps stay apart and off the outline). Depth is at most 1.5 cm and 30% of the
+thinnest stringer thickness under the feature. From and To keep 0.5 cm inside the station range and at least 2 cm
+apart. Channels: 1 to 4, 0.2 to 3 cm wide, spacing at least the width, and the far edge of the outermost within
+95% of the narrowest chord under the feature, measured on both halves; in a notch zone the chord comes from the
+injected `NotchChords` (the zone's chord is short near the notch bottom, which only board2's frame knows; the
+first version of this used the rail's half-width and was wrong there, the fuzz found it). When a patch would
+break the channel limit, the channels give way in the order rail inset, spacing, count, width, the field being
+edited first.
+
+**Deviations from the design above.**
+
+1. **The section ghost needed no new code.** The as-built section comes from the worker's probes (step 2), which
+   evaluate the surface with its features, so a concave already shows as a dip. A test pins it
+   (`nurbs-core.test.ts`: the section at a station rises by about the depth, the deck point does not move, and a
+   smaller depth gives a smaller rise). Like the other ghosts it needs the 3D view mounted.
+2. **The sidebar's specs do not include the features.** In the NURBS engine the specs readout is the classic
+   specs worker on the projection (step 1, deviation 10), which has no features; the volume in the 3D view's
+   **i** popover is the mesh's and does follow (the e2e checks it). Step 5 moves the specs to the mesh.
+3. **The depth-key table is in** (inner keys: position, depth, remove, add key), as designed in section 3, with
+   the From, To and Depth fields and sliders on top.
+4. **The strip draws its own polyline of the depth curve** (`depthPolyline`, the Bézier points taken on the curve,
+   no inversion), because the main chunk cannot import board2's evaluator. It repeats board2's automatic-slope rule
+   in 20 lines; if that rule changes, the strip drifts (the model is unaffected). Explicit ease handles of a
+   loaded file are used; an inner key edited in the table loses its explicit handles.
+5. **`chords` as an argument.** The feature edits, `setTail` and `setNotchDepth` take an optional `NotchChords`
+   (the store passes its own). Without it the chord floor of a notched board is zero, so no channel fits and a
+   channel feature is fitted to nothing; the app loads the provider before a notched board is open (step 2), so
+   this only matters to a caller that skips it.
+6. **The squeeze is not reversible by dragging back.** A notch-depth drag that pushes a curve's start in squeezes
+   its keys; dragging the notch back out leaves them squeezed (undo restores them). Chosen over remembering the
+   original keys, which would add a field to the document.
+7. **Outline edits can still invalidate channels** (step 3's note stands): the ranges are computed when a field
+   is edited, not when the outline is. A narrowed outline can leave a channel past the stringer; the model then
+   refuses the board with `feature-invalid` and the reason, and the 3D view keeps the last good surface during a
+   drag or shows the classic mesh with the reason after a typed value.
+8. **The strip is drawn in screen coordinates** like the volume distribution strip, so a turned (portrait) rocker
+   pane has the strip on the same screen edge, not rotated with the board.
+
+**Acceptance (tests).**
+
+| Check                                                                         | Result                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Characterization snapshots (`board-store`, kernel, io)                        | Unchanged (406 store tests, 82 of them new, pass without edits; the 249 classic ones among them unmodified)                                                                                                                                                                                                                                                                                                  |
+| A feature edit refits nothing                                                 | Holds for every edit on the shortboard: outline, rocker, deck, stations (hence every `Section`) and fins are the same objects. Warm `buildBoard(..., { check: false })` after a depth change, 200 changes per golden: median 0.51 ms (shortboard), 0.43 (funboard), 0.43 (longboard); p95 1.3, 0.55, 0.53 ms; the test bounds the median at 3 ms so a loaded machine does not fail it                        |
+| Field values round-trip in mm, cm and in                                      | Pass: shown text parses to the value within half a display step (0.05 mm, 0.005 cm, 0.0005 in), the text is stable, and a blur that changes nothing commits nothing                                                                                                                                                                                                                                          |
+| Docs coverage                                                                 | Pass: kind `bottom-feature` (vee, single-concave, double-concave, channels), the section `bottomFeatures` has help text, `/docs/editing#bottom-features`                                                                                                                                                                                                                                                     |
+| A swallow and a fish made from each golden, with each feature kind, validate  | Pass for 3 goldens x 4 kinds x 2 tails, the feature added before the tail change (squeezed) and after it; also a deeper notch (x1.5, x2: valid or only `notch-chord-angle`), the other kind of notch and back to standard                                                                                                                                                                                    |
+| Random feature parameters within their ranges never produce a validator error | Pass: 60 random steps (parameter, depth, From, To, add key, toggle) per row for 3 goldens x (standard, swallow, fish) and the swallow, fish and asymmetric test boards, x 4 kinds (48 rows, 2880 edits): no validator error at any step, the board builds, and going asymmetric keeps it valid. The ranges are what makes this hold (the first run, with a rail-width chord floor, failed on notched boards) |
+| One undo step per edit, one per drag                                          | Pass (store test)                                                                                                                                                                                                                                                                                                                                                                                            |
+| e2e: add a double concave, change its depth, 3D and volume follow, undo twice | Pass (the volume in the **i** popover falls with the hollow, falls more with the doubled depth, and returns on each undo)                                                                                                                                                                                                                                                                                    |
+| Gate                                                                          | `pnpm lint`, `pnpm typecheck`, `CI=1 turbo run test --concurrency=2` (store 406, board2 330, render2d 133, web 909, ...), `pnpm build` (bundle guard), `e2e` (49) and `e2e:offline` (8): all pass. Nothing flaky seen                                                                                                                                                                                        |
+
+**Timings** (`nurbs-timing.mjs --skip open,switch,drag`, two runs: Chromium, software WebGL, production build,
+4-core container, the shortboard in the quad view with a double concave added, 30 changes of the Depth slider each,
+and a 60-event burst). End to end is measured in the page, from the input event to the badge's update.
+
+| Change                                              | End to end, ms                     | Round trip, ms   | Worker, ms            | Build, ms | Mesh, ms   |
+| --------------------------------------------------- | ---------------------------------- | ---------------- | --------------------- | --------- | ---------- |
+| Inside a slider drag (pointer down, ladders reused) | median 17.1, 16.9 (p95 25.2, 23.9) | 12 (18)          | 5.9, 6.1 (11.2, 11.7) | 0.5, 0.6  | 5.4, 5.6   |
+| 60-event burst like a drag                          | (updates 60 of 60)                 | 12 (25), 12 (20) | 7.5, 5.5 (15.7, 15.4) | 0.5       | 7.1, 5.0   |
+| A lone change (typed value; not in a drag)          | median 41.0, 42.4 (p95 77.1, 80.4) | 36, 37 (69, 74)  | 32.8, 35.1 (67, 73)   | 0.8       | 25.2, 26.5 |
+
+The target (a change reaches the 3D view in under 50 ms at the median) is met by both: 17 ms in a drag and 41 to 42 ms
+for a lone change. Short of target: the lone change's **p95 is 77 to 80 ms**. A change outside a drag is not
+`editing`, so the mesh derives its ladders afresh (the settled-job cost, step 1: 31 to 78 ms), which is what the mesh
+column shows. A slider drag, the case that must feel live, is in line with the line drags. The warm build is
+0.5 to 0.8 ms in the browser too, so the feature edit itself adds nothing.
+
+**What step 5 must know.**
+
+- The document's `features` are part of the saved document (`boardDocToJson` writes them already); nothing in the
+  classic file formats carries them, so save, share, the autosave and the exports of a NURBS board drop them until
+  step 5 saves the document and M3 exports the surface. The docs page says so.
+- Specs: the readout is still the classic specs worker on the projection (no features). Move it to the mesh's
+  `meshProperties`, as planned.
+- A restored or opened document may carry features whose keys or channels no longer fit (a hand-edited file): the
+  validator refuses it with `feature-invalid`. `refitFeatures(doc, chords)` repairs the keys and the channels and is
+  exported, if a repair on open is wanted.
+- `featureLimits(doc, f, chords)` is the one place that knows what a field may hold; a new UI for features (a depth
+  handle in the rocker pane, which the design leaves for later) should clamp with it, and the strip is read-only.
+- A new action that edits `features` goes through `featureEdit` in `section-store.ts` (label, `chords`, one step).
+- The strip's polyline repeats board2's auto-slope rule (deviation 4); a shared pure function in board2's `types`-only
+  neighbour would remove the copy if the main chunk is ever allowed a small board2 helper.

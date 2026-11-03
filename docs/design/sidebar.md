@@ -65,19 +65,19 @@ Three deliberate calls, each of which looked like a coin-flip and was not:
 
 ## Where to change things
 
-| Want to…                                                            | Edit                                                              |
-| ------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Add, remove, rename or reorder a **tab**                            | `SIDEBAR_TABS` in `sidebar-sections.ts`                           |
-| Move a **tool** to another tab                                      | that section's `tab` in `SIDEBAR_SECTIONS`                        |
-| Change which tools a **view** pre-opens                             | that section's `relevantTo`                                       |
-| Change what starts open on a **first visit**                        | that section's `defaultOpen`, or `DEFAULT_SIDEBAR_STATE`          |
-| Change a tab's **icon**                                             | `TAB_ICONS` in `Sidebar.tsx`                                      |
-| Change the **strip width, tab height, panel width, pinned ceiling** | `SIZING` in `Sidebar.tsx`                                         |
-| Change a shut section's **summary**                                 | the `summaries` map in `Sidebar.tsx`                              |
-| Show a tool only while a **feature** is on                          | omit its `bodies` entry when off, as `boardShape` is              |
-| Change the **spec bands** or their shut summaries                   | `SPEC_GROUPS` and `SpecsSection`                                  |
-| Make the active tab **close on a second click**                     | `selectTab` — JetBrains does this; it was considered and left out |
-| Open a tool from a **menu or palette command**                      | `revealSection`; Board ▸ Resize… in `App.tsx` is the example      |
+| Want to…                                                            | Edit                                                                       |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Add, remove, rename or reorder a **tab**                            | `SIDEBAR_TABS` in `sidebar-sections.ts`                                    |
+| Move a **tool** to another tab                                      | that section's `tab` in `SIDEBAR_SECTIONS`                                 |
+| Change which tools a **view** pre-opens                             | that section's `relevantTo`                                                |
+| Change what starts open on a **first visit**                        | that section's `defaultOpen`, or `DEFAULT_SIDEBAR_STATE`                   |
+| Change a tab's **icon**                                             | `TAB_ICONS` in `Sidebar.tsx`                                               |
+| Change the **strip width, tab height, panel width, pinned ceiling** | `SIZING` in `Sidebar.tsx`                                                  |
+| Change a shut section's **summary**                                 | the `summaries` map in `Sidebar.tsx`                                       |
+| Show a tool only while a **feature** is on                          | omit its `bodies` entry when off, as `boardShape` and `bottomFeatures` are |
+| Change the **spec bands** or their shut summaries                   | `SPEC_GROUPS` and `SpecsSection`                                           |
+| Make the active tab **close on a second click**                     | `selectTab` — JetBrains does this; it was considered and left out          |
+| Open a tool from a **menu or palette command**                      | `revealSection`; Board ▸ Resize… in `App.tsx` is the example               |
 
 Two constraints worth knowing before you tune anything:
 

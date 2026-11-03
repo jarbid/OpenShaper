@@ -419,15 +419,20 @@ function fitFeature(doc: BoardDoc, f: BottomFeature, chords?: NotchChords): Bott
   return g;
 }
 
-/** The depth curve with its peak at `peak`. */
+/** The depth curve with its peak at `peak` (explicit ease handles scale with it). */
 function scaleDepth(c: KeyedCurve, peak: number): KeyedCurve {
   const now = peakOf(c);
+  const r = now > 0 ? peak / now : 1;
   const n = c.keys.length;
+  const handle = (h: LawKey['in']): LawKey['in'] =>
+    h === undefined ? undefined : { ds: h.ds, dv: h.dv * r };
   return {
     keys: c.keys.map((k, i): LawKey => {
       const edge = i === 0 || i === n - 1;
-      const value = edge ? 0 : now > 0 ? (k.value * peak) / now : peak;
-      return { ...k, value };
+      const value = edge ? 0 : now > 0 ? k.value * r : peak;
+      const inn = handle(k.in);
+      const out = handle(k.out);
+      return { s: k.s, value, ...(inn ? { in: inn } : {}), ...(out ? { out } : {}) };
     }),
   };
 }
