@@ -213,3 +213,42 @@ export const CONVERT_MAX_ADJUST = DEFAULT_BUILD.tolerance;
 /** Decimals (normalised units) to which two converted sections are the same section, and how many are remembered. */
 export const CONVERT_CONTENT_DIGITS = 9;
 export const CONVERT_CONTENT_CACHE = 96;
+
+// ---------------------------------------------------------------------------
+// STEP solid (docs/design/m3-exports.md, step 2)
+// ---------------------------------------------------------------------------
+
+/** The STEP surfaces stay within this distance (cm) of the evaluator at the same (ξ, t): 0.5 mm (plan decision 6). */
+export const STEP_TOLERANCE = 0.05;
+/** The fit refines until its dense-sample deviation is below this share of the tolerance, leaving room for what lies between the samples. */
+export const STEP_ACCEPT_SHARE = 0.8;
+/** Degree of the fitted surfaces, in both directions (the degree of the rails and of the classic export). */
+export const STEP_DEGREE = 3;
+/** Spans of the first ξ knot vector, and spans per half of the first t knot vector. */
+export const STEP_START_SPANS = 12;
+export const STEP_START_HALF_SPANS = 4;
+/** Data points per span in each direction for the fit, and dense check points per span for the deviation. */
+export const STEP_FIT_SAMPLES = 3;
+export const STEP_CHECK_SAMPLES = 6;
+/** Refinement passes allowed before the fit gives up and reports the deviation it reached. */
+export const STEP_MAX_PASSES = 30;
+/** A span narrower than this (parameter units) is not bisected further. */
+export const STEP_MIN_SPAN = 1e-6;
+/**
+ * An end whose section is narrower than {@link STEP_TIP_CHORD} (half-width, cm: the classic export's 5 mm
+ * `MIN_DIM` across) or thinner than {@link STEP_TIP_THICKNESS} (cm) is a tip: the surface is clipped where both
+ * are reached and a planar cap closes the clip. A rounded tip is clipped within a fraction of a millimetre
+ * (the outline goes as the square root of the distance to the tip), a knife-thin one by the length at which
+ * the thickness reaches its minimum.
+ */
+export const STEP_TIP_CHORD = 0.25;
+export const STEP_TIP_THICKNESS = 0.05;
+/** Steps of the scan that finds a clip, and bisections that place it. */
+export const STEP_CLIP_SCAN = 400;
+export const STEP_CLIP_BISECT = 40;
+/** A refinement direction counts when its predicted error is at least this share of the other direction's. */
+export const STEP_DIRECTION_SHARE = 0.5;
+/** Margin (cm) added around a cap's section for the plane it lies in. */
+export const STEP_CAP_MARGIN = 1;
+/** Weight of the data on the boundary rows of a fit (the stringer, the notch edge, the caps), which `snap` then makes exact. */
+export const STEP_EDGE_WEIGHT = 100;

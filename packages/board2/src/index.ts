@@ -18,6 +18,15 @@ export { deriveLadders, meshBoard, meshProperties, meshVertex } from './mesh';
 export type { BoardMesh, Ladders, MeshLayout, MeshOptions } from './mesh';
 export { DEFAULT_BUILD } from './params';
 export { createChordFn, probeSection } from './probe';
+export { boardSolid, boardStep } from './step';
+export type {
+  BoardSolid,
+  BoardSolidOptions,
+  BoardSolidReport,
+  BoardStep,
+  BoardStepOptions,
+  EndKind,
+} from './step';
 export type { ChordFn } from './probe';
 export { MEASURE, buildBoard, createEvaluator } from './surface';
 export type {

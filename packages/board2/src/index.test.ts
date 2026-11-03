@@ -15,6 +15,8 @@ describe('@openshaper/board2 public API', () => {
         'board2Err',
         'board2Ok',
         'boardDocToJson',
+        'boardSolid',
+        'boardStep',
         'buildBoard',
         'createChordFn',
         'createEvaluator',
