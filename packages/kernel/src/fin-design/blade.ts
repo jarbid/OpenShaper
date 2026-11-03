@@ -752,10 +752,12 @@ const sweptBlade = (b: PreparedBlade): SweptBlade => {
   }
   const total = run + lerpTable(reach, path[grid.tipRow]!) || 1;
   for (let i = 0; i <= grid.tipRow; i++) sweepEta[i] = sweepEta[i]! / total;
+  const baseFoil = pureFoil(d.section);
   const swept: SweptBlade = {
     grid,
     foils,
-    ends: [pureFoil(d.section), pureFoil(tip)],
+    // One foil when the tip foil is the base foil: rowFaces then reads it once.
+    ends: [baseFoil, tip === d.section ? baseFoil : pureFoil(tip)],
     foilW,
     path,
     pathZ,

@@ -109,12 +109,17 @@ describe('a raised rear', () => {
     }
   });
 
-  it('fits a blade surface within tolerance, smooth past the sharp low point', () => {
-    const m = fitBladeSurface(d);
-    expect(bladeSurfaceDeviation(prepareBlade(d), m.surface, m.topZ, 31, 211)).toBeLessThanOrEqual(
-      BLADE_CI_TOLERANCE,
-    );
-  });
+  // Seconds of real geometry, as the A4C's fit below: over 20 s on a loaded CI runner.
+  it(
+    'fits a blade surface within tolerance, smooth past the sharp low point',
+    { timeout: 60_000 },
+    () => {
+      const m = fitBladeSurface(d);
+      expect(
+        bladeSurfaceDeviation(prepareBlade(d), m.surface, m.topZ, 31, 211),
+      ).toBeLessThanOrEqual(BLADE_CI_TOLERANCE);
+    },
+  );
 });
 
 describe('the underside of a raised rear', () => {
