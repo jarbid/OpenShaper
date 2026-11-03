@@ -265,6 +265,60 @@ describe('DXF from the document', () => {
     expect(plain).not.toContain('rail section');
   });
 
+  it.each([
+    ['swallow', swallowBoard],
+    ['fish', fishBoard],
+  ])('%s: notch-zone stations are two fan chords and two unjoined half-sections', (_n, make) => {
+    const doc = make();
+    const c = curvesOfBuilt(built(doc), 7, []);
+    const text = new TextDecoder().decode(ok(exportDocument(doc, dxfJob())).files[0]!.bytes);
+    const rails = c.sections.filter((s) => s.rail);
+    expect(rails.length).toBeGreaterThan(0);
+    // MARKERS lines: [x1,y1,x2,y2]
+    const lines = text.split('\n');
+    const marks: number[][] = [];
+    for (let i = 0; i + 1 < lines.length; i += 2) {
+      if (lines[i]!.trim() !== '0' || lines[i + 1]!.trim() !== 'LINE') continue;
+      const rec: Record<string, string> = {};
+      for (let j = i + 2; j + 1 < lines.length && lines[j]!.trim() !== '0'; j += 2) rec[lines[j]!.trim()] = lines[j + 1]!.trim(); // prettier-ignore
+      if (rec['8'] === 'MARKERS') marks.push([+rec['10']!, +rec['20']!, +rec['11']!, +rec['21']!]);
+    }
+    const near = (a: number, b: number) => Math.abs(a - b) < 1e-5;
+    for (const s of rails) {
+      for (const end of [s.chordPlus, s.chordMinus]) {
+        // a marker from (pos, 0) to the chord end, and none straight across the board
+        expect(marks.some((m) => near(m[0]!, s.pos) && near(m[1]!, 0) && near(m[2]!, end.x) && near(m[3]!, end.y))).toBe(true); // prettier-ignore
+      }
+      expect(marks.some((m) => near(m[1]!, s.chordMinus.y) && near(m[3]!, s.chordPlus.y))).toBe(false); // prettier-ignore
+    }
+    // sections: the rail halves are open polylines, only the x-plane stations are rings
+    const closedFlags: string[] = [];
+    for (let i = 0; i + 1 < lines.length; i += 2) {
+      if (
+        lines[i]!.trim() === '8' &&
+        lines[i + 1]!.trim() === 'CROSSSECTION' &&
+        lines[i - 1]!.trim() === 'POLYLINE'
+      ) {
+        // prettier-ignore
+        const k = lines.findIndex((l, j) => j > i && l.trim() === '70');
+        closedFlags.push(lines[k + 1]!.trim());
+      }
+    }
+    const plain = c.sections.length - rails.length;
+    expect(closedFlags.filter((f) => f === '1')).toHaveLength(plain);
+    expect(closedFlags.filter((f) => f === '0')).toHaveLength(2 * rails.length);
+    expect(text).toContain('chord');
+  });
+
+  it('PDF: a notch-zone station is two half-section pages, with no width and no flip note', () => {
+    const out = ok(exportDocument(swallowBoard(), { format: 'pdf-1to1', options: { crossSectionCount: 7 }, fins: [], slug: 'b' })); // prettier-ignore
+    const t = new TextDecoder('latin1').decode(out.files[0]!.bytes);
+    expect(t).toContain('Rail section + side');
+    expect(t).toContain('Rail section - side');
+    expect(t).not.toMatch(/rail section[^)]*flip about the stringer/);
+    expect(t).not.toMatch(/rail section\)? ?[^\n]*w \d/);
+  });
+
   it('writes true curves for the outline in spline mode', () => {
     const out = ok(exportDocument(BOARDS[0]![1](), dxfJob({ curveMode: 'spline' })));
     expect(out.files[0]!.name).toBe('b-spline.dxf');

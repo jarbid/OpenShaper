@@ -34,6 +34,8 @@ import {
   curveYAtX,
   curvesOutlineLoop,
   curvesOutlinePoints,
+  curvesMarkerSegments,
+  curvesRailHalves,
   curvesSectionRing,
   isAsymmetric,
   type BoardCurves,
@@ -411,8 +413,16 @@ const buildPartsFromCurves = (curves: BoardCurves, opts: BoardPdf1to1Options): T
             halfTpl ? { width: 0.6, gray: 0 } : { width: 0.3, gray: 0.55 },
           );
           for (const sec of curves.sections) {
-            const start = halfTpl ? { x: sec.pos, y: 0 } : sec.chordMinus;
-            ctx.seg(start, sec.chordPlus, { width: 0.3, dashed: true, gray: 0.55 });
+            // a notch-zone station is cut along two fan chords from (pos, 0), not across the board
+            const marks = halfTpl
+              ? [[{ x: sec.pos, y: 0 }, sec.chordPlus] as [Pt, Pt]]
+              : curvesMarkerSegments(sec);
+            for (const [a, b] of marks) ctx.seg(a, b, { width: 0.3, dashed: true, gray: 0.55 });
+            if (sec.rail) {
+              // no width: the chords are not a line across the board
+              ctx.label({ x: sec.chordPlus.x + 0.4, y: sec.chordPlus.y + 0.6 }, `${L(sec.pos)} · rail section`, 7); // prettier-ignore
+              continue;
+            }
             // The width label stays the FULL width — what the shaper measures.
             const full = sec.chordPlus.y - sec.chordMinus.y;
             ctx.label(
@@ -460,14 +470,39 @@ const buildPartsFromCurves = (curves: BoardCurves, opts: BoardPdf1to1Options): T
   if (want('crossSections')) {
     const halfSec = (opts.halfSections ?? true) && !asym;
     for (const sec of curves.sections) {
+      if (sec.rail) {
+        // A notch-zone station is two half-sections on two different fan chords: one page each,
+        // never joined into a ring and never "flipped about the stringer".
+        for (const h of curvesRailHalves(sec)) {
+          const ring: Pt[] = [...h.pts];
+          if (ring.length < 2) continue;
+          const bb = bbox(ring);
+          const side = h.side === 'plus' ? '+' : '-';
+          parts.push(
+            buildPart(
+              'sections',
+              `${name} · Rail section ${side} side @ ${L(sec.pos)} (1:1)`,
+              `${note} · half-section on its own chord, ${L(h.chordLength)} from the stringer`,
+              { ...bb, minX: Math.min(0, bb.minX) },
+              (ctx) => {
+                ctx.poly(ring, { closed: false, width: 0.8 });
+                const sy = ySpan(ring);
+                ctx.seg({ x: 0, y: sy.lo }, { x: 0, y: sy.hi }, { width: 0.6, gray: 0 });
+              },
+              calibration,
+              inches,
+            ),
+          );
+        }
+        continue;
+      }
       const ring: Pt[] = halfSec ? [...sec.plus] : curvesSectionRing(sec);
       if (ring.length < 2) continue;
       const bb = bbox(ring);
-      const rail = sec.rail ? ' · rail section' : '';
       parts.push(
         buildPart(
           'sections',
-          `${name} · Section${halfSec ? ' half' : ''} @ ${L(sec.pos)}${rail} (1:1)`,
+          `${name} · Section${halfSec ? ' half' : ''} @ ${L(sec.pos)} (1:1)`,
           halfSec ? `${note} · half template — flip about the stringer` : note,
           halfSec ? { ...bb, minX: Math.min(0, bb.minX) } : bb,
           (ctx) => {

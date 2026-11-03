@@ -13,7 +13,13 @@ import {
   type Pt,
 } from './board-curves';
 import { BRAND_LINE } from './brand';
-import { curvesOutlineLoop, curvesSectionRing, type BoardCurves } from './curves-input';
+import {
+  curvesMarkerSegments,
+  curvesOutlineLoop,
+  curvesRailHalves,
+  curvesSectionRing,
+  type BoardCurves,
+} from './curves-input';
 import { dxfText } from './dxf-text';
 
 /**
@@ -400,7 +406,7 @@ export const exportDxfCurves = (curves: BoardCurves, opts: DxfOptions = {}): str
   const labelH = Math.max(1, maxHalf * 0.12);
   for (const sec of curves.sections) {
     // the chord of the station: an x-plane on a standard board, a fan chord in a notch zone
-    line(out, sec.chordMinus, sec.chordPlus, 'MARKERS', 'DASHED');
+    for (const [a, b] of curvesMarkerSegments(sec)) line(out, a, b, 'MARKERS', 'DASHED');
     text(out, sec.chordPlus.x + labelH * 0.3, sec.chordPlus.y + labelH * 0.4, labelH, `${sec.pos.toFixed(1)}`, 'LABELS'); // prettier-ignore
   }
   drawFins(out, curves.fins ?? []);
@@ -434,22 +440,32 @@ export const exportDxfCurves = (curves: BoardCurves, opts: DxfOptions = {}): str
   const csBandTop = rockerBottom - gap;
   let cursorX = 0;
   for (const sec of curves.sections) {
-    const ring = curvesSectionRing(sec);
-    const sx = ySpanX(ring);
-    const sy = ySpan(ring);
-    const sectionW = sx.hi - sx.lo;
-    const centerX = cursorX + sectionW / 2 - (sx.lo + sx.hi) / 2;
-    const shiftY = csBandTop - sy.hi;
-    polyline(
-      out,
-      ring.map((p) => ({ x: p.x + centerX, y: p.y + shiftY })),
-      'CROSSSECTION',
-      { closed: true },
-    );
-    const tickX = cursorX + sectionW / 2;
-    line(out, { x: tickX, y: csBandTop }, { x: tickX, y: csBandTop - labelH }, 'CENTERLINE');
-    text(out, sx.lo + centerX, csBandTop + labelH * 0.4, labelH, `x=${sec.pos.toFixed(1)}${sec.rail ? ' rail section' : ''}`, 'LABELS'); // prettier-ignore
-    cursorX += sectionW + gap;
+    // A notch-zone station is two half-sections on two different fan chords: each is drawn on
+    // its own (open), never mirrored into one ring.
+    const items = sec.rail
+      ? curvesRailHalves(sec).map((h) => ({
+          ring: [...h.pts] as Pt[],
+          closed: false,
+          label: `x=${sec.pos.toFixed(1)} rail section ${h.side === 'plus' ? '+' : '-'} side, chord ${h.chordLength.toFixed(1)}`, // prettier-ignore
+        }))
+      : [{ ring: curvesSectionRing(sec), closed: true, label: `x=${sec.pos.toFixed(1)}` }];
+    for (const { ring, closed, label } of items) {
+      const sx = ySpanX(ring);
+      const sy = ySpan(ring);
+      const sectionW = sx.hi - sx.lo;
+      const centerX = cursorX + sectionW / 2 - (sx.lo + sx.hi) / 2;
+      const shiftY = csBandTop - sy.hi;
+      polyline(
+        out,
+        ring.map((p) => ({ x: p.x + centerX, y: p.y + shiftY })),
+        'CROSSSECTION',
+        { closed },
+      );
+      const tickX = closed ? cursorX + sectionW / 2 : sx.lo + centerX;
+      line(out, { x: tickX, y: csBandTop }, { x: tickX, y: csBandTop - labelH }, 'CENTERLINE');
+      text(out, sx.lo + centerX, csBandTop + labelH * 0.4, labelH, label, 'LABELS');
+      cursorX += sectionW + gap;
+    }
   }
 
   out.push('0', 'ENDSEC');

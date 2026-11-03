@@ -83,6 +83,40 @@ export const curvesSectionRing = (s: CurveSection): Pt[] => {
   return ring;
 };
 
+/** One side of a notch-zone station, drawn on its own: the half-section and the chord it lies on. */
+export interface RailHalf {
+  readonly side: 'plus' | 'minus';
+  readonly pts: readonly Pt[];
+  /** Length of the fan chord from the stringer point `(pos, 0)` to the outline (cm). */
+  readonly chordLength: number;
+}
+
+/**
+ * The two halves of a notch-zone ("rail section") station. They lie on two different fan chords
+ * from `(pos, 0)`, at an angle to each other, so they are never joined into one ring.
+ */
+export const curvesRailHalves = (s: CurveSection): RailHalf[] => [
+  {
+    side: 'plus',
+    pts: s.plus,
+    chordLength: Math.hypot(s.chordPlus.x - s.pos, s.chordPlus.y),
+  },
+  {
+    side: 'minus',
+    pts: s.minus ?? s.plus,
+    chordLength: Math.hypot(s.chordMinus.x - s.pos, s.chordMinus.y),
+  },
+];
+
+/** The plan marker of a station: an x-plane chord, or the two fan chords of a notch zone. */
+export const curvesMarkerSegments = (s: CurveSection): [Pt, Pt][] =>
+  s.rail
+    ? [
+        [{ x: s.pos, y: 0 }, s.chordMinus],
+        [{ x: s.pos, y: 0 }, s.chordPlus],
+      ]
+    : [[s.chordMinus, s.chordPlus]];
+
 /** y at `x` along a chain of segments that is a function of x (the rocker or deck). */
 export const curveYAtX = (segs: readonly CurveSeg[], x: number): number => {
   let seg = segs[segs.length - 1];
