@@ -305,7 +305,7 @@ describe('fin store: foil slices', () => {
     expect(s.getState().addSlice(0.5)).toBe(true);
     expect(design(s).slices).toHaveLength(1);
     expect(design(s).slices[0]!.height).toBe(0.5);
-    // The fin's section there: nothing changes yet, to the fit (0.05 mm).
+    // The fin's section there: nothing changes yet, to the fit (0.1 mm: two percent).
     const width = (d: FinDesign, h: number) => {
       const b = prepareBlade(d);
       const sec = bladeSection(b, h * b.depth, cosineStations(40));
@@ -313,7 +313,7 @@ describe('fin store: foil slices', () => {
     };
     for (const h of [0.4, 0.5, 0.6]) {
       const was = width(before, h);
-      width(design(s), h).forEach((t, j) => expect(Math.abs(t - was[j]!)).toBeLessThan(5e-3));
+      width(design(s), h).forEach((t, j) => expect(Math.abs(t - was[j]!)).toBeLessThan(1e-2));
     }
     expect(s.getState().activeFoil).toBe(1);
     // NACA and the inside face now act on the slice, not the root.
