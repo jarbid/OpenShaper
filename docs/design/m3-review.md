@@ -32,8 +32,10 @@ Counts: **1 blocker, 2 major, 8 minor.**
 
 ### Blocker
 
-**R1. Notch-zone stations are drawn on a chord they don't lie on, and the two halves are joined into one
-fake ring (DXF always; PDF for whole sections).** Size **M**.
+\*\*R1. Notch-zone stations are drawn on a chord they don't lie on, and the two halves are joined into one
+
+**Status: FIXED (commit "draw notch-zone rail sections on their fan chords").**
+fake ring (DXF always; PDF for whole sections).** Size **M\*\*.
 
 - Where:
   - `packages/export/src/dxf.ts:403` (marker) and `:437` (ring)
@@ -71,8 +73,10 @@ fake ring (DXF always; PDF for whole sections).** Size **M**.
 
 ### Major
 
-**R2. STEP of an asymmetric notched board refines without end when the sides' sections differ at the notch
-bottom.** Size **M**.
+\*\*R2. STEP of an asymmetric notched board refines without end when the sides' sections differ at the notch
+
+**Status: FIXED (commit "STEP asymmetric notch fit, G1 stringer seams ...").**
+bottom.** Size **M\*\*.
 
 - Where:
   - `packages/board2/src/step.ts:300-304` (the minus notch row takes the plus row's control points)
@@ -102,6 +106,8 @@ bottom.** Size **M**.
 
 **R3. The STEP faces meet at a fold along the stringer where the board is smooth (G0 only).** Size **M**.
 
+**Status: FIXED (same commit as R2; worst fold excess 0.11 degrees, see m3-exports.md).**
+
 - Where: `packages/board2/src/step.ts:280-299` (`snap` makes the stringer row y = 0 but leaves the next
   row free) and `:313-317` (mirror).
 - Scenario: export STEP for the shortboard and open it in Rhino or Fusion with zebra or environment
@@ -126,6 +132,8 @@ bottom.** Size **M**.
 
 **R4. The default STL face size, 0.5 cm, makes the file 3.5× bigger for no gain in accuracy.** Size **S**.
 
+**Status: FIXED (STL default 1 cm).**
+
 - Where: `apps/web/src/workers/nurbs-protocol.ts:274`, used by `engine-export-job.ts:257`.
 - `meshBoard`'s refinement keeps 0.5 mm whatever `maxEdge` is. It uses 0.4 of the tolerance at
   midpoints, plus the twist term, for a design bound of 0.85 of the tolerance (m1-model, mesh
@@ -137,6 +145,8 @@ bottom.** Size **M**.
 
 **R5. The NURBS STL silently drops the fin blades that the classic STL includes.** Size **S**.
 
+**Status: DEFERRED (fin blades in the NURBS STL; out of budget).**
+
 - Where: `apps/web/src/workers/nurbs-core.ts:870`; classic at `packages/export/src/stl.ts:118` and
   `:182` (`includeFins`, default on).
 - Scenario: a board with a fin setup, exported as STL for a 3D print. With the engine on the fins
@@ -146,6 +156,8 @@ bottom.** Size **M**.
   Files and Export pages and record it in `divergences.md`.
 
 **R6. The STEP fit has no live progress, and its failure and clip reports are hidden or unit-blind.** Size **S**.
+
+**Status: FIXED for progress and the display-unit message; SKIPPED for tip-clip reports (a follow-up replaces the clipping with rounded tips).**
 
 - Where:
   - `nurbs-core.ts:897`: `onPass` is not wired, so the chip reads "fitting the surfaces…" for
@@ -162,6 +174,8 @@ bottom.** Size **M**.
   - When a clip is longer than 1 mm, name it in the done toast.
 
 **R7. A progress message after cancel can leave the Exporting chip and the disabled menu up for good.**
+
+**Status: FIXED (late progress ignored; `gone` reset).**
 Size **S**.
 
 - Where: `apps/web/src/nurbs-export-client.ts:106` (progress is not checked against `settled`) and
@@ -180,6 +194,8 @@ Size **S**.
 
 **R8. The STEP deviation check never samples the rows the snap moves.** Size **S**.
 
+**Status: FIXED (stringer, apex and end rows checked, in the fit and in the test).**
+
 - Where: `packages/board2/src/step.ts:143-146` (`CHECK_FRACS` are span-interior), and the same blind
   spot in `step.test.ts:43` (`independentDeviation`).
 - The stringer (t = 0, 1), the apex (t = ½, the outline in plan) and the end rows (s = 0, 1) are
@@ -193,6 +209,8 @@ Size **S**.
 
 **R9. The OCCT check's comment does not match its assertion, and the board STEP files are not kept.** Size **S**.
 
+**Status: DEFERRED.**
+
 - Where: `packages/board2/src/step.occt.test.ts:12` says the GProp volume check is 1 %, but `:107`
   asserts 5 %. `.github/workflows/ci.yml:42` uploads `packages/geom/.occt-corpus/*.step` only.
 - Scenario: the planned Rhino, Fusion, FreeCAD and CAM stop needs the board files. CI produces none,
@@ -201,6 +219,8 @@ Size **S**.
   corpus directory, and upload it with geom's.
 
 **R10. The worker chunk grew and nobody measured it.** Size **S**.
+
+**Status: DEFERRED (worker chunk size not measured).**
 
 - Where: `apps/web/src/workers/nurbs-core.ts:65-73` and `:897`.
 - The editing worker is the same module as the export worker. Every editing-worker start now also
@@ -212,6 +232,8 @@ Size **S**.
   The cancel design already uses a separate instance, so this is a small change.
 
 **R11. The DXF apex line is the plus side only, on an asymmetric board.** Size **S**.
+
+**Status: DEFERRED.**
 
 - Where: `apps/web/src/workers/nurbs-core.ts:820-824`.
 - The rocker band draws one `APEX` polyline, from side 0. On an asymmetric board the minus rail's

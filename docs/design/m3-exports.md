@@ -148,13 +148,13 @@ characterization snapshot is untouched.
 **Times and sizes** (shortboard, `sample-board.brd` converted; the job in the worker module, median of three after
 a warm-up, 4-core container, Node via Vitest; the browser worker runs the same code):
 
-| Format                          | Export time, ms | File size                      | Classic export of the same board |
-| ------------------------------- | --------------- | ------------------------------ | -------------------------------- |
-| STL, face size 0.5 cm (default) | 334             | 15.2 MB (about 300,000 facets) | 7.6 MB                           |
-| STL, face size 1 cm             | 82              | 4.3 MB (about 85,000 facets)   |                                  |
-| DXF, polyline                   | 8               | 126 KB                         | 669 KB                           |
-| DXF, spline                     | 5               | 50 KB                          |                                  |
-| PDF 1:1 (untiled, 7 sections)   | 6               | 14.7 KB                        | 41 KB                            |
+| Format                        | Export time, ms | File size                      | Classic export of the same board |
+| ----------------------------- | --------------- | ------------------------------ | -------------------------------- |
+| STL, face size 1 cm (default) | 82              | 4.3 MB (about 85,000 facets)   | 7.6 MB                           |
+| STL, face size 0.5 cm         | 334             | 15.2 MB (about 300,000 facets) |                                  |
+| DXF, polyline                 | 8               | 126 KB                         | 669 KB                           |
+| DXF, spline                   | 5               | 50 KB                          |                                  |
+| PDF 1:1 (untiled, 7 sections) | 6               | 14.7 KB                        | 41 KB                            |
 
 The live mesh of the same board is 16,000 facets, so the default STL is about 19 times finer in facets. The DXF is
 smaller than the classic one because its sections are thinned polylines (0.05 mm) and its polylines are adaptive.
@@ -267,15 +267,26 @@ What drives the knot count is the rail radius and the notch fan, not the feature
 **Times and sizes** (the job in the worker module, Node via Vitest, median of three for the shortboard after a warm-up and
 one run for the others, 4-core container; the browser worker runs the same code):
 
-| Board                  | Export time, ms | File size | Control points s × t | Passes | Fitted deviation, mm | Ends            |
-| ---------------------- | --------------- | --------- | -------------------- | ------ | -------------------- | --------------- |
-| shortboard             | 1,050           | 350 KB    | 46 × 40              | 9      | 0.26                 | cap, cap        |
-| funboard               | 680             | 325 KB    | 56 × 31              | 6      | 0.38                 | cap, cap        |
-| longboard              | 1,860           | 567 KB    | 66 × 46              | 9      | 0.35                 | cap, cap        |
-| swallow                | 3,560           | 854 KB    | 65 × 72              | 8      | 0.39                 | notch edge, cap |
-| fish                   | 2,040           | 597 KB    | 63 × 52              | 8      | 0.28                 | notch edge, cap |
-| asymmetric (channels)  | 2,010           | 448 KB    | 54 × 44              | 8      | 0.28                 | cap, cap        |
-| swallow, every feature | 4,570           | 1.11 MB   | 75 × 81              | 8      | 0.39                 | notch edge, cap |
+| Board                       | Export time, ms | File size | Control points s × t | Passes | Fitted deviation, mm | Worst fold vs evaluator, ° (bottom / deck) | Ends            |
+| --------------------------- | --------------- | --------- | -------------------- | ------ | -------------------- | ------------------------------------------ | --------------- |
+| shortboard                  | 1,600           | 363 KB    | 49 × 40              | 9      | 0.26                 | 0.006 / 0.047                              | cap, cap        |
+| funboard                    | 840             | 312 KB    | 57 × 30              | 6      | 0.38                 | 0.012 / 0.023                              | cap, cap        |
+| longboard                   | 2,250           | 562 KB    | 67 × 46              | 9      | 0.36                 | 0.007 / 0.027                              | cap, cap        |
+| swallow                     | 4,440           | 1.02 MB   | 73 × 78              | 8      | 0.30                 | 0.107 / 0.110                              | notch edge, cap |
+| fish                        | 2,280           | 655 KB    | 71 × 52              | 8      | 0.33                 | 0.027 / 0.066                              | notch edge, cap |
+| asymmetric (channels)       | 2,150           | 438 KB    | 54 × 44              | 8      | 0.31                 | 0.004 / 0.064                              | cap, cap        |
+| swallow, every feature      | 6,220           | 1.29 MB   | 84 × 86              | 8      | 0.30                 | 0.107 / 0.110                              | notch edge, cap |
+| asymmetric swallow, Δv 0.06 | 8,390           | 1.04 MB   | 75 × 78              | 8      | 0.30                 | 0.107 / 0.110                              | notch edge, cap |
+
+Fold = the angle between the plus face's cross tangent and the reversed minus face's, along the stringer row, minus the
+evaluator's own fold at the same s (so a designed crease, such as the swallow's notch zone, is not counted), worst over s
+from 3 % to 97 %. All are at most 0.11°. Standard tails are at most 0.047° except 0.066° and 0.064° within 3 % of the nose
+tip (s = 0.97). The 0.11° is at the end of the notch zone, where the fan chord direction stops changing. Before the fix
+the deck folds were 0.1–0.38° (1.2° near the nose) and the swallow bottom 0.25–0.4° (M3 review R3).
+
+Asymmetric swallow with a raised minus apex (the review's R2 case, Δv = 0.06): before, no result in 150 s; now 8 passes,
+8.4 s. The control budget (`STEP_MAX_CONTROLS`, 12,000 per side; the largest board above is 7,224) fails a fit that
+cannot converge with a message instead.
 
 The shortboard target (under 10 s) is met by a factor of 9.
 
@@ -315,3 +326,14 @@ test runs.
 - The fit's time grows with the control net (swallow with all features 4.6 s): the slow step is the banded solve
   per pass, 8 to 11 passes. Starting from the previous export's knots would skip most of it.
 - No UI for the STL face size or the STEP tolerance (still fixed).
+
+## M3 review fix pass
+
+- **Rail sections (R1).** A notch-zone station's plan marker is the two fan chords from `(pos, 0)`; its halves are drawn as
+  separate open half-sections, each on its own chord (DXF band; one PDF page per half, without a width label or "flip" note).
+- **STEP (R2, R3, R8).** The minus side of an asymmetric notched board is sampled at a `t` shifted near the notch bottom
+  (`notchWarp`, a reparametrisation over 6 % of s) so its collapsed row equals the plus row. The control row next to each
+  stringer row is placed along the evaluator's own cross direction (collocation at the Greville abscissae), offset only in y,
+  so the faces meet G1 wherever the evaluator does. The check also samples the stringer, apex and end rows.
+- **STL (R4).** Default face size 1 cm. Chord error at 1 cm (triangle centres and edge midpoints against the surface, every 60th
+  triangle): shortboard 0.18 mm, funboard 0.20, longboard 0.19, swallow 0.13, fish 0.22, asymmetric 0.23; all under 0.5 mm.
