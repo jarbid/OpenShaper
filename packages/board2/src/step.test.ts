@@ -5,10 +5,15 @@
  * and its surfaces are within 0.5 mm of the evaluator at an independent dense grid (offsets the fit never
  * sampled); the sides share their stringer exactly; the file starts with the Part 21 header.
  */
-import { checkBrep, surfaceEvalGridInto, createScratch } from '@openshaper/geom';
+import {
+  checkBrep,
+  surfaceDerivatives,
+  surfaceEvalGridInto,
+  createScratch,
+} from '@openshaper/geom';
 import { describe, expect, it } from 'vitest';
 import { STEP_TOLERANCE } from './params';
-import { boardSolid, boardStep } from './step';
+import { boardSolid, boardStep, StepFitError } from './step';
 import type { BoardSolid } from './step';
 import { createEvaluator } from './surface';
 import type { BuiltBoard } from './surface';
@@ -21,6 +26,18 @@ const everyFeature = (): BoardDoc => {
   const swallow = swallowBoard();
   const channels = asymmetricBoard().features.filter((f) => f.kind === 'channels');
   return { ...swallow, features: [...swallow.features, ...channels] };
+};
+
+/** The swallow made asymmetric: the minus sections' apex raised by `dv` (the review's R2 case at 0.06). */
+const asymmetricSwallow = (dv: number): BoardDoc => {
+  const d = swallowBoard();
+  const stations = d.stations.map((st) => {
+    const m = structuredClone(st.plus) as unknown as { chain: { knots: { p: [number, number]; in: [number, number]; out: [number, number] }[] }; apex: number }; // prettier-ignore
+    const k = m.chain.knots[m.apex]!;
+    for (const q of [k.p, k.in, k.out]) q[1] += dv;
+    return { ...st, minus: m as unknown as typeof st.plus };
+  });
+  return { ...d, symmetry: 'asymmetric', outline: { plus: d.outline.plus, minus: d.outline.plus }, stations }; // prettier-ignore
 };
 
 const BOARDS: readonly { name: string; doc: BoardDoc }[] = [
@@ -57,21 +74,108 @@ function independentDeviation(built: BuiltBoard, solid: BoardSolid): number {
       for (let j = 0; j < vs.length; j++) {
         ev.eval(vs[j]!, 0, out, 0);
         const o = (i * vs.length + j) * 3;
-        worst = Math.max(
-          worst,
-          Math.hypot(out[0]! - F[o]!, out[1]! - F[o + 1]!, out[2]! - F[o + 2]!),
-        );
+        let d = Math.hypot(out[0]! - F[o]!, out[1]! - F[o + 1]!, out[2]! - F[o + 2]!);
+        // beside an asymmetric notch bottom the minus side is a reparametrisation of the evaluator's:
+        // the distance there is to its section at the same s, wherever along t
+        if (side === 1 && us[i]! < 0.1) {
+          for (let k = 0; k <= 800; k++) {
+            ev.eval(k / 800, 0, out, 0);
+            d = Math.min(d, Math.hypot(out[0]! - F[o]!, out[1]! - F[o + 1]!, out[2]! - F[o + 2]!));
+          }
+        }
+        worst = Math.max(worst, d);
       }
+    }
+  }
+  // the rows the snap moves (R8): the stringer, the apex and both ends, at offsets of their own
+  for (const side of mirror ? ([0] as const) : ([0, 1] as const)) {
+    const surf = side === 0 ? solid.plus : solid.minus;
+    const ts = Array.from({ length: 211 }, (_, k) => (k + 0.31) / 211);
+    const rows: [number, number][] = [];
+    for (const t of ts) for (const v of [0, 0.5, 1]) rows.push([t, v]);
+    for (const t of ts) for (const u of [0, 1]) rows.push([u, t]);
+    for (const [u, v] of rows) {
+      const F = new Float64Array(3);
+      surfaceEvalGridInto(surf, Float64Array.from([u]), Float64Array.from([v]), 0, F, sc);
+      ev.row(side, lo + u * (hi - lo), 0);
+      let d: number;
+      if (side === 1 && u < 0.1) {
+        // beside an asymmetric notch bottom: the distance to the evaluator's section at the same s
+        d = Infinity;
+        for (let k = 0; k <= 800; k++) {
+          ev.eval(k / 800, 0, out, 0);
+          d = Math.min(d, Math.hypot(out[0]! - F[0]!, out[1]! - F[1]!, out[2]! - F[2]!));
+        }
+      } else {
+        ev.eval(v, 0, out, 0);
+        d = Math.hypot(out[0]! - F[0]!, out[1]! - F[1]!, out[2]! - F[2]!);
+      }
+      worst = Math.max(worst, d);
     }
   }
   return worst;
 }
 
+/** Angle (degrees) between two vectors. */
+const angleDeg = (a: [number, number, number], b: [number, number, number]): number => {
+  const dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const c = dot / (Math.hypot(...a) * Math.hypot(...b));
+  return (Math.acos(Math.max(-1, Math.min(1, c))) * 180) / Math.PI;
+};
+
+/**
+ * How far the fold of the two faces along a stringer row (v = 0 the bottom, 1 the deck) is from the
+ * evaluator's own fold, worst over s in [from, to]. Fold = angle between the plus face's cross tangent and
+ * the reversed minus face's: 0 where the board is smooth through the stringer.
+ */
+function foldExcess(
+  built: BuiltBoard,
+  solid: BoardSolid,
+  v: 0 | 1,
+  from: number,
+  to: number,
+): number {
+  const ev = createEvaluator(built);
+  const [lo, hi] = solid.report.range;
+  const mirror = built.doc.symmetry === 'mirror';
+  const a = new Float64Array(3);
+  const b = new Float64Array(3);
+  const evDir = (side: 0 | 1, s: number): [number, number, number] => {
+    ev.row(side, lo + s * (hi - lo), 0);
+    ev.eval(v, 0, a);
+    ev.eval(v === 0 ? 1e-4 : 1 - 1e-4, 0, b);
+    const k = v === 0 ? 1 : -1;
+    return [k * (b[0]! - a[0]!), k * (b[1]! - a[1]!), k * (b[2]! - a[2]!)];
+  };
+  let worst = 0;
+  for (let k = 0; k <= 300; k++) {
+    const s = from + ((to - from) * k) / 300;
+    const p = surfaceDerivatives(solid.plus, s, v, 1).Sv;
+    const m = surfaceDerivatives(solid.minus, s, v, 1).Sv;
+    const step = angleDeg([p.x, p.y, p.z], [-m.x, -m.y, -m.z]);
+    const ep = evDir(0, s);
+    const em = evDir(mirror ? 0 : 1, s);
+    const emm: [number, number, number] = mirror ? [em[0], -em[1], em[2]] : em;
+    const exact = angleDeg(ep, [-emm[0], -emm[1], -emm[2]]);
+    worst = Math.max(worst, Math.abs(step - exact));
+  }
+  return worst;
+}
+
+const solved = new Map<BoardDoc, { built: BuiltBoard; solid: BoardSolid }>();
+const solve = (doc: BoardDoc): { built: BuiltBoard; solid: BoardSolid } => {
+  let r = solved.get(doc);
+  if (!r) {
+    const built = buildOrThrow(doc);
+    solved.set(doc, (r = { built, solid: boardSolid(built) }));
+  }
+  return r;
+};
+
 describe('the STEP solid of a built board', () => {
   for (const { name, doc } of BOARDS) {
     it(`${name}: a valid closed solid within 0.5 mm of the surface`, () => {
-      const built = buildOrThrow(doc);
-      const solid = boardSolid(built);
+      const { built, solid } = solve(doc);
       const check = checkBrep(solid.brep);
       expect(check.issues).toEqual([]);
       expect(check.ok).toBe(true);
@@ -111,5 +215,46 @@ describe('the STEP solid of a built board', () => {
     expect(out.text).toContain('END-ISO-10303-21;');
     expect(out.text).toContain('.CENTI.');
     expect(out.text).toContain('MANIFOLD_SOLID_BREP');
+  }, 60_000);
+
+  it.each(BOARDS.map((b) => [b.name, b.doc] as const))(
+    '%s: the faces meet tangent-continuously along both stringer rows, as the evaluator does',
+    (name, doc) => {
+      const { built, solid } = solve(doc);
+      // away from the tips; a notched tail's fan chords are followed within a fraction of a degree
+      const bound = built.sides[0].frame.notch === null ? 0.1 : 0.2;
+      for (const v of [0, 1] as const) {
+        expect(foldExcess(built, solid, v, 0.03, 0.9), `${name} v=${v}`).toBeLessThanOrEqual(bound);
+      }
+    },
+    60_000,
+  );
+
+  it('an asymmetric swallow with a raised minus apex exports within the budget and 0.5 mm', () => {
+    const built = buildOrThrow(asymmetricSwallow(0.06));
+    const t0 = performance.now();
+    const solid = boardSolid(built);
+    expect(performance.now() - t0).toBeLessThan(60_000);
+    expect(solid.report.withinTolerance).toBe(true);
+    expect(solid.report.overBudget).toBe(false);
+    expect(solid.report.tail).toBe('edge');
+    const check = checkBrep(solid.brep);
+    expect(check.issues).toEqual([]);
+    expect(check.ok).toBe(true);
+    expect(independentDeviation(built, solid)).toBeLessThanOrEqual(STEP_TOLERANCE);
+  }, 120_000);
+
+  it('a fit over its control budget fails quickly with a clear message', () => {
+    const built = buildOrThrow(swallowBoard());
+    const solid = boardSolid(built, { maxControls: 2500 });
+    expect(solid.report.overBudget).toBe(true);
+    expect(solid.report.withinTolerance).toBe(false);
+    expect(() => boardStep(built, { maxControls: 2500 })).toThrowError(StepFitError);
+    try {
+      boardStep(built, { maxControls: 2500 });
+    } catch (e) {
+      expect((e as StepFitError).kind).toBe('budget');
+      expect((e as Error).message).toContain('more detail');
+    }
   }, 60_000);
 });

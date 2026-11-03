@@ -61,18 +61,23 @@ import {
   STEP_CHECK_SAMPLES,
   STEP_CLIP_BISECT,
   STEP_CLIP_SCAN,
+  STEP_CROSS_STEP,
+  STEP_EDGE_SAMPLES,
   STEP_DEGREE,
   STEP_DIRECTION_SHARE,
   STEP_EDGE_WEIGHT,
   STEP_FIT_SAMPLES,
+  STEP_MAX_CONTROLS,
   STEP_MAX_PASSES,
   STEP_MIN_SPAN,
+  STEP_NOTCH_BLEND,
   STEP_START_HALF_SPANS,
   STEP_START_SPANS,
   STEP_STATION_GAP,
   STEP_TIP_CHORD,
   STEP_TIP_THICKNESS,
   STEP_TOLERANCE,
+  STEP_WARP_TABLE,
 } from './params';
 import { createEvaluator } from './surface';
 import type { BuiltBoard, SurfaceEvaluator } from './surface';
@@ -82,6 +87,8 @@ export interface BoardSolidOptions {
   readonly tolerance?: number;
   /** Called at the start of each fit pass (the slow step), with the pass number from 1. */
   readonly onPass?: (pass: number) => void;
+  /** Control points per side the fit may grow to before it gives up. Default {@link STEP_MAX_CONTROLS}. */
+  readonly maxControls?: number;
 }
 
 /** How an end of the solid is closed. */
@@ -100,8 +107,24 @@ export interface BoardSolidReport {
   readonly clipped: readonly [number, number];
   readonly tail: EndKind;
   readonly nose: EndKind;
-  /** True if the deviation is within the tolerance (false if the passes ran out). */
+  /** True if the deviation is within the tolerance (false if the passes ran out or the budget did). */
   readonly withinTolerance: boolean;
+  /** True if the fit stopped because the net would exceed {@link STEP_MAX_CONTROLS} control points. */
+  readonly overBudget: boolean;
+}
+
+/** Why a STEP fit failed, as data: the caller words the message in the editor's units. */
+export class StepFitError extends Error {
+  constructor(
+    message: string,
+    readonly kind: 'tolerance' | 'budget',
+    /** The deviation reached and the tolerance asked for (cm). */
+    readonly deviation: number,
+    readonly tolerance: number,
+  ) {
+    super(message);
+    this.name = 'StepFitError';
+  }
 }
 
 export interface BoardSolid {
@@ -157,13 +180,73 @@ function sampleGrid(
   r: Range,
   us: readonly number[],
   vs: readonly number[],
+  warp: Warp | null = null,
 ): Float64Array {
   const out = new Float64Array(us.length * vs.length * 3);
+  const shifted = side === 1 ? warp : null;
   for (let i = 0; i < us.length; i++) {
     ev.row(side, r.lo + us[i]! * (r.hi - r.lo), 0);
-    for (let j = 0; j < vs.length; j++) ev.eval(vs[j]!, 0, out, (i * vs.length + j) * 3);
+    for (let j = 0; j < vs.length; j++) {
+      const t = shifted === null ? vs[j]! : shifted(us[i]!, vs[j]!);
+      ev.eval(t, 0, out, (i * vs.length + j) * 3);
+    }
   }
   return out;
+}
+
+/** Where the minus side is sampled in `t` for a surface `(s, t)`: the identity away from the notch bottom. */
+type Warp = (s: number, t: number) => number;
+
+/**
+ * On an asymmetric notched board the two sides collapse onto the same vertical segment at the notch bottom,
+ * but their `t` run along it differently (the sections' apexes sit at different heights). The surfaces share
+ * that row control point for point, so the minus side is sampled where its own point has the plus side's
+ * height, fading out over {@link STEP_NOTCH_BLEND} of `s`. That is a reparametrisation: the points stay on
+ * the evaluator's surface. Null where the two agree already, or where the heights are not monotone in `t`.
+ */
+function notchWarp(ev: SurfaceEvaluator, lo: number): Warp | null {
+  const K = STEP_WARP_TABLE;
+  const o = new Float64Array(3);
+  const target = new Float64Array(K + 1);
+  ev.row(0, lo, 0);
+  for (let k = 0; k <= K; k++) {
+    ev.eval(k / K, 0, o);
+    target[k] = o[2]!;
+  }
+  ev.row(1, lo, 0);
+  const zAt = (t: number): number => {
+    ev.eval(t, 0, o);
+    return o[2]!;
+  };
+  let prev = zAt(0);
+  for (let k = 1; k <= K; k++) {
+    const z = zAt(k / K);
+    if (z < prev) return null;
+    prev = z;
+  }
+  const table = new Float64Array(K + 1);
+  let moved = 0;
+  for (let k = 0; k <= K; k++) {
+    let a = 0;
+    let b = 1;
+    for (let i = 0; i < STEP_CLIP_BISECT; i++) {
+      const m = 0.5 * (a + b);
+      if (zAt(m) < target[k]!) a = m;
+      else b = m;
+    }
+    table[k] = 0.5 * (a + b);
+    moved = Math.max(moved, Math.abs(table[k]! - k / K));
+  }
+  if (moved <= STEP_MIN_SPAN) return null;
+  return (s, t) => {
+    if (s >= STEP_NOTCH_BLEND) return t;
+    const w = (1 - s / STEP_NOTCH_BLEND) ** 3;
+    const pos = t * K;
+    const k = Math.min(K - 1, Math.floor(pos));
+    const f = pos - k;
+    const tau = table[k]! * (1 - f) + table[k + 1]! * f;
+    return t + w * (tau - t);
+  };
 }
 
 // --- ends -------------------------------------------------------------------------------------
@@ -220,6 +303,8 @@ interface Layout {
   readonly range: Range;
   readonly mirror: boolean;
   readonly tail: EndKind;
+  /** The minus side's `t` shift near an asymmetric notch bottom, or null. */
+  readonly warp: Warp | null;
 }
 
 /** Control points of a surface as a plain array (stride 3, u-major). */
@@ -245,7 +330,7 @@ interface Grids {
 function fitSide(ev: SurfaceEvaluator, side: 0 | 1, lay: Layout, g: Grids): NurbsSurface {
   const us = positions(g.ub, FIT_FRACS, true);
   const vs = positions(g.vb, FIT_FRACS, true);
-  const points = sampleGrid(ev, side, lay.range, us, vs);
+  const points = sampleGrid(ev, side, lay.range, us, vs, lay.warp);
   const uv = new Float64Array(us.length * vs.length * 2);
   const weights = new Float64Array(us.length * vs.length).fill(1);
   for (let i = 0; i < us.length; i++) {
@@ -265,9 +350,116 @@ function fitSide(ev: SurfaceEvaluator, side: 0 | 1, lay: Layout, g: Grids): Nurb
   return r.value.surface;
 }
 
+/** Values of the basis functions of a clamped basis at its Greville abscissae: row k is `N_i(g_k)` for all i. */
+function collocation(b: ClampedBasis): number[][] {
+  const n = b.count;
+  const p = STEP_DEGREE;
+  const knots = b.knots;
+  const rows: number[][] = [];
+  for (let k = 0; k < n; k++) {
+    let u = 0;
+    for (let m = 1; m <= p; m++) u += knots[k + m]!;
+    u /= p;
+    let span = p;
+    while (span < n - 1 && u >= knots[span + 1]!) span++;
+    // Cox-de Boor for the p + 1 non-zero functions of the span (The NURBS Book, A2.2)
+    const N = new Array<number>(p + 1).fill(0);
+    const left = new Array<number>(p + 1).fill(0);
+    const right = new Array<number>(p + 1).fill(0);
+    N[0] = 1;
+    for (let j = 1; j <= p; j++) {
+      left[j] = u - knots[span + 1 - j]!;
+      right[j] = knots[span + j]! - u;
+      let saved = 0;
+      for (let r = 0; r < j; r++) {
+        const d = right[r + 1]! + left[j - r]!;
+        const t = d === 0 ? 0 : N[r]! / d;
+        N[r] = saved + right[r + 1]! * t;
+        saved = left[j - r]! * t;
+      }
+      N[j] = saved;
+    }
+    const row = new Array<number>(n).fill(0);
+    for (let r = 0; r <= p; r++) row[span - p + r] = N[r]!;
+    rows.push(row);
+  }
+  return rows;
+}
+
+/** Solves `A x = b` for each right-hand side (Gaussian elimination with partial pivoting). */
+function solveDense(
+  A: readonly (readonly number[])[],
+  rhs: readonly Float64Array[],
+): Float64Array[] {
+  const n = A.length;
+  const M = A.map((r) => Float64Array.from(r));
+  const B = rhs.map((r) => Float64Array.from(r));
+  for (let c = 0; c < n; c++) {
+    let piv = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(M[r]![c]!) > Math.abs(M[piv]![c]!)) piv = r;
+    [M[c], M[piv]] = [M[piv]!, M[c]!];
+    for (const b of B) [b[c], b[piv]] = [b[piv]!, b[c]!];
+    const d = M[c]![c]!;
+    for (let r = c + 1; r < n; r++) {
+      const f = M[r]![c]! / d;
+      if (f === 0) continue;
+      for (let k = c; k < n; k++) M[r]![k]! -= f * M[c]![k]!;
+      for (const b of B) b[r]! -= f * b[c]!;
+    }
+  }
+  for (const b of B) {
+    for (let r = n - 1; r >= 0; r--) {
+      let v = b[r]!;
+      for (let k = r + 1; k < n; k++) v -= M[r]![k]! * b[k]!;
+      b[r] = v / M[r]![r]!;
+    }
+  }
+  return B;
+}
+
+/** The evaluator's cross direction at a stringer row, per control column: `(dx, dz)` per unit of `dy` along `t`. */
+interface Cross {
+  readonly dx: Float64Array;
+  readonly dz: Float64Array;
+  readonly ok: Uint8Array;
+}
+
+/**
+ * How the evaluator leaves the stringer, at the Greville abscissa of each control column of `g.u`: the
+ * ratios `dx / dy` and `dz / dy` of its section's first step from `t = 0` (`end` 0, the bottom) or from
+ * `t = 1` (the deck). On a standard section the direction is purely along y (both are 0); in a notch zone
+ * the chord is a fan chord (`dx ≠ 0`); under a vee the section leaves at a slope (`dz ≠ 0`).
+ */
+function crossAt(ev: SurfaceEvaluator, side: 0 | 1, lay: Layout, g: Grids, end: 0 | 1): Cross {
+  const n = g.u.count;
+  const dx = new Float64Array(n);
+  const dz = new Float64Array(n);
+  const ok = new Uint8Array(n);
+  const knots = g.u.knots;
+  const a = new Float64Array(3);
+  const b = new Float64Array(3);
+  for (let i = 0; i < n; i++) {
+    let gr = 0;
+    for (let k = 1; k <= STEP_DEGREE; k++) gr += knots[i + k]!;
+    gr /= STEP_DEGREE;
+    ev.row(side, lay.range.lo + gr * (lay.range.hi - lay.range.lo), 0);
+    ev.eval(end, 0, a);
+    ev.eval(end === 0 ? STEP_CROSS_STEP : 1 - STEP_CROSS_STEP, 0, b);
+    const dy = b[1]! - a[1]!;
+    if (Math.abs(dy) <= STEP_MIN_SPAN) continue;
+    dx[i] = (b[0]! - a[0]!) / dy;
+    dz[i] = (b[2]! - a[2]!) / dy;
+    ok[i] = 1;
+  }
+  return { dx, dz, ok };
+}
+
 /**
  * Snaps the shared rows exactly: y = 0 on the stringer rows (and the notch edge), the cap rows in their
- * plane, and the minus side's stringer and notch-edge rows onto the plus side's.
+ * plane, and the minus side's stringer and notch-edge rows onto the plus side's. The control row next to a
+ * stringer row is then placed on the line through the stringer row along the evaluator's own cross
+ * direction (`cross`), offset only in y: the two faces leave the stringer in the direction the evaluator
+ * does, so they meet tangent-continuously wherever the board is smooth and keep its crease where it is not.
  */
 function snap(
   lay: Layout,
@@ -275,8 +467,42 @@ function snap(
   nv: number,
   plus: Float64Array,
   minus: Float64Array | null,
+  cross: readonly [readonly [Cross, Cross], readonly [Cross, Cross]],
+  colloc: readonly (readonly number[])[],
 ): void {
   const at = (i: number, j: number) => (i * nv + j) * 3;
+  const first = lay.tail === 'edge' ? 1 : 0; // the notch edge is all on y = 0: its next row is free
+  const lean = (net: Float64Array, side: 0 | 1): void => {
+    const rows: [number, number, Cross][] = [
+      [0, 1, cross[side][0]],
+      [nv - 1, nv - 2, cross[side][1]],
+    ];
+    for (const [j0, j1, c] of rows) {
+      const y = new Float64Array(nu);
+      for (let i = 0; i < nu; i++) y[i] = net[at(i, j1) + 1]!;
+      // collocation at the Greville abscissae: the next row minus the stringer row is, as a spline in s,
+      // the evaluator's direction times that row's y there
+      const rhs = [new Float64Array(nu), new Float64Array(nu)];
+      const A = colloc.map((row, k) => {
+        if (k < first || c.ok[k] === 0) {
+          rhs[0]![k] = net[at(k, j1)]! - net[at(k, j0)]!;
+          rhs[1]![k] = net[at(k, j1) + 2]! - net[at(k, j0) + 2]!;
+          return row.map((_, i) => (i === k ? 1 : 0));
+        }
+        let yk = 0;
+        for (let i = 0; i < nu; i++) yk += row[i]! * y[i]!;
+        const end = k === 0 || k === nu - 1; // a cap's rows stay in their plane
+        rhs[0]![k] = end ? 0 : c.dx[k]! * yk;
+        rhs[1]![k] = c.dz[k]! * yk;
+        return row;
+      });
+      const sol = solveDense(A, rhs);
+      for (let i = 0; i < nu; i++) {
+        net[at(i, j1)] = net[at(i, j0)]! + sol[0]![i]!;
+        net[at(i, j1) + 2] = net[at(i, j0) + 2]! + sol[1]![i]!;
+      }
+    }
+  };
   for (const j of [0, nv - 1]) {
     for (let i = 0; i < nu; i++) plus[at(i, j) + 1] = 0;
   }
@@ -285,11 +511,9 @@ function snap(
       plus[at(0, j)] = lay.range.lo;
       plus[at(0, j) + 1] = 0;
     }
-  } else {
-    for (let j = 0; j < nv; j++) {
-      plus[at(0, j)] = lay.range.lo;
-    }
   }
+  lean(plus, 0);
+  for (let j = 0; j < nv; j++) plus[at(0, j)] = lay.range.lo;
   for (let j = 0; j < nv; j++) plus[at(nu - 1, j)] = lay.range.hi;
   if (minus === null) return;
   for (const j of [0, nv - 1]) {
@@ -297,6 +521,7 @@ function snap(
       for (let c = 0; c < 3; c++) minus[at(i, j) + c] = plus[at(i, j) + c]!;
     }
   }
+  lean(minus, 1);
   for (let j = 0; j < nv; j++) {
     minus[at(0, j)] = lay.range.lo;
     if (lay.tail === 'edge') {
@@ -345,7 +570,7 @@ function measureSide(
   const us = positions(g.ub, CHECK_FRACS, false);
   const vs = positions(g.vb, CHECK_FRACS, false);
   const nvd = vs.length;
-  const E = sampleGrid(ev, side, lay.range, us, vs);
+  const E = sampleGrid(ev, side, lay.range, us, vs, lay.warp);
   const F = new Float64Array(E.length);
   surfaceEvalGridInto(
     surface,
@@ -401,6 +626,49 @@ function measureSide(
   }
 }
 
+/**
+ * Measures the rows `snap` moves, which the interior grid never reaches: the stringer rows (t = 0 and 1), the
+ * apex row (t = ½) and the end rows (s = 0 and 1), at {@link STEP_EDGE_SAMPLES} points per span. A miss on a
+ * row along s marks the s spans, a miss on a row along t marks the t spans.
+ */
+function measureEdges(
+  ev: SurfaceEvaluator,
+  side: 0 | 1,
+  lay: Layout,
+  g: Grids,
+  surface: NurbsSurface,
+  limit: number,
+  marks: Marks,
+): void {
+  const fracs = Array.from({ length: STEP_EDGE_SAMPLES }, (_, i) => i / STEP_EDGE_SAMPLES);
+  const sc = createScratch({ maxDegree: STEP_DEGREE });
+  const row = (
+    us: readonly number[],
+    vs: readonly number[],
+    spans: Set<number>,
+    along: 'u' | 'v',
+  ) => {
+    // prettier-ignore
+    const E = sampleGrid(ev, side, lay.range, us, vs, lay.warp);
+    const F = new Float64Array(E.length);
+    surfaceEvalGridInto(surface, Float64Array.from(us), Float64Array.from(vs), 0, F, sc);
+    const breaks = along === 'u' ? g.ub : g.vb;
+    for (let k = 0; k < E.length; k += 3) {
+      const d = Math.hypot(E[k]! - F[k]!, E[k + 1]! - F[k + 1]!, E[k + 2]! - F[k + 2]!);
+      marks.deviation = Math.max(marks.deviation, d);
+      if (d <= limit) continue;
+      const p = along === 'u' ? us[k / 3]! : vs[k / 3]!;
+      let a = breaks.findIndex((b) => b > p) - 1;
+      if (a < 0) a = breaks.length - 2;
+      spans.add(a);
+    }
+  };
+  const usAll = positions(g.ub, fracs, true);
+  const vsAll = positions(g.vb, fracs, true);
+  for (const v of [0, 0.5, 1]) row(usAll, [v], marks.u, 'u');
+  for (const u of [0, 1]) row([u], vsAll, marks.v, 'v');
+}
+
 const bisect = (breaks: number[], spans: ReadonlySet<number>, triple: number | null): number => {
   let added = 0;
   const out: number[] = [];
@@ -432,6 +700,7 @@ const bisect = (breaks: number[], spans: ReadonlySet<number>, triple: number | n
 export function boardSolid(built: BuiltBoard, opts: BoardSolidOptions = {}): BoardSolid {
   const tolerance = opts.tolerance ?? STEP_TOLERANCE;
   const limit = STEP_ACCEPT_SHARE * tolerance;
+  const maxControls = opts.maxControls ?? STEP_MAX_CONTROLS;
   const ev = createEvaluator(built);
   const mirror = built.doc.symmetry === 'mirror';
 
@@ -442,7 +711,8 @@ export function boardSolid(built: BuiltBoard, opts: BoardSolidOptions = {}): Boa
   const tailEdge = notched && sectionSize(ev, mirror, xi0).thickness >= STEP_TIP_THICKNESS;
   const lo = tailEdge ? xi0 : clipEnd(ev, mirror, xi0, xi1);
   const hi = clipEnd(ev, mirror, xi1, xi0);
-  const lay: Layout = { range: { lo, hi }, mirror, tail: tailEdge ? 'edge' : 'cap' };
+  const warp = !mirror && tailEdge ? notchWarp(ev, lo) : null;
+  const lay: Layout = { range: { lo, hi }, mirror, tail: tailEdge ? 'edge' : 'cap', warp };
 
   // the first knots: equal spans and the stations
   const ub = uniformBreaks(STEP_START_SPANS);
@@ -458,6 +728,7 @@ export function boardSolid(built: BuiltBoard, opts: BoardSolidOptions = {}): Boa
   let minusSurf!: NurbsSurface;
   let deviation = Infinity;
   let passes = 0;
+  let overBudget = false;
   for (let pass = 1; pass <= STEP_MAX_PASSES; pass++) {
     passes = pass;
     opts.onPass?.(pass);
@@ -465,17 +736,29 @@ export function boardSolid(built: BuiltBoard, opts: BoardSolidOptions = {}): Boa
     const nv = grids.v.count;
     const plusPts = controlsOf(fitSide(ev, 0, lay, grids));
     const minusPts = mirror ? null : controlsOf(fitSide(ev, 1, lay, grids));
-    snap(lay, nu, nv, plusPts, minusPts);
+    const crossOf = (side: 0 | 1): [Cross, Cross] => [
+      crossAt(ev, side, lay, grids, 0),
+      crossAt(ev, side, lay, grids, 1),
+    ];
+    snap(lay, nu, nv, plusPts, minusPts, [crossOf(0), mirror ? crossOf(0) : crossOf(1)], collocation(grids.u)); // prettier-ignore
     plusSurf = withControls(grids, plusPts);
     minusSurf = withControls(grids, minusPts ?? mirrorControls(plusPts));
     const marks: Marks = { deviation: 0, u: new Set(), v: new Set() };
     measureSide(ev, 0, lay, grids, plusSurf, limit, marks);
-    if (!mirror) measureSide(ev, 1, lay, grids, minusSurf, limit, marks);
+    measureEdges(ev, 0, lay, grids, plusSurf, limit, marks);
+    if (!mirror) {
+      measureSide(ev, 1, lay, grids, minusSurf, limit, marks);
+      measureEdges(ev, 1, lay, grids, minusSurf, limit, marks);
+    }
     deviation = marks.deviation;
     if (deviation <= limit || pass === STEP_MAX_PASSES) break;
     const added = bisect(ub, marks.u, null) + bisect(vb, marks.v, 0.5);
     if (added === 0) break;
     grids = { ub, vb, u: basisOf(ub, null), v: basisOf(vb, 0.5) };
+    if (grids.u.count * grids.v.count > maxControls) {
+      overBudget = true;
+      break;
+    }
   }
 
   const brep = assemble(plusSurf, minusSurf, lay);
@@ -492,7 +775,8 @@ export function boardSolid(built: BuiltBoard, opts: BoardSolidOptions = {}): Boa
       clipped: [lo - xi0, xi1 - hi],
       tail: lay.tail,
       nose: 'cap',
-      withinTolerance: deviation <= tolerance,
+      withinTolerance: deviation <= tolerance && !overBudget,
+      overBudget,
     },
   };
 }
@@ -662,8 +946,14 @@ export function boardStep(built: BuiltBoard, opts: BoardStepOptions = {}): Board
   const tolerance = opts.tolerance ?? STEP_TOLERANCE;
   const solid = boardSolid(built, opts);
   if (!solid.report.withinTolerance) {
-    throw new Error(
-      `The surface could not be fitted within ${(tolerance * 10).toFixed(2)} mm (it reached ${(solid.report.deviation * 10).toFixed(2)} mm).`,
+    const { deviation, overBudget } = solid.report;
+    throw new StepFitError(
+      overBudget
+        ? `The surface needs more detail than the STEP export can fit (over ${opts.maxControls ?? STEP_MAX_CONTROLS} control points per side); try fewer stations or a smaller feature.`
+        : `The surface could not be fitted within ${(tolerance * 10).toFixed(2)} mm (it reached ${(deviation * 10).toFixed(2)} mm).`,
+      overBudget ? 'budget' : 'tolerance',
+      deviation,
+      tolerance,
     );
   }
   opts.onWrite?.();

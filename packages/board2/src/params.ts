@@ -254,3 +254,17 @@ export const STEP_CAP_MARGIN = 1;
 export const STEP_EDGE_WEIGHT = 100;
 /** A station closer than this (parameter units) to a break of the first s knots is not added as a break of its own. */
 export const STEP_STATION_GAP = 1e-3;
+
+/** A fit needing more control points than this (per side) fails with a clear message instead of running for minutes. */
+export const STEP_MAX_CONTROLS = 12000;
+/**
+ * The minus side of an asymmetric notched board is sampled at a reparametrised `t` near the notch bottom, so
+ * that its collapsed row is the plus side's row point for point: the share of `s` over which the shift fades
+ * out, and the entries of the table that inverts the minus side's height along the notch edge.
+ */
+export const STEP_NOTCH_BLEND = 0.06;
+export const STEP_WARP_TABLE = 1024;
+/** `t` offset at which the cross direction of the evaluator at a stringer row is measured. */
+export const STEP_CROSS_STEP = 1e-3;
+/** Check samples per span along the boundary rows (the stringer, the apex and the ends), which `snap` moves. */
+export const STEP_EDGE_SAMPLES = 24;
