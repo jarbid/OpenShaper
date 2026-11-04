@@ -12,8 +12,10 @@
  *   own volume is coarse on B-spline solids, so it is a 1 % sanity check only);
  * - a point inside the board is inside and a point far outside is outside (the solid is outward).
  *
- * Boards: the shortboard golden, the swallow (vee and double concave, notched tail) and the asymmetric board
- * (channels, both halves different).
+ * Boards: the shortboard golden (a round tail run to its tip edge, a blunt nose capped), the swallow (vee and
+ * double concave, notched tail, round nose), the asymmetric board (channels, both halves different, a pinned
+ * tail) and a classic sample whose ends have no thickness (a pole at each end, which the file closes through
+ * the pole's vertex and OCCT rebuilds as degenerated edges).
  */
 import { massProperties, surfacePoint } from '@openshaper/geom';
 import { maxShapeTolerance, OcctKernel, withCheckpoint } from '@openshaper/geom/testing/occt';
@@ -21,7 +23,8 @@ import type { ShapeHandle } from '@openshaper/geom/testing/occt';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { boardSolid, boardStep } from './step';
 import { asymmetricBoard, swallowBoard } from './testing';
-import { boardSet, buildOrThrow } from './test-support/board-set';
+import { boardSet, buildOrThrow, convertOrThrow } from './test-support/board-set';
+import { SAMPLES } from './test-support/classic-samples';
 
 let kernel: OcctKernel;
 let mark = 0;
@@ -37,6 +40,10 @@ const BOARDS = [
   ['shortboard', () => boardSet().find((b) => b.name === 'shortboard')!.doc],
   ['swallow', swallowBoard],
   ['asymmetric (channels)', asymmetricBoard],
+  [
+    'poles (synthetic-clean-6x22x2-75)',
+    () => convertOrThrow(SAMPLES.find((x) => x.name.includes('synthetic-clean-6x22x2-75'))!.load()),
+  ],
 ] as const;
 
 /** Deflection of the oracle mesh (mm) and the angular one (rad). */

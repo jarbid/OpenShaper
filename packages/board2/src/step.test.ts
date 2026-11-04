@@ -8,6 +8,7 @@
 import {
   checkBrep,
   surfaceDerivatives,
+  surfacePoint,
   surfaceEvalGridInto,
   createScratch,
 } from '@openshaper/geom';
@@ -18,7 +19,8 @@ import type { BoardSolid } from './step';
 import { createEvaluator } from './surface';
 import type { BuiltBoard } from './surface';
 import { asymmetricBoard, swallowBoard } from './testing';
-import { boardSet, buildOrThrow } from './test-support/board-set';
+import { boardSet, buildOrThrow, convertOrThrow } from './test-support/board-set';
+import { SAMPLES } from './test-support/classic-samples';
 import type { BoardDoc } from './types';
 
 /** The swallow with the asymmetric board's channels added: vee, double concave and channels in one. */
@@ -40,9 +42,14 @@ const asymmetricSwallow = (dv: number): BoardDoc => {
   return { ...d, symmetry: 'asymmetric', outline: { plus: d.outline.plus, minus: d.outline.plus }, stations }; // prettier-ignore
 };
 
+/** A classic sample whose deck meets the rocker at both ends: a pole at each end. */
+const poles = (): BoardDoc =>
+  convertOrThrow(SAMPLES.find((s) => s.name.includes('synthetic-clean-6x22x2-75'))!.load());
+
 const BOARDS: readonly { name: string; doc: BoardDoc }[] = [
   ...boardSet().filter((b) => !b.name.startsWith('classic')),
   { name: 'every feature', doc: everyFeature() },
+  { name: 'poles', doc: poles() },
 ];
 
 /** The largest distance from a solid's sides to the evaluator on a grid offset from the fit's and the check's. */
@@ -163,6 +170,46 @@ function foldExcess(
   return worst;
 }
 
+/**
+ * The angle (degrees) between the two faces across a collapsed end (s = 0 or 1), worst over t, and how far it
+ * is from the evaluator's own: the plan parts of the plus face's ∂S/∂s and of the reversed minus face's
+ * (the tip edge is vertical, so the plan part sets the angle; a pole keeps all three components). Round tips
+ * are 0 by construction; a pinned tip or a notch bottom has the evaluator's crease.
+ */
+function tipFold(built: BuiltBoard, solid: BoardSolid, e: 0 | 1): { fold: number; excess: number } {
+  const ev = createEvaluator(built);
+  const mirror = built.doc.symmetry === 'mirror';
+  const pole = (e === 0 ? solid.report.tail : solid.report.nose) === 'pole';
+  const plan = (v: [number, number, number]): [number, number, number] =>
+    pole ? v : [v[0], v[1], 0];
+  const a = new Float64Array(3);
+  const b = new Float64Array(3);
+  const evDir = (side: 0 | 1, t: number): [number, number, number] => {
+    ev.row(side, solid.xiOf(e), 0);
+    ev.eval(t, 0, a);
+    ev.row(side, solid.xiOf(e === 0 ? 1e-7 : 1 - 1e-7), 0);
+    ev.eval(t, 0, b);
+    return [b[0]! - a[0]!, b[1]! - a[1]!, b[2]! - a[2]!];
+  };
+  let fold = 0;
+  let excess = 0;
+  for (let k = 1; k < 100; k++) {
+    const t = k / 100;
+    const p = surfaceDerivatives(solid.plus, e, t, 1).Su;
+    const m = surfaceDerivatives(solid.minus, e, t, 1).Su;
+    const step = angleDeg(plan([p.x, p.y, p.z]), plan([-m.x, -m.y, -m.z]));
+    const ep = evDir(0, t);
+    const em = evDir(mirror ? 0 : 1, t);
+    const exact = angleDeg(
+      plan(ep),
+      plan(mirror ? [-em[0], em[1], -em[2]] : [-em[0], -em[1], -em[2]]),
+    );
+    fold = Math.max(fold, step);
+    excess = Math.max(excess, Math.abs(step - exact));
+  }
+  return { fold, excess };
+}
+
 const solved = new Map<BoardDoc, { built: BuiltBoard; solid: BoardSolid }>();
 const solve = (doc: BoardDoc): { built: BuiltBoard; solid: BoardSolid } => {
   let r = solved.get(doc);
@@ -209,6 +256,41 @@ describe('the STEP solid of a built board', () => {
       expect(solid.brep.faces.length).toBe(2 + caps);
     }, 60_000);
   }
+
+  it.each(BOARDS.map((b) => [b.name, b.doc] as const))(
+    "%s: runs to both tips, tangent across a round one, with the evaluator's crease elsewhere",
+    (name, doc) => {
+      const { built, solid } = solve(doc);
+      // no length lost: the surface spans the stations and a collapsed end row is on the tip edge
+      expect(solid.report.range).toEqual([built.xiMin, built.xiMax]);
+      for (const e of [0, 1] as const) {
+        const kind = e === 0 ? solid.report.tail : solid.report.nose;
+        if (kind === 'cap') continue;
+        const x = e === 0 ? built.xiMin : built.xiMax;
+        for (const t of [0, 0.3, 0.5, 0.8, 1]) {
+          const p = surfacePoint(solid.plus, e, t);
+          expect(p.x).toBeCloseTo(x, 9);
+          expect(Math.abs(p.y)).toBeLessThan(1e-12);
+        }
+        const f = tipFold(built, solid, e);
+        if (solid.report.round[e]) expect(f.fold, `${name} end ${e}`).toBeLessThanOrEqual(0.05);
+        else expect(f.excess, `${name} end ${e}`).toBeLessThanOrEqual(0.15);
+      }
+    },
+    60_000,
+  );
+
+  it('the round tips, pinned tips, poles and caps of the test boards', () => {
+    const ends = (name: string) => {
+      const r = solve(BOARDS.find((b) => b.name === name)!.doc).solid.report;
+      return [r.tail, r.nose, ...r.round];
+    };
+    expect(ends('shortboard')).toEqual(['edge', 'cap', true, false]); // round tail, 1 cm transom nose
+    expect(ends('longboard')).toEqual(['edge', 'edge', true, true]);
+    expect(ends('swallow')).toEqual(['edge', 'edge', false, true]); // notch bottom, round nose
+    expect(ends('asymmetric')).toEqual(['edge', 'edge', false, true]); // pinned tail
+    expect(ends('poles')).toEqual(['pole', 'pole', false, false]);
+  }, 120_000);
 
   it('writes a Part 21 file in the requested unit', () => {
     const built = buildOrThrow(swallowBoard());
