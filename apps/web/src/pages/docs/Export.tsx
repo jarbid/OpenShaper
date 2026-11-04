@@ -268,6 +268,9 @@ export default function DocsExport() {
           cannot be exported yet, because the notch needs surfaces of its own; the menu item is
           disabled for those, and STL or DXF still work. With the NURBS engine on a swallow or fish
           tail is exported as it is, the two sides meeting in one edge at the bottom of the notch.
+          The nose and a pointed or round tail run all the way to their tips, smooth through them;
+          only a squash or other blunt end, which is flat in the design itself, is closed with a
+          flat face.
         </p>
         <p>
           The editor does not yet generate machine G-code directly; you take the STEP, DXF or STL

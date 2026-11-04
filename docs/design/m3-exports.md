@@ -265,7 +265,8 @@ What drives the knot count is the rail radius and the notch fan, not the feature
 | `engineQuickJob` gives an engine job for every format but rail bands                                                                                                              | Pass                                                                                                       |
 
 **Times and sizes** (the job in the worker module, Node via Vitest, median of three for the shortboard after a warm-up and
-one run for the others, 4-core container; the browser worker runs the same code):
+one run for the others, 4-core container; the browser worker runs the same code). Superseded by the table in "As built
+(rounded tips)" below, which also has these numbers for comparison:
 
 | Board                       | Export time, ms | File size | Control points s × t | Passes | Fitted deviation, mm | Worst fold vs evaluator, ° (bottom / deck) | Ends            |
 | --------------------------- | --------------- | --------- | -------------------- | ------ | -------------------- | ------------------------------------------ | --------------- |
@@ -322,7 +323,8 @@ test runs.
 - File size: 0.3 to 1.1 MB, mostly the swallow's notch fan and the rail radius. A degree 5 fit or a smarter knot placement could halve it; not
   tried.
 - The surface has a triple knot at t = ½ (the section's apex is C0 in the model), so it is C0 in t there, and stays tangent-continuous only as far as the fit makes it. Not measured separately.
-- Tip clips (2.5 mm half-chord): measure what a CAM user thinks of the 5 mm flats at the tail and nose.
+- Tip clips (2.5 mm half-chord): measure what a CAM user thinks of the 5 mm flats at the tail and nose. (Done differently:
+  the clips are gone, see "As built (rounded tips)".)
 - The fit's time grows with the control net (swallow with all features 4.6 s): the slow step is the banded solve
   per pass, 8 to 11 passes. Starting from the previous export's knots would skip most of it.
 - No UI for the STL face size or the STEP tolerance (still fixed).
@@ -337,3 +339,106 @@ test runs.
   so the faces meet G1 wherever the evaluator does. The check also samples the stringer, apex and end rows.
 - **STL (R4).** Default face size 1 cm. Chord error at 1 cm (triangle centres and edge midpoints against the surface, every 60th
   triangle): shortboard 0.18 mm, funboard 0.20, longboard 0.19, swallow 0.13, fish 0.22, asymmetric 0.23; all under 0.5 mm.
+
+## As built (rounded tips)
+
+User feedback on the review files: the tips should be smooth and rounded, run to the tip, not cut flat. The STEP solid no
+longer clips its tips: the surface runs from the first station to the last, a tip is a collapsed row of both faces, and the
+faces are tangent across a round one. This supersedes the "Tips" bullet of step 2 and the tip clip of the review (R6).
+
+**Parametrisation.** `s` is no longer `(ξ − lo) / (hi − lo)`. Both sides share one map `ξ(s)`: `s` is the normalised mean of
+the two outlines' plan arc lengths (the path of the chord end `P(ξ)`, inner wall and notch fan included). At a round tip the
+outline is vertical, so ξ goes as the square of the distance along the outline; in `s` the rail runs at a finite speed right
+into the tip and the surface is smooth there, which a cubic fits easily. The table is built over the outline parameter (512
+entries per segment, two-point Gauss) and inverted by a monotone cubic whose slope is 0 at a round tip. `BoardSolid.xiOf`
+gives ξ of a row; `report.clipped` is gone, and `report.range` is always the first and last station.
+
+**Ends** (`EndKind`):
+
+- `edge`: the chord has no length and the end has thickness (a pointed or round tip, a notch bottom). Both faces' end rows
+  lie on the vertical edge `(ξ, 0, z)`, one edge shared by the two faces, no cap: the notch bottom's layout, now used at
+  every tip.
+- `pole`: no length and no thickness (at most 10 µm; the deck meets the rocker there). Both end rows are one point. geom gained
+  degenerate edges for this (below).
+- `cap`: the end has width (a squash transom, a blunt nose, the converter's `bluntEnds`). It is a real flat end of the model
+  and keeps its planar cap. The notch-bottom edge needed no change: it was already a collapsed row.
+
+**Tangency across a tip.** A tip is _round_ when the outline arrives vertical (the end segment's first control-polygon leg of
+non-zero length, so a collapsed handle still counts; a notch bottom never is). There the evaluator's ∂S/∂s is along ±y (x and
+z are stationary), so the control row next to the tip row takes the tip row's x and z: both faces leave the tip edge along
+±y, and the angle between them is 0 by construction. The stringer lean's collocation at the Greville point next to the tip is
+replaced by the same condition, so the two constraints agree at the corner. At a _pinned_ tip or a notch bottom the plan part
+of the cross tangent along the edge is made parallel to the evaluator's ∂S/∂ξ at the Greville abscissae of t, keeping the
+fit's length along it (the rows at and next to the stringer keep the stringer lean): the faces keep the evaluator's crease.
+
+**Stringer into the tips.** The stringer lean now takes the evaluator's exact ∂S/∂t instead of a 10⁻³ step in t, and the tip
+column's first step along the tip edge is the evaluator's own ∂z/∂t there (a pole's is 0; a notch bottom keeps the fit's),
+so the stringer's cross direction runs into the tip as the evaluator's does. Before, the fold excess grew to 0.3° within
+1 mm of a round tip and 2° in the last 0.05 mm; now it is at most 0.03° from 0.05 % of s to a tip (0.11° next to a
+notch bottom, as before).
+
+**Asymmetric collapsed ends.** `notchWarp` became `edgeWarp`/`makeWarp`: the minus side's `t` shift is made at either end
+that is a shared edge (a tip too), fading over 6 % of s. Where the minus side's height is not monotone along the edge (the
+asymmetric board's channelled tail) there is no warp, as before.
+
+**geom: degenerate edges** (the one geom change; geom is otherwise untouched). `BrepEdge.degenerate`: an edge collapsed to its
+vertex (`start === end`, constant curve), used by one coedge whose pcurve is the collapsed side. `makeBrep` accepts it once and
+refuses it shared or open; `checkBrep` leaves it out of Euler–Poincaré (V 2, E 2, F 2 for a two-faced lens) and requires its
+curve within `fit` of the vertex; `writeStep` writes no STEP edge for it, so the face's `EDGE_LOOP` closes through the pole's
+`VERTEX_POINT` (the convention OCCT writes and reads: it rebuilds the degenerated edges on import), and still refuses an
+unmarked collapsed edge. The subset reader does not read such a loop back, so a pole needs the default `'roundTrip'`
+precision (the board export uses it). Tests: `geom/src/brep/pole.test.ts`.
+
+**Which boards have what.** Shortboard: round tail (edge), 1 cm blunt nose in the document (the golden's outline ends at
+y = 0.5 cm, the converter's `bluntEnds`), so its nose keeps a 1 cm × 0.6 cm cap. Funboard and longboard: round at both ends.
+Swallow, fish and the asymmetric swallow: notch edge, round nose. Asymmetric: pinned tail (a corner in plan), round nose.
+`synthetic-clean-6x22x2-75.s3dx` (converted): a pinned pole at each end. None of the seven boards has a pole; the sample file
+is the pole test.
+
+**Other outputs.** No change needed: none clips. The live mesh and the STL (`meshBoard`, welded end rows) run from the first
+to the last station; at a round tip the vertices at x = L all have y = 0 (shortboard, funboard, longboard, swallow, fish,
+asymmetric, the pole board; the shortboard's nose row has |y| = 0.5 cm, its transom). DXF and PDF draw the document's outline
+chains themselves (step 1: within 0.01 mm), so their tips are the design's. The classic engine's exports and `packages/export`
+are untouched.
+
+**Acceptance.**
+
+| Check                                                                                                        | Result                                                                                              |
+| ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `checkBrep` ok, within 0.5 mm of the evaluator on the independent grid (the stringer, apex and end rows too) | Pass on the seven boards, the swallow with every feature, the asymmetric swallow and the pole board |
+| Range is the first to the last station; collapsed end rows on x = ξ, y = 0                                   | Pass (no length lost)                                                                               |
+| Fold across a round tip ≤ 0.05°                                                                              | 0 by construction (0.000 measured)                                                                  |
+| Pinned tip, notch bottom, pole: fold within 0.15° of the evaluator's                                         | ≤ 0.115° (the asymmetric swallow's notch, compared at the same height on the edge)                  |
+| Stringer fold within 0.1° (0.2° notched) of the evaluator's, s from 0.1 % to 99.9 %                          | Pass                                                                                                |
+| OCCT: one valid closed solid, counts, no tolerance growth, mesh volume, inside/outside                       | Pass: shortboard, swallow, asymmetric, the pole board (OCCT rebuilds 4 degenerated edges)           |
+| geom: a two-faced lens with two poles is valid; misuse refused; STEP has two edges and two-edge loops        | Pass                                                                                                |
+
+**Times and sizes** (`exportDocument`, the worker's job, Node via Vitest, median of three for the shortboard after a warm-up,
+one run for the others, 4-core container). Folds are the excess over the evaluator's own fold, in degrees: along the stringer
+(worst over s from 3 % to 97 %, bottom / deck), and across each end (round tips: the fold itself).
+
+| Board                       | Export time, ms (before) | File size (before) | Control points s × t (before) | Passes | Deviation, mm | Stringer fold, ° | Tail               | Nose               |
+| --------------------------- | ------------------------ | ------------------ | ----------------------------- | ------ | ------------- | ---------------- | ------------------ | ------------------ |
+| shortboard                  | 555 (1,600)              | 246 KB (363 KB)    | 42 × 33 (49 × 40)             | 5      | 0.25          | 0.001 / 0.000    | round edge, 0      | cap (1 cm)         |
+| funboard                    | 376 (840)                | 203 KB (312 KB)    | 43 × 28 (57 × 30)             | 4      | 0.35          | 0.004 / 0.000    | round edge, 0      | round edge, 0      |
+| longboard                   | 520 (2,250)              | 252 KB (562 KB)    | 48 × 31 (67 × 46)             | 4      | 0.37          | 0.000 / 0.000    | round edge, 0      | round edge, 0      |
+| swallow                     | 1,771 (4,440)            | 462 KB (1.02 MB)   | 56 × 48 (73 × 78)             | 8      | 0.30          | 0.104 / 0.104    | notch edge, 0.094  | round edge, 0      |
+| fish                        | 2,060 (2,280)            | 598 KB (655 KB)    | 63 × 55 (71 × 52)             | 7      | 0.36          | 0.146 / 0.146    | notch edge, 0.014  | round edge, 0      |
+| asymmetric (channels)       | 1,120 (2,150)            | 357 KB (438 KB)    | 52 × 40 (54 × 44)             | 6      | 0.36          | 0.000 / 0.000    | pinned edge, 0.058 | round edge, 0      |
+| swallow, every feature      | 2,502 (6,220)            | 706 KB (1.29 MB)   | 68 × 60 (84 × 86)             | 8      | 0.30          | 0.104 / 0.104    | notch edge, 0.094  | round edge, 0      |
+| asymmetric swallow, Δv 0.06 | 3,081 (8,390)            | 479 KB (1.04 MB)   | 58 × 48 (75 × 78)             | 8      | 0.31          | 0.104 / 0.104    | notch edge, 0.115  | round edge, 0      |
+| pole sample (synthetic)     | 946 (—)                  | 412 KB (—)         | 58 × 42 (—)                   | 6      | 0.37          | 0.000 / 0.000    | pinned pole, 0.003 | pinned pole, 0.003 |
+
+The arc-length map is what makes it smaller and faster: the rail no longer accelerates toward the tips in `s`, so the fit needs
+fewer `s` knots there, and the notch fan is spread over more of `s`. The stringer folds of the standard boards went to 0 with
+the exact ∂S/∂t (were up to 0.066°).
+
+**What did not improve.**
+
+- The swallow's 0.104° at s ≈ 0.07, the end of the notch zone (was 0.11° at s ≈ 0.14 in the old map): the reparametrisation
+  did not remove it, and nothing cheap did. The fish's fold there went from 0.066° to 0.146° (within the test's 0.2° for a
+  notched tail). Both are where the fan chords stop turning; left as they are.
+- The shortboard's nose is a 1 cm transom in the document (from the golden file), so it keeps its cap: rounding it is an edit
+  of the outline, not of the export.
+
+**Gate:** see the commit `feat: rounded tips in the NURBS STEP export`.
