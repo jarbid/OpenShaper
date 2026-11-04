@@ -8,6 +8,9 @@ import {
   thicknessAt,
   thicknessPathOf,
   tipLineOf,
+  knot,
+  splineFromKnots,
+  vec2,
 } from '@openshaper/kernel';
 import { createFinStore, TIP_FOIL } from '@openshaper/store';
 import { describe, expect, it } from 'vitest';
@@ -73,6 +76,24 @@ describe('the foil view, true to scale', () => {
     // The drawn shape, stretched by the scale, has the root's real thickness over chord.
     const k = foilTrueScale(d, 0);
     expect(k * b.shapeThickness).toBeCloseTo(thicknessAt(b, 0) / (leading - trailing), 9);
+  });
+
+  it('draws a foil stored far thinner than it is true to scale too', () => {
+    // Owner testing: a tip foil stored at a twentieth of its thickness, drawn flat.
+    const d = defaultFinDesign('side', 'left');
+    const thin = (s: typeof d.section.outside) =>
+      splineFromKnots(
+        s.knots.map((k) => {
+          const f = (p: { x: number; y: number }) => vec2(p.x, p.y / 50);
+          return knot(f(k.end), f(k.tangentToPrev), f(k.tangentToNext), k.continuous);
+        }),
+      );
+    const tip = {
+      outside: thin(d.section.outside),
+      inside: d.section.inside && thin(d.section.inside),
+    };
+    const k = foilTrueScale({ ...d, tipSection: tip }, TIP_FOIL);
+    expect(k).toBeCloseTo(foilTrueScale(d, TIP_FOIL) * 50, 6);
   });
 });
 

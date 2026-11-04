@@ -628,11 +628,6 @@ interface SweptBlade {
   /** Per grid row up to the tip line: the height of that thickest point (cm). */
   readonly pathZ: Float64Array;
   /**
-   * Per grid row up to the tip line: how much thicker than the thickness curve says,
-   * easing from 1 at the base to the design's {@link FinDesign.tipScale} at the tip line.
-   */
-  readonly rowScale: Float64Array;
-  /**
    * How far each row is along the sweep, base 0 to the tip edge 1, by the length of the
    * thickness path out to it and then on across the tip (to the tip line's row).
    */
@@ -717,12 +712,9 @@ const sweptBlade = (b: PreparedBlade): SweptBlade => {
   const way = thicknessPathOf(d);
   // Up to the tip line; past it the tip carries the tip line's foil out (sweepFaces).
   const pathZ = new Float64Array(grid.tipRow + 1);
-  const rowScale = new Float64Array(grid.tipRow + 1);
-  const tipScale = d.tipScale ?? 1;
   for (let i = 0; i <= grid.tipRow; i++) {
     path[i] = thicknessPathAt(way, i / grid.tipRow);
     pathZ[i] = sweepPointOn(grid, i, path[i]!).y;
-    rowScale[i] = 1 + (tipScale - 1) * smoother(i / grid.tipRow);
   }
   const tipBase = grid.tipRow * grid.cols;
   const tipEnd = tipBase + grid.cols - 1;
@@ -761,7 +753,6 @@ const sweptBlade = (b: PreparedBlade): SweptBlade => {
     foilW,
     path,
     pathZ,
-    rowScale,
     sweepEta,
     alongSweep: alongSweepOf(run, pathZ[grid.tipRow]! - pathZ[0]!),
     tipEta: b.depth > 0 ? (grid.z[tipBase]! + grid.z[tipEnd]!) / 2 / b.depth : 1,
@@ -879,7 +870,7 @@ const rowFaces = (
 ): [number, number] => {
   const m = b.minThickness;
   const t = rowThickness(b, sw, i, z, capV);
-  const k = Math.max(0, t - m) * sw.rowScale[i]! * round;
+  const k = Math.max(0, t - m) * round;
   // The base and tip foils each laid thickest on the path, as fractions of their thickest,
   // then blended. Blending the foils first and finding where the blend is thickest jumped
   // between rows where it had two humps nearly as high (owner testing: a base foil
@@ -1297,8 +1288,7 @@ export const sliceTipCrossing = (d: FinDesign, index: number): SliceTipCrossing 
   // The tip foil's scale (cm per unit of its shape) there, as rowFaces lays it.
   const kTip =
     f.thickest.thickness > 0
-      ? (Math.max(0, rowThickness(b, sw, tip, h) - b.minThickness) * sw.rowScale[tip]!) /
-        f.thickest.thickness
+      ? Math.max(0, rowThickness(b, sw, tip, h) - b.minThickness) / f.thickest.thickness
       : 0;
   const [so, si] = sectionShapeAt(sl.section, tp.at);
   const toCm = r.own > 0 ? r.thick / r.own : 0;

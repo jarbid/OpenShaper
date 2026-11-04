@@ -371,7 +371,7 @@ export const createFinStore = (): StoreApi<FinState> =>
         // the tip line somewhere new: give both foils a point there (withCrossingPoints).
         const last = past[past.length - 1];
         if (design && last && last.design !== design && design.slices.length) {
-          const marked = withCrossingPoints(design);
+          const marked = withCrossingPoints(design, last.design);
           if (marked !== design) set({ design: (design = marked) });
         }
         // A drag that changed nothing leaves no undo step.

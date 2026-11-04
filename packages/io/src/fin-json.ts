@@ -27,9 +27,10 @@
  *       blade is foiled along sections swept from the base to a tip line, so an older
  *       file comes out a little differently. Adds `tipLine` (`{ start, end }`, fractions
  *       of the outline's length), `tipSection` (the tip foil, as `section`) and
- *       `thicknessMid` (where the sweep's middle section is thickest) and `tipScale` (the
- *       tip foil's thickness against the thickness curve's), absent for the defaults. A
- *       slice's `transition` is gone: read and dropped.
+ *       `thicknessMid` (where the sweep's middle section is thickest), absent for the
+ *       defaults. A slice's `transition` is gone: read and dropped. So is `tipScale` (the
+ *       tip foil's thickness against the thickness curve's, set by an editor that no
+ *       longer does): the thickness curve alone sets the thickness.
  *       Always written as version 3.
  */
 import {
@@ -89,8 +90,8 @@ export interface FinJson {
   tipSection?: SectionJson;
   /** Version 3: where the sweep's middle section is thickest. Absent: halfway along the path. */
   thicknessMid?: number;
-  /** Version 3: the tip foil's thickness against the thickness curve's. Absent: 1. */
-  tipScale?: number;
+  /** Version 3, no longer used: the tip foil's thickness against the curve's. Dropped. */
+  tipScale?: unknown;
   /** Version 2: the panel it's cut from (thickness in mm, angle and tilt in deg). Absent: none. */
   panel?: { thickness: number; angle: number; tilt?: number };
   /** Version 2: the tab. Absent means the position's default Futures tab. */
@@ -150,7 +151,6 @@ export const writeFinJson = (d: FinDesign, metadata?: Record<string, unknown>): 
     ...(d.tipLine ? { tipLine: { start: d.tipLine.start, end: d.tipLine.end } } : {}),
     ...(d.tipSection ? { tipSection: sectionToJson(d.tipSection) } : {}),
     ...(d.thicknessMid !== undefined ? { thicknessMid: d.thicknessMid } : {}),
-    ...(d.tipScale !== undefined ? { tipScale: d.tipScale } : {}),
     ...(d.panel
       ? {
           panel: {
@@ -214,9 +214,6 @@ const assertStructure = (doc: Record<string, unknown>): void => {
   }
   if (doc.thicknessMid !== undefined && !isNumber(doc.thicknessMid)) {
     fail('Malformed fin: the thickness path needs a number for its middle');
-  }
-  if (doc.tipScale !== undefined && !(isNumber(doc.tipScale) && doc.tipScale > 0)) {
-    fail('Malformed fin: the tip scale needs a positive number');
   }
   if (doc.tipSection !== undefined) assertSection(doc.tipSection, 'tip section');
   if (doc.base !== undefined && !(FIN_BASES as readonly unknown[]).includes(doc.base)) {
@@ -285,7 +282,6 @@ export const readFinJson = (
     ...(doc.tipLine ? { tipLine: { start: doc.tipLine.start, end: doc.tipLine.end } } : {}),
     ...(doc.tipSection ? { tipSection: sectionFromJson(doc.tipSection) } : {}),
     ...(doc.thicknessMid !== undefined ? { thicknessMid: doc.thicknessMid } : {}),
-    ...(doc.tipScale !== undefined ? { tipScale: doc.tipScale } : {}),
     ...(doc.panel
       ? {
           panel: {

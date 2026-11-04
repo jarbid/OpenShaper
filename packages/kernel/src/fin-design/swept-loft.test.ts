@@ -528,25 +528,6 @@ describe('slices and the tip line (owner’s rules)', () => {
     expect(tp.inside).toBe(0); // the flat inside face
     expect(sliceTipPoint(defaultFinDesign('side', 'left'), 0)).toBeNull();
   });
-
-  it('scales the tip foil’s thickness, easing in from the base', () => {
-    const b = prepareBlade(plain);
-    const g = sweepGrid(plain);
-    const high = sweepPointOn(g, g.tipRow, thicknessPathOf(plain)[2]);
-    const m = b.minThickness;
-    const at = (d: FinDesign, x: number, z: number) => {
-      const bb = prepareBlade(d);
-      const c = chordAt(bb, z);
-      return width(bladeSection(bb, z, [(x - c.leading) / (c.trailing - c.leading)]), 0);
-    };
-    const half = { ...plain, tipScale: 0.5 };
-    // At the tip foil's high point: half as thick, less the minimum.
-    expect(at(half, high.x, high.y) - m).toBeCloseTo((at(plain, high.x, high.y) - m) / 2, 3);
-    // At the root, as it was.
-    const root = bladeSection(prepareBlade(half), 0);
-    const was = bladeSection(b, 0);
-    root.outside.forEach((_, j) => expect(width(root, j)).toBeCloseTo(width(was, j), 12));
-  });
 });
 
 describe('a heavily swept-back fin (the owner’s, docs/specs/fins/swept_back_tip.fin.json)', () => {

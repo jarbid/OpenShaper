@@ -430,6 +430,41 @@ describe('fin store: foil slices', () => {
     expect(tipLineOf(design(s)).end).toBeCloseTo(before.end, 9); // one undo step
   });
 
+  it('takes the old crossing point out when the crossing moves, unless it was dragged', () => {
+    // Owner testing: each tip line or slice drag left a point at the crossing it had, three
+    // or four of them a few percent apart in the tip foil.
+    const s = storeWith();
+    s.getState().addSlice(0.93);
+    const count = () => tipFoilOf(design(s)).outside.knots.length;
+    const shape = tipFoilOf(design(s));
+    const n = count();
+    const end = tipLineOf(design(s)).end;
+    for (const step of [0.02, 0.04]) {
+      s.getState().beginEdit('Move the tip line');
+      s.getState().setTipLineEnd('end', end + step);
+      s.getState().endEdit();
+      const c = sliceTipCrossing(design(s), 0)!;
+      const tip = tipFoilOf(design(s));
+      expect(tip.outside.knots.some((k) => Math.abs(k.end.x - c.tipAt) < 0.01)).toBe(true);
+      expect(count()).toBe(n); // the new point, and the old one out
+      for (const u of [0.1, 0.3, 0.5, 0.7, 0.9]) {
+        expect(yAtX(tip.outside, u)).toBeCloseTo(yAtX(shape.outside, u), 9);
+      }
+    }
+    // Dragged, the crossing point stays when the crossing moves on.
+    const c = sliceTipCrossing(design(s), 0)!;
+    s.getState().setActiveFoil(TIP_FOIL);
+    const i = tipFoilOf(design(s)).outside.knots.findIndex(
+      (k) => Math.abs(k.end.x - c.tipAt) < 0.01,
+    );
+    const k = tipFoilOf(design(s)).outside.knots[i]!.end;
+    expect(s.getState().moveControlPoint('outside', i, vec2(k.x, k.y * 1.05))).toBe(true);
+    s.getState().beginEdit('Move the tip line');
+    s.getState().setTipLineEnd('end', end + 0.06);
+    s.getState().endEdit();
+    expect(count()).toBe(n + 1);
+  }, 60_000); // four drags of real geometry: 5 s here, far more on a loaded CI runner
+
   it('drags a new slice up into the tip as the fin’s section there, not the one it was added with', () => {
     // Owner testing: added halfway up and dragged to 93 mm, the slice carried the section
     // from halfway up, its point on the tip line well off its foil.

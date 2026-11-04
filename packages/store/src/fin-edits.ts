@@ -667,20 +667,85 @@ const sectionWithPointAt = (sec: FinSection, x: number): FinSection => {
   return outside === sec.outside && inside === sec.inside ? sec : { outside, inside };
 };
 
+/** How far (chord fractions) a face may move for a point to count as taken out unchanged. */
+const UNCHANGED = 1e-9;
+
+/**
+ * `s` without its point near chord fraction `x`, if that point changes nothing: as a
+ * crossing point was put in (a split of one curve), never dragged since. `s` otherwise.
+ */
+const withoutPointAt = (s: Spline, x: number): Spline => {
+  let j = -1;
+  for (let i = 1; i < s.knots.length - 1; i++) {
+    const dx = Math.abs(s.knots[i]!.end.x - x);
+    if (dx < CROSSING_NEAR && (j < 0 || dx < Math.abs(s.knots[j]!.end.x - x))) j = i;
+  }
+  if (j < 0) return s;
+  const [a, m, b] = [s.knots[j - 1]!, s.knots[j]!, s.knots[j + 1]!];
+  // Where along the one curve the split was: its handles there, in proportion.
+  const l0 = Math.hypot(m.end.x - m.tangentToPrev.x, m.end.y - m.tangentToPrev.y);
+  const l1 = Math.hypot(m.tangentToNext.x - m.end.x, m.tangentToNext.y - m.end.y);
+  if (!(l0 > 0 && l1 > 0)) return s;
+  const t = l0 / (l0 + l1);
+  const out = vec2(
+    a.end.x + (a.tangentToNext.x - a.end.x) / t,
+    a.end.y + (a.tangentToNext.y - a.end.y) / t,
+  );
+  const into = vec2(
+    b.end.x + (b.tangentToPrev.x - b.end.x) / (1 - t),
+    b.end.y + (b.tangentToPrev.y - b.end.y) / (1 - t),
+  );
+  const merged = splineFromKnots([
+    ...s.knots.slice(0, j - 1),
+    knot(a.end, a.tangentToPrev, out, a.continuous, a.other),
+    knot(b.end, into, b.tangentToNext, b.continuous, b.other),
+    ...s.knots.slice(j + 2),
+  ]);
+  for (let k = 1; k < 32; k++) {
+    const u = a.end.x + ((b.end.x - a.end.x) * k) / 32;
+    if (Math.abs(yAtX(merged, u) - yAtX(s, u)) > UNCHANGED) return s;
+  }
+  return merged;
+};
+
+const sectionWithoutPointAt = (sec: FinSection, x: number): FinSection => {
+  const outside = withoutPointAt(sec.outside, x);
+  const inside = sec.inside ? withoutPointAt(sec.inside, x) : null;
+  return outside === sec.outside && inside === sec.inside ? sec : { outside, inside };
+};
+
 /**
  * The design with a point where each slice crosses the tip line, in the slice's foil and
  * in the tip foil (owner's rules: each foil view shows the other's faces there as a dot,
  * and its own point there is what to match it with). The shapes are unchanged; a point
  * already near a crossing is kept. The same design if every crossing has its points.
+ *
+ * With `before`, the design before the edit, the points its crossings had and these
+ * don't are taken out, where that changes nothing: a slice or the tip line dragged left
+ * a point at every crossing it had passed (owner testing: three or four, a few percent
+ * of the chord apart, in the tip foil). A point dragged since stays.
  */
-export const withCrossingPoints = (d: FinDesign): FinDesign => {
+export const withCrossingPoints = (d: FinDesign, before?: FinDesign): FinDesign => {
   let tip = tipFoilOf(d);
   let changed = false;
+  const now = d.slices.map((_, i) => sliceTipCrossing(d, i));
+  const was = before ? before.slices.map((_, i) => sliceTipCrossing(before, i)) : [];
+  const near = (x: number, xs: readonly number[]) =>
+    xs.some((y) => Math.abs(y - x) < CROSSING_NEAR);
+  const tipNow = now.flatMap((c) => (c ? [c.tipAt] : []));
+  for (const c of was) if (c && !near(c.tipAt, tipNow)) tip = sectionWithoutPointAt(tip, c.tipAt);
+  const sameSlices = before?.slices.length === d.slices.length;
   const slices = d.slices.map((sl, i) => {
-    const c = sliceTipCrossing(d, i);
-    if (!c) return sl;
-    tip = sectionWithPointAt(tip, c.tipAt);
-    const section = sectionWithPointAt(sl.section, c.sliceAt);
+    const c = now[i];
+    let section = sl.section;
+    const old = sameSlices ? was[i] : null;
+    if (old && !(c && Math.abs(c.sliceAt - old.sliceAt) < CROSSING_NEAR)) {
+      section = sectionWithoutPointAt(section, old.sliceAt);
+    }
+    if (c) {
+      tip = sectionWithPointAt(tip, c.tipAt);
+      section = sectionWithPointAt(section, c.sliceAt);
+    }
     if (section === sl.section) return sl;
     changed = true;
     return { ...sl, section };

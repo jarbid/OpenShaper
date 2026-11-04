@@ -253,27 +253,24 @@ describe('.fin.json versions', () => {
     expect((JSON.parse(writeFinJson(d)) as Record<string, unknown>).version).toBe(3);
   });
 
-  it('keeps a moved tip line, the tip foil, the thickness path and tip scale through a save', () => {
+  it('keeps a moved tip line, the tip foil and the thickness path through a save', () => {
     const base = defaultFinDesign('side', 'left');
     const d = {
       ...base,
       tipLine: { start: 0.42, end: 0.61 },
       tipSection: nacaSection('2410'),
       thicknessMid: 0.35,
-      tipScale: 0.7,
     };
     const back = readFinJson(writeFinJson(d)).design;
     expect(back.tipLine).toEqual({ start: 0.42, end: 0.61 });
     expect(back.thicknessMid).toBe(0.35);
-    expect(back.tipScale).toBe(0.7);
     expectSameSpline(d.tipSection.outside, back.tipSection!.outside);
     const none = readFinJson(writeFinJson(base)).design;
     expect('tipSection' in none).toBe(false);
     expect('thicknessMid' in none).toBe(false);
-    expect('tipScale' in none).toBe(false);
   });
 
-  it('rejects a damaged tip line, tip foil, thickness path or tip scale', () => {
+  it('rejects a damaged tip line, tip foil or thickness path', () => {
     const doc = JSON.parse(writeFinJson(defaultFinDesign('side', 'left')));
     expect(() => readFinJson(JSON.stringify({ ...doc, tipLine: { start: 0.4 } }))).toThrow(
       /tip line/,
@@ -282,7 +279,15 @@ describe('.fin.json versions', () => {
       /thickness path/,
     );
     expect(() => readFinJson(JSON.stringify({ ...doc, tipSection: { outside: [] } }))).toThrow();
-    expect(() => readFinJson(JSON.stringify({ ...doc, tipScale: 0 }))).toThrow(/tip scale/);
+  });
+
+  it('drops the old tip scale: the thickness curve alone sets the thickness', () => {
+    // Owner's choice: left by an editor that no longer set it, it thinned a hatchet's upper
+    // blade by up to 1.8 mm below its thickness curve, out of sight.
+    const doc = JSON.parse(writeFinJson(defaultFinDesign('side', 'left')));
+    const d = readFinJson(JSON.stringify({ ...doc, tipScale: 0.61 })).design;
+    expect('tipScale' in d).toBe(false);
+    expect(JSON.parse(writeFinJson(d))).not.toHaveProperty('tipScale');
   });
 
   it('reads a version 1 file as a fin with no slices', () => {

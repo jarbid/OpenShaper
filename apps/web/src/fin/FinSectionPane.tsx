@@ -77,14 +77,16 @@ export const foilSize = (d: FinDesign, foil: number): { chord: number; thickness
 /**
  * How much taller than its drawn shape the foil really is, to draw it true to scale
  * (owner request): its thickness over its chord (foilSize), against the shape's own
- * thickness in chords. Kept within a quarter to four times.
+ * thickness in chords, however far apart: only a foil's shape counts, so it may be
+ * stored at any thickness. It used to be kept within four times either way: a tip foil
+ * stored at a twentieth of its thickness was drawn flat (owner testing).
  */
 export const foilTrueScale = (d: FinDesign, foil: number): number => {
   const sec = getFoil(d, foil);
   const { chord, thickness } = foilSize(d, foil);
   const shape = sec ? sectionThickest(sec).thickness : 0;
-  if (!(chord > 0) || !(shape > 0)) return 1;
-  return Math.min(4, Math.max(0.25, thickness / chord / shape));
+  if (!(chord > 0) || !(shape > 0) || !(thickness > 0)) return 1;
+  return thickness / chord / shape;
 };
 
 /** What the foil view is showing, as the profile names it. */

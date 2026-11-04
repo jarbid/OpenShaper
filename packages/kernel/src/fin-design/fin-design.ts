@@ -174,9 +174,6 @@ export interface FinTipLine {
  */
 export type FinThicknessPath = readonly [number, number, number];
 
-/** How far a slice's tip-line points may scale the tip foil's thickness. */
-export const FIN_TIP_SCALE_LIMITS = { min: 0.2, max: 3 } as const;
-
 /** How near either edge the thickness path may go (fraction of the section). */
 export const FIN_THICKNESS_PATH_LIMITS = { min: 0.1, max: 0.8 } as const;
 
@@ -242,13 +239,6 @@ export interface FinDesign {
    * halfway between the base and tip foils' thickest points.
    */
   readonly thicknessMid?: number;
-  /**
-   * The tip foil's thickness against what the thickness curve says at the tip line: 1
-   * as the curve says (absent), 0.5 half as thick. Set by dragging a slice's point where
-   * it crosses the tip line; the sweep eases to it from the base, and the tip past the
-   * tip line follows ({@link FIN_TIP_SCALE_LIMITS}).
-   */
-  readonly tipScale?: number;
   /** The panel it's cut from, if the user has set one (File settings). */
   readonly panel?: FinPanel;
 }
