@@ -29,7 +29,10 @@ jobs:
 
       - run: pnpm lint
       - run: pnpm typecheck
-      - run: pnpm test
+      # Two packages at a time: the geometry suites (kernel, geom, board2, the NURBS
+      # export tests) are CPU-heavy, and running all twelve at once on the runner
+      # pushed single tests past their time limits.
+      - run: pnpm exec turbo run test --concurrency=2
       # The OCCT validator (docs/design/geom-core.md §15): our STEP output through
       # occt-wasm, a devDependency of packages/geom only. Its files are kept for the
       # manual Rhino / Fusion / FreeCAD / SolidWorks import matrix
