@@ -441,4 +441,7 @@ the exact ∂S/∂t (were up to 0.066°).
 - The shortboard's nose is a 1 cm transom in the document (from the golden file), so it keeps its cap: rounding it is an edit
   of the outline, not of the export.
 
-**Gate:** see the commit `feat: rounded tips in the NURBS STEP export`.
+**Gate** (one run, at the end): `pnpm lint` pass; `pnpm typecheck` pass (12 tasks); `CI=1 turbo run test --concurrency=2`
+pass (store 431, io 200, kernel 537, units 42, render3d 131, geom 1,314, worker 14, export 201, board2 358, render2d 134,
+web 974); `pnpm build` pass; `e2e` 57 passed; `e2e:offline` 9 passed; `pnpm test:occt` pass (geom 85, board2 4). Nothing
+flaky seen. Not done: opening the files in Rhino, Fusion, FreeCAD or a CAM package (OCCT is the only importer tested).
