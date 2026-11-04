@@ -191,8 +191,17 @@ function tipFold(built: BuiltBoard, solid: BoardSolid, e: 0 | 1): { fold: number
     ev.eval(t, 0, b);
     return [b[0]! - a[0]!, b[1]! - a[1]!, b[2]! - a[2]!];
   };
-  // an asymmetric board's minus side meets the edge at its own t: the evaluator's point of the same height
+  // an asymmetric board's minus side meets the edge at its own t, the evaluator's point of the same height,
+  // where the minus side's height rises along the edge (else both sides share t there)
+  ev.row(1, solid.xiOf(e), 0);
+  let rising = true;
+  for (let k = 1, prev = -Infinity; k <= 200; k++) {
+    ev.eval(k / 200, 0, b);
+    rising &&= b[2]! >= prev;
+    prev = b[2]!;
+  }
   const sameHeight = (t: number): number => {
+    if (!rising) return t;
     ev.row(0, solid.xiOf(e), 0);
     ev.eval(t, 0, a);
     const z = a[2]!;
@@ -342,6 +351,9 @@ describe('the STEP solid of a built board', () => {
     expect(check.issues).toEqual([]);
     expect(check.ok).toBe(true);
     expect(independentDeviation(built, solid)).toBeLessThanOrEqual(STEP_TOLERANCE);
+    // the two sides meet the shared notch edge at their own t, with the evaluator's crease; the nose is round
+    expect(tipFold(built, solid, 0).excess).toBeLessThanOrEqual(0.15);
+    expect(tipFold(built, solid, 1).fold).toBeLessThanOrEqual(0.05);
   }, 120_000);
 
   it('a fit over its control budget fails quickly with a clear message', () => {
