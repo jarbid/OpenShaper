@@ -205,6 +205,23 @@ describe('dragging in the panes', () => {
     expect(finStore.getState().past).toHaveLength(1); // one drag, one undo step
   });
 
+  it('sets the minimum thickness from the thickness view, in the current unit', () => {
+    // Owner request: 0.5 mm by default; set higher, the taper's tip and the line follow.
+    render(<FinTaperPane store={finStore} units={lengthUnitByKey('mm')} />);
+    const box = screen.getByLabelText('Fin minimum thickness') as HTMLInputElement;
+    expect(box.value).toBe('0.50');
+    fireEvent.change(box, { target: { value: '1.2' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(design().minThickness).toBeCloseTo(0.12, 9);
+    expect(design().taper.knots.at(-1)!.end.y).toBeCloseTo(0.12, 9);
+    expect(box.value).toBe('1.20');
+    // Past 3 mm: 3 mm.
+    fireEvent.change(box, { target: { value: '9' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+    expect(design().minThickness).toBeCloseTo(0.3, 9);
+    expect(box.value).toBe('3.00');
+  });
+
   it('drags the outside face of the foil', () => {
     render(<FinSectionPane store={finStore} units={lengthUnitByKey('mm')} />);
     const canvas = screen.getByRole('img', { name: 'Foil section' });

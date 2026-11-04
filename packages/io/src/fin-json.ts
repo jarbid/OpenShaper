@@ -30,7 +30,8 @@
  *       `thicknessMid` (where the sweep's middle section is thickest), absent for the
  *       defaults. A slice's `transition` is gone: read and dropped. So is `tipScale` (the
  *       tip foil's thickness against the thickness curve's, set by an editor that no
- *       longer does): the thickness curve alone sets the thickness.
+ *       longer does): the thickness curve alone sets the thickness. Also
+ *       `minThickness` (mm): the thinnest the blade may get, absent for the default 0.5.
  *       Always written as version 3.
  */
 import {
@@ -90,6 +91,8 @@ export interface FinJson {
   tipSection?: SectionJson;
   /** Version 3: where the sweep's middle section is thickest. Absent: halfway along the path. */
   thicknessMid?: number;
+  /** Version 3: the thinnest the blade may get (mm). Absent: the default, 0.5 mm. */
+  minThickness?: number;
   /** Version 3, no longer used: the tip foil's thickness against the curve's. Dropped. */
   tipScale?: unknown;
   /** Version 2: the panel it's cut from (thickness in mm, angle and tilt in deg). Absent: none. */
@@ -151,6 +154,7 @@ export const writeFinJson = (d: FinDesign, metadata?: Record<string, unknown>): 
     ...(d.tipLine ? { tipLine: { start: d.tipLine.start, end: d.tipLine.end } } : {}),
     ...(d.tipSection ? { tipSection: sectionToJson(d.tipSection) } : {}),
     ...(d.thicknessMid !== undefined ? { thicknessMid: d.thicknessMid } : {}),
+    ...(d.minThickness !== undefined ? { minThickness: toMm(d.minThickness) } : {}),
     ...(d.panel
       ? {
           panel: {
@@ -214,6 +218,9 @@ const assertStructure = (doc: Record<string, unknown>): void => {
   }
   if (doc.thicknessMid !== undefined && !isNumber(doc.thicknessMid)) {
     fail('Malformed fin: the thickness path needs a number for its middle');
+  }
+  if (doc.minThickness !== undefined && !(isNumber(doc.minThickness) && doc.minThickness > 0)) {
+    fail('Malformed fin: the minimum thickness needs a positive number');
   }
   if (doc.tipSection !== undefined) assertSection(doc.tipSection, 'tip section');
   if (doc.base !== undefined && !(FIN_BASES as readonly unknown[]).includes(doc.base)) {
@@ -282,6 +289,7 @@ export const readFinJson = (
     ...(doc.tipLine ? { tipLine: { start: doc.tipLine.start, end: doc.tipLine.end } } : {}),
     ...(doc.tipSection ? { tipSection: sectionFromJson(doc.tipSection) } : {}),
     ...(doc.thicknessMid !== undefined ? { thicknessMid: doc.thicknessMid } : {}),
+    ...(doc.minThickness !== undefined ? { minThickness: toCm(doc.minThickness) } : {}),
     ...(doc.panel
       ? {
           panel: {

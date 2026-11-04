@@ -64,6 +64,7 @@ import {
   setToe,
   setPanelAngle,
   setPanelThickness,
+  setMinThickness,
   setPanelTilt,
   smoothKnot,
   spanMidpoint,
@@ -159,6 +160,8 @@ export interface FinState {
   setSliceTwist: (foil: number, change: Partial<FinTwist> | null) => boolean;
   /** Toe correction (deg, + toe in), clamped to ±5°. */
   setToe: (deg: number) => boolean;
+  /** The thinnest the blade may get (cm), the taper following (fin-edits setMinThickness). */
+  setMinThickness: (cm: number) => boolean;
   /** The panel the fin is cut from (cm), or null for none (panel-fit.ts). */
   setPanelThickness: (thickness: number | null) => boolean;
   /** Turn the fin in its panel (deg). */
@@ -517,6 +520,11 @@ export const createFinStore = (): StoreApi<FinState> =>
       setToe: (deg) => {
         const d = get().design;
         return d ? commitChecked(setToe(d, deg), 'Set toe') : false;
+      },
+      setMinThickness: (cm) => {
+        const d = get().design;
+        const next = d && setMinThickness(d, cm);
+        return !!d && !!next && next !== d && commitChecked(next, 'Set minimum thickness');
       },
       setPanelThickness: (thickness) => {
         const d = get().design;

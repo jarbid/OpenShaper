@@ -6,16 +6,26 @@
  * the depth, thickness); it is drawn with height up at the fin's true depth, so it lines
  * up with the profile, and thickness across, stretched so it reads. Straight then
  * curving toward the tip is the usual shape: the curve is what controls flex. The
- * dashed line is the design minimum (0.5 mm); the store stops a point there. On a
+ * dashed line is the fin's minimum thickness (0.5 mm unless set in the box at the top
+ * left, owner request); the store stops a point there. On a
  * heavily swept-back fin the curve is read along the sweep instead (kernel
  * thicknessAlongSweep), which the pane notes, as its height no longer lines up.
  */
-import { FIN_MIN_THICKNESS, finReadouts, thicknessAlongSweep } from '@openshaper/kernel';
+import { finMinThickness, finReadouts, thicknessAlongSweep } from '@openshaper/kernel';
 import { FinCurveEditor, type ViewMap } from '@openshaper/render2d';
 import type { FinState } from '@openshaper/store';
 import { memo, useCallback, useMemo } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
-import { fmtThick, type LengthUnit } from '../format';
+import { NumericInput } from '../components/numeric-input';
+import {
+  cmToUnitNumber,
+  fmtThick,
+  parseTypedLen,
+  unitDecimals,
+  unitSuffix,
+  type LengthUnit,
+} from '../format';
+import { useSyncedText } from '../use-numeric-field';
 import { alsoFromSelection, curveEditorHandlers, pickFromSelection } from './curve-editor-wiring';
 import { sliceGuideHandlers, sliceGuides } from './slice-guides';
 import { useFinState } from './use-fin';
@@ -29,6 +39,37 @@ export const TAPER_ACROSS = 4;
 
 /** Data (fraction of depth, thickness) to view (thickness across, height up). */
 export const taperView = (depth: number): ViewMap => ({ a: 0, b: TAPER_ACROSS, c: depth, d: 0 });
+
+/**
+ * The fin's minimum thickness, typed in the current unit (owner request): the thinnest
+ * the blade may get, edges and tip included. The store keeps it within range, and the
+ * taper's tip follows it.
+ */
+function MinThicknessField({ store, units }: { store: StoreApi<FinState>; units: LengthUnit }) {
+  const min = useFinState(store, (s) => (s.design ? finMinThickness(s.design) : null));
+  const shown = min === null ? '' : cmToUnitNumber(min, units).toFixed(unitDecimals(units) + 1);
+  const [text, setText] = useSyncedText(shown);
+  const commit = () => {
+    const cm = parseTypedLen(text, units);
+    if (cm === null || !store.getState().setMinThickness(cm)) setText(shown);
+  };
+  return (
+    <label className="absolute left-2 top-1 z-10 flex flex-col gap-0.5 text-xs">
+      <span style={{ color: LIMIT }}>Min thickness</span>
+      <span className="flex items-center gap-1">
+        <NumericInput
+          value={text}
+          onValueChange={setText}
+          onCommit={commit}
+          onEscape={() => setText(shown)}
+          ariaLabel="Fin minimum thickness"
+          className="h-7 w-14 px-1 text-center tabular-nums"
+        />
+        <span className="text-muted-foreground">{unitSuffix(units)}</span>
+      </span>
+    </label>
+  );
+}
 
 export const FinTaperPane = memo(function FinTaperPane({
   store,
@@ -53,6 +94,7 @@ export const FinTaperPane = memo(function FinTaperPane({
   const root = taper?.knots[0]?.end.y ?? 0.8;
   const depth = useMemo(() => (design ? finReadouts(design).depth : 10), [design]);
   const view = useMemo(() => taperView(depth), [depth]);
+  const minT = design ? finMinThickness(design) : 0;
 
   const layers = useMemo(
     () => (taper ? [{ id: 'taper', spline: taper, editable: true, color: TAPER }] : []),
@@ -80,7 +122,7 @@ export const FinTaperPane = memo(function FinTaperPane({
       line({ x: 0, y: 0 }, { x: 1, y: 0 }, GUIDE); // zero thickness, root to tip
       line({ x: 0, y: 0 }, { x: 0, y: root * 1.1 }, GUIDE); // the root
       ctx.setLineDash([5, 4]);
-      line({ x: 0, y: FIN_MIN_THICKNESS }, { x: 1.02, y: FIN_MIN_THICKNESS }, LIMIT);
+      line({ x: 0, y: minT }, { x: 1.02, y: minT }, LIMIT);
       ctx.setLineDash([]);
       ctx.font = '11px system-ui, sans-serif';
       // Labels are offset in pixels, so they read the same in a small pane.
@@ -100,16 +142,10 @@ export const FinTaperPane = memo(function FinTaperPane({
       label('Tip', { x: 1, y: 0 }, -6, 4, 'right');
       label('thickness →', { x: 0, y: root * 0.55 }, 0, 16, 'center');
       ctx.fillStyle = LIMIT;
-      label(
-        `${fmtThick(FIN_MIN_THICKNESS, units)} min`,
-        { x: 1.02, y: FIN_MIN_THICKNESS },
-        0,
-        -6,
-        'center',
-      );
+      label(`${fmtThick(minT, units)} min`, { x: 1.02, y: minT }, 0, -6, 'center');
       ctx.restore();
     },
-    [units, root],
+    [units, root, minT],
   );
 
   const alongSweep = useMemo(() => (design ? thicknessAlongSweep(design) : 0), [design]);
@@ -130,15 +166,17 @@ export const FinTaperPane = memo(function FinTaperPane({
       {...handlers}
     />
   );
-  if (!(alongSweep > 0.05)) return editor;
   return (
     <div className="relative h-full">
-      <span
-        className="pointer-events-none absolute right-2 top-1 z-10 max-w-[60%] text-right text-xs text-muted-foreground"
-        data-testid="taper-along-sweep"
-      >
-        Swept-back fin: read along the sweep, root to tip
-      </span>
+      <MinThicknessField store={store} units={units} />
+      {alongSweep > 0.05 && (
+        <span
+          className="pointer-events-none absolute right-2 top-1 z-10 max-w-[60%] text-right text-xs text-muted-foreground"
+          data-testid="taper-along-sweep"
+        >
+          Swept-back fin: read along the sweep, root to tip
+        </span>
+      )}
       {editor}
     </div>
   );

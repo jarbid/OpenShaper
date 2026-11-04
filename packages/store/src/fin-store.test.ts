@@ -172,6 +172,30 @@ describe('fin store: drags stay inside the rules', () => {
     expect(design(s).section.outside.knots[last]!.end).toEqual(vec2(1, 0));
   });
 
+  it('sets the fin’s minimum thickness, the taper’s tip and anything under it following', () => {
+    // Owner request: the minimum set in the thickness view, 0.5 mm by default.
+    const s = storeWith();
+    const tip = () => design(s).taper.knots[design(s).taper.knots.length - 1]!.end;
+    expect(tip().y).toBe(FIN_MIN_THICKNESS);
+    expect(s.getState().setMinThickness(0.1)).toBe(true);
+    expect(design(s).minThickness).toBe(0.1);
+    expect(tip()).toEqual(vec2(1, 0.1));
+    const lowest = Math.min(...design(s).taper.knots.flatMap((k) => [k.end.y, k.tangentToPrev.y]));
+    expect(lowest).toBeGreaterThanOrEqual(0.1);
+    expect(validateFinDesign(design(s))).toEqual([]);
+    // The store stops a point there.
+    s.getState().moveControlPoint('taper', design(s).taper.knots.length - 1, vec2(1, 0.07));
+    expect(tip().y).toBeCloseTo(0.1, 9);
+    // Within 0.5 to 3 mm, and back to the default leaves nothing in the file.
+    s.getState().setMinThickness(1);
+    expect(design(s).minThickness).toBe(0.3);
+    s.getState().setMinThickness(0.01);
+    expect('minThickness' in design(s)).toBe(false);
+    expect(tip().y).toBeCloseTo(FIN_MIN_THICKNESS, 9);
+    s.getState().undo();
+    expect(design(s).minThickness).toBe(0.3);
+  });
+
   it('keeps the taper ends at the root and the tip, and above the minimum', () => {
     const s = storeWith();
     const tip = design(s).taper.knots.length - 1;

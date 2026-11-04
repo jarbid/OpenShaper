@@ -10,6 +10,7 @@ import {
   FIN_MAX_FRONT_OVERHANG,
   FIN_EXPORT_MIN_THICKNESS,
   FIN_MIN_THICKNESS,
+  FIN_MIN_THICKNESS_LIMITS,
   FUTURES_TABS,
   rearClearance,
 } from '@openshaper/kernel';
@@ -280,13 +281,14 @@ export default function DocsFinDesigner() {
           straight run that curves in near the tip is the usual shape: that curve is what controls
           how the tip flexes. The curve holds all the way up: past the tip line the tip is no
           thicker than the curve says at each height, the loft rounding it off to the edge, so a
-          fuller curve near the tip gives a fuller tip and no more. A slice&apos;s tip-line dot (see{' '}
-          <a href="#slices">Foil slices and twist</a>) scales the tip foil against the curve.{' '}
-          <strong>Root thickness</strong> scales the whole curve. On a heavily swept-back fin, whose
-          arm reaches back to the tip spanning little height, the curve is read along the sweep
-          instead — from the root, along the orange thickness path, to the tip — so the arm thins
-          toward its tip rather than keeping its full thickness to the tip line. The thickness view
-          says so when it does; fins that rise as they sweep back are read by height, as always.
+          fuller curve near the tip gives a fuller tip and no more. <strong>Root thickness</strong>{' '}
+          scales the whole curve. <strong>Min thickness</strong>, at the top left, sets the thinnest
+          the fin may get (see <a href="#rules">Minimum thickness</a>); the dashed line shows it. On
+          a heavily swept-back fin, whose arm reaches back to the tip spanning little height, the
+          curve is read along the sweep instead — from the root, along the orange thickness path, to
+          the tip — so the arm thins toward its tip rather than keeping its full thickness to the
+          tip line. The thickness view says so when it does; fins that rise as they sweep back are
+          read by height, as always.
         </p>
       </Section>
 
@@ -424,13 +426,16 @@ export default function DocsFinDesigner() {
             trailing edge.
           </Term>
           <Term name="Minimum thickness">
-            Nowhere thinner than {mm(FIN_MIN_THICKNESS)} — edges and tip included — so the fin is
-            safe to bump into and something a cutter can make. The foil is shaped to the thickness
-            curve less this, and this is added all the way along, so the faces stay curved right to
-            edges that end at {mm(FIN_MIN_THICKNESS)}. A sharp bend in the outline — a hooked tip,
-            say — reshapes the blade only near that edge, rather than creasing it right across. This
-            is the design&apos;s minimum, close to a hand-finished edge; exports can thicken it (see{' '}
-            <a href="#export">Export min</a>).
+            Nowhere thinner than {mm(FIN_MIN_THICKNESS)} by default — edges and tip included — so
+            the fin is safe to bump into and something a cutter can make. Set it higher, up to{' '}
+            {mm(FIN_MIN_THICKNESS_LIMITS.max)}, in the thickness view&apos;s{' '}
+            <strong>Min thickness</strong> box: it is saved with the fin, and the thickness
+            curve&apos;s tip follows it, as does any of the curve below it. The foil is shaped to
+            the thickness curve less this, and this is added all the way along, so the faces stay
+            curved right to edges that end at the minimum. A sharp bend in the outline — a hooked
+            tip, say — reshapes the blade only near that edge, rather than creasing it right across.
+            Never under {mm(FIN_MIN_THICKNESS)}, enough edge for CAD to read the surface as closed.
+            Exports can thicken it further (see <a href="#export">Export min</a>).
           </Term>
           <Term name="One clean shape">
             The edges keep rising to a single tip, and the foil&apos;s faces never cross.
@@ -527,9 +532,10 @@ export default function DocsFinDesigner() {
             {mm(FIN_EXPORT_MIN_THICKNESS.default)} by default, from{' '}
             {mm(FIN_EXPORT_MIN_THICKNESS.min)} to {mm(FIN_EXPORT_MIN_THICKNESS.max)}. STEP, STL and
             core exports thicken the edges and tip to at least this in the file, the thickest point
-            staying on your thickness curve; the design itself keeps its {mm(FIN_MIN_THICKNESS)}{' '}
-            edges, so you can see the fin as it will be once sharpened. Some 3D printing materials
-            can&apos;t hold a wall under 1 mm; for a CNC file with the edges as designed, set it to{' '}
+            staying on your thickness curve; the design itself keeps its own minimum (see{' '}
+            <a href="#rules">Minimum thickness</a>), so you can see the fin as it will be once
+            sharpened. Never under the fin&apos;s own minimum. Some 3D printing materials can&apos;t
+            hold a wall under 1 mm; for a CNC file with the edges as designed, set it to{' '}
             {mm(FIN_MIN_THICKNESS)}. Remembered on this device.
           </Term>
           <Term name="STEP">

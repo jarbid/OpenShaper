@@ -611,3 +611,32 @@ describe('a slice’s toe (owner testing)', () => {
     }
   });
 });
+
+describe('the fin’s own minimum thickness (owner request)', () => {
+  const width = (s: ReturnType<typeof bladeSection>, j: number) =>
+    Math.abs(s.outside[j]!.y - s.inside[j]!.y);
+
+  it('thickens the edges and tip to it, the rest on its thickness curve', () => {
+    const base = defaultFinDesign('side', 'left');
+    // The taper's tip lifted with it, as the store does.
+    const last = base.taper.knots.length - 1;
+    const taper = splineFromKnots(
+      base.taper.knots.map((k, i) =>
+        i === last ? knot(vec2(1, 0.1), vec2(k.tangentToPrev.x, 0.1), vec2(1, 0.1), false) : k,
+      ),
+    );
+    const d = { ...base, taper, minThickness: 0.1 };
+    const b = prepareBlade(d);
+    expect(b.minThickness).toBe(0.1);
+    for (const eta of [0.2, 0.5, 0.8]) {
+      const s = bladeSection(b, eta * b.depth, [0, 0.5, 1]);
+      // Across a horizontal cut, wider by the cant's 1/cos.
+      expect(width(s, 0)).toBeCloseTo(0.1 * b.widen, 6);
+      expect(width(s, 2)).toBeCloseTo(0.1 * b.widen, 6);
+      expect(width(s, 1)).toBeGreaterThan(0.1);
+    }
+    // An export's minimum still thickens it further, never thinner.
+    expect(prepareBlade(d, undefined, 0.2).minThickness).toBe(0.2);
+    expect(prepareBlade(d, undefined, 0.05).minThickness).toBe(0.1);
+  });
+});

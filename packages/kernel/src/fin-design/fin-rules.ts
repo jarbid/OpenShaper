@@ -17,7 +17,8 @@ import {
   FIN_MAX_FRONT_OVERHANG,
   FIN_MAX_TOE,
   FIN_MIN_SLICE_CANT,
-  FIN_MIN_THICKNESS,
+  FIN_MIN_THICKNESS_LIMITS,
+  finMinThickness,
   FIN_SLICE_MIN_GAP,
   type FinDesign,
   type FinSection,
@@ -257,10 +258,18 @@ const checkTaper = (d: FinDesign, issues: FinIssue[]): void => {
     issues.push({ code: 'taper-span', message: 'The taper must not turn back toward the root.' });
     return;
   }
-  if (splineExtremes(t, 'y').min.point.y < FIN_MIN_THICKNESS - EPS) {
+  const min = finMinThickness(d);
+  if (splineExtremes(t, 'y').min.point.y < min - EPS) {
     issues.push({
       code: 'taper-thickness',
-      message: `The fin must be at least ${FIN_MIN_THICKNESS * 10} mm thick everywhere.`,
+      message: `The fin must be at least ${Math.round(min * 100) / 10} mm thick everywhere.`,
+    });
+  }
+  const { min: lo, max: hi } = FIN_MIN_THICKNESS_LIMITS;
+  if (d.minThickness !== undefined && !(d.minThickness >= lo - EPS && d.minThickness <= hi + EPS)) {
+    issues.push({
+      code: 'taper-thickness',
+      message: `The minimum thickness must be ${lo * 10} to ${hi * 10} mm.`,
     });
   }
 };

@@ -253,6 +253,15 @@ describe('.fin.json versions', () => {
     expect((JSON.parse(writeFinJson(d)) as Record<string, unknown>).version).toBe(3);
   });
 
+  it('keeps the fin’s own minimum thickness through a save, in mm', () => {
+    const base = defaultFinDesign('side', 'left');
+    const doc = JSON.parse(writeFinJson({ ...base, minThickness: 0.12 }));
+    expect(doc.minThickness).toBeCloseTo(1.2, 12);
+    expect(readFinJson(JSON.stringify(doc)).design.minThickness).toBeCloseTo(0.12, 12);
+    expect(JSON.parse(writeFinJson(base))).not.toHaveProperty('minThickness');
+    expect(() => readFinJson(JSON.stringify({ ...doc, minThickness: -1 }))).toThrow(/minimum/);
+  });
+
   it('keeps a moved tip line, the tip foil and the thickness path through a save', () => {
     const base = defaultFinDesign('side', 'left');
     const d = {

@@ -63,6 +63,7 @@ import type { Vert3 } from '../loft';
 import { crossings, splineExtremes, yAtX } from './curve-shape';
 import {
   FIN_MIN_THICKNESS,
+  finMinThickness,
   finOutward,
   type FinDesign,
   type FinSection,
@@ -321,12 +322,13 @@ export const prepareBlade = (
   laminate: FinLaminate = NO_LAMINATE,
   minThickness: number = FIN_MIN_THICKNESS,
 ): PreparedBlade => {
+  // An export's minimum thickens the edges and tip further; never under the fin's own.
   const { at, thickness } = sectionThickest(d.section);
   const cant = d.cant * DEG_TO_RAD;
   return {
     design: d,
     laminate,
-    minThickness: Math.max(FIN_MIN_THICKNESS, minThickness),
+    minThickness: Math.max(finMinThickness(d), minThickness),
     depth: splineExtremes(d.outline, 'y').max.point.y,
     thickestAt: at,
     shapeThickness: thickness,

@@ -64,11 +64,20 @@ export const FIN_MAX_CANT = 20;
 export const FIN_MAX_FRONT_OVERHANG = 0.4;
 
 /**
- * Thinnest the blade may get anywhere while designing — edges and tip (cm): 0.5 mm,
- * close to a hand-finished edge, and enough edge for the surface to stay a closed shape
- * (a knife edge breaks CAD imports). Exports can thicken it ({@link FIN_EXPORT_MIN_THICKNESS}).
+ * Thinnest the blade may get anywhere while designing — edges and tip (cm): 0.5 mm by
+ * default, close to a hand-finished edge, and enough edge for the surface to stay a
+ * closed shape (a knife edge breaks CAD imports). Never less. A fin may set its own,
+ * thicker ({@link FinDesign.minThickness}, {@link finMinThickness}); exports can thicken
+ * it further ({@link FIN_EXPORT_MIN_THICKNESS}).
  */
 export const FIN_MIN_THICKNESS = 0.05;
+
+/** A fin's own minimum thickness (cm), {@link FinDesign.minThickness}: 0.5 to 3 mm. */
+export const FIN_MIN_THICKNESS_LIMITS = { min: FIN_MIN_THICKNESS, max: 0.3 } as const;
+
+/** The thinnest `d` may get anywhere (cm): its own minimum, or the default 0.5 mm. */
+export const finMinThickness = (d: FinDesign): number =>
+  Math.max(FIN_MIN_THICKNESS, d.minThickness ?? FIN_MIN_THICKNESS);
 
 /**
  * The export's minimum thickness (cm): what STEP, STL and core exports thicken the edges
@@ -241,4 +250,10 @@ export interface FinDesign {
   readonly thicknessMid?: number;
   /** The panel it's cut from, if the user has set one (File settings). */
   readonly panel?: FinPanel;
+  /**
+   * The thinnest the blade may get anywhere, edges and tip included (cm), if not the
+   * default {@link FIN_MIN_THICKNESS} (owner request: set in the thickness view).
+   * {@link FIN_MIN_THICKNESS_LIMITS}.
+   */
+  readonly minThickness?: number;
 }

@@ -64,6 +64,7 @@ export {
   setToe,
   setPanelAngle,
   setPanelThickness,
+  setMinThickness,
   setPanelTilt,
   setThicknessPath,
   setTipLineEnd,

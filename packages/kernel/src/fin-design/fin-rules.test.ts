@@ -180,6 +180,18 @@ describe('validateFinDesign', () => {
       expect(codes({ ...side, taper: thin })).toEqual(['taper-thickness']);
     });
 
+    it('keeps the fin at least its own minimum thick, when it sets one', () => {
+      // Owner request: the minimum set in the thickness view, 0.5 to 3 mm.
+      expect(codes({ ...side, minThickness: 0.1 })).toEqual(['taper-thickness']); // tip 0.5 mm
+      const lifted = mapSpline(side.taper, (p) => vec2(p.x, Math.max(0.1, p.y)));
+      expect(codes({ ...side, taper: lifted, minThickness: 0.1 })).toEqual([]);
+      expect(codes({ ...side, taper: lifted, minThickness: 0.2 })).toEqual(['taper-thickness']);
+      expect(codes({ ...side, taper: lifted, minThickness: 0.5 })).toEqual([
+        'taper-thickness',
+        'taper-thickness',
+      ]); // and past 3 mm
+    });
+
     it('catches a dip below the minimum between knots', () => {
       // Ends are fine, but the handles pull the middle of the last curve under the minimum.
       const t = defaultTaper(0.8);

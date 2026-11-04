@@ -13,6 +13,8 @@ import {
   FIN_MIN_SLICE_CANT,
   twistAt,
   FIN_MIN_THICKNESS,
+  FIN_MIN_THICKNESS_LIMITS,
+  finMinThickness,
   FIN_SLICE_MIN_GAP,
   FIN_THICKNESS_PATH_LIMITS,
   bladeFoilAt,
@@ -457,7 +459,8 @@ export const setRootThickness = (d: FinDesign, cm: number): FinDesign => {
   const root = d.taper.knots[0]!.end.y;
   if (!(cm > 0) || root <= 0 || cm === root) return d;
   const f = cm / root;
-  const m = (p: Vec2) => vec2(p.x, Math.max(FIN_MIN_THICKNESS, p.y * f));
+  const min = finMinThickness(d);
+  const m = (p: Vec2) => vec2(p.x, Math.max(min, p.y * f));
   return {
     ...d,
     taper: splineFromKnots(
@@ -606,6 +609,34 @@ export const smoothKnot = (s: Spline, index: number): Spline => {
  * The panel the fin is cut from: `thickness` (cm, clamped to FIN_PANEL_THICKNESS), keeping
  * the angle it's turned to; null clears it.
  */
+/**
+ * The thinnest the blade may get, `cm` (owner request: set in the thickness view),
+ * within FIN_MIN_THICKNESS_LIMITS, to a hundredth of a millimetre. The taper follows: a
+ * tip that sat on the old minimum moves to the new one, handles and all, and nothing is
+ * left under it.
+ */
+export const setMinThickness = (d: FinDesign, cm: number): FinDesign => {
+  if (!Number.isFinite(cm)) return d;
+  const { min, max } = FIN_MIN_THICKNESS_LIMITS;
+  const to = Math.round(Math.min(max, Math.max(min, cm)) * 1e3) / 1e3;
+  const was = finMinThickness(d);
+  if (to === was) return d;
+  const last = d.taper.knots.length - 1;
+  const onMin = Math.abs(d.taper.knots[last]!.end.y - was) < 1e-9;
+  let taper = onMin ? moveKnotEnd(d.taper, last, vec2(1, to)) : d.taper;
+  const up = (p: Vec2) => (p.y < to ? vec2(p.x, to) : p);
+  if (taper.knots.some((k) => k.end.y < to || k.tangentToPrev.y < to || k.tangentToNext.y < to)) {
+    taper = splineFromKnots(
+      taper.knots.map((k) =>
+        knot(up(k.end), up(k.tangentToPrev), up(k.tangentToNext), k.continuous, k.other, k.lock),
+      ),
+    );
+  }
+  const { minThickness: _old, ...rest } = d;
+  void _old;
+  return { ...rest, taper, ...(to === FIN_MIN_THICKNESS ? {} : { minThickness: to }) };
+};
+
 export const setPanelThickness = (d: FinDesign, thickness: number | null): FinDesign => {
   if (thickness === null) {
     if (!d.panel) return d;
