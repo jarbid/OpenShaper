@@ -40,6 +40,7 @@ import {
   clampEdit,
   constrainKnot,
   edgesFree,
+  withoutStackedPoints,
   withCrossingPoints,
   getFinCurve,
   newFin,
@@ -305,7 +306,15 @@ export const createFinStore = (): StoreApi<FinState> =>
       activeFoil: 0,
 
       load: (d) =>
-        set({ design: d, past: [], future: [], editing: false, selection: null, activeFoil: 0 }),
+        set({
+          // Points a slip of the add-point button stacked on one another, made one.
+          design: withoutStackedPoints(d),
+          past: [],
+          future: [],
+          editing: false,
+          selection: null,
+          activeFoil: 0,
+        }),
       newFin: (position, hand) => {
         if (!get().design) {
           get().load(newFin(position, hand));

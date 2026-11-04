@@ -422,7 +422,17 @@ keeps what it had, through the zone it eases to the slice's values (`smoother`, 
 holds them. Lean becomes height-dependent: the lateral slide is the integral of tan(cant) up the
 blade (`slideAt`, Simpson per step on the edge-sample grid), the horizontal widening is
 1/cos(local cant); a slice's own toe (its toe less the fin's) turns each section about that
-section's thickest point, before the fin's toe turns everything about the root's. Fins without
+section's centre of area (the faces' midpoint weighted by thickness along the chord), before
+the fin's toe turns everything about the root's. It used to turn about the thickest sampled
+station: the station jumped from one to the next up the blade, and the turn stepped the section
+sideways, grooves every few millimetres up the owner's hatchet (1.5° less toe at its slice,
+0.068 mm steps between cuts 0.2 mm apart, in the STEP too;
+`docs/specs/fins/hatchet_slice_toe.fin.json`). Found between stations it still stepped 0.05 mm:
+on that flat-topped foil the thickest point runs across a seventh of the chord in 3 mm of
+height, back and forth. About the centre: 0.001-0.006 mm, as with no toe. Adding a point no
+longer lands on one the curve has (`insertKnotAt`: a split at a span's end, or on an empty
+span): the + button then copied the empty span again at every press, thirty points stacked on
+one in the owner's tip foil. Loading a design makes stacked points one (`withoutStackedPoints`). Fins without
 any twist take the old code path unchanged. The 3D toolbar gets a **Slice** selector (shared
 with the foil tabs): with a slice selected the position arrows (and arrow keys) are off, and cant,
 toe and **Transition below slice** (mm; 10 mm to start, never below the slice beneath) set its

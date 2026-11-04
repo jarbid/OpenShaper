@@ -266,8 +266,9 @@ export default function DocsFinDesigner() {
           and <strong>Toe at slice</strong> set its change. The blade eases from the cant and toe
           below (the root&apos;s, or the slice below&apos;s) to the slice&apos;s over the 15% of the
           depth just under it, with no crease, and holds them above it. Each section turns about its
-          own thickest point. <strong>No change here</strong> takes the change away. On an FCS
-          single tab the root has no cant (the plug sets it), but a slice may still add some.
+          own centre: the middle of its area, which moves smoothly up the blade.{' '}
+          <strong>No change here</strong> takes the change away. On an FCS single tab the root has
+          no cant (the plug sets it), but a slice may still add some.
         </p>
       </Section>
 

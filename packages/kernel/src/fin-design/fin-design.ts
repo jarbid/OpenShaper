@@ -105,7 +105,7 @@ export interface FinSlice {
    * The blade eases from the cant and toe below (the root's, or the slice below's) to
    * these over the whole span up to the slice, and keeps them above it. More cant bends
    * the blade out, a different toe twists it (Futures' upper-blade designs). Each
-   * section turns about its own thickest point.
+   * section turns about its own centre (of area).
    */
   readonly twist?: FinTwist;
 }

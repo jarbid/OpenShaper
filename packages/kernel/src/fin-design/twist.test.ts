@@ -74,8 +74,8 @@ describe('the bent, twisted blade', () => {
     const a = bladeSection(b, 0.65 * b.depth);
     const c = bladeSection(b, 0.75 * b.depth);
     const lean = Math.atan2(meanY(c) - meanY(a), c.height - a.height) * RAD_TO_DEG;
-    // Within a quarter degree: the toe turns each section about its own thickest point,
-    // which drifts a little along the chord up the sweep.
+    // Within a quarter degree: the toe turns each section about its own centre, which
+    // drifts a little along the chord up the sweep.
     expect(Math.abs(lean - 12)).toBeLessThan(0.25);
   });
 

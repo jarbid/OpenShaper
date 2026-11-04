@@ -607,3 +607,26 @@ describe('a heavily swept-back fin (the owner’s, docs/specs/fins/swept_back_ti
     }
   });
 });
+
+describe('a slice’s toe (owner testing)', () => {
+  it('turns the sections smoothly up the blade: no grooves', () => {
+    // The owner's hatchet, its slice 1.5° less toe than the root: grooves every few mm up
+    // the upper blade, 0.07 mm steps, in the STEP too. Each section turned about its
+    // thickest station, which jumped from one to the next, and on this flat-topped foil
+    // the thickest point itself runs back and forth along the chord.
+    const d = ownerFin('hatchet_slice_toe.fin.json');
+    const b = prepareBlade(d);
+    const st = cosineStations(48);
+    const hs: number[] = [];
+    for (let h = 0.4 * b.depth; h < 0.95 * b.depth; h += 0.02) hs.push(h);
+    const secs = hs.map((h) => bladeSection(b, h, st));
+    for (const j of [14, 24, 34]) {
+      const ys = secs.map((s) => s.outside[j]!.y);
+      for (let i = 1; i < ys.length - 1; i++) {
+        // Cuts 0.2 mm apart: under 0.01 mm off a straight line through their neighbours
+        // (0.001-0.006 mm, as with no toe; was 0.068).
+        expect(Math.abs(ys[i + 1]! - 2 * ys[i]! + ys[i - 1]!)).toBeLessThan(1e-3);
+      }
+    }
+  });
+});

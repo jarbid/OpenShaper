@@ -55,6 +55,7 @@ import {
   setSplineValueAt,
   withFins,
   withSpline,
+  withoutEmptySpans,
   zeroKnotTangent,
   type SplineTarget,
 } from './edits';
@@ -382,6 +383,36 @@ describe('handle-angle locks', () => {
     expect(lockedKnot.lock).toEqual(s.knots[1]!.lock);
     expect(ins.spline.knots[ins.index]!).not.toHaveProperty('lock');
     expect(angleOf(lockedKnot, 'next')).toBeCloseTo(Math.PI / 4, 12);
+  });
+
+  it('adds no point on top of one it has: an empty span, copied again by the add button', () => {
+    // Owner testing: thirty points stacked on one in a foil face.
+    const s = makeSpline();
+    expect(insertKnotAt(s, vec2(0, 0))).toBeNull();
+    // Found to 1/2048 of the span, the last point's own spot lands just short of it.
+    const end = insertKnotAt(s, vec2(100, 0));
+    expect(end?.spline.knots[1]!.end).not.toEqual(vec2(100, 0));
+    expect(insertKnotAt(s, vec2(40, 0))!.spline.knots).toHaveLength(3);
+  });
+
+  it('makes points stacked on one another one, the shape unchanged', () => {
+    const p = vec2(40, 0);
+    const stacked = splineFromKnots([
+      knot(vec2(0, 0), vec2(0, 0), vec2(10, 0), false),
+      knot(p, vec2(30, 0), p, true),
+      knot(p, p, p, true),
+      knot(p, p, vec2(60, 0), true),
+      knot(vec2(100, 0), vec2(90, 0), vec2(100, 0), false),
+    ]);
+    const one = withoutEmptySpans(stacked);
+    expect(one.knots).toHaveLength(3);
+    expect(one.knots[1]!.tangentToPrev).toEqual(vec2(30, 0));
+    expect(one.knots[1]!.tangentToNext).toEqual(vec2(60, 0));
+    for (const x of [5, 20, 39, 41, 70, 95])
+      expect(valueAt(one, x)).toBeCloseTo(valueAt(stacked, x), 12);
+    expect(withoutEmptySpans(one)).toBe(one);
+    // The add button's spot on an empty span is its one point: nothing added.
+    expect(insertKnotAt(stacked, p)).toBeNull();
   });
 
   it("deleting a point keeps its neighbours' locks, their handles still on them", () => {

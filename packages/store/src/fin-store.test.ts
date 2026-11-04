@@ -21,6 +21,8 @@ import {
   tipTurnFraction,
   finReadouts,
   foilShare,
+  knot,
+  splineFromKnots,
   SPLIT_NOSE_ASPECT,
   validateFinDesign,
   vec2,
@@ -124,6 +126,29 @@ describe('fin store: drags stay inside the rules', () => {
     expect(s.getState().moveControlPoint('outside', last, vec2(0.8, 0.1))).toBe(false);
     expect(design(s)).toBe(before); // nothing changed, and no undo step
     expect(s.getState().canUndo()).toBe(false);
+  });
+
+  it('makes stacked points one on loading, and the add button stacks none', () => {
+    // Owner testing: thirty points stacked on one in the tip foil's inside face.
+    const d = defaultFinDesign('side', 'right');
+    const k = d.section.outside.knots[1]!;
+    const dup = knot(k.end, k.end, k.end, true);
+    const stacked = splineFromKnots([
+      ...d.section.outside.knots.slice(0, 1),
+      knot(k.end, k.tangentToPrev, k.end, true),
+      dup,
+      dup,
+      knot(k.end, k.end, k.tangentToNext, true),
+      ...d.section.outside.knots.slice(2),
+    ]);
+    const s = storeWith({ ...d, section: { ...d.section, outside: stacked } });
+    expect(design(s).section.outside.knots).toHaveLength(d.section.outside.knots.length);
+    // Each press adds a point halfway along the span after the selected one.
+    s.getState().select({ curve: 'outside', index: 0, kind: 'end' });
+    for (let i = 0; i < 4; i++)
+      s.getState().addControlPointAfter('outside', s.getState().selection!.index);
+    const xs = design(s).section.outside.knots.map((kk) => kk.end.x);
+    expect(new Set(xs).size).toBe(xs.length);
   });
 
   it('moves an edge of a foil with its own inside face across the chord, both faces', () => {

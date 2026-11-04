@@ -370,11 +370,20 @@ export const extendKnotTangent = (s: Spline, index: number, which: 'prev' | 'nex
   });
 };
 
+/** Two points this close are one: a span between them is empty. */
+const SAME_POINT = 1e-9;
+/** A split this near a span's end (of its parameter) lands on the point there. */
+const SPLIT_END = 1e-6;
+const onePoint = (a: Vec2, b: Vec2): boolean =>
+  Math.abs(a.x - b.x) <= SAME_POINT && Math.abs(a.y - b.y) <= SAME_POINT;
+
 /**
  * Insert a control point on the spline nearest to `p`, splitting the segment it
  * lands on (legacy BrdAddControlPointCommand). The de Casteljau split leaves the
  * curve shape unchanged. Returns the new spline plus the inserted knot's index,
- * or null if the spline has no segments to split.
+ * or null if the spline has no segments to split, or the point would land on a point
+ * it already has: an empty span, which the add-point button then copied again and
+ * again (owner testing: thirty points stacked on one).
  */
 export const insertKnotAt = (s: Spline, p: Vec2): { spline: Spline; index: number } | null => {
   const hit = closestPointOnSpline(s, p);
@@ -382,6 +391,8 @@ export const insertKnotAt = (s: Spline, p: Vec2): { spline: Spline; index: numbe
   const split = splitCurve(s.curves[hit.index]!, hit.t);
   const start = s.knots[hit.index]!;
   const end = s.knots[hit.index + 1]!;
+  if (hit.t < SPLIT_END || hit.t > 1 - SPLIT_END) return null;
+  if (onePoint(split.mid.end, start.end) || onePoint(split.mid.end, end.end)) return null;
   const insertIndex = hit.index + 1;
 
   // start keeps its end + prev handle; only its toNext handle is pulled in. The split
@@ -950,4 +961,27 @@ export const deleteKnot = (s: Spline, index: number): Spline => {
   const newNext = withHandles(next, nTanPrev, next.tangentToNext);
   const knots = [...s.knots.slice(0, index - 1), newPrev, newNext, ...s.knots.slice(index + 2)];
   return splineFromKnots(knots);
+};
+
+/**
+ * `s` without empty spans: points stacked on one another, handles and all, made one (the
+ * first's handle in, the last's out). The shape is unchanged. `s` itself if it has none.
+ */
+export const withoutEmptySpans = (s: Spline): Spline => {
+  const ks = s.knots;
+  const empty = (i: number) =>
+    onePoint(ks[i]!.end, ks[i + 1]!.end) &&
+    onePoint(ks[i]!.tangentToNext, ks[i]!.end) &&
+    onePoint(ks[i + 1]!.tangentToPrev, ks[i + 1]!.end);
+  if (!ks.slice(0, -1).some((_, i) => empty(i))) return s;
+  const out: Knot[] = [];
+  for (let i = 0; i < ks.length; i++) {
+    let j = i;
+    while (j < ks.length - 1 && empty(j)) j++;
+    const a = ks[i]!;
+    const b = ks[j]!;
+    out.push(i === j ? a : knot(a.end, a.tangentToPrev, b.tangentToNext, a.continuous, a.other));
+    i = j;
+  }
+  return splineFromKnots(out);
 };

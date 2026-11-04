@@ -55,7 +55,7 @@ import {
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
-import { insertKnotAt, moveKnotEnd, setKnotContinuous } from './edits';
+import { insertKnotAt, moveKnotEnd, setKnotContinuous, withoutEmptySpans } from './edits';
 
 /** The editable curves of a fin. */
 export type FinCurve = 'outline' | 'outside' | 'inside' | 'taper';
@@ -73,6 +73,36 @@ export const TIP_FOIL = -1;
 /** The foil `foil` names, or null if there is no such slice. */
 export const getFoil = (d: FinDesign, foil: FinFoilIndex = 0): FinSection | null =>
   foil === 0 ? d.section : foil === TIP_FOIL ? tipFoilOf(d) : (d.slices[foil - 1]?.section ?? null);
+
+/**
+ * The design without empty spans in any curve ({@link withoutEmptySpans}): points
+ * stacked on one another, as a slip of the add-point button left them. The shapes are
+ * unchanged. The same design if it has none.
+ */
+export const withoutStackedPoints = (d: FinDesign): FinDesign => {
+  const sec = (s: FinSection): FinSection => {
+    const outside = withoutEmptySpans(s.outside);
+    const inside = s.inside && withoutEmptySpans(s.inside);
+    return outside === s.outside && inside === s.inside ? s : { outside, inside };
+  };
+  const outline = withoutEmptySpans(d.outline);
+  const taper = withoutEmptySpans(d.taper);
+  const section = sec(d.section);
+  const tipSection = d.tipSection && sec(d.tipSection);
+  const slices = d.slices.map((sl) => {
+    const s = sec(sl.section);
+    return s === sl.section ? sl : { ...sl, section: s };
+  });
+  const same =
+    outline === d.outline &&
+    taper === d.taper &&
+    section === d.section &&
+    tipSection === d.tipSection &&
+    slices.every((sl, i) => sl === d.slices[i]);
+  return same
+    ? d
+    : { ...d, outline, taper, section, slices, ...(tipSection ? { tipSection } : {}) };
+};
 
 /** The design with foil `foil` replaced. */
 export const withFoil = (d: FinDesign, foil: FinFoilIndex, sec: FinSection): FinDesign =>

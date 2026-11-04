@@ -1653,18 +1653,33 @@ export const bladeSection = (
   const tw = hasTwist(b.design) ? twistAt(b.design, eta) : null;
   const slide = tw ? slideAt(b, h) : h * b.lean;
   const widen = tw ? 1 / Math.cos(tw.cant * DEG_TO_RAD) : b.widen;
-  // A slice's own toe turns its section about its thickest point, before the fin's toe.
+  // A slice's own toe turns its section about its centre, before the fin's toe.
   const own = tw && tw.toe !== (b.design.toe ?? 0) ? tw.toe - (b.design.toe ?? 0) : 0;
   let pivot: { x: number; y: number; cos: number; sin: number } | null = null;
   if (own) {
-    let k = 0;
-    offsets.forEach(([o, n], j) => {
-      if (o - n > offsets[k]![0] - offsets[k]![1]) k = j;
+    // About its centre of area, the faces' midpoint weighted by thickness along the chord:
+    // that moves smoothly up the blade. The thickest point didn't: on a flat-topped foil it
+    // ran across a seventh of the chord in 3 mm of height, back and forth, and the turn
+    // about it stepped the section sideways (owner testing: grooves up a slice's toe,
+    // 0.07 mm deep, in the STEP too).
+    let area = 0;
+    let ux = 0;
+    let my = 0;
+    stations.forEach((u, j) => {
+      const du =
+        (stations[Math.min(stations.length - 1, j + 1)]! - stations[Math.max(0, j - 1)]!) / 2;
+      const [o, n] = offsets[j]!;
+      const w = (o - n) * du;
+      area += w;
+      ux += u * w;
+      my += ((o + n) / 2) * w;
     });
+    const u = area > 0 ? ux / area : 0.5;
+    const mid = area > 0 ? my / area : 0;
     const a = -b.outward * own * DEG_TO_RAD;
     pivot = {
-      x: leading + (trailing - leading) * stations[k]!,
-      y: b.outward * (slide + ((offsets[k]![0] + offsets[k]![1]) / 2) * widen),
+      x: leading + (trailing - leading) * u,
+      y: b.outward * (slide + mid * widen),
       cos: Math.cos(a),
       sin: Math.sin(a),
     };
