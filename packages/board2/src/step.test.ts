@@ -151,7 +151,7 @@ function foldExcess(
   const evDir = (side: 0 | 1, s: number): [number, number, number] => {
     ev.row(side, solid.xiOf(s), 0);
     ev.eval(v, 0, a);
-    ev.eval(v === 0 ? 1e-4 : 1 - 1e-4, 0, b);
+    ev.eval(v === 0 ? 1e-6 : 1 - 1e-6, 0, b);
     const k = v === 0 ? 1 : -1;
     return [k * (b[0]! - a[0]!), k * (b[1]! - a[1]!), k * (b[2]! - a[2]!)];
   };
@@ -330,10 +330,12 @@ describe('the STEP solid of a built board', () => {
     '%s: the faces meet tangent-continuously along both stringer rows, as the evaluator does',
     (name, doc) => {
       const { built, solid } = solve(doc);
-      // away from the tips; a notched tail's fan chords are followed within a fraction of a degree
+      // into the tips; a notched tail's fan chords are followed within a fraction of a degree
       const bound = built.sides[0].frame.notch === null ? 0.1 : 0.2;
       for (const v of [0, 1] as const) {
-        expect(foldExcess(built, solid, v, 0.03, 0.9), `${name} v=${v}`).toBeLessThanOrEqual(bound);
+        expect(foldExcess(built, solid, v, 0.001, 0.999), `${name} v=${v}`).toBeLessThanOrEqual(
+          bound,
+        );
       }
     },
     60_000,

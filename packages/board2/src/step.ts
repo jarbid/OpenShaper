@@ -66,7 +66,6 @@ import {
   STEP_ARC_TABLE,
   STEP_CAP_MARGIN,
   STEP_CHECK_SAMPLES,
-  STEP_CROSS_STEP,
   STEP_EDGE_SAMPLES,
   STEP_DEGREE,
   STEP_DIRECTION_SHARE,
@@ -475,6 +474,8 @@ interface Layout {
   readonly mirror: boolean;
   readonly ends: readonly [EndKind, EndKind];
   readonly round: readonly [boolean, boolean];
+  /** Whether the tail is a notch bottom (a swallow or fish), not a tip. */
+  readonly notched: boolean;
   /** The point a pole end collapses to (its centre height), per end. */
   readonly poleZ: readonly [number, number];
   /** The minus side's `t` shift near an asymmetric collapsed end, or null. */
@@ -598,13 +599,15 @@ type Tips = readonly [Float64Array | null, Float64Array | null];
 interface Cross {
   readonly dx: Float64Array;
   readonly dz: Float64Array;
+  /** ∂z/∂t itself, for the column of a collapsed end, where the section has no width (dy = 0). */
+  readonly tz: Float64Array;
   readonly ok: Uint8Array;
 }
 
 /**
  * How the evaluator leaves the stringer, at the Greville abscissa of each control column of `g.u`: the
- * ratios `dx / dy` and `dz / dy` of its section's first step from `t = 0` (`end` 0, the bottom) or from
- * `t = 1` (the deck). On a standard section the direction is purely along y (both are 0); in a notch zone
+ * ratios `dx / dy` and `dz / dy` of its section's tangent ∂S/∂t at `t = 0` (`end` 0, the bottom) or at
+ * `t = 1` (the deck), exact from the evaluator. On a standard section the direction is purely along y (both are 0); in a notch zone
  * the chord is a fan chord (`dx ≠ 0`); under a vee the section leaves at a slope (`dz ≠ 0`).
  */
 function crossAt(ev: SurfaceEvaluator, side: 0 | 1, lay: Layout, g: Grids, end: 0 | 1): Cross {
@@ -613,22 +616,23 @@ function crossAt(ev: SurfaceEvaluator, side: 0 | 1, lay: Layout, g: Grids, end: 
   const dz = new Float64Array(n);
   const ok = new Uint8Array(n);
   const knots = g.u.knots;
-  const a = new Float64Array(3);
-  const b = new Float64Array(3);
+  const tz = new Float64Array(n);
+  const o = new Float64Array(9);
   for (let i = 0; i < n; i++) {
     let gr = 0;
     for (let k = 1; k <= STEP_DEGREE; k++) gr += knots[i + k]!;
     gr /= STEP_DEGREE;
-    ev.row(side, lay.along.xi(gr), 0);
-    ev.eval(end, 0, a);
-    ev.eval(end === 0 ? STEP_CROSS_STEP : 1 - STEP_CROSS_STEP, 0, b);
-    const dy = b[1]! - a[1]!;
+    // ∂S/∂t at the stringer (the minus side's warp only scales it there)
+    ev.row(side, lay.along.xi(gr), 1);
+    ev.eval(end, 1, o);
+    const dy = o[7]!;
+    tz[i] = o[8]!;
     if (Math.abs(dy) <= STEP_MIN_SPAN) continue;
-    dx[i] = (b[0]! - a[0]!) / dy;
-    dz[i] = (b[2]! - a[2]!) / dy;
+    dx[i] = o[6]! / dy;
+    dz[i] = o[8]! / dy;
     ok[i] = 1;
   }
-  return { dx, dz, ok };
+  return { dx, dz, tz, ok };
 }
 
 /**
@@ -692,12 +696,19 @@ function snap(
   colloc: readonly (readonly number[])[],
   tips: readonly [Tips, Tips],
   collocV: readonly (readonly number[])[],
+  vKnots: ArrayLike<number>,
 ): void {
   const at = (i: number, j: number) => (i * nv + j) * 3;
   const endRow = [0, nu - 1] as const;
   const nextRow = [1, nu - 2] as const;
   const collapsed = [lay.ends[0] !== 'cap', lay.ends[1] !== 'cap'] as const;
   const xiEnd = [lay.along.lo, lay.along.hi] as const;
+  // the control step of a clamped cubic in t that has derivative 1 at t = 0 (bottom) and at t = 1 (deck)
+  const m = vKnots.length;
+  const edgeStep = [
+    (vKnots[STEP_DEGREE + 1]! - vKnots[1]!) / STEP_DEGREE,
+    -(vKnots[m - 2]! - vKnots[m - 2 - STEP_DEGREE]!) / STEP_DEGREE,
+  ] as const;
   const lean = (net: Float64Array, side: 0 | 1): void => {
     const rows: [number, number, Cross][] = [
       [0, 1, cross[side][0]],
@@ -713,9 +724,12 @@ function snap(
         const end = k === 0 || k === nu - 1;
         const flat = (k === 0 && collapsed[0]) || (k === nu - 1 && collapsed[1]);
         if (flat || c.ok[k] === 0) {
-          // a collapsed end column is all on its edge: its next row is the fit's
-          rhs[0]![k] = net[at(k, j1)]! - net[at(k, j0)]!;
-          rhs[1]![k] = net[at(k, j1) + 2]! - net[at(k, j0) + 2]!;
+          // a collapsed end column is all on its edge: at a tip the plus side gives its first step along the
+          // edge the evaluator's own ∂z/∂t there, so that the stringer's cross direction runs into the tip as
+          // the evaluator's does (the minus side shares that row as it is; a notch bottom keeps the fit's)
+          const exact = flat && side === 0 && !(k === 0 && lay.notched);
+          rhs[0]![k] = exact ? 0 : net[at(k, j1)]! - net[at(k, j0)]!;
+          rhs[1]![k] = exact ? c.tz[k]! * edgeStep[j0 === 0 ? 0 : 1] : net[at(k, j1) + 2]! - net[at(k, j0) + 2]!; // prettier-ignore
           return row.map((_, i) => (i === k ? 1 : 0));
         }
         let yk = 0;
@@ -1031,7 +1045,8 @@ export function boardSolid(built: BuiltBoard, opts: BoardSolidOptions = {}): Boa
         ends[1] === 'edge' ? edgeWarp(ev, hi) : null,
       ]);
   const poleZ = [sectionSize(ev, mirror, lo).z, sectionSize(ev, mirror, hi).z] as const;
-  const lay: Layout = { along, mirror, ends, round, poleZ, warp };
+  const notched = built.sides[0].frame.notch !== null;
+  const lay: Layout = { along, mirror, ends, round, notched, poleZ, warp };
 
   // the first knots: equal spans and the stations
   const ub = uniformBreaks(STEP_START_SPANS);
@@ -1064,7 +1079,7 @@ export function boardSolid(built: BuiltBoard, opts: BoardSolidOptions = {}): Boa
       tipAt(ev, side, lay, grids, 1),
     ];
     const tips = tipsOf(0);
-    snap(lay, nu, nv, plusPts, minusPts, [crossOf(0), mirror ? crossOf(0) : crossOf(1)], collocation(grids.u), [tips, mirror ? tips : tipsOf(1)], collocation(grids.v)); // prettier-ignore
+    snap(lay, nu, nv, plusPts, minusPts, [crossOf(0), mirror ? crossOf(0) : crossOf(1)], collocation(grids.u), [tips, mirror ? tips : tipsOf(1)], collocation(grids.v), grids.v.knots); // prettier-ignore
     plusSurf = withControls(grids, plusPts);
     minusSurf = withControls(grids, minusPts ?? mirrorControls(plusPts));
     const marks: Marks = { deviation: 0, u: new Set(), v: new Set() };

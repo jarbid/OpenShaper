@@ -267,7 +267,5 @@ export const STEP_MAX_CONTROLS = 12000;
  */
 export const STEP_END_BLEND = 0.06;
 export const STEP_WARP_TABLE = 1024;
-/** `t` offset at which the cross direction of the evaluator at a stringer row is measured. */
-export const STEP_CROSS_STEP = 1e-3;
 /** Check samples per span along the boundary rows (the stringer, the apex and the ends), which `snap` moves. */
 export const STEP_EDGE_SAMPLES = 24;
