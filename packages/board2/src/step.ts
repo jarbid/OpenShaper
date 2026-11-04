@@ -441,16 +441,29 @@ function endKind(ev: SurfaceEvaluator, mirror: boolean, xi: number): EndKind {
   return s.thickness > STEP_POLE_THICKNESS ? 'edge' : 'pole';
 }
 
-/** Whether a tip is round: the outline of every side is vertical there (a standard end only, not a notch bottom). */
+/**
+ * Whether a tip is round: the outline of every side is vertical there (a standard end only, not a notch
+ * bottom). The tangent is the end segment's first control-polygon leg of non-zero length, so a collapsed
+ * handle (a zero tangent) still gives the direction the curve arrives in.
+ */
 function roundTip(built: BuiltBoard, mirror: boolean, end: 0 | 1): boolean {
-  const d = new Float64Array(6);
   const buf = new Float64Array(3);
   for (const side of mirror ? [built.sides[0]] : built.sides) {
     const f = side.frame;
     if (end === 0 && f.notch !== null) return false;
     outlineParam(f, end === 0 ? built.xiMin : built.xiMax, buf);
-    chainEval(f.chain, buf[0]!, 1, d, 0);
-    if (Math.abs(d[2]!) > STEP_ROUND_SLOPE * Math.hypot(d[2]!, d[3]!)) return false;
+    const k = Math.min(f.chain.segments - 1, Math.max(0, end === 0 ? Math.floor(buf[0]!) : Math.ceil(buf[0]!) - 1)); // prettier-ignore
+    const c = f.chain.c;
+    const o = 8 * k;
+    // the end point and the other control points, nearest first
+    const at = end === 0 ? [0, 2, 4, 6] : [6, 4, 2, 0];
+    let dx = 0;
+    let dy = 0;
+    for (let i = 1; i < 4 && dx === 0 && dy === 0; i++) {
+      dx = c[o + at[i]!]! - c[o + at[0]!]!;
+      dy = c[o + at[i]! + 1]! - c[o + at[0]! + 1]!;
+    }
+    if (Math.abs(dx) > STEP_ROUND_SLOPE * Math.hypot(dx, dy)) return false;
   }
   return true;
 }
@@ -578,6 +591,9 @@ function solveDense(
   return B;
 }
 
+/** Per end (tail, nose): the evaluator's plan direction off a pinned tip edge per control row, or null. */
+type Tips = readonly [Float64Array | null, Float64Array | null];
+
 /** The evaluator's cross direction at a stringer row, per control column: `(dx, dz)` per unit of `dy` along `t`. */
 interface Cross {
   readonly dx: Float64Array;
@@ -616,6 +632,48 @@ function crossAt(ev: SurfaceEvaluator, side: 0 | 1, lay: Layout, g: Grids, end: 
 }
 
 /**
+ * How the evaluator leaves a pinned tip edge or a notch bottom (a collapsed `edge` end that is not round), at
+ * the Greville abscissa of each control row of `g.v`: the plan direction `(dx, dy)` (unit) of ∂S/∂ξ on the
+ * end row, where the side's own fit is sampled (the minus side's warp included). The edge is
+ * vertical, so the plan part of a cross tangent is the part that sets the angle between the faces. Null for
+ * every other end.
+ */
+function tipAt(
+  ev: SurfaceEvaluator,
+  side: 0 | 1,
+  lay: Layout,
+  g: Grids,
+  e: 0 | 1,
+): Float64Array | null {
+  if (lay.ends[e] !== 'edge' || lay.round[e]) return null;
+  const n = g.v.count;
+  const knots = g.v.knots;
+  const gv: number[] = [];
+  for (let j = 0; j < n; j++) {
+    let gr = 0;
+    for (let k = 1; k <= STEP_DEGREE; k++) gr += knots[j + k]!;
+    gv.push(gr / STEP_DEGREE);
+  }
+  // ∂S/∂ξ of the end row: the minus side's warp only adds a step along the (vertical) edge, out of the plan
+  const s0 = e === 0 ? 0 : 1;
+  const o = new Float64Array(6);
+  const out = new Float64Array(2 * n);
+  ev.row(side, lay.along.xi(s0), 1);
+  for (let j = 0; j < n; j++) {
+    const t = side === 1 && lay.warp !== null ? lay.warp(s0, gv[j]!) : gv[j]!;
+    ev.eval(t, 1, o);
+    const dx = o[3]!;
+    const dy = o[4]!;
+    const len = Math.hypot(dx, dy);
+    if (len > STEP_MIN_SPAN) {
+      out[2 * j] = dx / len;
+      out[2 * j + 1] = dy / len;
+    }
+  }
+  return out;
+}
+
+/**
  * Snaps the shared rows exactly: y = 0 on the stringer rows and on a collapsed end row (a pole's row onto its
  * point), the cap rows in their plane, and the minus side's stringer and collapsed rows onto the plus side's.
  * The control row next to a stringer row is then placed on the line through the stringer row along the
@@ -632,6 +690,8 @@ function snap(
   minus: Float64Array | null,
   cross: readonly [readonly [Cross, Cross], readonly [Cross, Cross]],
   colloc: readonly (readonly number[])[],
+  tips: readonly [Tips, Tips],
+  collocV: readonly (readonly number[])[],
 ): void {
   const at = (i: number, j: number) => (i * nv + j) * 3;
   const endRow = [0, nu - 1] as const;
@@ -700,6 +760,54 @@ function snap(
       }
     }
   };
+  /**
+   * A pinned tip or a notch bottom: the plan part of the cross tangent along the end row is made parallel to
+   * the evaluator's (`tips`) at the Greville abscissae of t, keeping the fit's length along it; the rows at
+   * and next to the stringer rows keep the stringer's lean.
+   */
+  const tipLean = (net: Float64Array, side: 0 | 1): void => {
+    for (const e of [0, 1] as const) {
+      const dir = tips[side][e];
+      if (dir === null || nv < 6) continue;
+      const i0 = endRow[e];
+      const i1 = nextRow[e];
+      const n = 2 * nv;
+      const A: number[][] = [];
+      const rhs = new Float64Array(n);
+      const D = (j: number, c: 0 | 1) => net[at(i1, j) + c]! - net[at(i0, j) + c]!;
+      for (let k = 0; k < nv; k++) {
+        const r0 = new Array<number>(n).fill(0);
+        const r1 = new Array<number>(n).fill(0);
+        const ex = dir[2 * k]!;
+        const ey = dir[2 * k + 1]!;
+        if (k < 2 || k > nv - 3 || (ex === 0 && ey === 0)) {
+          r0[2 * k] = 1;
+          r1[2 * k + 1] = 1;
+          rhs[2 * k] = D(k, 0);
+          rhs[2 * k + 1] = D(k, 1);
+        } else {
+          let along = 0;
+          for (let j = 0; j < nv; j++) {
+            const N = collocV[k]![j]!;
+            if (N === 0) continue;
+            r0[2 * j] = N * ey;
+            r0[2 * j + 1] = -N * ex;
+            r1[2 * j] = N * ex;
+            r1[2 * j + 1] = N * ey;
+            along += N * (D(j, 0) * ex + D(j, 1) * ey);
+          }
+          rhs[2 * k] = 0;
+          rhs[2 * k + 1] = along;
+        }
+        A.push(r0, r1);
+      }
+      const sol = solveDense(A, [rhs])[0]!;
+      for (let j = 2; j < nv - 2; j++) {
+        net[at(i1, j)] = net[at(i0, j)]! + sol[2 * j]!;
+        net[at(i1, j) + 1] = net[at(i0, j) + 1]! + sol[2 * j + 1]!;
+      }
+    }
+  };
   /** The cap rows in their x-plane. */
   const caps = (net: Float64Array): void => {
     for (const e of [0, 1] as const) {
@@ -714,6 +822,7 @@ function snap(
   roundOff(plus, 0, nv);
   lean(plus, 0);
   roundOff(plus, 0, nv);
+  tipLean(plus, 0);
   caps(plus);
   if (minus === null) return;
   for (const j of [0, nv - 1]) {
@@ -729,6 +838,7 @@ function snap(
   }
   lean(minus, 1);
   roundOff(minus, 1, nv - 1);
+  tipLean(minus, 1);
   caps(minus);
 }
 
@@ -949,7 +1059,12 @@ export function boardSolid(built: BuiltBoard, opts: BoardSolidOptions = {}): Boa
       crossAt(ev, side, lay, grids, 0),
       crossAt(ev, side, lay, grids, 1),
     ];
-    snap(lay, nu, nv, plusPts, minusPts, [crossOf(0), mirror ? crossOf(0) : crossOf(1)], collocation(grids.u)); // prettier-ignore
+    const tipsOf = (side: 0 | 1): Tips => [
+      tipAt(ev, side, lay, grids, 0),
+      tipAt(ev, side, lay, grids, 1),
+    ];
+    const tips = tipsOf(0);
+    snap(lay, nu, nv, plusPts, minusPts, [crossOf(0), mirror ? crossOf(0) : crossOf(1)], collocation(grids.u), [tips, mirror ? tips : tipsOf(1)], collocation(grids.v)); // prettier-ignore
     plusSurf = withControls(grids, plusPts);
     minusSurf = withControls(grids, minusPts ?? mirrorControls(plusPts));
     const marks: Marks = { deviation: 0, u: new Set(), v: new Set() };
