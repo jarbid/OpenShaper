@@ -191,6 +191,22 @@ function tipFold(built: BuiltBoard, solid: BoardSolid, e: 0 | 1): { fold: number
     ev.eval(t, 0, b);
     return [b[0]! - a[0]!, b[1]! - a[1]!, b[2]! - a[2]!];
   };
+  // an asymmetric board's minus side meets the edge at its own t: the evaluator's point of the same height
+  const sameHeight = (t: number): number => {
+    ev.row(0, solid.xiOf(e), 0);
+    ev.eval(t, 0, a);
+    const z = a[2]!;
+    ev.row(1, solid.xiOf(e), 0);
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 60; i++) {
+      const m = 0.5 * (lo + hi);
+      ev.eval(m, 0, b);
+      if (b[2]! < z) lo = m;
+      else hi = m;
+    }
+    return pole ? t : 0.5 * (lo + hi);
+  };
   let fold = 0;
   let excess = 0;
   for (let k = 1; k < 100; k++) {
@@ -199,7 +215,7 @@ function tipFold(built: BuiltBoard, solid: BoardSolid, e: 0 | 1): { fold: number
     const m = surfaceDerivatives(solid.minus, e, t, 1).Su;
     const step = angleDeg(plan([p.x, p.y, p.z]), plan([-m.x, -m.y, -m.z]));
     const ep = evDir(0, t);
-    const em = evDir(mirror ? 0 : 1, t);
+    const em = evDir(mirror ? 0 : 1, mirror ? t : sameHeight(t));
     const exact = angleDeg(
       plan(ep),
       plan(mirror ? [-em[0], em[1], -em[2]] : [-em[0], -em[1], -em[2]]),
