@@ -250,6 +250,13 @@ export interface BrepEdge {
   /** Vertex ids; `start === end` for a closed edge. */
   readonly start: number;
   readonly end: number;
+  /**
+   * A collapsed edge: the side of one face's surface that is a single point (a pole). `start === end`, the
+   * curve is constant at that vertex, and one coedge uses it, whose pcurve is the collapsed side. It counts in
+   * no Euler characteristic and is written as no STEP edge (a STEP loop closes through the pole's vertex, the
+   * convention OCCT reads and writes).
+   */
+  readonly degenerate?: boolean;
 }
 
 export interface BrepCoedge {

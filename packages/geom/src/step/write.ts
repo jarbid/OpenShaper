@@ -22,6 +22,11 @@
  *   one face is a `SEAM_CURVE` with its two pcurves. `pcurves: 'trimmedOnly'`
  *   leaves a plain 3D curve on edges that are not seams and whose faces are all
  *   untrimmed (their natural boundary).
+ * - A degenerate edge (a pole, `BrepEdge.degenerate`) is not written: its
+ *   face's `EDGE_LOOP` closes through the pole's `VERTEX_POINT`, the convention
+ *   OCCT writes and reads (it rebuilds the degenerated edge on import). The
+ *   subset reader does not read such a loop back, so a pole needs the default
+ *   `'roundTrip'` precision.
  * - Periodic surfaces are written clamped through the exact conversion in
  *   `brep/clamp.ts`, on the same parameter domain, so pcurves are unchanged;
  *   `u_closed` / `v_closed` state the geometric truth, measured.
@@ -375,10 +380,10 @@ export function writeStepCore(
   const timestamp = opts?.timestamp ?? DEFAULT_TIMESTAMP;
 
   b.edges.forEach((e, i) => {
-    if (isCollapsed(e.curve, tol.point)) {
+    if (e.degenerate !== true && isCollapsed(e.curve, tol.point)) {
       fail(
         'step-unsupported',
-        `edge ${i} is collapsed (a pole or apex): outside the writer's scope`,
+        `edge ${i} is collapsed (a pole or apex) but not marked degenerate: outside the writer's scope`,
         {
           edge: i,
         },
@@ -494,9 +499,10 @@ export function writeStepCore(
   b.faces.forEach((f) => {
     const surface = surfaceEntity(f.surface);
     const bounds = [f.outer, ...f.holes].map((l, li) => {
-      const oriented = l.coedges.map((c) =>
-        em.emit(`ORIENTED_EDGE('',*,*,${ref(edgeEntity(c.edge))},${bool(c.sense)})`),
-      );
+      // a degenerate edge (a pole) is no STEP edge: the loop closes through its vertex
+      const oriented = l.coedges
+        .filter((c) => b.edges[c.edge]!.degenerate !== true)
+        .map((c) => em.emit(`ORIENTED_EDGE('',*,*,${ref(edgeEntity(c.edge))},${bool(c.sense)})`));
       const loop = em.emit(`EDGE_LOOP('',${refs(oriented)})`);
       return em.emit(`${li === 0 ? 'FACE_OUTER_BOUND' : 'FACE_BOUND'}('',${ref(loop)},.T.)`);
     });
@@ -535,7 +541,7 @@ export function writeStepCore(
     stats: Object.freeze({
       entities: em.lines.length,
       faces: b.faces.length,
-      edges: b.edges.length,
+      edges: b.edges.filter((e) => e.degenerate !== true).length,
       vertices: b.vertices.length,
       uncertainty,
       maxEdgeGap: report.maxEdgeGap * factor,

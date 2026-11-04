@@ -235,17 +235,20 @@ export const STEP_MAX_PASSES = 30;
 /** A span narrower than this (parameter units) is not bisected further. */
 export const STEP_MIN_SPAN = 1e-6;
 /**
- * An end whose section is narrower than {@link STEP_TIP_CHORD} (half-width, cm: the classic export's 5 mm
- * `MIN_DIM` across) or thinner than {@link STEP_TIP_THICKNESS} (cm) is a tip: the surface is clipped where both
- * are reached and a planar cap closes the clip. A rounded tip is clipped within a fraction of a millimetre
- * (the outline goes as the square root of the distance to the tip), a knife-thin one by the length at which
- * the thickness reaches its minimum.
+ * How an end closes (docs/design/m3-exports.md, "As built (rounded tips)"). An end whose half-width is at
+ * most {@link STEP_TIP_WIDTH} (cm) is a tip: the surface runs to it and its end row collapses onto the
+ * vertical tip edge, or onto a pole where the thickness is at most {@link STEP_POLE_THICKNESS} (cm). A wider
+ * end is a blunt end (a transom) with a planar cap. A tip is round when the outline's tangent there leaves
+ * the vertical by at most {@link STEP_ROUND_SLOPE} (|dx| / |d(x, y)|): the faces then meet tangent along it.
  */
-export const STEP_TIP_CHORD = 0.25;
-export const STEP_TIP_THICKNESS = 0.05;
-/** Steps of the scan that finds a clip, and bisections that place it. */
-export const STEP_CLIP_SCAN = 400;
-export const STEP_CLIP_BISECT = 40;
+export const STEP_TIP_WIDTH = 1e-6;
+export const STEP_POLE_THICKNESS = 1e-3;
+export const STEP_ROUND_SLOPE = 1e-6;
+/** Arc-length table entries per outline segment for the shared s(ξ) map, and bisections that invert it. */
+export const STEP_ARC_TABLE = 512;
+export const STEP_ARC_BISECT = 60;
+/** Bisections that place an entry of the warp table. */
+export const STEP_WARP_BISECT = 40;
 /** A refinement direction counts when its predicted error is at least this share of the other direction's. */
 export const STEP_DIRECTION_SHARE = 0.5;
 /** Margin (cm) added around a cap's section for the plane it lies in. */
@@ -258,11 +261,11 @@ export const STEP_STATION_GAP = 1e-3;
 /** A fit needing more control points than this (per side) fails with a clear message instead of running for minutes. */
 export const STEP_MAX_CONTROLS = 12000;
 /**
- * The minus side of an asymmetric notched board is sampled at a reparametrised `t` near the notch bottom, so
- * that its collapsed row is the plus side's row point for point: the share of `s` over which the shift fades
- * out, and the entries of the table that inverts the minus side's height along the notch edge.
+ * The minus side of an asymmetric board is sampled at a reparametrised `t` near a collapsed end (a notch bottom
+ * or a tip edge), so that its collapsed row is the plus side's row point for point: the share of `s` over which
+ * the shift fades out, and the entries of the table that inverts the minus side's height along that edge.
  */
-export const STEP_NOTCH_BLEND = 0.06;
+export const STEP_END_BLEND = 0.06;
 export const STEP_WARP_TABLE = 1024;
 /** `t` offset at which the cross direction of the evaluator at a stringer row is measured. */
 export const STEP_CROSS_STEP = 1e-3;

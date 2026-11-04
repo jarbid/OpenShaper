@@ -48,7 +48,6 @@ const BOARDS: readonly { name: string; doc: BoardDoc }[] = [
 /** The largest distance from a solid's sides to the evaluator on a grid offset from the fit's and the check's. */
 function independentDeviation(built: BuiltBoard, solid: BoardSolid): number {
   const ev = createEvaluator(built);
-  const [lo, hi] = solid.report.range;
   const sc = createScratch({ maxDegree: 3 });
   const out = new Float64Array(3);
   let worst = 0;
@@ -63,6 +62,9 @@ function independentDeviation(built: BuiltBoard, solid: BoardSolid): number {
     return pts;
   };
   const mirror = built.doc.symmetry === 'mirror';
+  const { tail, nose } = solid.report;
+  const warped = (u: number): boolean =>
+    (u < 0.1 && tail === 'edge') || (u > 0.9 && nose === 'edge');
   for (const side of mirror ? ([0] as const) : ([0, 1] as const)) {
     const surf = side === 0 ? solid.plus : solid.minus;
     const us = grid(surf.u.knots as Float64Array, 7);
@@ -70,14 +72,14 @@ function independentDeviation(built: BuiltBoard, solid: BoardSolid): number {
     const F = new Float64Array(us.length * vs.length * 3);
     surfaceEvalGridInto(surf, Float64Array.from(us), Float64Array.from(vs), 0, F, sc);
     for (let i = 0; i < us.length; i++) {
-      ev.row(side, lo + us[i]! * (hi - lo), 0);
+      ev.row(side, solid.xiOf(us[i]!), 0);
       for (let j = 0; j < vs.length; j++) {
         ev.eval(vs[j]!, 0, out, 0);
         const o = (i * vs.length + j) * 3;
         let d = Math.hypot(out[0]! - F[o]!, out[1]! - F[o + 1]!, out[2]! - F[o + 2]!);
-        // beside an asymmetric notch bottom the minus side is a reparametrisation of the evaluator's:
+        // beside an asymmetric collapsed end the minus side is a reparametrisation of the evaluator's:
         // the distance there is to its section at the same s, wherever along t
-        if (side === 1 && us[i]! < 0.1) {
+        if (side === 1 && warped(us[i]!)) {
           for (let k = 0; k <= 800; k++) {
             ev.eval(k / 800, 0, out, 0);
             d = Math.min(d, Math.hypot(out[0]! - F[o]!, out[1]! - F[o + 1]!, out[2]! - F[o + 2]!));
@@ -97,10 +99,10 @@ function independentDeviation(built: BuiltBoard, solid: BoardSolid): number {
     for (const [u, v] of rows) {
       const F = new Float64Array(3);
       surfaceEvalGridInto(surf, Float64Array.from([u]), Float64Array.from([v]), 0, F, sc);
-      ev.row(side, lo + u * (hi - lo), 0);
+      ev.row(side, solid.xiOf(u), 0);
       let d: number;
-      if (side === 1 && u < 0.1) {
-        // beside an asymmetric notch bottom: the distance to the evaluator's section at the same s
+      if (side === 1 && warped(u)) {
+        // beside an asymmetric collapsed end: the distance to the evaluator's section at the same s
         d = Infinity;
         for (let k = 0; k <= 800; k++) {
           ev.eval(k / 800, 0, out, 0);
@@ -136,12 +138,11 @@ function foldExcess(
   to: number,
 ): number {
   const ev = createEvaluator(built);
-  const [lo, hi] = solid.report.range;
   const mirror = built.doc.symmetry === 'mirror';
   const a = new Float64Array(3);
   const b = new Float64Array(3);
   const evDir = (side: 0 | 1, s: number): [number, number, number] => {
-    ev.row(side, lo + s * (hi - lo), 0);
+    ev.row(side, solid.xiOf(s), 0);
     ev.eval(v, 0, a);
     ev.eval(v === 0 ? 1e-4 : 1 - 1e-4, 0, b);
     const k = v === 0 ? 1 : -1;
@@ -203,8 +204,9 @@ describe('the STEP solid of a built board', () => {
           expect(minus.cw[k + 2]).toBe(plus.cw[k + 2]);
         }
       }
-      // the shell: a notched tail ends in one shared edge (no cap), every other end in a cap
-      expect(solid.brep.faces.length).toBe(solid.report.tail === 'edge' ? 3 : 4);
+      // the shell: two hulls and a cap at a blunt end only; tips and notch bottoms are shared edges
+      const caps = [solid.report.tail, solid.report.nose].filter((e) => e === 'cap').length;
+      expect(solid.brep.faces.length).toBe(2 + caps);
     }, 60_000);
   }
 

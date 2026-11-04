@@ -3,25 +3,30 @@
  * The board as a STEP solid (docs/design/m3-exports.md, decision 5): one B-spline surface per side, fitted
  * to the evaluator, in geom's B-rep, written by geom's STEP writer.
  *
- * **Parametrisation.** Each side is one rectangle in `(s, t)`: `s = (ξ − lo) / (hi − lo)` along the
- * stringer and `t` around the section, bottom centre (0) over the apex (½) to deck centre (1). This holds on
- * a notched tail too: the notch zone is a change of the chord map inside the same rectangle (m1-model.md §2),
- * the notch bottom is the row `s = 0` collapsed to the vertical stringer edge, and the inner wall, the tip
- * and the outer rail are one `t` run across the rail. So the shell is the classic one: two hull faces (the
- * plus and the minus side), joined along the stringer, and a planar cap at each end that has width.
+ * **Parametrisation.** Each side is one rectangle in `(s, t)`: `t` runs around the section, bottom centre (0)
+ * over the apex (½) to deck centre (1), and `s` along the board by a map `ξ(s)` that both sides share: the
+ * normalised mean of the two outlines' plan arc lengths (the path of the chord end `P(ξ)`, m1-model.md §2). At a
+ * round tip the outline is vertical, so ξ is singular in the outline's own length; in `s` the rail runs at a
+ * finite speed right up to the tip and the surface is smooth there, so the fit has nothing to fight. This holds
+ * on a notched tail too: the notch zone is a change of the chord map inside the same rectangle, and the inner
+ * wall, the tip and the outer rail are one `t` run across the rail.
  *
- * **Ends.** `lo` and `hi` are the first and last station unless the end is a tip. A tip (a pointed tail or
- * nose: the section is narrower or thinner than `STEP_TIP_CHORD` or `STEP_TIP_THICKNESS`) is singular in ξ (the outline is not a
- * function of ξ there), so the fit never samples it: the surface is clipped where the section reaches
- * those minimums and a planar cap closes the clip, the classic export's answer. A blunt end (a squash tail,
- * a blunt nose) is a cap at the end station itself. A notch bottom is not clipped: the chord grows linearly
- * from it, and the two sides meet along one shared vertical edge, so there is no cap there.
+ * **Ends.** Nothing is clipped: the surface runs from the first station to the last. An end whose chord has
+ * no length (a pointed or round tip, a notch bottom) is a collapsed row: the end row of both sides lies on the
+ * vertical edge at `(ξ, 0)` from the rocker to the deck, one edge shared by the two faces, or on a single
+ * point (a pole) where the end has no thickness either. An end with width (a squash transom, a blunt nose,
+ * the converter's `bluntEnds`) is a real flat end of the model and keeps its planar cap.
  *
- * **Seams by construction.** The two sides share their `s` and `t` knots. The rows `t = 0` and `t = 1` (and
- * the notch-bottom row) of the plus fit lie on y = 0 (point constraints, then snapped), and the minus fit is
- * constrained to the plus fit's values there and then takes its control points exactly; a symmetric board's
- * minus side is the plus side with y negated. A cap's rows lie in the plane x = const (the chord of a
- * standard end is an x-plane), constrained and snapped, so the cap is an exact plane face.
+ * **Seams by construction.** The two sides share their `s` and `t` knots. The rows `t = 0` and `t = 1` and the
+ * collapsed end rows of the plus fit lie on y = 0 (held by weight, then snapped), and the minus fit takes the
+ * plus fit's control points there exactly; a symmetric board's minus side is the plus side with y negated. A
+ * cap's rows lie in the plane x = const, so the cap is an exact plane face.
+ *
+ * **Tangency.** The control row next to a stringer row leans along the evaluator's own cross direction, so the
+ * faces meet tangent-continuously along the stringer wherever the evaluator does. At a round tip the
+ * evaluator's ∂S/∂s is along ±y (x and z are stationary there), so the row next to the tip row takes the tip
+ * row's x and z: both faces leave the tip edge along ±y and meet tangent along it. A pinned tip (a corner in
+ * plan) and a notch bottom keep the evaluator's crease, to within the fit.
  *
  * **Refinement.** Fit, measure the distance to the evaluator at the same `(s, t)` on a dense grid
  * (`STEP_CHECK_SAMPLES` points per span, disjoint from the fit's data), and bisect the spans of the cells
@@ -57,28 +62,33 @@ import type {
 } from '@openshaper/geom';
 import {
   STEP_ACCEPT_SHARE,
+  STEP_ARC_BISECT,
+  STEP_ARC_TABLE,
   STEP_CAP_MARGIN,
   STEP_CHECK_SAMPLES,
-  STEP_CLIP_BISECT,
-  STEP_CLIP_SCAN,
   STEP_CROSS_STEP,
   STEP_EDGE_SAMPLES,
   STEP_DEGREE,
   STEP_DIRECTION_SHARE,
   STEP_EDGE_WEIGHT,
+  STEP_END_BLEND,
   STEP_FIT_SAMPLES,
   STEP_MAX_CONTROLS,
   STEP_MAX_PASSES,
   STEP_MIN_SPAN,
-  STEP_NOTCH_BLEND,
+  STEP_POLE_THICKNESS,
+  STEP_ROUND_SLOPE,
   STEP_START_HALF_SPANS,
   STEP_START_SPANS,
   STEP_STATION_GAP,
-  STEP_TIP_CHORD,
-  STEP_TIP_THICKNESS,
+  STEP_TIP_WIDTH,
   STEP_TOLERANCE,
+  STEP_WARP_BISECT,
   STEP_WARP_TABLE,
 } from './params';
+import { chainEval } from './chain';
+import { outlineParam, xiOfParam } from './frame';
+import type { PlanFrame } from './frame';
 import { createEvaluator } from './surface';
 import type { BuiltBoard, SurfaceEvaluator } from './surface';
 
@@ -91,8 +101,11 @@ export interface BoardSolidOptions {
   readonly maxControls?: number;
 }
 
-/** How an end of the solid is closed. */
-export type EndKind = 'cap' | 'edge';
+/**
+ * How an end of the solid is closed: a planar cap (a blunt end), one vertical edge shared by the two faces
+ * (a tip or a notch bottom with thickness), or a pole (a tip without thickness).
+ */
+export type EndKind = 'cap' | 'edge' | 'pole';
 
 export interface BoardSolidReport {
   /** Largest distance (cm) from the surfaces to the evaluator at the same (ξ, t) on the dense grid. */
@@ -102,11 +115,12 @@ export interface BoardSolidReport {
   readonly controlCount: readonly [number, number];
   /** Spans of the s and t knot vectors. */
   readonly spans: readonly [number, number];
-  /** The ξ range of the surface, and how far each end was clipped from the board's end (cm). */
+  /** The ξ range of the surface: the board's first and last station (nothing is clipped). */
   readonly range: readonly [number, number];
-  readonly clipped: readonly [number, number];
   readonly tail: EndKind;
   readonly nose: EndKind;
+  /** Whether each end (tail, nose) is a round tip, across which the faces are made tangent. */
+  readonly round: readonly [boolean, boolean];
   /** True if the deviation is within the tolerance (false if the passes ran out or the budget did). */
   readonly withinTolerance: boolean;
   /** True if the fit stopped because the net would exceed {@link STEP_MAX_CONTROLS} control points. */
@@ -129,9 +143,10 @@ export class StepFitError extends Error {
 
 export interface BoardSolid {
   readonly brep: Brep;
-  /** The surfaces, in (s, t) with `ξ = range[0] + s · (range[1] − range[0])`. */
+  /** The surfaces, in (s, t); `xiOf(s)` is the station coordinate ξ of a row. */
   readonly plus: NurbsSurface;
   readonly minus: NurbsSurface;
+  readonly xiOf: (s: number) => number;
   readonly report: BoardSolidReport;
 }
 
@@ -168,16 +183,148 @@ const CHECK_FRACS = Array.from(
   (_, i) => (i + 0.5) / STEP_CHECK_SAMPLES,
 );
 
-interface Range {
+// --- the s map --------------------------------------------------------------------------------
+
+/** The shared map from the surface parameter s to the station coordinate ξ, and its inverse. */
+interface Along {
   readonly lo: number;
   readonly hi: number;
+  readonly xi: (s: number) => number;
+  readonly sOf: (xi: number) => number;
+}
+
+/**
+ * One side's plan arc length table: the chord end P(ξ) is the outline point O(p) (on the x = ξ branch and
+ * in the notch zone alike), so the table runs over the outline parameter p, where the outline is regular,
+ * and records ξ(p) and the arc length from the first station. Two-point Gauss per entry.
+ */
+function sideArc(f: PlanFrame, lo: number, hi: number): { xi: Float64Array; arc: Float64Array } {
+  const buf = new Float64Array(3);
+  outlineParam(f, lo, buf);
+  const p0 = buf[0]!;
+  outlineParam(f, hi, buf);
+  const p1 = buf[0]!;
+  const n = Math.max(1, Math.ceil((p1 - p0) * STEP_ARC_TABLE));
+  const xi = new Float64Array(n + 1);
+  const arc = new Float64Array(n + 1);
+  const d = new Float64Array(6);
+  const speed = (p: number): number => {
+    chainEval(f.chain, p, 1, d, 0);
+    return Math.hypot(d[2]!, d[3]!);
+  };
+  const g = 0.5 / Math.sqrt(3);
+  xi[0] = lo;
+  for (let k = 1; k <= n; k++) {
+    const a = p0 + ((p1 - p0) * (k - 1)) / n;
+    const b = p0 + ((p1 - p0) * k) / n;
+    const m = 0.5 * (a + b);
+    const h = b - a;
+    arc[k] = arc[k - 1]! + 0.5 * h * (speed(m - g * h) + speed(m + g * h));
+    xi[k] = k === n ? hi : Math.min(hi, Math.max(xi[k - 1]!, xiOfParam(f, b)));
+  }
+  return { xi, arc };
+}
+
+/** Piecewise-linear value of a non-decreasing table `ys(xs)` at x (clamped). */
+function tableAt(xs: Float64Array, ys: Float64Array, x: number): number {
+  const n = xs.length - 1;
+  if (x <= xs[0]!) return ys[0]!;
+  if (x >= xs[n]!) return ys[n]!;
+  let a = 0;
+  let b = n;
+  while (b - a > 1) {
+    const m = (a + b) >> 1;
+    if (xs[m]! <= x) a = m;
+    else b = m;
+  }
+  const w = xs[b]! > xs[a]! ? (x - xs[a]!) / (xs[b]! - xs[a]!) : 0;
+  return ys[a]! + w * (ys[b]! - ys[a]!);
+}
+
+/**
+ * ξ(s), s the normalised mean of the two sides' plan arc lengths (one side on a mirror board), as a monotone
+ * cubic (Fritsch-Carlson) through the table; its slope is 0 at a round tip, where the outline is vertical.
+ */
+function alongMap(built: BuiltBoard, mirror: boolean, round: readonly [boolean, boolean]): Along {
+  const lo = built.xiMin;
+  const hi = built.xiMax;
+  const tables = (mirror ? [built.sides[0]] : built.sides).map((side) => {
+    const t = sideArc(side.frame, lo, hi);
+    const total = t.arc[t.arc.length - 1]!;
+    return { xi: t.xi, s: t.arc.map((a) => a / total) };
+  });
+  let xs: Float64Array;
+  let ss: Float64Array;
+  if (tables.length === 1) {
+    xs = tables[0]!.xi;
+    ss = tables[0]!.s;
+  } else {
+    xs = Float64Array.from(new Set([...tables[0]!.xi, ...tables[1]!.xi])).sort();
+    ss = xs.map((x) => 0.5 * (tableAt(tables[0]!.xi, tables[0]!.s, x) + tableAt(tables[1]!.xi, tables[1]!.s, x))); // prettier-ignore
+  }
+  // strictly increasing knots of the inverse, s → ξ
+  const S: number[] = [0];
+  const X: number[] = [lo];
+  for (let k = 1; k < ss.length; k++) {
+    if (ss[k]! > S[S.length - 1]! && xs[k]! > X[X.length - 1]!) {
+      S.push(ss[k]!);
+      X.push(xs[k]!);
+    }
+  }
+  S[S.length - 1] = 1;
+  X[X.length - 1] = hi;
+  const n = S.length - 1;
+  const delta = new Float64Array(n);
+  for (let k = 0; k < n; k++) delta[k] = (X[k + 1]! - X[k]!) / (S[k + 1]! - S[k]!);
+  const m = new Float64Array(n + 1);
+  m[0] = round[0] ? 0 : delta[0]!;
+  m[n] = round[1] ? 0 : delta[n - 1]!;
+  for (let k = 1; k < n; k++) {
+    const h0 = S[k]! - S[k - 1]!;
+    const h1 = S[k + 1]! - S[k]!;
+    const w1 = 2 * h1 + h0;
+    const w2 = h1 + 2 * h0;
+    m[k] = (w1 + w2) / (w1 / delta[k - 1]! + w2 / delta[k]!);
+  }
+  const xi = (s: number): number => {
+    if (s <= 0) return lo;
+    if (s >= 1) return hi;
+    let a = 0;
+    let b = n;
+    while (b - a > 1) {
+      const c = (a + b) >> 1;
+      if (S[c]! <= s) a = c;
+      else b = c;
+    }
+    const h = S[b]! - S[a]!;
+    const u = (s - S[a]!) / h;
+    const u2 = u * u;
+    const u3 = u2 * u;
+    return (
+      (2 * u3 - 3 * u2 + 1) * X[a]! +
+      (u3 - 2 * u2 + u) * h * m[a]! +
+      (-2 * u3 + 3 * u2) * X[b]! +
+      (u3 - u2) * h * m[b]!
+    );
+  };
+  const sOf = (x: number): number => {
+    let a = 0;
+    let b = 1;
+    for (let i = 0; i < STEP_ARC_BISECT; i++) {
+      const c = 0.5 * (a + b);
+      if (xi(c) < x) a = c;
+      else b = c;
+    }
+    return 0.5 * (a + b);
+  };
+  return { lo, hi, xi, sOf };
 }
 
 /** The evaluator's points on the grid `us × vs` (s and t), u-major, stride 3. */
 function sampleGrid(
   ev: SurfaceEvaluator,
   side: 0 | 1,
-  r: Range,
+  along: Along,
   us: readonly number[],
   vs: readonly number[],
   warp: Warp | null = null,
@@ -185,7 +332,7 @@ function sampleGrid(
   const out = new Float64Array(us.length * vs.length * 3);
   const shifted = side === 1 ? warp : null;
   for (let i = 0; i < us.length; i++) {
-    ev.row(side, r.lo + us[i]! * (r.hi - r.lo), 0);
+    ev.row(side, along.xi(us[i]!), 0);
     for (let j = 0; j < vs.length; j++) {
       const t = shifted === null ? vs[j]! : shifted(us[i]!, vs[j]!);
       ev.eval(t, 0, out, (i * vs.length + j) * 3);
@@ -194,26 +341,26 @@ function sampleGrid(
   return out;
 }
 
-/** Where the minus side is sampled in `t` for a surface `(s, t)`: the identity away from the notch bottom. */
+/** Where the minus side is sampled in `t` for a surface `(s, t)`: the identity away from a collapsed end. */
 type Warp = (s: number, t: number) => number;
 
 /**
- * On an asymmetric notched board the two sides collapse onto the same vertical segment at the notch bottom,
- * but their `t` run along it differently (the sections' apexes sit at different heights). The surfaces share
- * that row control point for point, so the minus side is sampled where its own point has the plus side's
- * height, fading out over {@link STEP_NOTCH_BLEND} of `s`. That is a reparametrisation: the points stay on
- * the evaluator's surface. Null where the two agree already, or where the heights are not monotone in `t`.
+ * On an asymmetric board the two sides collapse onto the same vertical edge at a notch bottom or a tip, but
+ * their `t` runs along it differently (the sections' apexes sit at different heights). The surfaces share that
+ * row control point for point, so the minus side is sampled where its own point has the plus side's height:
+ * the table of that `t` along the edge at ξ. Null where the two agree already, or where the heights are not
+ * monotone in `t`.
  */
-function notchWarp(ev: SurfaceEvaluator, lo: number): Warp | null {
+function edgeWarp(ev: SurfaceEvaluator, xi: number): Float64Array | null {
   const K = STEP_WARP_TABLE;
   const o = new Float64Array(3);
   const target = new Float64Array(K + 1);
-  ev.row(0, lo, 0);
+  ev.row(0, xi, 0);
   for (let k = 0; k <= K; k++) {
     ev.eval(k / K, 0, o);
     target[k] = o[2]!;
   }
-  ev.row(1, lo, 0);
+  ev.row(1, xi, 0);
   const zAt = (t: number): number => {
     ev.eval(t, 0, o);
     return o[2]!;
@@ -229,7 +376,7 @@ function notchWarp(ev: SurfaceEvaluator, lo: number): Warp | null {
   for (let k = 0; k <= K; k++) {
     let a = 0;
     let b = 1;
-    for (let i = 0; i < STEP_CLIP_BISECT; i++) {
+    for (let i = 0; i < STEP_WARP_BISECT; i++) {
       const m = 0.5 * (a + b);
       if (zAt(m) < target[k]!) a = m;
       else b = m;
@@ -237,73 +384,87 @@ function notchWarp(ev: SurfaceEvaluator, lo: number): Warp | null {
     table[k] = 0.5 * (a + b);
     moved = Math.max(moved, Math.abs(table[k]! - k / K));
   }
-  if (moved <= STEP_MIN_SPAN) return null;
-  return (s, t) => {
-    if (s >= STEP_NOTCH_BLEND) return t;
-    const w = (1 - s / STEP_NOTCH_BLEND) ** 3;
+  return moved <= STEP_MIN_SPAN ? null : table;
+}
+
+/**
+ * The minus side's warp from the edge tables of the two ends (null where an end needs none): the table's `t`
+ * on the end row, fading out over {@link STEP_END_BLEND} of `s`. That is a reparametrisation: the points stay
+ * on the evaluator's surface.
+ */
+function makeWarp(tables: readonly [Float64Array | null, Float64Array | null]): Warp | null {
+  if (tables[0] === null && tables[1] === null) return null;
+  const K = STEP_WARP_TABLE;
+  const shift = (table: Float64Array, d: number, t: number): number => {
+    const w = (1 - d / STEP_END_BLEND) ** 3;
     const pos = t * K;
     const k = Math.min(K - 1, Math.floor(pos));
     const f = pos - k;
     const tau = table[k]! * (1 - f) + table[k + 1]! * f;
     return t + w * (tau - t);
   };
+  return (s, t) => {
+    if (tables[0] !== null && s < STEP_END_BLEND) return shift(tables[0], s, t);
+    if (tables[1] !== null && 1 - s < STEP_END_BLEND) return shift(tables[1], 1 - s, t);
+    return t;
+  };
 }
 
 // --- ends -------------------------------------------------------------------------------------
 
-/** Half-width of the section at ξ (the smaller of the two sides) and its thickness. */
+/** Half-width of the section at ξ (the larger of the two sides), its thickness and its centre height. */
 function sectionSize(
   ev: SurfaceEvaluator,
   mirror: boolean,
   xi: number,
-): { chord: number; thickness: number } {
+): { chord: number; thickness: number; z: number } {
   const o = new Float64Array(9);
-  let chord = Infinity;
-  let thickness = Infinity;
+  let chord = 0;
+  let thickness = 0;
+  let z = 0;
   for (const side of mirror ? ([0] as const) : ([0, 1] as const)) {
     ev.row(side, xi, 0);
     ev.eval(0, 0, o, 0);
     ev.eval(0.5, 0, o, 3);
     ev.eval(1, 0, o, 6);
-    chord = Math.min(chord, Math.abs(o[4]!));
-    thickness = Math.min(thickness, o[8]! - o[2]!);
+    chord = Math.max(chord, Math.abs(o[4]!));
+    thickness = Math.max(thickness, o[8]! - o[2]!);
+    z = 0.5 * (o[2]! + o[8]!);
   }
-  return { chord, thickness };
+  return { chord, thickness, z };
 }
 
-/** Where an end's surface stops: the end itself, or the nearest ξ inwards where the section reaches the tip minimum. */
-function clipEnd(ev: SurfaceEvaluator, mirror: boolean, from: number, toward: number): number {
-  const good = (xi: number): boolean => {
-    const s = sectionSize(ev, mirror, xi);
-    return s.chord >= STEP_TIP_CHORD && s.thickness >= STEP_TIP_THICKNESS;
-  };
-  if (good(from)) return from;
-  let bad = from;
-  let ok = Number.NaN;
-  for (let i = 1; i <= STEP_CLIP_SCAN; i++) {
-    const x = from + ((toward - from) * i) / STEP_CLIP_SCAN;
-    if (good(x)) {
-      ok = x;
-      break;
-    }
-    bad = x;
+/** How the end at ξ closes (module comment, "Ends"). */
+function endKind(ev: SurfaceEvaluator, mirror: boolean, xi: number): EndKind {
+  const s = sectionSize(ev, mirror, xi);
+  if (s.chord > STEP_TIP_WIDTH) return 'cap';
+  return s.thickness > STEP_POLE_THICKNESS ? 'edge' : 'pole';
+}
+
+/** Whether a tip is round: the outline of every side is vertical there (a standard end only, not a notch bottom). */
+function roundTip(built: BuiltBoard, mirror: boolean, end: 0 | 1): boolean {
+  const d = new Float64Array(6);
+  const buf = new Float64Array(3);
+  for (const side of mirror ? [built.sides[0]] : built.sides) {
+    const f = side.frame;
+    if (end === 0 && f.notch !== null) return false;
+    outlineParam(f, end === 0 ? built.xiMin : built.xiMax, buf);
+    chainEval(f.chain, buf[0]!, 1, d, 0);
+    if (Math.abs(d[2]!) > STEP_ROUND_SLOPE * Math.hypot(d[2]!, d[3]!)) return false;
   }
-  if (Number.isNaN(ok)) return from;
-  for (let i = 0; i < STEP_CLIP_BISECT; i++) {
-    const m = 0.5 * (bad + ok);
-    if (good(m)) ok = m;
-    else bad = m;
-  }
-  return ok;
+  return true;
 }
 
 // --- one fit ----------------------------------------------------------------------------------
 
 interface Layout {
-  readonly range: Range;
+  readonly along: Along;
   readonly mirror: boolean;
-  readonly tail: EndKind;
-  /** The minus side's `t` shift near an asymmetric notch bottom, or null. */
+  readonly ends: readonly [EndKind, EndKind];
+  readonly round: readonly [boolean, boolean];
+  /** The point a pole end collapses to (its centre height), per end. */
+  readonly poleZ: readonly [number, number];
+  /** The minus side's `t` shift near an asymmetric collapsed end, or null. */
   readonly warp: Warp | null;
 }
 
@@ -330,7 +491,7 @@ interface Grids {
 function fitSide(ev: SurfaceEvaluator, side: 0 | 1, lay: Layout, g: Grids): NurbsSurface {
   const us = positions(g.ub, FIT_FRACS, true);
   const vs = positions(g.vb, FIT_FRACS, true);
-  const points = sampleGrid(ev, side, lay.range, us, vs, lay.warp);
+  const points = sampleGrid(ev, side, lay.along, us, vs, lay.warp);
   const uv = new Float64Array(us.length * vs.length * 2);
   const weights = new Float64Array(us.length * vs.length).fill(1);
   for (let i = 0; i < us.length; i++) {
@@ -442,7 +603,7 @@ function crossAt(ev: SurfaceEvaluator, side: 0 | 1, lay: Layout, g: Grids, end: 
     let gr = 0;
     for (let k = 1; k <= STEP_DEGREE; k++) gr += knots[i + k]!;
     gr /= STEP_DEGREE;
-    ev.row(side, lay.range.lo + gr * (lay.range.hi - lay.range.lo), 0);
+    ev.row(side, lay.along.xi(gr), 0);
     ev.eval(end, 0, a);
     ev.eval(end === 0 ? STEP_CROSS_STEP : 1 - STEP_CROSS_STEP, 0, b);
     const dy = b[1]! - a[1]!;
@@ -455,11 +616,13 @@ function crossAt(ev: SurfaceEvaluator, side: 0 | 1, lay: Layout, g: Grids, end: 
 }
 
 /**
- * Snaps the shared rows exactly: y = 0 on the stringer rows (and the notch edge), the cap rows in their
- * plane, and the minus side's stringer and notch-edge rows onto the plus side's. The control row next to a
- * stringer row is then placed on the line through the stringer row along the evaluator's own cross
- * direction (`cross`), offset only in y: the two faces leave the stringer in the direction the evaluator
- * does, so they meet tangent-continuously wherever the board is smooth and keep its crease where it is not.
+ * Snaps the shared rows exactly: y = 0 on the stringer rows and on a collapsed end row (a pole's row onto its
+ * point), the cap rows in their plane, and the minus side's stringer and collapsed rows onto the plus side's.
+ * The control row next to a stringer row is then placed on the line through the stringer row along the
+ * evaluator's own cross direction (`cross`), offset only in y: the two faces leave the stringer in the
+ * direction the evaluator does, so they meet tangent-continuously wherever the board is smooth and keep its
+ * crease where it is not. At a round tip the row next to the tip row takes the tip row's x and z, so both
+ * faces leave the tip edge along ±y, as the evaluator does (module comment, "Tangency").
  */
 function snap(
   lay: Layout,
@@ -471,7 +634,10 @@ function snap(
   colloc: readonly (readonly number[])[],
 ): void {
   const at = (i: number, j: number) => (i * nv + j) * 3;
-  const first = lay.tail === 'edge' ? 1 : 0; // the notch edge is all on y = 0: its next row is free
+  const endRow = [0, nu - 1] as const;
+  const nextRow = [1, nu - 2] as const;
+  const collapsed = [lay.ends[0] !== 'cap', lay.ends[1] !== 'cap'] as const;
+  const xiEnd = [lay.along.lo, lay.along.hi] as const;
   const lean = (net: Float64Array, side: 0 | 1): void => {
     const rows: [number, number, Cross][] = [
       [0, 1, cross[side][0]],
@@ -484,18 +650,28 @@ function snap(
       // the evaluator's direction times that row's y there
       const rhs = [new Float64Array(nu), new Float64Array(nu)];
       const A = colloc.map((row, k) => {
-        if (k < first || c.ok[k] === 0) {
+        const end = k === 0 || k === nu - 1;
+        const flat = (k === 0 && collapsed[0]) || (k === nu - 1 && collapsed[1]);
+        if (flat || c.ok[k] === 0) {
+          // a collapsed end column is all on its edge: its next row is the fit's
           rhs[0]![k] = net[at(k, j1)]! - net[at(k, j0)]!;
           rhs[1]![k] = net[at(k, j1) + 2]! - net[at(k, j0) + 2]!;
           return row.map((_, i) => (i === k ? 1 : 0));
         }
         let yk = 0;
         for (let i = 0; i < nu; i++) yk += row[i]! * y[i]!;
-        const end = k === 0 || k === nu - 1; // a cap's rows stay in their plane
-        rhs[0]![k] = end ? 0 : c.dx[k]! * yk;
+        rhs[0]![k] = end ? 0 : c.dx[k]! * yk; // a cap's rows stay in their plane
         rhs[1]![k] = c.dz[k]! * yk;
         return row;
       });
+      // a round tip: the column next to the tip column has its offset (so the tip row's x and z, below)
+      for (const e of [0, 1] as const) {
+        if (!lay.round[e] || nu < 4) continue;
+        const k = nextRow[e];
+        A[k] = A[k]!.map((_, i) => (i === k ? 1 : i === endRow[e] ? -1 : 0));
+        rhs[0]![k] = 0;
+        rhs[1]![k] = 0;
+      }
       const sol = solveDense(A, rhs);
       for (let i = 0; i < nu; i++) {
         net[at(i, j1)] = net[at(i, j0)]! + sol[0]![i]!;
@@ -503,32 +679,57 @@ function snap(
       }
     }
   };
+  /** A collapsed end row onto its edge (x = ξ, y = 0) or its pole. */
+  const collapse = (net: Float64Array): void => {
+    for (const e of [0, 1] as const) {
+      if (!collapsed[e]) continue;
+      for (let j = 0; j < nv; j++) {
+        net[at(endRow[e], j)] = xiEnd[e];
+        net[at(endRow[e], j) + 1] = 0;
+        if (lay.ends[e] === 'pole') net[at(endRow[e], j) + 2] = lay.poleZ[e];
+      }
+    }
+  };
+  /** At a round tip the next row takes the tip row's x and z (all of it, the stringer rows included). */
+  const roundOff = (net: Float64Array, from: number, to: number): void => {
+    for (const e of [0, 1] as const) {
+      if (!lay.round[e] || nu < 4) continue;
+      for (let j = from; j < to; j++) {
+        net[at(nextRow[e], j)] = net[at(endRow[e], j)]!;
+        net[at(nextRow[e], j) + 2] = net[at(endRow[e], j) + 2]!;
+      }
+    }
+  };
+  /** The cap rows in their x-plane. */
+  const caps = (net: Float64Array): void => {
+    for (const e of [0, 1] as const) {
+      if (collapsed[e]) continue;
+      for (let j = 0; j < nv; j++) net[at(endRow[e], j)] = xiEnd[e];
+    }
+  };
   for (const j of [0, nv - 1]) {
     for (let i = 0; i < nu; i++) plus[at(i, j) + 1] = 0;
   }
-  if (lay.tail === 'edge') {
-    for (let j = 0; j < nv; j++) {
-      plus[at(0, j)] = lay.range.lo;
-      plus[at(0, j) + 1] = 0;
-    }
-  }
+  collapse(plus);
+  roundOff(plus, 0, nv);
   lean(plus, 0);
-  for (let j = 0; j < nv; j++) plus[at(0, j)] = lay.range.lo;
-  for (let j = 0; j < nv; j++) plus[at(nu - 1, j)] = lay.range.hi;
+  roundOff(plus, 0, nv);
+  caps(plus);
   if (minus === null) return;
   for (const j of [0, nv - 1]) {
     for (let i = 0; i < nu; i++) {
       for (let c = 0; c < 3; c++) minus[at(i, j) + c] = plus[at(i, j) + c]!;
     }
   }
-  lean(minus, 1);
-  for (let j = 0; j < nv; j++) {
-    minus[at(0, j)] = lay.range.lo;
-    if (lay.tail === 'edge') {
-      for (let c = 0; c < 3; c++) minus[at(0, j) + c] = plus[at(0, j) + c]!;
+  for (const e of [0, 1] as const) {
+    if (!collapsed[e]) continue;
+    for (let j = 0; j < nv; j++) {
+      for (let c = 0; c < 3; c++) minus[at(endRow[e], j) + c] = plus[at(endRow[e], j) + c]!;
     }
-    minus[at(nu - 1, j)] = lay.range.hi;
   }
+  lean(minus, 1);
+  roundOff(minus, 1, nv - 1);
+  caps(minus);
 }
 
 const withControls = (g: Grids, pts: Float64Array): NurbsSurface =>
@@ -570,7 +771,7 @@ function measureSide(
   const us = positions(g.ub, CHECK_FRACS, false);
   const vs = positions(g.vb, CHECK_FRACS, false);
   const nvd = vs.length;
-  const E = sampleGrid(ev, side, lay.range, us, vs, lay.warp);
+  const E = sampleGrid(ev, side, lay.along, us, vs, lay.warp);
   const F = new Float64Array(E.length);
   surfaceEvalGridInto(
     surface,
@@ -649,7 +850,7 @@ function measureEdges(
     along: 'u' | 'v',
   ) => {
     // prettier-ignore
-    const E = sampleGrid(ev, side, lay.range, us, vs, lay.warp);
+    const E = sampleGrid(ev, side, lay.along, us, vs, lay.warp);
     const F = new Float64Array(E.length);
     surfaceEvalGridInto(surface, Float64Array.from(us), Float64Array.from(vs), 0, F, sc);
     const breaks = along === 'u' ? g.ub : g.vb;
@@ -705,19 +906,27 @@ export function boardSolid(built: BuiltBoard, opts: BoardSolidOptions = {}): Boa
   const mirror = built.doc.symmetry === 'mirror';
 
   // ends
-  const notched = built.sides[0].frame.notch !== null;
-  const xi0 = built.xiMin;
-  const xi1 = built.xiMax;
-  const tailEdge = notched && sectionSize(ev, mirror, xi0).thickness >= STEP_TIP_THICKNESS;
-  const lo = tailEdge ? xi0 : clipEnd(ev, mirror, xi0, xi1);
-  const hi = clipEnd(ev, mirror, xi1, xi0);
-  const warp = !mirror && tailEdge ? notchWarp(ev, lo) : null;
-  const lay: Layout = { range: { lo, hi }, mirror, tail: tailEdge ? 'edge' : 'cap', warp };
+  const lo = built.xiMin;
+  const hi = built.xiMax;
+  const ends = [endKind(ev, mirror, lo), endKind(ev, mirror, hi)] as const;
+  const round = [
+    ends[0] !== 'cap' && roundTip(built, mirror, 0),
+    ends[1] !== 'cap' && roundTip(built, mirror, 1),
+  ] as const;
+  const along = alongMap(built, mirror, round);
+  const warp = mirror
+    ? null
+    : makeWarp([
+        ends[0] === 'edge' ? edgeWarp(ev, lo) : null,
+        ends[1] === 'edge' ? edgeWarp(ev, hi) : null,
+      ]);
+  const poleZ = [sectionSize(ev, mirror, lo).z, sectionSize(ev, mirror, hi).z] as const;
+  const lay: Layout = { along, mirror, ends, round, poleZ, warp };
 
   // the first knots: equal spans and the stations
   const ub = uniformBreaks(STEP_START_SPANS);
   for (const x of built.sides[0].blend.xs) {
-    const s = (x - lo) / (hi - lo);
+    const s = along.sOf(x);
     if (ub.every((b) => Math.abs(b - s) > STEP_STATION_GAP) && s > 0 && s < 1) ub.push(s);
   }
   ub.sort((a, b) => a - b);
@@ -766,15 +975,16 @@ export function boardSolid(built: BuiltBoard, opts: BoardSolidOptions = {}): Boa
     brep,
     plus: plusSurf,
     minus: minusSurf,
+    xiOf: along.xi,
     report: {
       deviation,
       passes,
       controlCount: [plusSurf.u.count, plusSurf.v.count],
       spans: [ub.length - 1, vb.length - 1],
       range: [lo, hi],
-      clipped: [lo - xi0, xi1 - hi],
-      tail: lay.tail,
-      nose: 'cap',
+      tail: ends[0],
+      nose: ends[1],
+      round,
       withinTolerance: deviation <= tolerance && !overBudget,
       overBudget,
     },
@@ -816,33 +1026,38 @@ function assemble(plus: NurbsSurface, minus: NurbsSurface, lay: Layout): Brep {
     boundaryCurve(s, e) as ClampedCurve<3>;
   const bottom = curve(plus, 'v0');
   const deck = curve(plus, 'v1');
-  const tailP = curve(plus, 'u0');
-  const tailM = curve(minus, 'u0');
-  const noseP = curve(plus, 'u1');
-  const noseM = curve(minus, 'u1');
   const pt = (c: ClampedCurve<3>, last: boolean) => {
     const i = last ? c.basis.count - 1 : 0;
     const w = c.cw[4 * i + 3]!;
     return { x: c.cw[4 * i]! / w, y: c.cw[4 * i + 1]! / w, z: c.cw[4 * i + 2]! / w };
   };
-  // vertices: 0 tail bottom, 1 tail deck, 2 nose bottom, 3 nose deck
-  const vertices = [
-    { point: pt(bottom, false) },
-    { point: pt(deck, false) },
-    { point: pt(bottom, true) },
-    { point: pt(deck, true) },
-  ];
+  // vertices: the bottom and deck ends of the stringer at each end; one vertex where an end is a pole
+  const vertices: { point: { x: number; y: number; z: number } }[] = [];
+  const ends = ([0, 1] as const).map((e) => {
+    const b = vertices.push({ point: pt(bottom, e === 1) }) - 1;
+    const d = lay.ends[e] === 'pole' ? b : vertices.push({ point: pt(deck, e === 1) }) - 1;
+    return { b, d };
+  });
   const edges: BrepEdge[] = [];
-  const add = (c: ClampedCurve<3>, start: number, end: number): number => {
-    edges.push({ curve: c, start, end });
+  const add = (c: ClampedCurve<3>, start: number, end: number, degenerate = false): number => {
+    edges.push(degenerate ? { curve: c, start, end, degenerate } : { curve: c, start, end });
     return edges.length - 1;
   };
-  const eBottom = add(bottom, 0, 2);
-  const eDeck = add(deck, 1, 3);
-  const eTailP = add(tailP, 0, 1);
-  const eTailM = lay.tail === 'edge' ? eTailP : add(tailM, 0, 1);
-  const eNoseP = add(noseP, 2, 3);
-  const eNoseM = add(noseM, 2, 3);
+  const eBottom = add(bottom, ends[0]!.b, ends[1]!.b);
+  const eDeck = add(deck, ends[0]!.d, ends[1]!.d);
+  // per end: the plus face's and the minus face's edge there (one shared edge on a collapsed end)
+  const endEdges = ([0, 1] as const).map((e) => {
+    const side = e === 0 ? 'u0' : 'u1';
+    const { b, d } = ends[e]!;
+    if (lay.ends[e] === 'edge') {
+      const one = add(curve(plus, side), b, d);
+      return [one, one] as const;
+    }
+    if (lay.ends[e] === 'pole') {
+      return [add(curve(plus, side), b, d, true), add(curve(minus, side), b, d, true)] as const;
+    }
+    return [add(curve(plus, side), b, d), add(curve(minus, side), b, d)] as const;
+  });
 
   const pBottom = line2({ x: 0, y: 0 }, { x: 1, y: 0 });
   const pDeck = line2({ x: 0, y: 1 }, { x: 1, y: 1 });
@@ -867,7 +1082,10 @@ function assemble(plus: NurbsSurface, minus: NurbsSurface, lay: Layout): Brep {
     return { surface: s, sameSense: same, outer: { coedges }, holes: [] };
   };
 
-  const faces: BrepFace[] = [hull(plus, eTailP, eNoseP), hull(minus, eTailM, eNoseM)];
+  const faces: BrepFace[] = [
+    hull(plus, endEdges[0]![0], endEdges[1]![0]),
+    hull(minus, endEdges[0]![1], endEdges[1]![1]),
+  ];
 
   // a cap: the plane x = const with (u, v) = (y, z), normal +x, so the nose is sameSense and the tail is not
   const cap = (
@@ -903,8 +1121,11 @@ function assemble(plus: NurbsSurface, minus: NurbsSurface, lay: Layout): Brep {
       : [coedge(eM, true, pM), coedge(eP, false, pP)];
     return { surface: plane, sameSense: nose, outer: { coedges }, holes: [] };
   };
-  faces.push(cap(noseP, noseM, eNoseP, eNoseM, true));
-  if (lay.tail === 'cap') faces.push(cap(tailP, tailM, eTailP, eTailM, false));
+  for (const e of [1, 0] as const) {
+    if (lay.ends[e] !== 'cap') continue;
+    const [eP, eM] = endEdges[e]!;
+    faces.push(cap(edges[eP]!.curve, edges[eM]!.curve, eP, eM, e === 1));
+  }
 
   const made = makeBrep({
     vertices,

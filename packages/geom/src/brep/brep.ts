@@ -6,7 +6,9 @@
  *
  * **Scope.** One solid bounded by one closed shell of manifold faces; faces
  * with an outer loop and holes; closed edges (`start === end`); seam edges (an
- * edge used twice by one face). Out of scope: collapsed edges and poles, voids,
+ * edge used twice by one face); degenerate edges (a pole: a side of one face's
+ * surface collapsed to a vertex, used once, `BrepEdge.degenerate`). Out of
+ * scope: other collapsed edges and apexes, voids,
  * open shells, non-manifold topology, disconnected shells.
  *
  * **Conventions** (`faces.ts` states the loop and pcurve ones). An edge is the
@@ -63,7 +65,12 @@ function freezeSpec(spec: BrepSpec): Brep {
     Object.freeze({ point: Object.freeze({ x: v.point.x, y: v.point.y, z: v.point.z }) }),
   );
   const edges = spec.edges.map((e) =>
-    Object.freeze({ curve: e.curve, start: e.start, end: e.end }),
+    Object.freeze({
+      curve: e.curve,
+      start: e.start,
+      end: e.end,
+      ...(e.degenerate === true ? { degenerate: true } : {}),
+    }),
   );
   const loop = (l: BrepLoop): BrepLoop =>
     Object.freeze({
@@ -277,9 +284,29 @@ export function makeBrep(spec: BrepSpec): Result<Brep> {
     });
   });
 
-  // Manifold: every edge twice, in opposite directions.
-  spec.edges.forEach((_, ei) => {
+  // Manifold: every edge twice, in opposite directions; a degenerate edge once, at one vertex.
+  spec.edges.forEach((e, ei) => {
     const u = uses[ei]!;
+    if (e.degenerate === true) {
+      if (e.start !== e.end) {
+        issues.push(
+          issue('brep-invalid', `degenerate edge ${ei} must start and end at one vertex`, {
+            edge: ei,
+          }),
+        );
+      }
+      if (u.length !== 1) {
+        issues.push(
+          issue(
+            'brep-invalid',
+            `degenerate edge ${ei} is used ${u.length} times; a pole belongs to one face`,
+            { edge: ei },
+            u.length,
+          ),
+        );
+      }
+      return;
+    }
     if (u.length !== 2) {
       issues.push(
         issue(
@@ -441,7 +468,7 @@ export function transformBrep(b: Brep, m: Affine3): Brep {
   }
   const moved: BrepSpec = {
     vertices: b.vertices.map((v) => ({ point: applyAffine3(m, v.point) })),
-    edges: b.edges.map((e) => ({ curve: transformCurve(e.curve, m), start: e.start, end: e.end })),
+    edges: b.edges.map((e) => ({ ...e, curve: transformCurve(e.curve, m) })),
     faces: b.faces.map((f) => ({ ...f, surface: transformSurface(f.surface, m) })),
     shells: b.shells as readonly BrepShell[],
     solids: b.solids as readonly BrepSolid[],

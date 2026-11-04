@@ -26,7 +26,8 @@
  *    loop).
  * 5. **Euler–Poincaré**, `V − E + F − (L − F) = 2(S − G)`; the genus `G` is
  *    checked against the declared one or derived (and must then be a
- *    non-negative integer).
+ *    non-negative integer). Degenerate edges (poles) are not counted in `E`,
+ *    and their curves must lie within `fit` of their vertex.
  * 6. **Outward.** `signedVolume` finite and `> 0` (a NaN is refused, not passed:
  *    review of S7). For a connected, coherently oriented
  *    closed shell the sign decides the global orientation, so this settles every
@@ -255,6 +256,31 @@ export function checkBrep(
     }
   });
 
+  // A degenerate edge is its vertex: every control point of its curve within fit of it.
+  b.edges.forEach((e, ei) => {
+    if (e.degenerate !== true) return;
+    const v = b.vertices[e.start]!.point;
+    for (let i = 0; i < e.curve.basis.count; i++) {
+      const w = e.curve.cw[4 * i + 3]!;
+      const d = Math.hypot(
+        e.curve.cw[4 * i]! / w - v.x,
+        e.curve.cw[4 * i + 1]! / w - v.y,
+        e.curve.cw[4 * i + 2]! / w - v.z,
+      );
+      if (d > t.fit) {
+        issues.push(
+          err(
+            'brep-invalid',
+            `degenerate edge ${ei}: its curve leaves vertex ${e.start} by ${d} (limit fit = ${t.fit})`,
+            { edge: ei, vertex: e.start },
+            d,
+          ),
+        );
+        break;
+      }
+    }
+  });
+
   b.faces.forEach((f, fi) => {
     loopsOf(f).forEach((loop, li) => {
       // pcurves: vertex joins, same parameter, domain.
@@ -346,7 +372,7 @@ export function checkBrep(
 
   // Euler–Poincaré.
   const V = b.vertices.length;
-  const E = b.edges.length;
+  const E = b.edges.filter((e) => e.degenerate !== true).length;
   const F = b.faces.length;
   const L = b.faces.reduce((n, f) => n + 1 + f.holes.length, 0);
   const S = b.shells.length;
