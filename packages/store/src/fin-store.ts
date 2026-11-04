@@ -41,6 +41,7 @@ import {
   constrainKnot,
   edgesFree,
   withoutStackedPoints,
+  withFoilsNearTrueScale,
   withCrossingPoints,
   getFinCurve,
   newFin,
@@ -307,8 +308,9 @@ export const createFinStore = (): StoreApi<FinState> =>
 
       load: (d) =>
         set({
-          // Points a slip of the add-point button stacked on one another, made one.
-          design: withoutStackedPoints(d),
+          // Points a slip of the add-point button stacked on one another, made one; foils
+          // stored far from their true thickness stored at it.
+          design: withFoilsNearTrueScale(withoutStackedPoints(d)),
           past: [],
           future: [],
           editing: false,
@@ -373,6 +375,12 @@ export const createFinStore = (): StoreApi<FinState> =>
         if (design && last && last.design !== design && design.slices.length) {
           const marked = withCrossingPoints(design, last.design);
           if (marked !== design) set({ design: (design = marked) });
+        }
+        // A drag in the foil view may leave a foil stored far thinner or thicker than it
+        // is (the view's scale is held through the drag): stored at its true thickness.
+        if (design && last && last.design !== design) {
+          const near = withFoilsNearTrueScale(design);
+          if (near !== design) set({ design: (design = near) });
         }
         // A drag that changed nothing leaves no undo step.
         set(

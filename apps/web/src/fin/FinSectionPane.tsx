@@ -15,27 +15,27 @@
  */
 import {
   FIN_EXPORT_MIN_THICKNESS,
-  chordAt,
   finReadouts,
   foilShare,
   knot,
   parseNaca4,
-  prepareBlade,
   sectionThickest,
   sliceTipCrossing,
   splineFromKnots,
-  sweepGrid,
-  sweepPointOn,
-  sweepSectionLine,
-  thicknessAt,
-  thicknessPathOf,
   vec2,
   yAtX,
   type FinDesign,
   type Spline,
 } from '@openshaper/kernel';
 import { FinCurveEditor, type FinCurveLayer } from '@openshaper/render2d';
-import { getFoil, tipSpanOf, TIP_FOIL, type FinState } from '@openshaper/store';
+import {
+  foilSize,
+  foilTrueScale,
+  getFoil,
+  tipSpanOf,
+  TIP_FOIL,
+  type FinState,
+} from '@openshaper/store';
 import { Button, Tooltip } from '@openshaper/ui';
 import { memo, useCallback, useMemo, useState } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
@@ -49,45 +49,9 @@ import { FitToPanel, PANEL_FIT, PANEL_OVER } from './panel-tools';
 import { PATH_COLOR, SWEEP_LINE } from './sweep-overlay';
 import { usePanelFit } from './use-panel-fit';
 
-/**
- * The real chord and thickness a foil is drawn for: the base foil along the sweep's base,
- * the tip foil across the tip line (turned level in the foil view), a horizontal slice
- * foil along the chord at its height. Thickness from the taper at its thickest point.
- */
-export const foilSize = (d: FinDesign, foil: number): { chord: number; thickness: number } => {
-  const b = prepareBlade(d);
-  if (foil === 0 || foil === TIP_FOIL) {
-    const g = sweepGrid(d);
-    const row = foil === 0 ? 0 : g.tipRow;
-    const line = sweepSectionLine(g, row);
-    let chord = 0;
-    for (let i = 1; i < line.length; i++) {
-      chord += Math.hypot(line[i]!.x - line[i - 1]!.x, line[i]!.y - line[i - 1]!.y);
-    }
-    const path = thicknessPathOf(d);
-    const at = sweepPointOn(g, row, foil === 0 ? path[0] : path[2]);
-    return { chord, thickness: thicknessAt(b, Math.min(b.depth, Math.max(0, at.y))) };
-  }
-  const sl = d.slices[foil - 1];
-  const h = sl ? sl.height * b.depth : 0;
-  const { leading, trailing } = chordAt(b, Math.min(b.depth, h));
-  return { chord: Math.abs(leading - trailing), thickness: thicknessAt(b, h) };
-};
-
-/**
- * How much taller than its drawn shape the foil really is, to draw it true to scale
- * (owner request): its thickness over its chord (foilSize), against the shape's own
- * thickness in chords, however far apart: only a foil's shape counts, so it may be
- * stored at any thickness. It used to be kept within four times either way: a tip foil
- * stored at a twentieth of its thickness was drawn flat (owner testing).
- */
-export const foilTrueScale = (d: FinDesign, foil: number): number => {
-  const sec = getFoil(d, foil);
-  const { chord, thickness } = foilSize(d, foil);
-  const shape = sec ? sectionThickest(sec).thickness : 0;
-  if (!(chord > 0) || !(shape > 0) || !(thickness > 0)) return 1;
-  return thickness / chord / shape;
-};
+// The real size a foil is drawn for, and its true-scale stretch: in the store, which
+// keeps foils stored near their true thickness (withFoilsNearTrueScale).
+export { foilSize, foilTrueScale };
 
 /** What the foil view is showing, as the profile names it. */
 export const foilTitle = (d: FinDesign, foil: number, units: LengthUnit): string =>
@@ -395,9 +359,25 @@ export const FinSectionPane = memo(function FinSectionPane({
   const activeFoil = useFinState(store, (s) => s.activeFoil);
   const handlers = useMemo(() => curveEditorHandlers(store), [store]);
   const section = design ? (getFoil(design, activeFoil) ?? undefined) : undefined;
-  const trueScale = useMemo(
+  const editing = useFinState(store, (s) => s.editing);
+  const liveScale = useMemo(
     () => (design ? foilTrueScale(design, activeFoil) : 1),
     [design, activeFoil],
+  );
+  // Held through a drag: read afresh at every step, the stretch changed as the dragged
+  // point changed the foil's thickness, moving the points not dragged (owner testing).
+  const [heldScale, setHeldScale] = useState(liveScale);
+  if (!editing && heldScale !== liveScale) setHeldScale(liveScale);
+  const trueScale = editing ? heldScale : liveScale;
+  // The frame is on screen: the chord line and a strip under it, however tall the foil
+  // is stored (scaled with the foil, a thin one's frame zoomed the view far out).
+  const frame = useMemo(
+    () => ({
+      ...SECTION_FRAME,
+      minY: SECTION_FRAME.minY / trueScale,
+      maxY: SECTION_FRAME.maxY / trueScale,
+    }),
+    [trueScale],
   );
 
   const layers = useMemo((): FinCurveLayer[] => {
@@ -614,7 +594,7 @@ export const FinSectionPane = memo(function FinSectionPane({
         selection={pickFromSelection(selection, ['outside', 'inside'])}
         alsoSelected={alsoFromSelection(selection, ['outside', 'inside'])}
         yScale={trueScale}
-        frameBounds={SECTION_FRAME}
+        frameBounds={frame}
         frameKey={`${design.position}-${activeFoil}-${frameKey}`}
         drawUnder={drawUnder}
         markers={markers}

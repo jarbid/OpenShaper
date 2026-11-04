@@ -28,7 +28,7 @@ import {
   vec2,
   type FinDesign,
 } from '@openshaper/kernel';
-import { tipSpanOf, TIP_FOIL } from './fin-edits';
+import { foilTrueScale, getFinCurve, tipSpanOf, TIP_FOIL } from './fin-edits';
 import { createFinStore } from './fin-store';
 
 const storeWith = (d: FinDesign = defaultFinDesign('side', 'right')) => {
@@ -428,6 +428,47 @@ describe('fin store: foil slices', () => {
     expect(tip.outside.knots.some((k) => Math.abs(k.end.x - c.tipAt) < 0.01)).toBe(true);
     s.getState().undo();
     expect(tipLineOf(design(s)).end).toBeCloseTo(before.end, 9); // one undo step
+  });
+
+  it('stores a foil far from its true thickness at it, on loading and after a drag', () => {
+    // Owner testing: drags ran a tip foil down to a millionth of its thickness (the foil
+    // view's stretch, read afresh at every step), and the view zoomed far out.
+    const d = defaultFinDesign('side', 'right');
+    const thin = (sec: FinDesign['section'], k: number) => {
+      const f = (s: FinDesign['section']['outside']) =>
+        splineFromKnots(
+          s.knots.map((kn) => {
+            const g = (p: { x: number; y: number }) => vec2(p.x, p.y * k);
+            return knot(g(kn.end), g(kn.tangentToPrev), g(kn.tangentToNext), kn.continuous);
+          }),
+        );
+      return { outside: f(sec.outside), inside: sec.inside && f(sec.inside) };
+    };
+    const tiny = { ...d, tipSection: thin(d.section, 1e-6) };
+    const s = storeWith(tiny);
+    expect(foilTrueScale(tiny, TIP_FOIL)).toBeGreaterThan(1e5);
+    expect(foilTrueScale(design(s), TIP_FOIL)).toBeCloseTo(1, 6);
+    // The blade as it was: only the shape counts.
+    const width = (x: FinDesign, h: number) => {
+      const b = prepareBlade(x);
+      const sec = bladeSection(b, h * b.depth, cosineStations(30));
+      return sec.outside.map((p, j) => p.y - sec.inside[j]!.y);
+    };
+    const was = width(tiny, 0.9);
+    width(design(s), 0.9).forEach((t, j) => expect(t).toBeCloseTo(was[j]!, 9));
+    // A drag that leaves it far thinner: stored at its true thickness when it ends.
+    // Stored thin, but within four times of its thickness: kept so on loading.
+    const s2 = storeWith({ ...d, tipSection: thin(d.section, 0.07) });
+    expect(foilTrueScale(design(s2), TIP_FOIL)).toBeGreaterThan(3);
+    s2.getState().setActiveFoil(TIP_FOIL);
+    const tip = getFinCurve(design(s2), 'outside', TIP_FOIL)!;
+    const top = tip.knots.reduce((j, kn, i) => (kn.end.y > tip.knots[j]!.end.y ? i : j), 0);
+    const at = tip.knots[top]!.end;
+    s2.getState().beginEdit();
+    s2.getState().moveControlPoint('outside', top, vec2(at.x, at.y / 20));
+    expect(foilTrueScale(design(s2), TIP_FOIL)).toBeGreaterThan(4);
+    s2.getState().endEdit();
+    expect(foilTrueScale(design(s2), TIP_FOIL)).toBeCloseTo(1, 6);
   });
 
   it('takes the old crossing point out when the crossing moves, unless it was dragged', () => {

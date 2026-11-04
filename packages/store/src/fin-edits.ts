@@ -42,6 +42,10 @@ import {
   parseNaca4,
   splineFromKnots,
   sub,
+  sweepGrid,
+  sweepPointOn,
+  sweepSectionLine,
+  thicknessPathOf,
   validateFinDesign,
   value,
   vec2,
@@ -102,6 +106,81 @@ export const withoutStackedPoints = (d: FinDesign): FinDesign => {
   return same
     ? d
     : { ...d, outline, taper, section, slices, ...(tipSection ? { tipSection } : {}) };
+};
+
+/**
+ * The real chord and thickness a foil is drawn for: the base foil along the sweep's base,
+ * the tip foil across the tip line (turned level in the foil view), a horizontal slice
+ * foil along the chord at its height. Thickness from the taper at its thickest point.
+ */
+export const foilSize = (
+  d: FinDesign,
+  foil: FinFoilIndex,
+): { chord: number; thickness: number } => {
+  const b = prepareBlade(d);
+  if (foil === 0 || foil === TIP_FOIL) {
+    const g = sweepGrid(d);
+    const row = foil === 0 ? 0 : g.tipRow;
+    const line = sweepSectionLine(g, row);
+    let chord = 0;
+    for (let i = 1; i < line.length; i++) {
+      chord += Math.hypot(line[i]!.x - line[i - 1]!.x, line[i]!.y - line[i - 1]!.y);
+    }
+    const path = thicknessPathOf(d);
+    const at = sweepPointOn(g, row, foil === 0 ? path[0] : path[2]);
+    return { chord, thickness: thicknessAt(b, Math.min(b.depth, Math.max(0, at.y))) };
+  }
+  const sl = d.slices[foil - 1];
+  const h = sl ? sl.height * b.depth : 0;
+  const { leading, trailing } = chordAt(b, Math.min(b.depth, h));
+  return { chord: Math.abs(leading - trailing), thickness: thicknessAt(b, h) };
+};
+
+/**
+ * How much taller than its stored shape the foil really is, to draw it true to scale
+ * (owner request): its thickness over its chord (foilSize), against the shape's own
+ * thickness in chords. Only a foil's shape counts, so it may be stored at any thickness;
+ * {@link withFoilsNearTrueScale} keeps it within four times either way.
+ */
+export const foilTrueScale = (d: FinDesign, foil: FinFoilIndex): number => {
+  const sec = getFoil(d, foil);
+  const { chord, thickness } = foilSize(d, foil);
+  const shape = sec ? sectionThickest(sec).thickness : 0;
+  if (!(chord > 0) || !(shape > 0) || !(thickness > 0)) return 1;
+  return thickness / chord / shape;
+};
+
+/** Beyond this either way, a foil is stored at its true thickness instead. */
+const FOIL_SCALE_LIMIT = 4;
+
+/** `sec` taller by `k`: the same shape, as the blade reads it. */
+const scaledFoil = (sec: FinSection, k: number): FinSection => {
+  const tall = (s: Spline) =>
+    splineFromKnots(
+      s.knots.map((kn) => {
+        const f = (p: Vec2) => vec2(p.x, p.y * k);
+        return knot(f(kn.end), f(kn.tangentToPrev), f(kn.tangentToNext), kn.continuous, kn.other);
+      }),
+    );
+  return { outside: tall(sec.outside), inside: sec.inside && tall(sec.inside) };
+};
+
+/**
+ * The design with every foil stored far from its true thickness (more than four times
+ * either way) stored at it instead. The blade is unchanged: only a foil's shape counts.
+ * The same design if none is. Owner testing: with the foil view's true-scale stretch
+ * read afresh at every step of a drag, drags ran a tip foil down to a millionth of its
+ * thickness, the view zoomed far out, and points moved that weren't dragged.
+ */
+export const withFoilsNearTrueScale = (d: FinDesign): FinDesign => {
+  const foils = [0, ...(d.tipSection ? [TIP_FOIL] : []), ...d.slices.map((_, i) => i + 1)];
+  let out = d;
+  for (const f of foils) {
+    const k = foilTrueScale(d, f);
+    if (k <= FOIL_SCALE_LIMIT && k >= 1 / FOIL_SCALE_LIMIT) continue;
+    out = withFoil(out, f, scaledFoil(getFoil(d, f)!, k));
+  }
+  return out;
 };
 
 /** The design with foil `foil` replaced. */
