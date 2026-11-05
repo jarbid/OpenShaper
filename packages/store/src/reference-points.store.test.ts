@@ -239,3 +239,23 @@ describe('board store: reference points', () => {
     expect(s().refPoints).toHaveLength(2);
   });
 });
+
+describe('board store: adding many reference points', () => {
+  it('adds a batch as one undo step, keeping order, and an empty batch records nothing', () => {
+    const store = loaded([outlinePoint('r1', 10)]);
+    const ids = store.getState().addRefPoints(
+      [
+        { plane: 'outline', x: 20, y: 10 },
+        { plane: 'rocker', curve: 'bottom', x: 20, y: 5 },
+      ],
+      'Paste reference points',
+    );
+    expect(ids).toEqual(['r2', 'r3']);
+    expect(store.getState().refPoints.map((p) => p.id)).toEqual(['r1', 'r2', 'r3']);
+    expect(store.getState().past.map((e) => e.label)).toEqual(['Paste reference points']);
+    store.getState().addRefPoints([], 'Nothing');
+    expect(store.getState().past).toHaveLength(1);
+    store.getState().undo();
+    expect(store.getState().refPoints).toEqual([outlinePoint('r1', 10)]);
+  });
+});

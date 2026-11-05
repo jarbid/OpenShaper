@@ -76,6 +76,7 @@ import {
   type TabId,
 } from './sidebar-sections';
 import { boardStore } from './store';
+import { ReferencePointsPanel } from './ReferencePointsPanel';
 import { MeasurementAxisSelect, OverlayToggle, Sel, SpecRow, UnitSelect } from './view-toolkit';
 import type { Longitudinal, MeasurementAxis } from './longitudinal';
 import {
@@ -197,6 +198,8 @@ export interface SidebarProps {
   onUnitChange?: (key: string) => void;
   /** Converts board-length positions (wide point, centre of mass) for display. */
   longitudinal: Longitudinal;
+  /** Index of the cross-section the section view shows (new section reference points go there). */
+  activeSection: number;
   onMeasurementAxisChange?: (axis: MeasurementAxis) => void;
 }
 
@@ -228,8 +231,13 @@ export const Sidebar = memo(function Sidebar({
   onUnitChange,
   longitudinal,
   onMeasurementAxisChange,
+  activeSection,
 }: SidebarProps) {
   const past = useSyncExternalStore(boardStore.subscribe, () => boardStore.getState().past);
+  const refPointCount = useSyncExternalStore(
+    boardStore.subscribe,
+    () => boardStore.getState().refPoints.length,
+  );
   const fins = useSyncExternalStore(
     boardStore.subscribe,
     () => boardStore.getState().board?.fins ?? null,
@@ -273,6 +281,14 @@ export const Sidebar = memo(function Sidebar({
       />
     ),
     trace: <TraceSection trace={trace} onLoadTrace={onLoadTrace} units={units} />,
+    refPoints: (
+      <ReferencePointsPanel
+        store={boardStore}
+        units={units}
+        longitudinal={longitudinal}
+        activeSection={activeSection}
+      />
+    ),
     // Both of these are conditional: an empty undo stack and a board with no ghost
     // have nothing to show, and a header promising otherwise is worse than no header.
     ...(past.length > 0 ? { history: <HistorySection past={past} /> } : {}),
@@ -289,6 +305,7 @@ export const Sidebar = memo(function Sidebar({
     fins: fins ? FIN_SETUP_LABELS[fins.setup] : undefined,
     weight: weight ? fmtWeight(weight.total) : undefined,
     history: `${past.length} step${past.length === 1 ? '' : 's'}`,
+    refPoints: refPointCount > 0 ? `${refPointCount}` : undefined,
   };
 
   const tabs = shownTabs(sidebar);

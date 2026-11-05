@@ -206,10 +206,32 @@ export default function DocsEditing() {
           undo step on the same history as your shape edits.
         </p>
         <p>
+          To enter a whole set of measurements, open <strong>Reference points</strong> in the
+          sidebar&apos;s <strong>Reference</strong> tab. The <strong>Outline</strong> tab lists
+          widths, the <strong>Rocker</strong> tab bottom or deck heights, and the{' '}
+          <strong>Section</strong> tab the points of each measured station. Each row shows where the
+          point was measured and its value, both editable, and beside them what the board on screen
+          measures there. Positions are measured from the tail or the nose — choose which above the
+          table — and straight or over the curve, following the app&apos;s measurement setting.
+          Outline values are full widths, the way a tape reads across the board.
+        </p>
+        <p>
+          <strong>Add point</strong> adds a row one spacing past the last; in the Section tab it
+          adds a point to the section the cross-section view is showing. <strong>Paste…</strong>{' '}
+          takes rows copied from a spreadsheet or typed one per line: a position and a value for the
+          outline and rocker, or a distance from the stringer and a height for a section, in your
+          current units (fractions such as <code>21 1/2</code> work).{' '}
+          <strong>Generate stations</strong> adds a row at every spacing along the board, starting
+          one spacing from the chosen end, each valued from the board as it is now, ready to
+          overwrite with what you measure. A paste or a generate is one undo step.
+        </p>
+        <p>
           A cross-section point is tied to the station where it was measured, not to the section
           object: it shows on whichever cross-section sits at that station (within half a
           millimetre). Move that section away and its points stay at their station, out of view,
-          until a section is there again.
+          until a section is there again: the outline and rocker views mark every measured station
+          with a yellow tick at their edges, and the Section tab flags a station with{' '}
+          <strong>no section</strong>, with buttons to move the nearest section there or add one.
         </p>
         <p>
           Reference points are saved in <code>.board</code> files, the autosaved session, recent

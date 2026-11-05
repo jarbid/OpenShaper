@@ -55,7 +55,7 @@ export {
   type SectionHandle,
   type EditorOverlays,
 } from './draw';
-export { drawRefPoints, hitRefPoint, REF_POINT_COLOR } from './ref-points';
+export { drawMeasuredStations, drawRefPoints, hitRefPoint, REF_POINT_COLOR } from './ref-points';
 export { SplineEditor, type SplineEditorProps, type Calibration } from './SplineEditor';
 export {
   solveSimilarity,

@@ -1017,13 +1017,23 @@ export const refPointDraftAt = (
   return { plane: 'rocker', curve: nearest.kind === 'deck' ? 'deck' : 'bottom', ...point };
 };
 
-/** Append a point with a fresh id. */
+/** Append points with fresh ids, in order. */
+export const addRefPoints = (
+  points: RefPoints,
+  drafts: readonly RefPointDraft[],
+): { points: RefPoints; ids: string[] } => {
+  const nextId = refIdAllocator(points.map((p) => p.id));
+  const added = drafts.map((draft) => ({ ...draft, id: nextId() }) as RefPoint);
+  return { points: [...points, ...added], ids: added.map((p) => p.id) };
+};
+
+/** Append one point with a fresh id. */
 export const addRefPoint = (
   points: RefPoints,
   draft: RefPointDraft,
 ): { points: RefPoints; id: string } => {
-  const id = refIdAllocator(points.map((p) => p.id))();
-  return { points: [...points, { ...draft, id } as RefPoint], id };
+  const { points: next, ids } = addRefPoints(points, [draft]);
+  return { points: next, id: ids[0]! };
 };
 
 /**

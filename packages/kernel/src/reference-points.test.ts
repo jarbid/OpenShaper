@@ -5,6 +5,7 @@ import { splineFromKnots } from './bezier-spline';
 import { knot } from './knot';
 import {
   refIdAllocator,
+  refPointBoardValue,
   refPointSectionIndex,
   reviveRefPoints,
   type SectionRefPoint,
@@ -109,5 +110,36 @@ describe('refPointSectionIndex', () => {
     const b = withStations(0, 30.48, 187.96);
     expect(refPointSectionIndex(b, sectionPoint(30.54))).toBe(-1);
     expect(refPointSectionIndex(b, sectionPoint(100))).toBe(-1);
+  });
+});
+
+describe('refPointBoardValue', () => {
+  const b = board(
+    splineFromKnots([
+      knot(vec2(0, 0), vec2(0, 0), vec2(10, 20)),
+      knot(vec2(100, 20), vec2(90, 20), vec2(100, 20)),
+    ]),
+    line,
+    splineFromKnots([
+      knot(vec2(0, 8), vec2(0, 8), vec2(1, 8)),
+      knot(vec2(3, 8), vec2(2, 8), vec2(3, 8)),
+    ]),
+    [crossSection(0, line)],
+  );
+
+  it('reads the outline half-width and the chosen rocker curve at the point', () => {
+    expect(refPointBoardValue(b, { id: 'a', plane: 'outline', x: 100, y: 0 })).toBeCloseTo(20, 9);
+    expect(
+      refPointBoardValue(b, { id: 'b', plane: 'rocker', curve: 'bottom', x: 2, y: 5 }),
+    ).toBeCloseTo(0, 9);
+    expect(
+      refPointBoardValue(b, { id: 'c', plane: 'rocker', curve: 'deck', x: 2, y: 5 }),
+    ).toBeCloseTo(8, 9);
+  });
+
+  it('is null outside the board and for section points', () => {
+    expect(refPointBoardValue(b, { id: 'a', plane: 'outline', x: 101, y: 1 })).toBeNull();
+    expect(refPointBoardValue(b, { id: 'a', plane: 'outline', x: -1, y: 1 })).toBeNull();
+    expect(refPointBoardValue(b, sectionPoint(0))).toBeNull();
   });
 });

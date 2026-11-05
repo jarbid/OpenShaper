@@ -14,6 +14,7 @@
  * Board edits never touch these points, so nothing here depends on `BezierBoard`
  * beyond finding the cross-section at a station.
  */
+import { valueAt, type Spline } from './bezier-spline';
 import type { BezierBoard } from './board';
 import type { Vec2 } from './vec2';
 
@@ -60,6 +61,31 @@ export const refPointSectionIndex = (b: BezierBoard, p: SectionRefPoint): number
     }
   });
   return best;
+};
+
+/** y of a length-wise curve at x, or null outside its x range (where valueAt reads 0). */
+const valueWithin = (s: Spline, x: number): number | null => {
+  const first = s.knots[0]?.end.x;
+  const last = s.knots[s.knots.length - 1]?.end.x;
+  if (first === undefined || last === undefined) return null;
+  return x < Math.min(first, last) || x > Math.max(first, last) ? null : valueAt(s, x);
+};
+
+/**
+ * What the board measures where a point was measured, in the point's own terms: the
+ * outline's half-width, or the bottom/deck height, at the point's x. Null for a section
+ * point (a section's curve has two heights at most distances from the stringer, bottom
+ * and deck, so "the" value there is not defined) and outside the board.
+ */
+export const refPointBoardValue = (b: BezierBoard, p: RefPoint): number | null => {
+  switch (p.plane) {
+    case 'outline':
+      return valueWithin(b.outline, p.x);
+    case 'rocker':
+      return valueWithin(p.curve === 'deck' ? b.deck : b.bottom, p.x);
+    case 'section':
+      return null;
+  }
 };
 
 /** Ids `r1`, `r2`, … not already used in `taken`; the set is updated as ids are handed out. */

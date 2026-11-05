@@ -72,3 +72,33 @@ export const hitRefPoint = (
   }
   return best;
 };
+
+/** Length of a measured-station tick, in px, at each edge of a length-wise pane. */
+const STATION_TICK_PX = 10;
+
+/**
+ * Mark the stations where cross-section reference points were measured, as short ticks
+ * on the top and bottom edges of a length-wise pane, so it is plain where a section is
+ * expected (and where one has been moved away from).
+ */
+export const drawMeasuredStations = (
+  ctx: CanvasRenderingContext2D,
+  stations: readonly number[],
+  vp: Viewport,
+  height: number,
+): void => {
+  if (stations.length === 0) return;
+  ctx.save();
+  ctx.strokeStyle = REF_POINT_COLOR;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (const x of stations) {
+    const sx = worldToScreen(vp, { x, y: 0 }).x;
+    ctx.moveTo(sx, 0);
+    ctx.lineTo(sx, STATION_TICK_PX);
+    ctx.moveTo(sx, height - STATION_TICK_PX);
+    ctx.lineTo(sx, height);
+  }
+  ctx.stroke();
+  ctx.restore();
+};

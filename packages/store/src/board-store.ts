@@ -8,6 +8,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { FinSetup, FinSpec, FinSystem, InterpolationType, Spline } from '@openshaper/kernel';
 import {
   addRefPoint,
+  addRefPoints,
   alignTangentsHorizontal,
   alignTangentsVertical,
   canDeleteKnot,
@@ -97,6 +98,8 @@ export interface BoardState {
 
   /** Add a reference point and select it; returns its id ('' when there is no board). */
   addRefPoint: (draft: RefPointDraft) => string;
+  /** Add several reference points as one undo step (a paste, generated stations). */
+  addRefPoints: (drafts: readonly RefPointDraft[], label: string) => string[];
   /** Edit a reference point's coordinates and/or label (empty label clears it). */
   updateRefPoint: (id: string, patch: { x?: number; y?: number; label?: string }) => void;
   /** Drag a reference point (coalesces inside a `beginEdit` … `endEdit` group). */
@@ -313,6 +316,12 @@ export const createBoardStore = (): StoreApi<BoardState> =>
         commitRefs(points, 'Add reference point');
         set({ selectedRef: id, selection: null, selectedFin: null });
         return id;
+      },
+      addRefPoints: (drafts, label) => {
+        if (!get().board || drafts.length === 0) return [];
+        const { points, ids } = addRefPoints(get().refPoints, drafts);
+        commitRefs(points, label);
+        return ids;
       },
       updateRefPoint: (id, patch) =>
         commitRefs(

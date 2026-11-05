@@ -9,6 +9,7 @@ import {
 import {
   loftCrossSection,
   getLength,
+  REF_SECTION_TOLERANCE,
   resolveFins,
   type BezierBoard,
   type Spline,
@@ -301,6 +302,17 @@ function AppShell() {
     boardStore.subscribe,
     () => boardStore.getState().refPoints,
   );
+  // Stations where section points were measured, ticked on the length-wise panes.
+  const measuredStations = useMemo(() => {
+    const out: number[] = [];
+    for (const p of refPoints)
+      if (
+        p.plane === 'section' &&
+        !out.some((x) => Math.abs(x - p.station) <= REF_SECTION_TOLERANCE)
+      )
+        out.push(p.station);
+    return out;
+  }, [refPoints]);
 
   // Specs (and the distribution overlay) read the settled board so they don't
   // re-integrate on every drag move — see useSettledBoard. The integrals run in
@@ -735,6 +747,7 @@ function AppShell() {
         (kind === 'outline' || kind === 'rocker') && resolvedFins.length ? resolvedFins : undefined,
       finView: kind === 'rocker' ? 'profile' : 'plan',
       referencePoints: refPointsShown ? (refPointsUnlocked ? 'unlocked' : 'locked') : undefined,
+      measuredStations: longitudinal && measuredStations.length ? measuredStations : undefined,
     };
   };
 
@@ -1465,6 +1478,7 @@ function AppShell() {
       onSidebarChange={setSidebar}
       onUnitChange={isPhone ? setUnitKey : undefined}
       longitudinal={longitudinal}
+      activeSection={clampedCs}
       onMeasurementAxisChange={isPhone ? setMeasurementAxis : undefined}
     />
   );

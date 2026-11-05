@@ -7,6 +7,7 @@ export {
 } from './board-store';
 export {
   addRefPoint,
+  addRefPoints,
   deleteRefPoint,
   nextRefPointId,
   refPointDraftAt,

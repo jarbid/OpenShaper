@@ -53,7 +53,7 @@ import {
   type SectionMarker,
 } from './draw';
 import { handlePoint, hitTest, type Hit } from './hit';
-import { drawRefPoints, hitRefPoint } from './ref-points';
+import { drawMeasuredStations, drawRefPoints, hitRefPoint } from './ref-points';
 import { boundsOf, sampleSpline } from './sample';
 import {
   fitToBounds,
@@ -818,6 +818,8 @@ export function SplineEditor({
     });
     // Over the curves: a measurement must stay visible where it sits on a line.
     drawRefPoints(ctx, refPoints, vp, selectedRef, turned, controlPointSize ?? 6);
+    if (refMode && overlays?.measuredStations)
+      drawMeasuredStations(ctx, overlays.measuredStations, vp, size.h);
     // Sliding-location probes: a closed board outline for the pane lets the cursor /
     // scrub line be drawn solid where it's inside the board and dashed outside.
     //  - mirrorX (cross-section) / mirrorY (outline): half-spline + its mirror.
@@ -867,6 +869,7 @@ export function SplineEditor({
     referenceSplines,
     refPoints,
     selectedRef,
+    refMode,
     tunniEnabled,
     background,
     liveTrace,
