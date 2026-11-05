@@ -1,8 +1,14 @@
-import { tangentToNextLength, tangentToPrevLength, type Knot } from '@openshaper/kernel';
+import {
+  tangentToNextLength,
+  tangentToPrevLength,
+  type Knot,
+  type RefPoint,
+} from '@openshaper/kernel';
 import {
   canDeleteKnot,
   canLockKnot,
   getTargetSpline,
+  refPointInPane,
   sameTarget,
   type BoardState,
   type SplineTarget,
@@ -17,6 +23,7 @@ import { useCallback, useEffect, useRef, useSyncExternalStore, type ReactNode } 
 import type { StoreApi } from 'zustand/vanilla';
 import {
   cmToUnitNumber,
+  fmtLen,
   lengthEditStep,
   parseLen,
   parseTypedLen,
@@ -337,6 +344,125 @@ export function SelectedPointEditor({
           />
         </>
       )}
+      <span className="shrink-0 text-[11px] text-muted-foreground">{unitSuffix(units)}</span>
+    </div>
+  );
+}
+
+/** What a reference point measures, and the names of its two coordinates in its pane. */
+const refPointDescription = (
+  p: RefPoint,
+  units: LengthUnit,
+): { what: string; x: string; y: string } => {
+  switch (p.plane) {
+    case 'outline':
+      return { what: 'Outline', x: 'X', y: 'Y' };
+    case 'rocker':
+      return { what: p.curve === 'deck' ? 'Deck' : 'Bottom', x: 'X', y: 'Z' };
+    case 'section':
+      return { what: `Section at ${fmtLen(p.station, units)}`, x: 'Y', y: 'Z' };
+  }
+};
+
+/** The selected reference point's label field; commits on Enter or blur. */
+function RefLabelInput({
+  point,
+  onCommit,
+  onDismiss,
+}: {
+  point: RefPoint;
+  onCommit: (label: string) => void;
+  onDismiss: () => void;
+}) {
+  const shown = point.label ?? '';
+  const [text, setText] = useSyncedText(shown, `${point.id}|${shown}`);
+  const commit = () => {
+    if (text.trim() !== shown) onCommit(text);
+  };
+  return (
+    <Input
+      aria-label="Reference point label"
+      placeholder="Label"
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          commit();
+          e.currentTarget.blur();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          setText(shown);
+          onDismiss();
+        }
+      }}
+      className="h-7 w-28 px-1.5 text-xs pointer-coarse:h-9"
+    />
+  );
+}
+
+/**
+ * Header editor for the selected reference point, in the pane that shows it. Typing
+ * is deliberate, so its fields stay editable while points are locked against dragging.
+ */
+export function SelectedRefPointEditor({
+  store,
+  units,
+  targets,
+  fallback,
+}: {
+  store: StoreApi<BoardState>;
+  units: LengthUnit;
+  targets: SplineTarget[];
+  /** Header content shown whenever this pane does not hold the selected reference point. */
+  fallback?: ReactNode;
+}) {
+  const board = useSyncExternalStore(store.subscribe, () => store.getState().board);
+  const refPoints = useSyncExternalStore(store.subscribe, () => store.getState().refPoints);
+  const selectedRef = useSyncExternalStore(store.subscribe, () => store.getState().selectedRef);
+  const point = selectedRef ? refPoints.find((p) => p.id === selectedRef) : undefined;
+  if (!board || !point || !refPointInPane(board, point, targets)) return fallback ?? null;
+
+  const { what, x: xLabel, y: yLabel } = refPointDescription(point, units);
+  const update = (patch: { x?: number; y?: number; label?: string }) =>
+    store.getState().updateRefPoint(point.id, patch);
+  const dismiss = () => store.getState().selectRef(null);
+  const nudge = (key: ArrowKey) => {
+    // Read the live point: key repeat can outrun this render.
+    const live = store.getState().refPoints.find((p) => p.id === point.id);
+    if (!live) return;
+    const step = parse(String(pointEditStep(units)), units);
+    update({
+      x: live.x + (key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0),
+      y: live.y + (key === 'ArrowDown' ? -step : key === 'ArrowUp' ? step : 0),
+    });
+  };
+
+  return (
+    <div
+      className="no-scrollbar flex min-w-0 items-center gap-2 overflow-x-auto"
+      aria-label="Reference point editor"
+    >
+      <span className="shrink-0 text-xs font-medium text-foreground">Reference · {what}</span>
+      <RefLabelInput point={point} onCommit={(label) => update({ label })} onDismiss={dismiss} />
+      <HeaderCoordInput
+        label={xLabel}
+        ariaLabel={`Reference point ${xLabel}`}
+        valueCm={point.x}
+        units={units}
+        onCommit={(x) => update({ x })}
+        onDismiss={dismiss}
+        onNudge={nudge}
+      />
+      <HeaderCoordInput
+        label={yLabel}
+        ariaLabel={`Reference point ${yLabel}`}
+        valueCm={point.y}
+        units={units}
+        onCommit={(y) => update({ y })}
+        onDismiss={dismiss}
+        onNudge={nudge}
+      />
       <span className="shrink-0 text-[11px] text-muted-foreground">{unitSuffix(units)}</span>
     </div>
   );

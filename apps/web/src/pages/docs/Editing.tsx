@@ -15,6 +15,7 @@ export default function DocsEditing() {
         { id: 'guides', label: 'Guides in 3D' },
         { id: 'points', label: 'Control points & tangents' },
         { id: 'locks', label: 'Locking handle angles' },
+        { id: 'reference-points', label: 'Reference points' },
         { id: 'sections', label: 'Cross-sections' },
         { id: 'rails', label: 'Rail presets' },
         { id: 'tail', label: 'Concave tails' },
@@ -177,6 +178,46 @@ export default function DocsEditing() {
           saved in OpenShaper&apos;s own <code>.board.json</code> files and share links. A{' '}
           <code>.brd</code> export leaves them out — BoardCAD has no such setting — so the curve is
           unchanged but its points come back unlocked.
+        </p>
+      </Section>
+
+      <Section id="reference-points" title="Reference points">
+        <p>
+          Reference points are measurements taken off a real board — a width at a station, a rocker
+          height, a point on a rail template — marked in the 2D views so you can shape against them.
+          They are drawn as yellow crosshairs and never change the board: editing a curve leaves
+          every reference point where it is.
+        </p>
+        <p>
+          Right-click a 2D view and choose <strong>Add reference point</strong> to place one at the
+          cursor. In the outline view it records a half-width; in the rocker view it measures
+          whichever of the bottom or deck curve is nearer; in the cross-section view it belongs to
+          that section&apos;s station. Click a point to select it: its coordinates and an optional
+          label appear in the view&apos;s header, where you can type exact values. Press{' '}
+          <kbd>Delete</kbd>, or right-click it and choose <strong>Delete reference point</strong>,
+          to remove it, and <kbd>⌥←</kbd> / <kbd>⌥→</kbd> to step to the previous or next point in
+          the same view. The same keys step along a curve when a control point is selected.
+        </p>
+        <p>
+          Points are <strong>locked</strong> by default: a click selects one, but dragging does not
+          move it, so a measurement cannot shift by accident. Choose{' '}
+          <strong>View → Unlock reference points</strong> to drag them, and{' '}
+          <strong>View → Reference points</strong> to hide or show them. Every change is a single
+          undo step on the same history as your shape edits.
+        </p>
+        <p>
+          A cross-section point is tied to the station where it was measured, not to the section
+          object: it shows on whichever cross-section sits at that station (within half a
+          millimetre). Move that section away and its points stay at their station, out of view,
+          until a section is there again.
+        </p>
+        <p>
+          Reference points are saved in <code>.board</code> files, the autosaved session, recent
+          boards and share links. BoardCAD <code>.brd</code> files keep them as guide points, so
+          guide points in a BoardCAD file open as reference points, and saving a <code>.brd</code>{' '}
+          writes them back. A <code>.brd</code> stores no labels, and it cannot hold a cross-section
+          point with no section at its station; when that happens the export tells you how many were
+          left out.
         </p>
       </Section>
 

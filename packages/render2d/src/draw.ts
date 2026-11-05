@@ -348,6 +348,11 @@ export interface EditorOverlays {
   fins?: readonly ResolvedFin[];
   /** How to draw fins: `'plan'` (footprint + box, default) or `'profile'` (blade silhouette). */
   finView?: 'plan' | 'profile';
+  /**
+   * Show this pane's reference points. `'locked'` (the default when shown) selects them
+   * on click but never drags them; `'unlocked'` lets them be dragged. Omitted = hidden.
+   */
+  referencePoints?: 'locked' | 'unlocked';
 }
 
 /** A cross-section's longitudinal position, shown as a pickable line on the outline. */
