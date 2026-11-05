@@ -12,6 +12,7 @@
 import {
   getLength,
   refPointBoardValue,
+  refPointGap,
   REF_SECTION_TOLERANCE,
   type RefPoint,
 } from '@openshaper/kernel';
@@ -86,6 +87,34 @@ function LengthCell({
   );
 }
 
+/** The tolerance field: a positive length; anything else snaps back. */
+function ToleranceField({
+  cm,
+  units,
+  onCommit,
+}: {
+  cm: number;
+  units: LengthUnit;
+  onCommit: (cm: number) => void;
+}) {
+  const text = cmToUnitNumber(cm, units).toString();
+  const [value, setValue] = useSyncedText(text, `${text}|${units.key}`);
+  return (
+    <NumericInput
+      ariaLabel={`Tolerance (${unitSuffix(units)})`}
+      value={value}
+      onValueChange={setValue}
+      onCommit={() => {
+        const parsed = parseTypedLen(value, units);
+        if (parsed === null || !(parsed > 0)) setValue(text);
+        else onCommit(parsed);
+      }}
+      onEscape={() => setValue(text)}
+      className="h-7 w-16 px-1.5 text-xs tabular-nums"
+    />
+  );
+}
+
 /** The cross-section index nearest `station` that may be moved (never the end markers). */
 const nearestMovableSection = (positions: readonly number[], station: number): number | null => {
   let best: number | null = null;
@@ -101,12 +130,17 @@ export function ReferencePointsPanel({
   units,
   longitudinal,
   activeSection,
+  tolerance,
+  onToleranceChange,
 }: {
   store: StoreApi<BoardState>;
   units: LengthUnit;
   longitudinal: Longitudinal;
   /** Index of the cross-section the section view shows; new section points go there. */
   activeSection: number;
+  /** The gap (cm) a measurement is judged against: within it green, beyond it red. */
+  tolerance: number;
+  onToleranceChange: (cm: number) => void;
 }) {
   const board = useSyncExternalStore(store.subscribe, () => store.getState().board);
   const points = useSyncExternalStore(store.subscribe, () => store.getState().refPoints);
@@ -197,6 +231,23 @@ export function ReferencePointsPanel({
     </Button>
   );
 
+  /** The board's gap from a measurement, signed where it has a direction, coloured by tolerance. */
+  const gapText = (p: RefPoint) => {
+    const gap = refPointGap(board, p);
+    if (gap === null) return null;
+    const within = Math.abs(gap) <= tolerance;
+    const sign = p.plane === 'section' ? '' : gap > 0 ? '+' : gap < 0 ? '−' : '';
+    return (
+      <span
+        className={within ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}
+        title={within ? 'Within tolerance' : 'Outside tolerance'}
+      >
+        {sign}
+        {fmtLen(Math.abs(gap), units)}
+      </span>
+    );
+  };
+
   const rowClass = (p: RefPoint) =>
     `grid items-center gap-1 rounded px-0.5 ${p.id === selectedRef ? 'bg-muted' : ''}`;
 
@@ -215,7 +266,7 @@ export function ReferencePointsPanel({
             {longitudinal.mark}
           </span>
           <span>{valueName}</span>
-          <span>Board</span>
+          <span>Board · gap</span>
           <span />
         </div>
         {rows.map((p, i) => {
@@ -244,13 +295,16 @@ export function ReferencePointsPanel({
                 }
               />
               <span
-                className="truncate text-[11px] tabular-nums text-muted-foreground"
+                className="flex flex-col truncate text-[11px] leading-tight tabular-nums text-muted-foreground"
                 title={p.plane === 'rocker' ? `${p.curve} curve` : undefined}
               >
-                {board1 === null ? '—' : fmtLen(board1 * scale, units)}
-                {p.plane === 'rocker' && (
-                  <span className="ml-0.5 opacity-70">{p.curve[0]!.toUpperCase()}</span>
-                )}
+                <span>
+                  {board1 === null ? '—' : fmtLen(board1 * scale, units)}
+                  {p.plane === 'rocker' && (
+                    <span className="ml-0.5 opacity-70">{p.curve[0]!.toUpperCase()}</span>
+                  )}
+                </span>
+                {gapText(p)}
               </span>
               {rowDelete(p, i + 1)}
             </div>
@@ -310,16 +364,17 @@ export function ReferencePointsPanel({
                   </Button>
                 </div>
               )}
-              <div className="grid grid-cols-[1fr_1fr_1.75rem] gap-1 text-[11px] text-muted-foreground">
+              <div className="grid grid-cols-[1fr_1fr_3.5rem_1.75rem] gap-1 text-[11px] text-muted-foreground">
                 <span>Y (out)</span>
                 <span>Z (up)</span>
+                <span>Gap</span>
                 <span />
               </div>
               {rows.map((p) => {
                 n += 1;
                 const i = n;
                 return (
-                  <div key={p.id} className={`${rowClass(p)} grid-cols-[1fr_1fr_1.75rem]`}>
+                  <div key={p.id} className={`${rowClass(p)} grid-cols-[1fr_1fr_3.5rem_1.75rem]`}>
                     <LengthCell
                       cm={p.x}
                       units={units}
@@ -334,6 +389,9 @@ export function ReferencePointsPanel({
                       onFocus={() => select(p.id)}
                       onCommit={(y) => state().updateRefPoint(p.id, { y })}
                     />
+                    <span className="truncate text-[11px] tabular-nums">
+                      {gapText(p) ?? <span className="text-muted-foreground">—</span>}
+                    </span>
                     {rowDelete(p, i)}
                   </div>
                 );
@@ -444,6 +502,12 @@ export function ReferencePointsPanel({
           </Button>
         </div>
       )}
+
+      <div className="flex items-center gap-1 text-xs">
+        <span className="text-muted-foreground">Tolerance ±</span>
+        <ToleranceField cm={tolerance} units={units} onCommit={onToleranceChange} />
+        <span className="text-muted-foreground">{suffix}</span>
+      </div>
 
       {pasteText !== null && (
         <div className="space-y-1">

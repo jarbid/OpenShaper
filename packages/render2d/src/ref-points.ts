@@ -6,6 +6,10 @@ import { worldToScreen, type Viewport } from './viewport';
 export const REF_POINT_COLOR = '#FACC15';
 /** The selection colour control points use, so "selected" reads the same everywhere. */
 export const REF_POINT_SELECTED_COLOR = '#F97316';
+/** The board is within tolerance of this measurement. */
+export const REF_POINT_OK_COLOR = '#22C55E';
+/** The board is further from this measurement than the tolerance. */
+export const REF_POINT_OFF_COLOR = '#EF4444';
 
 /**
  * Draw reference points as crosshairs at a constant screen size. They are drawn where
@@ -20,6 +24,11 @@ export const drawRefPoints = (
   turned: boolean,
   /** Arm length in px; the control-point size, so both scale together. */
   radius = 6,
+  /**
+   * Whether the board is within tolerance of each point (green / red), or null where
+   * there is nothing to compare (yellow). Omitted: every point is yellow.
+   */
+  within?: (p: RefPoint) => boolean | null,
 ): void => {
   if (points.length === 0) return;
   ctx.save();
@@ -29,7 +38,14 @@ export const drawRefPoints = (
   for (const p of points) {
     const s = worldToScreen(vp, p);
     const selected = p.id === selectedId;
-    const color = selected ? REF_POINT_SELECTED_COLOR : REF_POINT_COLOR;
+    const verdict = within ? within(p) : null;
+    const color = selected
+      ? REF_POINT_SELECTED_COLOR
+      : verdict === null
+        ? REF_POINT_COLOR
+        : verdict
+          ? REF_POINT_OK_COLOR
+          : REF_POINT_OFF_COLOR;
     const r = selected ? radius + 2 : radius;
     // A gap at the centre keeps the measured spot itself visible under the mark.
     const gap = 2;

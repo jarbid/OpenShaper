@@ -14,7 +14,8 @@
  * Board edits never touch these points, so nothing here depends on `BezierBoard`
  * beyond finding the cross-section at a station.
  */
-import { valueAt, type Spline } from './bezier-spline';
+import { value } from './bezier-curve';
+import { closestPointOnSpline, valueAt, type Spline } from './bezier-spline';
 import type { BezierBoard } from './board';
 import type { Vec2 } from './vec2';
 
@@ -86,6 +87,38 @@ export const refPointBoardValue = (b: BezierBoard, p: RefPoint): number | null =
     case 'section':
       return null;
   }
+};
+
+/**
+ * How far the board on screen is from a measurement, in cm, or null where there is
+ * nothing to compare against (outside the board, or a section point with no section at
+ * its station).
+ *
+ * - Outline: board full width minus measured full width at the point's x. Positive means
+ *   the board is wider than measured.
+ * - Rocker: board height minus measured height on the point's curve. Positive means the
+ *   board is higher than measured.
+ * - Section: the distance from the point to the section's curve, unsigned: a section is
+ *   a closed-ish profile, so "above" or "below" it is not one direction.
+ */
+export const refPointGap = (b: BezierBoard, p: RefPoint): number | null => {
+  if (p.plane === 'section') {
+    const cs = b.crossSections[refPointSectionIndex(b, p)];
+    if (!cs) return null;
+    const hit = closestPointOnSpline(cs.spline, p);
+    if (!hit) return null;
+    const q = value(cs.spline.coeffs[hit.index]!, hit.t);
+    return Math.hypot(q.x - p.x, q.y - p.y);
+  }
+  const board = refPointBoardValue(b, p);
+  if (board === null) return null;
+  return p.plane === 'outline' ? 2 * (board - Math.abs(p.y)) : board - p.y;
+};
+
+/** Whether a gap is within `tolerance` (cm), or null when there is no gap to judge. */
+export const refPointWithin = (b: BezierBoard, p: RefPoint, tolerance: number): boolean | null => {
+  const gap = refPointGap(b, p);
+  return gap === null ? null : Math.abs(gap) <= tolerance;
 };
 
 /** Ids `r1`, `r2`, … not already used in `taken`; the set is updated as ids are handed out. */

@@ -15,6 +15,8 @@ import {
   drawRefPoints,
   hitRefPoint,
   REF_POINT_COLOR,
+  REF_POINT_OFF_COLOR,
+  REF_POINT_OK_COLOR,
   REF_POINT_SELECTED_COLOR,
 } from './ref-points';
 import { worldToScreen, type Viewport } from './viewport';
@@ -74,6 +76,17 @@ describe('reference point drawing and hit-testing', () => {
     drawRefPoints(ctx, [near, { ...far, label: 'wide' }], VP, 'b', false);
     expect(strokes).toEqual([REF_POINT_COLOR, REF_POINT_SELECTED_COLOR]);
     expect(texts).toEqual(['wide']);
+  });
+
+  it('colours points by the tolerance verdict; selected and unjudged keep their colours', () => {
+    const { ctx, strokes } = recordingContext();
+    const unjudged: RefPoint = { id: 'c', plane: 'outline', x: 1, y: 1 };
+    const verdicts: Record<string, boolean | null> = { a: true, b: false, c: null };
+    drawRefPoints(ctx, [near, far, unjudged], VP, null, false, 6, (p) => verdicts[p.id]!);
+    expect(strokes).toEqual([REF_POINT_OK_COLOR, REF_POINT_OFF_COLOR, REF_POINT_COLOR]);
+    const selected = recordingContext();
+    drawRefPoints(selected.ctx, [far], VP, 'b', false, 6, () => false);
+    expect(selected.strokes).toEqual([REF_POINT_SELECTED_COLOR]);
   });
 
   it('draws nothing for no points', () => {

@@ -1,6 +1,7 @@
 import {
   balanceTunni,
   closestPointOnSpline,
+  refPointWithin,
   moveTunniLine,
   moveTunniPoint,
   value,
@@ -817,7 +818,16 @@ export function SplineEditor({
       );
     });
     // Over the curves: a measurement must stay visible where it sits on a line.
-    drawRefPoints(ctx, refPoints, vp, selectedRef, turned, controlPointSize ?? 6);
+    const tolerance = overlays?.refTolerance;
+    drawRefPoints(
+      ctx,
+      refPoints,
+      vp,
+      selectedRef,
+      turned,
+      controlPointSize ?? 6,
+      tolerance === undefined ? undefined : (p) => refPointWithin(board, p, tolerance),
+    );
     if (refMode && overlays?.measuredStations)
       drawMeasuredStations(ctx, overlays.measuredStations, vp, size.h);
     // Sliding-location probes: a closed board outline for the pane lets the cursor /

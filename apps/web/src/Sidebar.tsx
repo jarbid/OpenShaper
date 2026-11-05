@@ -200,6 +200,9 @@ export interface SidebarProps {
   longitudinal: Longitudinal;
   /** Index of the cross-section the section view shows (new section reference points go there). */
   activeSection: number;
+  /** Gap (cm) reference points are judged against. */
+  refTolerance: number;
+  onRefToleranceChange: (cm: number) => void;
   onMeasurementAxisChange?: (axis: MeasurementAxis) => void;
 }
 
@@ -232,6 +235,8 @@ export const Sidebar = memo(function Sidebar({
   longitudinal,
   onMeasurementAxisChange,
   activeSection,
+  refTolerance,
+  onRefToleranceChange,
 }: SidebarProps) {
   const past = useSyncExternalStore(boardStore.subscribe, () => boardStore.getState().past);
   const refPointCount = useSyncExternalStore(
@@ -287,6 +292,8 @@ export const Sidebar = memo(function Sidebar({
         units={units}
         longitudinal={longitudinal}
         activeSection={activeSection}
+        tolerance={refTolerance}
+        onToleranceChange={onRefToleranceChange}
       />
     ),
     // Both of these are conditional: an empty undo stack and a board with no ghost

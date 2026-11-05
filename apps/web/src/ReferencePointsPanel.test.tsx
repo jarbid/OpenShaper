@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { valueAt, type RefPoint } from '@openshaper/kernel';
 import { LENGTH_UNITS } from './format';
 import type { Longitudinal } from './longitudinal';
@@ -18,6 +18,8 @@ const mount = (points: RefPoint[] = [], activeSection = 1) => {
       units={cm}
       longitudinal={straight}
       activeSection={activeSection}
+      tolerance={0.1}
+      onToleranceChange={() => {}}
     />,
   );
 };
@@ -131,5 +133,39 @@ describe('ReferencePointsPanel: sections', () => {
     tab('Section');
     fireEvent.click(screen.getByRole('button', { name: 'Move nearest section here' }));
     expect(s().board!.crossSections.map((c) => c.position)).toEqual([0, 60, 100]);
+  });
+});
+
+describe('ReferencePointsPanel: gaps and tolerance', () => {
+  it('shows the board gap signed and coloured by the tolerance', () => {
+    // Measured 42 wide where the board is 40: the board is 2 cm narrower.
+    mount([
+      { id: 'r1', plane: 'outline', x: 50, y: 21 },
+      { id: 'r2', plane: 'outline', x: 50.01, y: 20.02 },
+    ]);
+    const off = screen.getByTitle('Outside tolerance');
+    expect(off.textContent).toMatch(/^−2/);
+    expect(off.className).toMatch(/red/);
+    expect(screen.getByTitle('Within tolerance').className).toMatch(/green/);
+  });
+
+  it('commits a positive tolerance and snaps anything else back', () => {
+    act(() => boardStore.getState().load(makeBoard(), []));
+    const onToleranceChange = vi.fn();
+    render(
+      <ReferencePointsPanel
+        store={boardStore}
+        units={cm}
+        longitudinal={straight}
+        activeSection={1}
+        tolerance={0.1}
+        onToleranceChange={onToleranceChange}
+      />,
+    );
+    type('Tolerance (cm)', '0.25');
+    expect(onToleranceChange).toHaveBeenCalledWith(0.25);
+    type('Tolerance (cm)', '-1');
+    expect(onToleranceChange).toHaveBeenCalledTimes(1);
+    expect((screen.getByLabelText('Tolerance (cm)') as HTMLInputElement).value).toBe('0.1');
   });
 });

@@ -185,8 +185,18 @@ export default function DocsEditing() {
         <p>
           Reference points are measurements taken off a real board — a width at a station, a rocker
           height, a point on a rail template — marked in the 2D views so you can shape against them.
-          They are drawn as yellow crosshairs and never change the board: editing a curve leaves
-          every reference point where it is.
+          They are drawn as crosshairs and never change the board: editing a curve leaves every
+          reference point where it is.
+        </p>
+        <p>
+          Each crosshair also says how close the board is to it: <strong>green</strong> when the
+          board is within the tolerance of the measurement, <strong>red</strong> when it is further
+          off, and <strong>yellow</strong> when there is nothing to compare (a point off the end of
+          the board, or a section point with no section at its station). The tolerance is ±1 mm
+          until you change it in the <strong>Reference points</strong> table, which remembers it.
+          Outline and rocker gaps are signed — <code>+2 mm</code> means the board is 2 mm wider or
+          higher than measured — and a section gap is the distance from the point to the
+          section&apos;s curve.
         </p>
         <p>
           Right-click a 2D view and choose <strong>Add reference point</strong> to place one at the
@@ -211,9 +221,10 @@ export default function DocsEditing() {
           widths, the <strong>Rocker</strong> tab bottom or deck heights, and the{' '}
           <strong>Section</strong> tab the points of each measured station. Each row shows where the
           point was measured and its value, both editable, and beside them what the board on screen
-          measures there. Positions are measured from the tail or the nose — choose which above the
-          table — and straight or over the curve, following the app&apos;s measurement setting.
-          Outline values are full widths, the way a tape reads across the board.
+          measures there and the gap, coloured like the crosshair. Positions are measured from the
+          tail or the nose — choose which above the table — and straight or over the curve,
+          following the app&apos;s measurement setting. Outline values are full widths, the way a
+          tape reads across the board.
         </p>
         <p>
           <strong>Add point</strong> adds a row one spacing past the last; in the Section tab it

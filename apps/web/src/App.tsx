@@ -103,6 +103,7 @@ import { Sidebar, type OverlayToggles, type ResizeFields } from './Sidebar';
 import { applyViewChange, DEFAULT_SIDEBAR_STATE, type SidebarState } from './sidebar-sections';
 import sampleBrd from './sample-board.brd?raw';
 import { boardStore } from './store';
+import { loadRefTolerance, saveRefTolerance } from './ref-tolerance';
 import { SUPPORT_URL } from './support';
 import { BOARD_TEMPLATES } from './templates';
 import { clampSectionIndex, nearestMidpointSection } from './section-index';
@@ -298,6 +299,12 @@ function AppShell() {
   // default, because each one records a measurement and must not move by accident.
   const [refPointsShown, setRefPointsShown] = useState(true);
   const [refPointsUnlocked, setRefPointsUnlocked] = useState(false);
+  // The gap each point is judged against (green within, red beyond); a remembered preference.
+  const [refTolerance, setRefToleranceState] = useState(loadRefTolerance);
+  const setRefTolerance = useCallback((cm: number) => {
+    setRefToleranceState(cm);
+    saveRefTolerance(cm);
+  }, []);
   const refPoints = useSyncExternalStore(
     boardStore.subscribe,
     () => boardStore.getState().refPoints,
@@ -747,6 +754,7 @@ function AppShell() {
         (kind === 'outline' || kind === 'rocker') && resolvedFins.length ? resolvedFins : undefined,
       finView: kind === 'rocker' ? 'profile' : 'plan',
       referencePoints: refPointsShown ? (refPointsUnlocked ? 'unlocked' : 'locked') : undefined,
+      refTolerance,
       measuredStations: longitudinal && measuredStations.length ? measuredStations : undefined,
     };
   };
@@ -1479,6 +1487,8 @@ function AppShell() {
       onUnitChange={isPhone ? setUnitKey : undefined}
       longitudinal={longitudinal}
       activeSection={clampedCs}
+      refTolerance={refTolerance}
+      onRefToleranceChange={setRefTolerance}
       onMeasurementAxisChange={isPhone ? setMeasurementAxis : undefined}
     />
   );

@@ -6,6 +6,8 @@ import { knot } from './knot';
 import {
   refIdAllocator,
   refPointBoardValue,
+  refPointGap,
+  refPointWithin,
   refPointSectionIndex,
   reviveRefPoints,
   type SectionRefPoint,
@@ -141,5 +143,53 @@ describe('refPointBoardValue', () => {
     expect(refPointBoardValue(b, { id: 'a', plane: 'outline', x: 101, y: 1 })).toBeNull();
     expect(refPointBoardValue(b, { id: 'a', plane: 'outline', x: -1, y: 1 })).toBeNull();
     expect(refPointBoardValue(b, sectionPoint(0))).toBeNull();
+  });
+});
+
+describe('refPointGap', () => {
+  // Outline: a straight half-width of 10 (width 20). Bottom 0, deck 8. One real section at
+  // x = 50 whose profile is a flat line at height 1 from y = 0 to y = 10.
+  const flat = (y: number) =>
+    splineFromKnots([
+      knot(vec2(0, y), vec2(0, y), vec2(30, y)),
+      knot(vec2(100, y), vec2(70, y), vec2(100, y)),
+    ]);
+  const profile = splineFromKnots([
+    knot(vec2(0, 1), vec2(0, 1), vec2(3, 1)),
+    knot(vec2(10, 1), vec2(7, 1), vec2(10, 1)),
+  ]);
+  const b = board(flat(10), flat(0), flat(8), [
+    crossSection(0, profile),
+    crossSection(50, profile),
+    crossSection(100, profile),
+  ]);
+
+  it('outline: board full width minus measured full width, either side', () => {
+    expect(refPointGap(b, { id: 'a', plane: 'outline', x: 40, y: 9.5 })).toBeCloseTo(1, 9);
+    expect(refPointGap(b, { id: 'a', plane: 'outline', x: 40, y: -10.5 })).toBeCloseTo(-1, 9);
+  });
+
+  it('rocker: board height minus measured height on the chosen curve', () => {
+    expect(refPointGap(b, { id: 'a', plane: 'rocker', curve: 'deck', x: 40, y: 7.8 })).toBeCloseTo(
+      0.2,
+      9,
+    );
+    expect(
+      refPointGap(b, { id: 'a', plane: 'rocker', curve: 'bottom', x: 40, y: 0.3 }),
+    ).toBeCloseTo(-0.3, 9);
+  });
+
+  it('section: unsigned distance to the section curve at the station', () => {
+    const p = { id: 'a', plane: 'section', station: 50, x: 5, y: 1.4 } as const;
+    expect(refPointGap(b, p)).toBeCloseTo(0.4, 6);
+    expect(refPointGap(b, { ...p, y: 0.6 })).toBeCloseTo(0.4, 6);
+    expect(refPointGap(b, { ...p, station: 60 })).toBeNull();
+  });
+
+  it('judges a gap against a tolerance', () => {
+    const p = { id: 'a', plane: 'outline', x: 40, y: 9.97 } as const;
+    expect(refPointWithin(b, p, 0.1)).toBe(true);
+    expect(refPointWithin(b, p, 0.05)).toBe(false);
+    expect(refPointWithin(b, { ...p, x: 200 }, 0.1)).toBeNull();
   });
 });

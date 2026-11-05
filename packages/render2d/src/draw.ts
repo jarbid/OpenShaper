@@ -353,6 +353,11 @@ export interface EditorOverlays {
    * on click but never drags them; `'unlocked'` lets them be dragged. Omitted = hidden.
    */
   referencePoints?: 'locked' | 'unlocked';
+  /**
+   * Colour reference points by how far the board is from each (cm): green within this
+   * tolerance, red beyond it. Omitted: they are all drawn yellow.
+   */
+  refTolerance?: number;
   /** Stations (board x) where cross-section reference points were measured; length-wise panes. */
   measuredStations?: readonly number[];
 }
