@@ -252,7 +252,8 @@ export default function DocsEditing() {
           guide points in a BoardCAD file open as reference points, and saving a <code>.brd</code>{' '}
           writes them back. A <code>.brd</code> stores no labels, and it cannot hold a cross-section
           point with no section at its station; when that happens the export tells you how many were
-          left out.
+          left out. The 1:1 PDF templates can print them too (see{' '}
+          <Link to="/docs/export#pdf">1:1 PDF printing</Link>).
         </p>
       </Section>
 

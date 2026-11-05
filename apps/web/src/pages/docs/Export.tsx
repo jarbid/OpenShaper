@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { Link } from 'react-router-dom';
 import { EXPORT_FORMAT_LABELS, EXPORT_FORMATS, type ExportFormat } from '../../file-io';
 import { DocsPage, Section, Term, Terms } from './DocsPage';
 
@@ -64,6 +65,14 @@ export default function DocsExport() {
           symmetric about the stringer, so each rib page prints one side with the stringer drawn as
           the fold line. <em>Half sections</em> turns that off independently of the outline, for
           when you would rather see the whole profile.
+        </p>
+        <p>
+          When the board has <Link to="/docs/editing#reference-points">reference points</Link>, the
+          dialog offers <em>Reference points</em> (on by default): each is printed as a crosshair
+          with its position and value beside it — outline points on the outline template (on the
+          printed rail, whichever side they were taped on), rocker points on the rocker page — and
+          every station where section points were measured gets a section page of its own with those
+          points on it, so a template can be laid against the real board and checked.
         </p>
       </Section>
 

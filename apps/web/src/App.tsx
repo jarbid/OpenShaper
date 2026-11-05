@@ -1851,10 +1851,11 @@ function AppShell() {
         <ExportPdf1to1Dialog
           units={units}
           settings={pdf1to1}
+          hasReferencePoints={refPoints.length > 0}
           onExport={(s) => {
             savePdf1to1(s);
             setPdf1to1(s);
-            downloadPdf1to1(board, s, meta, units);
+            downloadPdf1to1(board, s, meta, units, refPoints);
             track('export_board', { format: 'pdf-1to1-custom' });
             markExport();
           }}

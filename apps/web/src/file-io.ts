@@ -451,6 +451,7 @@ export function downloadPdf1to1(
   settings: Pdf1to1Settings,
   meta?: BoardMeta,
   units?: LengthUnit,
+  refPoints?: RefPoints,
 ): void {
   const pdfUnit: 'cm' | 'in' = units?.unit === Unit.INCHES ? 'in' : 'cm';
   const pdfMeta = {
@@ -486,6 +487,7 @@ export function downloadPdf1to1(
     },
     tiling,
     packaging: settings.packaging,
+    ...(settings.referencePoints && refPoints?.length ? { referencePoints: refPoints } : {}),
   });
   // The export package names files 'board-1to1[-part].pdf'; swap in the model slug.
   const slug = slugifyName(meta?.model);
