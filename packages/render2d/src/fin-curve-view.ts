@@ -328,7 +328,7 @@ export const drawGuides = (
   for (const g of guides) {
     const [a, b] = guideLine(g, vp, yScale);
     ctx.save();
-    ctx.strokeStyle = g.color ?? 'rgba(167,139,250,0.9)';
+    ctx.strokeStyle = g.color ?? 'rgba(244,114,182,0.9)';
     ctx.lineWidth = g.selected ? 2 : 1;
     if (!g.selected) ctx.setLineDash([6, 4]);
     ctx.beginPath();

@@ -7,7 +7,7 @@
  * which stay editable afterwards. The dashed vertical marks the thickest point, where
  * the taper's thickness applies. A horizontal slice whose chord crosses the tip line
  * shows the part past it, which the tip foil shapes, shaded, and a green dot for the tip
- * there; the tip foil shows an aqua dot where each slice crosses it, for the slice there.
+ * there; the tip foil shows a pink dot where each slice crosses it, for the slice there.
  * Both foils get a point at the crossing to match the dots with (owner's rules). An
  * asymmetric foil shows how its thickness is shared
  * (outside / inside, top left); typing a share rebuilds the foil as leading-edge radii
@@ -64,7 +64,7 @@ export const foilTitle = (d: FinDesign, foil: number, units: LengthUnit): string
     ? 'Base foil'
     : foil === TIP_FOIL
       ? 'Tip foil'
-      : `Slice at ${fmtLen((d.slices[foil - 1]?.height ?? 0) * finReadouts(d).depth, units)}`;
+      : `Control section ${fmtLen((d.slices[foil - 1]?.height ?? 0) * finReadouts(d).depth, units)}`;
 
 /** Keep the chord line and a strip under it (for the labels) in view; the faces add the rest. */
 const SECTION_FRAME = { minX: 0, maxX: 1, minY: -0.12, maxY: 0.02 };
@@ -79,8 +79,8 @@ const GUIDE = 'rgba(138,155,179,0.7)';
 const TIP_PART = 'rgba(138,155,179,0.16)';
 /** In a slice, the tip at the crossing: the profile's tip-line green. */
 const TIP_DOT = SWEEP_LINE;
-/** In the tip foil, a slice at the crossing: aqua. */
-const SLICE_DOT = '#2DD4BF';
+/** In the tip foil, a control section at the crossing: pink, control sections' colour. */
+const SLICE_DOT = '#F472B6';
 
 const mirrored = (s: Spline): Spline =>
   splineFromKnots(
@@ -224,7 +224,7 @@ export const FinSectionTools = memo(function FinSectionTools({
         <div className="flex gap-1" role="group" aria-label="Inside face">
           <Button
             size="sm"
-            variant={asymmetric ? 'outline' : 'default'}
+            variant={asymmetric ? 'outline' : 'selected'}
             aria-pressed={!asymmetric}
             onClick={() => store.getState().setInsideFace('symmetric')}
           >
@@ -232,7 +232,7 @@ export const FinSectionTools = memo(function FinSectionTools({
           </Button>
           <Button
             size="sm"
-            variant={asymmetric ? 'default' : 'outline'}
+            variant={asymmetric ? 'selected' : 'outline'}
             aria-pressed={asymmetric}
             onClick={() => {
               // Already asymmetric: keep the faces (a split or a NACA camber) as they are.
@@ -272,7 +272,7 @@ function FoilTabs({ store, units }: { store: StoreApi<FinState>; units: LengthUn
           size="sm"
           role="tab"
           aria-selected={activeFoil === foil}
-          variant={activeFoil === foil ? 'default' : 'outline'}
+          variant={activeFoil === foil ? 'selected' : 'outline'}
           onClick={() => store.getState().setActiveFoil(foil)}
         >
           {label}
@@ -552,7 +552,7 @@ export const FinSectionPane = memo(function FinSectionPane({
           tipPart[1] >= 1 ? 'right' : 'left',
         );
       if (activeFoil === TIP_FOIL && dots.length)
-        label('Dot: the slice where it crosses', 1, 32, 'right');
+        label('Pink dot: the control section where it crosses', 1, 32, 'right');
       if (thickestAt !== null) label('thickest', thickestAt, 32, 'center');
       if (panelLines) {
         ctx.strokeStyle = panelLines.fits ? PANEL_FIT : PANEL_OVER;

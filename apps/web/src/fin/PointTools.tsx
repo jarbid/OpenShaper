@@ -66,7 +66,7 @@ export const PointTools = memo(function PointTools({ store }: { store: StoreApi<
       </Tooltip>
       <Button
         size="sm"
-        variant={interior && k?.continuous ? 'default' : shown(interior)}
+        variant={interior && k?.continuous ? 'selected' : shown(interior)}
         aria-pressed={interior && !!k?.continuous}
         disabled={!interior}
         onClick={() => sel && s().setContinuous(sel.curve, sel.index, true)}
@@ -75,7 +75,7 @@ export const PointTools = memo(function PointTools({ store }: { store: StoreApi<
       </Button>
       <Button
         size="sm"
-        variant={interior && k && !k.continuous ? 'default' : shown(interior)}
+        variant={interior && k && !k.continuous ? 'selected' : shown(interior)}
         aria-pressed={interior && !!k && !k.continuous}
         disabled={!interior}
         onClick={() => sel && s().setContinuous(sel.curve, sel.index, false)}

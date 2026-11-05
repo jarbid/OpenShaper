@@ -57,11 +57,12 @@ export default function DocsFinDesigner() {
         { id: 'outline', label: 'The profile' },
         { id: 'sweep', label: 'The foil sweep' },
         { id: 'foil', label: 'The foil' },
-        { id: 'slices', label: 'Foil slices and twist' },
+        { id: 'control sections', label: 'Control sections' },
         { id: 'taper', label: 'Thickness and flex' },
         { id: 'base', label: 'The tab' },
         { id: 'tab', label: 'Placing the fin on its tab' },
         { id: 'analysis', label: 'Section analysis' },
+        { id: 'colours', label: 'What the colours mean' },
         { id: 'rules', label: 'The rules it keeps' },
         { id: 'files', label: 'Saving your work' },
         { id: 'export', label: 'Exporting for CNC and printing' },
@@ -169,7 +170,7 @@ export default function DocsFinDesigner() {
           toward the trailing edge, and so does the thickness.
         </p>
         <p>
-          The dashed orange line is the <strong>thickness path</strong>: where each section is
+          The dashed amber line is the <strong>thickness path</strong>: where each section is
           thickest, from the base to the tip line. Its ends are the base and tip foils&apos;
           thickest points, so the two always agree: drag the path&apos;s end dot in the profile and
           that foil is reshaped to match; drag the orange <strong>thickest point</strong> dot in the
@@ -189,11 +190,11 @@ export default function DocsFinDesigner() {
           thickness curve makes it there, the outside face above the chord line and the inside face
           below, its name at the top right; the toolbar holds its controls. Scroll to zoom in on a
           thin foil. Its tabs pick the foil: <strong>Base</strong> and <strong>Tip</strong>, the
-          sweep&apos;s two (see <a href="#sweep">The foil sweep</a>), then each horizontal slice
-          foil by height (see <a href="#slices">Foil slices and twist</a>). Its size follows the
+          sweep&apos;s two (see <a href="#sweep">The foil sweep</a>), then each horizontal control
+          section foil by height (see <a href="#slices">Control sections</a>). Its size follows the
           profile and the thickness curve; this pane sets only its shape. With a panel set in{' '}
           <a href="#settings">File settings</a>, the panel&apos;s two faces are drawn level and true
-          to scale either side of the foil, green when the fin fits it and orange when not.
+          to scale either side of the foil, slate when the fin fits it and orange when not.
         </p>
         <Terms>
           <Term name="Asymmetric">
@@ -207,12 +208,13 @@ export default function DocsFinDesigner() {
             it is tall, a fine nose with the thickest point about a sixth of the way back. Each face
             gets a point halfway round its radius and one where it meets the line, to reshape it
             from. The sizes are true to the fin: its thickness and chord at the base, or at the
-            slice being edited. The split goes from 100 / 0 down to 51 / 49: an even split is a
-            symmetric foil, which has its own button. An asymmetric foil&apos;s leading- and
+            control section being edited. The split goes from 100 / 0 down to 51 / 49: an even split
+            is a symmetric foil, which has its own button. An asymmetric foil&apos;s leading- and
             trailing-edge points can be dragged off the chord line, outboard or inboard, to blend a
             twist: both faces move with them, so the edge stays closed and at the minimum thickness,
-            and the edge moves with the foil as it scales. A new slice copies the edge where the fin
-            has it. Making the foil symmetric or flat inside brings its edges back to the line.
+            and the edge moves with the foil as it scales. A new control section copies the edge
+            where the fin has it. Making the foil symmetric or flat inside brings its edges back to
+            the line.
           </Term>
           <Term name="Symmetric">
             The same curve on both faces — always the case on a centre fin. Its edges stay on the
@@ -228,49 +230,53 @@ export default function DocsFinDesigner() {
         </Terms>
       </Section>
 
-      <Section id="slices" title="Foil slices and twist">
+      <Section id="slices" title="Control sections">
         <p>
-          The sweep carries one foil up the blade. A <strong>slice</strong> sets the foil across the
-          fin at one height instead, as a CAD designer or flow modeller would think of it. Slices
-          are also how you twist a fin (see below). <strong>Add slice</strong> (in the
-          profile&apos;s toolbar) puts a dashed line across the profile; drag it up or down to set
-          its height — in the profile or the thickness view. A slice can be dragged past another: it
-          waits just short of it, then hops to the other side. Each slice has its own foil: pick its
-          tab in the foil view (by height, after Base and Tip) and shape it with the same tools,
-          NACA presets included. A new slice starts as the fin&apos;s own section at its height,
-          drawn with as few points as follow it to within 2% of its thickness, so adding one changes
-          nothing you could measure until you reshape it. Dragging a slice moves it the way the
-          analysis cut moves: one you haven&apos;t reshaped shows the fin&apos;s section at its new
-          height, and one you have keeps your changes, laid on the fin&apos;s section there.
+          The sweep carries one foil up the blade. A <strong>control section</strong> sets the foil
+          across the fin at one height instead, as a CAD designer or flow modeller would think of
+          it. Control sections are also how you twist a fin (see below).{' '}
+          <strong>Add control section</strong> (in the profile&apos;s toolbar) puts a dashed line
+          across the profile; drag it up or down to set its height — in the profile or the thickness
+          view. A control section can be dragged past another: it waits just short of it, then hops
+          to the other side. Each control section has its own foil: pick its tab in the foil view
+          (by height, after Base and Tip) and shape it with the same tools, NACA presets included. A
+          new control section starts as the fin&apos;s own section at its height, drawn with as few
+          points as follow it to within 2% of its thickness, so adding one changes nothing you could
+          measure until you reshape it. Dragging a control section moves it the way the analysis cut
+          moves: one you haven&apos;t reshaped shows the fin&apos;s section at its new height, and
+          one you have keeps your changes, laid on the fin&apos;s section there.
         </p>
         <p>
-          What you change in a slice&apos;s foil holds at its height and blends smoothly into the
-          sweep over 15% of the fin&apos;s depth below and above it — less where the base, the top
-          or the next slice is nearer — easing in and out so no line forms. Two slices closer than
-          that hold their changes all the way between them. The thickness still comes from the
-          thickness curve, so a slice changes the foil&apos;s shape, not how thick it is; it has no
-          thickest-point handle. Where a slice&apos;s chord crosses the tip line (the profile notes
-          it), the part past the tip line is the tip&apos;s: the tip foil shapes it, and the
-          slice&apos;s foil view shades it (its points there still move, but change nothing). Both
-          foils get a point where the slice crosses the tip line, and each shows the other there as
-          a dot: green in the slice for the tip, aqua in the <strong>Tip</strong> foil for the
-          slice. Drag either foil&apos;s point at the crossing to match the other&apos;s dot, so the
-          slice and the tip meet smoothly. Move the tip line or the slice and the new crossing gets
-          its points too. <strong>Remove slice</strong>, next to Add slice, takes the selected slice
-          away: click a slice&apos;s line (or its foil tab) to select it. Slices keep at least 2% of
+          What you change in a control section&apos;s foil holds at its height and blends smoothly
+          into the sweep over 15% of the fin&apos;s depth below and above it — less where the base,
+          the top or the next control section is nearer — easing in and out so no line forms. Two
+          control sections closer than that hold their changes all the way between them. The
+          thickness still comes from the thickness curve, so a control section changes the
+          foil&apos;s shape, not how thick it is; it has no thickest-point handle. Where a control
+          section&apos;s chord crosses the tip line (the profile notes it), the part past the tip
+          line is the tip&apos;s: the tip foil shapes it, and the control section&apos;s foil view
+          shades it (its points there still move, but change nothing). Both foils get a point where
+          the control section crosses the tip line, and each shows the other there as a dot: green
+          in the control section for the tip, pink in the <strong>Tip</strong> foil for the control
+          section. Drag either foil&apos;s point at the crossing to match the other&apos;s dot, so
+          the control section and the tip meet smoothly. Move the tip line or the control section
+          and the new crossing gets its points too. <strong>Remove control section</strong>, next to
+          Add control section, takes the selected control section away: click a control
+          section&apos;s line (or its foil tab) to select it. Control sections keep at least 2% of
           the depth from each other and from the base and tip.
         </p>
         <p>
-          A slice can also change the cant and toe above it, bending the upper blade out and
-          twisting it, as some Futures designs do. Pick the slice in the 3D view&apos;s{' '}
-          <strong>Twist at</strong> list (or its tab in the foil view): the position arrows grey
-          out, and <strong>Cant at slice</strong> (−20° to 20°: it may lean back past upright) and{' '}
-          <strong>Toe at slice</strong> set its change. The blade eases from the cant and toe below
-          (the whole fin&apos;s, or the slice below&apos;s) to the slice&apos;s over the 15% of the
-          depth just under it, with no crease, and holds them above it. Each section turns about its
-          own centre: the middle of its area, which moves smoothly up the blade.{' '}
-          <strong>Remove twist</strong> takes the change away. On an FCS single tab the fin has no
-          cant of its own (the plug sets it), but a slice may still add some.
+          A control section can also change the cant and toe above it, bending the upper blade out
+          and twisting it, as some Futures designs do. Pick the control section in the 3D
+          view&apos;s <strong>Shape at</strong> list (or its tab in the foil view): the whole
+          fin&apos;s placement gives way to the control section&apos;s own <strong>Cant</strong>{' '}
+          (−20° to 20°: it may lean back past upright) and <strong>Toe</strong>, which set its
+          change. The blade eases from the cant and toe below (the whole fin&apos;s, or the control
+          section below&apos;s) to the control section&apos;s over the 15% of the depth just under
+          it, with no crease, and holds them above it. Each section turns about its own centre: the
+          middle of its area, which moves smoothly up the blade. <strong>Reset cant and toe</strong>{' '}
+          takes the change away. On an FCS single tab the fin has no cant of its own (the plug sets
+          it), but a control section may still add some.
         </p>
       </Section>
 
@@ -370,10 +376,10 @@ export default function DocsFinDesigner() {
             much, or not enough. The arrows turn it a quarter-degree a click (a little toe makes a
             big difference), or type the angle. Plus is more toe in: the leading edge turned toward
             the stringer, on either side, so a left and right pair match.{' '}
-            <strong>View from above</strong> looks down the blade, with an orange line along the
-            tab: the box&apos;s direction to judge it by. A flat inside face turned this way no
-            longer lies exactly along the tab. A centre fin and a fin in a US box sit on the
-            stringer, so they have no toe: the toe controls are greyed out.
+            <strong>View from above</strong> looks down the blade, with a slate line along the tab:
+            the box&apos;s direction to judge it by. A flat inside face turned this way no longer
+            lies exactly along the tab. A centre fin and a fin in a US box sit on the stringer, so
+            they have no toe: the toe controls are greyed out.
           </Term>
         </Terms>
       </Section>
@@ -404,10 +410,28 @@ export default function DocsFinDesigner() {
         </p>
       </Section>
 
+      <Section id="colours" title="What the colours mean">
+        <p>Each colour means one thing, in every view.</p>
+        <Terms>
+          <Term name="Cyan">The profile and the outside face; also what is selected or on.</Term>
+          <Term name="Violet">The inside face.</Term>
+          <Term name="Pink">Control sections: their lines, and their dot in the tip foil.</Term>
+          <Term name="Green">The base foil and the tip foil: the sweep&apos;s two lines.</Term>
+          <Term name="Amber">Thickness: the thickness curve and the thickness path.</Term>
+          <Term name="Orange">
+            Limits and warnings: the minimum thickness, the rear clearance, a panel the fin
+            doesn&apos;t fit.
+          </Term>
+          <Term name="Red">A problem that stops export.</Term>
+          <Term name="Slate">Guides, labels, the section planes, and a panel the fin fits.</Term>
+        </Terms>
+      </Section>
+
       <Section id="rules" title="The rules it keeps">
         <p>
           The designer won&apos;t let a drag break these; a point stops where it would. Anything
-          that does break one (an old file, say) is listed as a problem under the readouts.
+          that does break one (an old file, say) shows as a red chip at the right of the status bar;
+          open it for the list.
         </p>
         <Terms>
           <Term name="Front overhang">
@@ -453,9 +477,10 @@ export default function DocsFinDesigner() {
           designer works offline.
         </p>
         <p>
-          For a side, quad-rear or canard fin, tick <strong>Left + right</strong> beside Save and
-          Export to write a matched pair: each Save or Export then writes two files, the fin and its
-          mirror for the other side (<code>fin-side-left</code> and <code>fin-side-right</code>
+          For a side, quad-rear or canard fin, tick <strong>Left and right fin</strong> in the
+          Export menu to write a matched pair: each Save or Export then writes two files, the fin
+          and its mirror for the other side (<code>fin-side-left</code> and{' '}
+          <code>fin-side-right</code>
           ). Your browser may ask once to allow more than one download. The choice is remembered on
           this device.
         </p>
@@ -469,13 +494,14 @@ export default function DocsFinDesigner() {
           (at the export minimum), in three dimensions.
         </p>
         <p>
-          The status line says what panel the fin needs, tab included, and warns in orange when
-          that&apos;s more than the panel: a warning only, the fin still exports.
+          The status bar says what panel the fin needs, tab included. When that&apos;s more than the
+          panel, an orange chip at its right says so; open it for the details and Fit to panel. A
+          warning only: the fin still exports.
         </p>
         <p>
           To see it, press <strong>Panel fit</strong> beside the 3D view. The view swings round
           behind the fin and looks along the panel, all but flat, like a drawing, with the
-          panel&apos;s outline round the whole fin: green when tab and blade fit inside it, orange
+          panel&apos;s outline round the whole fin: slate when tab and blade fit inside it, orange
           when not. You can still orbit; Panel fit again goes back to the view beside the fin.
         </p>
         <p>
@@ -486,7 +512,7 @@ export default function DocsFinDesigner() {
         </p>
         <p>
           Cant leans the blade out from its upright tab, so a canted fin (a Futures side fin, or an
-          FCS fin with a slice that adds cant) sticks out of a panel standing upright.{' '}
+          FCS fin with a control section that adds cant) sticks out of a panel standing upright.{' '}
           <strong>Tilt</strong>, in the Panel fit view, leans the panel toward the fin&apos;s
           outside face (±45°), so it runs diagonally between the tab and the leaning blade; the{' '}
           <strong>Cant</strong> field beside it lets you work the lean into the panel.{' '}
@@ -528,6 +554,10 @@ export default function DocsFinDesigner() {
       </Section>
 
       <Section id="export" title="Exporting for CNC and printing">
+        <p>
+          <strong>Export</strong>, at the right of the top bar, opens a menu: STEP for CNC, STL for
+          3D printing, or a core to laminate over.
+        </p>
         <Terms>
           <Term name="Export min">
             The thinnest the exported fin gets, set in <a href="#settings">File settings</a>:{' '}

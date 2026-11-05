@@ -35,11 +35,13 @@ import {
 } from '@openshaper/kernel';
 import type { FinPreviewView } from '@openshaper/render3d';
 import type { FinStart } from '@openshaper/store';
-import { Button, Menu, MenuBar, Tooltip } from '@openshaper/ui';
-import { Maximize2, RotateCcw, RotateCw, Settings } from 'lucide-react';
+import { Button, Menu, MenuBar, Tooltip, type MenuItem } from '@openshaper/ui';
+import { AlertTriangle, Maximize2, RotateCcw, RotateCw, Settings } from 'lucide-react';
 import {
+  createContext,
   lazy,
   Suspense,
+  useContext,
   useCallback,
   useEffect,
   useMemo,
@@ -202,12 +204,16 @@ function Readouts({ units }: { units: LengthUnit }) {
   );
 }
 
+/**
+ * Broken rules, read out as they happen: a hidden live region, as the status bar shows
+ * them behind its chip (StatusChip).
+ */
 function Issues() {
   const design = useFinState(finStore, (s) => s.design);
   const issues = useMemo(() => (design ? validateFinDesign(design) : []), [design]);
   if (issues.length === 0) return null;
   return (
-    <ul className="space-y-1 rounded-md border border-destructive/60 p-2 text-sm" role="status">
+    <ul className="sr-only" role="status">
       {issues.map((i) => (
         <li key={i.code}>{i.message}</li>
       ))}
@@ -236,10 +242,40 @@ function Nudge({
 }
 
 /**
+ * How a view's tools lay out: across the large pane's toolbar, or stacked under a small
+ * pane's picture (the 3D view's), each group under its title.
+ */
+const ToolsLayout = createContext<'toolbar' | 'stacked'>('toolbar');
+
+/**
+ * A titled group of tools (owner review: the 3D controls ran on as one wrapped flow). In
+ * the toolbar, groups are set apart by a rule; stacked, each has its title above it.
+ */
+function ToolGroup({ title, children }: { title: string; children: ReactNode }) {
+  const layout = useContext(ToolsLayout);
+  return layout === 'stacked' ? (
+    <div role="group" aria-label={title} className="flex w-full flex-col gap-1.5">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {title}
+      </p>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">{children}</div>
+    </div>
+  ) : (
+    <div
+      role="group"
+      aria-label={title}
+      className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-l border-border pl-3 first:border-l-0 first:pl-0"
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
  * Fore/aft and across nudges, in one row. They follow the view from above (nose up the
  * screen): up/down move the fin along the tab, left/right slide the blade across it.
  */
-function NudgePad({ disabled = false }: { disabled?: boolean }) {
+function NudgePad() {
   const s = finStore.getState;
   const hand = useFinState(finStore, (st) => st.design?.hand ?? null);
   // On a US box the blade slides along the head; a symmetric centre fin has no side to
@@ -247,12 +283,7 @@ function NudgePad({ disabled = false }: { disabled?: boolean }) {
   const usBox = useFinState(finStore, (st) => st.design?.base === 'us-box');
   const across = (side: 'left' | 'right') => (acrossSign(hand, side) > 0 ? 'outboard' : 'inboard');
   return (
-    <div
-      className={`flex items-center gap-1 ${disabled ? 'pointer-events-none opacity-40' : ''}`}
-      role="group"
-      aria-label="Position on the tab"
-      aria-disabled={disabled}
-    >
+    <div className="flex items-center gap-1" role="group" aria-label="Position on the tab">
       <span className="mr-1 text-muted-foreground">Position</span>
       <Nudge
         id="fin-nudge-forward"
@@ -295,26 +326,28 @@ const TOE_STEP = 0.25;
 /**
  * Toe correction: turn the blade on its tab, a quarter-degree a click or typed. Plus
  * toe in turns the leading edge toward the stringer; the view from above shows it
- * against the tab's axis.
+ * against the tab's axis. The field, then its turn buttons (owner review: the buttons
+ * came before their label).
  */
 function ToeTools({
   toe,
   onSet,
   label,
-  view,
-  onView,
   noToe,
 }: {
   toe: number;
   onSet: (deg: number) => void;
   label: string;
-  view: FinPreviewView;
-  onView: (v: FinPreviewView) => void;
-  /** Why this fin has no toe, greying the toe controls (the view switch still works). */
+  /** Why this fin has no toe, greying the toe controls. */
   noToe?: string;
 }) {
   return (
-    <div className="flex items-center gap-1" role="group" aria-label="Toe">
+    <div className="flex items-center gap-1">
+      <Tooltip label={noToe ?? `Turn the blade on its tab, within ±${FIN_MAX_TOE}°`}>
+        <div>
+          <DegField label={label} value={toe} onCommit={onSet} disabled={!!noToe} />
+        </div>
+      </Tooltip>
       <Tooltip
         label={noToe ?? `Toe out ${TOE_STEP}°: turn the leading edge away from the stringer`}
       >
@@ -339,33 +372,12 @@ function ToeTools({
           <RotateCw className="h-4 w-4" />
         </Button>
       </Tooltip>
-      {noToe ? (
-        <Tooltip label={noToe}>
-          <div>
-            <DegField label={label} value={toe} onCommit={onSet} disabled />
-          </div>
-        </Tooltip>
-      ) : (
-        <Tooltip label={`Turn the blade on its tab, within ±${FIN_MAX_TOE}°`}>
-          <div>
-            <DegField label={label} value={toe} onCommit={onSet} />
-          </div>
-        </Tooltip>
-      )}
-      <Button
-        size="sm"
-        variant={view === 'above' ? 'default' : 'outline'}
-        aria-pressed={view === 'above'}
-        onClick={() => onView(view === 'above' ? 'side' : 'above')}
-      >
-        View from above
-      </Button>
     </div>
   );
 }
 
 /**
- * Which part the 3D view's cant and toe set: the whole fin (Root) or a slice's change
+ * Where the 3D view's cant and toe apply: the whole fin, or a control section's change
  * above it. Shares the selection with the foil view's tabs.
  */
 function SliceSelect({ units }: { units: LengthUnit }) {
@@ -375,17 +387,17 @@ function SliceSelect({ units }: { units: LengthUnit }) {
   const depth = finReadouts(design).depth;
   return (
     <label className="flex items-center gap-2">
-      <span className="text-muted-foreground">Twist at</span>
+      <span className="text-muted-foreground">Shape at</span>
       <select
         className="h-8 rounded-md border border-input bg-background px-2 text-sm"
         value={activeFoil > 0 ? activeFoil : 0}
-        aria-label="Twist at"
+        aria-label="Shape at"
         onChange={(e) => finStore.getState().setActiveFoil(Number(e.target.value))}
       >
         <option value={0}>Whole fin</option>
         {design.slices.map((sl, i) => (
           <option key={i} value={i + 1}>
-            {fmtLen(sl.height * depth, units)}
+            Control section {fmtLen(sl.height * depth, units)}
             {sl.twist ? ' · cant / toe' : ''}
           </option>
         ))}
@@ -395,45 +407,32 @@ function SliceSelect({ units }: { units: LengthUnit }) {
 }
 
 /**
- * A selected slice's cant and toe: the blade eases to them from the root (or the slice
- * below) over the whole span up to the slice, and keeps them above it.
+ * A selected control section's cant and toe: the blade eases to them from the whole
+ * fin's (or the control section below's) over the span up to it, and keeps them above.
  */
-function SliceTwistTools({
-  foil,
-  view,
-  onView,
-}: {
-  foil: number;
-  view: FinPreviewView;
-  onView: (v: FinPreviewView) => void;
-}) {
+function SliceTwistTools({ foil, units }: { foil: number; units: LengthUnit }) {
   const design = useFinState(finStore, (s) => s.design);
   if (!design) return null;
   const sl = design.slices[foil - 1];
   if (!sl) return null;
-  // A slice without a change shows what the blade has there now.
+  // One without a change shows what the blade has there now.
   const now = sl.twist ?? twistAt(design, sl.height);
   const set = (change: Partial<FinTwist> | null) => finStore.getState().setSliceTwist(foil, change);
+  const at = fmtLen(sl.height * finReadouts(design).depth, units);
   return (
-    <>
-      <Tooltip label={`Blade lean at the slice, ${minus(FIN_MIN_SLICE_CANT)}° to ${FIN_MAX_CANT}°`}>
+    <ToolGroup title={`Control section ${at}`}>
+      <Tooltip label={`Blade lean here, ${minus(FIN_MIN_SLICE_CANT)}° to ${FIN_MAX_CANT}°`}>
         <div>
-          <DegField label="Cant at slice" value={now.cant} onCommit={(v) => set({ cant: v })} />
+          <DegField label="Cant" value={now.cant} onCommit={(v) => set({ cant: v })} />
         </div>
       </Tooltip>
-      <ToeTools
-        toe={now.toe}
-        onSet={(v) => set({ toe: v })}
-        label="Toe at slice"
-        view={view}
-        onView={onView}
-      />
+      <ToeTools toe={now.toe} onSet={(v) => set({ toe: v })} label="Toe" />
       {sl.twist && (
         <Button size="sm" variant="outline" onClick={() => set(null)}>
-          Remove twist
+          Reset cant and toe
         </Button>
       )}
-    </>
+    </ToolGroup>
   );
 }
 
@@ -496,7 +495,7 @@ function PanelFitTools({
         <div>
           <Button
             size="sm"
-            variant={on ? 'default' : 'outline'}
+            variant={on ? 'selected' : 'outline'}
             aria-pressed={on}
             disabled={tilt === null}
             onClick={() => onView(on ? 'side' : 'panel')}
@@ -523,6 +522,11 @@ function PanelFitTools({
   );
 }
 
+/**
+ * The 3D view's tools, in groups (owner review): Placement (tab, side, cant, position),
+ * Toe, View. With a control section selected, its own cant and toe in place of the whole
+ * fin's, and Placement hidden: it is the whole fin's, not greyed out.
+ */
 function PlacementTools({
   view,
   onView,
@@ -538,7 +542,7 @@ function PlacementTools({
   const hand = useFinState(finStore, (s) => s.design?.hand);
   const toe = useFinState(finStore, (s) => s.design?.toe ?? 0);
   const base = useFinState(finStore, (s) => s.design?.base);
-  // A slice selected (here or in the foil view): cant and toe set its change instead.
+  // A control section selected (here or in the foil view): cant and toe set its change.
   const slice = useFinState(finStore, (s) =>
     s.design && s.activeFoil > 0 && s.activeFoil <= s.design.slices.length ? s.activeFoil : 0,
   );
@@ -546,63 +550,72 @@ function PlacementTools({
   const s = finStore.getState;
   return (
     <>
-      <label className="flex items-center gap-2">
-        <span className="text-muted-foreground">Tab</span>
-        <select
-          className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-          value={base}
-          aria-label="Tab"
-          onChange={(e) => s().setBase(e.target.value as FinBase)}
-        >
-          {FIN_BASES.map((b) => (
-            <option key={b} value={b}>
-              {FIN_BASE_LABEL[b]}
-            </option>
-          ))}
-        </select>
-      </label>
-      {hand && (
-        <div className="flex items-center gap-1" role="group" aria-label="Side">
-          {(['left', 'right'] as const).map((h) => (
-            <Button
-              key={h}
-              size="sm"
-              variant={hand === h ? 'default' : 'outline'}
-              aria-pressed={hand === h}
-              onClick={() => s().setHand(h)}
-            >
-              {h === 'left' ? 'Left' : 'Right'}
-            </Button>
-          ))}
-        </div>
-      )}
       <SliceSelect units={units} />
       {slice > 0 ? (
-        <>
-          <NudgePad disabled />
-          <SliceTwistTools foil={slice} view={view} onView={onView} />
-        </>
+        <SliceTwistTools foil={slice} units={units} />
       ) : (
         <>
-          <CantField />
-          <NudgePad />
-          <ToeTools
-            toe={toe}
-            onSet={(v) => s().setToe(v)}
-            label="Toe"
-            view={view}
-            onView={onView}
-            noToe={
-              position === 'centre'
-                ? 'A centre fin has no toe'
-                : base === 'us-box'
-                  ? 'A fin in a US box has no toe'
-                  : undefined
-            }
-          />
+          <ToolGroup title="Placement">
+            <label className="flex items-center gap-2">
+              <span className="text-muted-foreground">Tab</span>
+              <select
+                className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                value={base}
+                aria-label="Tab"
+                onChange={(e) => s().setBase(e.target.value as FinBase)}
+              >
+                {FIN_BASES.map((b) => (
+                  <option key={b} value={b}>
+                    {FIN_BASE_LABEL[b]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {hand && (
+              <div className="flex items-center gap-1" role="group" aria-label="Side">
+                {(['left', 'right'] as const).map((h) => (
+                  <Button
+                    key={h}
+                    size="sm"
+                    variant={hand === h ? 'selected' : 'outline'}
+                    aria-pressed={hand === h}
+                    onClick={() => s().setHand(h)}
+                  >
+                    {h === 'left' ? 'Left' : 'Right'}
+                  </Button>
+                ))}
+              </div>
+            )}
+            <CantField />
+            <NudgePad />
+          </ToolGroup>
+          <ToolGroup title="Toe">
+            <ToeTools
+              toe={toe}
+              onSet={(v) => s().setToe(v)}
+              label="Toe"
+              noToe={
+                position === 'centre'
+                  ? 'A centre fin has no toe'
+                  : base === 'us-box'
+                    ? 'A fin in a US box has no toe'
+                    : undefined
+              }
+            />
+          </ToolGroup>
         </>
       )}
-      <PanelFitTools view={view} onView={onView} minThickness={minThickness} />
+      <ToolGroup title="View">
+        <Button
+          size="sm"
+          variant={view === 'above' ? 'selected' : 'outline'}
+          aria-pressed={view === 'above'}
+          onClick={() => onView(view === 'above' ? 'side' : 'above')}
+        >
+          View from above
+        </Button>
+        <PanelFitTools view={view} onView={onView} minThickness={minThickness} />
+      </ToolGroup>
     </>
   );
 }
@@ -633,13 +646,13 @@ function OutlineTools({ units }: { units: LengthUnit }) {
         onCommit={(cm) => finStore.getState().setDepth(cm)}
       />
       <PointTools store={finStore} />
-      <Tooltip label="Add a horizontal slice to shape or twist the fin there">
+      <Tooltip label="Add a control section: set the foil, cant and toe at a height">
         <Button
           variant="outline"
           size="sm"
           onClick={() => finStore.getState().addSlice(nextSliceHeight(design))}
         >
-          Add slice
+          Add control section
         </Button>
       </Tooltip>
       {design.slices.length > 0 && <RemoveSlice />}
@@ -653,14 +666,14 @@ function RemoveSlice() {
     s.design && s.activeFoil <= s.design.slices.length ? s.activeFoil : 0,
   );
   return (
-    <Tooltip label="Remove the selected slice (click its line to select it)">
+    <Tooltip label="Remove the selected control section (click its line to select it)">
       <Button
         variant="outline"
         size="sm"
         disabled={foil === 0}
         onClick={() => finStore.getState().removeSlice(foil)}
       >
-        Remove slice
+        Remove control section
       </Button>
     </Tooltip>
   );
@@ -684,30 +697,91 @@ function TaperTools({ units }: { units: LengthUnit }) {
   );
 }
 
-/** Readouts and broken rules, always in view. */
 /**
  * The panel check (File settings): what panel the fin needs at its angle, and a warning
  * when that's more than the panel. A warning, not a broken rule: the fin can still be
  * exported, for a thicker panel or a different machine.
  */
-function PanelStatus({ units, minThickness }: { units: LengthUnit; minThickness: number }) {
-  const fit = usePanelFit(finStore, minThickness);
-  if (!fit) return null;
+const panelPose = (fit: NonNullable<ReturnType<typeof usePanelFit>>): string => {
   const pose = [
     fit.pose.angle ? `turned ${fit.pose.angle.toFixed(1)}°` : '',
     fit.pose.tilt ? `tilted ${fit.pose.tilt.toFixed(1)}°` : '',
   ].filter(Boolean);
-  const angle = pose.length ? ` ${pose.join(', ')}` : '';
-  return fit.fits ? (
-    <p className="text-xs text-muted-foreground">
-      Fits the {fmtThick(fit.panel.thickness, units)} panel{angle}: needs{' '}
-      {fmtThick(fit.width, units)}, tab included.
-    </p>
-  ) : (
-    <p className="text-xs text-orange-400" data-testid="panel-warning">
-      Too thick for the {fmtThick(fit.panel.thickness, units)} panel{angle}: tab and blade need{' '}
-      {fmtThick(fit.width, units)}. Try Fit to panel, a thinner foil or less cant.
-    </p>
+  return pose.length ? ` ${pose.join(', ')}` : '';
+};
+
+/**
+ * Warnings and problems as one chip at the right of the status bar, the list opening from
+ * it (owner review: they ran on under the numbers in orange). Fine: a quiet line instead.
+ */
+function StatusChip({ units, minThickness }: { units: LengthUnit; minThickness: number }) {
+  const design = useFinState(finStore, (s) => s.design);
+  const issues = useMemo(() => (design ? validateFinDesign(design) : []), [design]);
+  const fit = usePanelFit(finStore, minThickness);
+  const [open, setOpen] = useState(false);
+  const over = fit && !fit.fits ? fit : null;
+  const count = issues.length + (over ? 1 : 0);
+  if (count === 0) {
+    return fit ? (
+      <span className="text-xs text-muted-foreground">
+        Fits the {fmtThick(fit.panel.thickness, units)} panel{panelPose(fit)}: needs{' '}
+        {fmtThick(fit.width, units)}, tab included.
+      </span>
+    ) : null;
+  }
+  return (
+    <div className="relative">
+      {over && (
+        <p className="sr-only" data-testid="panel-warning">
+          Too thick for the {fmtThick(over.panel.thickness, units)} panel{panelPose(over)}: tab and
+          blade need {fmtThick(over.width, units)}. Try Fit to panel, a thinner foil or less cant.
+        </p>
+      )}
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+        className={`flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-semibold ${
+          issues.length
+            ? 'border-red-400 bg-red-400/10 text-red-300'
+            : 'border-orange-500 bg-orange-500/10 text-orange-300'
+        }`}
+      >
+        <AlertTriangle className="h-3.5 w-3.5" aria-hidden />
+        {count} to fix
+      </button>
+      {open && (
+        <div
+          role="region"
+          aria-label="Problems"
+          className="absolute bottom-full right-0 z-30 mb-2 w-[26rem] max-w-[calc(100vw-2rem)] space-y-2 rounded-md border border-border bg-card p-3 text-sm shadow-lg"
+        >
+          {over && (
+            <div className="flex items-start gap-2">
+              <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-orange-500" aria-hidden />
+              <div className="flex-1">
+                <p className="font-semibold">
+                  Too thick for the {fmtThick(over.panel.thickness, units)} panel
+                </p>
+                <p className="text-muted-foreground">
+                  Tab and blade need {fmtThick(over.width, units)}. Exports still work.
+                </p>
+              </div>
+              <FitToPanel store={finStore} minThickness={minThickness} />
+            </div>
+          )}
+          {issues.map((i) => (
+            <div key={i.code} className="flex items-start gap-2">
+              <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-red-400" aria-hidden />
+              <div>
+                <p className="font-semibold">{i.message}</p>
+                <p className="text-muted-foreground">Export is off until it is fixed.</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -718,15 +792,27 @@ function Status({ units, minThickness }: { units: LengthUnit; minThickness: numb
   if (!position || !base) return null;
   const tab = finTabOutline(base, outline);
   return (
-    <div className="space-y-2 border-t border-border px-3 py-2" style={{ gridArea: 'status' }}>
-      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
-        <span className="text-xs text-muted-foreground">
-          {POSITION_LABEL[position]} on {FIN_BASE_LABEL[base]} ({fmtLen(tab.length, units)} ×{' '}
-          {fmtLen(tab.height, units)})
-        </span>
-        <Readouts units={units} />
+    <div
+      className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-border px-3 py-2"
+      style={{ gridArea: 'status' }}
+    >
+      <span className="border-r border-border pr-4 text-xs text-muted-foreground">
+        {POSITION_LABEL[position]} on {FIN_BASE_LABEL[base]} ({fmtLen(tab.length, units)} ×{' '}
+        {fmtLen(tab.height, units)})
+      </span>
+      <Readouts units={units} />
+      <div className="ml-auto flex items-center gap-4">
+        <StatusChip units={units} minThickness={minThickness} />
+        {/* Credit where it's due: a fork of OpenShaper (GPL), at the bottom (owner review). */}
+        <a
+          className="text-xs text-muted-foreground underline-offset-4 hover:underline"
+          href={GITHUB_URL}
+          target="_blank"
+          rel="noreferrer"
+        >
+          A fork of OpenShaper
+        </a>
       </div>
-      <PanelStatus units={units} minThickness={minThickness} />
       <Issues />
     </div>
   );
@@ -773,7 +859,7 @@ function ViewPane({
           {title}
         </h2>
         {large ? (
-          tools
+          <ToolsLayout.Provider value="toolbar">{tools}</ToolsLayout.Provider>
         ) : (
           <Tooltip label={`Show ${title} in the large pane`}>
             <Button
@@ -790,8 +876,8 @@ function ViewPane({
       </div>
       <div className="min-h-0 flex-1">{children}</div>
       {!large && keepTools && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-border px-2 py-1.5 text-sm">
-          {tools}
+        <div className="flex flex-col gap-2.5 border-t border-border px-2 py-2 text-sm">
+          <ToolsLayout.Provider value="stacked">{tools}</ToolsLayout.Provider>
         </div>
       )}
     </section>
@@ -879,33 +965,18 @@ function FileButtons({ onSave, onOpened }: { onSave: () => void; onOpened: () =>
 const PAIR_KEY = 'bs.fin.pair';
 
 /**
- * The R & L option beside Save and Export: when ticked, each writes the fin and its
- * mirror for the other side, two files. Only for fins that have a side.
+ * Export, the header's one primary action: a menu of STEP (CNC), STL (3D printing) and
+ * the core, with the left-and-right option beside what it changes (owner review: the
+ * header had eleven controls in five styles). The option changes Save too.
  */
-function PairOption({ pair, onChange }: { pair: boolean; onChange: (on: boolean) => void }) {
-  const hand = useFinState(finStore, (s) => s.design?.hand);
-  if (!hand) return null;
-  return (
-    <Tooltip label="Save and export a left and a right fin: two files each time">
-      <label className="flex items-center gap-1.5 px-1 text-sm">
-        <input
-          type="checkbox"
-          className="h-4 w-4 accent-primary"
-          checked={pair}
-          onChange={(e) => onChange(e.target.checked)}
-        />
-        <span>Left + right</span>
-      </label>
-    </Tooltip>
-  );
-}
-
-function ExportButtons({
+function ExportMenu({
   pair,
+  onPair,
   units,
   minThickness,
 }: {
   pair: boolean;
+  onPair: (on: boolean) => void;
   units: LengthUnit;
   /** The exports' minimum thickness (cm, File settings). */
   minThickness: number;
@@ -923,40 +994,52 @@ function ExportButtons({
       void exportFin(d, format, pair, laminate, minThickness).finally(() => setBusy(null));
     }, 0);
   };
-  const blocked = issues.length > 0;
-  const why = blocked ? 'Fix the problems shown in the status bar first' : undefined;
+  const blocked = issues.length > 0 || busy !== null;
+  const why = issues.length > 0 ? 'Fix the problems shown in the status bar first' : undefined;
+  const items: MenuItem[] = [
+    {
+      kind: 'action',
+      label: 'STEP for CNC',
+      disabled: blocked,
+      title: why,
+      onSelect: () => run('step'),
+    },
+    {
+      kind: 'action',
+      label: 'STL for 3D printing',
+      disabled: blocked,
+      title: why,
+      onSelect: () => run('stl'),
+    },
+    {
+      kind: 'action',
+      label: 'Core to laminate over…',
+      disabled: blocked,
+      title: why,
+      onSelect: () => setCoreOpen(true),
+    },
+    ...(design?.hand
+      ? ([
+          { kind: 'separator' },
+          {
+            kind: 'checkbox',
+            label: 'Left and right fin (two files)',
+            checked: pair,
+            onSelect: () => onPair(!pair),
+          },
+        ] as MenuItem[])
+      : []),
+  ];
   return (
     <>
-      <Tooltip label={why ?? 'Export a STEP file for CNC (mm)'}>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={blocked || busy !== null}
-          onClick={() => run('step')}
-        >
-          {busy === 'step' ? 'Exporting…' : 'Export STEP'}
-        </Button>
-      </Tooltip>
-      <Tooltip label={why ?? 'Export an STL file for 3D printing (mm)'}>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={blocked || busy !== null}
-          onClick={() => run('stl')}
-        >
-          {busy === 'stl' ? 'Exporting…' : 'Export STL'}
-        </Button>
-      </Tooltip>
-      <Tooltip label={why ?? 'Export a thinner core to laminate over'}>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={blocked || busy !== null}
-          onClick={() => setCoreOpen(true)}
-        >
-          {busy === 'core' ? 'Exporting…' : 'Export core…'}
-        </Button>
-      </Tooltip>
+      <MenuBar>
+        <Menu
+          label={busy ? 'Exporting…' : 'Export ▾'}
+          items={items}
+          triggerClassName="bg-primary px-3 font-semibold text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
+          panelClassName="min-w-64"
+        />
+      </MenuBar>
       {coreOpen && (
         <CoreExportDialog
           units={units}
@@ -1047,35 +1130,44 @@ export function FinApp() {
 
   return (
     <div className="flex h-dvh flex-col bg-background text-foreground">
-      <header className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-border px-3 py-2">
         <h1 className="text-sm font-semibold">OpenFinShaper</h1>
-        {/* Credit where it's due: the fin designer is part of OpenShaper (GPL). */}
-        <a
-          className="mr-2 text-xs text-muted-foreground underline-offset-4 hover:underline"
-          href={GITHUB_URL}
-          target="_blank"
-          rel="noreferrer"
+        {/* File, then Edit: groups set apart by a rule (owner review). */}
+        <div
+          role="group"
+          aria-label="File"
+          className="flex items-center gap-1 border-l border-border pl-3"
         >
-          part of OpenShaper
-        </a>
-        <MenuBar>
-          <Menu
-            label="New fin"
-            items={STARTS.map((st) => ({
-              kind: 'action' as const,
-              label: st.label,
-              onSelect: () => {
-                finStore.getState().newFin(st.start, st.hand);
-                setStarts((n) => n + 1);
-              },
-            }))}
-          />
-        </MenuBar>
-        <div className="ml-auto flex flex-wrap items-center gap-1">
+          <MenuBar>
+            <Menu
+              label="New fin"
+              panelClassName="min-w-64"
+              items={STARTS.map((st) => ({
+                kind: 'action' as const,
+                label: st.label,
+                onSelect: () => {
+                  finStore.getState().newFin(st.start, st.hand);
+                  setStarts((n) => n + 1);
+                },
+              }))}
+            />
+          </MenuBar>
           <FileButtons onSave={save} onOpened={() => setStarts((n) => n + 1)} />
-          <PairOption pair={pair} onChange={changePair} />
-          <ExportButtons pair={pair} units={units} minThickness={settings.exportMin} />
+        </div>
+        <div
+          role="group"
+          aria-label="Edit"
+          className="flex items-center gap-1 border-l border-border pl-3"
+        >
           <History />
+        </div>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <ExportMenu
+            pair={pair}
+            onPair={changePair}
+            units={units}
+            minThickness={settings.exportMin}
+          />
           <SettingsButton settings={settings} onChange={changeSettings} />
           <a
             className="px-2 text-sm text-muted-foreground underline-offset-4 hover:underline"
@@ -1085,7 +1177,9 @@ export function FinApp() {
           </a>
         </div>
       </header>
-      <main aria-busy={!ready} className="fin-grid min-h-0 flex-1">
+      {/* Which small slot holds the 3D view: its row is taller, the model and its tools
+          both needing room (owner review: the model was 80 px wide). */}
+      <main aria-busy={!ready} className="fin-grid min-h-0 flex-1" data-3d-slot={slotOf('3d')}>
         <ViewPane
           view="outline"
           slot={slotOf('outline')}

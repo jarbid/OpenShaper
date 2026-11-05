@@ -149,7 +149,7 @@ export function SectionOverlay({
       <div className="absolute left-2 top-2 z-10 flex flex-wrap items-center gap-2 text-xs">
         <Button
           size="sm"
-          variant={state.on ? 'default' : 'outline'}
+          variant={state.on ? 'selected' : 'outline'}
           aria-pressed={state.on}
           onClick={() => set({ on: !state.on })}
         >

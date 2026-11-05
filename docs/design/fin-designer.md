@@ -473,3 +473,31 @@ colour, selected toggles vs primary buttons) are mocked up first.
 - Front overhang reads "none (11.3 mm clear)" rather than a negative overhang. Long tooltips
   were cut to a line, file-opening errors say what was damaged in plain words, and rule
   messages use the glossary.
+
+## UI and copy review, round 2 (the mock-ups, owner review 2026-11)
+
+The owner approved the layout mock-ups with two changes: the tagline moves to the bottom and
+reads "A fork of OpenShaper"; and a slice is a **control section** ("Station" was unfamiliar
+to a shaper of twenty years; "twist" undersold it, as it sets foil, cant and toe). Phones
+are unlikely, tablets likely: touch sizes stay (`pointer-coarse` in the Button), the phone
+header was not built.
+
+- Header in three groups set apart by rules: File (New fin, Open…, Save), Edit (Undo,
+  Redo), and at the right one primary **Export** menu (STEP for CNC, STL for 3D printing,
+  Core to laminate over…, and the left-and-right option, which changes Save too), settings
+  and Help. `Menu` takes `triggerClassName` and `panelClassName` for this.
+- The 3D tools in titled groups (`ToolGroup`, laid across the toolbar or stacked under the
+  small pane by `ToolsLayout`): Placement (Tab, side, Cant, Position), Toe (field, then its
+  turn buttons), View (View from above, Panel fit). With a control section selected,
+  **Shape at** picks it and its own Cant and Toe replace Placement, which is hidden rather
+  than greyed; **Reset cant and toe** takes its change away. The small pane holding the 3D
+  view gets a double-height row (`data-3d-slot`), so the model has room beside its tools.
+- The status bar: description, measurements, then at the right one chip for warnings and
+  problems ("2 to fix"), opening the list with Fit to panel for a panel the fin doesn't fit;
+  a hidden live region still reads problems out. "A fork of OpenShaper" sits at its end.
+- One meaning per colour, with a key in the help: cyan the profile, the outside face and
+  what is selected; violet the inside face; pink control sections (were violet); green the
+  base and tip foils; amber thickness; orange limits and warnings only (the analysis planes,
+  the tab axis and a panel the fin fits went slate; the slider thumb cyan); red problems.
+- Toggles that are on use the Button's new `selected` variant (tinted, outlined), keeping
+  solid primary for the one action to press.

@@ -12,6 +12,11 @@ export const buttonVariants = cva(
         outline: 'border border-input bg-background hover:bg-accent hover:text-accent-foreground',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
         destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
+        // A toggle that is on: tinted, outlined, in the primary colour. Not the solid
+        // primary, which is for the one action to press (owner review: a selected Left
+        // and a Done button looked the same).
+        selected:
+          'border border-primary bg-primary/15 font-semibold text-primary hover:bg-primary/25',
       },
       // Coarse pointers (touch) get 44px in both axes — Apple's ergonomic floor, and
       // comfortably clear of the 24px WCAG 2.5.8 minimum — without enlarging the dense

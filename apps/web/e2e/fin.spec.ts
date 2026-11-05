@@ -33,6 +33,13 @@ async function pickNewFin(page: Page, label: string) {
   await page.getByRole('menuitem', { name: label, exact: true }).click();
 }
 
+/** The Export menu's item `name`, the menu opened first if it is closed. */
+async function exportItem(page: Page, name: string) {
+  const item = page.getByRole('menuitem', { name, exact: true });
+  if (!(await item.isVisible())) await page.getByRole('menuitem', { name: /^Export/ }).click();
+  return item;
+}
+
 /** Type into a labelled number field and commit it, as a user does. */
 async function setField(page: Page, label: RegExp, value: string) {
   const field = page.getByLabel(label);
@@ -77,7 +84,7 @@ test.describe('Fin designer', () => {
     await expect(page.getByRole('status')).toHaveCount(0);
     const [step] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Export STEP' }).click(),
+      (await exportItem(page, 'STEP for CNC')).click(),
     ]);
     expect(step.suggestedFilename()).toBe('fin-side-right.step');
     const stepText = await readFile((await step.path())!, 'utf8');
@@ -88,7 +95,7 @@ test.describe('Fin designer', () => {
     // STL for printing.
     const [stl] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Export STL' }).click(),
+      (await exportItem(page, 'STL for 3D printing')).click(),
     ]);
     expect(stl.suggestedFilename()).toBe('fin-side-right.stl');
     const stlBytes = await readFile((await stl.path())!);
@@ -119,7 +126,7 @@ test.describe('Fin designer', () => {
 
   test('a foil slice: add, shape, export, save and reopen', async ({ page }) => {
     await openFin(page);
-    await page.getByRole('button', { name: 'Add slice' }).click();
+    await page.getByRole('button', { name: 'Add control section' }).click();
     await page.getByRole('button', { name: 'Show Foil in the large pane' }).click();
     const tabs = page.getByRole('tablist', { name: 'Foil' });
     await expect(tabs.getByRole('tab')).toHaveText(['Base', 'Tip', '50.0 mm']);
@@ -129,7 +136,7 @@ test.describe('Fin designer', () => {
 
     const [step] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Export STEP' }).click(),
+      (await exportItem(page, 'STEP for CNC')).click(),
     ]);
     expect(
       (await readFile((await step.path())!, 'utf8')).match(/MANIFOLD_SOLID_BREP\(/g),
@@ -155,7 +162,7 @@ test.describe('Fin designer', () => {
     await expect(page.getByRole('status')).toHaveCount(0);
     const [step] = await Promise.all([
       page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Export STEP' }).click(),
+      (await exportItem(page, 'STEP for CNC')).click(),
     ]);
     expect(step.suggestedFilename()).toBe('fin-side-left.step');
     expect(
@@ -163,12 +170,13 @@ test.describe('Fin designer', () => {
     ).toHaveLength(2);
   });
 
-  test('exports a left and a right fin with Left + right ticked', async ({ page }) => {
+  test('exports a left and a right fin with the option ticked', async ({ page }) => {
     await openFin(page);
-    await page.getByRole('checkbox', { name: 'Left + right' }).check();
+    await (await exportItem(page, 'STEP for CNC')).isVisible();
+    await page.getByRole('menuitemcheckbox', { name: /^Left and right fin/ }).click();
     const downloads: string[] = [];
     page.on('download', (d) => downloads.push(d.suggestedFilename()));
-    await page.getByRole('button', { name: 'Export STL' }).click();
+    await (await exportItem(page, 'STL for 3D printing')).click();
     await expect.poll(() => downloads.length).toBe(2);
     expect(downloads.sort()).toEqual(['fin-side-left.stl', 'fin-side-right.stl']);
   });
@@ -200,11 +208,12 @@ test.describe('Fin designer', () => {
       buffer: Buffer.from(JSON.stringify(doc)),
     });
     await expect(page.getByRole('status')).toContainText('Cant must be 0° to 20°');
-    await expect(page.getByRole('button', { name: 'Export STEP' })).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Export STL' })).toBeDisabled();
+    await expect(await exportItem(page, 'STEP for CNC')).toBeDisabled();
+    await expect(await exportItem(page, 'STL for 3D printing')).toBeDisabled();
+    await page.keyboard.press('Escape');
     // Fixing it opens export again.
     await setField(page, /Cant/, '12');
-    await expect(page.getByRole('button', { name: 'Export STEP' })).toBeEnabled();
+    await expect(await exportItem(page, 'STEP for CNC')).toBeEnabled();
   });
 
   test('links to its documentation', async ({ page }) => {
@@ -226,7 +235,7 @@ test.describe('Fin designer', () => {
       await expect(page.getByRole('img', { name: 'Thickness' })).toBeAttached();
       const [stl] = await Promise.all([
         page.waitForEvent('download'),
-        page.getByRole('button', { name: 'Export STL' }).click(),
+        (await exportItem(page, 'STL for 3D printing')).click(),
       ]);
       expect(stl.suggestedFilename()).toMatch(/\.stl$/);
     });

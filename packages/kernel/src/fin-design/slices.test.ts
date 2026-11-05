@@ -118,6 +118,6 @@ describe('slice rules', () => {
       slices: [{ height: 0.5, section: base.section }], // flat inside, on a centre fin
     };
     const issue = validateFinDesign(d).find((i) => i.code === 'section-symmetry');
-    expect(issue?.message).toMatch(/slice at 50%/);
+    expect(issue?.message).toMatch(/control section at 50%/);
   });
 });

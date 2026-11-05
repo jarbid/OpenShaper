@@ -197,7 +197,7 @@ export const FinOutlinePane = memo(function FinOutlinePane({
         ctx.fillText('Tip foil', t.x + 12, t.y + 4);
         if (sweep.sliceIntoTip) {
           ctx.fillStyle = SLICE_COLOR;
-          ctx.fillText('Slice meets the tip line', t.x + 12, t.y + 18);
+          ctx.fillText('Control section meets the tip line', t.x + 12, t.y + 18);
         }
         ctx.restore();
       }

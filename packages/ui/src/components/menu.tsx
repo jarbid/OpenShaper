@@ -277,8 +277,22 @@ export function MenuBar({ className, children }: { className?: string; children:
   );
 }
 
-/** A single labeled dropdown in the menubar, rendered from a flat `items` list. */
-export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
+/**
+ * A single labeled dropdown in the menubar, rendered from a flat `items` list.
+ * `triggerClassName` restyles its button (a primary action's), `panelClassName` its
+ * dropdown (a wider list).
+ */
+export function Menu({
+  label,
+  items,
+  triggerClassName,
+  panelClassName,
+}: {
+  label: string;
+  items: MenuItem[];
+  triggerClassName?: string;
+  panelClassName?: string;
+}) {
   const id = useId();
   const ctx = useContext(MenuBarContext);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -327,6 +341,7 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
         className={cn(
           'h-8 rounded-md px-2.5 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground',
           open && 'bg-accent text-accent-foreground',
+          triggerClassName,
         )}
       >
         {label}
@@ -337,7 +352,10 @@ export function Menu({ label, items }: { label: string; items: MenuItem[] }) {
           role="menu"
           onKeyDown={onKeyDown}
           style={{ marginLeft: shiftX }}
-          className="absolute left-0 top-full z-50 mt-1 max-h-[70vh] min-w-48 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-md border border-border bg-card p-1 text-card-foreground shadow-lg"
+          className={cn(
+            'absolute left-0 top-full z-50 mt-1 max-h-[70vh] min-w-48 max-w-[calc(100vw-1rem)] overflow-y-auto rounded-md border border-border bg-card p-1 text-card-foreground shadow-lg',
+            panelClassName,
+          )}
         >
           {renderMenuItems(items, () => ctx?.open(null))}
         </div>

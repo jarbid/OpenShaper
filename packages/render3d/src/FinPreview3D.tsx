@@ -176,9 +176,11 @@ function PanelOutline({ panel }: { panel: FinPanelOutline }) {
   );
 }
 
-const PANEL_FIT = '#22C55E';
+// One meaning per colour (owner review): orange is for limits and warnings only, so a
+// panel the fin fits, the section planes and the tab's axis are quiet slate.
+const PANEL_FIT = '#8A9BB3';
 const PANEL_OVER = '#F97316';
-const SECTION_PLANE = '#F97316';
+const SECTION_PLANE = '#8A9BB3';
 const SECTION_CUT = '#FDE047';
 
 /** A faint line along the tab's centre: the box's direction. */
@@ -196,7 +198,7 @@ function TabAxis({
   useEffect(() => () => geometry.dispose(), [geometry]);
   return (
     <lineSegments geometry={geometry}>
-      <lineBasicMaterial color="#F97316" transparent opacity={0.7} />
+      <lineBasicMaterial color="#8A9BB3" transparent opacity={0.8} />
     </lineSegments>
   );
 }

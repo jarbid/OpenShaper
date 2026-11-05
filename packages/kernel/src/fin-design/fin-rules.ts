@@ -232,19 +232,19 @@ const checkSection = (d: FinDesign, issues: FinIssue[]): void => {
     ) {
       issues.push({
         code: 'slice-height',
-        message: `Slices must be at least ${FIN_SLICE_MIN_GAP * 100}% of the depth apart, and from the base and tip.`,
+        message: `Control sections must be at least ${FIN_SLICE_MIN_GAP * 100}% of the depth apart, and from the base and tip.`,
       });
       return;
     }
     below = slice.height;
-    checkFoil(d, slice.section, ` (slice at ${pct}%)`, issues);
+    checkFoil(d, slice.section, ` (control section at ${pct}%)`, issues);
     const tw = slice.twist;
     if (tw) {
-      const where = ` (slice at ${pct}%)`;
+      const where = ` (control section at ${pct}%)`;
       if (!(tw.cant >= FIN_MIN_SLICE_CANT && tw.cant <= FIN_MAX_CANT)) {
         issues.push({
           code: 'cant',
-          message: `A slice's cant must be ${FIN_MIN_SLICE_CANT < 0 ? `−${-FIN_MIN_SLICE_CANT}` : FIN_MIN_SLICE_CANT}° to ${FIN_MAX_CANT}°${where}.`,
+          message: `A control section's cant must be ${FIN_MIN_SLICE_CANT < 0 ? `−${-FIN_MIN_SLICE_CANT}` : FIN_MIN_SLICE_CANT}° to ${FIN_MAX_CANT}°${where}.`,
         });
       }
       if (!(Math.abs(tw.toe) <= FIN_MAX_TOE)) {

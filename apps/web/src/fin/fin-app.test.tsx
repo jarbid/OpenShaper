@@ -21,6 +21,20 @@ beforeEach(() => {
 });
 
 const measurements = () => within(screen.getByLabelText('Fin measurements'));
+/** The Export menu's item `name`, the menu opened first if it is closed. */
+const exportItem = (name: string) => {
+  if (!screen.queryByRole('menuitem', { name })) {
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Export/ }));
+  }
+  return screen.getByRole('menuitem', { name }) as HTMLButtonElement;
+};
+/** The Export menu's left-and-right option, or null for a fin without a side. */
+const pairOption = () => {
+  if (!screen.queryByRole('menuitem', { name: 'STEP for CNC' })) {
+    fireEvent.click(screen.getByRole('menuitem', { name: /^Export/ }));
+  }
+  return screen.queryByRole('menuitemcheckbox', { name: /^Left and right fin/ });
+};
 /** Start a new fin from the header's New fin menu. */
 const pickNewFin = (label: string) => {
   fireEvent.click(screen.getByRole('menuitem', { name: 'New fin' }));
@@ -113,9 +127,7 @@ describe('FinApp', () => {
       expect(screen.getByTestId('panel-warning').textContent).toMatch(
         /Too thick for the 6\.4 mm panel/,
       );
-      expect(
-        (screen.getByRole('button', { name: 'Export STEP' }) as HTMLButtonElement).disabled,
-      ).toBe(false);
+      expect(exportItem('STEP for CNC').disabled).toBe(false);
       // Fit to panel turns the fin, undoably; the angle field follows.
       const tools = within(screen.getByRole('group', { name: 'Panel' }));
       fireEvent.click(tools.getByRole('button', { name: 'Fit to panel' }));
@@ -193,7 +205,7 @@ describe('FinApp', () => {
     fireEvent.click(dialog.getByRole('radio', { name: 'Outside' }));
     fireEvent.click(dialog.getByRole('checkbox', { name: 'Include the tab' }));
     fireEvent.click(dialog.getByRole('button', { name: 'Done' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Export core…' }));
+    fireEvent.click(exportItem('Core to laminate over…'));
     const core = within(screen.getByRole('dialog', { name: 'Export core' }));
     expect((core.getByLabelText('Laminate thickness') as HTMLInputElement).value).toBe('0.40');
     expect((core.getByRole('radio', { name: 'Outside' }) as HTMLInputElement).checked).toBe(true);
@@ -294,7 +306,7 @@ describe('FinApp', () => {
     expect((toe.getByRole('button', { name: 'Toe in' }) as HTMLButtonElement).disabled).toBe(true);
     expect((toe.getByRole('button', { name: 'Toe out' }) as HTMLButtonElement).disabled).toBe(true);
     expect(
-      (toe.getByRole('button', { name: 'View from above' }) as HTMLButtonElement).disabled,
+      (screen.getByRole('button', { name: 'View from above' }) as HTMLButtonElement).disabled,
     ).toBe(false);
   });
 
@@ -381,7 +393,7 @@ describe('FinApp', () => {
     () => {
       localStorage.removeItem('bs.fin.views');
       render(<FinApp />);
-      fireEvent.click(screen.getByRole('button', { name: 'Add slice' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Add control section' }));
       const d = () => finStore.getState().design!;
       expect(d().slices).toHaveLength(1);
       expect(d().slices[0]!.height).toBe(0.5); // halfway up: the biggest gap
@@ -393,7 +405,7 @@ describe('FinApp', () => {
         'Tip',
         '50.0 mm',
       ]);
-      expect(screen.getByTestId('foil-title').textContent).toMatch(/^Slice at 50\.0 mm/);
+      expect(screen.getByTestId('foil-title').textContent).toMatch(/^Control section 50\.0 mm/);
       expect(tabs.getByRole('tab', { name: '50.0 mm' }).getAttribute('aria-selected')).toBe('true');
       fireEvent.change(screen.getByLabelText('NACA preset'), { target: { value: '0008' } });
       fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
@@ -411,16 +423,16 @@ describe('FinApp', () => {
       expect(finStore.getState().activeFoil).toBe(0);
       expect(screen.getByTestId('foil-title').textContent).toMatch(/^Base foil/);
       // Remove slice sits beside Add slice in the profile's toolbar, not in the foil view's.
-      expect(screen.queryByRole('button', { name: 'Remove slice' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Remove control section' })).toBeNull();
       fireEvent.click(screen.getByRole('button', { name: 'Show Profile in the large pane' }));
       const remove = () =>
-        screen.getByRole('button', { name: 'Remove slice' }) as HTMLButtonElement;
+        screen.getByRole('button', { name: 'Remove control section' }) as HTMLButtonElement;
       expect(remove().disabled).toBe(true); // the root is selected: no slice to remove
       act(() => finStore.getState().setActiveFoil(1));
       expect(remove().disabled).toBe(false);
       fireEvent.click(remove());
       expect(d().slices).toHaveLength(0);
-      expect(screen.queryByRole('button', { name: 'Remove slice' })).toBeNull(); // none left
+      expect(screen.queryByRole('button', { name: 'Remove control section' })).toBeNull(); // none left
       localStorage.removeItem('bs.fin.views');
     },
     HEAVY,
@@ -466,18 +478,17 @@ describe('FinApp', () => {
   it('bends and twists the blade above a slice from the 3D view', () => {
     localStorage.removeItem('bs.fin.views');
     render(<FinApp />);
-    fireEvent.click(screen.getByRole('button', { name: 'Add slice' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add control section' }));
     const d = () => finStore.getState().design!;
     const threeD = within(screen.getByRole('region', { name: '3D' }));
     // The new slice is selected: cant and toe now set its change; the arrows are off.
-    expect(threeD.getByLabelText('Twist at')).toHaveProperty('value', '1');
-    expect(
-      threeD.getByRole('group', { name: 'Position on the tab' }).getAttribute('aria-disabled'),
-    ).toBe('true');
+    expect(threeD.getByLabelText('Shape at')).toHaveProperty('value', '1');
+    // The whole fin's placement gives way to the control section's own cant and toe.
+    expect(threeD.queryByRole('group', { name: 'Position on the tab' })).toBeNull();
     // No change yet; no transition zone either: a change eases in over the whole span.
     expect(threeD.queryByLabelText(/^Transition/)).toBeNull();
-    expect(threeD.queryByRole('button', { name: 'Remove twist' })).toBeNull();
-    const cant = threeD.getByLabelText(/^Cant at slice/);
+    expect(threeD.queryByRole('button', { name: 'Reset cant and toe' })).toBeNull();
+    const cant = threeD.getByLabelText(/^Cant/);
     fireEvent.change(cant, { target: { value: '12' } });
     fireEvent.keyDown(cant, { key: 'Enter' });
     expect(d().slices[0]!.twist).toEqual({ cant: 12, toe: 0 });
@@ -488,10 +499,10 @@ describe('FinApp', () => {
     const le = d().outline.knots[0]!.end.x;
     fireEvent.keyDown(window, { key: 'ArrowUp' });
     expect(d().outline.knots[0]!.end.x).toBe(le);
-    fireEvent.click(threeD.getByRole('button', { name: 'Remove twist' }));
+    fireEvent.click(threeD.getByRole('button', { name: 'Reset cant and toe' }));
     expect(d().slices[0]!.twist).toBeUndefined();
     // Back to the root: the arrows work again.
-    fireEvent.change(threeD.getByLabelText('Twist at'), { target: { value: '0' } });
+    fireEvent.change(threeD.getByLabelText('Shape at'), { target: { value: '0' } });
     fireEvent.keyDown(window, { key: 'ArrowUp' });
     expect(d().outline.knots[0]!.end.x).toBeGreaterThan(le);
   });
@@ -532,8 +543,8 @@ describe('FinApp: files', () => {
       names.push(this.download);
     });
     const { unmount } = render(<FinApp />);
-    const box = screen.getByRole('checkbox', { name: 'Left + right' }) as HTMLInputElement;
-    expect(box.checked).toBe(false);
+    const box = pairOption()!;
+    expect(box.getAttribute('aria-checked')).toBe('false');
     fireEvent.click(box);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() =>
@@ -541,16 +552,14 @@ describe('FinApp: files', () => {
     );
     unmount();
     render(<FinApp />);
-    expect(
-      (screen.getByRole('checkbox', { name: 'Left + right' }) as HTMLInputElement).checked,
-    ).toBe(true);
+    expect(pairOption()!.getAttribute('aria-checked')).toBe('true');
     localStorage.removeItem('bs.fin.pair');
   });
 
   it('offers no R & L for a centre fin', () => {
     act(() => finStore.getState().load(defaultFinDesign('centre')));
     render(<FinApp />);
-    expect(screen.queryByRole('checkbox', { name: 'Left + right' })).toBeNull();
+    expect(pairOption()).toBeNull();
   });
 
   it('opens a .fin.json file, replacing the fin', async () => {
@@ -590,9 +599,9 @@ describe('FinApp: export', () => {
   it('exports STEP and STL, named after the fin', async () => {
     const names = captureDownloads();
     render(<FinApp />);
-    fireEvent.click(screen.getByRole('button', { name: 'Export STL' }));
+    fireEvent.click(exportItem('STL for 3D printing'));
     await waitFor(() => expect(names).toEqual(['fin-side-left.stl']));
-    fireEvent.click(screen.getByRole('button', { name: 'Export STEP' }));
+    fireEvent.click(exportItem('STEP for CNC'));
     await waitFor(() => expect(names).toEqual(['fin-side-left.stl', 'fin-side-left.step']), {
       timeout: 10_000,
     });
@@ -602,7 +611,7 @@ describe('FinApp: export', () => {
     localStorage.removeItem('bs.fin.core');
     const names = captureDownloads();
     render(<FinApp />);
-    fireEvent.click(screen.getByRole('button', { name: 'Export core…' }));
+    fireEvent.click(exportItem('Core to laminate over…'));
     const dialog = within(screen.getByRole('dialog', { name: 'Export core' }));
     const field = dialog.getByLabelText('Laminate thickness');
     expect((field as HTMLInputElement).value).toBe('0.20'); // one ply of 200 gsm uni
@@ -630,7 +639,7 @@ describe('FinApp: export', () => {
     localStorage.setItem('bs.fin.core', JSON.stringify({ thickness: 0.02, sides: 'inside' }));
     const names = captureDownloads();
     render(<FinApp />);
-    fireEvent.click(screen.getByRole('button', { name: 'Export core…' }));
+    fireEvent.click(exportItem('Core to laminate over…'));
     const dialog = within(screen.getByRole('dialog', { name: 'Export core' }));
     const tab = dialog.getByLabelText('Include the tab') as HTMLInputElement;
     expect(tab.checked).toBe(false);
@@ -664,7 +673,7 @@ describe('FinApp: export', () => {
     unmount();
     render(<FinApp />);
     // The core export says what it won't go under.
-    fireEvent.click(screen.getByRole('button', { name: 'Export core…' }));
+    fireEvent.click(exportItem('Core to laminate over…'));
     expect(screen.getByText(/Never under the export minimum, 1\.50 mm/)).toBeTruthy();
     localStorage.removeItem('bs.fin.settings');
   });
@@ -685,15 +694,9 @@ describe('FinApp: export', () => {
     () => {
       act(() => finStore.getState().load({ ...defaultFinDesign('side', 'left'), cant: 30 }));
       render(<FinApp />);
-      expect(
-        (screen.getByRole('button', { name: 'Export STEP' }) as HTMLButtonElement).disabled,
-      ).toBe(true);
-      expect(
-        (screen.getByRole('button', { name: 'Export STL' }) as HTMLButtonElement).disabled,
-      ).toBe(true);
-      expect(
-        (screen.getByRole('button', { name: 'Export core…' }) as HTMLButtonElement).disabled,
-      ).toBe(true);
+      expect(exportItem('STEP for CNC').disabled).toBe(true);
+      expect(exportItem('STL for 3D printing').disabled).toBe(true);
+      expect(exportItem('Core to laminate over…').disabled).toBe(true);
     },
     HEAVY,
   );

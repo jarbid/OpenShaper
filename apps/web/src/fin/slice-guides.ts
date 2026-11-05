@@ -11,7 +11,8 @@ import type { FinState } from '@openshaper/store';
 import type { StoreApi } from 'zustand/vanilla';
 import { fmtLen, type LengthUnit } from '../format';
 
-export const SLICE_COLOR = 'rgba(167,139,250,0.9)';
+// Pink: control sections' own colour (owner review: violet was also the inside face's).
+export const SLICE_COLOR = 'rgba(244,114,182,0.9)';
 
 /** The fin's depth (cm): slice heights are fractions of it. */
 const depthOf = (d: FinDesign) => finReadouts(d).depth;
@@ -33,7 +34,7 @@ export const sliceGuides = (
     at: axis === 'y' ? sl.height * depth : sl.height,
     color: SLICE_COLOR,
     selected: activeFoil === i + 1,
-    label: `Slice at ${fmtLen(sl.height * depth, units)}`,
+    label: `Control section ${fmtLen(sl.height * depth, units)}`,
   }));
 };
 
