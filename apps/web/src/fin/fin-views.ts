@@ -15,7 +15,7 @@ export const FIN_VIEWS: FinViewOrder = ['outline', 'foil', 'taper', '3d'];
 
 export const FIN_VIEW_TITLE: Record<FinView, string> = {
   outline: 'Profile',
-  foil: 'Foil section',
+  foil: 'Foil',
   taper: 'Thickness',
   '3d': '3D',
 };

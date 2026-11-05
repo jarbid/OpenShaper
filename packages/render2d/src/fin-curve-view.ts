@@ -41,6 +41,16 @@ export interface FinCurvePick {
 }
 
 /** Hit radii, px: a fingertip needs more room than a mouse. */
+/**
+ * Text drawn on the fin views' canvases: the app's own typeface (a system face beside it
+ * read as a mistake), at one size.
+ */
+export const FIN_CANVAS_FONT =
+  "12px 'Instrument Sans Variable', 'Instrument Sans', system-ui, sans-serif";
+
+/** Labels on the canvases: the app's muted text colour, at full strength (6.5:1). */
+export const FIN_CANVAS_LABEL = '#8A9BB3';
+
 export const HIT_TOL_PX = 8;
 export const TOUCH_HIT_TOL_PX = 22;
 
@@ -329,7 +339,7 @@ export const drawGuides = (
       // At the view's left edge for a line that runs across the screen, at its top for
       // one that runs up it, whichever way the view maps the data.
       ctx.fillStyle = ctx.strokeStyle as string;
-      ctx.font = '11px system-ui, sans-serif';
+      ctx.font = FIN_CANVAS_FONT;
       ctx.textAlign = 'left';
       const level = Math.abs(b.x - a.x) >= Math.abs(b.y - a.y);
       if (level) {

@@ -35,7 +35,7 @@ import {
 } from '@openshaper/kernel';
 import type { FinPreviewView } from '@openshaper/render3d';
 import type { FinStart } from '@openshaper/store';
-import { Button, Tooltip } from '@openshaper/ui';
+import { Button, Menu, MenuBar, Tooltip } from '@openshaper/ui';
 import { Maximize2, RotateCcw, RotateCw, Settings } from 'lucide-react';
 import {
   lazy,
@@ -70,7 +70,7 @@ import { GITHUB_URL } from '../seo/site';
 import { shortcutKeys } from '../shortcuts';
 import { FinOutlinePane } from './FinOutlinePane';
 import { FinSectionPane, FinSectionTools } from './FinSectionPane';
-import { FinTaperPane } from './FinTaperPane';
+import { FinTaperPane, MinThicknessField } from './FinTaperPane';
 import { FitToPanel } from './panel-tools';
 import { PointTools } from './PointTools';
 import { downloadFin, exportFin, readFinFile } from './fin-file';
@@ -151,8 +151,8 @@ const STARTS: { label: string; start: FinStart; hand?: FinHand }[] = [
   { label: 'Twin fin, right', start: 'twin', hand: 'right' },
   { label: 'Keel, left', start: 'keel', hand: 'left' },
   { label: 'Keel, right', start: 'keel', hand: 'right' },
-  { label: 'Canard, left (FCS single tab)', start: 'canard', hand: 'left' },
-  { label: 'Canard, right (FCS single tab)', start: 'canard', hand: 'right' },
+  { label: 'Canard, left (FCS single)', start: 'canard', hand: 'left' },
+  { label: 'Canard, right (FCS single)', start: 'canard', hand: 'right' },
 ];
 
 const POSITION_LABEL: Record<FinPosition, string> = {
@@ -178,8 +178,8 @@ function Readouts({ units }: { units: LengthUnit }) {
     <dl className="flex flex-wrap gap-x-4 gap-y-1 text-sm" aria-label="Fin measurements">
       <Readout label="Area" value={fmtArea(r.area, units)} />
       <Readout label="Depth" value={fmtLen(r.depth, units)} />
-      <Readout label="Base (root chord)" value={fmtLen(r.rootChord, units)} />
-      <Readout label="Sweep" value={`${r.sweep.toFixed(1)}°`} />
+      <Readout label="Base length" value={fmtLen(r.rootChord, units)} />
+      <Readout label="Rake" value={`${r.sweep.toFixed(1)}°`} />
       {design!.toe !== 0 && (
         <Readout
           label="Toe"
@@ -188,7 +188,15 @@ function Readouts({ units }: { units: LengthUnit }) {
       )}
       {/* Futures only: the limit is the grub screw at the box's front. */}
       {futuresKind(design!.base) && (
-        <Readout label="Front overhang" value={fmtLen(r.frontOverhang, units)} />
+        <Readout
+          label="Front overhang"
+          // Behind the tab's front: no overhang, and how far clear (not a negative overhang).
+          value={
+            r.frontOverhang > 0
+              ? fmtLen(r.frontOverhang, units)
+              : `none (${fmtLen(-r.frontOverhang, units)} clear)`
+          }
+        />
       )}
     </dl>
   );
@@ -278,6 +286,9 @@ function NudgePad({ disabled = false }: { disabled?: boolean }) {
   );
 }
 
+/** A number with a true minus sign, for ranges shown to users ("−20"). */
+const minus = (n: number): string => (n < 0 ? `−${Math.abs(n)}` : String(n));
+
 /** Toe steps (deg): a little toe makes a big difference. */
 const TOE_STEP = 0.25;
 
@@ -335,7 +346,11 @@ function ToeTools({
           </div>
         </Tooltip>
       ) : (
-        <DegField label={label} value={toe} onCommit={onSet} />
+        <Tooltip label={`Turn the blade on its tab, within ±${FIN_MAX_TOE}°`}>
+          <div>
+            <DegField label={label} value={toe} onCommit={onSet} />
+          </div>
+        </Tooltip>
       )}
       <Button
         size="sm"
@@ -343,7 +358,7 @@ function ToeTools({
         aria-pressed={view === 'above'}
         onClick={() => onView(view === 'above' ? 'side' : 'above')}
       >
-        From above
+        View from above
       </Button>
     </div>
   );
@@ -360,14 +375,14 @@ function SliceSelect({ units }: { units: LengthUnit }) {
   const depth = finReadouts(design).depth;
   return (
     <label className="flex items-center gap-2">
-      <span className="text-muted-foreground">Slice (twist)</span>
+      <span className="text-muted-foreground">Twist at</span>
       <select
         className="h-8 rounded-md border border-input bg-background px-2 text-sm"
         value={activeFoil > 0 ? activeFoil : 0}
-        aria-label="Slice (twist)"
+        aria-label="Twist at"
         onChange={(e) => finStore.getState().setActiveFoil(Number(e.target.value))}
       >
-        <option value={0}>Root (whole fin)</option>
+        <option value={0}>Whole fin</option>
         {design.slices.map((sl, i) => (
           <option key={i} value={i + 1}>
             {fmtLen(sl.height * depth, units)}
@@ -401,11 +416,11 @@ function SliceTwistTools({
   const set = (change: Partial<FinTwist> | null) => finStore.getState().setSliceTwist(foil, change);
   return (
     <>
-      <DegField
-        label={`Cant at slice (${FIN_MIN_SLICE_CANT}–${FIN_MAX_CANT}°)`}
-        value={now.cant}
-        onCommit={(v) => set({ cant: v })}
-      />
+      <Tooltip label={`Blade lean at the slice, ${minus(FIN_MIN_SLICE_CANT)}° to ${FIN_MAX_CANT}°`}>
+        <div>
+          <DegField label="Cant at slice" value={now.cant} onCommit={(v) => set({ cant: v })} />
+        </div>
+      </Tooltip>
       <ToeTools
         toe={now.toe}
         onSet={(v) => set({ toe: v })}
@@ -415,7 +430,7 @@ function SliceTwistTools({
       />
       {sl.twist && (
         <Button size="sm" variant="outline" onClick={() => set(null)}>
-          No change here
+          Remove twist
         </Button>
       )}
     </>
@@ -439,12 +454,12 @@ function CantField() {
           ? 'A fin in a US box has no cant'
           : fcs
             ? 'Set by the FCS plug (0°, 5° or 9°)'
-            : 'Blade lean out from the tab'
+            : `Blade lean out from the tab, 0° to ${FIN_MAX_CANT}°`
       }
     >
       <div>
         <DegField
-          label={base === 'us-box' ? 'Cant' : fcs ? 'Cant (plug)' : `Cant (0–${FIN_MAX_CANT}°)`}
+          label={fcs ? 'Cant (plug)' : 'Cant'}
           value={cant}
           disabled={fcs}
           onCommit={(v) => finStore.getState().setCant(v)}
@@ -475,7 +490,7 @@ function PanelFitTools({
         label={
           tilt === null
             ? 'Set a panel thickness in File settings first'
-            : 'The whole fin from behind, along the panel it is cut from, with the panel round it: green when it fits, orange when not'
+            : 'Show the fin in its panel, from behind'
         }
       >
         <div>
@@ -492,7 +507,7 @@ function PanelFitTools({
       </Tooltip>
       {on && (
         <>
-          <Tooltip label="The panel leaning from upright, toward the fin's outside face (±45°): a canted blade on an upright tab fits a thinner panel leaning between them. The fin itself doesn't change, nor its exports">
+          <Tooltip label="Tilt the panel to fit a canted blade (±45°)">
             <div className="w-32 text-sm">
               <DegField
                 label="Tilt"
@@ -532,11 +547,11 @@ function PlacementTools({
   return (
     <>
       <label className="flex items-center gap-2">
-        <span className="text-muted-foreground">Base</span>
+        <span className="text-muted-foreground">Tab</span>
         <select
           className="h-8 rounded-md border border-input bg-background px-2 text-sm"
           value={base}
-          aria-label="Base"
+          aria-label="Tab"
           onChange={(e) => s().setBase(e.target.value as FinBase)}
         >
           {FIN_BASES.map((b) => (
@@ -574,7 +589,7 @@ function PlacementTools({
           <ToeTools
             toe={toe}
             onSet={(v) => s().setToe(v)}
-            label={`Toe (±${FIN_MAX_TOE}°)`}
+            label="Toe"
             view={view}
             onView={onView}
             noToe={
@@ -618,13 +633,13 @@ function OutlineTools({ units }: { units: LengthUnit }) {
         onCommit={(cm) => finStore.getState().setDepth(cm)}
       />
       <PointTools store={finStore} />
-      <Tooltip label="Add a foil slice: drag its line to place it, then shape its foil, or give the blade above it a twist (its own cant and toe) in the 3D view">
+      <Tooltip label="Add a horizontal slice to shape or twist the fin there">
         <Button
           variant="outline"
           size="sm"
           onClick={() => finStore.getState().addSlice(nextSliceHeight(design))}
         >
-          Add slice (twist)
+          Add slice
         </Button>
       </Tooltip>
       {design.slices.length > 0 && <RemoveSlice />}
@@ -658,11 +673,12 @@ function TaperTools({ units }: { units: LengthUnit }) {
   return (
     <>
       <LenField
-        label="Root thickness"
+        label="Base thickness"
         valueCm={root}
         units={units}
         onCommit={(cm) => finStore.getState().setRootThickness(cm)}
       />
+      <MinThicknessField store={finStore} units={units} />
       <PointTools store={finStore} />
     </>
   );
@@ -685,13 +701,12 @@ function PanelStatus({ units, minThickness }: { units: LengthUnit; minThickness:
   return fit.fits ? (
     <p className="text-xs text-muted-foreground">
       Fits the {fmtThick(fit.panel.thickness, units)} panel{angle}: needs{' '}
-      {fmtThick(fit.width, units)}, base included.
+      {fmtThick(fit.width, units)}, tab included.
     </p>
   ) : (
     <p className="text-xs text-orange-400" data-testid="panel-warning">
-      Too thick for the {fmtThick(fit.panel.thickness, units)} panel{angle}: base and blade need{' '}
-      {fmtThick(fit.width, units)}. Try Fit to panel (in the 3D view&apos;s Panel fit), a thinner
-      foil or less cant.
+      Too thick for the {fmtThick(fit.panel.thickness, units)} panel{angle}: tab and blade need{' '}
+      {fmtThick(fit.width, units)}. Try Fit to panel, a thinner foil or less cant.
     </p>
   );
 }
@@ -746,7 +761,17 @@ function ViewPane({
       className={`flex min-h-0 flex-col border-border ${large ? '' : 'border-t lg:border-l'}`}
     >
       <div className="flex min-h-9 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-2 py-1 text-sm">
-        <h2 className="text-xs font-medium text-muted-foreground">{title}</h2>
+        {/* Large: a title, set apart from the controls after it (owner review: it read
+            as the first field's label). */}
+        <h2
+          className={
+            large
+              ? 'border-r border-border pr-3 text-sm font-semibold text-foreground'
+              : 'text-xs font-medium text-muted-foreground'
+          }
+        >
+          {title}
+        </h2>
         {large ? (
           tools
         ) : (
@@ -869,7 +894,7 @@ function PairOption({ pair, onChange }: { pair: boolean; onChange: (on: boolean)
           checked={pair}
           onChange={(e) => onChange(e.target.checked)}
         />
-        <span>R &amp; L</span>
+        <span>Left + right</span>
       </label>
     </Tooltip>
   );
@@ -899,7 +924,7 @@ function ExportButtons({
     }, 0);
   };
   const blocked = issues.length > 0;
-  const why = blocked ? 'Fix the issues listed under the measurements first' : undefined;
+  const why = blocked ? 'Fix the problems shown in the status bar first' : undefined;
   return (
     <>
       <Tooltip label={why ?? 'Export a STEP file for CNC (mm)'}>
@@ -922,9 +947,7 @@ function ExportButtons({
           {busy === 'stl' ? 'Exporting…' : 'Export STL'}
         </Button>
       </Tooltip>
-      <Tooltip
-        label={why ?? 'Export a thinner core to bag laminate onto, such as unidirectional carbon'}
-      >
+      <Tooltip label={why ?? 'Export a thinner core to laminate over'}>
         <Button
           variant="outline"
           size="sm"
@@ -1035,29 +1058,19 @@ export function FinApp() {
         >
           part of OpenShaper
         </a>
-        <label className="flex items-center gap-2 text-sm">
-          <span className="text-muted-foreground">New fin</span>
-          <select
-            className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-            value=""
-            aria-label="Start a new fin"
-            onChange={(e) => {
-              const start = STARTS[Number(e.target.value)];
-              if (!start) return;
-              finStore.getState().newFin(start.start, start.hand);
-              setStarts((n) => n + 1);
-            }}
-          >
-            <option value="" disabled>
-              Choose…
-            </option>
-            {STARTS.map((st, i) => (
-              <option key={st.label} value={i}>
-                {st.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <MenuBar>
+          <Menu
+            label="New fin"
+            items={STARTS.map((st) => ({
+              kind: 'action' as const,
+              label: st.label,
+              onSelect: () => {
+                finStore.getState().newFin(st.start, st.hand);
+                setStarts((n) => n + 1);
+              },
+            }))}
+          />
+        </MenuBar>
         <div className="ml-auto flex flex-wrap items-center gap-1">
           <FileButtons onSave={save} onOpened={() => setStarts((n) => n + 1)} />
           <PairOption pair={pair} onChange={changePair} />
@@ -1068,7 +1081,7 @@ export function FinApp() {
             className="px-2 text-sm text-muted-foreground underline-offset-4 hover:underline"
             href="/docs/fin-designer"
           >
-            Help / Feedback
+            Help
           </a>
         </div>
       </header>

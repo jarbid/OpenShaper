@@ -67,7 +67,7 @@ const sameSigns = (a: readonly number[], b: readonly number[]): boolean =>
 const checkOutline = (d: FinDesign, issues: FinIssue[]): void => {
   const o = d.outline;
   if (o.curves.length === 0) {
-    issues.push({ code: 'outline-root', message: 'The outline has no curve.' });
+    issues.push({ code: 'outline-root', message: 'The profile has no curve.' });
     return;
   }
   const le = first(o);
@@ -75,12 +75,12 @@ const checkOutline = (d: FinDesign, issues: FinIssue[]): void => {
   if (!near(le.y, 0) || !near(te.y, 0)) {
     issues.push({
       code: 'outline-root',
-      message: 'Both ends of the outline must sit on the tab top.',
+      message: 'Both ends of the profile must sit on the tab top.',
     });
   } else if (le.x <= te.x + EPS) {
     issues.push({
       code: 'outline-root',
-      message: 'The leading-edge root must be in front of the trailing-edge root.',
+      message: 'The leading edge must meet the base in front of the trailing edge.',
     });
   }
   // Up the leading edge, then down the trailing edge: one peak, so every horizontal
@@ -88,7 +88,7 @@ const checkOutline = (d: FinDesign, issues: FinIssue[]): void => {
   if (!sameSigns(slopeSigns(o, 'y'), [1, -1])) {
     issues.push({
       code: 'outline-rising',
-      message: 'The leading and trailing edges must each keep rising from root to tip.',
+      message: 'The leading and trailing edges must each keep rising from base to tip.',
     });
   }
   const tab = finTabOutline(d.base, d.outline);
@@ -147,9 +147,15 @@ const checkTabContact = (d: FinDesign, issues: FinIssue[]): void => {
  * The face must run from the leading edge to the trailing edge (x 0 → 1), always moving
  * toward the trailing edge; with `onChord`, its ends on the chord line (y = 0).
  */
-const checkFace = (face: Spline, name: string, issues: FinIssue[], onChord: boolean): boolean => {
+const checkFace = (
+  face: Spline,
+  name: string,
+  where: string,
+  issues: FinIssue[],
+  onChord: boolean,
+): boolean => {
   if (face.curves.length === 0) {
-    issues.push({ code: 'section-ends', message: `The ${name} face has no curve.` });
+    issues.push({ code: 'section-ends', message: `The ${name} face has no curve${where}.` });
     return false;
   }
   const a = first(face);
@@ -157,14 +163,14 @@ const checkFace = (face: Spline, name: string, issues: FinIssue[], onChord: bool
   if (!near(a.x, 0) || !near(b.x, 1) || (onChord && (!near(a.y, 0) || !near(b.y, 0)))) {
     issues.push({
       code: 'section-ends',
-      message: `The ${name} face must run from the leading edge to the trailing edge.`,
+      message: `The ${name} face must run from the leading edge to the trailing edge${where}.`,
     });
     return false;
   }
   if (!sameSigns(slopeSigns(face, 'x'), [1])) {
     issues.push({
       code: 'section-direction',
-      message: `The ${name} face must not turn back toward the leading edge.`,
+      message: `The ${name} face must not turn back toward the leading edge${where}.`,
     });
     return false;
   }
@@ -177,12 +183,12 @@ const checkFoil = (d: FinDesign, sec: FinSection, where: string, issues: FinIssu
   if (d.position === 'centre' && inside !== null) {
     issues.push({
       code: 'section-symmetry',
-      message: `A centre fin has a symmetric foil${where}.`,
+      message: `A centre fin needs a symmetric foil${where}.`,
     });
   }
   // A symmetric foil's edges are on the chord line; any other's may be off it.
-  const outsideOk = checkFace(outside, `outside${where}`, issues, inside === null);
-  const insideOk = inside === null || checkFace(inside, `inside${where}`, issues, false);
+  const outsideOk = checkFace(outside, 'outside', where, issues, inside === null);
+  const insideOk = inside === null || checkFace(inside, 'inside', where, issues, false);
   if (!outsideOk || !insideOk) return;
   if (
     inside &&
@@ -226,7 +232,7 @@ const checkSection = (d: FinDesign, issues: FinIssue[]): void => {
     ) {
       issues.push({
         code: 'slice-height',
-        message: `Foil slices must be in order up the blade, ${FIN_SLICE_MIN_GAP * 100}% of its depth apart and from the root and tip.`,
+        message: `Slices must be at least ${FIN_SLICE_MIN_GAP * 100}% of the depth apart, and from the base and tip.`,
       });
       return;
     }
@@ -238,7 +244,7 @@ const checkSection = (d: FinDesign, issues: FinIssue[]): void => {
       if (!(tw.cant >= FIN_MIN_SLICE_CANT && tw.cant <= FIN_MAX_CANT)) {
         issues.push({
           code: 'cant',
-          message: `A slice's cant must be ${FIN_MIN_SLICE_CANT} to ${FIN_MAX_CANT}°${where}.`,
+          message: `A slice's cant must be ${FIN_MIN_SLICE_CANT < 0 ? `−${-FIN_MIN_SLICE_CANT}` : FIN_MIN_SLICE_CANT}° to ${FIN_MAX_CANT}°${where}.`,
         });
       }
       if (!(Math.abs(tw.toe) <= FIN_MAX_TOE)) {
@@ -251,11 +257,17 @@ const checkSection = (d: FinDesign, issues: FinIssue[]): void => {
 const checkTaper = (d: FinDesign, issues: FinIssue[]): void => {
   const t = d.taper;
   if (t.curves.length === 0 || !near(first(t).x, 0) || !near(last(t).x, 1)) {
-    issues.push({ code: 'taper-span', message: 'The taper must run from the root to the tip.' });
+    issues.push({
+      code: 'taper-span',
+      message: 'The thickness curve must run from the base to the tip.',
+    });
     return;
   }
   if (!sameSigns(slopeSigns(t, 'x'), [1])) {
-    issues.push({ code: 'taper-span', message: 'The taper must not turn back toward the root.' });
+    issues.push({
+      code: 'taper-span',
+      message: 'The thickness curve must not turn back toward the base.',
+    });
     return;
   }
   const min = finMinThickness(d);
@@ -293,8 +305,8 @@ export const validateFinDesign = (d: FinDesign): FinIssue[] => {
         : d.base === 'us-box'
           ? 'A fin in a US box has no cant.'
           : fcs
-            ? 'On an FCS base the plug sets the cant: the fin has none.'
-            : `Cant must be 0–${FIN_MAX_CANT}°.`,
+            ? 'On an FCS tab the plug sets the cant: the fin has none.'
+            : `Cant must be 0° to ${FIN_MAX_CANT}°.`,
     });
   }
   if (!finHasToe(d) && (d.toe ?? 0) !== 0) {
@@ -304,10 +316,10 @@ export const validateFinDesign = (d: FinDesign): FinIssue[] => {
         d.position === 'centre' ? 'A centre fin has no toe.' : 'A fin in a US box has no toe.',
     });
   } else if (!(Math.abs(d.toe ?? 0) <= FIN_MAX_TOE)) {
-    issues.push({ code: 'toe', message: `Toe correction must be within ±${FIN_MAX_TOE}°.` });
+    issues.push({ code: 'toe', message: `Toe must be within ±${FIN_MAX_TOE}°.` });
   }
   if (!FIN_BASES.includes(d.base)) {
-    issues.push({ code: 'base', message: 'Unknown base.' });
+    issues.push({ code: 'base', message: 'Unknown tab.' });
   }
   checkOutline(d, issues);
   checkSection(d, issues);

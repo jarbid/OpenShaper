@@ -68,6 +68,8 @@ export {
   fromView,
   guideValueAt,
   layersBounds,
+  FIN_CANVAS_FONT,
+  FIN_CANVAS_LABEL,
   pickCurve,
   pickGuide,
   pickHandle,

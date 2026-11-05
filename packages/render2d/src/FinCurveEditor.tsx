@@ -46,6 +46,7 @@ import {
   type FinCurveLayer,
   type FinCurvePick,
   type ViewScale,
+  FIN_CANVAS_FONT,
 } from './fin-curve-view';
 import { handlePoint } from './hit';
 import {
@@ -166,6 +167,18 @@ export function FinCurveEditor({
   const canvas = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
   const [vp, setVp] = useState<Viewport | null>(null);
+  // Redraw once the canvas font has loaded: until then the canvas falls back to a system face.
+  const [fontReady, setFontReady] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void globalThis.document?.fonts
+      ?.load(FIN_CANVAS_FONT)
+      .then(() => live && setFontReady(true))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
   const [hovered, setHovered] = useState<FinCurvePick | null>(null);
   const drag = useRef<Drag | null>(null);
   const framedFor = useRef<string | number | undefined | null>(null);
@@ -248,6 +261,7 @@ export function FinCurveEditor({
     background,
     guides,
     gridStep,
+    fontReady,
   ]);
 
   const local = (e: { clientX: number; clientY: number }): ScreenPoint => {

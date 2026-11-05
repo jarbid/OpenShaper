@@ -21,8 +21,8 @@ describe('PointTools', () => {
     act(() => finStore.getState().select({ curve: 'outside', index: n - 2, kind: 'end' }));
     render(<PointTools store={finStore} />);
     expect(button('Add a point').disabled).toBe(false);
-    expect(button('Delete the point').disabled).toBe(false);
-    fireEvent.click(button('Delete the point'));
+    expect(button('Delete the selected point').disabled).toBe(false);
+    fireEvent.click(button('Delete the selected point'));
     expect(outside().knots).toHaveLength(n - 1);
   }, 20_000);
 

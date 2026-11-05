@@ -115,8 +115,8 @@ function PanelThickness({ units }: { units: LengthUnit }) {
       </label>
       <p className="text-xs text-muted-foreground">
         The panel this fin is machined from ({fmtThick(min, units)}–{fmtThick(max, units)}; empty
-        for none). Base and blade must both fit in it: the 3D view&apos;s Panel fit shows it round
-        the fin, and the status line says if the fin is too thick. Saved with this fin.
+        for none). The tab and blade must both fit in it: Panel fit in the 3D view shows how. Saved
+        with this fin.
       </p>
     </>
   );
@@ -173,7 +173,9 @@ export function FinSettingsDialog({
             this browser.
           </p>
           <Section title="Units">
+            {/* Label left, choices in the right-hand column with the fields (owner review). */}
             <div className="flex items-center gap-4" role="radiogroup" aria-label="Units">
+              <span className="flex-1">Lengths in</span>
               {(['mm', 'in'] as const satisfies readonly FinUnit[]).map((u) => (
                 <label key={u} className="flex items-center gap-1.5">
                   <input
@@ -238,7 +240,7 @@ export function FinSettingsDialog({
 
           <Section title="Export">
             <ClampedLength
-              label="Minimum thickness"
+              label="Export minimum thickness"
               valueCm={settings.exportMin}
               min={min}
               max={max}
@@ -251,7 +253,7 @@ export function FinSettingsDialog({
             </p>
           </Section>
 
-          <Section title="Core export">
+          <Section title="Export core">
             <ClampedLength
               label="Laminate thickness, per face"
               valueCm={core.thickness}

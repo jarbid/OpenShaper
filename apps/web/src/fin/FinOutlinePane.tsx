@@ -18,7 +18,13 @@ import {
   type FinBase,
   type Spline,
 } from '@openshaper/kernel';
-import { FinCurveEditor, boundsOf, sampleSpline, type Viewport } from '@openshaper/render2d';
+import {
+  FIN_CANVAS_FONT,
+  FinCurveEditor,
+  boundsOf,
+  sampleSpline,
+  type Viewport,
+} from '@openshaper/render2d';
 import { TIP_FOIL, type FinState } from '@openshaper/store';
 import { memo, useCallback, useMemo } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
@@ -178,17 +184,17 @@ export const FinOutlinePane = memo(function FinOutlinePane({
         ctx.lineWidth = 1.5;
         ctx.stroke();
         ctx.setLineDash([]);
-        ctx.font = '11px system-ui, sans-serif';
+        ctx.font = FIN_CANVAS_FONT;
         ctx.fillStyle = SWEEP_LINE;
         // Labels placed in pixels from their lines, so they read at any zoom.
         const mid = (pts: readonly { x: number; y: number }[]) =>
           toScreen(pts[Math.floor(pts.length / 2)]!);
         const b = mid(sweep.base);
         ctx.textAlign = 'center';
-        ctx.fillText('Foil sweep start (base)', b.x, b.y - 10);
+        ctx.fillText('Base foil', b.x, b.y - 10);
         const t = mid(sweep.tip);
         ctx.textAlign = 'left';
-        ctx.fillText('Foil sweep end (tip)', t.x + 12, t.y + 4);
+        ctx.fillText('Tip foil', t.x + 12, t.y + 4);
         if (sweep.sliceIntoTip) {
           ctx.fillStyle = SLICE_COLOR;
           ctx.fillText('Slice meets the tip line', t.x + 12, t.y + 18);
@@ -211,7 +217,7 @@ export const FinOutlinePane = memo(function FinOutlinePane({
   return (
     <FinCurveEditor
       gridStep={gridStep}
-      label="Fin outline"
+      label="Profile"
       layers={layers}
       selection={pickFromSelection(selection, ['outline'])}
       alsoSelected={alsoFromSelection(selection, ['outline'])}

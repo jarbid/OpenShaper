@@ -30,12 +30,14 @@ export const PointTools = memo(function PointTools({ store }: { store: StoreApi<
   const many = ends.length > 1;
   const deletable =
     !!spline && (many ? ends : sel ? [sel.index] : []).some((i) => canDeleteKnot(spline, i));
+  // Off: no border, so it reads as off at a glance (owner review), not as one more button.
+  const shown = (enabled: boolean) => (enabled ? 'outline' : 'ghost');
 
   return (
     <div className="flex items-center gap-1" role="group" aria-label="Point tools">
       <Tooltip label={hint ?? 'Add a point halfway to the next one'}>
         <Button
-          variant="outline"
+          variant={shown(!!sel)}
           size="icon"
           className="h-8 w-8"
           aria-label="Add a point"
@@ -52,10 +54,10 @@ export const PointTools = memo(function PointTools({ store }: { store: StoreApi<
         shortcut={sel ? shortcutKeys('delete-point') : undefined}
       >
         <Button
-          variant="outline"
+          variant={shown(deletable)}
           size="icon"
           className="h-8 w-8"
-          aria-label={many ? 'Delete the points' : 'Delete the point'}
+          aria-label={many ? 'Delete the selected points' : 'Delete the selected point'}
           disabled={!deletable}
           onClick={() => s().deleteSelectedPoints()}
         >
@@ -64,7 +66,7 @@ export const PointTools = memo(function PointTools({ store }: { store: StoreApi<
       </Tooltip>
       <Button
         size="sm"
-        variant={interior && k?.continuous ? 'default' : 'outline'}
+        variant={interior && k?.continuous ? 'default' : shown(interior)}
         aria-pressed={interior && !!k?.continuous}
         disabled={!interior}
         onClick={() => sel && s().setContinuous(sel.curve, sel.index, true)}
@@ -73,7 +75,7 @@ export const PointTools = memo(function PointTools({ store }: { store: StoreApi<
       </Button>
       <Button
         size="sm"
-        variant={interior && k && !k.continuous ? 'default' : 'outline'}
+        variant={interior && k && !k.continuous ? 'default' : shown(interior)}
         aria-pressed={interior && !!k && !k.continuous}
         disabled={!interior}
         onClick={() => sel && s().setContinuous(sel.curve, sel.index, false)}

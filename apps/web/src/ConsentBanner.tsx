@@ -84,17 +84,17 @@ export function ConsentBanner() {
     >
       <div className="mx-auto flex w-full max-w-6xl flex-col items-center gap-3 sm:flex-row sm:justify-between">
         <p className="text-sm text-muted-foreground">
-          Hi — I&apos;m building OpenFinShaper solo, and seeing how it&apos;s really used helps me
-          know what to build next. Accepting lets me see richer usage data to guide that; Reject
-          keeps things anonymous and aggregate-only, same as today.{' '}
+          I build OpenFinShaper on my own. Accept shares richer usage data, to show me what to build
+          next; Reject keeps it anonymous and aggregate-only, as now.{' '}
           <Link to="/privacy" className="text-foreground underline underline-offset-2">
             Learn more
           </Link>
         </p>
         <div className="flex shrink-0 gap-2">
+          {/* The same weight for both: neither choice is pushed (GDPR's equal choice). */}
           <Button
             size="sm"
-            variant="ghost"
+            variant="outline"
             onClick={() => {
               // Safe to record on the anonymous baseline: rejecting means
               // "stay anonymous", which is where this event already lives.
@@ -106,6 +106,7 @@ export function ConsentBanner() {
           </Button>
           <Button
             size="sm"
+            variant="outline"
             onClick={() => {
               track('consent_banner', { action: 'accepted' });
               setConsent('accepted');

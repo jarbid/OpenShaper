@@ -82,3 +82,43 @@ body {
     min-height: 0;
   }
 }
+
+/* The section analysis sliders (fin/SectionAnalysis.tsx): a quiet track and the cut's
+   orange on the thumb only. A filled track read as a progress bar and outshone the fin
+   (owner review). Logical sizes, so the upright slider gets the same track. */
+.fin-range {
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+.fin-range::-webkit-slider-runnable-track {
+  block-size: 4px;
+  border-radius: 2px;
+  background: rgba(138, 155, 179, 0.35);
+}
+.fin-range::-moz-range-track {
+  block-size: 4px;
+  border-radius: 2px;
+  background: rgba(138, 155, 179, 0.35);
+}
+.fin-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  inline-size: 14px;
+  block-size: 14px;
+  margin-block-start: -5px;
+  border-radius: 50%;
+  border: 2px solid var(--background);
+  background: #f97316;
+}
+.fin-range::-moz-range-thumb {
+  inline-size: 14px;
+  block-size: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--background);
+  background: #f97316;
+}
+.fin-range:focus-visible {
+  outline: 2px solid var(--ring, #22d3ee);
+  outline-offset: 2px;
+}

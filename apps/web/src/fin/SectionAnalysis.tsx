@@ -179,40 +179,41 @@ export function SectionOverlay({
           </>
         )}
       </div>
-      {state.on && state.vertical && (
+      {state.on && (state.vertical || state.horizontal) && (
+        // Both readouts in one strip at the bottom: in a short pane a column down the right
+        // ran up over the toolbar (owner review).
         <div className="absolute bottom-2 left-2 right-12 z-10 flex flex-col gap-1 rounded bg-background/80 px-2 py-1 text-xs">
-          <input
-            type="range"
-            min={0}
-            max={STEPS}
-            value={Math.round(state.x * STEPS)}
-            onChange={(e) => set({ x: Number(e.target.value) / STEPS })}
-            aria-label="Vertical plane position"
-            className="w-full accent-[#F97316]"
-          />
-          <span className="tabular-nums" aria-live="polite">
-            {v
-              ? `${len(cuts!.leadingRoot - v.plane.at)} back from the leading edge · ` +
+          {state.vertical && (
+            <input
+              type="range"
+              min={0}
+              max={STEPS}
+              value={Math.round(state.x * STEPS)}
+              onChange={(e) => set({ x: Number(e.target.value) / STEPS })}
+              aria-label="Vertical plane position"
+              className="fin-range w-full"
+            />
+          )}
+          {state.vertical && v && (
+            <span className="tabular-nums" aria-live="polite">
+              {`${len(cuts!.leadingRoot - v.plane.at)} back · ` +
                 (v.measure
-                  ? `height ${len(v.measure.length)} · thickest ${fmtThick(v.measure.thickness, units)}`
-                  : 'clear of the blade')
-              : ''}
-          </span>
+                  ? `${len(v.measure.length)} high · ${fmtThick(v.measure.thickness, units)} thick`
+                  : 'clear of the blade')}
+            </span>
+          )}
+          {state.horizontal && h && (
+            <span className="tabular-nums" aria-live="polite">
+              {`${len(h.plane.at)} up · ` +
+                (h.measure
+                  ? `chord ${len(h.measure.length)} · ${fmtThick(h.measure.thickness, units)} thick`
+                  : 'above the tip')}
+            </span>
+          )}
         </div>
       )}
       {state.on && state.horizontal && (
-        <div className="absolute bottom-16 right-2 top-12 z-10 flex flex-col items-end gap-1 text-xs">
-          <span
-            className="max-w-64 rounded bg-background/80 px-1.5 py-1 text-right tabular-nums"
-            aria-live="polite"
-          >
-            {h
-              ? `${len(h.plane.at)} up` +
-                (h.measure
-                  ? ` · chord ${len(h.measure.length)} · thickness ${fmtThick(h.measure.thickness, units)}`
-                  : ' · above the tip')
-              : ''}
-          </span>
+        <div className="absolute bottom-20 right-2 top-12 z-10 flex flex-col items-end">
           <input
             type="range"
             min={0}
@@ -220,7 +221,7 @@ export function SectionOverlay({
             value={Math.round(state.z * STEPS)}
             onChange={(e) => set({ z: Number(e.target.value) / STEPS })}
             aria-label="Horizontal plane height"
-            className="min-h-0 flex-1 accent-[#F97316]"
+            className="fin-range min-h-0 flex-1"
             // Upright, with the top of the slider at the top of the blade.
             style={{ writingMode: 'vertical-lr', direction: 'rtl' }}
           />

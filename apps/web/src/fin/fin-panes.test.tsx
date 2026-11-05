@@ -14,7 +14,7 @@ import { lengthUnitByKey } from '../format';
 import { MOUSE, installLayoutStubs, pane, removeLayoutStubs } from '../test/spline-editor-harness';
 import { FinOutlinePane } from './FinOutlinePane';
 import { FinSectionPane, FinSectionTools } from './FinSectionPane';
-import { FinTaperPane } from './FinTaperPane';
+import { FinTaperPane, MinThicknessField } from './FinTaperPane';
 import { finStore } from './fin-store';
 
 beforeEach(installLayoutStubs);
@@ -104,17 +104,17 @@ describe('the outside / inside split', () => {
     screen.getByLabelText('Inside share of the thickness (%)') as HTMLInputElement;
 
   it('shows for an asymmetric side fin, and not for a symmetric one', () => {
-    const { unmount } = render(<FinSectionPane store={finStore} units={lengthUnitByKey('mm')} />);
+    const { unmount } = render(<FinSectionTools store={finStore} units={lengthUnitByKey('mm')} />);
     expect(outside().value).toBe('100'); // the starting side fin is flat inside
     expect(inside().value).toBe('0');
     unmount();
     act(() => finStore.getState().setInsideFace('symmetric'));
-    render(<FinSectionPane store={finStore} units={lengthUnitByKey('mm')} />);
+    render(<FinSectionTools store={finStore} units={lengthUnitByKey('mm')} />);
     expect(screen.queryByLabelText('Outside share of the thickness (%)')).toBeNull();
   });
 
   it('fills in the other box as you type, and builds the foil on Enter, as one undo step', () => {
-    render(<FinSectionPane store={finStore} units={lengthUnitByKey('mm')} />);
+    render(<FinSectionTools store={finStore} units={lengthUnitByKey('mm')} />);
     const before = finStore.getState().past.length;
     fireEvent.change(outside(), { target: { value: '70' } });
     expect(inside().value).toBe('30');
@@ -131,7 +131,7 @@ describe('the outside / inside split', () => {
   });
 
   it('stops at 51 / 49, leaving an even split to Symmetric, and ignores what isn’t a percentage', () => {
-    render(<FinSectionPane store={finStore} units={lengthUnitByKey('mm')} />);
+    render(<FinSectionTools store={finStore} units={lengthUnitByKey('mm')} />);
     for (const [box, value] of [
       [outside, '50'],
       [outside, '30'],
@@ -179,7 +179,7 @@ describe('dragging in the panes', () => {
     'stands the taper upright: root at the bottom, tip at the top',
     () => {
       render(<FinTaperPane store={finStore} units={lengthUnitByKey('mm')} />);
-      const canvas = screen.getByRole('img', { name: 'Thickness taper' });
+      const canvas = screen.getByRole('img', { name: 'Thickness' });
       const last = design().taper.knots.length - 1;
       const root = grab(canvas, 'taper', 0);
       fireEvent.pointerUp(canvas, { ...MOUSE, clientX: root.clientX, clientY: root.clientY });
@@ -193,7 +193,7 @@ describe('dragging in the panes', () => {
 
   it('drags a taper point and stops it at the minimum thickness', () => {
     render(<FinTaperPane store={finStore} units={lengthUnitByKey('mm')} />);
-    const canvas = screen.getByRole('img', { name: 'Thickness taper' });
+    const canvas = screen.getByRole('img', { name: 'Thickness' });
     const i = 1; // the knot where the straight run turns into the curve
     const at = grab(canvas, 'taper', i);
     // The pane stands upright: thickness runs across, so thinner is to the left.
@@ -207,7 +207,8 @@ describe('dragging in the panes', () => {
 
   it('sets the minimum thickness from the thickness view, in the current unit', () => {
     // Owner request: 0.5 mm by default; set higher, the taper's tip and the line follow.
-    render(<FinTaperPane store={finStore} units={lengthUnitByKey('mm')} />);
+    // In the thickness view's toolbar, beside Base thickness.
+    render(<MinThicknessField store={finStore} units={lengthUnitByKey('mm')} />);
     const box = screen.getByLabelText('Fin minimum thickness') as HTMLInputElement;
     expect(box.value).toBe('0.50');
     fireEvent.change(box, { target: { value: '1.2' } });
@@ -224,7 +225,7 @@ describe('dragging in the panes', () => {
 
   it('drags the outside face of the foil', () => {
     render(<FinSectionPane store={finStore} units={lengthUnitByKey('mm')} />);
-    const canvas = screen.getByRole('img', { name: 'Foil section' });
+    const canvas = screen.getByRole('img', { name: 'Foil' });
     const before = design().section.outside.knots[1]!.end;
     const at = grab(canvas, 'outside', 1);
     fireEvent.pointerMove(canvas, { ...MOUSE, clientX: at.clientX + 20, clientY: at.clientY });
@@ -262,7 +263,7 @@ describe('a slice that crosses the tip line, in the foil view', () => {
     () => {
       // Owner testing: with the tip line moved forward, a slice's points there were locked.
       render(<FinSectionPane store={finStore} units={lengthUnitByKey('mm')} />);
-      const canvas = screen.getByRole('img', { name: 'Foil section' });
+      const canvas = screen.getByRole('img', { name: 'Foil' });
       const knots = () => design().slices[0]!.section.outside.knots;
       const last = knots().length - 2; // the last point before the trailing edge
       const before = knots()[last]!.end;
@@ -308,7 +309,7 @@ describe('selecting several points in a pane', () => {
     () => {
       // Owner request: fin designers draw profiles front left, rear right.
       render(<FinOutlinePane store={finStore} units={lengthUnitByKey('mm')} />);
-      const canvas = screen.getByRole('img', { name: 'Fin outline' });
+      const canvas = screen.getByRole('img', { name: 'Profile' });
       const last = design().outline.knots.length - 1;
       const front = find(canvas, 0); // the leading-edge root
       const rear = find(canvas, last); // the trailing-edge root
@@ -321,7 +322,7 @@ describe('selecting several points in a pane', () => {
     'shift-clicks a second point, then drags both the same way',
     () => {
       render(<FinOutlinePane store={finStore} units={lengthUnitByKey('mm')} />);
-      const canvas = screen.getByRole('img', { name: 'Fin outline' });
+      const canvas = screen.getByRole('img', { name: 'Profile' });
       const b = find(canvas, 2);
       const a = find(canvas, 1); // selected on its own
       const shift = { ...MOUSE, shiftKey: true };
@@ -362,7 +363,7 @@ describe('foil slices in the panes', () => {
 
   it('drags a slice line in the profile up the blade, picking its foil', () => {
     render(<FinOutlinePane store={finStore} units={lengthUnitByKey('mm')} />);
-    const canvas = screen.getByRole('img', { name: 'Fin outline' });
+    const canvas = screen.getByRole('img', { name: 'Profile' });
     // Find the line by probing down the pane, clear of where the thickness path crosses it.
     let hit: { clientX: number; clientY: number } | null = null;
     for (const x of [pane.w / 2, pane.w * 0.3, pane.w * 0.7]) {

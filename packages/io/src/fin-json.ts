@@ -198,7 +198,7 @@ const assertStructure = (doc: Record<string, unknown>): void => {
     fail('Malformed fin: unknown position');
   }
   if (doc.hand !== null && doc.hand !== 'left' && doc.hand !== 'right') {
-    fail('Malformed fin: hand must be left, right or null');
+    fail('Malformed fin: its side must be left, right or none');
   }
   if (!isNumber(doc.cant)) fail('Malformed fin: cant is not a number');
   if (doc.toe !== undefined && !isNumber(doc.toe)) fail('Malformed fin: toe is not a number');
@@ -224,15 +224,15 @@ const assertStructure = (doc: Record<string, unknown>): void => {
   }
   if (doc.tipSection !== undefined) assertSection(doc.tipSection, 'tip section');
   if (doc.base !== undefined && !(FIN_BASES as readonly unknown[]).includes(doc.base)) {
-    fail('Malformed fin: unknown base');
+    fail('Malformed fin: unknown tab');
   }
-  if (!isNumber(doc.lateralOffset)) fail('Malformed fin: lateralOffset is not a number');
+  if (!isNumber(doc.lateralOffset)) fail('Malformed fin: its sideways position is not a number');
   if (doc.units !== 'mm') fail('Malformed fin: units must be mm');
   assertCurve(doc.outline, 'outline');
   assertCurve(doc.taper, 'taper');
   assertSection(doc.section, 'section');
   if (doc.slices !== undefined) {
-    if (!Array.isArray(doc.slices)) fail('Malformed fin: slices is not a list');
+    if (!Array.isArray(doc.slices)) fail('Malformed fin: its slices are not a list');
     (doc.slices as unknown[]).forEach((sl, i) => {
       if (!isObject(sl) || !isNumber(sl.height))
         fail(`Malformed fin: slice ${i + 1} has no height`);

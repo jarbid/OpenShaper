@@ -107,22 +107,19 @@ export function CoreExportDialog({
   return (
     <Modal
       name="fin-core-export"
-      label="Export core for laminating"
+      label="Export core"
       onClose={onClose}
       className="grid place-items-center p-4"
     >
       {/* Clicks inside the panel aren't backdrop clicks. */}
       <Panel className="flex w-full max-w-md flex-col" onClick={(e) => e.stopPropagation()}>
         <PanelHeader>
-          <PanelTitle>Export core for laminating</PanelTitle>
+          <PanelTitle>Export core</PanelTitle>
         </PanelHeader>
         <PanelBody className="space-y-4 text-sm">
           <p className="text-muted-foreground">
-            For a printed fin with laminate bagged onto it. The blade is made thinner by the
-            laminate on the faces you choose, so with the laminate on it matches your design. It
-            never goes under the export minimum, {withUnit(minThickness)}: near the edges, the face
-            with less laminate is left thicker to make it up, so a laminated face is always thinned
-            by the full amount.
+            A thinner blade to laminate over: with the laminate on, it matches your design. Never
+            under the export minimum, {withUnit(minThickness)}.
           </p>
           <label className="flex items-center gap-2">
             <span className="flex-1">Laminate thickness, per face</span>
@@ -165,13 +162,13 @@ export function CoreExportDialog({
             </label>
             <p className="mt-1 text-xs text-muted-foreground">
               {tab
-                ? 'The tab is thinned by the laminate on the same faces, so wrapped it still fits the box. Wrapping the base, where the fin leaves the box, strengthens a likely snap point. It suits a flat inside face, which runs straight on into the tab; the outside usually meets the tab at too sharp a step for laminate to follow.'
-                : 'Checking this narrows the tab to allow for laminate. Unchecked the tab remains the standard width.'}
+                ? 'The tab is thinned too, so wrapped it still fits the box. Best with a flat inside face.'
+                : 'The tab stays its standard width.'}
             </p>
           </div>
           {pair && (
             <p className="text-xs text-muted-foreground">
-              R &amp; L is on: each export writes a left and a right core.
+              Left + right is on: each export writes a left and a right core.
             </p>
           )}
           <div className="flex flex-wrap justify-end gap-2 pt-2">
@@ -181,7 +178,7 @@ export function CoreExportDialog({
             <Button variant="outline" size="sm" disabled={!ok} onClick={() => run('stl')}>
               Export STL core
             </Button>
-            <Button size="sm" disabled={!ok} onClick={() => run('step')}>
+            <Button variant="outline" size="sm" disabled={!ok} onClick={() => run('step')}>
               Export STEP core
             </Button>
           </div>

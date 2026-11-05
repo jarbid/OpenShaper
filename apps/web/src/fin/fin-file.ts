@@ -60,20 +60,26 @@ export async function exportFin(
 export const downloadFin = (d: FinDesign, pair = false): Promise<void> =>
   each(finsToWrite(d, pair), (f) => download(writeFinJson(f), finFileName(f), 'application/json'));
 
+/** What went wrong opening a file, said for the person opening it. */
+const openProblem = (e: unknown): string => {
+  if (!(e instanceof FinJsonError)) return "That file can't be opened as a fin.";
+  const m = e.message;
+  if (m.startsWith('Malformed fin: '))
+    return `That file can't be opened as a fin: it is damaged (${m.slice('Malformed fin: '.length)}).`;
+  if (m.startsWith('Fin version'))
+    return "That file can't be opened as a fin: a newer OpenFinShaper saved it. Reload the page to update.";
+  return "That file can't be opened as a fin: it isn't an OpenFinShaper fin file.";
+};
+
 /**
- * Read a chosen file as a fin design. Rejects with a message fit to show the user:
- * the reader's own for a damaged fin file, a plainer one for anything else.
+ * Read a chosen file as a fin design. Rejects with a message fit to show the user
+ * ({@link openProblem}): what was damaged, or that it isn't a fin file.
  */
 export async function readFinFile(file: Blob): Promise<FinDesign> {
   const text = await file.text();
   try {
     return readFinJson(text).design;
   } catch (e) {
-    throw new Error(
-      e instanceof FinJsonError
-        ? `That file can't be opened as a fin: ${e.message}`
-        : "That file can't be opened as a fin.",
-      { cause: e },
-    );
+    throw new Error(openProblem(e), { cause: e });
   }
 }

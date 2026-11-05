@@ -443,3 +443,33 @@ OpenCascade reads two closed solids.
 Not ours: the console's `THREE.Clock` deprecation comes from `@react-three/fiber` (harmless,
 goes with a fiber update); `share-modal.js` is not in the repository, most likely a browser
 extension.
+
+## UI and copy review, round 1 (owner review, 2026-11)
+
+A review against Robin Williams' The Non-Designer's Design Book (proximity, alignment,
+repetition, contrast, type) and a copy inventory; the owner approved every recommendation and
+a glossary. This round is the clear-cut set; the layout changes (header and its Export menu,
+phone header, the 3D controls and small 3D pane, the status bar's warnings, one meaning per
+colour, selected toggles vs primary buttons) are mocked up first.
+
+- **Glossary** (owner): the fin system selector is **Tab** (was Base); **Base** is where the
+  blade meets the tab, replacing "root" everywhere users see it (Base thickness, Base length,
+  Base / Tip, Base foil / Tip foil); **Profile**, **Foil**, **Thickness** (not outline, Foil
+  section, taper); **Slice** ("Add slice", "Twist at", "Slice at 50 mm"); **Rake** (the
+  readout was "Sweep"); **Export minimum thickness** vs the fin's **Min thickness**; **Export
+  core**; "problem" in the app. Code names and the `.fin.json` format keep the old words.
+- Canvas text is drawn in Instrument Sans at 12 px (`FIN_CANVAS_FONT`); the editor redraws once
+  the font has loaded. Labels are full-strength slate (`FIN_CANVAS_LABEL`, 6.5:1; they were at
+  70%, 3.8:1).
+- The section analysis sliders have a quiet track and an orange thumb (`.fin-range`): the
+  filled track read as a progress bar. Both readouts sit in one strip at the bottom, shortened
+  ("70.0 mm back · 83.2 mm high · 5.9 mm thick"): in a short pane the right-hand column ran up
+  over the toolbar.
+- The large pane's title is set apart from its controls; the Outside / Inside split moved into
+  the foil toolbar beside Asymmetric, Min thickness into the thickness toolbar beside Base
+  thickness. Ranges left the labels for tooltips (Cant, Toe, Cant at slice, with a true minus).
+- New fin is a menu; disabled point tools lose their border; the consent banner's Accept and
+  Reject have the same weight; File settings' Units row matches the other rows.
+- Front overhang reads "none (11.3 mm clear)" rather than a negative overhang. Long tooltips
+  were cut to a line, file-opening errors say what was damaged in plain words, and rule
+  messages use the glossary.

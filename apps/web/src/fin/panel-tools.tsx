@@ -21,7 +21,7 @@ export function FitToPanel({
   minThickness: number;
 }) {
   return (
-    <Tooltip label="Turn and tilt the fin in the panel to what needs the thinnest panel">
+    <Tooltip label="Turn and tilt the fin to fit the thinnest panel">
       <Button
         size="sm"
         variant="outline"

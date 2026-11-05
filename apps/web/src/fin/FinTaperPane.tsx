@@ -12,7 +12,12 @@
  * thicknessAlongSweep), which the pane notes, as its height no longer lines up.
  */
 import { finMinThickness, finReadouts, thicknessAlongSweep } from '@openshaper/kernel';
-import { FinCurveEditor, type ViewMap } from '@openshaper/render2d';
+import {
+  FIN_CANVAS_FONT,
+  FIN_CANVAS_LABEL,
+  FinCurveEditor,
+  type ViewMap,
+} from '@openshaper/render2d';
 import type { FinState } from '@openshaper/store';
 import { memo, useCallback, useMemo } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
@@ -43,9 +48,16 @@ export const taperView = (depth: number): ViewMap => ({ a: 0, b: TAPER_ACROSS, c
 /**
  * The fin's minimum thickness, typed in the current unit (owner request): the thinnest
  * the blade may get, edges and tip included. The store keeps it within range, and the
- * taper's tip follows it.
+ * taper's tip follows it. In the thickness view's toolbar, beside Base thickness; its
+ * orange label ties it to the dashed line it moves.
  */
-function MinThicknessField({ store, units }: { store: StoreApi<FinState>; units: LengthUnit }) {
+export function MinThicknessField({
+  store,
+  units,
+}: {
+  store: StoreApi<FinState>;
+  units: LengthUnit;
+}) {
   const min = useFinState(store, (s) => (s.design ? finMinThickness(s.design) : null));
   const shown = min === null ? '' : cmToUnitNumber(min, units).toFixed(unitDecimals(units) + 1);
   const [text, setText] = useSyncedText(shown);
@@ -54,7 +66,7 @@ function MinThicknessField({ store, units }: { store: StoreApi<FinState>; units:
     if (cm === null || !store.getState().setMinThickness(cm)) setText(shown);
   };
   return (
-    <label className="absolute left-2 top-1 z-10 flex flex-col gap-0.5 text-xs">
+    <label className="flex items-center gap-2">
       <span style={{ color: LIMIT }}>Min thickness</span>
       <span className="flex items-center gap-1">
         <NumericInput
@@ -63,9 +75,9 @@ function MinThicknessField({ store, units }: { store: StoreApi<FinState>; units:
           onCommit={commit}
           onEscape={() => setText(shown)}
           ariaLabel="Fin minimum thickness"
-          className="h-7 w-14 px-1 text-center tabular-nums"
+          className="h-8 w-16 tabular-nums"
         />
-        <span className="text-muted-foreground">{unitSuffix(units)}</span>
+        <span className="text-xs text-muted-foreground">{unitSuffix(units)}</span>
       </span>
     </label>
   );
@@ -124,7 +136,7 @@ export const FinTaperPane = memo(function FinTaperPane({
       ctx.setLineDash([5, 4]);
       line({ x: 0, y: minT }, { x: 1.02, y: minT }, LIMIT);
       ctx.setLineDash([]);
-      ctx.font = '11px system-ui, sans-serif';
+      ctx.font = FIN_CANVAS_FONT;
       // Labels are offset in pixels, so they read the same in a small pane.
       const label = (
         text: string,
@@ -137,8 +149,8 @@ export const FinTaperPane = memo(function FinTaperPane({
         ctx.textAlign = align;
         ctx.fillText(text, s.x + dx, s.y + dy);
       };
-      ctx.fillStyle = GUIDE;
-      label('Root', { x: 0, y: 0 }, -6, 4, 'right');
+      ctx.fillStyle = FIN_CANVAS_LABEL;
+      label('Base', { x: 0, y: 0 }, -6, 4, 'right');
       label('Tip', { x: 1, y: 0 }, -6, 4, 'right');
       label('thickness →', { x: 0, y: root * 0.55 }, 0, 16, 'center');
       ctx.fillStyle = LIMIT;
@@ -153,7 +165,7 @@ export const FinTaperPane = memo(function FinTaperPane({
   if (!design || !taper) return null;
   const editor = (
     <FinCurveEditor
-      label="Thickness taper"
+      label="Thickness"
       layers={layers}
       selection={pickFromSelection(selection, ['taper'])}
       alsoSelected={alsoFromSelection(selection, ['taper'])}
@@ -168,13 +180,12 @@ export const FinTaperPane = memo(function FinTaperPane({
   );
   return (
     <div className="relative h-full">
-      <MinThicknessField store={store} units={units} />
       {alongSweep > 0.05 && (
         <span
           className="pointer-events-none absolute right-2 top-1 z-10 max-w-[60%] text-right text-xs text-muted-foreground"
           data-testid="taper-along-sweep"
         >
-          Swept-back fin: read along the sweep, root to tip
+          Swept-back fin: measured along the sweep
         </span>
       )}
       {editor}

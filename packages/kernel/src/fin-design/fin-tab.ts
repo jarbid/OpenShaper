@@ -35,7 +35,7 @@ export const FIN_BASES: readonly FinBase[] = [
 export const FIN_BASE_LABEL: Record<FinBase, string> = {
   'futures-side': 'Futures 3/4"',
   'futures-centre': 'Futures 1/2"',
-  'fcs-single': 'FCS single tab',
+  'fcs-single': 'FCS single',
   'fcs-1': 'FCS 1',
   'us-box': 'US box',
 };
