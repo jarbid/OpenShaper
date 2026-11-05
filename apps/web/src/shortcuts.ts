@@ -25,6 +25,8 @@ export interface ShortcutMatch {
   mod?: boolean;
   /** Requires Shift. */
   shift?: boolean;
+  /** Requires Alt (Option on a Mac). */
+  alt?: boolean;
   /**
    * Suppressed while a text field has focus. Only meaningful for bindings with no
    * modifier — `⌘S` should still save while a name field is focused, but `[`
@@ -92,9 +94,24 @@ export const SHORTCUTS: readonly Shortcut[] = [
   {
     id: 'delete-point',
     keys: 'Delete',
-    label: 'Delete the selected control point',
+    label: 'Delete the selected control point or reference point',
     group: 'Edit',
     match: { keys: ['delete', 'backspace'], notInField: true },
+  },
+  {
+    id: 'select-next-point',
+    keys: '⌥→',
+    label: 'Select the next point (control point along the curve, or reference point)',
+    group: 'Edit',
+    // Alt, not Tab: Tab keeps moving keyboard focus between the canvas and the panels.
+    match: { keys: ['arrowright'], alt: true, notInField: true },
+  },
+  {
+    id: 'select-prev-point',
+    keys: '⌥←',
+    label: 'Select the previous point',
+    group: 'Edit',
+    match: { keys: ['arrowleft'], alt: true, notInField: true },
   },
   {
     id: 'toggle-lock',
@@ -134,7 +151,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   {
     id: 'cross-section-blur',
     keys: 'Esc',
-    label: 'Clear the selected point, handle, or station marker',
+    label: 'Clear the selected point, handle, reference point, or station marker',
     group: 'Edit',
     // Coordinate editors clear their own selection locally. Suppress the global
     // action in other fields so Escape can keep its field/dialog-specific meaning.
@@ -171,6 +188,7 @@ export function matches(
     shift = false,
     notInField = false,
     notInTextEntry = false,
+    alt = false,
   } = shortcut.match;
   if (notInField && inField) return false;
   if (notInTextEntry && inTextEntry) return false;
@@ -179,6 +197,8 @@ export function matches(
   // Only assert Shift when the binding cares: `⌘Z` and `⇧⌘Z` are distinct, but
   // `Delete` should still fire with Shift held.
   if (shift && !e.shiftKey) return false;
+  // Likewise Alt: asserted only by bindings that ask for it.
+  if (alt && !e.altKey) return false;
   if (!shift && mod && e.shiftKey) return false;
   return keys.includes(e.key.toLowerCase());
 }

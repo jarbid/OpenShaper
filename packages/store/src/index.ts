@@ -6,6 +6,13 @@ export {
   type Selection,
 } from './board-store';
 export {
+  addRefPoint,
+  addRefPoints,
+  deleteRefPoint,
+  nextRefPointId,
+  refPointDraftAt,
+  refPointInPane,
+  updateRefPoint,
   alignTangentsHorizontal,
   alignTangentsVertical,
   canDeleteKnot,
@@ -29,6 +36,7 @@ export {
   zeroKnotTangent,
   withCrossSections,
   withSpline,
+  type RefPointDraft,
   type SplineTarget,
 } from './edits';
 export { selectSpecs, type BoardSpecs } from './selectors';

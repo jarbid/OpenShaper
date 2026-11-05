@@ -130,10 +130,16 @@ identity preserved, neighbours clamped, dummy endpoints refused.
 **lossy relative to legacy `board.writers.BrdWriter`**: it emits the geometry fields
 (p32 outline, p33 bottom, p34 deck, p35/p36 cross-sections) plus the identity/dimension
 scalars our model actually carries (p1–p4 length/lengthOverCurve/thickness/centerWidth,
-p7 version, p45 designer, p48 surfer, p49 comments, p51 finType, p54 model). It does **not**
-write the legacy CAM/machine scalar fields (cuts, cutter diam, pivots, speeds, margins,
-struts, blank/board positions — p11–p31, p43–p47, etc.) or the per-curve guide-point (`gps`)
-blocks, because the kernel board model does not represent them.
+p7 version, p45 designer, p48 surfer, p49 comments, p51 finType, p54 model), and the
+per-curve guide-point (`gps`) blocks, which OpenShaper reads and writes as reference points
+(`packages/kernel/src/reference-points.ts`). It does **not** write the legacy CAM/machine
+scalar fields (cuts, cutter diam, pivots, speeds, margins, struts, blank/board positions —
+p11–p31, p43–p47, etc.), because the kernel board model does not represent them.
+
+One guide-point difference: a section reference point belongs to a measured station, not
+to a cross-section. It is written into the cross-section within 0.5 mm of its station; one
+with no cross-section there cannot be expressed in `.brd` and is left out
+(`brdUnwritableRefPoints` lists them so the UI can say so).
 
 This is intentional and safe to round-trip: `parseBrd` already treats every one of those
 fields as optional (the geometry is rebuilt purely from p32–p36), so `parseBrd(writeBrd(b))`

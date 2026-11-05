@@ -15,6 +15,7 @@ export default function DocsEditing() {
         { id: 'guides', label: 'Guides in 3D' },
         { id: 'points', label: 'Control points & tangents' },
         { id: 'locks', label: 'Locking handle angles' },
+        { id: 'reference-points', label: 'Reference points' },
         { id: 'sections', label: 'Cross-sections' },
         { id: 'rails', label: 'Rail presets' },
         { id: 'tail', label: 'Concave tails' },
@@ -177,6 +178,82 @@ export default function DocsEditing() {
           saved in OpenShaper&apos;s own <code>.board.json</code> files and share links. A{' '}
           <code>.brd</code> export leaves them out — BoardCAD has no such setting — so the curve is
           unchanged but its points come back unlocked.
+        </p>
+      </Section>
+
+      <Section id="reference-points" title="Reference points">
+        <p>
+          Reference points are measurements taken off a real board — a width at a station, a rocker
+          height, a point on a rail template — marked in the 2D views so you can shape against them.
+          They are drawn as crosshairs and never change the board: editing a curve leaves every
+          reference point where it is.
+        </p>
+        <p>
+          Each crosshair also says how close the board is to it: <strong>green</strong> when the
+          board is within the tolerance of the measurement, <strong>red</strong> when it is further
+          off, and <strong>yellow</strong> when there is nothing to compare (a point off the end of
+          the board, or a section point with no section at its station). The tolerance is ±1 mm
+          until you change it in the <strong>Reference points</strong> table, which remembers it.
+          Outline and rocker gaps are signed — <code>+2 mm</code> means the board is 2 mm wider or
+          higher than measured — and a section gap is the distance from the point to the
+          section&apos;s curve.
+        </p>
+        <p>
+          Right-click a 2D view and choose <strong>Add reference point</strong> to place one at the
+          cursor. In the outline view it records a half-width; in the rocker view it measures
+          whichever of the bottom or deck curve is nearer; in the cross-section view it belongs to
+          that section&apos;s station. Click a point to select it: its coordinates and an optional
+          label appear in the view&apos;s header, where you can type exact values. Press{' '}
+          <kbd>Delete</kbd>, or right-click it and choose <strong>Delete reference point</strong>,
+          to remove it, and <kbd>⌥←</kbd> / <kbd>⌥→</kbd> to step to the previous or next point in
+          the same view. The same keys step along a curve when a control point is selected.
+        </p>
+        <p>
+          Points are <strong>locked</strong> by default: a click selects one, but dragging does not
+          move it, so a measurement cannot shift by accident. Choose{' '}
+          <strong>View → Unlock reference points</strong> to drag them, and{' '}
+          <strong>View → Reference points</strong> to hide or show them. The 3D view shows them too,
+          as small crosshairs on the hull in the same colours: outline points at the rail&apos;s
+          widest point, rocker points on the stringer, and section points across their station.
+          Every change is a single undo step on the same history as your shape edits.
+        </p>
+        <p>
+          To enter a whole set of measurements, open <strong>Reference points</strong> in the
+          sidebar&apos;s <strong>Reference</strong> tab. The <strong>Outline</strong> tab lists
+          widths, the <strong>Rocker</strong> tab bottom or deck heights, and the{' '}
+          <strong>Section</strong> tab the points of each measured station. Each row shows where the
+          point was measured and its value, both editable, and beside them what the board on screen
+          measures there and the gap, coloured like the crosshair. Positions are measured from the
+          tail or the nose — choose which above the table — and straight or over the curve,
+          following the app&apos;s measurement setting. Outline values are full widths, the way a
+          tape reads across the board.
+        </p>
+        <p>
+          <strong>Add point</strong> adds a row one spacing past the last; in the Section tab it
+          adds a point to the section the cross-section view is showing. <strong>Paste…</strong>{' '}
+          takes rows copied from a spreadsheet or typed one per line: a position and a value for the
+          outline and rocker, or a distance from the stringer and a height for a section, in your
+          current units (fractions such as <code>21 1/2</code> work).{' '}
+          <strong>Generate stations</strong> adds a row at every spacing along the board, starting
+          one spacing from the chosen end, each valued from the board as it is now, ready to
+          overwrite with what you measure. A paste or a generate is one undo step.
+        </p>
+        <p>
+          A cross-section point is tied to the station where it was measured, not to the section
+          object: it shows on whichever cross-section sits at that station (within half a
+          millimetre). Move that section away and its points stay at their station, out of view,
+          until a section is there again: the outline and rocker views mark every measured station
+          with a yellow tick at their edges, and the Section tab flags a station with{' '}
+          <strong>no section</strong>, with buttons to move the nearest section there or add one.
+        </p>
+        <p>
+          Reference points are saved in <code>.board</code> files, the autosaved session, recent
+          boards and share links. BoardCAD <code>.brd</code> files keep them as guide points, so
+          guide points in a BoardCAD file open as reference points, and saving a <code>.brd</code>{' '}
+          writes them back. A <code>.brd</code> stores no labels, and it cannot hold a cross-section
+          point with no section at its station; when that happens the export tells you how many were
+          left out. The 1:1 PDF templates can print them too (see{' '}
+          <Link to="/docs/export#pdf">1:1 PDF printing</Link>).
         </p>
       </Section>
 

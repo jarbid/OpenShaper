@@ -3,9 +3,12 @@ import {
   getLength,
   getLengthOverCurve,
   getThickness,
+  refPointSectionIndex,
   type BezierBoard,
   type Knot,
+  type RefPoints,
   type Spline,
+  type Vec2,
 } from '@openshaper/kernel';
 
 /**
@@ -21,15 +24,20 @@ import {
  *   - p34 deck      (deck curve)            we map p33→bottom and p34→deck per BrdReader.
  *   - p35 cross-sections — each `(p36 <pos>` group holds a profile spline.
  *
+ * Reference points are written back as the legacy per-curve `gps : ( (gp [x,y]) )`
+ * guide-point blocks, the inverse of `parseBrd`. The format holds only coordinates, so
+ * ids and labels are not written. A section point is written into the
+ * cross-section at its station; one with no cross-section there has nowhere to go in
+ * this format and is left out (see {@link brdUnwritableRefPoints}).
+ *
  * Each control point is a `(cp [endX,endY,prevX,prevY,nextX,nextY] <cont> <other>)`
  * record (see `packages/kernel/src/knot.ts`).
  *
  * DELIBERATE DIVERGENCE (see docs/specs/divergences.md): we emit geometry plus the
  * identity metadata our model carries (dimensions, designer/model/surfer/comments,
- * fin type). The legacy CAM/machine scalar fields (cuts, cutter, speeds, pivots,
- * margins, …) and per-curve guide-point (`gps`) blocks are NOT written — the kernel
- * does not model them. `parseBrd` treats all of those as optional, so the file still
- * round-trips. Units are centimeters.
+ * fin type) and guide points. The legacy CAM/machine scalar fields (cuts, cutter,
+ * speeds, pivots, margins, …) are NOT written — the kernel does not model them.
+ * `parseBrd` treats all of those as optional, so the file still round-trips. Units are centimeters.
  */
 
 /** Editable identity metadata that maps onto legacy `.brd` scalar fields. */
@@ -70,16 +78,41 @@ const knotLine = (k: Knot): string => {
   return `(cp [${c}] ${k.continuous} ${k.other})\n`;
 };
 
-/** A `pNN : (\n` <cps> `)\n` curve group (outline/bottom/deck). */
-const curveGroup = (id: number, spline: Spline): string => {
+/** A `gps : (` block of `(gp [x,y])` guide points; nothing when there are none. */
+const guideBlock = (points: readonly Vec2[]): string =>
+  points.length
+    ? `gps : (\n${points.map((p) => `(gp [${num(p.x)},${num(p.y)}])\n`).join('')})\n`
+    : '';
+
+/** A `pNN : (\n` <cps> [gps] `)\n` curve group (outline/bottom/deck). */
+const curveGroup = (id: number, spline: Spline, guides: readonly Vec2[]): string => {
   let out = `${idPrefix(id)}(\n`;
   for (const k of spline.knots) out += knotLine(k);
+  out += guideBlock(guides);
   out += ')\n';
   return out;
 };
 
+/** Section reference points with no cross-section at their station: `.brd` cannot hold them. */
+export const brdUnwritableRefPoints = (b: BezierBoard, points: RefPoints): RefPoints =>
+  points.filter((p) => p.plane === 'section' && refPointSectionIndex(b, p) < 0);
+
 /** Serialize a board to a legacy `.brd` document string. */
-export const writeBrd = (b: BezierBoard, metadata?: BrdWriteMetadata): string => {
+export const writeBrd = (
+  b: BezierBoard,
+  metadata?: BrdWriteMetadata,
+  referencePoints: RefPoints = [],
+): string => {
+  const outlineGuides: Vec2[] = [];
+  const bottomGuides: Vec2[] = [];
+  const deckGuides: Vec2[] = [];
+  const sectionGuides: Vec2[][] = b.crossSections.map(() => []);
+  for (const p of referencePoints) {
+    if (p.plane === 'outline') outlineGuides.push(p);
+    else if (p.plane === 'rocker') (p.curve === 'bottom' ? bottomGuides : deckGuides).push(p);
+    else sectionGuides[refPointSectionIndex(b, p)]?.push(p);
+  }
+
   let out = '';
 
   // Scalar metadata — derived dimensions and identity fields (legacy order).
@@ -95,17 +128,18 @@ export const writeBrd = (b: BezierBoard, metadata?: BrdWriteMetadata): string =>
   out += stringLine(51, metadata?.finType);
 
   // Geometry.
-  out += curveGroup(32, b.outline);
-  out += curveGroup(33, b.bottom);
-  out += curveGroup(34, b.deck);
+  out += curveGroup(32, b.outline, outlineGuides);
+  out += curveGroup(33, b.bottom, bottomGuides);
+  out += curveGroup(34, b.deck, deckGuides);
 
   // Cross-sections: p35 group of `(p36 <pos>` profile splines.
   out += `${idPrefix(35)}(\n`;
-  for (const cs of b.crossSections) {
+  b.crossSections.forEach((cs, i) => {
     out += `(p36 ${num(cs.position)}\n`;
     for (const k of cs.spline.knots) out += knotLine(k);
+    out += guideBlock(sectionGuides[i]!);
     out += ')\n';
-  }
+  });
   out += ')\n';
 
   return out;

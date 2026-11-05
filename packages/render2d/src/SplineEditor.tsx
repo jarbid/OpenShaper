@@ -1,14 +1,22 @@
 import {
   balanceTunni,
   closestPointOnSpline,
+  refPointWithin,
   moveTunniLine,
   moveTunniPoint,
   value,
   type BezierBoard,
+  type RefPoint,
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
-import { type BoardState, type SplineTarget, getTargetSpline, sameTarget } from '@openshaper/store';
+import {
+  type BoardState,
+  type SplineTarget,
+  getTargetSpline,
+  refPointInPane,
+  sameTarget,
+} from '@openshaper/store';
 import { ContextMenu, type MenuItem } from '@openshaper/ui';
 import {
   useCallback,
@@ -46,6 +54,7 @@ import {
   type SectionMarker,
 } from './draw';
 import { handlePoint, hitTest, type Hit } from './hit';
+import { drawMeasuredStations, drawRefPoints, hitRefPoint } from './ref-points';
 import { boundsOf, sampleSpline } from './sample';
 import {
   fitToBounds,
@@ -224,6 +233,8 @@ type DragState =
   | { mode: 'section'; index: number; started: boolean; handle: SectionHandle; grab: number }
   // Dragging a fin to re-place it (plan pane).
   | { mode: 'fin'; index: number; grab: Vec2; downAt: ScreenPoint; started: boolean }
+  // Dragging an unlocked reference point.
+  | { mode: 'ref'; id: string; grab: Vec2; downAt: ScreenPoint; started: boolean }
   // Middle-button / Space+left pan.
   | { mode: 'pan'; lastX: number; lastY: number }
   // Right button: a tap opens the context menu, a drag pans (tracked via `moved`).
@@ -250,7 +261,11 @@ type DragState =
 
 /** Whether a drag holds the store's grouped edit open (a section drag only once it moved). */
 const holdsEdit = (d: DragState): boolean =>
-  (d?.mode === 'tunni' || d?.mode === 'edit' || d?.mode === 'fin' || d?.mode === 'section') &&
+  (d?.mode === 'tunni' ||
+    d?.mode === 'edit' ||
+    d?.mode === 'fin' ||
+    d?.mode === 'ref' ||
+    d?.mode === 'section') &&
   d.started;
 
 /**
@@ -512,7 +527,15 @@ export function SplineEditor({
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const selection = useSyncExternalStore(store.subscribe, () => store.getState().selection);
   const selectedFin = useSyncExternalStore(store.subscribe, () => store.getState().selectedFin);
+  const allRefPoints = useSyncExternalStore(store.subscribe, () => store.getState().refPoints);
+  const selectedRef = useSyncExternalStore(store.subscribe, () => store.getState().selectedRef);
   const key = JSON.stringify(targets);
+  // The reference points this pane shows: none while the overlay is hidden.
+  const refMode = overlays?.referencePoints;
+  const refPoints = useMemo(
+    () => (refMode && board ? allRefPoints.filter((p) => refPointInPane(board, p, targets)) : []),
+    [refMode, board, allRefPoints, targets],
+  );
   // Reference curves: a snapshot of this pane's splines (immutable, so later edits never
   // reach it), tagged with the target set it was taken from so it never draws for another.
   const [reference, setReference] = useState<{ key: string; splines: Spline[] } | null>(null);
@@ -794,6 +817,19 @@ export function SplineEditor({
         hovered,
       );
     });
+    // Over the curves: a measurement must stay visible where it sits on a line.
+    const tolerance = overlays?.refTolerance;
+    drawRefPoints(
+      ctx,
+      refPoints,
+      vp,
+      selectedRef,
+      turned,
+      controlPointSize ?? 6,
+      tolerance === undefined ? undefined : (p) => refPointWithin(board, p, tolerance),
+    );
+    if (refMode && overlays?.measuredStations)
+      drawMeasuredStations(ctx, overlays.measuredStations, vp, size.h);
     // Sliding-location probes: a closed board outline for the pane lets the cursor /
     // scrub line be drawn solid where it's inside the board and dashed outside.
     //  - mirrorX (cross-section) / mirrorY (outline): half-spline + its mirror.
@@ -841,6 +877,9 @@ export function SplineEditor({
     overlays,
     ghostSplines,
     referenceSplines,
+    refPoints,
+    selectedRef,
+    refMode,
     tunniEnabled,
     background,
     liveTrace,
@@ -935,6 +974,13 @@ export function SplineEditor({
     [tunniEnabled, vp, board, targets],
   );
 
+  /** Reference point under a screen point (knots are tested first by every caller). */
+  const refAt = useCallback(
+    (p: Vec2, tolerance = HIT_TOL_PX): RefPoint | null =>
+      vp ? hitRefPoint(refPoints, vp, p, tolerance) : null,
+    [vp, refPoints],
+  );
+
   const sectionMarkerAt = useCallback(
     (p: { x: number; y: number }, touch = false) =>
       vp && sectionMarkers
@@ -1019,6 +1065,8 @@ export function SplineEditor({
             store
               .getState()
               .select({ target: picked.target, index: picked.hit.index, kind: picked.hit.kind });
+          const ref = marker || picked ? null : refAt(p, TOUCH_HIT_TOL_PX);
+          if (ref) store.getState().selectRef(ref.id);
           const items = buildContextMenuItems({
             board,
             targets,
@@ -1036,6 +1084,7 @@ export function SplineEditor({
             onAddSectionAt,
             sectionMarker: marker ?? undefined,
             onDeleteSection,
+            refPointsShown: !!refMode,
           });
           setMenu({ x: clientX, y: clientY, items });
         }, LONG_PRESS_MS);
@@ -1107,6 +1156,23 @@ export function SplineEditor({
           downAt: p,
           started: false,
         };
+        return;
+      }
+      // A reference point: selected on click; dragged only while unlocked, since it
+      // records a measurement and an accidental nudge would silently change it.
+      const ref = refAt(p, touch ? TOUCH_HIT_TOL_PX : HIT_TOL_PX);
+      if (ref) {
+        store.getState().selectRef(ref.id);
+        if (refMode === 'unlocked') {
+          const at = screenToWorld(vp, p);
+          drag.current = {
+            mode: 'ref',
+            id: ref.id,
+            grab: { x: ref.x - at.x, y: ref.y - at.y },
+            downAt: p,
+            started: false,
+          };
+        }
         return;
       }
       const tunni = hitTunni(p, touch ? TOUCH_HIT_TOL_PX : HIT_TOL_PX);
@@ -1192,6 +1258,8 @@ export function SplineEditor({
       traceInteractive,
       background,
       sectionMarkerAt,
+      refAt,
+      refMode,
     ],
   );
 
@@ -1212,7 +1280,7 @@ export function SplineEditor({
           ? 'ew-resize'
           : marker
             ? 'pointer'
-            : picked || hitTunni(p)
+            : picked || refAt(p) || hitTunni(p)
               ? 'pointer'
               : 'crosshair',
       );
@@ -1270,6 +1338,7 @@ export function SplineEditor({
         const dragging =
           drag.current?.mode === 'edit' ||
           drag.current?.mode === 'fin' ||
+          drag.current?.mode === 'ref' ||
           drag.current?.mode === 'section';
         if (
           longPress.current &&
@@ -1400,11 +1469,19 @@ export function SplineEditor({
       if (!d.started) {
         // A move event at the press point (some browsers send one) is not a drag.
         if (p.x === d.downAt.x && p.y === d.downAt.y) return;
-        store.getState().beginEdit(d.mode === 'fin' ? 'Move fin' : undefined);
+        store
+          .getState()
+          .beginEdit(
+            d.mode === 'fin' ? 'Move fin' : d.mode === 'ref' ? 'Move reference point' : undefined,
+          );
         d.started = true;
       }
       if (d.mode === 'fin') {
         store.getState().moveFin(d.index, held);
+        return;
+      }
+      if (d.mode === 'ref') {
+        store.getState().moveRefPoint(d.id, held);
         return;
       }
       if (d.hit.kind === 'end') store.getState().moveControlPoint(d.target, d.hit.index, held);
@@ -1455,6 +1532,8 @@ export function SplineEditor({
           store
             .getState()
             .select({ target: picked.target, index: picked.hit.index, kind: picked.hit.kind });
+        const ref = marker || picked ? null : refAt(p);
+        if (ref) store.getState().selectRef(ref.id);
         const items = buildContextMenuItems({
           board,
           targets,
@@ -1471,6 +1550,7 @@ export function SplineEditor({
           onAddSectionAt,
           sectionMarker: marker ?? undefined,
           onDeleteSection,
+          refPointsShown: !!refMode,
         });
         setMenu({ x: e.clientX, y: e.clientY, items });
       }
@@ -1498,6 +1578,8 @@ export function SplineEditor({
       onDeleteSection,
       sectionMarkerAt,
       cancelLongPress,
+      refAt,
+      refMode,
       liveTrace,
       onTraceTransform,
     ],
@@ -1558,6 +1640,7 @@ export function SplineEditor({
       for (const t of targets) {
         if (hitTest(getTargetSpline(board, t), vp, p)) return;
       }
+      if (refAt(p)) return;
       const tunni = hitTunni(p);
       if (tunni) {
         if (tunni.hit.kind === 'point') {
@@ -1588,7 +1671,7 @@ export function SplineEditor({
       // Empty space (no nearby curve): re-home the view to fit the curves.
       fitView();
     },
-    [vp, board, store, targets, mirrorX, mirrorY, fitView, localPoint, hitTunni],
+    [vp, board, store, targets, mirrorX, mirrorY, fitView, localPoint, hitTunni, refAt],
   );
 
   return (
