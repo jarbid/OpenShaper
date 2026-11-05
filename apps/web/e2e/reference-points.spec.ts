@@ -108,3 +108,17 @@ test('the measurement table generates stations and shows them on the board', asy
   await page.getByLabel('Width 1', { exact: true }).press('Enter');
   await expect(page.getByLabel('Reference point editor')).toBeVisible();
 });
+
+test('the 3D view draws reference points without errors', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const { canvas, position } = await openOutline(page);
+  await canvas.click({ button: 'right', position });
+  await page.getByRole('menuitem', { name: 'Add reference point' }).click();
+  await page.getByRole('button', { name: '3D', exact: true }).click();
+  await page.waitForTimeout(1500);
+  const shot = test.info().outputPath('reference-points-3d.png');
+  await page.locator('canvas').first().screenshot({ path: shot });
+  await test.info().attach('reference-points-3d', { path: shot, contentType: 'image/png' });
+  expect(errors).toEqual([]);
+});

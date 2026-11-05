@@ -1,11 +1,15 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { board } from './board';
+import { board, getDeckAtPos, getRockerAtPos } from './board';
 import { crossSection } from './cross-section';
 import { splineFromKnots } from './bezier-spline';
 import { knot } from './knot';
 import {
   refIdAllocator,
   refPointBoardValue,
+  refPoint3D,
   refPointGap,
   refPointWithin,
   refPointSectionIndex,
@@ -13,6 +17,7 @@ import {
   type SectionRefPoint,
 } from './reference-points';
 import { vec2 } from './vec2';
+import { parseBrdGeometry } from './test-support/brd-geometry';
 
 const line = splineFromKnots([
   knot(vec2(0, 0), vec2(0, 0), vec2(1, 0)),
@@ -191,5 +196,44 @@ describe('refPointGap', () => {
     expect(refPointWithin(b, p, 0.1)).toBe(true);
     expect(refPointWithin(b, p, 0.05)).toBe(false);
     expect(refPointWithin(b, { ...p, x: 200 }, 0.1)).toBeNull();
+  });
+});
+
+describe('refPoint3D', () => {
+  const shortboard = parseBrdGeometry(
+    readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../../../docs/specs/golden/shortboard.brd'),
+      'utf8',
+    ),
+  );
+
+  it('puts rocker points on the stringer plane and section points across their station', () => {
+    expect(
+      refPoint3D(shortboard, { id: 'a', plane: 'rocker', curve: 'deck', x: 90, y: 6 }),
+    ).toEqual({ x: 90, y: 0, z: 6 });
+    const section = refPoint3D(shortboard, {
+      id: 'b',
+      plane: 'section',
+      station: 92.71,
+      x: 20,
+      y: -0.2,
+    })!;
+    expect(section.x).toBe(92.71);
+    expect(section.y).toBe(20);
+    expect(section.z).toBeCloseTo(-0.2 + getRockerAtPos(shortboard, 92.71), 12);
+  });
+
+  it('puts an outline point at its half-width, at the rail apex height of the hull there', () => {
+    const x = 90;
+    const p = refPoint3D(shortboard, { id: 'c', plane: 'outline', x, y: 23 })!;
+    expect(p.x).toBe(x);
+    expect(p.y).toBe(23);
+    // Between the bottom and the deck at that station, as a rail is.
+    expect(p.z).toBeGreaterThan(getRockerAtPos(shortboard, x));
+    expect(p.z).toBeLessThan(getDeckAtPos(shortboard, x));
+  });
+
+  it('is null where there is no hull', () => {
+    expect(refPoint3D(shortboard, { id: 'd', plane: 'outline', x: 500, y: 1 })).toBeNull();
   });
 });

@@ -1388,6 +1388,8 @@ function AppShell() {
       showStringer={view3d.showStringer}
       showSections={view3d.showSections}
       activeSectionX={activeSectionX}
+      showRefPoints={refPointsShown}
+      refTolerance={refTolerance}
       key={cameraEpoch}
       initialCamera={liveViewState.current.camera3d}
       onCameraChange={onCameraChange}

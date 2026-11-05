@@ -25,6 +25,7 @@ import { BoardViewcube } from './BoardViewcube';
 import { orthographicZoomFor, upForViewDirection } from './view-framing';
 import { Fins3D } from './Fins3D';
 import { Guides3D } from './Guides3D';
+import { RefPoints3D } from './RefPoints3D';
 import {
   objectCenteredRotation,
   rotateViewAboutOrigin,
@@ -70,6 +71,10 @@ export interface Board3DViewProps {
   showSections?: boolean;
   /** Board-length position of the active cross-section, drawn in cyan. */
   activeSectionX?: number | null;
+  /** Draw the board's reference points on the hull (defaults to false). */
+  showRefPoints?: boolean;
+  /** Gap (cm) reference points are judged against, for their colour; omitted = plain. */
+  refTolerance?: number;
   /**
    * Restored orbit pose applied at mount instead of the default framing, so a
    * reloaded session reopens with the camera where it was. Pass a stable
@@ -525,11 +530,15 @@ export function Board3DView({
   showStringer = false,
   showSections = false,
   activeSectionX = null,
+  showRefPoints = false,
+  refTolerance,
   initialCamera,
   onCameraChange,
   className,
 }: Board3DViewProps) {
   const board = useSyncExternalStore(store.subscribe, () => store.getState().board);
+  const refPoints = useSyncExternalStore(store.subscribe, () => store.getState().refPoints);
+  const selectedRef = useSyncExternalStore(store.subscribe, () => store.getState().selectedRef);
   const span = board ? boardSpan(board) : 200;
   const d = span * 1.1;
   const resolved: Board3DMode = mode ?? 'shaded';
@@ -569,6 +578,15 @@ export function Board3DView({
         )}
         {board && board.fins.setup !== 'none' && (
           <Fins3D board={board} targetFaceSize={targetFaceSize} color={finColor} />
+        )}
+        {board && showRefPoints && refPoints.length > 0 && (
+          <RefPoints3D
+            board={board}
+            targetFaceSize={targetFaceSize}
+            points={refPoints}
+            selectedId={selectedRef}
+            tolerance={refTolerance}
+          />
         )}
         {board && (showStringer || showSections) && (
           <Guides3D

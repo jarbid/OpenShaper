@@ -212,8 +212,10 @@ export default function DocsEditing() {
           Points are <strong>locked</strong> by default: a click selects one, but dragging does not
           move it, so a measurement cannot shift by accident. Choose{' '}
           <strong>View → Unlock reference points</strong> to drag them, and{' '}
-          <strong>View → Reference points</strong> to hide or show them. Every change is a single
-          undo step on the same history as your shape edits.
+          <strong>View → Reference points</strong> to hide or show them. The 3D view shows them too,
+          as small crosshairs on the hull in the same colours: outline points at the rail&apos;s
+          widest point, rocker points on the stringer, and section points across their station.
+          Every change is a single undo step on the same history as your shape edits.
         </p>
         <p>
           To enter a whole set of measurements, open <strong>Reference points</strong> in the

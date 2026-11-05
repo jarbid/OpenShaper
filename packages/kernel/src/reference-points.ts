@@ -16,7 +16,8 @@
  */
 import { value } from './bezier-curve';
 import { closestPointOnSpline, valueAt, type Spline } from './bezier-spline';
-import type { BezierBoard } from './board';
+import { getRockerAtPos, type BezierBoard } from './board';
+import { crossSectionRing, type GuidePoint } from './guides';
 import type { Vec2 } from './vec2';
 
 interface RefPointBase extends Vec2 {
@@ -113,6 +114,31 @@ export const refPointGap = (b: BezierBoard, p: RefPoint): number | null => {
   const board = refPointBoardValue(b, p);
   if (board === null) return null;
   return p.plane === 'outline' ? 2 * (board - Math.abs(p.y)) : board - p.y;
+};
+
+/**
+ * Where a point sits on (or by) the hull in 3D board cm (x length, y width, z height),
+ * for the 3D view, or null where there is no hull to put it on.
+ *
+ * - Outline: at its x and measured half-width, at the height of the rail's widest point
+ *   there, which is where a width is taped.
+ * - Rocker: on the stringer plane (y = 0) at its measured height.
+ * - Section: across its station, raised by the bottom rocker there, the same frame the
+ *   loft puts the section profile in.
+ */
+export const refPoint3D = (b: BezierBoard, p: RefPoint): GuidePoint | null => {
+  switch (p.plane) {
+    case 'outline': {
+      const ring = crossSectionRing(b, p.x, 32);
+      if (!ring) return null;
+      const apex = ring.reduce((best, q) => (q.y > best.y ? q : best));
+      return { x: p.x, y: p.y, z: apex.z };
+    }
+    case 'rocker':
+      return { x: p.x, y: 0, z: p.y };
+    case 'section':
+      return { x: p.station, y: p.x, z: p.y + getRockerAtPos(b, p.station) };
+  }
 };
 
 /** Whether a gap is within `tolerance` (cm), or null when there is no gap to judge. */
