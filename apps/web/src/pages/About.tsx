@@ -10,6 +10,8 @@ import {
   CONTACT_EMAIL,
   CONTACT_MAILTO,
   GITHUB_URL,
+  INSTAGRAM_HANDLE,
+  INSTAGRAM_URL,
   SITE_NAME,
 } from '../seo/site';
 
@@ -167,6 +169,18 @@ export default function About() {
                 {CONTACT_EMAIL}
               </a>{' '}
               and I&apos;ll get back to you.
+            </p>
+            <p className="mt-3 max-w-xl text-muted-foreground">
+              Built something? Share and tag your board builds with{' '}
+              <a
+                href={INSTAGRAM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-foreground underline underline-offset-2 hover:text-primary"
+              >
+                {INSTAGRAM_HANDLE}
+              </a>{' '}
+              on Instagram — I love seeing what people make.
             </p>
           </div>
         </aside>
