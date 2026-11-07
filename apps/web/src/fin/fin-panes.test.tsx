@@ -101,18 +101,17 @@ describe('FinSectionTools', () => {
 describe('the foil analysis', () => {
   beforeEach(() => act(() => finStore.getState().load(defaultFinDesign('side', 'right'))));
 
-  /** The toolbar and the pane sharing the analysis, as FinApp has them. */
+  /** The pane with its Analysis controls, the state held outside it as FinApp holds it. */
   function Both() {
     const [a, setA] = useState<FoilAnalysis>(FOIL_ANALYSIS_DEFAULT);
     return (
       <>
-        <FinSectionTools
+        <FinSectionPane
           store={finStore}
           units={lengthUnitByKey('mm')}
           analysis={a}
           onAnalysis={setA}
         />
-        <FinSectionPane store={finStore} units={lengthUnitByKey('mm')} analysis={a} />
         <output data-testid="analysis">{JSON.stringify(a)}</output>
       </>
     );

@@ -704,7 +704,9 @@ describe('FinApp: export', () => {
 
 describe('FinApp: section analysis in the 3D view', () => {
   beforeEach(() => act(() => finStore.getState().load(defaultFinDesign('side', 'left'))));
-  const analysis = () => screen.getByRole('button', { name: 'Analysis' });
+  // The 3D view's: the foil view has an Analysis of its own, in the same place.
+  const analysis = () =>
+    within(screen.getByRole('region', { name: '3D' })).getByRole('button', { name: 'Analysis' });
 
   it('opens with the vertical plane, its slider and readout; closes again', () => {
     render(<FinApp />);

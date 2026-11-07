@@ -1201,13 +1201,7 @@ export function FinApp() {
           slot={slotOf('foil')}
           onSwap={swap}
           tools={
-            <FinSectionTools
-              store={finStore}
-              units={units}
-              minThickness={settings.exportMin}
-              analysis={foilAnalysis}
-              onAnalysis={setFoilAnalysis}
-            />
+            <FinSectionTools store={finStore} units={units} minThickness={settings.exportMin} />
           }
         >
           <FinSectionPane
@@ -1216,6 +1210,7 @@ export function FinApp() {
             frameKey={sizeKey('foil')}
             minThickness={settings.exportMin}
             analysis={foilAnalysis}
+            onAnalysis={setFoilAnalysis}
           />
         </ViewPane>
         <ViewPane

@@ -212,16 +212,11 @@ export const FinSectionTools = memo(function FinSectionTools({
   store,
   units,
   minThickness = FIN_EXPORT_MIN_THICKNESS.default,
-  analysis,
-  onAnalysis,
 }: {
   store: StoreApi<FinState>;
   units: LengthUnit;
   /** The exports' minimum thickness (cm): the panel holds the fin as exported. */
   minThickness?: number;
-  /** The foil analysis, and setting it (foil-analysis.ts): off when not given. */
-  analysis?: FoilAnalysis;
-  onAnalysis?: (a: FoilAnalysis) => void;
 }) {
   const position = useFinState(store, (s) => s.design?.position);
   // Asymmetric: the foil has an inside face of its own (flat, split or NACA-cambered).
@@ -263,9 +258,6 @@ export const FinSectionTools = memo(function FinSectionTools({
       {/* Beside Asymmetric, which it belongs to (owner review: it sat on the canvas). */}
       {!centre && share !== null && <SplitFields store={store} share={share} />}
       <NacaPicker store={store} centre={centre} />
-      {analysis && onAnalysis && (
-        <AnalysisTools analysis={analysis} onChange={onAnalysis} units={units} />
-      )}
       <PointTools store={store} />
       <PanelTools store={store} minThickness={minThickness} />
     </>
@@ -273,10 +265,12 @@ export const FinSectionTools = memo(function FinSectionTools({
 });
 
 /**
- * The foil analysis's controls (owner request): on or off, how the other sections line up
- * with this foil, and which to show.
+ * The foil analysis's controls (owner request), over the canvas at its top left: the same
+ * place and look as the 3D view's Analysis (SectionAnalysis.tsx), so both work alike
+ * (owner review, repetition). On or off, how the other sections line up with this foil,
+ * and which to show.
  */
-function AnalysisTools({
+function AnalysisOverlay({
   analysis,
   onChange,
   units,
@@ -286,27 +280,26 @@ function AnalysisTools({
   units: LengthUnit;
 }) {
   const set = (patch: Partial<FoilAnalysis>) => onChange({ ...analysis, ...patch });
-  const select = 'h-8 rounded-md border border-input bg-background px-2 text-sm';
+  const chip = 'flex items-center gap-1 rounded bg-background/80 px-1.5 py-1';
+  const select = 'h-6 rounded border border-input bg-background px-1 text-xs';
   return (
     <div
-      className="flex flex-wrap items-center gap-x-3 gap-y-1.5"
+      className="absolute left-2 top-2 z-10 flex flex-wrap items-center gap-2 text-xs"
       role="group"
       aria-label="Analysis"
     >
-      <Tooltip label="Show the fin's other sections faintly behind this foil">
-        <Button
-          size="sm"
-          variant={analysis.on ? 'selected' : 'outline'}
-          aria-pressed={analysis.on}
-          onClick={() => set({ on: !analysis.on })}
-        >
-          Analysis
-        </Button>
-      </Tooltip>
+      <Button
+        size="sm"
+        variant={analysis.on ? 'selected' : 'outline'}
+        aria-pressed={analysis.on}
+        onClick={() => set({ on: !analysis.on })}
+      >
+        Analysis
+      </Button>
       {analysis.on && (
         <>
-          <label className="flex items-center gap-2">
-            <span className="text-muted-foreground">Align</span>
+          <label className={chip}>
+            Align
             <select
               className={select}
               aria-label="Align sections"
@@ -319,8 +312,8 @@ function AnalysisTools({
               <option value="tab">On the tab</option>
             </select>
           </label>
-          <label className="flex items-center gap-2">
-            <span className="text-muted-foreground">Show</span>
+          <label className={chip}>
+            Show
             <select
               className={select}
               aria-label="Sections to show"
@@ -332,16 +325,18 @@ function AnalysisTools({
             </select>
           </label>
           {analysis.show === 'every' && (
-            <LenField
-              label="Every"
-              valueCm={analysis.every}
-              units={units}
-              onCommit={(cm) =>
-                set({
-                  every: Math.min(FOIL_ANALYSIS_EVERY.max, Math.max(FOIL_ANALYSIS_EVERY.min, cm)),
-                })
-              }
-            />
+            <div className={chip}>
+              <LenField
+                label="Every"
+                valueCm={analysis.every}
+                units={units}
+                onCommit={(cm) =>
+                  set({
+                    every: Math.min(FOIL_ANALYSIS_EVERY.max, Math.max(FOIL_ANALYSIS_EVERY.min, cm)),
+                  })
+                }
+              />
+            </div>
           )}
         </>
       )}
@@ -456,6 +451,7 @@ export const FinSectionPane = memo(function FinSectionPane({
   frameKey = '',
   minThickness = FIN_EXPORT_MIN_THICKNESS.default,
   analysis = FOIL_ANALYSIS_DEFAULT,
+  onAnalysis,
 }: {
   store: StoreApi<FinState>;
   units: LengthUnit;
@@ -464,6 +460,8 @@ export const FinSectionPane = memo(function FinSectionPane({
   minThickness?: number;
   /** The other sections drawn faintly behind this foil (foil-analysis.ts), if on. */
   analysis?: FoilAnalysis;
+  /** Setting it, from the Analysis controls over the canvas: none without it. */
+  onAnalysis?: (a: FoilAnalysis) => void;
 }) {
   const design = useFinState(store, (s) => s.design);
   const selection = useFinState(store, (s) => s.selection);
@@ -746,8 +744,10 @@ export const FinSectionPane = memo(function FinSectionPane({
   if (!design || !section) return null;
   return (
     <div className="relative h-full">
+      {onAnalysis && <AnalysisOverlay analysis={analysis} onChange={onAnalysis} units={units} />}
+      {/* The faces' key at the bottom left: the top left is the Analysis controls'. */}
       <span
-        className="pointer-events-none absolute left-2 top-1 z-10 flex gap-2 text-xs"
+        className="pointer-events-none absolute bottom-1 left-2 z-10 flex gap-2 text-xs"
         aria-hidden
       >
         <span style={{ color: OUTSIDE }}>— outside</span>

@@ -517,4 +517,6 @@ against the active foil (the pane divides y by its true-scale stretch); the view
 them in. Stack order, which the owner wanted but had no idea for: outlines brighten with height
 (slate at 18% at the base to 55% at the tip: from above, nearer reads brighter) and the one
 under the pointer is highlighted and named (`FinCurveEditor`'s new `onHover`). They follow the
-settled design, recut once a drag ends.
+settled design, recut once a drag ends. Its controls sit over the canvas at the top left, as
+the 3D view's Analysis does, in the same style (owner review: repetition); the faces' key moved
+to the bottom left.
