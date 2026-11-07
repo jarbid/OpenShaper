@@ -117,6 +117,11 @@ export interface FinCurveEditorProps {
    * and how many data units a screen pixel is, for the app's own picking.
    */
   onBackgroundClick?: (at: Vec2, unitsPerPx: number) => void;
+  /**
+   * Where a mouse hovers, in data units with the data units per screen pixel, while no
+   * drag is under way; null when it leaves (overlays that name what is under it).
+   */
+  onHover?: (at: Vec2 | null, unitsPerPx: number) => void;
   /** Reports the view whenever it changes (tests, overlays). */
   onViewport?: (vp: Viewport) => void;
   /** A fixed grid spacing (data units); the grid fits the zoom if unset. */
@@ -162,6 +167,7 @@ export function FinCurveEditor({
   onMarkerDrag,
   onMarkerDragEnd,
   onBackgroundClick,
+  onHover,
 }: FinCurveEditorProps) {
   const wrap = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -325,7 +331,10 @@ export function FinCurveEditor({
     const p = local(e);
     const d = drag.current;
     if (!d) {
-      if (e.pointerType !== 'touch') setHovered(pickHandle(layers, vp, p, yScale, tolFor(e)));
+      if (e.pointerType !== 'touch') {
+        setHovered(pickHandle(layers, vp, p, yScale, tolFor(e)));
+        onHover?.(fromView(screenToWorld(vp, p), yScale), 1 / vp.scale);
+      }
       return;
     }
     if (d.id !== e.pointerId) return;
@@ -396,7 +405,10 @@ export function FinCurveEditor({
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        onPointerLeave={() => setHovered(null)}
+        onPointerLeave={() => {
+          setHovered(null);
+          onHover?.(null, 0);
+        }}
         onDoubleClick={onDoubleClick}
       />
     </div>

@@ -227,6 +227,18 @@ export default function DocsFinDesigner() {
             The foil keeps its proportions above the minimum thickness, so a 2412 stays 2 : 12
             camber to thickness however thick the fin.
           </Term>
+          <Term name="Analysis">
+            Draws the fin&apos;s other sections faintly behind the foil you are editing, to compare
+            them. <strong>Align</strong> lines them up with it at the{' '}
+            <strong>Thickest point</strong>, the <strong>Front</strong> or the <strong>Rear</strong>
+            , each in its own chord&apos;s frame; or <strong>On the tab</strong>, where they really
+            sit, seen from above, so the cant leans the higher ones out and toe turns them.{' '}
+            <strong>Show</strong> picks the base and tip foils and the control sections, each as it
+            lies (a tip foil on a steep tip line is seen nearly edge-on, a thin line), or horizontal{' '}
+            <strong>sections every</strong> so many millimetres (10 mm to start). They are true to
+            scale against your foil, and the higher on the fin, the brighter, so the stack reads
+            from base to tip; point at one to see which it is.
+          </Term>
         </Terms>
       </Section>
 

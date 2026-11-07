@@ -14,6 +14,8 @@ import { lengthUnitByKey } from '../format';
 import { MOUSE, installLayoutStubs, pane, removeLayoutStubs } from '../test/spline-editor-harness';
 import { FinOutlinePane } from './FinOutlinePane';
 import { FinSectionPane, FinSectionTools } from './FinSectionPane';
+import { FOIL_ANALYSIS_DEFAULT, type FoilAnalysis } from './foil-analysis';
+import { useState } from 'react';
 import { FinTaperPane, MinThicknessField } from './FinTaperPane';
 import { finStore } from './fin-store';
 
@@ -93,6 +95,44 @@ describe('FinSectionTools', () => {
     const faces = design().section;
     fireEvent.click(asym());
     expect(design().section).toBe(faces);
+  });
+});
+
+describe('the foil analysis', () => {
+  beforeEach(() => act(() => finStore.getState().load(defaultFinDesign('side', 'right'))));
+
+  /** The toolbar and the pane sharing the analysis, as FinApp has them. */
+  function Both() {
+    const [a, setA] = useState<FoilAnalysis>(FOIL_ANALYSIS_DEFAULT);
+    return (
+      <>
+        <FinSectionTools
+          store={finStore}
+          units={lengthUnitByKey('mm')}
+          analysis={a}
+          onAnalysis={setA}
+        />
+        <FinSectionPane store={finStore} units={lengthUnitByKey('mm')} analysis={a} />
+        <output data-testid="analysis">{JSON.stringify(a)}</output>
+      </>
+    );
+  }
+  const state = () => JSON.parse(screen.getByTestId('analysis').textContent!) as FoilAnalysis;
+
+  it('turns on, then lines the sections up and picks which to show', () => {
+    render(<Both />);
+    expect(screen.queryByLabelText('Align sections')).toBeNull(); // off: no options
+    fireEvent.click(screen.getByRole('button', { name: 'Analysis' }));
+    expect(state().on).toBe(true);
+    fireEvent.change(screen.getByLabelText('Align sections'), { target: { value: 'tab' } });
+    expect(state().align).toBe('tab');
+    expect(screen.queryByLabelText(/^Every/)).toBeNull();
+    fireEvent.change(screen.getByLabelText('Sections to show'), { target: { value: 'every' } });
+    const every = screen.getByLabelText(/^Every/) as HTMLInputElement;
+    expect(every.value).toBe('10.0'); // 10 mm to start
+    fireEvent.change(every, { target: { value: '500' } });
+    fireEvent.keyDown(every, { key: 'Enter' });
+    expect(state().every).toBe(5); // 50 mm at most
   });
 });
 

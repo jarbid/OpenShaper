@@ -72,6 +72,7 @@ import { GITHUB_URL } from '../seo/site';
 import { shortcutKeys } from '../shortcuts';
 import { FinOutlinePane } from './FinOutlinePane';
 import { FinSectionPane, FinSectionTools } from './FinSectionPane';
+import { FOIL_ANALYSIS_DEFAULT, type FoilAnalysis } from './foil-analysis';
 import { FinTaperPane, MinThicknessField } from './FinTaperPane';
 import { FitToPanel } from './panel-tools';
 import { PointTools } from './PointTools';
@@ -1090,6 +1091,8 @@ export function FinApp() {
   }, []);
   const units = useMemo(() => finLengthUnit(settings), [settings]);
   const [view3d, setView3d] = useState<FinPreviewView>('side');
+  // The foil view's analysis: the other sections behind the foil (foil-analysis.ts).
+  const [foilAnalysis, setFoilAnalysis] = useState<FoilAnalysis>(FOIL_ANALYSIS_DEFAULT);
   // Section analysis in the 3D view; Reset re-frames the camera to its starting view.
   const [section, setSection] = useState<SectionState>(SECTION_DEFAULT);
   const [resets, setResets] = useState(0);
@@ -1198,7 +1201,13 @@ export function FinApp() {
           slot={slotOf('foil')}
           onSwap={swap}
           tools={
-            <FinSectionTools store={finStore} units={units} minThickness={settings.exportMin} />
+            <FinSectionTools
+              store={finStore}
+              units={units}
+              minThickness={settings.exportMin}
+              analysis={foilAnalysis}
+              onAnalysis={setFoilAnalysis}
+            />
           }
         >
           <FinSectionPane
@@ -1206,6 +1215,7 @@ export function FinApp() {
             units={units}
             frameKey={sizeKey('foil')}
             minThickness={settings.exportMin}
+            analysis={foilAnalysis}
           />
         </ViewPane>
         <ViewPane

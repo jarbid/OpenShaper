@@ -50,6 +50,18 @@ import { fmtLen, fmtThick, type LengthUnit } from '../format';
 import { alsoFromSelection, curveEditorHandlers, pickFromSelection } from './curve-editor-wiring';
 import { PointTools } from './PointTools';
 import { useFinState } from './use-fin';
+import { useSettledDesign } from './use-settled-design';
+import {
+  FOIL_ANALYSIS_DEFAULT,
+  FOIL_ANALYSIS_EVERY,
+  foilGhosts,
+  ghostAt,
+  type FoilAlign,
+  type FoilAnalysis,
+  type FoilGhost,
+  type FoilShow,
+} from './foil-analysis';
+import { LenField } from '../components/fields';
 import { FitToPanel, PANEL_FIT, PANEL_OVER } from './panel-tools';
 import { PATH_COLOR, SWEEP_LINE } from './sweep-overlay';
 import { usePanelFit } from './use-panel-fit';
@@ -200,11 +212,16 @@ export const FinSectionTools = memo(function FinSectionTools({
   store,
   units,
   minThickness = FIN_EXPORT_MIN_THICKNESS.default,
+  analysis,
+  onAnalysis,
 }: {
   store: StoreApi<FinState>;
   units: LengthUnit;
   /** The exports' minimum thickness (cm): the panel holds the fin as exported. */
   minThickness?: number;
+  /** The foil analysis, and setting it (foil-analysis.ts): off when not given. */
+  analysis?: FoilAnalysis;
+  onAnalysis?: (a: FoilAnalysis) => void;
 }) {
   const position = useFinState(store, (s) => s.design?.position);
   // Asymmetric: the foil has an inside face of its own (flat, split or NACA-cambered).
@@ -246,11 +263,91 @@ export const FinSectionTools = memo(function FinSectionTools({
       {/* Beside Asymmetric, which it belongs to (owner review: it sat on the canvas). */}
       {!centre && share !== null && <SplitFields store={store} share={share} />}
       <NacaPicker store={store} centre={centre} />
+      {analysis && onAnalysis && (
+        <AnalysisTools analysis={analysis} onChange={onAnalysis} units={units} />
+      )}
       <PointTools store={store} />
       <PanelTools store={store} minThickness={minThickness} />
     </>
   );
 });
+
+/**
+ * The foil analysis's controls (owner request): on or off, how the other sections line up
+ * with this foil, and which to show.
+ */
+function AnalysisTools({
+  analysis,
+  onChange,
+  units,
+}: {
+  analysis: FoilAnalysis;
+  onChange: (a: FoilAnalysis) => void;
+  units: LengthUnit;
+}) {
+  const set = (patch: Partial<FoilAnalysis>) => onChange({ ...analysis, ...patch });
+  const select = 'h-8 rounded-md border border-input bg-background px-2 text-sm';
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-3 gap-y-1.5"
+      role="group"
+      aria-label="Analysis"
+    >
+      <Tooltip label="Show the fin's other sections faintly behind this foil">
+        <Button
+          size="sm"
+          variant={analysis.on ? 'selected' : 'outline'}
+          aria-pressed={analysis.on}
+          onClick={() => set({ on: !analysis.on })}
+        >
+          Analysis
+        </Button>
+      </Tooltip>
+      {analysis.on && (
+        <>
+          <label className="flex items-center gap-2">
+            <span className="text-muted-foreground">Align</span>
+            <select
+              className={select}
+              aria-label="Align sections"
+              value={analysis.align}
+              onChange={(e) => set({ align: e.target.value as FoilAlign })}
+            >
+              <option value="thickest">Thickest point</option>
+              <option value="front">Front</option>
+              <option value="rear">Rear</option>
+              <option value="tab">On the tab</option>
+            </select>
+          </label>
+          <label className="flex items-center gap-2">
+            <span className="text-muted-foreground">Show</span>
+            <select
+              className={select}
+              aria-label="Sections to show"
+              value={analysis.show}
+              onChange={(e) => set({ show: e.target.value as FoilShow })}
+            >
+              <option value="sections">Control sections, base and tip</option>
+              <option value="every">Sections every…</option>
+            </select>
+          </label>
+          {analysis.show === 'every' && (
+            <LenField
+              label="Every"
+              valueCm={analysis.every}
+              units={units}
+              onCommit={(cm) =>
+                set({
+                  every: Math.min(FOIL_ANALYSIS_EVERY.max, Math.max(FOIL_ANALYSIS_EVERY.min, cm)),
+                })
+              }
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
 /** Tabs for the foils: the root's and each slice's, by height. */
 function FoilTabs({ store, units }: { store: StoreApi<FinState>; units: LengthUnit }) {
@@ -358,12 +455,15 @@ export const FinSectionPane = memo(function FinSectionPane({
   units,
   frameKey = '',
   minThickness = FIN_EXPORT_MIN_THICKNESS.default,
+  analysis = FOIL_ANALYSIS_DEFAULT,
 }: {
   store: StoreApi<FinState>;
   units: LengthUnit;
   frameKey?: string;
   /** The exports' minimum thickness (cm): the panel holds the fin as exported. */
   minThickness?: number;
+  /** The other sections drawn faintly behind this foil (foil-analysis.ts), if on. */
+  analysis?: FoilAnalysis;
 }) {
   const design = useFinState(store, (s) => s.design);
   const selection = useFinState(store, (s) => s.selection);
@@ -382,13 +482,40 @@ export const FinSectionPane = memo(function FinSectionPane({
   const trueScale = editing ? heldScale : liveScale;
   // The frame is on screen: the chord line and a strip under it, however tall the foil
   // is stored (scaled with the foil, a thin one's frame zoomed the view far out).
-  const frame = useMemo(
-    () => ({
+
+  // The analysis's sections, from the settled design: a drag recuts them once, on release.
+  const settled = useSettledDesign(store);
+  const ghosts = useMemo(
+    () => (analysis.on && settled ? foilGhosts(settled, activeFoil, analysis) : []),
+    [analysis, settled, activeFoil],
+  );
+  // The frame takes the analysis's sections in too: on the tab, a canted fin's upper
+  // sections sit well off the active foil.
+  const frame = useMemo(() => {
+    const f = {
       ...SECTION_FRAME,
       minY: SECTION_FRAME.minY / trueScale,
       maxY: SECTION_FRAME.maxY / trueScale,
-    }),
-    [trueScale],
+    };
+    for (const g of ghosts) {
+      for (const p of g.outline) {
+        f.minX = Math.min(f.minX, p.x);
+        f.maxX = Math.max(f.maxX, p.x);
+        f.minY = Math.min(f.minY, p.y / trueScale);
+        f.maxY = Math.max(f.maxY, p.y / trueScale);
+      }
+    }
+    return f;
+  }, [trueScale, ghosts]);
+  const analysisKey = analysis.on ? `${analysis.align}-${analysis.show}-${analysis.every}` : 'off';
+  const [hoveredGhost, setHoveredGhost] = useState(-1);
+  const onHover = useCallback(
+    (at: { x: number; y: number } | null, unitsPerPx: number) => {
+      if (!at || ghosts.length === 0) return setHoveredGhost(-1);
+      // Hover in data units; the ghosts are in true chord units (y stretched).
+      setHoveredGhost(ghostAt(ghosts, { x: at.x, y: at.y * trueScale }, unitsPerPx * 6));
+    },
+    [ghosts, trueScale],
   );
 
   const layers = useMemo((): FinCurveLayer[] => {
@@ -499,6 +626,34 @@ export const FinSectionPane = memo(function FinSectionPane({
         ctx.lineTo(sb.x, sb.y);
         ctx.stroke();
       };
+      // The analysis's sections first, lowest in the hierarchy: thin slate outlines, the
+      // higher on the fin the stronger (the stack order: from above, nearer reads
+      // brighter), the one under the pointer named.
+      ghosts.forEach((g, i) => {
+        const on = i === hoveredGhost;
+        ctx.save();
+        ctx.lineWidth = on ? 1.5 : 1;
+        ctx.strokeStyle = on
+          ? 'rgba(230,237,245,0.9)'
+          : `rgba(138,155,179,${(0.18 + 0.37 * g.level).toFixed(3)})`;
+        ctx.beginPath();
+        g.outline.forEach((p, k) => {
+          const q = toScreen({ x: p.x, y: p.y / trueScale });
+          if (k === 0) ctx.moveTo(q.x, q.y);
+          else ctx.lineTo(q.x, q.y);
+        });
+        ctx.closePath();
+        ctx.stroke();
+        if (on) {
+          const top = g.outline.reduce((a, p) => (p.y > a.y ? p : a));
+          const q = toScreen({ x: top.x, y: top.y / trueScale });
+          ctx.font = FIN_CANVAS_FONT;
+          ctx.fillStyle = 'rgba(230,237,245,0.9)';
+          ctx.textAlign = 'center';
+          ctx.fillText(ghostName(g, units), q.x, q.y - 6);
+        }
+        ctx.restore();
+      });
       ctx.save();
       if (tipPart) {
         // The tip past the tip line, full height: the tip foil shapes it, not the slice.
@@ -574,7 +729,18 @@ export const FinSectionPane = memo(function FinSectionPane({
       }
       ctx.restore();
     },
-    [thickestAt, panelLines, units, tipPart, dots, section, activeFoil],
+    [
+      thickestAt,
+      panelLines,
+      units,
+      tipPart,
+      dots,
+      section,
+      activeFoil,
+      ghosts,
+      hoveredGhost,
+      trueScale,
+    ],
   );
 
   if (!design || !section) return null;
@@ -603,12 +769,23 @@ export const FinSectionPane = memo(function FinSectionPane({
         alsoSelected={alsoFromSelection(selection, ['outside', 'inside'])}
         yScale={trueScale}
         frameBounds={frame}
-        frameKey={`${design.position}-${activeFoil}-${frameKey}`}
+        frameKey={`${design.position}-${activeFoil}-${frameKey}-${analysisKey}`}
         drawUnder={drawUnder}
         markers={markers}
+        onHover={ghosts.length ? onHover : undefined}
         {...markerHandlers}
         {...handlers}
       />
     </div>
   );
 });
+
+/** What a section of the analysis is, for its label: which foil, or how high. */
+const ghostName = (g: FoilGhost, units: LengthUnit): string =>
+  g.kind === 'base'
+    ? 'Base foil'
+    : g.kind === 'tip'
+      ? 'Tip foil'
+      : g.kind === 'control'
+        ? `Control section ${fmtLen(g.height, units)}`
+        : `${fmtLen(g.height, units)} up`;

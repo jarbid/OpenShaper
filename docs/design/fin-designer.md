@@ -501,3 +501,20 @@ header was not built.
   the tab axis and a panel the fin fits went slate; the slider thumb cyan); red problems.
 - Toggles that are on use the Button's new `selected` variant (tinted, outlined), keeping
   solid primary for the one action to press.
+
+## Foil view analysis (owner request, 2026-11)
+
+The foil view's **Analysis** draws the fin's other sections behind the active foil, as faint
+slate outlines, the lowest thing in the view (`foil-analysis.ts`, drawn first in the pane's
+`drawUnder`). Each is the blade cut as it is, seen from above (`bladeSection`, plan x and y,
+cant and toe included); the tip foil is sampled along the tip line, each point from the
+horizontal cut through it, so a steep tip line collapses toward a line, as the owner asked.
+**Align** places them in the active foil's chord frame: on its **thickest point**, **front**
+or **rear**, each in its own chord's frame; or **on the tab**, where they really sit relative
+to the active foil, like the 3D view's horizontal cuts. **Show**: the base and tip foils and
+the control sections, or horizontal cuts every so many mm (2–50, 10 to start). True to scale
+against the active foil (the pane divides y by its true-scale stretch); the view's frame takes
+them in. Stack order, which the owner wanted but had no idea for: outlines brighten with height
+(slate at 18% at the base to 55% at the tip: from above, nearer reads brighter) and the one
+under the pointer is highlighted and named (`FinCurveEditor`'s new `onHover`). They follow the
+settled design, recut once a drag ends.
