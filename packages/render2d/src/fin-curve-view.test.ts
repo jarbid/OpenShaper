@@ -4,6 +4,7 @@ import { knot, splineFromKnots, vec2 } from '@openshaper/kernel';
 import {
   boundsToView,
   dragTo,
+  guidePointAt,
   guideValueAt,
   pickGuide,
   fromView,
@@ -162,5 +163,22 @@ describe('guides', () => {
     expect(guideValueAt(across, vp, s, upright)).toBeCloseTo(0.7, 12);
     const on = worldToScreen(vp, toView(vec2(0.5, 0.3), upright));
     expect(pickGuide([across], vp, { x: on.x + 200, y: on.y + 3 }, upright, 8)).toBe(across);
+  });
+
+  it('picks a curved guide along its line only, and reads where it is dragged to', () => {
+    const arc: FinCurveGuide = {
+      id: '2',
+      axis: 'y',
+      at: 0,
+      path: [vec2(0, 1), vec2(2, 2), vec2(4, 2.5), vec2(6, 2)],
+    };
+    const on = at(vec2(3, 2.25));
+    expect(pickGuide([arc], vp, { x: on.x, y: on.y + 3 }, 1, 8)).toBe(arc);
+    // Level with it but far beyond its end: not on it, unlike a level guide.
+    const off = at(vec2(9, 2));
+    expect(pickGuide([arc], vp, off, 1, 8)).toBeNull();
+    const p = guidePointAt(vp, at(vec2(3.5, 1.25)), 1);
+    expect(p.x).toBeCloseTo(3.5, 12);
+    expect(p.y).toBeCloseTo(1.25, 12);
   });
 });

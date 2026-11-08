@@ -1097,6 +1097,9 @@ export function FinApp() {
     });
   }, []);
   const units = useMemo(() => finLengthUnit(settings), [settings]);
+  // The store adds and moves control sections as the surface shown has them (rows on the
+  // smooth surface).
+  useEffect(() => finStore.getState().setEngine(settings.engine), [settings.engine]);
   const [view3d, setView3d] = useState<FinPreviewView>('side');
   // The foil view's analysis: the other sections behind the foil (foil-analysis.ts).
   const [foilAnalysis, setFoilAnalysis] = useState<FoilAnalysis>(FOIL_ANALYSIS_DEFAULT);

@@ -12,6 +12,7 @@ import {
   prepareBlade,
   sliceTipCrossing,
   sliceTipPoint,
+  smoothFoilAt,
   tipFoilOf,
   yAtX,
   sectionThickest,
@@ -870,5 +871,24 @@ describe('fin store: the foil sweep', () => {
     expect(design(s).section).toBe(base); // the base foil is left as it was
     s.getState().undo();
     expect(design(s).tipSection).toBeUndefined();
+  });
+});
+
+describe('fin store: control sections on the smooth surface', () => {
+  it('adds one as the row’s own foil, and moves it with its foil', () => {
+    const s = storeWith(defaultFinDesign('side', 'left'));
+    s.getState().setEngine('smooth');
+    expect(s.getState().addSlice(0.5)).toBe(true);
+    const sl = design(s).slices[0]!;
+    // The row's foil there, not the sweep's horizontal section.
+    const want = smoothFoilAt({ ...design(s), slices: [] }, 0.5);
+    for (const x of [0.1, 0.4, 0.8]) {
+      expect(yAtX(sl.section.outside, x)).toBeCloseTo(yAtX(want.outside, x), 9);
+    }
+    s.getState().beginEdit('Move foil slice');
+    expect(s.getState().moveSlice(1, 0.7)).toBe(true);
+    s.getState().endEdit();
+    expect(design(s).slices[0]!.height).toBe(0.7);
+    expect(design(s).slices[0]!.section).toBe(sl.section);
   });
 });

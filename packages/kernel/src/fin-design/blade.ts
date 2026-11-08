@@ -1466,6 +1466,17 @@ const fitShape = (s: BladeShape): FinSection => {
 };
 
 /**
+ * A foil fitted to faces sampled at chord stations `us` (0 → 1), in chords: as few points
+ * as follow them to within FIT_TOLERANCE. Symmetric: the outside face only.
+ */
+export const fitFoil = (
+  us: readonly number[],
+  out: readonly number[],
+  ins: readonly number[],
+  symmetric: boolean,
+): FinSection => fitShape({ us, out, ins, free: [0, 1], symmetric });
+
+/**
  * The fin's horizontal section at `eta` (fraction of the depth) as a foil, chord
  * fractions both ways, less the minimum thickness: what a new slice starts as, so adding
  * it changes nothing (owner's rules). Fitted with as few points as follow it to within

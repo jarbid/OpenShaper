@@ -575,8 +575,15 @@ export default function DocsFinDesigner() {
             progress, that blends the foils, thickness, cant and toe without creasing it. It runs
             the foils along the fin, from the base round to the tip, so on a hooked or swept fin the
             thickness curve is read along the arm. Check it with <a href="#analysis">Zebra</a>.
-            Control sections aren&apos;t applied to it yet, and exports still use the current
-            surface.
+            Exports still use the current surface.
+          </Term>
+          <Term name="Control sections on the smooth surface">
+            A control section is a line across the fin, from edge to edge along it, not a level cut.
+            The profile draws it along its line, and dragging it moves it to the line under the
+            pointer, its foil going with it. Its foil is the fin&apos;s shape along that line,
+            exactly as drawn, and its cant and toe bend and turn the blade from there up. A new one
+            starts as the shape already there, so adding it changes nothing. The thickness view
+            places it by how far along the fin it is, as the thickness curve is read there.
           </Term>
         </Terms>
       </Section>

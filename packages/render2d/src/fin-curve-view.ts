@@ -262,6 +262,11 @@ export interface FinCurveGuide {
   readonly id: string;
   readonly axis: 'x' | 'y';
   readonly at: number;
+  /**
+   * A curved guide instead (data space): drawn and picked along this line, `axis` and `at`
+   * ignored (a control section on the smooth surface, along its row).
+   */
+  readonly path?: readonly Vec2[];
   readonly color?: string;
   readonly selected?: boolean;
   /** Drawn beside the line, at its start. */
@@ -287,6 +292,31 @@ const distToLine = (p: ScreenPoint, [a, b]: [ScreenPoint, ScreenPoint]): number 
   return len > 0 ? Math.abs((p.x - a.x) * dy - (p.y - a.y) * dx) / len : Infinity;
 };
 
+/** A curved guide's line on screen. */
+const screenPath = (path: readonly Vec2[], vp: Viewport, yScale: ViewScale): ScreenPoint[] =>
+  path.map((p) => worldToScreen(vp, toView(p, yScale)));
+
+/** Distance from `p` to a polyline (screen pixels). */
+const distToPath = (p: ScreenPoint, pts: readonly ScreenPoint[]): number => {
+  let best = Infinity;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1]!;
+    const b = pts[i]!;
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const t = Math.max(
+      0,
+      Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy || 1)),
+    );
+    best = Math.min(best, Math.hypot(a.x + dx * t - p.x, a.y + dy * t - p.y));
+  }
+  return best;
+};
+
+/** The data-space point under `screen`: where a curved guide is dragged to. */
+export const guidePointAt = (vp: Viewport, screen: ScreenPoint, yScale: ViewScale): Vec2 =>
+  fromView(screenToWorld(vp, screen), yScale);
+
 /** The guide under `screen`, nearest within `tolPx`. */
 export const pickGuide = (
   guides: readonly FinCurveGuide[],
@@ -298,7 +328,9 @@ export const pickGuide = (
   let best: FinCurveGuide | null = null;
   let bestD = tolPx;
   for (const g of guides) {
-    const d = distToLine(screen, guideLine(g, vp, yScale));
+    const d = g.path
+      ? distToPath(screen, screenPath(g.path, vp, yScale))
+      : distToLine(screen, guideLine(g, vp, yScale));
     if (d <= bestD) {
       bestD = d;
       best = g;
@@ -326,6 +358,25 @@ export const drawGuides = (
   yScale: ViewScale,
 ): void => {
   for (const g of guides) {
+    if (g.path) {
+      const pts = screenPath(g.path, vp, yScale);
+      ctx.save();
+      ctx.strokeStyle = g.color ?? 'rgba(244,114,182,0.9)';
+      ctx.lineWidth = g.selected ? 2 : 1;
+      if (!g.selected) ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+      ctx.stroke();
+      if (g.label && pts.length) {
+        // Beside the line's start, on the leading edge.
+        ctx.fillStyle = ctx.strokeStyle as string;
+        ctx.font = FIN_CANVAS_FONT;
+        ctx.textAlign = 'left';
+        ctx.fillText(g.label, pts[0]!.x + 6, pts[0]!.y - 4);
+      }
+      ctx.restore();
+      continue;
+    }
     const [a, b] = guideLine(g, vp, yScale);
     ctx.save();
     ctx.strokeStyle = g.color ?? 'rgba(244,114,182,0.9)';

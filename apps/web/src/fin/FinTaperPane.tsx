@@ -96,9 +96,10 @@ export const FinTaperPane = memo(function FinTaperPane({
   const design = useFinState(store, (s) => s.design);
   const selection = useFinState(store, (s) => s.selection);
   const activeFoil = useFinState(store, (s) => s.activeFoil);
+  const engine = useFinState(store, (s) => s.engine);
   const guides = useMemo(
-    () => (design ? sliceGuides(design, activeFoil, units, 'x') : []),
-    [design, activeFoil, units],
+    () => (design ? sliceGuides(design, activeFoil, units, 'x', engine) : []),
+    [design, activeFoil, units, engine],
   );
   const guideHandlers = useMemo(() => sliceGuideHandlers(store, 'x'), [store]);
   const handlers = useMemo(() => curveEditorHandlers(store), [store]);

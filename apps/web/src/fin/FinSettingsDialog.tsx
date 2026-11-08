@@ -301,8 +301,8 @@ export function FinSettingsDialog({
             </label>
             <p className="text-xs text-muted-foreground">
               A new way of building the blade that blends the foils, thickness, cant and toe without
-              creasing it. Still in progress: control sections aren&apos;t applied yet, and exports
-              use the current surface.
+              creasing it. Control sections become lines across the fin, along it. Still in
+              progress: exports use the current surface.
             </p>
           </Section>
 

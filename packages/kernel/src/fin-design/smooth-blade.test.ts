@@ -11,7 +11,17 @@ import { defaultFinDesign, defaultKeel, defaultSingleFin, defaultTwinFin } from 
 import type { FinDesign, FinTwist } from './fin-design';
 import { fairness } from './fairness';
 import { finMesh, FIN_MESH_PREVIEW } from './fin-mesh';
-import { foilWarp, smoothBlade, smoothSampler } from './smooth-blade';
+import {
+  foilWarp,
+  smoothBlade,
+  smoothFoilAt,
+  smoothLocate,
+  smoothRowAtEta,
+  smoothEta,
+  smoothSampler,
+} from './smooth-blade';
+import { sectionShapeAt, sectionThickest } from './blade';
+import { nacaSection } from './naca';
 import { sweepFrame } from './swept-loft';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -189,5 +199,80 @@ describe('the smooth blade', () => {
       expect(volume).toBeGreaterThan(lo);
       expect(volume).toBeLessThan(hi);
     }
+  });
+
+  describe('control sections', () => {
+    const d0 = defaultFinDesign('side', 'left');
+
+    it('show their foil as drawn, on their row', () => {
+      // A fuller foil than the fin's, halfway up.
+      const fuller = nacaSection('0016');
+      const d = { ...d0, slices: [{ height: 0.5, section: fuller }] };
+      const sb = smoothBlade(d);
+      const t = sectionThickest(fuller).thickness;
+      for (const x of [0.05, 0.2, 0.4, 0.7, 0.95]) {
+        const [o, n] = sb.foil(0.5, x);
+        const [so, si] = sectionShapeAt(fuller, x);
+        expect(o).toBeCloseTo(so / t, 9);
+        expect(n).toBeCloseTo(si / t, 9);
+      }
+    });
+
+    it('start as the fin’s own foil, changing it by less than the fit’s 2%', () => {
+      const d = ownerFin('tsn_800_single.fin.json');
+      const without = { ...d, slices: [] };
+      const added = { ...without, slices: [{ height: 0.5, section: smoothFoilAt(without, 0.5) }] };
+      const a = smoothBlade(without);
+      const b = smoothBlade(added);
+      let worst = 0;
+      let thickest = 0;
+      for (let i = 1; i < 20; i++) {
+        for (let j = 1; j < 20; j++) {
+          const [o0, n0] = a.offsets(i / 20, j / 20);
+          const [o1, n1] = b.offsets(i / 20, j / 20);
+          worst = Math.max(worst, Math.abs(o1 - o0), Math.abs(n1 - n0));
+          thickest = Math.max(thickest, o0 - n0);
+        }
+      }
+      expect(worst / thickest).toBeLessThan(0.02);
+    });
+
+    it('bend the blade with their cant, and stay smooth', () => {
+      const d = {
+        ...d0,
+        slices: [{ height: 0.6, section: smoothFoilAt(d0, 0.6), twist: { cant: 15, toe: 2 } }],
+      };
+      const plain = smoothBlade(d0);
+      const bent = smoothBlade(d);
+      // Low down as before; high up leant further out (a left fin: + y).
+      expect(bent.faces(0.1, 0.5).outside.y).toBeCloseTo(plain.faces(0.1, 0.5).outside.y, 6);
+      expect(bent.faces(0.9, 0.5).outside.y).toBeGreaterThan(plain.faces(0.9, 0.5).outside.y + 0.2);
+      expect(fairness(smoothSampler(d)).creases).toEqual([]);
+    });
+
+    it.each([
+      'tsn_800_single.fin.json',
+      'hatchet_tip_crossing.fin.json',
+      'steep_tip_line.fin.json',
+    ])('leave owners’ fins smooth: %s', (name) => {
+      expect(fairness(smoothSampler(ownerFin(name))).creases.slice(0, 3)).toEqual([]);
+    });
+  });
+
+  it('finds a profile point’s row, and the row along the fin', () => {
+    const d = ownerFin('tsn_800_single.fin.json');
+    const sb = smoothBlade(d);
+    for (const [s, u] of [
+      [0.2, 0.3],
+      [0.7, 0.8],
+      [0.95, 0.5],
+    ] as const) {
+      const p = sb.point(s, u);
+      const at = smoothLocate(d, p.x, p.y)!;
+      expect(at.s).toBeCloseTo(s, 6);
+      expect(at.u).toBeCloseTo(u, 6);
+      expect(smoothRowAtEta(d, smoothEta(d, s))).toBeCloseTo(s, 6);
+    }
+    expect(smoothLocate(d, 100, 100)).toBeNull();
   });
 });

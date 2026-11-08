@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { defaultFinDesign, finReadouts } from '@openshaper/kernel';
+import { defaultFinDesign, finReadouts, smoothBlade, smoothEta } from '@openshaper/kernel';
 import { createFinStore } from '@openshaper/store';
 import { describe, expect, it } from 'vitest';
-import { sliceGuideHandlers } from './slice-guides';
+import { sliceGuideHandlers, sliceGuides } from './slice-guides';
+import { lengthUnitByKey } from '../format';
 
 describe('sliceGuideHandlers', () => {
   it('keeps dragging the same slice after it passes another and is renumbered', () => {
@@ -26,5 +27,30 @@ describe('sliceGuideHandlers', () => {
     expect(slices[1]!.section.inside).toBeNull();
     expect(slices[0]!.section.inside).not.toBeNull();
     expect(store.getState().activeFoil).toBe(2);
+  });
+
+  it('on the smooth surface, draws a section along its row and drags it to the row under the pointer', () => {
+    const store = createFinStore();
+    store.getState().load(defaultFinDesign('side', 'left'));
+    store.getState().setEngine('smooth');
+    store.getState().addSlice(0.4);
+    const d = store.getState().design!;
+    const mm = lengthUnitByKey('mm');
+    const [profile] = sliceGuides(d, 1, mm, 'y', 'smooth');
+    // Its row, edge to edge: from the leading edge to the trailing edge.
+    const sb = smoothBlade(d);
+    expect(profile!.path!.length).toBeGreaterThan(10);
+    const lead = sb.point(0.4, 0);
+    expect(profile!.path![0]!.x).toBeCloseTo(lead.x, 6);
+    // The thickness view places it by how far along the fin its row is.
+    const [taper] = sliceGuides(d, 1, mm, 'x', 'smooth');
+    expect(taper!.at).toBeCloseTo(smoothEta(d, 0.4), 9);
+    const on = sliceGuideHandlers(store, 'y');
+    on.onGuideSelect('1');
+    on.onGuideDragStart();
+    const to = sb.point(0.65, 0.5);
+    on.onGuideDragPoint('1', to);
+    on.onGuideDragEnd();
+    expect(store.getState().design!.slices[0]!.height).toBeCloseTo(0.65, 6);
   });
 });

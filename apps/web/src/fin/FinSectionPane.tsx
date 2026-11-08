@@ -545,12 +545,14 @@ export const FinSectionPane = memo(function FinSectionPane({
   const thickestAt = useMemo(() => (section ? sectionThickest(section).at : null), [section]);
   // A slice's chord past the tip line is the tip's (owner's rules): shaded. Where a slice
   // crosses the tip line, each foil shows the other there as a dot to match by hand.
+  // On the smooth surface a control section is a row, short of the tip line: neither.
+  const engine = useFinState(store, (s) => s.engine);
   const tipPart = useMemo(
-    () => (design && activeFoil > 0 ? tipSpanOf(design, activeFoil) : null),
-    [design, activeFoil],
+    () => (design && activeFoil > 0 && engine === 'sweep' ? tipSpanOf(design, activeFoil) : null),
+    [design, activeFoil, engine],
   );
   const dots = useMemo((): { x: number; o: number; i: number; color: string }[] => {
-    if (!design) return [];
+    if (!design || engine === 'smooth') return [];
     if (activeFoil > 0) {
       const c = tipPart ? sliceTipCrossing(design, activeFoil - 1) : null;
       return c
@@ -564,7 +566,7 @@ export const FinSectionPane = memo(function FinSectionPane({
         ? [{ x: c.tipAt, o: c.sliceInTip.outside, i: c.sliceInTip.inside, color: SLICE_DOT }]
         : [];
     });
-  }, [design, activeFoil, tipPart]);
+  }, [design, activeFoil, tipPart, engine]);
   const markers = useMemo(
     () =>
       thickestAt === null || activeFoil > 0

@@ -18,6 +18,8 @@ import {
   FIN_SLICE_MIN_GAP,
   FIN_THICKNESS_PATH_LIMITS,
   bladeFoilAt,
+  smoothFoilAt,
+  type FinEngine,
   chordAt,
   sliceFoilMovedTo,
   sliceFreeSpan,
@@ -268,11 +270,13 @@ export const withFinCurve = (
  * section there (kernel bladeFoilAt), so the blade doesn't change until it is edited
  * (owner's rules). Its height is clamped into the room between its neighbours
  * ({@link FIN_SLICE_MIN_GAP}); null if there is none. Returns the design and the new
- * slice's foil index.
+ * slice's foil index. On the smooth surface (`engine`), a control section is a row, and
+ * starts as the foil on it (kernel smoothFoilAt).
  */
 export const addSlice = (
   d: FinDesign,
   height: number,
+  engine: FinEngine = 'sweep',
 ): { design: FinDesign; foil: FinFoilIndex } | null => {
   const at = d.slices.findIndex((sl) => sl.height > height); // insert before this
   const pos = at === -1 ? d.slices.length : at;
@@ -280,7 +284,7 @@ export const addSlice = (
   const hi = (pos === d.slices.length ? 1 : d.slices[pos]!.height) - FIN_SLICE_MIN_GAP;
   if (hi < lo) return null;
   const h = Math.min(hi, Math.max(lo, height));
-  const section = bladeFoilAt(d, h);
+  const section = engine === 'smooth' ? smoothFoilAt(d, h) : bladeFoilAt(d, h);
   const slices = [...d.slices.slice(0, pos), { height: h, section }, ...d.slices.slice(pos)];
   return { design: { ...d, slices }, foil: pos + 1 };
 };
@@ -331,13 +335,16 @@ export const removeSlice = (d: FinDesign, foil: FinFoilIndex): FinDesign =>
  * Moving a slice repositions it, as the horizontal analysis cut moves (owner testing): it
  * takes the fin's section at its new height, with whatever it was reshaped by on top
  * (kernel sliceFoilMovedTo). `from` is the design and slice index a drag started from, so
- * every step carries the slice as it was then, not as the last step left it.
+ * every step carries the slice as it was then, not as the last step left it. On the
+ * smooth surface (`engine`) a control section is a foil drawn for its row, and takes it
+ * along unchanged.
  */
 export const moveSlice = (
   d: FinDesign,
   foil: FinFoilIndex,
   height: number,
   from?: { design: FinDesign; index: number },
+  engine: FinEngine = 'sweep',
 ): { design: FinDesign; foil: FinFoilIndex } => {
   const i = foil - 1;
   const sl = d.slices[i];
@@ -366,7 +373,8 @@ export const moveSlice = (
   }
   if (h === sl.height) return { design: d, foil };
   const src = from ?? { design: d, index: i };
-  const moved = { ...sl, height: h, section: sliceFoilMovedTo(src.design, src.index, h) };
+  const section = engine === 'smooth' ? sl.section : sliceFoilMovedTo(src.design, src.index, h);
+  const moved = { ...sl, height: h, section };
   const at = others.findIndex((o) => o.height > h);
   const pos = at === -1 ? others.length : at;
   const slices = [...others.slice(0, pos), moved, ...others.slice(pos)];

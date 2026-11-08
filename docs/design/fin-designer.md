@@ -664,3 +664,33 @@ the gate's spacing between knots at 45% and 49%; and the A4C's raised-rear corne
 Volumes: within 4% of the sweep's on the starting fins; the TSN 800 16% fuller, its
 thickness curve read along the arm rather than by height. Built in 80–100 ms, about as the
 sweep.
+
+### Stage 3: control sections, cant and toe on the smooth blade
+
+Owner decision: on the smooth blade a control section is a row (s = its stored height,
+now the fraction of the way along the fin), not a horizontal cut.
+
+- **Shape.** Each section is kept as its difference to the fin without sections on its
+  row, along the row: laid in full on its row, so the row is its foil exactly as drawn;
+  eased out by smootherstep over `FIN_SLICE_REACH` either side, or blended into the next
+  section's where two are closer; on into the tip above rather than ending at the tip line
+  (ended there, the A4C's section 5% of the fin below it creased the face: 68 creased
+  patches, 18 now). A new section starts as the foil already on its row (`smoothFoilAt`,
+  fitted to 2%): added to the TSN halfway up it moves the faces by under 2% of the
+  thickness. Moved, a section keeps its foil (the sweep refits it to the new height).
+- **Cant and toe.** `twistAt` by s, eased as before. Cant bends the blade: each point
+  slides out by tan(cant) summed up its column from the base (Simpson's rule on a table,
+  read through a bicubic spline). A section's toe turns each row about its own thickest
+  point on the thickness path. Smooth by construction: a 15° cant and 2° toe section on
+  the side fin passes the gate.
+- **Editor.** The profile draws a section along its row (`FinCurveGuide.path`), and a drag
+  moves it to the row under the pointer (`smoothLocate`); the thickness view places it at
+  how far along the fin its row is (`smoothEta`). The foil view drops the sweep's tip
+  line crossing dots and shaded chord, which rows short of the tip line don't have; the
+  store skips the sweep's crossing points. Rebuilding the smooth blade for the guides costs
+  1.6–7.4 ms a drag step (cached per design).
+
+Gate with the owners' sections and twists: the TSN 800, hatchet tip crossing and steep tip
+line stay smooth. Tight by design: swept_back_tip's section foil turns hard at a knot
+(handles 0.18 and 0.08 long) along u ≈ 0.27; hatchet_hook's section sits 6% up from the
+base with a toe change, so it eases in over 6% of the fin.

@@ -43,13 +43,26 @@
  *   added all over (symmetric foils half each side): the edges and the tip edge end at it
  *   exactly, with no clamp.
  *
- * Then cant (the lean, a shear, as the sweep's) and toe (a turn about the root's thickest
- * point). Control sections, and their cant and toe, come in stage 3: this engine leaves
- * them out for now.
+ * - **Control sections**: each a row, at s = its height (a fraction of the way from the
+ *   base to the tip edge along the fin), its foil drawn for that row. Kept as its
+ *   difference to the fin without sections on its row, along the row, laid in full there
+ *   and easing out over FIN_SLICE_REACH either side (on into the tip above, rather than
+ *   ending at the tip line), or blended into the next section's where they are closer.
+ *   So a section's row is its foil exactly, and one added as the foil already there
+ *   changes nothing (smoothFoilAt).
+ *
+ * Then cant and toe: the fin's lean (a shear, as the sweep's) and toe (a turn about the
+ * root's thickest point). A section's cant (blade.ts twistAt, by s) leans the blade more
+ * from its row up, each point sliding out by the lean summed up its column from the base,
+ * so the blade bends; its toe turns each row about the row's own thickest point.
  */
 import type { Vert3 } from '../loft';
 import { yAtX } from './curve-shape';
 import {
+  cosineStations,
+  FIN_SLICE_REACH,
+  fitFoil,
+  hasTwist,
   NO_LAMINATE,
   prepareBlade,
   sectionShapeAt,
@@ -57,9 +70,11 @@ import {
   thicknessPathOf,
   tipFoilOf,
   toeTurn,
+  twistAt,
   type FinLaminate,
   type PreparedBlade,
 } from './blade';
+import { DEG_TO_RAD } from '../constants';
 import { FIN_MIN_THICKNESS, type FinDesign, type FinSection } from './fin-design';
 import { spline1, spline2, winslowGrid, type P2, type Sides, type Spline2 } from './smooth-map';
 import { sweepFrame, thicknessPathAt } from './swept-loft';
@@ -217,17 +232,36 @@ export interface SmoothBlade {
   offsets(s: number, u: number): [number, number];
   /** The two faces at (s, u), in the fin frame (blade.ts), cant and toe applied. */
   faces(s: number, u: number): { outside: Vert3; inside: Vert3 };
+  /**
+   * The foil on row s, `along` of the way along it: its faces as fractions of the row's
+   * thickest, control sections included; and its share of the minimum on the outside.
+   */
+  foil(s: number, along: number): [number, number, number];
+  /** How thick (cm) row s is at its thickest, less the minimum. */
+  scale(s: number): number;
+  /** How far along the fin row s is, by the thickness path's length: 0 base, 1 tip edge. */
+  eta(s: number): number;
 }
 
 const bladeCache = new WeakMap<PreparedBlade, SmoothBlade>();
 
+const designCache = new WeakMap<FinDesign, SmoothBlade>();
+
+/**
+ * The smooth blade of a design. The finished blade (no laminate, the design minimum) is
+ * kept per design: the editor's guides and readouts ask for it after every edit.
+ */
 export const smoothBlade = (
   d: FinDesign,
   laminate: FinLaminate = NO_LAMINATE,
   minThickness: number = FIN_MIN_THICKNESS,
 ): SmoothBlade => {
-  const b = prepareBlade(d, laminate, minThickness);
-  return smoothBladeOf(b);
+  const plain = laminate === NO_LAMINATE && minThickness === FIN_MIN_THICKNESS;
+  const hit = plain ? designCache.get(d) : undefined;
+  if (hit) return hit;
+  const sb = smoothBladeOf(prepareBlade(d, laminate, minThickness));
+  if (plain) designCache.set(d, sb);
+  return sb;
 };
 
 export const smoothBladeOf = (b: PreparedBlade): SmoothBlade => {
@@ -287,23 +321,101 @@ export const smoothBladeOf = (b: PreparedBlade): SmoothBlade => {
     const [o, n] = sectionShapeAt(f.sec, foilWarp(along, p, f.at));
     return [o / f.thickness, n / f.thickness];
   };
+  /**
+   * The fin without control sections at row s, `along` of the way along it: its faces as
+   * fractions of the row's thickest, and its share of the minimum on the outside.
+   */
+  const bare = (s: number, along: number): [number, number, number] => {
+    const p = pathAt(s);
+    const w = smootherstep(s / sTip);
+    const [oa, na] = read(base, along, p);
+    const share = base.share + (tip.share - base.share) * w;
+    if (tip.sec === base.sec || !(w > 0)) return [oa, na, share];
+    const [ob, nb] = read(tip, along, p);
+    return [oa + (ob - oa) * w, na + (nb - na) * w, share];
+  };
+  // Control sections (stage 3): each a row, s = its height, short of the tip line. Kept as
+  // its difference to the bare fin on its row, along the row, laid in full on its row and
+  // eased out over FIN_SLICE_REACH either side, or blended into the next section's where
+  // they are closer: so its row is its foil exactly, and one added as the fin's own foil
+  // there changes nothing.
+  const sections = d.slices.map((sl) => {
+    const t = sectionThickest(sl.section);
+    return {
+      s: Math.min(sTip - 0.02, Math.max(0.01, sl.height)),
+      sec: sl.section,
+      thickness: t.thickness,
+      share: sl.section.inside === null ? 0.5 : 1,
+    };
+  });
+  /** Section k's difference to the bare fin on its row at `along`, and to its share. */
+  const diff = (k: number, along: number): [number, number, number] => {
+    const c = sections[k]!;
+    if (!(c.thickness > 0)) return [0, 0, 0];
+    const [o, n] = sectionShapeAt(c.sec, along);
+    const [bo, bn, bs] = bare(c.s, along);
+    return [o / c.thickness - bo, n / c.thickness - bn, c.share - bs];
+  };
+  /** The sections that shape row s, and how much each: as blade.ts's sliceWeight, by s. */
+  const weights = (s: number): [number, number][] => {
+    const n = sections.length;
+    if (n === 0) return [];
+    let k = 0;
+    while (k < n - 1 && s >= sections[k + 1]!.s) k++;
+    const sk = sections[k]!.s;
+    const parts: [number, number][] =
+      k === n - 1 || s <= sk
+        ? [[k, 1]]
+        : (() => {
+            const w = smootherstep((s - sk) / (sections[k + 1]!.s - sk));
+            return [
+              [k, 1 - w],
+              [k + 1, w],
+            ];
+          })();
+    // How much the sections count here: all of it between two close enough for their
+    // reaches to meet, else easing out over the reach (to the base below, the tip above).
+    let j = -1;
+    while (j < n - 1 && sections[j + 1]!.s <= s) j++;
+    const lo = j >= 0 ? sections[j]!.s : null;
+    const hi = j < n - 1 ? sections[j + 1]!.s : null;
+    let all = 0;
+    if (lo !== null && hi !== null && hi - lo <= 2 * FIN_SLICE_REACH) all = 1;
+    else {
+      if (lo !== null) {
+        // On past the tip line if need be, into the tip, where the thickness rounds off
+        // anyway: ended at the tip line, a section near it bent the face sharply there.
+        const reach = Math.min(FIN_SLICE_REACH, 1 - lo);
+        all = Math.max(all, 1 - smootherstep((s - lo) / reach));
+      }
+      if (hi !== null) {
+        const reach = Math.min(FIN_SLICE_REACH, hi);
+        all = Math.max(all, smootherstep(1 - (hi - s) / reach));
+      }
+    }
+    return all > 0 ? parts.map(([i, w]) => [i, w * all]) : [];
+  };
   const taperAt = (e: number) => yAtX(d.taper, Math.min(1, Math.max(0, e)));
   const round = (s: number) => {
     if (s <= sTip) return 1;
     const t = Math.min(1, (s - sTip) / (1 - sTip));
     return Math.sqrt(Math.max(0, 1 - t * t * t));
   };
+  const foil = (s: number, along: number): [number, number, number] => {
+    let [o, n, share] = bare(s, along);
+    for (const [k, w] of weights(s)) {
+      const [dO, dN, dS] = diff(k, along);
+      o += dO * w;
+      n += dN * w;
+      share += dS * w;
+    }
+    return [o, n, share];
+  };
+  const etaAt = (s: number) => eta.at(s * SPINE_SAMPLES);
+  const scale = (s: number) => Math.max(0, taperAt(etaAt(s)) - m) * round(s);
   const offsets = (s: number, u: number): [number, number] => {
-    const along = alongAt(s, u);
-    const p = pathAt(s);
-    const w = smootherstep(s / sTip);
-    const [oa, na] = read(base, along, p);
-    const [o, n] =
-      tip.sec === base.sec || !(w > 0)
-        ? [oa, na]
-        : (([ob, nb]) => [oa + (ob - oa) * w, na + (nb - na) * w])(read(tip, along, p));
-    const share = base.share + (tip.share - base.share) * w;
-    const k = Math.max(0, taperAt(eta.at(s * SPINE_SAMPLES)) - m) * round(s);
+    const [o, n, share] = foil(s, alongAt(s, u));
+    const k = scale(s);
     let out = o * k + m * share;
     let ins = n * k - m * (1 - share);
     const { outside: lamOut, inside: lamIn } = b.laminate;
@@ -317,10 +429,60 @@ export const smoothBladeOf = (b: PreparedBlade): SmoothBlade => {
     }
     return [out, ins];
   };
+  // Cant and toe. A section's cant leans the blade more (or less) from its row up, easing in
+  // below it (blade.ts twistAt, by s): each point slides out by the lean summed up its
+  // column from the base, so the blade bends rather than shears. A section's toe turns
+  // each row about its own thickest point, on the thickness path.
+  const twisted = hasTwist(d);
+  const twist = (s: number) => twistAt(d, s);
+  let slide = (s: number, u: number) => point(s, u).y * b.lean;
+  let widen = (_s: number) => b.widen;
+  if (twisted) {
+    const w = cols + 1;
+    const table = new Float64Array((rows + 1) * w);
+    const lean = (s: number) => Math.tan(twist(s).cant * DEG_TO_RAD);
+    const STEPS = 4;
+    for (let j = 0; j <= cols; j++) {
+      let run = 0;
+      for (let i = 1; i <= rows; i++) {
+        // Simpson's rule over each grid row, in a few steps, of tan(cant)·dz.
+        for (let q = 0; q < STEPS; q++) {
+          const s0 = (i - 1 + q / STEPS) / rows;
+          const s1 = (i - 1 + (q + 1) / STEPS) / rows;
+          const sm = (s0 + s1) / 2;
+          const z = (t: number) => map.z.at(t * rows, j);
+          const dz = (t: number) => (z(t + 1e-6) - z(t - 1e-6)) / 2e-6;
+          run += ((s1 - s0) / 6) * (lean(s0) * dz(s0) + 4 * lean(sm) * dz(sm) + lean(s1) * dz(s1));
+        }
+        table[i * w + j] = run;
+      }
+    }
+    const spl = spline2(table, rows, cols);
+    slide = (s, u) => spl.at(s * rows, u * cols);
+    widen = (s) => 1 / Math.cos(twist(s).cant * DEG_TO_RAD);
+  }
+  const spineX = spline1(spine.map((q) => q.x));
+  const spineU = spline1(
+    Array.from({ length: SPINE_SAMPLES + 1 }, (_, k) => {
+      const s = k / SPINE_SAMPLES;
+      return uAlong(s, pathAt(s));
+    }),
+  );
+  const finToe = d.toe ?? 0;
   const turn = toeTurn(b);
-  const place = (x0: number, z: number, offset: number): Vert3 => {
-    const x = x0;
-    const y = b.outward * (z * b.lean + offset * b.widen);
+  const place = (s: number, u: number, x0: number, z: number, offset: number): Vert3 => {
+    let x = x0;
+    let y = b.outward * (slide(s, u) + offset * widen(s));
+    const own = twisted ? twist(s).toe - finToe : 0;
+    if (own) {
+      const px = spineX.at(s * SPINE_SAMPLES);
+      const py = b.outward * slide(s, spineU.at(s * SPINE_SAMPLES));
+      const a = -b.outward * own * DEG_TO_RAD;
+      const dx = x - px;
+      const dy = y - py;
+      x = px + dx * Math.cos(a) - dy * Math.sin(a);
+      y = py + dx * Math.sin(a) + dy * Math.cos(a);
+    }
     if (!turn) return { x, y, z };
     const dx = x - turn.x;
     const dy = y - turn.y;
@@ -336,14 +498,117 @@ export const smoothBladeOf = (b: PreparedBlade): SmoothBlade => {
     sTip,
     point,
     offsets,
+    foil,
+    scale,
+    eta: etaAt,
     faces: (s, u) => {
       const p = point(s, u);
       const [o, n] = offsets(s, u);
-      return { outside: place(p.x, p.y, o), inside: place(p.x, p.y, n) };
+      return { outside: place(s, u, p.x, p.y, o), inside: place(s, u, p.x, p.y, n) };
     },
   };
   bladeCache.set(b, smooth);
   return smooth;
+};
+
+/** Row s of the design's smooth blade on the profile (tab frame, cm), `n` + 1 points edge to edge. */
+export const smoothRowLine = (d: FinDesign, s: number, n = 64): P2[] => {
+  const map = smoothMap(d);
+  const { rows, cols } = SMOOTH_MAP;
+  return Array.from({ length: n + 1 }, (_, j) => ({
+    x: map.x.at(s * rows, (j / n) * cols),
+    y: map.z.at(s * rows, (j / n) * cols),
+  }));
+};
+
+/**
+ * Where on the smooth blade's layout a profile point is, (s, u); null off the blade. A
+ * search over the grid, then Newton's method on the splines.
+ */
+export const smoothLocate = (
+  d: FinDesign,
+  x: number,
+  z: number,
+): { s: number; u: number } | null => {
+  const sb = smoothBlade(d);
+  const { rows, cols } = SMOOTH_MAP;
+  let best = { s: 0, u: 0, d: Infinity };
+  for (let i = 0; i <= rows; i++) {
+    for (let j = 0; j <= cols; j++) {
+      const p = sb.point(i / rows, j / cols);
+      const dd = Math.hypot(p.x - x, p.y - z);
+      if (dd < best.d) best = { s: i / rows, u: j / cols, d: dd };
+    }
+  }
+  let { s, u } = best;
+  const e = 1e-6;
+  for (let it = 0; it < 30; it++) {
+    const p = sb.point(s, u);
+    const ps = sb.point(s + e, u);
+    const pu = sb.point(s, u + e);
+    const a = (ps.x - p.x) / e;
+    const b = (pu.x - p.x) / e;
+    const c = (ps.y - p.y) / e;
+    const dd = (pu.y - p.y) / e;
+    const det = a * dd - b * c;
+    if (!(Math.abs(det) > 1e-18)) break;
+    const fx = p.x - x;
+    const fz = p.y - z;
+    const ds = (dd * fx - b * fz) / det;
+    const du = (a * fz - c * fx) / det;
+    s = Math.min(1, Math.max(0, s - ds));
+    u = Math.min(1, Math.max(0, u - du));
+    if (Math.abs(ds) + Math.abs(du) < 1e-12) break;
+  }
+  const p = sb.point(s, u);
+  // Further than a millimetre off the blade is off it.
+  return Math.hypot(p.x - x, p.y - z) <= 0.1 ? { s, u } : null;
+};
+
+/** How far along the fin row s is (smoothBlade's eta), and back: the row at η. */
+export const smoothEta = (d: FinDesign, s: number): number => smoothBlade(d).eta(s);
+
+export const smoothRowAtEta = (d: FinDesign, eta: number): number => {
+  const sb = smoothBlade(d);
+  let lo = 0;
+  let hi = 1;
+  for (let k = 0; k < 50; k++) {
+    const mid = (lo + hi) / 2;
+    if (sb.eta(mid) < eta) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+};
+
+/** Chord stations a row's foil is sampled at to fit it (smoothFoilAt). */
+const ROW_FOIL_STATIONS = cosineStations(200);
+
+/**
+ * The foil on row s of the smooth blade, as a control section there starts (owner's rules:
+ * adding one changes nothing until it is edited): its faces in chords of the row's length,
+ * less the minimum thickness, fitted with as few points as follow them (blade.ts fitFoil).
+ */
+export const smoothFoilAt = (d: FinDesign, s: number): FinSection => {
+  const sb = smoothBlade(d);
+  let length = 0;
+  let prev = sb.point(s, 0);
+  for (let k = 1; k <= 400; k++) {
+    const q = sb.point(s, k / 400);
+    length += Math.hypot(q.x - prev.x, q.y - prev.y);
+    prev = q;
+  }
+  const k = sb.scale(s) / (length || 1);
+  const out: number[] = [];
+  const ins: number[] = [];
+  for (const x of ROW_FOIL_STATIONS) {
+    const [o, n] = sb.foil(s, x);
+    out.push(o * k);
+    ins.push(n * k);
+  }
+  const symmetric = [d.section, tipFoilOf(d), ...d.slices.map((sl) => sl.section)].every(
+    (sec) => sec.inside === null,
+  );
+  return fitFoil(ROW_FOIL_STATIONS, out, ins, symmetric);
 };
 
 /** How far in from each side (s and u) the smoothness gate's sampler starts: the edges left out. */

@@ -34,6 +34,7 @@ import {
   dragTo,
   drawFinCurves,
   drawGuides,
+  guidePointAt,
   guideValueAt,
   pickGuide,
   fromView,
@@ -105,6 +106,8 @@ export interface FinCurveEditorProps {
   onGuideDragStart?: (id: string) => void;
   /** The dragged guide's new value on its axis, in data space. */
   onGuideDrag?: (id: string, at: number) => void;
+  /** The point (data space) a guide is dragged to: for a curved guide, where to move it. */
+  onGuideDragPoint?: (id: string, p: Vec2) => void;
   onGuideDragEnd?: () => void;
   /** Draggable markers, drawn over the curves and picked before them. */
   markers?: readonly FinCurveMarker[];
@@ -157,6 +160,7 @@ export function FinCurveEditor({
   onGuideSelect,
   onGuideDragStart,
   onGuideDrag,
+  onGuideDragPoint,
   onGuideDragEnd,
   onViewport,
   gridStep,
@@ -348,6 +352,7 @@ export function FinCurveEditor({
       );
     } else if (d.kind === 'guide') {
       onGuideDrag?.(d.guide.id, guideValueAt(d.guide, vp, p, yScale));
+      onGuideDragPoint?.(d.guide.id, guidePointAt(vp, p, yScale));
     } else {
       userFramed.current = true;
       setVp(pan(vp, p.x - d.last.x, p.y - d.last.y));

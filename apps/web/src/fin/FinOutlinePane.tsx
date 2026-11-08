@@ -77,10 +77,11 @@ export const FinOutlinePane = memo(function FinOutlinePane({
   const design = useFinState(store, (s) => s.design);
   const selection = useFinState(store, (s) => s.selection);
   const activeFoil = useFinState(store, (s) => s.activeFoil);
+  const engine = useFinState(store, (s) => s.engine);
   const position = design?.position ?? 'side';
   const guides = useMemo(
-    () => (design ? sliceGuides(design, activeFoil, units, 'y') : []),
-    [design, activeFoil, units],
+    () => (design ? sliceGuides(design, activeFoil, units, 'y', engine) : []),
+    [design, activeFoil, units, engine],
   );
   const guideHandlers = useMemo(() => sliceGuideHandlers(store, 'y'), [store]);
 
@@ -195,14 +196,15 @@ export const FinOutlinePane = memo(function FinOutlinePane({
         const t = mid(sweep.tip);
         ctx.textAlign = 'left';
         ctx.fillText('Tip foil', t.x + 12, t.y + 4);
-        if (sweep.sliceIntoTip) {
+        // The sweep's: on the smooth surface, control sections are rows short of the tip line.
+        if (sweep.sliceIntoTip && engine === 'sweep') {
           ctx.fillStyle = SLICE_COLOR;
           ctx.fillText('Control section meets the tip line', t.x + 12, t.y + 18);
         }
         ctx.restore();
       }
     },
-    [design, tab, tabLen, kind, sweep, activeFoil],
+    [design, tab, tabLen, kind, sweep, activeFoil, engine],
   );
 
   const onBackgroundClick = useCallback(
