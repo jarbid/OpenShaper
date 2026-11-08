@@ -102,7 +102,8 @@ const stripComments = (xml: string): string => xml.replace(/<!--[\s\S]*?-->/g, '
  */
 const tagRe = (tag: string, flags: string): RegExp => {
   const escaped = tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return new RegExp(`<${escaped}[^>]*>([\\s\\S]*?)<\\/${escaped}>`, flags);
+  // The name must end at whitespace or `>`: `<Otl>` must not match `<OtlExt>`.
+  return new RegExp(`<${escaped}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${escaped}>`, flags);
 };
 
 /**
@@ -715,12 +716,15 @@ interface Shape3dOptions {
   /** Element name holding the outline curve (XY). */
   readonly outlineTag: string;
   /**
-   * Optional fallback outline element used when `outlineTag` is absent. Some
-   * Shape3d `.s3dx` exports omit the apex outline (`curveDefTop2`) and only
-   * carry the narrower top curve (`curveDefTop1`); falling back lets those
-   * files load (with a warning) where the legacy reader would have failed.
+   * Fallback outline elements tried in order when `outlineTag` is absent. A
+   * Shape3d `.s3dx` always carries the outline as the top-level `<Otl>`
+   * (identical to `curveDefTop2`, the apex curve); older exports may only have
+   * `curveDefTop2`, and a few only `curveDefTop1`, which is the narrower RAIL
+   * (tuck) line, not the outline. `rail` names the one that is that rail line:
+   * reading it is allowed (those files would otherwise fail) but warned about.
    */
-  readonly outlineFallbackTag?: string;
+  readonly outlineFallbackTags?: readonly string[];
+  readonly railLineTag?: string;
   /** Element name holding the bottom curve (XZ). */
   readonly bottomTag: string;
   /** Element name holding the deck curve (XZ); may be absent in the file. */
@@ -769,15 +773,17 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
   // --- Outline (XY plane) ---
   let outlineTagUsed = opts.outlineTag;
   let outlineXml = getChildElement(boardXml, opts.outlineTag);
-  if (!outlineXml && opts.outlineFallbackTag) {
-    outlineXml = getChildElement(boardXml, opts.outlineFallbackTag);
-    if (outlineXml) {
-      outlineTagUsed = opts.outlineFallbackTag;
+  for (const tag of opts.outlineFallbackTags ?? []) {
+    if (outlineXml) break;
+    outlineXml = getChildElement(boardXml, tag);
+    if (!outlineXml) continue;
+    outlineTagUsed = tag;
+    if (tag === opts.railLineTag) {
       warnings.push({
         severity: 'info',
         message:
-          `No <${opts.outlineTag}> (apex outline) element — falling back to ` +
-          `<${opts.outlineFallbackTag}>; outline width may be slightly narrower than nominal`,
+          `No <${opts.outlineTag}> (outline) element — falling back to ` +
+          `<${tag}>, the rail line; the outline may be narrower than nominal`,
       });
     }
   }
@@ -988,7 +994,7 @@ export const parseS3d = (text: string): ParsedS3d =>
  *
  * TypeScript port of `S3dxReader.loadFile(BezierBoard, String)`. The `.s3dx`
  * format is identical to `.s3d` except the three main curves live in
- * `<curveDefTop2>` (outline), `<curveDefSide0>` (bottom) and `<curveDefSide4>`
+ * `<Otl>` (outline, = `<curveDefTop2>`), `<curveDefSide0>` (bottom) and `<curveDefSide4>`
  * (deck); it applies a `"Ref. point"` text fix-up; and a `<Protection>` flag
  * `> 0` marks a password-protected board, which we reject with a clear error.
  *
@@ -997,8 +1003,9 @@ export const parseS3d = (text: string): ParsedS3d =>
 export const parseS3dx = (text: string): ParsedS3dx =>
   parseShape3d(text, {
     formatName: '.s3dx',
-    outlineTag: 'curveDefTop2',
-    outlineFallbackTag: 'curveDefTop1',
+    outlineTag: 'Otl',
+    outlineFallbackTags: ['curveDefTop2', 'curveDefTop1'],
+    railLineTag: 'curveDefTop1',
     bottomTag: 'curveDefSide0',
     deckTag: 'curveDefSide4',
     refPointFix: true,
