@@ -661,7 +661,7 @@ export const FinSectionPane = memo(function FinSectionPane({
       }
       ctx.restore();
     },
-    [thickestAt, panelLines, units, section, activeFoil, ghosts, hoveredGhost, trueScale],
+    [thickestAt, panelLines, units, ghosts, hoveredGhost, trueScale],
   );
 
   if (!design || !section) return null;
