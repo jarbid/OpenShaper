@@ -1023,6 +1023,8 @@ interface SliceRef {
    * fin does there (cm): a symmetric slice on a flat-inside fin shares it half and half.
    */
   readonly shift: number;
+  /** Its biggest change to the fin across `free`, either face (cm, at its height). */
+  readonly most: number;
 }
 
 const sliceRefCache = new WeakMap<SweptBlade, (SliceRef | null)[]>();
@@ -1092,8 +1094,15 @@ const sliceRef = (b: PreparedBlade, sw: SweptBlade, i: number): SliceRef | null 
       own,
       taper: Math.max(0, thicknessAt(b, h) - m),
       shift: m * (share(sl.section) - s0),
+      most: 0,
     };
-    ref = part;
+    let most = 0;
+    for (const u of SLICE_STATIONS) {
+      if (u < free[0] || u > free[1]) continue;
+      const [o, n] = rawDiff(part, sl.section, u);
+      most = Math.max(most, Math.abs(o), Math.abs(n));
+    }
+    ref = { ...part, most };
   }
   refs[i] = ref;
   return ref;
@@ -1107,6 +1116,37 @@ const sliceRef = (b: PreparedBlade, sw: SweptBlade, i: number): SliceRef | null 
  * a millimetre or so of height (the A4C, owner's rule 3).
  */
 const SLICE_TIP_FADE = 0.05;
+
+/**
+ * The most a slice's fade toward the tip line may bend a face (rad per cm, 0.4° per mm):
+ * the fade is drawn out until it bends the face no more than this, up to
+ * {@link SLICE_TIP_FADE_MAX}. Over a fixed 5% of the depth, a slice 0.6 mm fuller than
+ * the fin bent the face 0.4° more within a millimetre where a cut crossed the tip line, a
+ * crease (owner testing, a hatchet with a slice at the tip line's lower end).
+ */
+const SLICE_TIP_BEND = 0.07;
+
+/**
+ * The longest a slice's fade toward the tip line gets (a fraction of the depth): longer,
+ * a slice near the tip line no longer held its own foil at its own height (the hooked
+ * hatchet's, 17% too thick at 95% of its chord over the slice's whole reach, 15%).
+ */
+const SLICE_TIP_FADE_MAX = 0.1;
+
+/** How far in from each end of the tip line (a fraction of it) a longer fade eases in. */
+const TIP_FADE_ENDS = 0.15;
+
+/**
+ * How far (cm) slice change `most` (cm) fades out over toward the tip line: long enough
+ * that the fade (`smoother`, its bend at most 5.77 times its height over its length
+ * squared) bends a face no more than {@link SLICE_TIP_BEND}, and at least
+ * {@link SLICE_TIP_FADE} of the depth.
+ */
+const tipFadeLength = (depth: number, most: number): number =>
+  Math.min(
+    SLICE_TIP_FADE_MAX * depth,
+    Math.max(SLICE_TIP_FADE * depth, Math.sqrt((5.77 * most) / SLICE_TIP_BEND)),
+  );
 
 /**
  * Slice `i`'s difference to the fin at its chord fraction `u` (cm, at its own height),
@@ -1148,9 +1188,9 @@ const slicesAt = (
   // The shape scales with the thickness curve; the share of the minimum doesn't.
   const used = parts.flatMap(([i, w]) => {
     const r = sliceRef(b, sw, i);
-    return r && w > 0 && r.taper > 0
-      ? [{ r, sec: sl[i]!.section, w: w * weight, k: taper / r.taper }]
-      : [];
+    if (!(r && w > 0 && r.taper > 0)) return [];
+    const k = taper / r.taper;
+    return [{ r, sec: sl[i]!.section, w: w * weight, k, fade: tipFadeLength(b.depth, r.most) }];
   });
   if (!used.length) return null;
   // Where this height's edge is thicker than the minimum (a raised rear's underside),
@@ -1170,32 +1210,37 @@ const slicesAt = (
   const asDiff = (u: number) =>
     (1 - lead * (1 - smoother(Math.min(1, u / SLICE_EDGE_FADE)))) *
     (1 - trail * (1 - smoother(Math.min(1, (1 - u) / SLICE_EDGE_FADE))));
-  // How far toward the tip line each point is: the slices fade out over the last of it.
+  // How far each point is from the tip line: each slice fades out over the last of it,
+  // the further the more it changes the fin (tipFadeLength).
   const { leading, trailing } = chordAt(b, h);
   const [ts, te] = sw.tipLine;
   const lx = te.x - ts.x;
   const lz = te.y - ts.y;
-  const fadeOver = SLICE_TIP_FADE * b.depth;
-  const nearTip = (u: number) => {
+  const base = SLICE_TIP_FADE * b.depth;
+  /**
+   * How far a point is from the tip line, and how much of a slice's longer fade applies
+   * there: all of it across the tip line, easing back to the plain fade toward its ends
+   * and beyond them. Past an end, the distance runs down an edge, not across the tip line,
+   * and a longer fade there reshaped the A4C's raised rear (its STEP fit 0.165 mm off).
+   */
+  const tipDist = (u: number): [number, number] => {
     const x = leading + (trailing - leading) * u;
-    const t = Math.min(
-      1,
-      Math.max(0, ((x - ts.x) * lx + (h - ts.y) * lz) / (lx * lx + lz * lz || 1)),
-    );
-    const dist = Math.hypot(x - (ts.x + lx * t), h - (ts.y + lz * t));
-    return smoother(Math.min(1, dist / fadeOver));
+    const raw = ((x - ts.x) * lx + (h - ts.y) * lz) / (lx * lx + lz * lz || 1);
+    const t = Math.min(1, Math.max(0, raw));
+    const inside = smoother(Math.min(1, Math.max(0, Math.min(raw, 1 - raw) / TIP_FADE_ENDS)));
+    return [Math.hypot(x - (ts.x + lx * t), h - (ts.y + lz * t)), inside];
   };
   return (u) => {
     if (u < a || u > c) return [0, 0];
-    const tipFade = nearTip(u);
-    if (!(tipFade > 0)) return [0, 0];
+    const [dist, inside] = tipDist(u);
+    if (!(dist > 0)) return [0, 0];
     const f = lead > 0 || trail > 0 ? asDiff(u) : 1;
     const [fo, fi] = f < 1 ? swept(u) : [0, 0];
     let o = 0;
     let n = 0;
-    for (const { r, sec, w: w0, k } of used) {
+    for (const { r, sec, w: w0, k, fade } of used) {
       const su = u;
-      const w = w0 * tipFade;
+      const w = w0 * smoother(Math.min(1, dist / (base + (fade - base) * inside)));
       const [dO, dI, shift] = sliceDiff(r, sec, su);
       let eo = dO * k + shift;
       let ei = dI * k + shift;

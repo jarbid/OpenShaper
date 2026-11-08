@@ -268,15 +268,16 @@ export default function DocsFinDesigner() {
           foil&apos;s shape, not how thick it is; it has no thickest-point handle. Where a control
           section&apos;s chord crosses the tip line (the profile notes it), the part past the tip
           line is the tip&apos;s: the tip foil shapes it, and the control section&apos;s foil view
-          shades it (its points there still move, but change nothing). Both foils get a point where
-          the control section crosses the tip line, and each shows the other there as a dot: green
-          in the control section for the tip, pink in the <strong>Tip</strong> foil for the control
-          section. Drag either foil&apos;s point at the crossing to match the other&apos;s dot, so
-          the control section and the tip meet smoothly. Move the tip line or the control section
-          and the new crossing gets its points too. <strong>Remove control section</strong>, next to
-          Add control section, takes the selected control section away: click a control
-          section&apos;s line (or its foil tab) to select it. Control sections keep at least 2% of
-          the depth from each other and from the base and tip.
+          shades it (its points there still move, but change nothing). Its change eases out toward
+          the tip line, the more gently the more it differs from the fin, so the two meet without a
+          crease. Both foils get a point where the control section crosses the tip line, and each
+          shows the other there as a dot: green in the control section for the tip, pink in the{' '}
+          <strong>Tip</strong> foil for the control section. Drag either foil&apos;s point at the
+          crossing to match the other&apos;s dot, so the control section and the tip meet smoothly.
+          Move the tip line or the control section and the new crossing gets its points too.{' '}
+          <strong>Remove control section</strong>, next to Add control section, takes the selected
+          control section away: click a control section&apos;s line (or its foil tab) to select it.
+          Control sections keep at least 2% of the depth from each other and from the base and tip.
         </p>
         <p>
           A control section can also change the cant and toe above it, bending the upper blade out

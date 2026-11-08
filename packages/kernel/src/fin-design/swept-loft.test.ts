@@ -640,3 +640,32 @@ describe('the fin’s own minimum thickness (owner request)', () => {
     expect(prepareBlade(d, undefined, 0.05).minThickness).toBe(0.1);
   });
 });
+
+describe('a control section near the tip line (owner testing)', () => {
+  it('fades out toward the tip line without creasing the face', () => {
+    // The owner's hatchet: a control section 0.6 mm fuller than the fin, at the tip line's
+    // lower end. Faded out over 5% of the depth, it bent the outside face 1.7° within a
+    // millimetre where a cut 100 mm up crosses the tip line; 0.4° without it.
+    const d = ownerFin('hatchet_tip_crossing.fin.json');
+    const b = prepareBlade(d);
+    const st = Array.from({ length: 201 }, (_, i) => i / 200);
+    const s = bladeSection(b, 10, st);
+    const le = s.outside[0]!;
+    const te = s.outside[200]!;
+    const c = Math.hypot(te.x - le.x, te.y - le.y);
+    const [dx, dy] = [(te.x - le.x) / c, (te.y - le.y) / c];
+    // The outside face in its chord's frame (mm), and its sharpest bend 66–76 mm along.
+    const p = s.outside.map((q) => [
+      ((q.x - le.x) * dx + (q.y - le.y) * dy) * 10,
+      (-(q.x - le.x) * dy + (q.y - le.y) * dx) * 10,
+    ]);
+    let worst = 0;
+    for (let k = 2; k < 199; k++) {
+      if (p[k]![0]! < 66 || p[k]![0]! > 76) continue;
+      const a = Math.atan2(p[k]![1]! - p[k - 2]![1]!, p[k]![0]! - p[k - 2]![0]!);
+      const e = Math.atan2(p[k + 2]![1]! - p[k]![1]!, p[k + 2]![0]! - p[k]![0]!);
+      worst = Math.max(worst, (Math.abs(e - a) * 180) / Math.PI);
+    }
+    expect(worst).toBeLessThan(0.8); // 0.59°, was 1.69°
+  });
+});

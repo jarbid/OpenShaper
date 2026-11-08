@@ -520,3 +520,27 @@ under the pointer is highlighted and named (`FinCurveEditor`'s new `onHover`). T
 settled design, recut once a drag ends. Its controls sit over the canvas at the top left, as
 the 3D view's Analysis does, in the same style (owner review: repetition); the faces' key moved
 to the bottom left.
+
+## A control section's fade at the tip line (owner testing, 2026-11)
+
+The owner's hatchet (`docs/specs/fins/hatchet_tip_crossing.fin.json`) showed a dip where a
+control section met the tip line, and a tip that looked distorted. The file was sound (no rule
+broken, foils near their true thickness). The control section, at the tip line's lower end, is
+0.6 mm fuller than the fin there, behind mid-chord, probably shaped when the loft beneath it
+differed (it keeps its shape; the loft has changed since). Past the tip line the tip foil
+shapes the blade, so the control section's change fades out toward it; over a fixed 5% of the
+depth (6.6 mm here) that fullness ended within 4–5 mm of chord where cuts 100–104 mm up
+cross the tip line, bending the outside face 1.7° within a millimetre (0.4° without the
+control section).
+
+Each control section now fades over a length set by its biggest change to the fin
+(`SliceRef.most`, `tipFadeLength`): long enough that the fade bends a face no more than
+0.4° per mm (`SLICE_TIP_BEND`), from 5% of the depth up to 10% (`SLICE_TIP_FADE_MAX`; at
+15%, the slice's whole reach, the hooked hatchet's slice near its tip line came out 17% too
+thick at 95% of its chord at its own height). The longer fade applies across the tip line
+only, easing back to 5% within 15% of each end (`TIP_FADE_ENDS`): past an end the distance
+runs down an edge rather than across the tip line, and there the longer fade reshaped the
+A4C's raised rear (STEP fit 0.165 mm off, over the 0.15 mm limit; 0.132 mm now, was 0.134).
+The hatchet's bend at the crossing: 0.59° (was 1.69°). Matching dots at the tip line's end
+were considered and left out: both foils are at the minimum there, so they would show
+nothing to match; the foil Analysis shows a control section behind the tip foil instead.
