@@ -14,7 +14,6 @@ type Axis = 'x' | 'y';
 
 const cubicCoeffs = (k: Coeffs, axis: Axis): [number, number, number, number] =>
   axis === 'x' ? [k.ax, k.bx, k.cx, k.dx] : [k.ay, k.by, k.cy, k.dy];
-
 /** Roots in (0, 1) of the derivative 3a·t² + 2b·t + c, ascending. */
 const derivativeRoots = (a: number, b: number, c: number): number[] => {
   const A = 3 * a;
@@ -116,19 +115,39 @@ const solveMonotone = (at: (t: number) => number, v: number, t0: number, t1: num
  */
 export const crossings = (s: Spline, axis: Axis, v: number): SplinePoint[] => {
   const out: SplinePoint[] = [];
-  s.coeffs.forEach((k, segment) => {
-    const [a, b, c] = cubicCoeffs(k, axis);
+  eachCrossing(s, axis, v, (segment, t) => {
+    out.push({ segment, t, point: pointAt(s, segment, t) });
+    return false;
+  });
+  return out;
+};
+
+/**
+ * Calls `hit` with each crossing in order along the curve, until it returns true. The
+ * coordinate is read on its own, as {@link pointAt} works it out but without making a
+ * point at every bisection step: this is the fin blade's innermost loop.
+ */
+const eachCrossing = (
+  s: Spline,
+  axis: Axis,
+  v: number,
+  hit: (segment: number, t: number) => boolean,
+): void => {
+  for (let segment = 0; segment < s.coeffs.length; segment++) {
+    const k = s.coeffs[segment]!;
+    const [a, b, c, d] = cubicCoeffs(k, axis);
+    const curve = s.curves[segment]!;
+    const p0 = curve.p0[axis];
+    const p3 = curve.p3[axis];
+    const at = (t: number) => (t === 0 ? p0 : t === 1 ? p3 : ((a * t + b) * t + c) * t + d);
     const cuts = [0, ...derivativeRoots(a, b, c), 1];
-    const at = (t: number) => pointAt(s, segment, t)[axis];
     for (let i = 0; i < cuts.length - 1; i++) {
       const lo = Math.min(at(cuts[i]!), at(cuts[i + 1]!));
       const hi = Math.max(at(cuts[i]!), at(cuts[i + 1]!));
       if (v < lo || v > hi) continue;
-      const t = solveMonotone(at, v, cuts[i]!, cuts[i + 1]!);
-      out.push({ segment, t, point: pointAt(s, segment, t) });
+      if (hit(segment, solveMonotone(at, v, cuts[i]!, cuts[i + 1]!))) return;
     }
-  });
-  return out;
+  }
 };
 
 /**
@@ -137,7 +156,11 @@ export const crossings = (s: Spline, axis: Axis, v: number): SplinePoint[] => {
  * tolerance suits a board but not a normalised unit-chord curve.
  */
 export const yAtX = (s: Spline, x: number): number => {
-  const hit = crossings(s, 'x', x)[0];
-  if (!hit) throw new RangeError(`yAtX: x = ${x} is outside the curve`);
-  return hit.point.y;
+  let y: number | null = null;
+  eachCrossing(s, 'x', x, (segment, t) => {
+    y = pointAt(s, segment, t).y;
+    return true;
+  });
+  if (y === null) throw new RangeError(`yAtX: x = ${x} is outside the curve`);
+  return y;
 };

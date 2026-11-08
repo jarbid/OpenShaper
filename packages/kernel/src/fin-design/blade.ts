@@ -158,12 +158,18 @@ const sectionShapeAt = (sec: FinSection, u: number): [number, number] => {
 
 const SEARCH_SAMPLES = 400;
 
-/** The thickest point of `t` on [0, 1]: a coarse scan, then a golden-section refine. */
-const findThickest = (t: (u: number) => number): { at: number; thickness: number } => {
+/**
+ * The thickest point of `t` on [0, 1]: a coarse scan, then a golden-section refine. The
+ * scan reads `coarse(j)`, t at j / {@link SEARCH_SAMPLES}, if given (from sampled tables).
+ */
+const findThickest = (
+  t: (u: number) => number,
+  coarse: (j: number) => number = (j) => t(j / SEARCH_SAMPLES),
+): { at: number; thickness: number } => {
   let best = 0;
-  let bestT = t(0);
+  let bestT = coarse(0);
   for (let j = 1; j < SEARCH_SAMPLES; j++) {
-    const tj = t(j / SEARCH_SAMPLES);
+    const tj = coarse(j);
     if (tj > bestT) {
       best = j;
       bestT = tj;
@@ -219,23 +225,65 @@ const pureFoil = (sec: FinSection): Foil => ({
   outsideShare: share(sec),
 });
 
-/** Two foils blended, `w` of the way from `a` to `b`. */
-const blendFoils = (a: FinSection, b: FinSection, w: number): Foil => {
-  if (w <= 0 || a === b) return pureFoil(a);
-  if (w >= 1) return pureFoil(b);
+/**
+ * A foil's faces at the thickest-point search's coarse stations (j / SEARCH_SAMPLES),
+ * cached per section: a blend of two foils scans these instead of solving each face
+ * afresh at every station for every blend (owner report: point drags on a fin with its
+ * own tip foil took 0.4 s a step, nearly all of it here).
+ */
+const coarseCache = new WeakMap<FinSection, { outside: Float64Array; inside: Float64Array }>();
+
+const coarseFaces = (sec: FinSection) => {
+  const hit = coarseCache.get(sec);
+  if (hit) return hit;
+  const outside = new Float64Array(SEARCH_SAMPLES);
+  const inside = new Float64Array(SEARCH_SAMPLES);
+  for (let j = 0; j < SEARCH_SAMPLES; j++) {
+    [outside[j], inside[j]] = sectionShapeAt(sec, j / SEARCH_SAMPLES);
+  }
+  const faces = { outside, inside };
+  coarseCache.set(sec, faces);
+  return faces;
+};
+
+/** `a` blended `w` of the way to `b`, thickest point found exactly as on a single foil. */
+const blendedFoil = (a: FinSection, b: FinSection, w: number): Foil => {
   const shapeAt = (u: number): [number, number] => {
     const [o0, i0] = sectionShapeAt(a, u);
     const [o1, i1] = sectionShapeAt(b, u);
     return [o0 + (o1 - o0) * w, i0 + (i1 - i0) * w];
   };
+  // Found when first asked for: the sweep's rows blend the base and tip foils but lay
+  // each on its own thickest point (rowFaces), so most blends never need theirs.
+  let thickest: Foil['thickest'] | null = null;
   return {
     shapeAt,
-    thickest: findThickest((u) => {
-      const [o, i] = shapeAt(u);
-      return o - i;
-    }),
+    get thickest() {
+      if (thickest) return thickest;
+      const fa = coarseFaces(a);
+      const fb = coarseFaces(b);
+      return (thickest = findThickest(
+        (u) => {
+          const [o, i] = shapeAt(u);
+          return o - i;
+        },
+        // shapeAt's arithmetic on the sampled faces: the same numbers, read not solved.
+        (j) => {
+          const o0 = fa.outside[j]!;
+          const i0 = fa.inside[j]!;
+          return o0 + (fb.outside[j]! - o0) * w - (i0 + (fb.inside[j]! - i0) * w);
+        },
+      ));
+    },
     outsideShare: share(a) + (share(b) - share(a)) * w,
   };
+};
+
+/** Two foils blended, `w` of the way from `a` to `b`. */
+const blendFoils = (a: FinSection, b: FinSection, w: number): Foil => {
+  if (w <= 0 || a === b) return pureFoil(a);
+  if (w >= 1) return pureFoil(b);
+  return blendedFoil(a, b, w);
 };
 
 /** The tip foil (foil sweep end): its own, or the base foil's. */
@@ -298,19 +346,7 @@ export const foilAt = (d: FinDesign, eta: number): Foil => {
   const w = smoother(Math.min(1, Math.max(0, (eta - lo.height) / (hi.height - lo.height))));
   if (w <= 0) return pureFoil(lo.section);
   if (w >= 1) return pureFoil(hi.section);
-  const shapeAt = (u: number): [number, number] => {
-    const [o0, i0] = sectionShapeAt(lo.section, u);
-    const [o1, i1] = sectionShapeAt(hi.section, u);
-    return [o0 + (o1 - o0) * w, i0 + (i1 - i0) * w];
-  };
-  return {
-    shapeAt,
-    thickest: findThickest((u) => {
-      const [o, i] = shapeAt(u);
-      return o - i;
-    }),
-    outsideShare: share(lo.section) + (share(hi.section) - share(lo.section)) * w,
-  };
+  return blendedFoil(lo.section, hi.section, w);
 };
 
 /**
@@ -700,16 +736,42 @@ const tipReach = (
 
 const sweptCache = new WeakMap<PreparedBlade, SweptBlade>();
 
+/**
+ * The sweep rows' foils hang only on the base and tip foils and the grid's shape, so
+ * they are kept for those: outline, thickness and twist drags reuse them, and so do the
+ * other blades of the same design (the 3D view's at the export minimum thickness).
+ */
+const rowFoilsCache = new WeakMap<FinSection, WeakMap<FinSection, Map<string, RowFoils>>>();
+
+interface RowFoils {
+  readonly foilW: Float64Array;
+  readonly foils: readonly Foil[];
+}
+
+const rowFoils = (base: FinSection, tip: FinSection, rows: number, tipRow: number): RowFoils => {
+  let byTip = rowFoilsCache.get(base);
+  if (!byTip) rowFoilsCache.set(base, (byTip = new WeakMap()));
+  let byGrid = byTip.get(tip);
+  if (!byGrid) byTip.set(tip, (byGrid = new Map()));
+  const key = `${rows}/${tipRow}`;
+  const hit = byGrid.get(key);
+  if (hit) return hit;
+  const foilW = Float64Array.from({ length: rows }, (_, i) => smoother(Math.min(1, i / tipRow)));
+  const made = {
+    foilW,
+    foils: Array.from({ length: rows }, (_, i) => blendFoils(base, tip, foilW[i]!)),
+  };
+  byGrid.set(key, made);
+  return made;
+};
+
 const sweptBlade = (b: PreparedBlade): SweptBlade => {
   const hit = sweptCache.get(b);
   if (hit) return hit;
   const d = b.design;
   const grid = sweepGrid(d);
   const tip = tipFoilOf(d);
-  const foilW = Float64Array.from({ length: grid.rows }, (_, i) =>
-    smoother(Math.min(1, i / grid.tipRow)),
-  );
-  const foils = Array.from({ length: grid.rows }, (_, i) => blendFoils(d.section, tip, foilW[i]!));
+  const { foilW, foils } = rowFoils(d.section, tip, grid.rows, grid.tipRow);
   const path = new Float64Array(grid.rows);
   const way = thicknessPathOf(d);
   // Up to the tip line; past it the tip carries the tip line's foil out (sweepFaces).

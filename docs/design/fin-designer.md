@@ -544,3 +544,28 @@ A4C's raised rear (STEP fit 0.165 mm off, over the 0.15 mm limit; 0.132 mm now, 
 The hatchet's bend at the crossing: 0.59° (was 1.69°). Matching dots at the tip line's end
 were considered and left out: both foils are at the minimum there, so they would show
 nothing to match; the foil Analysis shows a control section behind the tip foil instead.
+
+## Slow point drags on a fin with its own tip foil (owner report, 2026-11)
+
+Point drags had become slow and at times unresponsive. Measured in the browser on
+`hatchet_tip_crossing` (a fin with its own tip foil): every drag step took 410–430 ms, in
+every view (profile, thickness, base, control section and tip foils). Nearly all of it was
+one thing, twice: rebuilding the blade, each sweep row's foil (a blend of the base and tip
+foils) searched for its thickest point, 560 exact face solves a row, though the rows lay
+the base and tip foils on their own thickest points (`rowFaces`) and never read the blend's.
+It ran once for the thickness view's `thicknessAlongSweep` and again for the 3D mesh's
+blade (built at the export minimum thickness). A fin whose tip foil is its base foil has
+no blends, which is why most fins never showed it.
+
+- A blend's thickest point is found when first asked for (only `foilAt` and the tip row
+  ask), its coarse scan reading each foil's faces sampled once and cached per section.
+- The rows' foils are cached per base foil, tip foil and grid size, so outline, thickness
+  and cant drags, and the 3D view's second blade, reuse them.
+- `yAtX` stops at the first crossing, and the bisection reads one coordinate without
+  making a point at every step.
+
+Results are bit-identical (meshes, sections, thicknesses and foils of every owner fin
+compared byte for byte). A drag step: 410–430 ms → 27 ms in the browser (two frames, the
+measuring floor); in the kernel 400 ms → 2 ms for a foil step and 0.8 ms for a thickness
+step. Also measured and ruled out: validation run three times a step (1–2 ms), the panel
+fit, the foil analysis's sections and hover (it follows the settled design).

@@ -669,3 +669,35 @@ describe('a control section near the tip line (owner testing)', () => {
     expect(worst).toBeLessThan(0.8); // 0.59°, was 1.69°
   });
 });
+
+describe('a fin with its own tip foil', () => {
+  it('rebuilds fast enough to drag a point', () => {
+    // Owner report: every point drag on hatchet_tip_crossing took 0.4 s a step, the
+    // blade working out where each sweep row's blended foil was thickest, unread.
+    const d = ownerFin('hatchet_tip_crossing.fin.json');
+    const tip = tipFoilOf(d);
+    const step = (k: number): FinDesign => ({
+      ...d,
+      tipSection: {
+        outside: splineFromKnots(
+          tip.outside.knots.map((q, i) =>
+            i === 2
+              ? knot(
+                  vec2(q.end.x, q.end.y * (1 + 0.01 * k)),
+                  q.tangentToPrev,
+                  q.tangentToNext,
+                  q.continuous,
+                )
+              : q,
+          ),
+        ),
+        inside: tip.inside,
+      },
+    });
+    thicknessAlongSweep(step(0));
+    const t0 = performance.now();
+    for (let k = 1; k <= 5; k++) thicknessAlongSweep(step(k));
+    // 2 ms here; 400 ms before.
+    expect((performance.now() - t0) / 5).toBeLessThan(100);
+  });
+});
