@@ -21,3 +21,7 @@ export const PROTO_ANGLE_SAMPLES = 192;
 export const NORMAL_FOOT_BISECT = 60;
 /** Central-difference step, as a share of the outline's parameter range, for option B's second derivative. */
 export const NORMAL_FOOT_STEP = 1e-5;
+/** Samples along a stringer row when the fold is measured (`step.test.ts` uses the same count). */
+export const FOLD_SAMPLES = 300;
+/** Offset in t at which the cross direction of a stringer row is taken (`step.test.ts`'s step). */
+export const FOLD_STEP = 1e-6;
