@@ -38,11 +38,17 @@ import {
   bestFit,
   board,
   crossSection,
+  defaultFinConfig,
   knot,
+  noFins,
   splineFromKnots,
   valueAt,
   type BezierBoard,
   type CrossSection,
+  type FinConfig,
+  type FinSetup,
+  type FinSpec,
+  type FinSystem,
   type Knot,
   type Vec2,
 } from '@openshaper/kernel';
@@ -701,6 +707,167 @@ const clampCurveMonotonicX = (knots: Knot[], length: number): Knot[] => {
 };
 
 // ---------------------------------------------------------------------------
+// Fin boxes (`.s3dx` <Nb_Boxes> / <Box_N><Box>)
+//
+// Shape3d stores the HARDWARE (a box or plug routed into the blank), not a fin. A
+// <Box> is placed by `Ref.point` (the tail end of the box), `PointCenter` (its centre,
+// half a `Length` further toward the nose along the toed axis) and `AngleOz` (toe, in
+// radians, positive = toe-in toward the nose for the +y fin). `Even` = a mirrored pair,
+// `Central` = on the stringer, `Face` 1 = bottom. Leash plugs are the same record with
+// Style 4 and a Diameter on the deck face; they are not fins.
+// ---------------------------------------------------------------------------
+
+/** Longboard-size boxes (cm): beyond this the fin is drawn as a noserider-type single. */
+const LONG_BOX = 20;
+/** Blade depth (cm) for a long box, whose hardware says nothing about the blade. */
+const LONG_BOX_DEPTH = 22;
+/** Box style ids whose fin system is known from the file (the rest keep the default). */
+const BOX_STYLE_SYSTEM: Readonly<Record<number, FinSystem>> = { 5: 'futures', 6: 'fcs-ii' };
+
+const num = (xml: string, tag: string): number => {
+  const v = getChildText(xml, tag);
+  return v === null || v === '' ? NaN : Number(v);
+};
+
+const point = (xml: string, tag: string): Point3d | null => {
+  const inner = getChildElement(xml, tag);
+  const pt = inner === null ? null : getChildElement(inner, 'Point3d');
+  return pt === null ? null : parsePoint3d(pt);
+};
+
+interface FinBox {
+  readonly name: string;
+  readonly style: number;
+  readonly specs: FinSpec[];
+}
+
+const readFinBoxes = (
+  boardXml: string,
+  outline: ReturnType<typeof splineFromKnots>,
+  warnings: ImportWarning[],
+): FinConfig => {
+  const count = Math.max(0, Math.trunc(num(boardXml, 'Nb_Boxes')) || 0);
+  const boxes: FinBox[] = [];
+  for (let i = 0; i < count; i++) {
+    const record = getChildElement(boardXml, `Box_${i}`);
+    const xml = record === null ? null : getChildElement(record, 'Box');
+    if (xml === null) continue;
+    const name = getChildText(xml, 'Name') ?? `Box ${i}`;
+    const style = num(xml, 'Style');
+    const length = num(xml, 'Length');
+    const center = point(xml, 'PointCenter');
+    // Not a fin: a leash plug / plug (style 4, a diameter, or the deck face).
+    if (
+      style === 4 ||
+      num(xml, 'Face') === 0 ||
+      /leash|plug/i.test(name) ||
+      !center ||
+      !(length > 0)
+    ) {
+      warnings.push({
+        severity: 'dropped',
+        message:
+          `Box '${name}' (style ${style}) is a plug or leash box, not a fin — not imported ` +
+          '(box hardware is not modelled)',
+      });
+      continue;
+    }
+    const width = num(xml, 'Width');
+    const toe = Number.isFinite(num(xml, 'AngleOz')) ? (num(xml, 'AngleOz') * 180) / Math.PI : 0;
+    const trailingFromTail = Math.max(0, center.x - length / 2);
+    const railHalf = valueAt(outline, center.x);
+    const inset = Math.max(0, railHalf - Math.abs(center.y));
+    if (railHalf - Math.abs(center.y) < -width / 2) {
+      warnings.push({
+        severity: 'info',
+        message:
+          `Fin box '${name}' sits ${(Math.abs(center.y) - railHalf).toFixed(1)} cm outside the rail ` +
+          'in the file — placed on the rail',
+      });
+    }
+    const onStringer = num(xml, 'Central') === 1 || Math.abs(center.y) < width / 2;
+    const template = (side: -1 | 0 | 1): FinSpec => ({
+      side,
+      trailingFromTail,
+      insetFromRail: side === 0 ? 0 : inset,
+      base: length,
+      depth: 0, // set from the setup's defaults below
+      sweep: 0,
+      toe: side === 0 ? 0 : toe,
+      cant: 0,
+      foil: '80/20',
+      profile: 'thruster',
+    });
+    const specs =
+      num(xml, 'Even') === 1
+        ? [template(-1), template(1)]
+        : [template(onStringer ? 0 : center.y < 0 ? -1 : 1)];
+    boxes.push({
+      name,
+      style,
+      specs,
+    });
+  }
+  if (boxes.length === 0) return noFins();
+
+  const fins = boxes.flatMap((b) => b.specs);
+  const centres = fins.filter((f) => f.side === 0).length;
+  const sides = fins.length - centres;
+  const longCentre = fins.some((f) => f.side === 0 && f.base > LONG_BOX);
+  const setup: FinSetup =
+    fins.length === 1
+      ? 'single'
+      : sides === 2 && centres === 0
+        ? 'twin'
+        : sides === 2 && centres === 1
+          ? longCentre
+            ? '2+1'
+            : 'thruster'
+          : sides === 4
+            ? centres === 0
+              ? 'quad'
+              : '5-fin'
+            : fins.length === 2
+              ? 'twin'
+              : fins.length === 3
+                ? 'thruster'
+                : fins.length === 4
+                  ? 'quad'
+                  : '5-fin';
+  const system = BOX_STYLE_SYSTEM[boxes[0]!.style] ?? 'fcs-ii';
+
+  // Blade shape: Shape3d knows nothing of the blade, so take each role's from the setup's defaults
+  // (the pair nearest the tail first by position), keeping the box's own position, size and toe.
+  const defaults = defaultFinConfig(setup, system).fins;
+  const defCentre = defaults.find((f) => f.side === 0) ?? defaults[0];
+  const defSides = defaults
+    .filter((f) => f.side === 1)
+    .sort((a, b) => a.trailingFromTail - b.trailingFromTail);
+  const sideRank = [
+    ...new Set(fins.filter((f) => f.side !== 0).map((f) => f.trailingFromTail)),
+  ].sort((a, b) => a - b);
+  const merged = fins.map((f): FinSpec => {
+    const def =
+      f.side === 0
+        ? defCentre
+        : (defSides[Math.min(sideRank.indexOf(f.trailingFromTail), defSides.length - 1)] ??
+          defSides[0]);
+    if (!def) return { ...f, depth: 11.5 };
+    return f.base > LONG_BOX
+      ? { ...f, depth: LONG_BOX_DEPTH, profile: 'noserider', foil: '50/50' }
+      : {
+          ...f,
+          depth: def.depth,
+          profile: def.profile,
+          foil: def.foil,
+          cant: def.cant,
+          sweep: def.sweep,
+        };
+  });
+  return { setup, system, symmetrical: true, fins: merged };
+};
+
+// ---------------------------------------------------------------------------
 // Main parser (shared core)
 //
 // The `.s3d` and `.s3dx` formats are structurally identical (same Bezier3d /
@@ -738,6 +905,8 @@ interface Shape3dOptions {
   readonly deckPreferredTag?: string;
   /** When true, apply the `"Ref. point"` → `"Ref.point"` text fix-up (`.s3dx`). */
   readonly refPointFix?: boolean;
+  /** When true, read the `<Nb_Boxes>` fin boxes into the board's fin config (`.s3dx`). */
+  readonly readFins?: boolean;
   /** When true, honour a `<Protection>` flag and reject protected boards (`.s3dx`). */
   readonly checkProtection?: boolean;
 }
@@ -968,12 +1137,14 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
   // --- Build board ---
   // Keep the primary curves single-valued in x (guards against folded deck/
   // bottom noses in real-world exports — see clampCurveMonotonicX).
+  const outlineSpline = splineFromKnots(clampCurveMonotonicX(outlineKnots, length));
   const builtBoard = board(
-    splineFromKnots(clampCurveMonotonicX(outlineKnots, length)),
+    outlineSpline,
     splineFromKnots(clampCurveMonotonicX(bottomKnots, length)),
     splineFromKnots(clampCurveMonotonicX(deckKnots, length)),
     allSections,
     'controlPoint',
+    opts.readFins ? readFinBoxes(boardXml, outlineSpline, warnings) : noFins(),
   );
 
   return {
@@ -1025,5 +1196,6 @@ export const parseS3dx = (text: string): ParsedS3dx =>
     deckTag: 'curveDefSide4',
     deckPreferredTag: 'StrDeck',
     refPointFix: true,
+    readFins: true,
     checkProtection: true,
   });
