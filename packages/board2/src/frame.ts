@@ -25,6 +25,24 @@ import {
 } from './params';
 import type { TailSpec } from './types';
 
+/**
+ * An alternative chord map (`docs/design/tail-model.md`; a prototype seam, not used by
+ * the engine's default path). When a frame carries one, `outlineParam` and `xiOfParam`
+ * use it instead of the notch zone's quintic, and `frameAt` asks it where `x(s(ξ)) = ξ`
+ * holds exactly. A standard board's factory returns `null`, so its frame is unchanged.
+ */
+export interface ChordMap {
+  /** s, ds/dξ and d²s/dξ² at ξ into `out[0 … 3)`. */
+  readonly param: (xi: number, out: Float64Array) => void;
+  /** ξ whose chord ends at outline parameter `s`. */
+  readonly xiOf: (s: number) => number;
+  /** Whether `x(s(ξ))` is ξ exactly at this ξ (then x′ = 1 and x″ = 0 by construction). */
+  readonly exact: (xi: number) => boolean;
+}
+
+/** Builds the chord map of one half-outline, or `null` to keep the default. */
+export type ChordMapFactory = (chain: CompiledChain, tail: TailSpec) => ChordMap | null;
+
 /** The notch zone's map (undefined on a standard board). */
 export interface NotchMap {
   /** Notch bottom x, zone end ξ_e = d + zone, the tip's outline parameter and the parameter at ξ_e. */
@@ -45,6 +63,8 @@ export interface PlanFrame {
   readonly notch: NotchMap | null;
   /** Lower end of the forward branch (x non-decreasing): 0, or the tip's parameter. */
   readonly forwardFrom: number;
+  /** A prototype chord map that replaces the notch quintic (see {@link ChordMap}); `null` by default. */
+  readonly map: ChordMap | null;
 }
 
 const tmp = new Float64Array(6);
@@ -54,7 +74,11 @@ const verticalSegment = (c: Float64Array, b: number, x0: number): boolean =>
   [0, 2, 4, 6].every((i) => Math.abs(c[b + i]! - x0) <= PLAN_EXACT_TOL);
 
 /** Builds the frame of one half-outline for a tail spec. */
-export function makeFrame(chain: CompiledChain, tail: TailSpec): PlanFrame {
+export function makeFrame(
+  chain: CompiledChain,
+  tail: TailSpec,
+  mapOf?: ChordMapFactory,
+): PlanFrame {
   const xiMin = chain.c[0]!;
   const xiMax = chain.c[8 * chain.segments - 2]!;
   if (tail.kind === 'standard') {
@@ -62,7 +86,14 @@ export function makeFrame(chain: CompiledChain, tail: TailSpec): PlanFrame {
     // the first chord ends at the far end of that edge, so the end section is the whole transom.
     let from = 0;
     while (from < chain.segments - 1 && verticalSegment(chain.c, 8 * from, xiMin)) from++;
-    return Object.freeze({ chain, xiMin, xiMax, notch: null, forwardFrom: from });
+    return Object.freeze({
+      chain,
+      xiMin,
+      xiMax,
+      notch: null,
+      forwardFrom: from,
+      map: mapOf?.(chain, tail) ?? null,
+    });
   }
   const sTip = chainMinX(chain).s;
   const d = xiMin;
@@ -105,6 +136,7 @@ export function makeFrame(chain: CompiledChain, tail: TailSpec): PlanFrame {
     xiMax,
     notch: Object.freeze({ d, xiEnd, sTip, sEnd, coef, zone }),
     forwardFrom: sTip,
+    map: mapOf?.(chain, tail) ?? null,
   });
 }
 
@@ -114,6 +146,10 @@ export function makeFrame(chain: CompiledChain, tail: TailSpec): PlanFrame {
  * where the outline is vertical).
  */
 export function outlineParam(f: PlanFrame, xi: number, out: Float64Array): void {
+  if (f.map !== null) {
+    f.map.param(xi, out);
+    return;
+  }
   const n = f.notch;
   if (n !== null && xi < n.xiEnd) {
     const tau = (xi - n.d) / n.zone;
@@ -146,7 +182,7 @@ export function frameAt(f: PlanFrame, xi: number, out: Float64Array): void {
   const s1 = sBuf[1]!;
   const s2 = sBuf[2]!;
   chainEval(f.chain, s, 2, tmp, 0);
-  const onBranch = f.notch === null || xi >= f.notch.xiEnd;
+  const onBranch = f.map !== null ? f.map.exact(xi) : f.notch === null || xi >= f.notch.xiEnd;
   out[0] = onBranch ? xi : tmp[0]!;
   out[1] = tmp[1]!;
   out[2] = onBranch ? 1 : tmp[2]! * s1;
@@ -164,6 +200,7 @@ const ptBuf = new Float64Array(6);
  * outline point's own x elsewhere.
  */
 export function xiOfParam(f: PlanFrame, s: number): number {
+  if (f.map !== null) return f.map.xiOf(s);
   const n = f.notch;
   if (n !== null && s <= n.sEnd) {
     let lo = n.d;

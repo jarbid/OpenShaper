@@ -8,7 +8,8 @@
  *
  * Exempt, by name: `params.ts` (where named parameters are written, like geom's
  * `tolerance.ts`) and the `testing/` and `test-support/` directories (test-only
- * fixtures and checks, like tests).
+ * fixtures and checks, like tests) and `tailproto/` (the scratch tail-model
+ * prototype, which keeps its own `proto-params.ts`).
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
@@ -17,7 +18,7 @@ import { describe, expect, it } from 'vitest';
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const EXEMPT_FILES: ReadonlySet<string> = new Set(['params.ts']);
-const EXEMPT_DIRS: ReadonlySet<string> = new Set(['testing', 'test-support']);
+const EXEMPT_DIRS: ReadonlySet<string> = new Set(['testing', 'test-support', 'tailproto']);
 const PATTERNS: readonly RegExp[] = [/\b\d+(\.\d+)?e-\d+\b/gi, /\b0\.0{4,}\d/g];
 const LARGE_E = /\b\d+(\.\d+)?e\+?\d+\b/gi;
 const EPSILON = /Number\.EPSILON/g;
@@ -68,7 +69,7 @@ describe('no magic tolerances', () => {
     ]) {
       expect(files).toContain(name);
     }
-    expect(files.some((f) => ['testing', 'test-support'].includes(f.split(sep)[0]!))).toBe(false);
+    expect(files.some((f) => [...EXEMPT_DIRS].includes(f.split(sep)[0]!))).toBe(false);
     for (const name of EXEMPT_FILES) expect(files).toContain(name);
     for (const dir of EXEMPT_DIRS) {
       expect(

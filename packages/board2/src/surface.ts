@@ -35,7 +35,7 @@ import type { CompiledChain } from './chain';
 import { featureTerm, keyedEvaluator } from './features';
 import type { KeyedEval } from './features';
 import { frameAt, makeFrame } from './frame';
-import type { PlanFrame } from './frame';
+import type { ChordMapFactory, PlanFrame } from './frame';
 import { board2Err, board2Ok, hasErrors, makeIssue } from './issues';
 import { BLEND_CHECK_SAMPLES, CHORD_FLOOR, SECTION_FIT_TOL, SECTION_NORMAL_TOL } from './params';
 import { blendAt, controlCount, fitSide } from './sections';
@@ -109,7 +109,12 @@ function stationScale(
  */
 export function buildBoard(
   docIn: BoardDoc,
-  opts: { readonly check?: boolean; readonly spanHint?: number } = {},
+  opts: {
+    readonly check?: boolean;
+    readonly spanHint?: number;
+    /** Prototype only (`docs/design/tail-model.md`): an alternative chord map for both sides. */
+    readonly chordMap?: ChordMapFactory;
+  } = {},
 ): Board2Result<BuiltBoard> {
   const doc = resolveTail(docIn);
   const issues: Board2Issue[] = [];
@@ -122,7 +127,7 @@ export function buildBoard(
   const deck = compileChain(doc.deck);
   const mirror = doc.symmetry === 'mirror';
   const sideOf = (outline: BoardDoc['outline']['plus'], pick: 'plus' | 'minus', sign: 1 | -1) => {
-    const frame = makeFrame(compileChain(outline), doc.tail);
+    const frame = makeFrame(compileChain(outline), doc.tail, opts.chordMap);
     const items: SideItem[] = doc.stations.map((s) => ({
       id: s.id,
       x: s.x,
