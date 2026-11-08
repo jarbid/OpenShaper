@@ -11,7 +11,10 @@ import { createEvaluator } from '../surface';
 import type { BuiltBoard } from '../surface';
 import { FOLD_SAMPLES, FOLD_STEP } from './proto-params';
 
-const angleDeg = (a: readonly [number, number, number], b: readonly [number, number, number]): number => {
+const angleDeg = (
+  a: readonly [number, number, number],
+  b: readonly [number, number, number],
+): number => {
   const dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const c = dot / (Math.hypot(a[0], a[1], a[2]) * Math.hypot(b[0], b[1], b[2]));
   return (Math.acos(Math.max(-1, Math.min(1, c))) * 180) / Math.PI;

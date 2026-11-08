@@ -3,7 +3,7 @@
  * Measurements for the tail-model study (`docs/design/tail-model.md`). Not an acceptance
  * test: it prints the tables of the design note. Run it on demand:
  *
- *   pnpm --filter @openshaper/board2 exec vitest run src/tailproto/measure.test.ts
+ *   TAIL_STUDY=1 pnpm --filter @openshaper/board2 exec vitest run src/tailproto/measure.test.ts
  */
 import { surfaceDerivatives } from '@openshaper/geom';
 import { describe, expect, it } from 'vitest';
@@ -42,7 +42,13 @@ const angleDeg = (a: [number, number, number], b: [number, number, number]): num
 };
 
 /** step.test.ts's `foldExcess`, copied so the study does not import a test file. */
-export function foldExcess(built: BuiltBoard, solid: BoardSolid, v: 0 | 1, from: number, to: number) {
+export function foldExcess(
+  built: BuiltBoard,
+  solid: BoardSolid,
+  v: 0 | 1,
+  from: number,
+  to: number,
+) {
   const ev = createEvaluator(built);
   const mirror = built.doc.symmetry === 'mirror';
   const a = new Float64Array(3);
@@ -82,7 +88,10 @@ function timed(n: number, f: () => void): { median: number; p95: number } {
     ts.push(performance.now() - t0);
   }
   ts.sort((a, b) => a - b);
-  return { median: ts[ts.length >> 1]!, p95: ts[Math.min(ts.length - 1, Math.floor(0.95 * ts.length))]! };
+  return {
+    median: ts[ts.length >> 1]!,
+    p95: ts[Math.min(ts.length - 1, Math.floor(0.95 * ts.length))]!,
+  };
 }
 
 /** The swallow made asymmetric (step.test.ts's case, dv = 0.06). */
@@ -113,7 +122,10 @@ const STANDARD: readonly { name: string; doc: BoardDoc }[] = [
   { name: 'asymmetric', doc: asymmetricBoard() },
 ];
 
-describe('tail model study', () => {
+// Study runs only on demand: TAIL_STUDY=1 keeps it out of the package's suite.
+const study = describe.skipIf(process.env.TAIL_STUDY !== '1');
+
+study('tail model study', () => {
   it('A. option D: chord map smoothness, build report, surface move, mesh cost', () => {
     const rows: string[] = [];
     for (const { name, doc } of NOTCHED) {

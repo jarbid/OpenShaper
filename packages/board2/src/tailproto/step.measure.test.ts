@@ -4,7 +4,7 @@
  * export's worst fold along the stringer seams, with today's notch zone and with option D's
  * C-infinity chord map, plus the deviation, control counts, passes, size and time.
  *
- *   pnpm --filter @openshaper/board2 exec vitest run src/tailproto/step.measure.test.ts
+ *   TAIL_STUDY=1 pnpm --filter @openshaper/board2 exec vitest run src/tailproto/step.measure.test.ts
  */
 import { checkBrep } from '@openshaper/geom';
 import { describe, expect, it } from 'vitest';
@@ -48,7 +48,10 @@ const BOARDS: readonly { name: string; doc: BoardDoc }[] = [
   { name: 'shortboard (control)', doc: named('shortboard') },
 ];
 
-describe('tail model: STEP', () => {
+// Study runs only on demand: TAIL_STUDY=1 keeps it out of the package's suite.
+const study = describe.skipIf(process.env.TAIL_STUDY !== '1');
+
+study('tail model: STEP', () => {
   it('fold, deviation, size and time with today s zone and with option D', () => {
     const rows: string[] = [];
     for (const { name, doc } of BOARDS) {

@@ -8,10 +8,10 @@
  * - the **chord tilt at each station** of a notched board, which is what "a station inside
  *   the zone edits in a different frame" amounts to numerically.
  *
- *   pnpm --filter @openshaper/board2 exec vitest run src/tailproto/generality.measure.test.ts
+ *   TAIL_STUDY=1 pnpm --filter @openshaper/board2 exec vitest run src/tailproto/generality.measure.test.ts
  */
 import { describe, expect, it } from 'vitest';
-import { chainEval, compileChain } from '../chain';
+import { compileChain } from '../chain';
 import { frameAt, makeFrame } from '../frame';
 import { hasErrors } from '../issues';
 import { meshBoard } from '../mesh';
@@ -60,10 +60,7 @@ function wingBoard(): BoardDoc {
     meta: { ...base.meta, name: 'winger' },
     tail: { kind: 'standard' },
     outline: { plus },
-    stations: [
-      { ...base.stations[0]!, x: 0 },
-      ...base.stations.filter((st) => st.x >= 24),
-    ],
+    stations: [{ ...base.stations[0]!, x: 0 }, ...base.stations.filter((st) => st.x >= 24)],
   };
 }
 
@@ -92,8 +89,12 @@ function batTail(zone: number, auto: boolean): BoardDoc {
 
 function report(name: string, doc: BoardDoc, step: boolean, smooth = false): string {
   const v = validateBoard(doc);
-  if (hasErrors(v) && !smooth) return `${name} | REFUSED: ${v.map((i) => `${i.code}: ${i.message}`).join('; ')}`;
-  const r = buildBoard(doc, smooth ? { check: false, chordMap: smoothMapFactory(MIN_CHORD_ANGLE) } : {});
+  if (hasErrors(v) && !smooth)
+    return `${name} | REFUSED: ${v.map((i) => `${i.code}: ${i.message}`).join('; ')}`;
+  const r = buildBoard(
+    doc,
+    smooth ? { check: false, chordMap: smoothMapFactory(MIN_CHORD_ANGLE) } : {},
+  );
   if (!r.ok) return `${name} | BUILD FAILED: ${r.issues.map((i) => i.message).join('; ')}`;
   const built = r.value;
   const t0 = performance.now();
@@ -109,13 +110,20 @@ function report(name: string, doc: BoardDoc, step: boolean, smooth = false): str
   return `${name} | built, tail ${built.doc.tail.kind}${built.doc.tail.kind === 'notched' ? ` zone ${built.doc.tail.zone.toFixed(1)}` : ''} | fit ${built.report.stationFitError.toFixed(4)} cm | verts ${mesh.positions.length / 3} | mesh ${ms.toFixed(0)} ms | warnings ${warn}${stepPart}`;
 }
 
-describe('tail model: generality and the editing frame', () => {
+// Study runs only on demand: TAIL_STUDY=1 keeps it out of the package's suite.
+const study = describe.skipIf(process.env.TAIL_STUDY !== '1');
+
+study('tail model: generality and the editing frame', () => {
   it('a wing and a bat tail need no new machinery', () => {
     const rows = [
       report('winger (squash tail + two wings, no notch)', wingBoard(), true),
       report('swallow + wing at x = 60', { ...swallowBoard(), outline: { plus: withWing(swallowBoard().outline.plus, 60, 1.2, 21.6) } }, false), // prettier-ignore
       ...[0, 10, 15, 20, 30].map((z) =>
-        report(`bat tail (notch depth 5, zone ${z === 0 ? 'auto' : z})`, batTail(z || 10, z === 0), true),
+        report(
+          `bat tail (notch depth 5, zone ${z === 0 ? 'auto' : z})`,
+          batTail(z || 10, z === 0),
+          true,
+        ),
       ),
       ...[10, 20, 30].map((z) =>
         report(`bat tail [D] (notch depth 5, lambda >= ${z})`, batTail(z, false), true, true),
@@ -136,20 +144,20 @@ describe('tail model: generality and the editing frame', () => {
       const chain = compileChain(doc.outline.plus);
       const f = makeFrame(chain, doc.tail);
       const p = new Float64Array(6);
-      const o = new Float64Array(6);
-      void chainEval;
-      void o;
       const zone = doc.tail.kind === 'notched' ? doc.tail.zone : 0;
       const d = doc.tail.kind === 'notched' ? chain.c[0]! : 0;
       const tilts = doc.stations.map((st) => {
         frameAt(f, st.x, p);
         const dx = p[0]! - st.x;
         const dy = p[1]!;
-        const t = (Math.abs(Math.atan2(dx, Math.max(Math.abs(dy), Number.EPSILON))) * 180) / Math.PI;
+        const t =
+          (Math.abs(Math.atan2(dx, Math.max(Math.abs(dy), Number.EPSILON))) * 180) / Math.PI;
         const inZone = st.x < d + zone;
         return `${st.x.toFixed(0)}${inZone ? '*' : ''}:${t.toFixed(0)}`;
       });
-      rows.push(`${name} | zone [${d.toFixed(1)}, ${(d + zone).toFixed(1)}] | station x:tilt deg (* = in the fan) ${tilts.join(' ')}`);
+      rows.push(
+        `${name} | zone [${d.toFixed(1)}, ${(d + zone).toFixed(1)}] | station x:tilt deg (* = in the fan) ${tilts.join(' ')}`,
+      );
       console.log(rows[rows.length - 1]);
     }
     console.log('\n[K] chord tilt at the stations\n' + rows.join('\n'));

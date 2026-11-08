@@ -182,8 +182,7 @@ export function frameAt(f: PlanFrame, xi: number, out: Float64Array): void {
   const s1 = sBuf[1]!;
   const s2 = sBuf[2]!;
   chainEval(f.chain, s, 2, tmp, 0);
-  const onBranch =
-    f.map !== null ? f.map.exact(xi) : f.notch === null || xi >= f.notch.xiEnd;
+  const onBranch = f.map !== null ? f.map.exact(xi) : f.notch === null || xi >= f.notch.xiEnd;
   out[0] = onBranch ? xi : tmp[0]!;
   out[1] = tmp[1]!;
   out[2] = onBranch ? 1 : tmp[2]! * s1;

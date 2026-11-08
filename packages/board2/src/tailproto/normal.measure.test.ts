@@ -6,13 +6,11 @@
  * the project's own measure (`m1-model.md` §13: today 1.02 / 0.70 / 1.07 mm) — whether the
  * chords cross, and the live-mesh cost.
  *
- *   pnpm --filter @openshaper/board2 exec vitest run src/tailproto/normal.measure.test.ts
+ *   TAIL_STUDY=1 pnpm --filter @openshaper/board2 exec vitest run src/tailproto/normal.measure.test.ts
  */
 import { describe, expect, it } from 'vitest';
 import { chainEval, compileChain } from '../chain';
-import { makeFrame } from '../frame';
 import { meshBoard } from '../mesh';
-import { MIN_CHORD_ANGLE } from '../params';
 import { buildBoard } from '../surface';
 import type { BuiltBoard } from '../surface';
 import { boardSet, planeSections, sectionDeviation } from '../test-support/board-set';
@@ -28,12 +26,14 @@ const build = (doc: BoardDoc, normal: boolean): BuiltBoard => {
 
 const SET = boardSet().filter((b) => b.classic !== undefined && b.doc.tail.kind === 'standard');
 
-describe('tail model: perpendicular chords', () => {
+// Study runs only on demand: TAIL_STUDY=1 keeps it out of the package's suite.
+const study = describe.skipIf(process.env.TAIL_STUDY !== '1');
+
+study('tail model: perpendicular chords', () => {
   it('chords cross, or they do not', () => {
     const rows: string[] = [];
     for (const { name, doc } of SET) {
       const chain = compileChain(doc.outline.plus);
-      const f = makeFrame(chain, doc.tail, normalMapFactory);
       const o = new Float64Array(6);
       let worstFoot = Infinity;
       let at = 0;
@@ -58,8 +58,6 @@ describe('tail model: perpendicular chords', () => {
         `${name} | min d(foot)/ds ${worstFoot.toFixed(2)} at x=${at.toFixed(1)} ${worstFoot > 0 ? '(monotone)' : '(CHORDS CROSS)'} | max chord tilt from the x-plane ${maxTilt.toFixed(0)} deg`,
       );
       console.log(rows[rows.length - 1]);
-      void MIN_CHORD_ANGLE;
-      void f;
     }
     console.log('\n[H] option B: chord geometry\n' + rows.join('\n'));
     expect(rows.length).toBe(SET.length);

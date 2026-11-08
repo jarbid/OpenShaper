@@ -4,7 +4,7 @@
  * today's documents, the fit's tolerance tightened. If the fold falls with the tolerance,
  * it is the fit's resolution, not the notch zone (`docs/design/tail-model.md`).
  *
- *   pnpm --filter @openshaper/board2 exec vitest run src/tailproto/tol.measure.test.ts
+ *   TAIL_STUDY=1 pnpm --filter @openshaper/board2 exec vitest run src/tailproto/tol.measure.test.ts
  */
 import { describe, expect, it } from 'vitest';
 import { boardSolid, boardStep } from '../step';
@@ -25,7 +25,10 @@ const CASES: readonly { name: string; doc: BoardDoc }[] = [
 ];
 const TOLS = [0.05, 0.035, 0.025, 0.015];
 
-describe('tail model: fit tolerance', () => {
+// Study runs only on demand: TAIL_STUDY=1 keeps it out of the package's suite.
+const study = describe.skipIf(process.env.TAIL_STUDY !== '1');
+
+study('tail model: fit tolerance', () => {
   it('fold against the STEP fit tolerance', () => {
     const rows: string[] = [];
     for (const { name, doc } of CASES) {

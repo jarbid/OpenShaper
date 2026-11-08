@@ -111,7 +111,7 @@ function smoothMap(chain: CompiledChain, zone: number, lambdaMul: number): Chord
   );
   const slope = Math.max(
     Math.min(s0 / lambda, wallRatio / wall),
-    SMOOTH_MIN_SLOPE_SHARE * s0 / lambda,
+    (SMOOTH_MIN_SLOPE_SHARE * s0) / lambda,
   );
   // s'(d) = s0d − s0·Φ'(0)/λ = slope  →  Φ'(0) = λ(s0d − slope)/s0
   const b = 1 + (lambda * (s0d - slope)) / s0;

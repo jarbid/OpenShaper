@@ -4,7 +4,7 @@
  * longer notch zone. Tests the hypothesis that the STEP fold at the end of the zone is set by
  * how fast the fan's chords turn, not by the smoothness class of the join.
  *
- *   pnpm --filter @openshaper/board2 exec vitest run src/tailproto/zone.measure.test.ts
+ *   TAIL_STUDY=1 pnpm --filter @openshaper/board2 exec vitest run src/tailproto/zone.measure.test.ts
  */
 import { checkBrep } from '@openshaper/geom';
 import { describe, expect, it } from 'vitest';
@@ -34,7 +34,10 @@ const CASES: readonly { name: string; doc: BoardDoc; zones: readonly number[] }[
   { name: 'fish', doc: fishBoard(), zones: [18, 26, 36, 50, 70] },
 ];
 
-describe('tail model: zone length', () => {
+// Study runs only on demand: TAIL_STUDY=1 keeps it out of the package's suite.
+const study = describe.skipIf(process.env.TAIL_STUDY !== '1');
+
+study('tail model: zone length', () => {
   it('fold, deviation, size and mesh against the zone length', () => {
     const rows: string[] = [];
     for (const { name, doc: base, zones } of CASES) {
