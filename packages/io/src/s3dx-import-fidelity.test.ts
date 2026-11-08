@@ -42,6 +42,18 @@ describe('parseS3dx element choice (synthetic)', () => {
     const layer = `<Calque3D><Number_of_slices>2</Number_of_slices>${slice}${rename(slice, 'Couples_0', 'Couples_1')}</Calque3D>`;
     expect(parseS3dx(clean.replace('<Board>', `<Board>\n${layer}`))).toEqual(parseS3dx(clean));
   });
+
+  it('prefers the absolute <StrDeck> over a curveDefSide4 that holds thickness', () => {
+    const thick = fixture('synthetic-rocker-thickness-deck.s3dx');
+    const abs = fixture('synthetic-rocker-absolute-deck.s3dx');
+    const withStrDeck = thick.replace(
+      '<curveDefSide4>',
+      `${rename(block(abs, 'curveDefSide4'), 'curveDefSide4', 'StrDeck')}\n<curveDefSide4>`,
+    );
+    const parsed = parseS3dx(withStrDeck);
+    expect(parsed.board.deck).toEqual(parseS3dx(abs).board.deck);
+    expect(parsed.warnings.some((w) => /thickness above the bottom/.test(w.message))).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------

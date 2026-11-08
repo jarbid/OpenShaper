@@ -729,6 +729,13 @@ interface Shape3dOptions {
   readonly bottomTag: string;
   /** Element name holding the deck curve (XZ); may be absent in the file. */
   readonly deckTag: string;
+  /**
+   * Element tried before `deckTag`. In `.s3dx` the top-level `<StrDeck>` is always the
+   * ABSOLUTE deck, while `curveDefSide4` is a bundle of curves whose first one is, in
+   * Shape3d 9.1.1.0 files, the thickness above the bottom (the absolute deck is its
+   * `Stringer Top` curve further down). Reading `<StrDeck>` needs no conversion.
+   */
+  readonly deckPreferredTag?: string;
   /** When true, apply the `"Ref. point"` → `"Ref.point"` text fix-up (`.s3dx`). */
   readonly refPointFix?: boolean;
   /** When true, honour a `<Protection>` flag and reject protected boards (`.s3dx`). */
@@ -833,7 +840,9 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
 
   // --- Deck (XZ plane, S3dReader.java lines 79–125) ---
   let deckKnots: Knot[];
-  const deckXml = getChildElement(boardXml, opts.deckTag);
+  const deckXml =
+    (opts.deckPreferredTag ? getChildElement(boardXml, opts.deckPreferredTag) : null) ??
+    getChildElement(boardXml, opts.deckTag);
   if (deckXml) {
     const deckBezierXml = getChildElement(deckXml, 'Bezier3d');
     if (!deckBezierXml) {
@@ -1014,6 +1023,7 @@ export const parseS3dx = (text: string): ParsedS3dx =>
     railLineTag: 'curveDefTop1',
     bottomTag: 'curveDefSide0',
     deckTag: 'curveDefSide4',
+    deckPreferredTag: 'StrDeck',
     refPointFix: true,
     checkProtection: true,
   });
