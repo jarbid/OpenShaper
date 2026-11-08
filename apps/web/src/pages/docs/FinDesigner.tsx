@@ -574,8 +574,10 @@ export default function DocsFinDesigner() {
             Shows the new smooth surface in the 3D view: a new way of building the blade, still in
             progress, that blends the foils, thickness, cant and toe without creasing it. It runs
             the foils along the fin, from the base round to the tip, so on a hooked or swept fin the
-            thickness curve is read along the arm. Check it with <a href="#analysis">Zebra</a>.
-            Exports still use the current surface.
+            thickness curve is read along the arm. Check it with <a href="#analysis">Zebra</a>. The
+            tip line is a straight section of it, so the tip foil lies along it exactly as drawn;
+            beyond it the tip thins toward its edge the way a foil&apos;s nose does. Exports still
+            use the current surface.
           </Term>
           <Term name="Control sections on the smooth surface">
             A control section is a line across the fin, from edge to edge along it, not a level cut.

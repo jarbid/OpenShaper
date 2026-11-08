@@ -16,6 +16,8 @@ import {
   smoothLocate,
   smoothRowAtEta,
   smoothRowLine,
+  smoothSectionHeight,
+  smoothSectionRow,
   type FinDesign,
   type FinEngine,
 } from '@openshaper/kernel';
@@ -46,8 +48,13 @@ export const sliceGuides = (
   return d.slices.map((sl, i) => ({
     id: String(i + 1),
     axis,
-    at: axis === 'y' ? sl.height * depth : smooth ? smoothEta(d, sl.height) : sl.height,
-    ...(smooth && axis === 'y' ? { path: smoothRowLine(d, sl.height) } : {}),
+    at:
+      axis === 'y'
+        ? sl.height * depth
+        : smooth
+          ? smoothEta(d, smoothSectionRow(d, sl.height))
+          : sl.height,
+    ...(smooth && axis === 'y' ? { path: smoothRowLine(d, smoothSectionRow(d, sl.height)) } : {}),
     color: SLICE_COLOR,
     selected: activeFoil === i + 1,
     label: `Control section ${fmtLen(sl.height * depth, units)}`,
@@ -62,7 +69,7 @@ export const sliceGuideHandlers = (store: StoreApi<FinState>, axis: 'x' | 'y') =
     const d = s().design;
     if (!d) return at;
     if (axis === 'y') return at / depthOf(d);
-    return smooth() ? smoothRowAtEta(d, at) : at;
+    return smooth() ? smoothSectionHeight(d, smoothRowAtEta(d, at)) : at;
   };
   return {
     onGuideSelect: (id: string) => s().setActiveFoil(Number(id)),
@@ -79,7 +86,7 @@ export const sliceGuideHandlers = (store: StoreApi<FinState>, axis: 'x' | 'y') =
       if (!(d && smooth() && axis === 'y')) return;
       // The row under the pointer; off the blade, it stays where it is.
       const at = smoothLocate(d, p.x, p.y);
-      if (at) s().moveSlice(s().activeFoil, at.s);
+      if (at) s().moveSlice(s().activeFoil, smoothSectionHeight(d, at.s));
     },
     onGuideDragEnd: () => s().endEdit(),
   };

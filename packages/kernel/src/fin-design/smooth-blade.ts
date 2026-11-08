@@ -8,9 +8,11 @@
  * ## The layout: (s, u)
  *
  * The profile is one four-sided region: the **base** (the root, and a raised rear's
- * underside), the **leading edge** up to the tip line, the **tip edge** (the outline
- * round the tip, from the tip line's leading-edge end to its trailing-edge end) and the
- * **trailing edge** back down. It is laid out as an elliptic grid (smooth-map.ts,
+ * underside), the **leading edge** on past the tip line and round the tip, a short
+ * **last row** about the middle of the tip edge, and the **trailing edge** likewise. The
+ * **tip line** is one row, exactly straight (owner testing: as a row bulging toward the
+ * tip, the straight tip line cut across rows, and its ends were thinned far below the
+ * tip foil drawn, even concave). It is laid out as an elliptic grid (smooth-map.ts,
  * Winslow), which can't fold, even on a hook, and read through bicubic splines, so every
  * point of the profile has a place (s, u) that changes smoothly across it:
  *
@@ -36,18 +38,18 @@
  * - **Thickness**: the thickness curve read by how far along the fin the row's thickest
  *   point is, η(s), the thickness path's length from the base: on an upright fin about
  *   its height, as the curve is drawn; on a swept one, along the sweep.
- * - **The tip**: from the tip line (where the thickness path crosses it) to the tip edge,
- *   the thickness rounds down as √(1 − t³), level where it starts (no step in curvature)
- *   and meeting the tip edge square, as a foil's nose meets its leading edge.
+ * - **The tip**: the tip line is a row, so the tip foil lies along it as drawn, at one
+ *   thickness. Beyond it the rows shorten toward the middle of the tip edge, the outline
+ *   round the tip being their edges, so the tip thins as a foil's nose does. The short
+ *   last row closes to the minimum as √(1 − t³) over the outer half of those rows.
  * - **Minimum**: the foil scaled to the thickness less the minimum, then the minimum
  *   added all over (symmetric foils half each side): the edges and the tip edge end at it
  *   exactly, with no clamp.
  *
- * - **Control sections**: each a row, at s = its height (a fraction of the way from the
- *   base to the tip edge along the fin), its foil drawn for that row. Kept as its
+ * - **Control sections**: each a row, its height the fraction of the way from the base
+ *   to the tip line along the fin, its foil drawn for that row. Kept as its
  *   difference to the fin without sections on its row, along the row, laid in full there
- *   and easing out over FIN_SLICE_REACH either side (on into the tip above, rather than
- *   ending at the tip line), or blended into the next section's where they are closer.
+ *   and easing out over FIN_SLICE_REACH either side, gone by the tip line, or blended into the next section's where they are closer.
  *   So a section's row is its foil exactly, and one added as the foil already there
  *   changes nothing (smoothFoilAt).
  *
@@ -77,6 +79,7 @@ import {
 import { DEG_TO_RAD } from '../constants';
 import { FIN_MIN_THICKNESS, type FinDesign, type FinSection } from './fin-design';
 import { spline1, spline2, winslowGrid, type P2, type Sides, type Spline2 } from './smooth-map';
+import { findRaisedRear } from './raised-rear';
 import { sweepFrame, thicknessPathAt } from './swept-loft';
 
 /** The elliptic grid's size: rows up the fin, columns across it. */
@@ -142,7 +145,37 @@ export interface SmoothMap {
   /** The tip line's ends (tab frame, cm). */
   readonly tipStart: P2;
   readonly tipEnd: P2;
+  /** The row (s) that is the tip line, straight from end to end. */
+  readonly sTip: number;
 }
+
+/** Passes of smoothing up the fin over the fraction-along table; rows a correction eases over. */
+const ALONG_SMOOTHING = 8;
+const ALONG_EASE = 8;
+/** Rows above the base a raised rear's fin eases that smoothing in over. */
+const ALONG_BASE = 16;
+
+/** How much of the tip edge, about its middle, the last row is: the rows close up to it. */
+const TIP_TOP = 0.1;
+
+/** A polyline through `pts`, with its running length. */
+const polyline = (pts: readonly P2[]): Polyline => {
+  const cum = new Float64Array(pts.length);
+  for (let i = 1; i < pts.length; i++) {
+    cum[i] = cum[i - 1]! + Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.y - pts[i - 1]!.y);
+  }
+  return { pts, cum };
+};
+
+/** The points of `p` from fraction `a` to `b` of its length (either way round). */
+const stretch = (p: Polyline, a: number, b: number): P2[] => {
+  const n = p.pts.length - 1;
+  const total = p.cum[n]!;
+  const [lo, hi] = [Math.min(a, b) * total, Math.max(a, b) * total];
+  const mid = p.pts.filter((_, i) => p.cum[i]! > lo && p.cum[i]! < hi);
+  const pts = [alongPath(p, Math.min(a, b)), ...mid, alongPath(p, Math.max(a, b))];
+  return a <= b ? pts : pts.reverse();
+};
 
 const mapCache = new WeakMap<object, Map<string, SmoothMap>>();
 
@@ -154,21 +187,58 @@ export const smoothMap = (d: FinDesign): SmoothMap => {
   const hit = byLine.get(key);
   if (hit) return hit;
   const f = sweepFrame(d);
+  const { rows, cols } = SMOOTH_MAP;
+  // Each edge runs on past the tip line round the tip, up to the short last row.
+  const half = (1 - TIP_TOP) / 2;
+  const left = polyline([...f.leading.pts, ...stretch(f.tipEdge, 0, half).slice(1)]);
+  const right = polyline([...f.trailing.pts, ...stretch(f.tipEdge, 1, 1 - half).slice(1)]);
+  const fraction = (edge: Polyline, part: Polyline) =>
+    part.cum[part.pts.length - 1]! / (edge.cum[edge.pts.length - 1]! || 1);
+  const fL = fraction(left, f.leading);
+  const fR = fraction(right, f.trailing);
+  // The tip line is one row, so both edges must reach its ends on it: each is read through
+  // a smooth warp putting that row at the tip line's end.
+  const tipRow = Math.min(rows - 4, Math.max(8, Math.round(((fL + fR) / 2) * rows)));
+  const sTip = tipRow / rows;
   const sides: Sides = {
     bottom: (t) => acrossBase(f.base, t),
-    top: (t) => alongPath(f.tipEdge, t),
-    left: (t) => alongPath(f.leading, t),
-    right: (t) => alongPath(f.trailing, t),
+    top: (t) => alongPath(f.tipEdge, half + TIP_TOP * t),
+    left: (t) => alongPath(left, foilWarp(t, sTip, fL)),
+    right: (t) => alongPath(right, foilWarp(t, sTip, fR)),
   };
-  const { rows, cols } = SMOOTH_MAP;
   const g = winslowGrid(sides, rows, cols);
+  // The tip line's row made exactly straight: its points moved square to where they lie by
+  // length along it, the move eased out over the rows either side, flat at the row and
+  // at both ends, so the layout stays smooth through it.
+  const w = cols + 1;
+  const base = tipRow * w;
+  const run = new Float64Array(w);
+  for (let j = 1; j <= cols; j++) {
+    run[j] =
+      run[j - 1]! +
+      Math.hypot(g.x[base + j]! - g.x[base + j - 1]!, g.y[base + j]! - g.y[base + j - 1]!);
+  }
+  const len = run[cols]! || 1;
+  const moveX = new Float64Array(w);
+  const moveZ = new Float64Array(w);
+  for (let j = 1; j < cols; j++) {
+    const t = run[j]! / len;
+    moveX[j] = f.tipStart.x + (f.tipEnd.x - f.tipStart.x) * t - g.x[base + j]!;
+    moveZ[j] = f.tipStart.y + (f.tipEnd.y - f.tipStart.y) * t - g.y[base + j]!;
+  }
+  for (let i = 1; i < rows; i++) {
+    const b = smootherstep(i <= tipRow ? i / tipRow : (rows - i) / (rows - tipRow));
+    for (let j = 1; j < cols; j++) {
+      g.x[i * w + j] = g.x[i * w + j]! + moveX[j]! * b;
+      g.y[i * w + j] = g.y[i * w + j]! + moveZ[j]! * b;
+    }
+  }
   const x = spline2(g.x, rows, cols);
   const z = spline2(g.y, rows, cols);
   // Each row's length from the leading edge, measured along the splines.
-  const w = cols + 1;
   const along = new Float64Array((rows + 1) * w);
   for (let i = 0; i <= rows; i++) {
-    let run = 0;
+    let length = 0;
     let px = x.at(i, 0);
     let pz = z.at(i, 0);
     for (let j = 1; j <= cols; j++) {
@@ -176,15 +246,54 @@ export const smoothMap = (d: FinDesign): SmoothMap => {
         const c = j - 1 + k / ROW_STEPS;
         const qx = x.at(i, c);
         const qz = z.at(i, c);
-        run += Math.hypot(qx - px, qz - pz);
+        length += Math.hypot(qx - px, qz - pz);
         px = qx;
         pz = qz;
       }
-      along[i * w + j] = run;
+      along[i * w + j] = length;
     }
-    for (let j = 1; j <= cols; j++) along[i * w + j] = run > 0 ? along[i * w + j]! / run : j / cols;
+    for (let j = 1; j <= cols; j++) {
+      along[i * w + j] = length > 0 ? along[i * w + j]! / length : j / cols;
+    }
   }
-  const m = { x, z, along: spline2(along, rows, cols), tipStart: f.tipStart, tipEnd: f.tipEnd };
+  // Each column of it smoothed up the fin, a few rows' worth: a row's fraction hangs on its
+  // whole length, so a corner in an edge (the starting fins' at the tip's rear) stepped it
+  // right across the blade. The base and tip line rows stay as they are, so their foils
+  // lie along them as drawn.
+  const raw = along.slice();
+  for (let j = 1; j < cols; j++) {
+    const true0 = along[tipRow * w + j]!;
+    for (let pass = 0; pass < ALONG_SMOOTHING; pass++) {
+      let last = along[j]!;
+      for (let i = 1; i < rows; i++) {
+        const here = along[i * w + j]!;
+        along[i * w + j] = (last + 2 * here + along[(i + 1) * w + j]!) / 4;
+        last = here;
+      }
+    }
+    const off = true0 - along[tipRow * w + j]!;
+    for (let i = 1; i < rows; i++) {
+      const away = Math.abs(i - tipRow) / ALONG_EASE;
+      if (away < 1) along[i * w + j] = along[i * w + j]! + off * (1 - smootherstep(away));
+    }
+  }
+  // Not at a raised rear: its base row is meant to step where the underside begins.
+  if (findRaisedRear(d.outline)) {
+    for (let i = 1; i < ALONG_BASE; i++) {
+      const b = smootherstep(i / ALONG_BASE);
+      for (let j = 1; j < cols; j++) {
+        along[i * w + j] = raw[i * w + j]! + (along[i * w + j]! - raw[i * w + j]!) * b;
+      }
+    }
+  }
+  const m = {
+    x,
+    z,
+    along: spline2(along, rows, cols),
+    tipStart: f.tipStart,
+    tipEnd: f.tipEnd,
+    sTip,
+  };
   byLine.set(key, m);
   return m;
 };
@@ -224,7 +333,7 @@ const endFoil = (sec: FinSection): EndFoil => {
 export interface SmoothBlade {
   readonly blade: PreparedBlade;
   readonly map: SmoothMap;
-  /** Where the tip's rounding starts (s): where the thickness path crosses the tip line. */
+  /** The row (s) that is the tip line. */
   readonly sTip: number;
   /** The profile point at (s, u) (tab frame, cm). */
   point(s: number, u: number): P2;
@@ -276,8 +385,12 @@ export const smoothBladeOf = (b: PreparedBlade): SmoothBlade => {
   });
   const alongAt = (s: number, u: number) =>
     Math.min(1, Math.max(0, map.along.at(s * rows, u * cols)));
+  const { sTip } = map;
   const way = thicknessPathOf(d);
-  const pathAt = (s: number) => thicknessPathAt(way, s);
+  // The path, ending exactly on the tip foil's thickest point at the tip line, so the tip
+  // foil lies along it as drawn; beyond, carried on.
+  const pathEnd = way[2] - thicknessPathAt(way, sTip);
+  const pathAt = (s: number) => thicknessPathAt(way, s) + pathEnd * smootherstep(s / sTip);
   /** The u on row s whose fraction along it is `f`. */
   const uAlong = (s: number, f: number): number => {
     let lo = 0;
@@ -289,8 +402,7 @@ export const smoothBladeOf = (b: PreparedBlade): SmoothBlade => {
     }
     return (lo + hi) / 2;
   };
-  // The thickness path on the profile: its length from the base (η), and where it
-  // crosses the tip line.
+  // The thickness path on the profile: its length from the base (η).
   const spine = Array.from({ length: SPINE_SAMPLES + 1 }, (_, k) => {
     const s = k / SPINE_SAMPLES;
     return point(s, uAlong(s, pathAt(s)));
@@ -301,18 +413,6 @@ export const smoothBladeOf = (b: PreparedBlade): SmoothBlade => {
   }
   const total = run[SPINE_SAMPLES]! || 1;
   const eta = spline1(Array.from(run, (r) => r / total));
-  const { tipStart: ts, tipEnd: te } = map;
-  const side = (p: P2) => (te.x - ts.x) * (p.y - ts.y) - (te.y - ts.y) * (p.x - ts.x);
-  let sTip = 0.85;
-  for (let k = 1; k <= SPINE_SAMPLES; k++) {
-    const a = side(spine[k - 1]!);
-    const c = side(spine[k]!);
-    if (a === 0 || a * c < 0) {
-      sTip = (k - 1 + (a === 0 ? 0 : a / (a - c))) / SPINE_SAMPLES;
-      break;
-    }
-  }
-  sTip = Math.min(0.97, Math.max(0.3, sTip));
   const base = endFoil(d.section);
   const tip = endFoil(tipFoilOf(d));
   const m = b.minThickness;
@@ -334,7 +434,7 @@ export const smoothBladeOf = (b: PreparedBlade): SmoothBlade => {
     const [ob, nb] = read(tip, along, p);
     return [oa + (ob - oa) * w, na + (nb - na) * w, share];
   };
-  // Control sections (stage 3): each a row, s = its height, short of the tip line. Kept as
+  // Control sections (stage 3): each a row, its height the fraction of the way to the tip line. Kept as
   // its difference to the bare fin on its row, along the row, laid in full on its row and
   // eased out over FIN_SLICE_REACH either side, or blended into the next section's where
   // they are closer: so its row is its foil exactly, and one added as the fin's own foil
@@ -342,7 +442,7 @@ export const smoothBladeOf = (b: PreparedBlade): SmoothBlade => {
   const sections = d.slices.map((sl) => {
     const t = sectionThickest(sl.section);
     return {
-      s: Math.min(sTip - 0.02, Math.max(0.01, sl.height)),
+      s: sl.height * sTip,
       sec: sl.section,
       thickness: t.thickness,
       share: sl.section.inside === null ? 0.5 : 1,
@@ -374,7 +474,7 @@ export const smoothBladeOf = (b: PreparedBlade): SmoothBlade => {
             ];
           })();
     // How much the sections count here: all of it between two close enough for their
-    // reaches to meet, else easing out over the reach (to the base below, the tip above).
+    // reaches to meet, else easing out over the reach (to the base below, the tip line above).
     let j = -1;
     while (j < n - 1 && sections[j + 1]!.s <= s) j++;
     const lo = j >= 0 ? sections[j]!.s : null;
@@ -383,9 +483,8 @@ export const smoothBladeOf = (b: PreparedBlade): SmoothBlade => {
     if (lo !== null && hi !== null && hi - lo <= 2 * FIN_SLICE_REACH) all = 1;
     else {
       if (lo !== null) {
-        // On past the tip line if need be, into the tip, where the thickness rounds off
-        // anyway: ended at the tip line, a section near it bent the face sharply there.
-        const reach = Math.min(FIN_SLICE_REACH, 1 - lo);
+        // Gone by the tip line, so the tip foil lies along it as drawn.
+        const reach = Math.min(FIN_SLICE_REACH, sTip - lo);
         all = Math.max(all, 1 - smootherstep((s - lo) / reach));
       }
       if (hi !== null) {
@@ -396,9 +495,12 @@ export const smoothBladeOf = (b: PreparedBlade): SmoothBlade => {
     return all > 0 ? parts.map(([i, w]) => [i, w * all]) : [];
   };
   const taperAt = (e: number) => yAtX(d.taper, Math.min(1, Math.max(0, e)));
+  // Past the tip line the edges thin the foil as a nose does; only the short last row
+  // needs closing to the minimum, over the outer half of the rows beyond the tip line.
+  const sClose = (sTip + 1) / 2;
   const round = (s: number) => {
-    if (s <= sTip) return 1;
-    const t = Math.min(1, (s - sTip) / (1 - sTip));
+    if (s <= sClose) return 1;
+    const t = Math.min(1, (s - sClose) / (1 - sClose));
     return Math.sqrt(Math.max(0, 1 - t * t * t));
   };
   const foil = (s: number, along: number): [number, number, number] => {
@@ -434,7 +536,7 @@ export const smoothBladeOf = (b: PreparedBlade): SmoothBlade => {
   // column from the base, so the blade bends rather than shears. A section's toe turns
   // each row about its own thickest point, on the thickness path.
   const twisted = hasTwist(d);
-  const twist = (s: number) => twistAt(d, s);
+  const twist = (s: number) => twistAt(d, Math.min(1, s / sTip));
   let slide = (s: number, u: number) => point(s, u).y * b.lean;
   let widen = (_s: number) => b.widen;
   if (twisted) {
@@ -565,6 +667,13 @@ export const smoothLocate = (
   return Math.hypot(p.x - x, p.y - z) <= 0.1 ? { s, u } : null;
 };
 
+/** The row (s) of a control section at `height`, the fraction of the way to the tip line. */
+export const smoothSectionRow = (d: FinDesign, height: number): number =>
+  height * smoothMap(d).sTip;
+
+/** The control-section height of row s: above 1 past the tip line. */
+export const smoothSectionHeight = (d: FinDesign, s: number): number => s / smoothMap(d).sTip;
+
 /** How far along the fin row s is (smoothBlade's eta), and back: the row at η. */
 export const smoothEta = (d: FinDesign, s: number): number => smoothBlade(d).eta(s);
 
@@ -584,12 +693,13 @@ export const smoothRowAtEta = (d: FinDesign, eta: number): number => {
 const ROW_FOIL_STATIONS = cosineStations(200);
 
 /**
- * The foil on row s of the smooth blade, as a control section there starts (owner's rules:
+ * The foil on the row of a control section at `height` of the way to the tip line, as one there starts (owner's rules:
  * adding one changes nothing until it is edited): its faces in chords of the row's length,
  * less the minimum thickness, fitted with as few points as follow them (blade.ts fitFoil).
  */
-export const smoothFoilAt = (d: FinDesign, s: number): FinSection => {
+export const smoothFoilAt = (d: FinDesign, height: number): FinSection => {
   const sb = smoothBlade(d);
+  const s = height * sb.sTip;
   let length = 0;
   let prev = sb.point(s, 0);
   for (let k = 1; k <= 400; k++) {

@@ -694,3 +694,34 @@ Gate with the owners' sections and twists: the TSN 800, hatchet tip crossing and
 line stay smooth. Tight by design: swept_back_tip's section foil turns hard at a knot
 (handles 0.18 and 0.08 long) along u ≈ 0.27; hatchet_hook's section sits 6% up from the
 base with a toe change, so it eases in over 6% of the fin.
+
+### The tip line as a row (owner testing, 2026-11)
+
+A vertical analysis cut at the tip line came out far lower and sharper toward its upper end
+than the tip foil, and a NACA 0008 with its thickest point moved back went concave there.
+The top of the layout was the tip edge, so rows bulged toward the tip and the straight tip
+line cut across them, from s = 0.936 in its middle to 1.0 at its ends. Thickness depends on
+the row alone: toward the ends the thickness curve was read further on and the rounding
+began, 5% along leaving 23% of the foil drawn above the minimum.
+
+Now the leading and trailing edges run on round the tip to a short last row, the middle
+10% of the tip edge. The elliptic grid is solved over that, each edge read through a smooth
+warp that puts its tip line end on one row. That row is then made exactly straight, the
+move eased out over the rows either side by smootherstep, flat at the row, so the layout
+stays C². The tip foil lies along it as drawn, at one thickness (within 0.01 mm, tested,
+on the starting fin, a NACA 0008 moved back and the TSN 800). The thickness path is
+corrected to end on the tip foil's thickest point there. Beyond it the outline round the
+tip is the rows' edges, so the tip thins as a nose does; only the last row needs closing
+(√(1 − t³), over the outer half of those rows).
+
+A control section's height is now its fraction of the way from the base to the tip line,
+and its fade ends by the tip line, so sections never disturb the tip foil. The fraction
+along each row is smoothed up the fin (8 binomial passes, the tip and base rows held): it
+hangs on the row's whole length, so a corner in an edge (the starting fins' at the tip's
+rear) stepped it right across the blade. Near the base of a fin with a raised rear the
+smoothing eases out, its base row meant to step.
+
+Gate after: the starting fins, TSN 800, hatchet tip crossing and steep tip line have no
+creases, no layout folds on any fin. corner_creases goes from 72 creased patches to 36,
+all beside its corners near the root. Tighter than before: hatchet_hook's section 6% of the
+way up, 144 (was 80); swept_back_tip's section 44 (was 40).

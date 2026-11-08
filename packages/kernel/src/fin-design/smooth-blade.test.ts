@@ -20,7 +20,7 @@ import {
   smoothEta,
   smoothSampler,
 } from './smooth-blade';
-import { sectionShapeAt, sectionThickest } from './blade';
+import { moveFoilThickest, sectionShapeAt, sectionThickest, tipFoilOf } from './blade';
 import { nacaSection } from './naca';
 import { sweepFrame } from './swept-loft';
 
@@ -119,8 +119,9 @@ describe('the smooth blade', () => {
     for (let k = 0; k <= 20; k++) {
       const t = k / 20;
       // Within 0.01 mm of the outline.
-      expect(near(sb.point(t, 0), f.leading.pts)).toBeLessThan(0.001);
-      expect(near(sb.point(t, 1), f.trailing.pts)).toBeLessThan(0.001);
+      // The edges run on past the tip line, round the tip.
+      expect(near(sb.point(t, 0), [...f.leading.pts, ...f.tipEdge.pts])).toBeLessThan(0.001);
+      expect(near(sb.point(t, 1), [...f.trailing.pts, ...f.tipEdge.pts])).toBeLessThan(0.001);
       expect(near(sb.point(1, t), f.tipEdge.pts)).toBeLessThan(0.001);
       expect(sb.point(0, t).y).toBeCloseTo(0, 9);
     }
@@ -211,7 +212,7 @@ describe('the smooth blade', () => {
       const sb = smoothBlade(d);
       const t = sectionThickest(fuller).thickness;
       for (const x of [0.05, 0.2, 0.4, 0.7, 0.95]) {
-        const [o, n] = sb.foil(0.5, x);
+        const [o, n] = sb.foil(0.5 * sb.sTip, x);
         const [so, si] = sectionShapeAt(fuller, x);
         expect(o).toBeCloseTo(so / t, 9);
         expect(n).toBeCloseTo(si / t, 9);
@@ -256,6 +257,41 @@ describe('the smooth blade', () => {
       'steep_tip_line.fin.json',
     ])('leave owners’ fins smooth: %s', (name) => {
       expect(fairness(smoothSampler(ownerFin(name))).creases.slice(0, 3)).toEqual([]);
+    });
+  });
+
+  describe('the tip line', () => {
+    const base = defaultFinDesign('side', 'left');
+    const fins: [string, FinDesign][] = [
+      ['the starting fin', base],
+      [
+        'NACA 0008, thickest moved back',
+        { ...base, tipSection: moveFoilThickest(nacaSection('0008'), 0.5) },
+      ],
+      ['the TSN 800, its sections just under it', ownerFin('tsn_800_single.fin.json')],
+    ];
+    it.each(fins)('is one row, with the tip foil along it as drawn: %s', (_, d) => {
+      // Owner testing: cut there, the foil came out far lower toward the ends than drawn,
+      // even concave, the straight line crossing rows that thinned toward the tip.
+      const sb = smoothBlade(d);
+      const f = sweepFrame(d);
+      const sec = tipFoilOf(d);
+      const t0 = sectionThickest(sec).thickness;
+      const m = sb.blade.minThickness;
+      const k = sb.scale(sb.sTip);
+      for (let i = 1; i < 40; i++) {
+        const t = i / 40;
+        const at = smoothLocate(
+          d,
+          f.tipStart.x + (f.tipEnd.x - f.tipStart.x) * t,
+          f.tipStart.y + (f.tipEnd.y - f.tipStart.y) * t,
+        )!;
+        expect(at.s).toBeCloseTo(sb.sTip, 5);
+        const [o, n] = sb.offsets(at.s, at.u);
+        const [so, si] = sectionShapeAt(sec, t);
+        // Within 0.01 mm of the foil drawn, scaled to the one thickness of the row.
+        expect(Math.abs(o - n - ((so - si) / t0) * k - m)).toBeLessThan(0.001);
+      }
     });
   });
 

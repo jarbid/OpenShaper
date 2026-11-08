@@ -40,15 +40,15 @@ describe('sliceGuideHandlers', () => {
     // Its row, edge to edge: from the leading edge to the trailing edge.
     const sb = smoothBlade(d);
     expect(profile!.path!.length).toBeGreaterThan(10);
-    const lead = sb.point(0.4, 0);
+    const lead = sb.point(0.4 * sb.sTip, 0);
     expect(profile!.path![0]!.x).toBeCloseTo(lead.x, 6);
     // The thickness view places it by how far along the fin its row is.
     const [taper] = sliceGuides(d, 1, mm, 'x', 'smooth');
-    expect(taper!.at).toBeCloseTo(smoothEta(d, 0.4), 9);
+    expect(taper!.at).toBeCloseTo(smoothEta(d, 0.4 * sb.sTip), 9);
     const on = sliceGuideHandlers(store, 'y');
     on.onGuideSelect('1');
     on.onGuideDragStart();
-    const to = sb.point(0.65, 0.5);
+    const to = sb.point(0.65 * sb.sTip, 0.5);
     on.onGuideDragPoint('1', to);
     on.onGuideDragEnd();
     expect(store.getState().design!.slices[0]!.height).toBeCloseTo(0.65, 6);
