@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * The smooth blade: the fin's new surface engine (docs/design/fin-designer.md, "A new
- * surface engine"). The same design as the sweep (blade.ts, swept-loft.ts) — outline,
- * base and tip foils, thickness curve and path, minimum thickness, cant and toe — built
- * as **one smooth surface** laid along the fin, so blending them can't crease it.
+ * The smooth blade: the fin's surface (docs/design/fin-designer.md, "A new surface
+ * engine"). Outline, foils, thickness curve and path, minimum thickness, cant and toe,
+ * built as **one smooth surface** laid along the fin, so blending them can't crease it.
  *
  * ## The layout: (s, u)
  *
@@ -350,6 +349,12 @@ export interface SmoothBlade {
   scale(s: number): number;
   /** How far along the fin row s is, by the thickness path's length: 0 base, 1 tip edge. */
   eta(s: number): number;
+  /** The same in cm from the base. */
+  alongFin(s: number): number;
+  /** Where the thickness path crosses row s, as a fraction along it. */
+  path(s: number): number;
+  /** The nearest place on the layout to a profile point; `hint` a place to start from. */
+  nearest(x: number, z: number, hint?: { s: number; u: number } | null): { s: number; u: number };
 }
 
 const bladeCache = new WeakMap<PreparedBlade, SmoothBlade>();
@@ -603,6 +608,9 @@ export const smoothBladeOf = (b: PreparedBlade): SmoothBlade => {
     foil,
     scale,
     eta: etaAt,
+    alongFin: (s) => etaAt(s) * total,
+    path: pathAt,
+    nearest: (x, z, hint) => nearestOnMap(map, x, z, hint),
     faces: (s, u) => {
       const p = point(s, u);
       const [o, n] = offsets(s, u);
@@ -623,48 +631,81 @@ export const smoothRowLine = (d: FinDesign, s: number, n = 64): P2[] => {
   }));
 };
 
-/**
- * Where on the smooth blade's layout a profile point is, (s, u); null off the blade. A
- * search over the grid, then Newton's method on the splines.
- */
-export const smoothLocate = (
-  d: FinDesign,
-  x: number,
-  z: number,
-): { s: number; u: number } | null => {
-  const sb = smoothBlade(d);
+/** The map's points at its grid nodes, for the search for a profile point's place. */
+const nodesCache = new WeakMap<SmoothMap, Float64Array>();
+
+const mapNodes = (map: SmoothMap): Float64Array => {
+  let n = nodesCache.get(map);
+  if (n) return n;
   const { rows, cols } = SMOOTH_MAP;
-  let best = { s: 0, u: 0, d: Infinity };
+  n = new Float64Array(2 * (rows + 1) * (cols + 1));
+  let k = 0;
   for (let i = 0; i <= rows; i++) {
     for (let j = 0; j <= cols; j++) {
-      const p = sb.point(i / rows, j / cols);
-      const dd = Math.hypot(p.x - x, p.y - z);
-      if (dd < best.d) best = { s: i / rows, u: j / cols, d: dd };
+      n[k++] = map.x.at(i, j);
+      n[k++] = map.z.at(i, j);
     }
   }
-  let { s, u } = best;
+  nodesCache.set(map, n);
+  return n;
+};
+
+/** Newton's method on the layout from (s, u), kept on it; and how far off it ends (cm). */
+const newtonOnMap = (map: SmoothMap, x: number, z: number, s0: number, u0: number) => {
+  const { rows, cols } = SMOOTH_MAP;
+  const px = (s: number, u: number) => map.x.at(s * rows, u * cols);
+  const pz = (s: number, u: number) => map.z.at(s * rows, u * cols);
+  let s = s0;
+  let u = u0;
   const e = 1e-6;
   for (let it = 0; it < 30; it++) {
-    const p = sb.point(s, u);
-    const ps = sb.point(s + e, u);
-    const pu = sb.point(s, u + e);
-    const a = (ps.x - p.x) / e;
-    const b = (pu.x - p.x) / e;
-    const c = (ps.y - p.y) / e;
-    const dd = (pu.y - p.y) / e;
+    const fx = px(s, u) - x;
+    const fz = pz(s, u) - z;
+    const a = (px(s + e, u) - px(s, u)) / e;
+    const b = (px(s, u + e) - px(s, u)) / e;
+    const c = (pz(s + e, u) - pz(s, u)) / e;
+    const dd = (pz(s, u + e) - pz(s, u)) / e;
     const det = a * dd - b * c;
     if (!(Math.abs(det) > 1e-18)) break;
-    const fx = p.x - x;
-    const fz = p.y - z;
     const ds = (dd * fx - b * fz) / det;
     const du = (a * fz - c * fx) / det;
     s = Math.min(1, Math.max(0, s - ds));
     u = Math.min(1, Math.max(0, u - du));
     if (Math.abs(ds) + Math.abs(du) < 1e-12) break;
   }
-  const p = sb.point(s, u);
-  // Further than a millimetre off the blade is off it.
-  return Math.hypot(p.x - x, p.y - z) <= 0.1 ? { s, u } : null;
+  return { s, u, miss: Math.hypot(px(s, u) - x, pz(s, u) - z) };
+};
+
+const nearestOnMap = (
+  map: SmoothMap,
+  x: number,
+  z: number,
+  hint?: { s: number; u: number } | null,
+): { s: number; u: number; miss: number } => {
+  if (hint) {
+    const near = newtonOnMap(map, x, z, hint.s, hint.u);
+    if (near.miss < 1e-6) return near;
+  }
+  const { rows, cols } = SMOOTH_MAP;
+  const n = mapNodes(map);
+  let best = 0;
+  let dist = Infinity;
+  for (let k = 0; k < n.length; k += 2) {
+    const dd = (n[k]! - x) ** 2 + (n[k + 1]! - z) ** 2;
+    if (dd < dist) [dist, best] = [dd, k / 2];
+  }
+  const w = cols + 1;
+  return newtonOnMap(map, x, z, Math.floor(best / w) / rows, (best % w) / cols);
+};
+
+/** Where on the layout a profile point is, (s, u); null off the blade (over 1 mm away). */
+export const smoothLocate = (
+  d: FinDesign,
+  x: number,
+  z: number,
+): { s: number; u: number } | null => {
+  const at = nearestOnMap(smoothMap(d), x, z);
+  return at.miss <= 0.1 ? { s: at.s, u: at.u } : null;
 };
 
 /** The row (s) of a control section at `height`, the fraction of the way to the tip line. */
@@ -673,6 +714,23 @@ export const smoothSectionRow = (d: FinDesign, height: number): number =>
 
 /** The control-section height of row s: above 1 past the tip line. */
 export const smoothSectionHeight = (d: FinDesign, s: number): number => s / smoothMap(d).sTip;
+
+/** The length (cm) of row s, and how thick it is at its thickest there: a foil's true size. */
+export const smoothRowSize = (d: FinDesign, s: number): { chord: number; thickness: number } => {
+  const sb = smoothBlade(d);
+  let chord = 0;
+  let prev = sb.point(s, 0);
+  for (let k = 1; k <= 200; k++) {
+    const q = sb.point(s, k / 200);
+    chord += Math.hypot(q.x - prev.x, q.y - prev.y);
+    prev = q;
+  }
+  return { chord, thickness: sb.scale(s) + sb.blade.minThickness };
+};
+
+/** A control section's distance along the fin from the base (cm), what it is labelled by. */
+export const smoothSectionDistance = (d: FinDesign, height: number): number =>
+  smoothBlade(d).alongFin(smoothSectionRow(d, height));
 
 /** How far along the fin row s is (smoothBlade's eta), and back: the row at η. */
 export const smoothEta = (d: FinDesign, s: number): number => smoothBlade(d).eta(s);
@@ -690,7 +748,7 @@ export const smoothRowAtEta = (d: FinDesign, eta: number): number => {
 };
 
 /** Chord stations a row's foil is sampled at to fit it (smoothFoilAt). */
-const ROW_FOIL_STATIONS = cosineStations(200);
+const ROW_FOIL_STATIONS = (): number[] => cosineStations(200);
 
 /**
  * The foil on the row of a control section at `height` of the way to the tip line, as one there starts (owner's rules:
@@ -708,9 +766,10 @@ export const smoothFoilAt = (d: FinDesign, height: number): FinSection => {
     prev = q;
   }
   const k = sb.scale(s) / (length || 1);
+  const stations = ROW_FOIL_STATIONS();
   const out: number[] = [];
   const ins: number[] = [];
-  for (const x of ROW_FOIL_STATIONS) {
+  for (const x of stations) {
     const [o, n] = sb.foil(s, x);
     out.push(o * k);
     ins.push(n * k);
@@ -718,7 +777,7 @@ export const smoothFoilAt = (d: FinDesign, height: number): FinSection => {
   const symmetric = [d.section, tipFoilOf(d), ...d.slices.map((sl) => sl.section)].every(
     (sec) => sec.inside === null,
   );
-  return fitFoil(ROW_FOIL_STATIONS, out, ins, symmetric);
+  return fitFoil(stations, out, ins, symmetric);
 };
 
 /** How far in from each side (s and u) the smoothness gate's sampler starts: the edges left out. */

@@ -19,7 +19,7 @@
  * The panel fit (`view` 'panel', with `panel`): the whole fin from behind, along the
  * panel it is cut from, all but flat, with the panel's outline drawn over it.
  */
-import { finOutward, type FinDesign, type FinEngine } from '@openshaper/kernel';
+import { finOutward, type FinDesign } from '@openshaper/kernel';
 import { OrbitControls } from '@react-three/drei';
 import { Canvas, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef, type ComponentRef } from 'react';
@@ -55,8 +55,6 @@ export interface FinPreview3DProps {
   sections?: readonly FinSectionPlane[] | null;
   /** Zebra stripes on the blade, to see how smooth it is (fin-preview.ts, zebraTexture). */
   zebra?: boolean;
-  /** The surface engine to build the blade with (kernel fin-mesh.ts); the sweep by default. */
-  engine?: FinEngine;
   background?: string;
   bladeColor?: string;
   tabColor?: string;
@@ -218,15 +216,11 @@ export function FinPreview3D({
   panel = null,
   sections = null,
   zebra = false,
-  engine = 'sweep',
   background = '#0A1424',
   bladeColor = '#22D3EE',
   tabColor = '#8A9BB3',
 }: FinPreview3DProps) {
-  const scene = useMemo(
-    () => (design ? finScene(design, zebra, engine) : null),
-    [design, zebra, engine],
-  );
+  const scene = useMemo(() => (design ? finScene(design, zebra) : null), [design, zebra]);
   const stripes = useMemo(() => (zebra ? zebraTexture() : null), [zebra]);
   useEffect(() => () => stripes?.dispose(), [stripes]);
   useEffect(

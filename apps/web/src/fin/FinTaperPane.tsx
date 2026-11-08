@@ -7,11 +7,10 @@
  * up with the profile, and thickness across, stretched so it reads. Straight then
  * curving toward the tip is the usual shape: the curve is what controls flex. The
  * dashed line is the fin's minimum thickness (0.5 mm unless set in the box at the top
- * left, owner request); the store stops a point there. On a
- * heavily swept-back fin the curve is read along the sweep instead (kernel
- * thicknessAlongSweep), which the pane notes, as its height no longer lines up.
+ * left, owner request); the store stops a point there. The curve is read along the fin,
+ * by the thickness path's length from the base.
  */
-import { finMinThickness, finReadouts, thicknessAlongSweep } from '@openshaper/kernel';
+import { finMinThickness, finReadouts } from '@openshaper/kernel';
 import {
   FIN_CANVAS_FONT,
   FIN_CANVAS_LABEL,
@@ -96,10 +95,9 @@ export const FinTaperPane = memo(function FinTaperPane({
   const design = useFinState(store, (s) => s.design);
   const selection = useFinState(store, (s) => s.selection);
   const activeFoil = useFinState(store, (s) => s.activeFoil);
-  const engine = useFinState(store, (s) => s.engine);
   const guides = useMemo(
-    () => (design ? sliceGuides(design, activeFoil, units, 'x', engine) : []),
-    [design, activeFoil, units, engine],
+    () => (design ? sliceGuides(design, activeFoil, units, 'x') : []),
+    [design, activeFoil, units],
   );
   const guideHandlers = useMemo(() => sliceGuideHandlers(store, 'x'), [store]);
   const handlers = useMemo(() => curveEditorHandlers(store), [store]);
@@ -161,8 +159,6 @@ export const FinTaperPane = memo(function FinTaperPane({
     [units, root, minT],
   );
 
-  const alongSweep = useMemo(() => (design ? thicknessAlongSweep(design) : 0), [design]);
-
   if (!design || !taper) return null;
   const editor = (
     <FinCurveEditor
@@ -179,17 +175,5 @@ export const FinTaperPane = memo(function FinTaperPane({
       {...handlers}
     />
   );
-  return (
-    <div className="relative h-full">
-      {alongSweep > 0.05 && (
-        <span
-          className="pointer-events-none absolute right-2 top-1 z-10 max-w-[60%] text-right text-xs text-muted-foreground"
-          data-testid="taper-along-sweep"
-        >
-          Swept-back fin: measured along the sweep
-        </span>
-      )}
-      {editor}
-    </div>
-  );
+  return <div className="relative h-full">{editor}</div>;
 });

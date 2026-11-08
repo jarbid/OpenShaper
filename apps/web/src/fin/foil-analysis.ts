@@ -20,12 +20,11 @@
  */
 import {
   bladeSection,
-  chordAt,
   cosineStations,
   finReadouts,
   prepareBlade,
-  sweepGrid,
-  sweepSectionLine,
+  smoothBladeOf,
+  smoothSectionRow,
   vec2,
   type FinDesign,
   type PreparedBlade,
@@ -89,27 +88,22 @@ const horizontal = (b: PreparedBlade, kind: PlanSection['kind'], h: number): Pla
   ...plan(bladeSection(b, h, STATIONS)),
 });
 
-/**
- * The tip foil as it lies: the blade sampled along the tip line, each point cut from the
- * horizontal section through it.
- */
-const tipSection = (d: FinDesign, b: PreparedBlade): PlanSection => {
-  const g = sweepGrid(d);
-  const line = sweepSectionLine(g, g.tipRow);
+/** Row s of the blade as it lies, seen from above (a control section, the tip line). */
+const rowSection = (b: PreparedBlade, kind: PlanSection['kind'], s: number): PlanSection => {
+  const sb = smoothBladeOf(b);
   const outside: Vec2[] = [];
   const inside: Vec2[] = [];
   let sum = 0;
-  for (const p of line) {
-    const h = Math.min(b.depth, Math.max(0, p.y));
-    const { leading, trailing } = chordAt(b, h);
-    const u = trailing === leading ? 0 : (p.x - leading) / (trailing - leading);
-    const s = bladeSection(b, h, [Math.min(1, Math.max(0, u))]);
-    outside.push(vec2(s.outside[0]!.x, s.outside[0]!.y));
-    inside.push(vec2(s.inside[0]!.x, s.inside[0]!.y));
-    sum += h;
+  for (const u of STATIONS) {
+    const f = sb.faces(s, u);
+    outside.push(vec2(f.outside.x, f.outside.y));
+    inside.push(vec2(f.inside.x, f.inside.y));
+    sum += sb.point(s, u).y;
   }
-  return { kind: 'tip', height: sum / Math.max(1, line.length), outside, inside };
+  return { kind, height: sum / STATIONS.length, outside, inside };
 };
+
+const tipSection = (b: PreparedBlade): PlanSection => rowSection(b, 'tip', smoothBladeOf(b).sTip);
 
 /** A section's own frame: its chord from the leading edge, + toward the outside face. */
 interface Frame {
@@ -163,9 +157,9 @@ const inFrame = (f: Frame, p: Vec2) =>
 /** The active foil's section: the base foil, the tip foil, or a control section's cut. */
 const activeSection = (d: FinDesign, b: PreparedBlade, foil: number): PlanSection =>
   foil === TIP_FOIL
-    ? tipSection(d, b)
+    ? tipSection(b)
     : foil > 0 && d.slices[foil - 1]
-      ? horizontal(b, 'control', d.slices[foil - 1]!.height * b.depth)
+      ? rowSection(b, 'control', smoothSectionRow(d, d.slices[foil - 1]!.height))
       : horizontal(b, 'base', 0);
 
 /**
@@ -179,9 +173,9 @@ export const foilGhosts = (d: FinDesign, foil: number, a: FoilAnalysis): FoilGho
   if (a.show === 'sections') {
     if (foil !== 0) sections.push(horizontal(b, 'base', 0));
     d.slices.forEach((sl, i) => {
-      if (foil !== i + 1) sections.push(horizontal(b, 'control', sl.height * b.depth));
+      if (foil !== i + 1) sections.push(rowSection(b, 'control', smoothSectionRow(d, sl.height)));
     });
-    if (foil !== TIP_FOIL) sections.push(tipSection(d, b));
+    if (foil !== TIP_FOIL) sections.push(tipSection(b));
   } else {
     const step = Math.min(FOIL_ANALYSIS_EVERY.max, Math.max(FOIL_ANALYSIS_EVERY.min, a.every));
     // Up to just short of the top, where the chord closes to a point.

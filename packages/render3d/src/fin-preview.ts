@@ -9,13 +9,7 @@
  * scene keeps it, with the camera's up set to +Z, so nothing is rotated or re-centred:
  * the blade and tab stay where the kernel and the STEP/STL files put them.
  */
-import {
-  FIN_MESH_PREVIEW,
-  finMesh,
-  type BoardMesh,
-  type FinDesign,
-  type FinEngine,
-} from '@openshaper/kernel';
+import { FIN_MESH_PREVIEW, finMesh, type BoardMesh, type FinDesign } from '@openshaper/kernel';
 import {
   Box3,
   BufferAttribute,
@@ -62,10 +56,10 @@ export const FIN_MESH_ZEBRA = { ...FIN_MESH_PREVIEW, rows: 120, stations: 64 };
 
 /**
  * The fin's preview meshes (preview quality: a few ms, rebuilt per settled edit), or
- * finer ones for the zebra stripes, by either surface engine.
+ * finer ones for the zebra stripes.
  */
-export const finScene = (d: FinDesign, fine = false, engine: FinEngine = 'sweep'): FinScene => {
-  const m = finMesh(d, { ...(fine ? FIN_MESH_ZEBRA : FIN_MESH_PREVIEW), engine });
+export const finScene = (d: FinDesign, fine = false): FinScene => {
+  const m = finMesh(d, fine ? FIN_MESH_ZEBRA : FIN_MESH_PREVIEW);
   const blade = finMeshGeometry(m.blade);
   const tab = finMeshGeometry(m.tab);
   const box = new Box3().copy(blade.boundingBox!).union(tab.boundingBox!);

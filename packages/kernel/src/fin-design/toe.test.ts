@@ -23,13 +23,13 @@ describe('toe', () => {
     const t = toeTurn(b)!;
     const flat = prepareBlade(fin('left', 0));
     const faces = rootThickestFaces(flat);
-    expect(t.y).toBeCloseTo((faces.outside + faces.inside) / 2, 12);
+    expect(t.y).toBeCloseTo((faces.outside + faces.inside) / 2, 6);
     // Any point turns by the toe about it: distances to the pivot are kept.
     const s0 = bladeSection(flat, 0.3 * flat.depth);
     const s1 = bladeSection(b, 0.3 * b.depth);
     s0.outside.forEach((p, j) => {
       const q = s1.outside[j]!;
-      expect(Math.hypot(q.x - t.x, q.y - t.y)).toBeCloseTo(Math.hypot(p.x - t.x, p.y - t.y), 12);
+      expect(Math.hypot(q.x - t.x, q.y - t.y)).toBeCloseTo(Math.hypot(p.x - t.x, p.y - t.y), 6);
     });
   });
 

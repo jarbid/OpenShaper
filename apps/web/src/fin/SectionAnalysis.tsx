@@ -26,7 +26,6 @@ import {
   sliceMesh,
   type BoardMesh,
   type FinDesign,
-  type FinEngine,
   type SliceMeasure,
 } from '@openshaper/kernel';
 import type { FinSectionPlane } from '@openshaper/render3d';
@@ -95,14 +94,10 @@ const bounds = (m: BoardMesh, k: 0 | 2) => {
 };
 
 /** The cuts for the analysis's planes; nothing is computed while it is off. */
-export function useSectionCuts(
-  design: FinDesign | null,
-  state: SectionState,
-  engine: FinEngine = 'sweep',
-): SectionCuts | null {
+export function useSectionCuts(design: FinDesign | null, state: SectionState): SectionCuts | null {
   const mesh = useMemo(
-    () => (design && state.on ? finMesh(design, { ...ANALYSIS_MESH, engine }) : null),
-    [design, state.on, engine],
+    () => (design && state.on ? finMesh(design, ANALYSIS_MESH) : null),
+    [design, state.on],
   );
   return useMemo(() => {
     if (!design || !mesh) return null;

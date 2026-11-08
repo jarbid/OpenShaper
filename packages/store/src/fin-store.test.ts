@@ -10,10 +10,7 @@ import {
   cosineStations,
   defaultFinDesign,
   prepareBlade,
-  sliceTipCrossing,
-  sliceTipPoint,
   smoothFoilAt,
-  tipFoilOf,
   yAtX,
   sectionThickest,
   thicknessPathOf,
@@ -29,7 +26,7 @@ import {
   vec2,
   type FinDesign,
 } from '@openshaper/kernel';
-import { foilTrueScale, getFinCurve, tipSpanOf, TIP_FOIL } from './fin-edits';
+import { foilTrueScale, getFinCurve, TIP_FOIL } from './fin-edits';
 import { createFinStore } from './fin-store';
 
 const storeWith = (d: FinDesign = defaultFinDesign('side', 'right')) => {
@@ -408,53 +405,6 @@ describe('fin store: foil slices', () => {
     expect(design(s).section).toBe(root);
   });
 
-  it('lets every point of a slice move, the tip’s part of its chord included', () => {
-    // Owner testing: with the tip line moved forward, most of a slice's points sat in the
-    // locked tip part and wouldn't move. Now the tip part is only shaded (tipSpanOf).
-    const s = storeWith();
-    s.getState().addSlice(0.93);
-    const span = tipSpanOf(design(s), 1)!;
-    expect(span[1]).toBe(1);
-    const out = () => design(s).slices[0]!.section.outside;
-    const past = out().knots.findIndex((k, i) => i > 0 && k.end.x >= span[0] - 1e-6);
-    expect(past).toBeGreaterThan(0);
-    const k = out().knots[past]!.end;
-    expect(s.getState().moveControlPoint('outside', past, vec2(k.x, k.y * 0.8))).toBe(true);
-    expect(s.getState().addControlPoint('outside', vec2((span[0] + 1) / 2, 0.005))).toBe(true);
-  });
-
-  it('puts a point where a new slice crosses the tip line, in both foils, shapes unchanged', () => {
-    const s = storeWith();
-    const tipBefore = tipFoilOf(design(s));
-    s.getState().addSlice(0.93);
-    const c = sliceTipCrossing(design(s), 0)!;
-    const tip = tipFoilOf(design(s));
-    expect(tip.outside.knots.some((k) => Math.abs(k.end.x - c.tipAt) < 0.01)).toBe(true);
-    const slice = design(s).slices[0]!.section;
-    expect(slice.outside.knots.some((k) => Math.abs(k.end.x - c.sliceAt) < 0.01)).toBe(true);
-    for (const u of [0.1, 0.3, c.tipAt, 0.8]) {
-      expect(yAtX(tip.outside, u)).toBeCloseTo(yAtX(tipBefore.outside, u), 9);
-    }
-    // And the two dots agree on an unedited slice: each is the fin there.
-    expect(c.tipInSlice.outside).toBeCloseTo(yAtX(slice.outside, c.sliceAt), 3);
-    expect(c.sliceInTip.outside).toBeCloseTo(yAtX(tip.outside, c.tipAt), 2);
-    expect(s.getState().past).toHaveLength(1); // one step: the slice and its points
-  });
-
-  it('marks a new crossing when a drag moves the tip line', () => {
-    const s = storeWith();
-    s.getState().addSlice(0.93);
-    const before = tipLineOf(design(s));
-    s.getState().beginEdit('Move the tip line');
-    s.getState().setTipLineEnd('end', before.end + 0.02); // lower down the trailing edge
-    s.getState().endEdit();
-    const c = sliceTipCrossing(design(s), 0)!;
-    const tip = tipFoilOf(design(s));
-    expect(tip.outside.knots.some((k) => Math.abs(k.end.x - c.tipAt) < 0.01)).toBe(true);
-    s.getState().undo();
-    expect(tipLineOf(design(s)).end).toBeCloseTo(before.end, 9); // one undo step
-  });
-
   it('stores a foil far from its true thickness at it, on loading and after a drag', () => {
     // Owner testing: drags ran a tip foil down to a millionth of its thickness (the foil
     // view's stretch, read afresh at every step), and the view zoomed far out.
@@ -480,7 +430,7 @@ describe('fin store: foil slices', () => {
       return sec.outside.map((p, j) => p.y - sec.inside[j]!.y);
     };
     const was = width(tiny, 0.9);
-    width(design(s), 0.9).forEach((t, j) => expect(t).toBeCloseTo(was[j]!, 9));
+    width(design(s), 0.9).forEach((t, j) => expect(t).toBeCloseTo(was[j]!, 8));
     // A drag that leaves it far thinner: stored at its true thickness when it ends.
     // Stored thin, but within four times of its thickness: kept so on loading.
     const s2 = storeWith({ ...d, tipSection: thin(d.section, 0.07) });
@@ -494,59 +444,6 @@ describe('fin store: foil slices', () => {
     expect(foilTrueScale(design(s2), TIP_FOIL)).toBeGreaterThan(4);
     s2.getState().endEdit();
     expect(foilTrueScale(design(s2), TIP_FOIL)).toBeCloseTo(1, 6);
-  });
-
-  it('takes the old crossing point out when the crossing moves, unless it was dragged', () => {
-    // Owner testing: each tip line or slice drag left a point at the crossing it had, three
-    // or four of them a few percent apart in the tip foil.
-    const s = storeWith();
-    s.getState().addSlice(0.93);
-    const count = () => tipFoilOf(design(s)).outside.knots.length;
-    const shape = tipFoilOf(design(s));
-    const n = count();
-    const end = tipLineOf(design(s)).end;
-    for (const step of [0.02, 0.04]) {
-      s.getState().beginEdit('Move the tip line');
-      s.getState().setTipLineEnd('end', end + step);
-      s.getState().endEdit();
-      const c = sliceTipCrossing(design(s), 0)!;
-      const tip = tipFoilOf(design(s));
-      expect(tip.outside.knots.some((k) => Math.abs(k.end.x - c.tipAt) < 0.01)).toBe(true);
-      expect(count()).toBe(n); // the new point, and the old one out
-      for (const u of [0.1, 0.3, 0.5, 0.7, 0.9]) {
-        expect(yAtX(tip.outside, u)).toBeCloseTo(yAtX(shape.outside, u), 9);
-      }
-    }
-    // Dragged, the crossing point stays when the crossing moves on.
-    const c = sliceTipCrossing(design(s), 0)!;
-    s.getState().setActiveFoil(TIP_FOIL);
-    const i = tipFoilOf(design(s)).outside.knots.findIndex(
-      (k) => Math.abs(k.end.x - c.tipAt) < 0.01,
-    );
-    const k = tipFoilOf(design(s)).outside.knots[i]!.end;
-    expect(s.getState().moveControlPoint('outside', i, vec2(k.x, k.y * 1.05))).toBe(true);
-    s.getState().beginEdit('Move the tip line');
-    s.getState().setTipLineEnd('end', end + 0.06);
-    s.getState().endEdit();
-    expect(count()).toBe(n + 1);
-  }, 60_000); // four drags of real geometry: 5 s here, far more on a loaded CI runner
-
-  it('drags a new slice up into the tip as the fin’s section there, not the one it was added with', () => {
-    // Owner testing: added halfway up and dragged to 93 mm, the slice carried the section
-    // from halfway up, its point on the tip line well off its foil.
-    const s = storeWith();
-    s.getState().addSlice(0.5);
-    s.getState().beginEdit('Move foil slice');
-    const t0 = performance.now();
-    for (const h of [0.6, 0.7, 0.8, 0.9, 0.93]) s.getState().moveSlice(1, h);
-    const perStep = (performance.now() - t0) / 5;
-    s.getState().endEdit();
-    expect(design(s).slices[0]!.height).toBe(0.93);
-    const tp = sliceTipPoint(design(s), 0)!;
-    const sec = design(s).slices[0]!.section;
-    expect(yAtX(sec.outside, tp.at)).toBeCloseTo(tp.outside, 3);
-    expect(s.getState().past).toHaveLength(2); // add, and one drag
-    expect(perStep).toBeLessThan(2000); // a drag step stays usable
   });
 
   it('moves a slice past another, keeping it selected, as one undo step per drag', () => {
@@ -874,10 +771,9 @@ describe('fin store: the foil sweep', () => {
   });
 });
 
-describe('fin store: control sections on the smooth surface', () => {
+describe('fin store: control sections as rows', () => {
   it('adds one as the row’s own foil, and moves it with its foil', () => {
     const s = storeWith(defaultFinDesign('side', 'left'));
-    s.getState().setEngine('smooth');
     expect(s.getState().addSlice(0.5)).toBe(true);
     const sl = design(s).slices[0]!;
     // The row's foil there, not the sweep's horizontal section.

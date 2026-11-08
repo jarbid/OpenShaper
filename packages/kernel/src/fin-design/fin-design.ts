@@ -104,9 +104,9 @@ export interface FinSection {
   readonly inside: Spline | null;
 }
 
-/** A foil at one height up the blade (docs/design/fin-designer.md, foil slices). */
+/** A foil on one row across the fin: a control section (smooth-blade.ts). */
 export interface FinSlice {
-  /** Height as a fraction of the blade's depth, like the taper's x: 0 root, 1 tip. */
+  /** Where it is: the fraction of the way along the fin from the base (0) to the tip line (1). */
   readonly height: number;
   readonly section: FinSection;
   /**
@@ -231,16 +231,15 @@ export interface FinDesign {
    */
   readonly slices: readonly FinSlice[];
   /**
-   * Thickness at the section's thickest point, up the blade. Frame: x = height as a
-   * fraction of the blade's depth (0 root → 1 tip), y = thickness (cm). Normalising
-   * the height keeps the taper valid when the outline's depth changes.
+   * Thickness at each row's thickest point, along the fin. Frame: x = the fraction of the
+   * way along the thickness path from the base (0) to the tip (1), y = thickness (cm).
    */
   readonly taper: Spline;
   /** Where the foil sweep ends; absent for the default (swept-loft.ts, defaultTipLine). */
   readonly tipLine?: FinTipLine;
   /**
-   * The foil at the tip line (foil sweep end): the sweep blends from {@link section} at
-   * the base to this. Absent: the base foil all the way.
+   * The foil along the tip line: the blade blends from {@link section} at the base to
+   * this. Absent: the base foil all the way.
    */
   readonly tipSection?: FinSection;
   /**

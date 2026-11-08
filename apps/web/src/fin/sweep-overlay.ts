@@ -6,16 +6,13 @@
  * slide along the outline; each thickness path point slides along its own section.
  */
 import {
-  finReadouts,
   outlineFractionNear,
-  sweepAlongNear,
-  sweepGrid,
-  sweepPointOn,
-  sweepSectionLine,
+  smoothBlade,
+  smoothRowLine,
   sweepTipEdge,
-  thicknessPathAt,
   thicknessPathOf,
   type FinDesign,
+  type SmoothBlade,
   type Vec2,
 } from '@openshaper/kernel';
 import type { FinCurveMarker } from '@openshaper/render2d';
@@ -35,24 +32,39 @@ export interface SweepOverlay {
   readonly path: readonly Vec2[];
   /** The tip past the tip line: its edge round from one end of the tip line to the other. */
   readonly cap: readonly Vec2[];
-  /** Whether a horizontal slice sits above the lower end of the tip line: past it, the chord is the tip's. */
-  readonly sliceIntoTip: boolean;
   readonly markers: readonly FinCurveMarker[];
 }
 
+/** Where the thickness path's three points are (rows): the base, halfway, the tip line. */
+const pathRows = (sb: SmoothBlade): [number, number, number] => [0, 0.5, sb.sTip];
+
+/** The profile point `along` of the way along row s. */
+const onRow = (sb: SmoothBlade, s: number, along: number): Vec2 => {
+  const line = Array.from({ length: 129 }, (_, k) => sb.point(s, k / 128));
+  const run = [0];
+  for (let k = 1; k < line.length; k++) {
+    run.push(run[k - 1]! + Math.hypot(line[k]!.x - line[k - 1]!.x, line[k]!.y - line[k - 1]!.y));
+  }
+  const target = along * run[run.length - 1]!;
+  let k = 1;
+  while (k < line.length - 1 && run[k]! < target) k++;
+  const t = (target - run[k - 1]!) / (run[k]! - run[k - 1]! || 1);
+  const a = line[k - 1]!;
+  const c = line[k]!;
+  return { x: a.x + (c.x - a.x) * t, y: a.y + (c.y - a.y) * t } as Vec2;
+};
+
 export const sweepOverlay = (d: FinDesign): SweepOverlay => {
-  const g = sweepGrid(d);
-  const way = thicknessPathOf(d);
-  const tip = sweepSectionLine(g, g.tipRow);
+  const sb = smoothBlade(d);
+  const tip = smoothRowLine(d, sb.sTip) as Vec2[];
   const path = Array.from({ length: 41 }, (_, k) => {
-    const t = k / 40;
-    return sweepPointOn(g, t * g.tipRow, thicknessPathAt(way, t));
+    const s = (k / 40) * sb.sTip;
+    return onRow(sb, s, sb.path(s));
   });
-  const depth = finReadouts(d).depth;
-  const lowTip = Math.min(tip[0]!.y, tip[tip.length - 1]!.y);
+  const rows = pathRows(sb);
   const handle = (i: 0 | 1 | 2): FinCurveMarker => ({
     id: `path-${i}`,
-    at: sweepPointOn(g, (i / 2) * g.tipRow, way[i]),
+    at: onRow(sb, rows[i], sb.path(rows[i])),
     color: PATH_COLOR,
     label: [
       'Thickness path at the base',
@@ -61,11 +73,10 @@ export const sweepOverlay = (d: FinDesign): SweepOverlay => {
     ][i]!,
   });
   return {
-    base: sweepSectionLine(g, 0),
+    base: smoothRowLine(d, 0) as Vec2[],
     tip,
     path,
     cap: sweepTipEdge(d),
-    sliceIntoTip: d.slices.some((sl) => sl.height * depth > lowTip),
     markers: [
       { id: 'tip-start', at: tip[0]!, color: SWEEP_LINE, label: 'Foil sweep end, front' },
       { id: 'tip-end', at: tip[tip.length - 1]!, color: SWEEP_LINE, label: 'Foil sweep end, back' },
@@ -74,6 +85,18 @@ export const sweepOverlay = (d: FinDesign): SweepOverlay => {
       handle(2),
     ],
   };
+};
+
+/** The fraction along row s nearest a point. */
+const alongNear = (sb: SmoothBlade, s: number, p: Vec2): number => {
+  let best = 0;
+  let dist = Infinity;
+  for (let k = 0; k <= 200; k++) {
+    const q = onRow(sb, s, k / 200);
+    const dd = (q.x - p.x) ** 2 + (q.y - p.y) ** 2;
+    if (dd < dist) [dist, best] = [dd, k / 200];
+  }
+  return best;
 };
 
 /** FinCurveEditor marker handlers wired to the store: one undo step per drag. */
@@ -90,8 +113,11 @@ export const sweepMarkerHandlers = (store: StoreApi<FinState>) => {
         return;
       }
       const i = Number(id.slice('path-'.length)) as 0 | 1 | 2;
-      const g = sweepGrid(d);
-      s().setThicknessPath(i, sweepAlongNear(g, (i / 2) * g.tipRow, to));
+      const sb = smoothBlade(d);
+      const row = pathRows(sb)[i];
+      // The path carries a small correction ending it on the tip foil: dragged net of it.
+      const way = thicknessPathOf(d)[i];
+      s().setThicknessPath(i, alongNear(sb, row, to) - (i === 2 ? 0 : sb.path(row) - way));
     },
     onMarkerDragEnd: () => s().endEdit(),
   };

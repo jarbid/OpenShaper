@@ -25,10 +25,10 @@ import {
   finTabOutline,
   futuresKind,
   finReadouts,
+  smoothSectionDistance,
   validateFinDesign,
   type FinBase,
   type FinDesign,
-  type FinEngine,
   type FinHand,
   type FinLaminate,
   type FinTwist,
@@ -105,12 +105,9 @@ function Preview({
   onReset,
   units,
   minThickness,
-  engine,
 }: {
   frameKey: string;
   view: FinPreviewView;
-  /** The surface the 3D view shows (File settings). */
-  engine: FinEngine;
   /** The exports' minimum thickness (cm): the panel holds the fin as exported. */
   minThickness: number;
   section: SectionState;
@@ -121,7 +118,7 @@ function Preview({
   const design = useSettledDesign(finStore);
   const position = useFinState(finStore, (s) => s.design?.position);
   const hand = useFinState(finStore, (s) => s.design?.hand);
-  const cuts = useSectionCuts(design, section, engine);
+  const cuts = useSectionCuts(design, section);
   const fit = usePanelFit(finStore, minThickness);
   const panel = useMemo(() => (fit ? panelOutline(fit) : null), [fit]);
   return (
@@ -135,7 +132,6 @@ function Preview({
           // See-through only with a plane to see through to.
           sections={cuts?.planes?.length ? cuts.planes : null}
           zebra={section.on && section.zebra}
-          engine={engine}
         />
       </Suspense>
       <SectionOverlay
@@ -392,7 +388,6 @@ function SliceSelect({ units }: { units: LengthUnit }) {
   const design = useFinState(finStore, (s) => s.design);
   const activeFoil = useFinState(finStore, (s) => s.activeFoil);
   if (!design || design.slices.length === 0) return null;
-  const depth = finReadouts(design).depth;
   return (
     <label className="flex items-center gap-2">
       <span className="text-muted-foreground">Shape at</span>
@@ -405,7 +400,7 @@ function SliceSelect({ units }: { units: LengthUnit }) {
         <option value={0}>Whole fin</option>
         {design.slices.map((sl, i) => (
           <option key={i} value={i + 1}>
-            Control section {fmtLen(sl.height * depth, units)}
+            Control section {fmtLen(smoothSectionDistance(design, sl.height), units)}
             {sl.twist ? ' · cant / toe' : ''}
           </option>
         ))}
@@ -426,7 +421,7 @@ function SliceTwistTools({ foil, units }: { foil: number; units: LengthUnit }) {
   // One without a change shows what the blade has there now.
   const now = sl.twist ?? twistAt(design, sl.height);
   const set = (change: Partial<FinTwist> | null) => finStore.getState().setSliceTwist(foil, change);
-  const at = fmtLen(sl.height * finReadouts(design).depth, units);
+  const at = fmtLen(smoothSectionDistance(design, sl.height), units);
   return (
     <ToolGroup title={`Control section ${at}`}>
       <Tooltip label={`Blade lean here, ${minus(FIN_MIN_SLICE_CANT)}° to ${FIN_MAX_CANT}°`}>
@@ -1097,9 +1092,6 @@ export function FinApp() {
     });
   }, []);
   const units = useMemo(() => finLengthUnit(settings), [settings]);
-  // The store adds and moves control sections as the surface shown has them (rows on the
-  // smooth surface).
-  useEffect(() => finStore.getState().setEngine(settings.engine), [settings.engine]);
   const [view3d, setView3d] = useState<FinPreviewView>('side');
   // The foil view's analysis: the other sections behind the foil (foil-analysis.ts).
   const [foilAnalysis, setFoilAnalysis] = useState<FoilAnalysis>(FOIL_ANALYSIS_DEFAULT);
@@ -1248,7 +1240,6 @@ export function FinApp() {
             frameKey={`${sizeKey('3d')}-${resets}`}
             view={view3d}
             minThickness={settings.exportMin}
-            engine={settings.engine}
             section={section}
             onSection={setSection}
             onReset={resetView}

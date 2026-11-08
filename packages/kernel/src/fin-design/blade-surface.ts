@@ -187,6 +187,11 @@ const rowHeights = (
   return { heights, breaks };
 };
 
+/** Chord stations added at each edge (cosineStations leaves the last 0.2% to one step). */
+const EDGE_STATIONS = [
+  1e-4, 3e-4, 6e-4, 1e-3, 2e-3, 0.998, 0.999, 0.9992, 0.9994, 0.9996, 0.9998, 0.9999,
+];
+
 /** Offsets (cm) of the extra rows either side of an outline point's height. */
 const CORNER_ROWS = [0.005, 0.01, 0.02, 0.035, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4];
 
@@ -235,11 +240,14 @@ const fitOnce = (
     rowHeights(b, creaseHeights(b, topZ), topZ, rows),
     outlineFeatureHeights(b, topZ),
   );
-  const st = cosineStations(stations);
+  // Stations packed into the last of the chord at each edge: a squared-off foil falls to
+  // the edge within a fraction of a percent of it (the A4C's, 5 mm in 0.07%), and the fit
+  // has to turn that between stations.
+  const st = [...new Set([...cosineStations(stations), ...EDGE_STATIONS])].sort((p, q) => p - q);
   // grid[r][c]: r around the section (u), c up the blade (v).
   const loops = heights.map((h) => sectionLoop(bladeSection(b, h, st)));
   const grid = loops[0]!.map((_, r) => loops.map((loop) => loop[r]!));
-  const corners = loopCorners(stations);
+  const corners = loopCorners(st.length - 1);
   // Parameters along the blade by how far the edges travel (as the rows are spaced), not
   // averaged over every point of the section: most barely move where an edge runs nearly
   // level, and would outvote it.

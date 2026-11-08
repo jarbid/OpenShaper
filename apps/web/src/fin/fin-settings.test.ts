@@ -55,14 +55,6 @@ describe('fin settings', () => {
     expect(readFinSettings()).toEqual(DEFAULT_FIN_SETTINGS);
   });
 
-  it('shows the current surface unless the smooth one (in preview) is chosen', () => {
-    expect(readFinSettings().engine).toBe('sweep');
-    writeFinSettings({ ...DEFAULT_FIN_SETTINGS, engine: 'smooth' });
-    expect(readFinSettings().engine).toBe('smooth');
-    localStorage.setItem('bs.fin.settings', JSON.stringify({ engine: 'nurbs' }));
-    expect(readFinSettings().engine).toBe('sweep');
-  });
-
   it('starts from the export minimum remembered before File settings existed', () => {
     localStorage.setItem('bs.fin.exportMin', '0.2');
     expect(readFinSettings().exportMin).toBe(0.2);

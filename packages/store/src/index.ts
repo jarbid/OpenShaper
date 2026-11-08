@@ -50,8 +50,6 @@ export {
   withFoilsNearTrueScale,
   getFinCurve,
   getFoil,
-  tipSpanOf,
-  withCrossingPoints,
   moveSlice,
   newIssues,
   removeSlice,

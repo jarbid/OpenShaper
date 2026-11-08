@@ -290,22 +290,6 @@ export function FinSettingsDialog({
             </p>
           </Section>
 
-          <Section title="Smooth surface (preview)">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={settings.engine === 'smooth'}
-                onChange={(e) => onChange({ engine: e.target.checked ? 'smooth' : 'sweep' })}
-              />
-              Show the new smooth surface in the 3D view
-            </label>
-            <p className="text-xs text-muted-foreground">
-              A new way of building the blade that blends the foils, thickness, cant and toe without
-              creasing it. Control sections become lines across the fin, along it. Still in
-              progress: exports use the current surface.
-            </p>
-          </Section>
-
           <div className="flex justify-end">
             <Button size="sm" onClick={onClose}>
               Done

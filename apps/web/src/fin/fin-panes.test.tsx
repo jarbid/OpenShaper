@@ -7,9 +7,6 @@
 import { defaultFinDesign, FIN_MIN_THICKNESS, foilShare } from '@openshaper/kernel';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { readFinJson } from '@openshaper/io';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { lengthUnitByKey } from '../format';
 import { MOUSE, installLayoutStubs, pane, removeLayoutStubs } from '../test/spline-editor-harness';
 import { FinOutlinePane } from './FinOutlinePane';
@@ -275,21 +272,7 @@ describe('dragging in the panes', () => {
   });
 });
 
-describe('the thickness view on a swept-back fin', () => {
-  it('notes when it is read along the sweep, and only then', () => {
-    act(() => finStore.getState().load(defaultFinDesign('side', 'right')));
-    const { unmount } = render(<FinTaperPane store={finStore} units={lengthUnitByKey('mm')} />);
-    expect(screen.queryByTestId('taper-along-sweep')).toBeNull();
-    unmount();
-    // Tests run from apps/web.
-    const file = resolve(process.cwd(), '../../docs/specs/fins/swept_back_tip.fin.json');
-    act(() => finStore.getState().load(readFinJson(readFileSync(file, 'utf8')).design));
-    render(<FinTaperPane store={finStore} units={lengthUnitByKey('mm')} />);
-    expect(screen.getByTestId('taper-along-sweep').textContent).toMatch(/along the sweep/);
-  });
-});
-
-describe('a slice that crosses the tip line, in the foil view', () => {
+describe('a control section high up the fin, in the foil view', () => {
   beforeEach(() =>
     act(() => {
       finStore.getState().load(defaultFinDesign('side', 'right'));
@@ -298,7 +281,7 @@ describe('a slice that crosses the tip line, in the foil view', () => {
   );
 
   it(
-    'drags a point past the crossing: the tip foil shapes that part, nothing is locked',
+    'drags any of its points: nothing is locked',
     () => {
       // Owner testing: with the tip line moved forward, a slice's points there were locked.
       render(<FinSectionPane store={finStore} units={lengthUnitByKey('mm')} />);

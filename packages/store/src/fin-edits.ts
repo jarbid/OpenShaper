@@ -17,14 +17,9 @@ import {
   finMinThickness,
   FIN_SLICE_MIN_GAP,
   FIN_THICKNESS_PATH_LIMITS,
-  bladeFoilAt,
   smoothFoilAt,
-  type FinEngine,
-  chordAt,
-  sliceFoilMovedTo,
-  sliceFreeSpan,
-  sliceTipCrossing,
-  yAtX,
+  smoothRowSize,
+  smoothSectionRow,
   moveFoilThickest,
   sectionThickest,
   tipFoilOf,
@@ -32,9 +27,7 @@ import {
   tipLineOf,
   defaultCanard,
   finHasToe,
-  prepareBlade,
   splitFoil,
-  thicknessAt,
   defaultKeel,
   defaultSingleFin,
   defaultTwinFin,
@@ -46,10 +39,6 @@ import {
   parseNaca4,
   splineFromKnots,
   sub,
-  sweepGrid,
-  sweepPointOn,
-  sweepSectionLine,
-  thicknessPathOf,
   validateFinDesign,
   value,
   vec2,
@@ -63,7 +52,7 @@ import {
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
-import { insertKnotAt, moveKnotEnd, setKnotContinuous, withoutEmptySpans } from './edits';
+import { moveKnotEnd, setKnotContinuous, withoutEmptySpans } from './edits';
 
 /** The editable curves of a fin. */
 export type FinCurve = 'outline' | 'outside' | 'inside' | 'taper';
@@ -113,31 +102,17 @@ export const withoutStackedPoints = (d: FinDesign): FinDesign => {
 };
 
 /**
- * The real chord and thickness a foil is drawn for: the base foil along the sweep's base,
- * the tip foil across the tip line (turned level in the foil view), a horizontal slice
- * foil along the chord at its height. Thickness from the taper at its thickest point.
+ * The real chord and thickness a foil is drawn for: the length of its row of the smooth
+ * blade (the tip foil's is the tip line, turned level in the foil view) and how thick that
+ * row is at its thickest.
  */
 export const foilSize = (
   d: FinDesign,
   foil: FinFoilIndex,
 ): { chord: number; thickness: number } => {
-  const b = prepareBlade(d);
-  if (foil === 0 || foil === TIP_FOIL) {
-    const g = sweepGrid(d);
-    const row = foil === 0 ? 0 : g.tipRow;
-    const line = sweepSectionLine(g, row);
-    let chord = 0;
-    for (let i = 1; i < line.length; i++) {
-      chord += Math.hypot(line[i]!.x - line[i - 1]!.x, line[i]!.y - line[i - 1]!.y);
-    }
-    const path = thicknessPathOf(d);
-    const at = sweepPointOn(g, row, foil === 0 ? path[0] : path[2]);
-    return { chord, thickness: thicknessAt(b, Math.min(b.depth, Math.max(0, at.y))) };
-  }
-  const sl = d.slices[foil - 1];
-  const h = sl ? sl.height * b.depth : 0;
-  const { leading, trailing } = chordAt(b, Math.min(b.depth, h));
-  return { chord: Math.abs(leading - trailing), thickness: thicknessAt(b, h) };
+  const tipRow = smoothSectionRow(d, 1);
+  const sl = foil >= 1 ? d.slices[foil - 1] : undefined;
+  return smoothRowSize(d, foil === TIP_FOIL ? tipRow : sl ? sl.height * tipRow : 0);
 };
 
 /**
@@ -266,17 +241,15 @@ export const withFinCurve = (
 };
 
 /**
- * A new foil slice at `height` (fraction of the depth), starting as the fin's own
- * section there (kernel bladeFoilAt), so the blade doesn't change until it is edited
+ * A new control section at `height` (the fraction of the way to the tip line), starting
+ * as the foil on its row (kernel smoothFoilAt), so the blade doesn't change until it is edited
  * (owner's rules). Its height is clamped into the room between its neighbours
  * ({@link FIN_SLICE_MIN_GAP}); null if there is none. Returns the design and the new
- * slice's foil index. On the smooth surface (`engine`), a control section is a row, and
- * starts as the foil on it (kernel smoothFoilAt).
+ * slice's foil index.
  */
 export const addSlice = (
   d: FinDesign,
   height: number,
-  engine: FinEngine = 'sweep',
 ): { design: FinDesign; foil: FinFoilIndex } | null => {
   const at = d.slices.findIndex((sl) => sl.height > height); // insert before this
   const pos = at === -1 ? d.slices.length : at;
@@ -284,7 +257,7 @@ export const addSlice = (
   const hi = (pos === d.slices.length ? 1 : d.slices[pos]!.height) - FIN_SLICE_MIN_GAP;
   if (hi < lo) return null;
   const h = Math.min(hi, Math.max(lo, height));
-  const section = engine === 'smooth' ? smoothFoilAt(d, h) : bladeFoilAt(d, h);
+  const section = smoothFoilAt(d, h);
   const slices = [...d.slices.slice(0, pos), { height: h, section }, ...d.slices.slice(pos)];
   return { design: { ...d, slices }, foil: pos + 1 };
 };
@@ -332,19 +305,12 @@ export const removeSlice = (d: FinDesign, foil: FinFoilIndex): FinDesign =>
  * and hops to the far side once the drag is past the neighbour. Slices are kept in
  * order up the blade, so its index may change: returns the design and its new index.
  *
- * Moving a slice repositions it, as the horizontal analysis cut moves (owner testing): it
- * takes the fin's section at its new height, with whatever it was reshaped by on top
- * (kernel sliceFoilMovedTo). `from` is the design and slice index a drag started from, so
- * every step carries the slice as it was then, not as the last step left it. On the
- * smooth surface (`engine`) a control section is a foil drawn for its row, and takes it
- * along unchanged.
+ * A section is a foil drawn for its row, and takes it along unchanged.
  */
 export const moveSlice = (
   d: FinDesign,
   foil: FinFoilIndex,
   height: number,
-  from?: { design: FinDesign; index: number },
-  engine: FinEngine = 'sweep',
 ): { design: FinDesign; foil: FinFoilIndex } => {
   const i = foil - 1;
   const sl = d.slices[i];
@@ -372,9 +338,7 @@ export const moveSlice = (
     }
   }
   if (h === sl.height) return { design: d, foil };
-  const src = from ?? { design: d, index: i };
-  const section = engine === 'smooth' ? sl.section : sliceFoilMovedTo(src.design, src.index, h);
-  const moved = { ...sl, height: h, section };
+  const moved = { ...sl, height: h };
   const at = others.findIndex((o) => o.height > h);
   const pos = at === -1 ? others.length : at;
   const slices = [...others.slice(0, pos), moved, ...others.slice(pos)];
@@ -543,12 +507,9 @@ export const setFoilSplit = (
   foil: FinFoilIndex = 0,
 ): FinDesign | null => {
   if (d.position === 'centre' || !getFoil(d, foil)) return null;
-  const b = prepareBlade(d);
-  const h = foil === 0 ? 0 : (d.slices[foil - 1]?.height ?? 0) * b.depth;
-  const { leading, trailing } = chordAt(b, h);
-  const chord = leading - trailing;
+  const { chord, thickness } = foilSize(d, foil);
   if (!(chord > 0)) return null;
-  return withFoil(d, foil, splitFoil(outside, thicknessAt(b, h) / chord));
+  return withFoil(d, foil, splitFoil(outside, thickness / chord));
 };
 
 /** Which side a side or quad-rear fin is for; the design is otherwise unchanged. */
@@ -752,123 +713,4 @@ export const resetThicknessPath = (d: FinDesign): FinDesign => {
   const { thicknessMid: _old, ...rest } = d;
   void _old;
   return rest;
-};
-
-/**
- * The part of slice `foil`'s chord (fractions, 0 the leading edge) that is the tip's:
- * past where its chord crosses the tip line (kernel sliceFreeSpan). The tip foil shapes
- * it, so the slice's foil view shades it; the slice's points there may still be dragged
- * but change nothing (owner's rules). Null for the base and tip foils, and a slice whose
- * chord doesn't reach the tip line.
- */
-export const tipSpanOf = (d: FinDesign, foil: FinFoilIndex): readonly [number, number] | null => {
-  const sl = foil >= 1 ? d.slices[foil - 1] : undefined;
-  if (!sl) return null;
-  const [a, c] = sliceFreeSpan(d, sl.height);
-  if (a <= 0 && c >= 1) return null;
-  return a > 0 ? [0, a] : [c, 1];
-};
-
-/** A point closer than this (chord fraction) to a crossing already marks it. */
-const CROSSING_NEAR = 0.01;
-
-/** `s` with a point at chord fraction `x` on it, its shape unchanged, unless one is near. */
-const withPointAt = (s: Spline, x: number): Spline => {
-  if (!(x > CROSSING_NEAR && x < 1 - CROSSING_NEAR)) return s;
-  if (s.knots.some((k) => Math.abs(k.end.x - x) < CROSSING_NEAR)) return s;
-  return insertKnotAt(s, vec2(x, yAtX(s, x)))?.spline ?? s;
-};
-
-const sectionWithPointAt = (sec: FinSection, x: number): FinSection => {
-  const outside = withPointAt(sec.outside, x);
-  const inside = sec.inside ? withPointAt(sec.inside, x) : null;
-  return outside === sec.outside && inside === sec.inside ? sec : { outside, inside };
-};
-
-/** How far (chord fractions) a face may move for a point to count as taken out unchanged. */
-const UNCHANGED = 1e-9;
-
-/**
- * `s` without its point near chord fraction `x`, if that point changes nothing: as a
- * crossing point was put in (a split of one curve), never dragged since. `s` otherwise.
- */
-const withoutPointAt = (s: Spline, x: number): Spline => {
-  let j = -1;
-  for (let i = 1; i < s.knots.length - 1; i++) {
-    const dx = Math.abs(s.knots[i]!.end.x - x);
-    if (dx < CROSSING_NEAR && (j < 0 || dx < Math.abs(s.knots[j]!.end.x - x))) j = i;
-  }
-  if (j < 0) return s;
-  const [a, m, b] = [s.knots[j - 1]!, s.knots[j]!, s.knots[j + 1]!];
-  // Where along the one curve the split was: its handles there, in proportion.
-  const l0 = Math.hypot(m.end.x - m.tangentToPrev.x, m.end.y - m.tangentToPrev.y);
-  const l1 = Math.hypot(m.tangentToNext.x - m.end.x, m.tangentToNext.y - m.end.y);
-  if (!(l0 > 0 && l1 > 0)) return s;
-  const t = l0 / (l0 + l1);
-  const out = vec2(
-    a.end.x + (a.tangentToNext.x - a.end.x) / t,
-    a.end.y + (a.tangentToNext.y - a.end.y) / t,
-  );
-  const into = vec2(
-    b.end.x + (b.tangentToPrev.x - b.end.x) / (1 - t),
-    b.end.y + (b.tangentToPrev.y - b.end.y) / (1 - t),
-  );
-  const merged = splineFromKnots([
-    ...s.knots.slice(0, j - 1),
-    knot(a.end, a.tangentToPrev, out, a.continuous, a.other),
-    knot(b.end, into, b.tangentToNext, b.continuous, b.other),
-    ...s.knots.slice(j + 2),
-  ]);
-  for (let k = 1; k < 32; k++) {
-    const u = a.end.x + ((b.end.x - a.end.x) * k) / 32;
-    if (Math.abs(yAtX(merged, u) - yAtX(s, u)) > UNCHANGED) return s;
-  }
-  return merged;
-};
-
-const sectionWithoutPointAt = (sec: FinSection, x: number): FinSection => {
-  const outside = withoutPointAt(sec.outside, x);
-  const inside = sec.inside ? withoutPointAt(sec.inside, x) : null;
-  return outside === sec.outside && inside === sec.inside ? sec : { outside, inside };
-};
-
-/**
- * The design with a point where each slice crosses the tip line, in the slice's foil and
- * in the tip foil (owner's rules: each foil view shows the other's faces there as a dot,
- * and its own point there is what to match it with). The shapes are unchanged; a point
- * already near a crossing is kept. The same design if every crossing has its points.
- *
- * With `before`, the design before the edit, the points its crossings had and these
- * don't are taken out, where that changes nothing: a slice or the tip line dragged left
- * a point at every crossing it had passed (owner testing: three or four, a few percent
- * of the chord apart, in the tip foil). A point dragged since stays.
- */
-export const withCrossingPoints = (d: FinDesign, before?: FinDesign): FinDesign => {
-  let tip = tipFoilOf(d);
-  let changed = false;
-  const now = d.slices.map((_, i) => sliceTipCrossing(d, i));
-  const was = before ? before.slices.map((_, i) => sliceTipCrossing(before, i)) : [];
-  const near = (x: number, xs: readonly number[]) =>
-    xs.some((y) => Math.abs(y - x) < CROSSING_NEAR);
-  const tipNow = now.flatMap((c) => (c ? [c.tipAt] : []));
-  for (const c of was) if (c && !near(c.tipAt, tipNow)) tip = sectionWithoutPointAt(tip, c.tipAt);
-  const sameSlices = before?.slices.length === d.slices.length;
-  const slices = d.slices.map((sl, i) => {
-    const c = now[i];
-    let section = sl.section;
-    const old = sameSlices ? was[i] : null;
-    if (old && !(c && Math.abs(c.sliceAt - old.sliceAt) < CROSSING_NEAR)) {
-      section = sectionWithoutPointAt(section, old.sliceAt);
-    }
-    if (c) {
-      tip = sectionWithPointAt(tip, c.tipAt);
-      section = sectionWithPointAt(section, c.sliceAt);
-    }
-    if (section === sl.section) return sl;
-    changed = true;
-    return { ...sl, section };
-  });
-  const tipChanged = tip !== tipFoilOf(d);
-  if (!changed && !tipChanged) return d;
-  return { ...d, slices, ...(tipChanged ? { tipSection: tip } : {}) };
 };

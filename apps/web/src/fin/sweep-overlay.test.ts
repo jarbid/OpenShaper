@@ -3,8 +3,9 @@ import {
   chordAt,
   defaultFinDesign,
   prepareBlade,
-  sweepGrid,
-  sweepPointOn,
+  sweepFrame,
+  smoothRowLine,
+  type Vec2,
   thicknessAt,
   thicknessPathOf,
   tipLineOf,
@@ -34,13 +35,6 @@ describe('the foil sweep over the profile', () => {
       'path-1',
       'path-2',
     ]);
-    expect(o.sliceIntoTip).toBe(false);
-  });
-
-  it('shades the tip when a slice sits above the tip line', () => {
-    const d = defaultFinDesign('side', 'left');
-    const high = { ...d, slices: [{ height: 0.97, section: d.section }] };
-    expect(sweepOverlay(high).sliceIntoTip).toBe(true);
   });
 
   it('moves the tip line and the thickness path by dragging, one undo step each', () => {
@@ -50,8 +44,8 @@ describe('the foil sweep over the profile', () => {
     const d0 = store.getState().design!;
     const before = tipLineOf(d0);
     // Drag the tip line's front end down the leading edge.
-    const g0 = sweepGrid(d0);
-    const lower = sweepPointOn(g0, g0.tipRow * 0.85, 0);
+    const edge = sweepFrame(d0).leading.pts;
+    const lower = edge[Math.floor(edge.length * 0.85)]!;
     h.onMarkerDragStart('tip-start');
     h.onMarkerDrag('tip-start', lower);
     h.onMarkerDragEnd();
@@ -59,9 +53,9 @@ describe('the foil sweep over the profile', () => {
     expect(store.getState().past.at(-1)!.label).toBe('Move the tip line');
     // Drag the base point of the thickness path toward the leading edge.
     const d1 = store.getState().design!;
-    const g1 = sweepGrid(d1);
+    const base = smoothRowLine(d1, 0, 400);
     h.onMarkerDragStart('path-0');
-    h.onMarkerDrag('path-0', sweepPointOn(g1, 0, 0.25));
+    h.onMarkerDrag('path-0', base[100]! as Vec2);
     h.onMarkerDragEnd();
     expect(thicknessPathOf(store.getState().design!)[0]).toBeCloseTo(0.25, 2);
     expect(store.getState().past.at(-1)!.label).toBe('Move the thickness path');

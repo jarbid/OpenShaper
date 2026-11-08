@@ -165,7 +165,7 @@ describe('the smooth blade', () => {
       [defaultFinDesign('side', 'right'), 25, 32],
       [ownerFin('tsn_800_single.fin.json'), 100, 140],
     ] as const) {
-      const m = finMesh(d, { ...FIN_MESH_PREVIEW, engine: 'smooth' }).blade;
+      const m = finMesh(d, FIN_MESH_PREVIEW).blade;
       const edges = new Map<string, number>();
       // Wound one way throughout: each edge is run once each way by the two triangles on it.
       // (Round the hook's tip, where rows run up and down, quads judged one by one from the

@@ -403,10 +403,10 @@ describe('FinApp', () => {
       expect(tabs.getAllByRole('tab').map((t) => t.textContent)).toEqual([
         'Base',
         'Tip',
-        '50.0 mm',
+        '62.0 mm',
       ]);
-      expect(screen.getByTestId('foil-title').textContent).toMatch(/^Control section 50\.0 mm/);
-      expect(tabs.getByRole('tab', { name: '50.0 mm' }).getAttribute('aria-selected')).toBe('true');
+      expect(screen.getByTestId('foil-title').textContent).toMatch(/^Control section 62\.0 mm/);
+      expect(tabs.getByRole('tab', { name: '62.0 mm' }).getAttribute('aria-selected')).toBe('true');
       fireEvent.change(screen.getByLabelText('NACA preset'), { target: { value: '0008' } });
       fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
       expect(d().slices[0]!.section.inside).toBeNull(); // the slice took the NACA foil

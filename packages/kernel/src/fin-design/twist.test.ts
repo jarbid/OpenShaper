@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /** Cant and toe changed at a slice: the upper blade bent and twisted. */
+import { yAtX } from './curve-shape';
+import { smoothBladeOf } from './smooth-blade';
 import { describe, expect, it } from 'vitest';
 import { RAD_TO_DEG } from '../constants';
-import {
-  FIN_SLICE_REACH,
-  bladeSection,
-  cosineStations,
-  prepareBlade,
-  thicknessAt,
-  twistAt,
-} from './blade';
+import { FIN_SLICE_REACH, bladeSection, prepareBlade, twistAt } from './blade';
 import { defaultFinDesign } from './fin-defaults';
 import type { FinDesign } from './fin-design';
 import { finMesh } from './fin-mesh';
@@ -81,25 +76,32 @@ describe('the bent, twisted blade', () => {
 
   it('turns its sections by the slice’s toe: the chord a degree toward toe out', () => {
     const chordAngle = (bl: ReturnType<typeof prepareBlade>) => {
-      const s = bladeSection(bl, 0.8 * bl.depth);
-      const le = s.inside[0]!;
-      const te = s.inside[s.inside.length - 1]!;
+      // Along a row above the slice, where its toe has all taken effect.
+      const sb = smoothBladeOf(bl);
+      const le = sb.faces(0.8 * sb.sTip, 0).inside;
+      const te = sb.faces(0.8 * sb.sTip, 1).inside;
       return Math.atan2(le.y - te.y, le.x - te.x) * RAD_TO_DEG;
     };
     // A left fin's stringer is −Y: toe out turns the leading edge toward +Y.
-    expect(chordAngle(b) - chordAngle(b0)).toBeCloseTo(1, 6);
+    // Against the same section with no toe, so only the toe differs.
+    const noToe = prepareBlade({
+      ...twisted,
+      slices: [{ ...twisted.slices[0]!, twist: { cant: 12, toe: 0 } }],
+    });
+    expect(chordAngle(b) - chordAngle(noToe)).toBeCloseTo(1, 3);
   });
 
   it('keeps the taper’s thickness square to the blade, at the slice’s cant', () => {
-    const h = 0.8 * b.depth;
-    const s = bladeSection(b, h, cosineStations(2000));
-    const widest = Math.max(
-      ...s.outside.map((p, j) => Math.hypot(p.x - s.inside[j]!.x, p.y - s.inside[j]!.y)),
-    );
-    // Within the sweep's lean: up here its sections cross a horizontal cut at a slant.
+    const sb = smoothBladeOf(b);
+    const row = 0.8 * sb.sTip;
+    let widest = 0;
+    for (let k = 0; k <= 400; k++) {
+      const f = sb.faces(row, k / 400);
+      widest = Math.max(widest, Math.hypot(f.outside.x - f.inside.x, f.outside.y - f.inside.y));
+    }
     expect(
-      Math.abs((widest * Math.cos((12 * Math.PI) / 180)) / thicknessAt(b, h) - 1),
-    ).toBeLessThan(0.1);
+      Math.abs((widest * Math.cos((12 * Math.PI) / 180)) / yAtX(b.design.taper, sb.eta(row)) - 1),
+    ).toBeLessThan(0.005);
   });
 
   it('meshes', () => {

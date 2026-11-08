@@ -14,6 +14,7 @@ describe('PointTools', () => {
     act(() => {
       finStore.getState().load(defaultFinDesign('side', 'right'));
       finStore.getState().addSlice(0.93); // made the active foil
+      finStore.getState().applyNaca('0008'); // a foil of many points
     });
     const outside = () => finStore.getState().design!.slices[0]!.section.outside;
     const n = outside().knots.length;

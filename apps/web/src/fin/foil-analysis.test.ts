@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import {
-  bladeFoilAt,
+  smoothFoilAt,
   chordAt,
   defaultFinDesign,
   prepareBlade,
+  smoothBladeOf,
   type FinDesign,
 } from '@openshaper/kernel';
 import { TIP_FOIL } from '@openshaper/store';
@@ -15,7 +16,7 @@ const fin = (): FinDesign => {
   const d = defaultFinDesign('side', 'left');
   return {
     ...d,
-    slices: [0.3, 0.7].map((height) => ({ height, section: bladeFoilAt(d, height) })),
+    slices: [0.3, 0.7].map((height) => ({ height, section: smoothFoilAt(d, height) })),
   };
 };
 const at = (patch: Partial<FoilAnalysis>): FoilAnalysis => ({
@@ -78,7 +79,8 @@ describe('the foil view’s analysis', () => {
     // the leading edge sweeps back to its height, in base chords.
     const b = prepareBlade(d);
     const base = chordAt(b, 0);
-    const up = chordAt(b, 0.7 * b.depth);
+    const sb = smoothBladeOf(b);
+    const up = { leading: sb.point(0.7 * sb.sTip, 0).x };
     const g = foilGhosts(d, 0, at({ align: 'tab' })).find(
       (x) => x.kind === 'control' && x.level > 0.5,
     )!;

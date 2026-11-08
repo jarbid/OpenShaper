@@ -4,10 +4,9 @@
  * docs/design/fin-designer.md. Two closed shells, blade and tab, in the frame of
  * blade.ts and fin-step.ts (cm; the STL writer scales to mm).
  *
- * The blade is meshed straight from the design's sections, not from the STEP surface:
- * rings of {@link sectionLoop} stacked up the blade, joined by quads, with the root
- * and tip rings capped flat. Sections stop {@link FinMeshOptions.tipGap} under the
- * tip, or higher under a rounded top (`bladeTop`), as the STEP blade does. The tab is its profile (arcs sampled to
+ * The blade is meshed straight from the smooth blade's rows, not from the STEP surface:
+ * rings of {@link sectionLoop} along the fin, joined by quads, the root capped and the
+ * last row closed. The tab is its profile (arcs sampled to
  * {@link FinMeshOptions.arcTolerance}) extruded across its thickness.
  *
  * Closed by construction: neighbouring triangles share vertex indices, so every edge
@@ -18,33 +17,16 @@ import { meshWithNormals } from '../fins';
 import type { BoardMesh } from '../tessellate';
 import { vec2, type Vec2 } from '../vec2';
 import type { Vert3 } from '../loft';
-import {
-  bladeRowHeights,
-  bladeTop,
-  bladeSection,
-  cosineStations,
-  type FinLaminate,
-  NO_LAMINATE,
-  outlineFeatureHeights,
-  prepareBlade,
-} from './blade';
+import { cosineStations, type FinLaminate, NO_LAMINATE } from './blade';
 import { sectionLoop } from './blade-surface';
 import { FIN_MIN_THICKNESS, type FinDesign } from './fin-design';
 import { smoothBlade } from './smooth-blade';
 import { finTabOutline } from './fin-tab';
 import { tabCentreY, tabFacesY } from './fin-placement';
 import type { TabSegment } from './futures-tab';
-import { polygonArea, triangulate, triangulateWithHoles } from './triangulate';
-
-/**
- * Which surface engine builds the blade: the foil sweep (blade.ts, horizontal sections)
- * or the smooth blade (smooth-blade.ts, the new engine, in preview).
- */
-export type FinEngine = 'sweep' | 'smooth';
+import { triangulate, triangulateWithHoles } from './triangulate';
 
 export interface FinMeshOptions {
-  /** The surface engine (default the sweep). */
-  readonly engine?: FinEngine;
   /** Rings up the blade. */
   readonly rows?: number;
   /** Chord stations per face in each ring. */
@@ -61,7 +43,6 @@ export interface FinMeshOptions {
 
 /** Light enough to rebuild on every edit. */
 export const FIN_MESH_PREVIEW = {
-  engine: 'sweep' as FinEngine,
   rows: 40,
   stations: 32,
   tipGap: 0.01,
@@ -72,7 +53,6 @@ export const FIN_MESH_PREVIEW = {
 
 /** For STL: rings about 0.5 mm apart on a 100 mm fin. */
 export const FIN_MESH_FINE = {
-  engine: 'sweep' as FinEngine,
   rows: 200,
   stations: 120,
   tipGap: 0.01,
@@ -122,52 +102,6 @@ const cap = (
   outward: Vert3,
 ): void => {
   for (const [a, b, c] of triangulate(flat)) m.tri(ids[a]!, ids[b]!, ids[c]!, outward);
-};
-
-/** Offsets (cm) of the extra rings either side of an outline feature's height. */
-const FEATURE_RINGS = [0.01, 0.03, 0.1];
-
-const bladeMesh = (d: FinDesign, o: Required<FinMeshOptions>): BoardMesh => {
-  const b = prepareBlade(d, o.laminate, o.minThickness);
-  const top = bladeTop(b, o.tipGap);
-  const st = cosineStations(o.stations);
-  // Rings spaced along the edges' travel: they gather at the tip, and wherever an edge
-  // runs nearly level (a raised rear's underside, a hooked tip).
-  // Plus rings at and either side of where the outline turns hardest, so a tip that
-  // sticks out backward isn't cut off between rings (outlineFeatureHeights).
-  const features = outlineFeatureHeights(b, top).flatMap((h) =>
-    [0, ...FEATURE_RINGS.flatMap((o) => [-o, o])].map((o) => h + o),
-  );
-  const heights = [
-    ...new Set([
-      ...bladeRowHeights(b, 0, top, o.rows),
-      ...features.filter((h) => h > 0 && h < top),
-    ]),
-  ].sort((p, q) => p - q);
-  const rings = heights.map((h) => sectionLoop(bladeSection(b, h, st)).slice(0, -1));
-  const m = builder();
-  const ids = rings.map((ring) => ring.map((p) => m.add(p)));
-  const n = rings[0]!.length;
-
-  // Which way round the rings run (a right fin's mirror runs the other way), so each
-  // side quad can be wound with its outward normal pointing away from the ring.
-  const ccw = polygonArea(rings[0]!.map((p) => vec2(p.x, p.y))) > 0;
-  for (let k = 0; k < rings.length - 1; k++) {
-    for (let j = 0; j < n; j++) {
-      const j1 = (j + 1) % n;
-      const a = rings[k]![j]!;
-      const c = rings[k]![j1]!;
-      // Outward in the ring's plane: right of travel for a counter-clockwise ring.
-      const t = sub(c, a);
-      const out = ccw ? { x: t.y, y: -t.x, z: 0 } : { x: -t.y, y: t.x, z: 0 };
-      m.tri(ids[k]![j]!, ids[k]![j1]!, ids[k + 1]![j1]!, out);
-      m.tri(ids[k]![j]!, ids[k + 1]![j1]!, ids[k + 1]![j]!, out);
-    }
-  }
-  const flat = (ring: readonly Vert3[]) => ring.map((p) => vec2(p.x, p.y));
-  cap(m, ids[0]!, flat(rings[0]!), { x: 0, y: 0, z: -1 });
-  cap(m, ids[ids.length - 1]!, flat(rings[rings.length - 1]!), { x: 0, y: 0, z: 1 });
-  return m.done();
 };
 
 /**
@@ -379,6 +313,5 @@ const tabMesh = (d: FinDesign, o: Required<FinMeshOptions>): BoardMesh => {
 /** Blade and tab meshes of a valid design (see `validateFinDesign`). */
 export const finMesh = (d: FinDesign, opts: FinMeshOptions = {}): FinMesh => {
   const o = { ...FIN_MESH_PREVIEW, ...opts };
-  const blade = o.engine === 'smooth' ? smoothBladeMesh(d, o) : bladeMesh(d, o);
-  return { blade, tab: tabMesh(d, o) };
+  return { blade: smoothBladeMesh(d, o), tab: tabMesh(d, o) };
 };

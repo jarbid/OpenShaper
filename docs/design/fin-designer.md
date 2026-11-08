@@ -725,3 +725,24 @@ Gate after: the starting fins, TSN 800, hatchet tip crossing and steep tip line 
 creases, no layout folds on any fin. corner_creases goes from 72 creased patches to 36,
 all beside its corners near the root. Tighter than before: hatchet_hook's section 6% of the
 way up, 144 (was 80); swept_back_tip's section 44 (was 40).
+
+### Stage 4: the smooth blade is the only surface
+
+The sweep and the switch between surfaces are gone (`sweepGrid`, the slices' differences on
+horizontal cuts, `bladeFoilAt`, the tip line crossing points and dots, the File settings
+checkbox). `swept-loft.ts` keeps only the sides of the profile and the thickness path.
+
+- `finMesh` (3D view, STL, panel fit) meshes the rows. `bladeSection` is a level cut of the
+  surface, each station found on the layout (`nearest`, warm-started from the last),
+  pinned to the outline, an end of the cut snapped to the edge.
+- **STEP** still fits a B-spline through level cuts, not the rows: a STEP solid here has
+  flat caps at the root and tip, and the last row and a raised rear's base row aren't flat.
+  Stations are packed into the last 0.2% of each edge (`EDGE_STATIONS`). Every saved fin fits
+  within 0.15 mm, except the A4C at 0.31 mm in the test's sampling: its base foil falls 5 mm
+  to the trailing edge in the last 0.07% of the chord, a near cliff (its own limit in the
+  test). A fit now takes 1–6 s.
+- A foil's true size (`foilSize`) is its row's length and thickness. Control sections are
+  named by their distance along the fin (`smoothSectionDistance`).
+- Tests of the sweep's internals went with it; tests of behaviour were rewritten for the
+  rows. Drag steps measured on the hatchet tip crossing: 27 ms in the profile, thickness
+  and all three foils, the measuring floor (max 120 ms, outline).

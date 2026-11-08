@@ -150,12 +150,12 @@ export default function DocsFinDesigner() {
           starts and ends as two thin green lines, <strong>Base foil</strong> along the base and{' '}
           <strong>Tip foil</strong> across the tip. In between, every section runs from the leading
           edge to the trailing edge, so each edge is foiled straight across, hooked tips and raised
-          rears included, and the foil blends from the base foil to the tip foil. Past the tip line,
-          the tip foil carries on out to the tip edge, rounding down from the tip line to the edge,
-          level where it leaves the tip line so the tip meets the sweep without a crease. So the tip
-          is thickest at the tip foil&apos;s high point (its thickest point on the tip line), rounds
-          off from there to the edge round the middle of the tip, and toward each end of the tip
-          line is the tip foil&apos;s own front or back half.
+          rears included, and the foil blends from the base foil to the tip foil. The tip line is
+          one of those sections, exactly straight: the tip foil lies along it as you drew it, at one
+          thickness. Past it the sections shorten toward the middle of the tip edge, so the tip
+          thins to its edge the way a foil&apos;s nose does. The whole surface is one smooth piece,
+          so blending the foils, thickness, cant and toe can&apos;t crease it; check it with{' '}
+          <a href="#analysis">Zebra</a>.
         </p>
         <p>
           Click either green line to edit its foil: it glows, and the foil view shows that foil with
@@ -175,8 +175,9 @@ export default function DocsFinDesigner() {
           thickest points, so the two always agree: drag the path&apos;s end dot in the profile and
           that foil is reshaped to match; drag the orange <strong>thickest point</strong> dot in the
           foil view (or reshape the foil) and the path follows. The middle dot moves only the path.
-          Each section is as thick on the path as the thickness curve says at that height, and thins
-          with the curve toward its higher end, never thicker toward its lower end.
+          Each section is as thick on the path as the thickness curve says at that point along the
+          fin: the curve is read along the path, from the base round to the tip, so on a hooked or
+          swept fin it follows the arm.
         </p>
         <p>
           On a raised rear the sweep starts along the underside too, so the underside keeps the
@@ -190,11 +191,12 @@ export default function DocsFinDesigner() {
           thickness curve makes it there, the outside face above the chord line and the inside face
           below, its name at the top right; the toolbar holds its controls. Scroll to zoom in on a
           thin foil. Its tabs pick the foil: <strong>Base</strong> and <strong>Tip</strong>, the
-          sweep&apos;s two (see <a href="#sweep">The foil sweep</a>), then each horizontal control
-          section foil by height (see <a href="#slices">Control sections</a>). Its size follows the
-          profile and the thickness curve; this pane sets only its shape. With a panel set in{' '}
-          <a href="#settings">File settings</a>, the panel&apos;s two faces are drawn level and true
-          to scale either side of the foil, slate when the fin fits it and orange when not.
+          sweep&apos;s two (see <a href="#sweep">The foil sweep</a>), then each control section
+          foil, by how far along the fin it is (see <a href="#slices">Control sections</a>). Its
+          size follows the profile and the thickness curve; this pane sets only its shape. With a
+          panel set in <a href="#settings">File settings</a>, the panel&apos;s two faces are drawn
+          level and true to scale either side of the foil, slate when the fin fits it and orange
+          when not.
         </p>
         <Terms>
           <Term name="Asymmetric">
@@ -246,38 +248,28 @@ export default function DocsFinDesigner() {
       <Section id="slices" title="Control sections">
         <p>
           The sweep carries one foil up the blade. A <strong>control section</strong> sets the foil
-          across the fin at one height instead, as a CAD designer or flow modeller would think of
-          it. Control sections are also how you twist a fin (see below).{' '}
-          <strong>Add control section</strong> (in the profile&apos;s toolbar) puts a dashed line
-          across the profile; drag it up or down to set its height — in the profile or the thickness
-          view. A control section can be dragged past another: it waits just short of it, then hops
-          to the other side. Each control section has its own foil: pick its tab in the foil view
-          (by height, after Base and Tip) and shape it with the same tools, NACA presets included. A
-          new control section starts as the fin&apos;s own section at its height, drawn with as few
-          points as follow it to within 2% of its thickness, so adding one changes nothing you could
-          measure until you reshape it. Dragging a control section moves it the way the analysis cut
-          moves: one you haven&apos;t reshaped shows the fin&apos;s section at its new height, and
-          one you have keeps your changes, laid on the fin&apos;s section there.
+          on one line across the fin, from edge to edge, always below the tip line. Control sections
+          are also how you twist a fin (see below). <strong>Add control section</strong> (in the
+          profile&apos;s toolbar) puts a dashed line across the profile, following the fin; drag it
+          along the fin in the profile or the thickness view. A control section can be dragged past
+          another: it waits just short of it, then hops to the other side, and it takes its foil
+          with it. Its name is its distance along the fin from the base. Each control section has
+          its own foil: pick its tab in the foil view and shape it with the same tools, NACA presets
+          included. A new control section starts as the shape already there, drawn with as few
+          points as follow it to within 2% of its thickness, so adding one changes next to nothing
+          until you reshape it.
         </p>
         <p>
-          What you change in a control section&apos;s foil holds at its height and blends smoothly
-          into the sweep over 15% of the fin&apos;s depth below and above it — less where the base,
-          the top or the next control section is nearer — easing in and out so no line forms. Two
-          control sections closer than that hold their changes all the way between them. The
-          thickness still comes from the thickness curve, so a control section changes the
-          foil&apos;s shape, not how thick it is; it has no thickest-point handle. Where a control
-          section&apos;s chord crosses the tip line (the profile notes it), the part past the tip
-          line is the tip&apos;s: the tip foil shapes it, and the control section&apos;s foil view
-          shades it (its points there still move, but change nothing). Its change eases out toward
-          the tip line, the more gently the more it differs from the fin, so the two meet without a
-          crease. Both foils get a point where the control section crosses the tip line, and each
-          shows the other there as a dot: green in the control section for the tip, pink in the{' '}
-          <strong>Tip</strong> foil for the control section. Drag either foil&apos;s point at the
-          crossing to match the other&apos;s dot, so the control section and the tip meet smoothly.
-          Move the tip line or the control section and the new crossing gets its points too.{' '}
-          <strong>Remove control section</strong>, next to Add control section, takes the selected
-          control section away: click a control section&apos;s line (or its foil tab) to select it.
-          Control sections keep at least 2% of the depth from each other and from the base and tip.
+          A control section&apos;s foil is the fin&apos;s shape along its line, exactly as drawn.
+          Its change blends smoothly into the fin over 15% of the way along the fin below and above
+          it — less where the base, the tip line or the next control section is nearer — and has
+          always gone by the tip line, so it never disturbs the tip foil. Two control sections
+          closer than that hold their changes all the way between them. The thickness still comes
+          from the thickness curve, so a control section changes the foil&apos;s shape, not how
+          thick it is; it has no thickest-point handle. <strong>Remove control section</strong>,
+          next to Add control section, takes the selected control section away: click a control
+          section&apos;s line (or its foil tab) to select it. Control sections keep at least 2% of
+          the way from each other and from the base and tip line.
         </p>
         <p>
           A control section can also change the cant and toe above it, bending the upper blade out
@@ -286,9 +278,9 @@ export default function DocsFinDesigner() {
           fin&apos;s placement gives way to the control section&apos;s own <strong>Cant</strong>{' '}
           (−20° to 20°: it may lean back past upright) and <strong>Toe</strong>, which set its
           change. The blade eases from the cant and toe below (the whole fin&apos;s, or the control
-          section below&apos;s) to the control section&apos;s over the 15% of the depth just under
-          it, with no crease, and holds them above it. Each section turns about its own centre: the
-          middle of its area, which moves smoothly up the blade. <strong>Reset cant and toe</strong>{' '}
+          section below&apos;s) to the control section&apos;s over the 15% of the way just under it,
+          with no crease, and holds them above it. Each line across the fin turns about its own
+          thickest point, which moves smoothly up the blade. <strong>Reset cant and toe</strong>{' '}
           takes the change away. On an FCS single tab the fin has no cant of its own (the plug sets
           it), but a control section may still add some.
         </p>
@@ -569,23 +561,6 @@ export default function DocsFinDesigner() {
           <Term name="Export core">
             The laminate thickness per face, which faces it goes on, and whether it wraps the tab:
             what Export core… starts from (see <a href="#export">Core</a>).
-          </Term>
-          <Term name="Smooth surface (preview)">
-            Shows the new smooth surface in the 3D view: a new way of building the blade, still in
-            progress, that blends the foils, thickness, cant and toe without creasing it. It runs
-            the foils along the fin, from the base round to the tip, so on a hooked or swept fin the
-            thickness curve is read along the arm. Check it with <a href="#analysis">Zebra</a>. The
-            tip line is a straight section of it, so the tip foil lies along it exactly as drawn;
-            beyond it the tip thins toward its edge the way a foil&apos;s nose does. Exports still
-            use the current surface.
-          </Term>
-          <Term name="Control sections on the smooth surface">
-            A control section is a line across the fin, from edge to edge along it, not a level cut.
-            The profile draws it along its line, and dragging it moves it to the line under the
-            pointer, its foil going with it. Its foil is the fin&apos;s shape along that line,
-            exactly as drawn, and its cant and toe bend and turn the blade from there up. A new one
-            starts as the shape already there, so adding it changes nothing. The thickness view
-            places it by how far along the fin it is, as the thickness curve is read there.
           </Term>
         </Terms>
       </Section>

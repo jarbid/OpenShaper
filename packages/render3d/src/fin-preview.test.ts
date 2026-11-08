@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { bladeTop, defaultFinDesign, FUTURES_TABS, prepareBlade } from '@openshaper/kernel';
+import { defaultFinDesign, FUTURES_TABS, prepareBlade } from '@openshaper/kernel';
 import { Vector3 } from 'three';
 import {
   sectionPlaneCorners,
@@ -19,7 +19,7 @@ describe('finScene', () => {
     const blade = s.blade.boundingBox!;
     const tab = s.tab.boundingBox!;
     expect(blade.min.z).toBeCloseTo(0, 5);
-    expect(blade.max.z).toBeCloseTo(bladeTop(prepareBlade(d), 0.01), 4); // stops just under the tip
+    expect(blade.max.z).toBeCloseTo(prepareBlade(d).depth, 3); // up to the top of the tip
     expect(tab.max.z).toBeCloseTo(0, 5);
     expect(tab.min.z).toBeCloseTo(-FUTURES_TABS.side.height, 5);
     expect(tab.max.x - tab.min.x).toBeCloseTo(FUTURES_TABS.side.length, 5);

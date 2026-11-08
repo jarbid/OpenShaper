@@ -129,7 +129,7 @@ test.describe('Fin designer', () => {
     await page.getByRole('button', { name: 'Add control section' }).click();
     await page.getByRole('button', { name: 'Show Foil in the large pane' }).click();
     const tabs = page.getByRole('tablist', { name: 'Foil' });
-    await expect(tabs.getByRole('tab')).toHaveText(['Base', 'Tip', '50.0 mm']);
+    await expect(tabs.getByRole('tab')).toHaveText(['Base', 'Tip', '62.0 mm']);
     await page.getByLabel('NACA preset').selectOption('0008');
     await page.getByRole('button', { name: 'Apply' }).click();
     await expect(page.getByRole('status')).toHaveCount(0); // no rule broken
@@ -151,7 +151,7 @@ test.describe('Fin designer', () => {
     await pickNewFin(page, 'Centre');
     await expect(tabs.getByRole('tab')).toHaveText(['Base', 'Tip']); // no slices
     await page.getByLabel('Open a fin file').setInputFiles(savedPath);
-    await expect(tabs.getByRole('tab')).toHaveText(['Base', 'Tip', '50.0 mm']);
+    await expect(tabs.getByRole('tab')).toHaveText(['Base', 'Tip', '62.0 mm']);
   });
 
   test('a canard on the FCS single tab exports for CNC', async ({ page }) => {

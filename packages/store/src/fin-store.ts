@@ -21,7 +21,6 @@ import {
   vec2,
   type FinBase,
   type FinDesign,
-  type FinEngine,
   type FinTwist,
   type FinHand,
   type Vec2,
@@ -43,7 +42,6 @@ import {
   edgesFree,
   withoutStackedPoints,
   withFoilsNearTrueScale,
-  withCrossingPoints,
   getFinCurve,
   newFin,
   moveSlice,
@@ -108,12 +106,6 @@ export interface FinState {
    * slice. NACA presets and the inside-face buttons act on it too.
    */
   activeFoil: number;
-  /**
-   * The surface engine the app shows (kernel fin-mesh.ts FinEngine): on the smooth one,
-   * control sections are rows, so adding and moving one works on rows.
-   */
-  engine: FinEngine;
-  setEngine: (engine: FinEngine) => void;
 
   /** Open a design (a file, an autosave): history starts afresh. */
   load: (d: FinDesign) => void;
@@ -305,9 +297,6 @@ export const createFinStore = (): StoreApi<FinState> =>
       return commitChecked(fn(s), label);
     };
 
-    /** Where the slice being dragged started: its design and index (moveSlice). */
-    let sliceDrag: { design: FinDesign; index: number } | null = null;
-
     return {
       design: null,
       past: [],
@@ -315,8 +304,6 @@ export const createFinStore = (): StoreApi<FinState> =>
       editing: false,
       selection: null,
       activeFoil: 0,
-      engine: 'sweep',
-      setEngine: (engine) => set({ engine }),
 
       load: (d) =>
         set({
@@ -379,17 +366,8 @@ export const createFinStore = (): StoreApi<FinState> =>
       endEdit: () => {
         const { editing, past } = get();
         if (!editing) return;
-        sliceDrag = null;
         let design = get().design;
-        // A drag that moved a slice, the tip line or the outline may leave a slice crossing
-        // the tip line somewhere new: give both foils a point there (withCrossingPoints).
         const last = past[past.length - 1];
-        // Not on the smooth surface, whose control sections are rows short of the tip line.
-        const sweep = get().engine === 'sweep';
-        if (sweep && design && last && last.design !== design && design.slices.length) {
-          const marked = withCrossingPoints(design, last.design);
-          if (marked !== design) set({ design: (design = marked) });
-        }
         // A drag in the foil view may leave a foil stored far thinner or thicker than it
         // is (the view's scale is held through the drag): stored at its true thickness.
         if (design && last && last.design !== design) {
@@ -618,11 +596,8 @@ export const createFinStore = (): StoreApi<FinState> =>
       },
       addSlice: (height) => {
         const d = get().design;
-        const smooth = get().engine === 'smooth';
-        const r = d && addSlice(d, height, get().engine);
-        // The sweep's tip line crossing points mean nothing on the smooth surface's rows.
-        const next = r && (smooth ? r.design : withCrossingPoints(r.design));
-        if (!r || !next || !commitChecked(next, 'Add foil slice')) return false;
+        const r = d && addSlice(d, height);
+        if (!r || !commitChecked(r.design, 'Add foil slice')) return false;
         set({ activeFoil: r.foil, selection: null });
         return true;
       },
@@ -657,14 +632,9 @@ export const createFinStore = (): StoreApi<FinState> =>
         return !!d && commit(resetThicknessPath(d), 'Reset the thickness path');
       },
       moveSlice: (foil, height) => {
-        const { design: d, editing, past } = get();
+        const d = get().design;
         if (!d) return false;
-        // Mid-drag, the slice as the drag found it (see moveSlice).
-        const start = editing ? past[past.length - 1]?.design : undefined;
-        if (!sliceDrag || sliceDrag.design !== (start ?? d)) {
-          sliceDrag = { design: start ?? d, index: foil - 1 };
-        }
-        const r = moveSlice(d, foil, height, sliceDrag, get().engine);
+        const r = moveSlice(d, foil, height);
         if (!commitChecked(r.design, 'Move foil slice')) return false;
         // Passing another slice changes its place in the order: keep it selected.
         if (r.foil !== get().activeFoil) set({ activeFoil: r.foil });

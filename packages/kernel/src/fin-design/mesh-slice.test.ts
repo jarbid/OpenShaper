@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { bladeSection, chordAt, prepareBlade, thicknessAt } from './blade';
+import { bladeSection, chordAt, cosineStations, prepareBlade } from './blade';
 import { defaultFinDesign } from './fin-defaults';
 import { finMesh } from './fin-mesh';
 import { measureSlice, sliceMesh } from './mesh-slice';
@@ -36,8 +36,10 @@ describe('cutting the fin with a plane', () => {
       const m = measureSlice(sliceMesh(mesh(d).blade, 'z', h), 'z')!;
       const { leading, trailing } = chordAt(b, h);
       expect(m.length).toBeCloseTo(leading - trailing, 2);
-      // The foil's thickest point is the taper's thickness, to within the mesh.
-      expect(m.thickness).toBeCloseTo(thicknessAt(b, h), 2);
+      // The section's thickest point, to within the mesh.
+      const s = bladeSection(b, h, cosineStations(400));
+      const widest = Math.max(...s.outside.map((p, j) => p.y - s.inside[j]!.y));
+      expect(m.thickness).toBeCloseTo(widest, 2);
     }
   });
 

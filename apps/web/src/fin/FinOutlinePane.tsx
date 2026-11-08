@@ -30,7 +30,7 @@ import { memo, useCallback, useMemo } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
 import type { LengthUnit } from '../format';
 import { alsoFromSelection, curveEditorHandlers, pickFromSelection } from './curve-editor-wiring';
-import { SLICE_COLOR, sliceGuideHandlers, sliceGuides } from './slice-guides';
+import { sliceGuideHandlers, sliceGuides } from './slice-guides';
 import {
   PATH_COLOR,
   SWEEP_BAND,
@@ -77,11 +77,10 @@ export const FinOutlinePane = memo(function FinOutlinePane({
   const design = useFinState(store, (s) => s.design);
   const selection = useFinState(store, (s) => s.selection);
   const activeFoil = useFinState(store, (s) => s.activeFoil);
-  const engine = useFinState(store, (s) => s.engine);
   const position = design?.position ?? 'side';
   const guides = useMemo(
-    () => (design ? sliceGuides(design, activeFoil, units, 'y', engine) : []),
-    [design, activeFoil, units, engine],
+    () => (design ? sliceGuides(design, activeFoil, units, 'y') : []),
+    [design, activeFoil, units],
   );
   const guideHandlers = useMemo(() => sliceGuideHandlers(store, 'y'), [store]);
 
@@ -196,15 +195,10 @@ export const FinOutlinePane = memo(function FinOutlinePane({
         const t = mid(sweep.tip);
         ctx.textAlign = 'left';
         ctx.fillText('Tip foil', t.x + 12, t.y + 4);
-        // The sweep's: on the smooth surface, control sections are rows short of the tip line.
-        if (sweep.sliceIntoTip && engine === 'sweep') {
-          ctx.fillStyle = SLICE_COLOR;
-          ctx.fillText('Control section meets the tip line', t.x + 12, t.y + 18);
-        }
         ctx.restore();
       }
     },
-    [design, tab, tabLen, kind, sweep, activeFoil, engine],
+    [design, tab, tabLen, kind, sweep, activeFoil],
   );
 
   const onBackgroundClick = useCallback(
