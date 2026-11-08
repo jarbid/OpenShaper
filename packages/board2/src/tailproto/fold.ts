@@ -23,16 +23,24 @@ export function foldAt(
   v: 0 | 1,
   from: number,
   to: number,
+  /** Take the evaluator's own cross direction as the exact derivative rather than `step.test.ts`'s 1e-6 step in t. */
+  exactDerivative = false,
 ): { worst: number; at: number } {
   const ev = createEvaluator(built);
   const mirror = built.doc.symmetry === 'mirror';
   const a = new Float64Array(3);
   const b = new Float64Array(3);
+  const der = new Float64Array(9);
   const evDir = (side: 0 | 1, s: number): [number, number, number] => {
+    const k = v === 0 ? 1 : -1;
+    if (exactDerivative) {
+      ev.row(side, solid.xiOf(s), 1);
+      ev.eval(v, 1, der, 0, v === 1);
+      return [k * der[6]!, k * der[7]!, k * der[8]!];
+    }
     ev.row(side, solid.xiOf(s), 0);
     ev.eval(v, 0, a);
     ev.eval(v === 0 ? FOLD_STEP : 1 - FOLD_STEP, 0, b);
-    const k = v === 0 ? 1 : -1;
     return [k * (b[0]! - a[0]!), k * (b[1]! - a[1]!), k * (b[2]! - a[2]!)];
   };
   let worst = 0;

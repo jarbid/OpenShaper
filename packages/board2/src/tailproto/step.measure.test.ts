@@ -61,11 +61,16 @@ describe('tail model: STEP', () => {
         const brep = checkBrep(solid.brep);
         const fb = foldAt(built, solid, 0, 0.03, 0.97);
         const fd = foldAt(built, solid, 1, 0.03, 0.97);
+        const wb = foldAt(built, solid, 0, 0.001, 0.999);
+        const xb = foldAt(built, solid, 0, 0.03, 0.97, true);
+        const xd = foldAt(built, solid, 1, 0.03, 0.97, true);
         rows.push(
           [
             `${name}${smooth ? ' [D]' : ' [today]'}`,
             `dev ${(10 * solid.report.deviation).toFixed(2)} mm`,
-            `fold ${fb.worst.toFixed(3)} @s=${fb.at.toFixed(3)} / ${fd.worst.toFixed(3)} @s=${fd.at.toFixed(3)}`,
+            `fold 3-97% ${fb.worst.toFixed(3)} @s=${fb.at.toFixed(3)} / ${fd.worst.toFixed(3)}`,
+            `fold 0.1-99.9% ${wb.worst.toFixed(3)} @s=${wb.at.toFixed(4)}`,
+            `fold vs exact dS/dt ${xb.worst.toFixed(3)} @s=${xb.at.toFixed(3)} / ${xd.worst.toFixed(3)}`,
             `ctl ${solid.report.controlCount[0]}x${solid.report.controlCount[1]}`,
             `passes ${solid.report.passes}`,
             `${(text.text.length / 1024).toFixed(0)} KB`,
