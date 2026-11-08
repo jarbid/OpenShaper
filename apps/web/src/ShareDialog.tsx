@@ -22,7 +22,7 @@
  * Modeled on ExportStepDialog (backdrop + Panel card, Escape-to-close).
  */
 import { encodeShareFragment, shareCodecSupported } from '@openshaper/io';
-import type { BezierBoard } from '@openshaper/kernel';
+import type { BezierBoard, RefPoints } from '@openshaper/kernel';
 import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { BoardMeta } from './file-io';
@@ -50,6 +50,8 @@ type LinkState =
 
 export interface ShareDialogProps {
   board: BezierBoard;
+  /** Travel in the link, like everything else saved with the board. */
+  refPoints?: RefPoints;
   meta: BoardMeta;
   /** The same setter the sidebar's Board info panel uses. */
   setMeta: Dispatch<SetStateAction<BoardMeta>>;
@@ -60,8 +62,12 @@ export interface ShareDialogProps {
   onClose: () => void;
 }
 
+/** A stable empty default, so an omitted prop does not re-encode the link every render. */
+const NO_REF_POINTS: RefPoints = [];
+
 export function ShareDialog({
   board,
+  refPoints = NO_REF_POINTS,
   meta,
   setMeta,
   onCopied,
@@ -89,7 +95,7 @@ export function ShareDialog({
     }
     let cancelled = false;
     setState({ kind: 'encoding' });
-    void encodeShareFragment(board, metadata).then(
+    void encodeShareFragment(board, metadata, refPoints).then(
       (fragment) => {
         if (!cancelled) setState({ kind: 'ready', url: buildShareUrl(fragment) });
       },
@@ -100,7 +106,7 @@ export function ShareDialog({
     return () => {
       cancelled = true;
     };
-  }, [board, metadata]);
+  }, [board, refPoints, metadata]);
 
   // The manual field only exists once the clipboard has refused, and the point
   // of it is that Ctrl+C works immediately.

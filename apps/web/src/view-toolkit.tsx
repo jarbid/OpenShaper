@@ -32,7 +32,7 @@ import {
 import { useMemo } from 'react';
 import { fmtLen, LENGTH_UNITS, type LengthUnit } from './format';
 import type { Longitudinal, MeasurementAxis } from './longitudinal';
-import { SelectedPointEditor } from './ControlPointInspector';
+import { SelectedPointEditor, SelectedRefPointEditor } from './ControlPointInspector';
 import { boardStore } from './store';
 import type { EditorSettings } from './settings';
 import { useIsCoarsePointer } from './useMediaQuery';
@@ -568,7 +568,16 @@ export function EditorPane({
           units={units}
           targets={p.targets}
           fallback={
-            headerActions && <div className="flex shrink-0 items-center gap-1">{headerActions}</div>
+            <SelectedRefPointEditor
+              store={boardStore}
+              units={units}
+              targets={p.targets}
+              fallback={
+                headerActions && (
+                  <div className="flex shrink-0 items-center gap-1">{headerActions}</div>
+                )
+              }
+            />
           }
         />
       </ViewPaneHeader>
