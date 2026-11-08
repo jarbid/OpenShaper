@@ -148,6 +148,13 @@ export default function DocsFiles() {
           example reconciling a deck curve stored as thickness rather than an absolute height, which
           would otherwise produce a visible bulge in the rocker.
         </p>
+        <p>
+          A Shape3d board also brings its fin boxes: a centre box becomes a centre fin and a
+          mirrored pair becomes a port and a starboard fin, placed where the box sits and toed in by
+          its angle. The setup is named from the fin count and the blade shapes are the setup's
+          usual ones, since Shape3d stores the hardware rather than the blade. Leash plugs and other
+          plug boxes are not fins and are listed in the import warnings instead.
+        </p>
       </Section>
 
       <Section id="warnings" title="Import warnings">
