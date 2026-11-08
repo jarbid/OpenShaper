@@ -753,7 +753,13 @@ const parseShape3d = (text: string, opts: Shape3dOptions): ParsedS3d => {
   }
 
   // --- <Board> child ---
-  const boardXml = getChildElement(shape3dXml, 'Board');
+  const boardWithLayers = getChildElement(shape3dXml, 'Board');
+  // A 3D layer (`<Calque3D>`) carries its own `Couples_N` slices, outline and
+  // curves. They are not the board's: drop the layers before reading anything.
+  const boardXml =
+    boardWithLayers === null
+      ? null
+      : boardWithLayers.replace(/<Calque3D\b[^>]*>[\s\S]*?<\/Calque3D>/gi, '');
   if (!boardXml) {
     throw new S3dParseError('No <Board> element found inside <Shape3d_design>');
   }

@@ -36,6 +36,12 @@ describe('parseS3dx element choice (synthetic)', () => {
     expect(board.outline).toEqual(parseS3dx(clean).board.outline);
     expect(warnings).toHaveLength(0);
   });
+
+  it('does not mistake a 3D layer for the board: its slices never reach the board', () => {
+    const slice = block(clean, 'Couples_0');
+    const layer = `<Calque3D><Number_of_slices>2</Number_of_slices>${slice}${rename(slice, 'Couples_0', 'Couples_1')}</Calque3D>`;
+    expect(parseS3dx(clean.replace('<Board>', `<Board>\n${layer}`))).toEqual(parseS3dx(clean));
+  });
 });
 
 // ---------------------------------------------------------------------------
