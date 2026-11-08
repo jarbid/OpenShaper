@@ -149,6 +149,21 @@ function splitSegment(a: K, b: K, t: number): K {
   return { p: s, in: r0, out: r1, smooth: true };
 }
 
+/** Where a segment with a low handle is split to bring both pieces' control polygons above y = 0. */
+const CLAMP_SPLITS = [0.5, 0.75, 0.9, 0.95] as const;
+
+/** True when splitting the cubic Bézier with these y coordinates at `t` leaves both pieces' y coordinates >= 0. */
+function splitKeepsAboveZero(y0: number, y1: number, y2: number, y3: number, t: number): boolean {
+  const mix = (p: number, q: number): number => p + (q - p) * t;
+  const q0 = mix(y0, y1);
+  const q1 = mix(y1, y2);
+  const q2 = mix(y2, y3);
+  const r0 = mix(q0, q1);
+  const r1 = mix(q1, q2);
+  const s = mix(r0, r1);
+  return Math.min(y0, y3, q0, r0, s, r1, q2) >= 0;
+}
+
 /**
  * Repairs a chain so that x is a function along it (non-decreasing from knot `from` on) and, optionally,
  * lifts handles' y up to 0. A segment whose *curve* already has x non-decreasing is left alone, even if its
@@ -173,9 +188,17 @@ function monotoneX(ks: K[], from: number, clampY: boolean): number {
       set(a.out, c1, a.out[1]);
       set(b.in, c2, b.in[1]);
     }
-    if (clampY) {
-      set(a.out, a.out[0], Math.max(a.out[1], 0));
-      set(b.in, b.in[0], Math.max(b.in[1], 0));
+    if (clampY && Math.min(a.out[1], b.in[1]) < 0) {
+      // Shape3D's outlines can end with a handle a little under y = 0 while the curve stays above it (a
+      // diamond-twin nose). Splitting the segment keeps that curve exactly and gives each piece a control
+      // polygon above the stringer; only a curve that really goes below it has its handles lifted.
+      const t = CLAMP_SPLITS.find((t) => splitKeepsAboveZero(a.p[1], a.out[1], b.in[1], b.p[1], t));
+      if (t !== undefined) {
+        ks.splice(k + 1, 0, splitSegment(a, b, t));
+      } else {
+        set(a.out, a.out[0], Math.max(a.out[1], 0));
+        set(b.in, b.in[0], Math.max(b.in[1], 0));
+      }
     }
   }
   return moved;
@@ -195,6 +218,7 @@ type SliceResult =
     }
   | { readonly error: string };
 
+const NO_WIDTH = 'has no width';
 const sliceCache = new WeakMap<Spline, SliceResult>();
 
 /** The widest point of the chain: the segment, the local parameter (0 at a knot) and x. */
@@ -255,7 +279,7 @@ function normalise(spline: Spline): SliceResult {
   const cand = widest(ks);
   let W = -Infinity;
   for (const c of cand) W = Math.max(W, c.x);
-  if (!(W > CONVERT_MIN_SIZE)) return { error: 'has no width' };
+  if (!(W > CONVERT_MIN_SIZE)) return { error: NO_WIDTH };
   const ties = cand
     .filter((c) => c.x >= W - CONVERT_TIE * W)
     .sort((a, b) => a.k + a.t - (b.k + b.t));
@@ -522,6 +546,19 @@ function convert(board: BezierBoard, opts: ConvertOptions): Board2Result<Classic
   real.forEach((cs, i) => {
     const id = `s${i + 1}`;
     const r = sliceOf(cs);
+    // The tip slice of a pointed end can be a vertical line (Shape3D keeps a slice at the very tip, where
+    // the outline closes to nothing). It says how thick the tip is and nothing about the shape, which the
+    // next slice gives, so it is left out rather than refusing the board.
+    if ('error' in r && r.error === NO_WIDTH && (i === 0 || i === real.length - 1)) {
+      warnings.push(
+        issue(
+          'convert-adjusted',
+          `slice at x = ${cs.position} has no width (a line at the tip) and is left out`,
+          { severity: 'warning', station: id },
+        ),
+      );
+      return;
+    }
     if ('error' in r) {
       errors.push(
         issue('convert-slice', `slice at x = ${cs.position}: ${r.error}`, { station: id }),

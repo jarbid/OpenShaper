@@ -446,6 +446,78 @@ describe('handles that overlap in x (the curve is a function of x, the control p
   });
 });
 
+describe('what real Shape3D boards need (a diamond-twin nose, a line at the tip)', () => {
+  const base = GOLDENS[0]!.load();
+
+  it('keeps an outline whose last handle is under the stringer while the curve is not: the segment is split, nothing moves', () => {
+    const last = base.outline.knots.length - 2; // the nose knot; the golden ends with a point at the stringer after it
+    const k = base.outline.knots[last]!;
+    // like the diamond twin's nose: the last knot (0.68 wide) has a handle at y = -1.1, and the knot
+    // before it reaches out level at its own half-width, so the curve itself stays above the stringer
+    const prev = base.outline.knots[last - 1]!;
+    const nose = splineFromKnots(
+      base.outline.knots.map((q, i) =>
+        i === last
+          ? knotFromArray([k.end.x, 0.68, k.end.x - 0.15, -1.1, k.end.x, 0.68], false, k.other)
+          : i === last - 1
+            ? knotFromArray(
+                [
+                  prev.end.x,
+                  prev.end.y,
+                  prev.tangentToPrev.x,
+                  prev.tangentToPrev.y,
+                  prev.end.x + 0.9 * (k.end.x - prev.end.x),
+                  prev.end.y,
+                ],
+                prev.continuous,
+                prev.other,
+              )
+            : q,
+      ),
+    );
+    const edited = board(nose, base.bottom, base.deck, base.crossSections, base.interpolationType);
+    const r = ok(edited);
+    expect(r.report.lineAdjust).toBeLessThan(1e-3); // the handle at y = -1.1 was not moved
+    const b = built(edited);
+    const ev = createEvaluator(b);
+    const o = new Float64Array(18);
+    const classic = sampleOutline(edited.outline, 3000).map((p): V3 => [p.x, p.y, 0]);
+    const mine: V3[] = [];
+    for (let i = 0; i <= 3000; i++) {
+      ev.at(0, (getLength(edited) * (1 - Math.cos((Math.PI * i) / 3000))) / 2, 0.5, 0, o);
+      mine.push([o[0]!, o[1]!, 0]);
+    }
+    expect(polylineHausdorff(mine, classic, false)).toBeLessThan(0.05);
+  });
+
+  it('leaves out a tip slice that is a line (no width) with a warning, rather than refusing the board', () => {
+    const slices = base.crossSections;
+    const tip = slices[1]!;
+    const line = crossSection(
+      tip.position,
+      splineFromKnots(
+        tip.spline.knots.map((q) =>
+          knotFromArray([0, q.end.y, 0, q.tangentToPrev.y, 0, q.tangentToNext.y], true, false),
+        ),
+      ),
+    );
+    const edited = board(
+      base.outline,
+      base.bottom,
+      base.deck,
+      [slices[0]!, line, ...slices.slice(2)],
+      base.interpolationType,
+    );
+    const r = convertClassic(edited);
+    expect(r.ok, r.ok ? '' : r.issues.map((i) => i.message).join('; ')).toBe(true);
+    if (r.ok) {
+      expect(
+        r.issues.some((i) => i.code === 'convert-adjusted' && /no width/.test(i.message)),
+      ).toBe(true);
+    }
+  });
+});
+
 describe('a notched classic board stays close to the classic loft between its stations', () => {
   const base = GOLDENS[0]!.load();
   const shortboardWorst = ((): number => {
