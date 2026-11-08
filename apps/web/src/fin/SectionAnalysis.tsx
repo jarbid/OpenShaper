@@ -9,7 +9,10 @@
  * - **Horizontal**: a plane at a height up the blade, showing the foil there. Its slider
  *   runs up the right edge; it reads the height, the chord and the thickness.
  *
- * Either or both can be on (Vertical by default). The sliders are fixed to the view's
+ * - **Zebra**: black and white stripes over the blade, to judge how smooth it is: they run
+ *   on unbroken over a smooth face, and break or kink where it creases.
+ *
+ * Any of them can be on (Vertical by default). The sliders are fixed to the view's
  * edges rather than handles in 3D, so they stay in reach however the fin is turned.
  * Reset puts the camera back to its starting view. The cuts come from the kernel
  * (`sliceMesh`, `measureSlice`) on a finer mesh than the preview's, made once per edit
@@ -43,6 +46,8 @@ export interface SectionState {
   readonly x: number;
   /** Horizontal plane: from the tab top (0) to the tip (1). */
   readonly z: number;
+  /** Zebra stripes on the blade. */
+  readonly zebra: boolean;
 }
 
 export const SECTION_DEFAULT: SectionState = {
@@ -51,6 +56,7 @@ export const SECTION_DEFAULT: SectionState = {
   horizontal: false,
   x: 0.5,
   z: 0.5,
+  zebra: false,
 };
 
 /** Finer than the preview, so the cut and its numbers follow the surface closely. */
@@ -172,6 +178,14 @@ export function SectionOverlay({
                 onChange={(e) => set({ horizontal: e.target.checked })}
               />
               Horizontal
+            </label>
+            <label className="flex items-center gap-1 rounded bg-background/80 px-1.5 py-1">
+              <input
+                type="checkbox"
+                checked={state.zebra}
+                onChange={(e) => set({ zebra: e.target.checked })}
+              />
+              Zebra
             </label>
             <Button size="sm" variant="outline" onClick={onReset}>
               Reset view

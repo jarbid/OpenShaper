@@ -10,7 +10,16 @@
  * the blade and tab stay where the kernel and the STEP/STL files put them.
  */
 import { FIN_MESH_PREVIEW, finMesh, type BoardMesh, type FinDesign } from '@openshaper/kernel';
-import { Box3, BufferAttribute, BufferGeometry, Vector3 } from 'three';
+import {
+  Box3,
+  BufferAttribute,
+  BufferGeometry,
+  DataTexture,
+  LinearFilter,
+  RGBAFormat,
+  SRGBColorSpace,
+  Vector3,
+} from 'three';
 
 /** Kernel mesh → BufferGeometry, in place (no centring). */
 export const finMeshGeometry = (mesh: BoardMesh): BufferGeometry => {
@@ -39,9 +48,18 @@ export interface FinScene {
   readonly tabAxis: [[number, number, number], [number, number, number]];
 }
 
-/** The fin's preview meshes (preview quality: a few ms, rebuilt per settled edit). */
-export const finScene = (d: FinDesign): FinScene => {
-  const m = finMesh(d, FIN_MESH_PREVIEW);
+/**
+ * Finer than the preview, for the zebra stripes: on the preview's mesh, the stripes wobble
+ * with its facets on a face that is smooth.
+ */
+export const FIN_MESH_ZEBRA = { ...FIN_MESH_PREVIEW, rows: 120, stations: 64 };
+
+/**
+ * The fin's preview meshes (preview quality: a few ms, rebuilt per settled edit), or
+ * finer ones for the zebra stripes.
+ */
+export const finScene = (d: FinDesign, fine = false): FinScene => {
+  const m = finMesh(d, fine ? FIN_MESH_ZEBRA : FIN_MESH_PREVIEW);
   const blade = finMeshGeometry(m.blade);
   const tab = finMeshGeometry(m.tab);
   const box = new Box3().copy(blade.boundingBox!).union(tab.boundingBox!);
@@ -159,4 +177,40 @@ export const finCameraPosition = (
   const fit = Math.min(half, Math.atan(Math.tan(half) * aspect));
   const dist = (radius / Math.sin(fit)) * 1.1;
   return [center[0] + dir.x * dist, center[1] + dir.y * dist, center[2] + dir.z * dist];
+};
+
+/** Stripes across the zebra texture: many, as a fin's faces point within a narrow range of directions. */
+export const ZEBRA_STRIPES = 48;
+
+/**
+ * The zebra stripes (owner request, 2026-11: the surface's smoothness, seen): a matcap
+ * texture of upright black and white stripes. A matcap colours each point by which way
+ * its face points, as seen from the camera, so each stripe follows the points facing one
+ * band of directions. Over a smooth face the stripes run on unbroken and bend gently; at a
+ * crease they break, and where the face's curvature jumps they kink. Soft-edged (a pixel
+ * or two), so a stripe's edge doesn't shimmer.
+ */
+export const zebraTexture = (size = 1024, stripes = ZEBRA_STRIPES): DataTexture => {
+  const data = new Uint8Array(size * size * 4);
+  for (let x = 0; x < size; x++) {
+    // Distance into the stripe from its nearer edge, in pixels: a smooth step over ~1.5 px.
+    const f = ((x + 0.5) / size) * stripes;
+    const into = (0.5 - Math.abs((f % 1) - 0.5)) * (size / stripes);
+    const light = Math.floor(f) % 2 === 0;
+    const w = Math.min(1, into / 1.5);
+    const v = Math.round(255 * (light ? 0.5 + 0.5 * w : 0.5 - 0.5 * w) * 0.92 + 10);
+    for (let y = 0; y < size; y++) {
+      const k = (y * size + x) * 4;
+      data[k] = v;
+      data[k + 1] = v;
+      data[k + 2] = v;
+      data[k + 3] = 255;
+    }
+  }
+  const t = new DataTexture(data, size, size, RGBAFormat);
+  t.colorSpace = SRGBColorSpace;
+  t.magFilter = LinearFilter;
+  t.minFilter = LinearFilter;
+  t.needsUpdate = true;
+  return t;
 };

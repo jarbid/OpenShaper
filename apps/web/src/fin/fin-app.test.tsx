@@ -736,6 +736,17 @@ describe('FinApp: section analysis in the 3D view', () => {
     expect(screen.getByLabelText('Horizontal plane height')).toBeTruthy();
   });
 
+  it('turns zebra stripes on and off, alongside the planes', () => {
+    render(<FinApp />);
+    fireEvent.click(analysis());
+    const zebra = screen.getByLabelText('Zebra') as HTMLInputElement;
+    expect(zebra.checked).toBe(false);
+    fireEvent.click(zebra);
+    expect((screen.getByLabelText('Zebra') as HTMLInputElement).checked).toBe(true);
+    // The planes are as they were.
+    expect(screen.getByLabelText('Vertical plane position')).toBeTruthy();
+  });
+
   it('runs the bottom slider the way the fin lies on screen', () => {
     render(<FinApp />);
     fireEvent.click(analysis());

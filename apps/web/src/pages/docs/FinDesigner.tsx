@@ -416,9 +416,15 @@ export default function DocsFinDesigner() {
             the foil at that height and reads the height, the chord and the thickness, along the
             bottom of the view.
           </Term>
+          <Term name="Zebra">
+            Black and white stripes over the blade, to judge how smooth it is, as on a car body
+            under strip lights. Over a smooth face the stripes run on unbroken and bend gently.
+            Where they break or jog sideways, the face has a crease; where they kink, its curve
+            changes suddenly. Turn the fin to move the stripes across a spot you want to check.
+          </Term>
         </Terms>
         <p>
-          Either plane or both can be on. Thicknesses are square to the blade, allowing for cant.
+          Any of them can be on together. Thicknesses are square to the blade, allowing for cant.
           The sliders sit on the edges of the view rather than on the planes, so they stay in reach
           however the fin is turned.
         </p>

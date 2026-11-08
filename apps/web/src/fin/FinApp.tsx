@@ -128,7 +128,9 @@ function Preview({
           frameKey={`${position}-${hand}-${frameKey}`}
           view={view}
           panel={panel}
-          sections={cuts?.planes ?? null}
+          // See-through only with a plane to see through to.
+          sections={cuts?.planes?.length ? cuts.planes : null}
+          zebra={section.on && section.zebra}
         />
       </Suspense>
       <SectionOverlay

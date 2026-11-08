@@ -13,6 +13,9 @@
  * drawn translucent, with its cut over everything. The cut comes in ready-made (the
  * kernel's `sliceMesh`), so moving a plane only redraws.
  *
+ * Zebra stripes (`zebra`): the blade drawn with black and white stripes, from a finer
+ * mesh, to see how smooth it is (fin-preview.ts, `zebraTexture`).
+ *
  * The panel fit (`view` 'panel', with `panel`): the whole fin from behind, along the
  * panel it is cut from, all but flat, with the panel's outline drawn over it.
  */
@@ -31,6 +34,7 @@ import {
   type FinPreviewView,
   type FinScene,
   type FinSectionPlane,
+  zebraTexture,
 } from './fin-preview';
 
 export interface FinPreview3DProps {
@@ -49,6 +53,8 @@ export interface FinPreview3DProps {
    * Null or absent for the plain preview.
    */
   sections?: readonly FinSectionPlane[] | null;
+  /** Zebra stripes on the blade, to see how smooth it is (fin-preview.ts, zebraTexture). */
+  zebra?: boolean;
   background?: string;
   bladeColor?: string;
   tabColor?: string;
@@ -209,11 +215,14 @@ export function FinPreview3D({
   view: wanted = 'side',
   panel = null,
   sections = null,
+  zebra = false,
   background = '#0A1424',
   bladeColor = '#22D3EE',
   tabColor = '#8A9BB3',
 }: FinPreview3DProps) {
-  const scene = useMemo(() => (design ? finScene(design) : null), [design]);
+  const scene = useMemo(() => (design ? finScene(design, zebra) : null), [design, zebra]);
+  const stripes = useMemo(() => (zebra ? zebraTexture() : null), [zebra]);
+  useEffect(() => () => stripes?.dispose(), [stripes]);
   useEffect(
     () => () => {
       scene?.blade.dispose();
@@ -241,15 +250,26 @@ export function FinPreview3D({
         <>
           {/* See-through while analysing, so the planes and cuts show through the fin. */}
           <mesh geometry={scene.blade}>
-            <meshStandardMaterial
-              key={sections ? 'clear' : 'solid'}
-              color={bladeColor}
-              roughness={0.35}
-              side={DoubleSide}
-              transparent={!!sections}
-              opacity={sections ? 0.3 : 1}
-              depthWrite={!sections}
-            />
+            {stripes ? (
+              <meshMatcapMaterial
+                key={sections ? 'zebra-clear' : 'zebra'}
+                matcap={stripes}
+                side={DoubleSide}
+                transparent={!!sections}
+                opacity={sections ? 0.5 : 1}
+                depthWrite={!sections}
+              />
+            ) : (
+              <meshStandardMaterial
+                key={sections ? 'clear' : 'solid'}
+                color={bladeColor}
+                roughness={0.35}
+                side={DoubleSide}
+                transparent={!!sections}
+                opacity={sections ? 0.3 : 1}
+                depthWrite={!sections}
+              />
+            )}
           </mesh>
           <mesh geometry={scene.tab}>
             <meshStandardMaterial

@@ -569,3 +569,60 @@ compared byte for byte). A drag step: 410–430 ms → 27 ms in the browser (two
 measuring floor); in the kernel 400 ms → 2 ms for a foil step and 0.8 ms for a thickness
 step. Also measured and ruled out: validation run three times a step (1–2 ms), the panel
 fit, the foil analysis's sections and hover (it follows the settled design).
+
+## A new surface engine (owner decision, 2026-11)
+
+Owner request: a fin design tool easier than general CAD for fins to be 3D printed or CNC
+milled, where foil, outline, cant, toe and thickness are set with simple controls and the
+app blends them **without distorting the surface**. The existing UI and analysis tools
+stay; a new design model is acceptable if it guarantees the output.
+
+Why a new engine rather than another fix: the blade is a thickness field over the
+profile looked up in a 96 × 64 grid of bilinear cells (`locateOnSweep`), so its slope
+steps at every cell edge; the grid's relaxation stops short wherever it would fold (a
+hook); the tip cap, the slices, the thickness read by height or along the sweep, the tip
+fade and the minimum each blend over their own reach with their own clamps, and where two
+meet the surface can crease. The log above is a list of such meetings fixed one by one.
+
+The plan (owner approved option B):
+
+1. **A smoothness gate and zebra stripes** (below), so "smooth" is measured.
+2. **A new engine beside the old**, behind a preview switch: the blade as one smooth
+   surface laid along the fin (base to tip, across the chord), every attribute a smooth
+   function on it, no hard clamps.
+3. Control sections, cant, toe and the tip on the new engine.
+4. Switch over; STEP exports the surface itself.
+
+### Stage 1: the smoothness gate and zebra stripes
+
+`fairness.ts` samples a blade's faces on a grid at two spacings, one twice as fine with
+the coarse grid's points among its own, and compares how far each face turns, patch by
+patch: the angle between the normals of cells two steps apart, up the blade and across it.
+On a smooth face that halves when the spacing does; across a crease it doesn't, however
+fine. A patch is a crease where the fine turn is over 0.2° and over 0.7 of the coarse.
+Normals rather than the grid's lines, which bend with how the grid is laid out (along a
+horizontal section's trailing end) on a face that is smooth; two steps rather than one, as
+a crease inside a cell splits its jump unevenly between the steps either side of it (a
+2.3° ridge: ratio 0.75 over one step, exactly 1.00 over two). The edges' 6% are left out:
+a rounded nose turns ever faster toward the edge, by design.
+
+The current engine, sampled through its horizontal sections (80 × 40, then 160 × 80):
+every fin creases, the defaults too.
+
+| Fin                      | Creased patches | Worst crease (coarse → fine) | Where                    |
+| ------------------------ | --------------- | ---------------------------- | ------------------------ |
+| Default side             | 387             | 7.0° → 8.8°                  | 91 mm up, toward the tip |
+| Default centre           | 774             | 2.7° → 4.0°                  | 92 mm up                 |
+| Keel                     | 690             | 6.5° → 8.3°                  | 115 mm up                |
+| Twin                     | 402             | 6.1° → 7.6°                  | 130 mm up                |
+| Single                   | 1166            | 1.7° → 2.6°                  | 192 mm up                |
+| A4C raised rear          | 497             | 12.4° → 20.8°                | 119 mm up                |
+| Hatchet hook             | 450             | 26.0° → 25.9°                | 125 mm up                |
+| Hatchet tip crossing     | 78              | 5.7° → 6.2°                  | 127 mm up                |
+| Swept back, two foils    | 472             | 11.7° → 8.6°                 | 142 mm up                |
+| TSN 800 single (owner's) | 298             | 3.9° → 2.9°                  | 173 mm up, the hook      |
+
+**Zebra** (3D view, Analysis): the blade drawn with a matcap of 48 upright black and white
+stripes on a finer mesh (120 rows, 64 stations), so each stripe follows the points facing
+one band of directions. On the TSN 800 the stripes jog sideways in a line across the hook's
+arm and blot near its tip, where the gate finds its creases.

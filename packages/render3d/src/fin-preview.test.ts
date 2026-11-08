@@ -2,7 +2,14 @@
 import { describe, expect, it } from 'vitest';
 import { bladeTop, defaultFinDesign, FUTURES_TABS, prepareBlade } from '@openshaper/kernel';
 import { Vector3 } from 'three';
-import { sectionPlaneCorners, FIN_PREVIEW_FOV, finCameraPosition, finScene } from './fin-preview';
+import {
+  sectionPlaneCorners,
+  FIN_PREVIEW_FOV,
+  ZEBRA_STRIPES,
+  finCameraPosition,
+  finScene,
+  zebraTexture,
+} from './fin-preview';
 
 describe('finScene', () => {
   const d = defaultFinDesign('side', 'right');
@@ -84,5 +91,26 @@ describe('the panel fit view', () => {
     expect(straight.length()).toBeGreaterThan(
       20 * new Vector3(...finCameraPosition(c, 10, 1)).sub(new Vector3(...c)).length(),
     );
+  });
+});
+
+describe('the zebra stripes', () => {
+  it('alternate black and white across the texture, the same all the way up', () => {
+    const t = zebraTexture(1024);
+    const px = (x: number, y: number) => (t.image.data as Uint8Array)[(y * 1024 + x) * 4]!;
+    const w = 1024 / ZEBRA_STRIPES;
+    // The middle of each stripe, light then dark.
+    for (let k = 0; k < ZEBRA_STRIPES; k++) {
+      const v = px(Math.floor((k + 0.5) * w), 100);
+      if (k % 2 === 0) expect(v).toBeGreaterThan(200);
+      else expect(v).toBeLessThan(40);
+      expect(px(Math.floor((k + 0.5) * w), 3)).toBe(v);
+    }
+  });
+
+  it('are drawn on a finer mesh than the preview', () => {
+    const d = defaultFinDesign('side', 'left');
+    const plain = finScene(d).blade.getAttribute('position').count;
+    expect(finScene(d, true).blade.getAttribute('position').count).toBeGreaterThan(2 * plain);
   });
 });
