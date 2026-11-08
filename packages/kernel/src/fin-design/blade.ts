@@ -151,7 +151,7 @@ export interface BladeSection {
 }
 
 /** Outside and inside offsets of a foil at chord fraction u, in chords. */
-const sectionShapeAt = (sec: FinSection, u: number): [number, number] => {
+export const sectionShapeAt = (sec: FinSection, u: number): [number, number] => {
   const out = yAtX(sec.outside, u);
   return [out, sec.inside ? yAtX(sec.inside, u) : -out];
 };

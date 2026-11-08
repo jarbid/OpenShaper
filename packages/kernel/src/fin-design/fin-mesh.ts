@@ -30,12 +30,21 @@ import {
 } from './blade';
 import { sectionLoop } from './blade-surface';
 import { FIN_MIN_THICKNESS, type FinDesign } from './fin-design';
+import { smoothBlade } from './smooth-blade';
 import { finTabOutline } from './fin-tab';
 import { tabCentreY, tabFacesY } from './fin-placement';
 import type { TabSegment } from './futures-tab';
 import { polygonArea, triangulate, triangulateWithHoles } from './triangulate';
 
+/**
+ * Which surface engine builds the blade: the foil sweep (blade.ts, horizontal sections)
+ * or the smooth blade (smooth-blade.ts, the new engine, in preview).
+ */
+export type FinEngine = 'sweep' | 'smooth';
+
 export interface FinMeshOptions {
+  /** The surface engine (default the sweep). */
+  readonly engine?: FinEngine;
   /** Rings up the blade. */
   readonly rows?: number;
   /** Chord stations per face in each ring. */
@@ -52,6 +61,7 @@ export interface FinMeshOptions {
 
 /** Light enough to rebuild on every edit. */
 export const FIN_MESH_PREVIEW = {
+  engine: 'sweep' as FinEngine,
   rows: 40,
   stations: 32,
   tipGap: 0.01,
@@ -62,6 +72,7 @@ export const FIN_MESH_PREVIEW = {
 
 /** For STL: rings about 0.5 mm apart on a 100 mm fin. */
 export const FIN_MESH_FINE = {
+  engine: 'sweep' as FinEngine,
   rows: 200,
   stations: 120,
   tipGap: 0.01,
@@ -156,6 +167,86 @@ const bladeMesh = (d: FinDesign, o: Required<FinMeshOptions>): BoardMesh => {
   const flat = (ring: readonly Vert3[]) => ring.map((p) => vec2(p.x, p.y));
   cap(m, ids[0]!, flat(rings[0]!), { x: 0, y: 0, z: -1 });
   cap(m, ids[ids.length - 1]!, flat(rings[rings.length - 1]!), { x: 0, y: 0, z: 1 });
+  return m.done();
+};
+
+/**
+ * The smooth blade's mesh (smooth-blade.ts): rings along its rows (s), each a section
+ * loop from edge to edge, gathered toward the tip edge where the tip rounds over fastest;
+ * the root ring capped flat, and the last row, at the tip edge, closed as a strip across
+ * its minimum thickness.
+ */
+const smoothBladeMesh = (d: FinDesign, o: Required<FinMeshOptions>): BoardMesh => {
+  const sb = smoothBlade(d, o.laminate, o.minThickness);
+  const us = cosineStations(o.stations);
+  // Gathered toward the tip edge (s = 1), even near the base.
+  const ss = Array.from({ length: o.rows + 1 }, (_, i) => Math.sin((Math.PI / 2) * (i / o.rows)));
+  const rows = ss.map((s) => {
+    const outside: Vert3[] = [];
+    const inside: Vert3[] = [];
+    for (const u of us) {
+      const f = sb.faces(s, u);
+      outside.push(f.outside);
+      inside.push(f.inside);
+    }
+    return { outside, inside };
+  });
+  const rings = rows.map((r) => sectionLoop(r).slice(0, -1));
+  const m = builder();
+  const ids = rings.map((ring) => ring.map((p) => m.add(p)));
+  const n = rings[0]!.length;
+  // Every quad is wound the same way round, as the rings all run the same way: which way
+  // is outward is settled once, on the outside face halfway along the first row, where it
+  // faces the outside. (Judged quad by quad from the ring's direction seen from above, as
+  // the sweep's horizontal rings are, it flipped wherever a row runs up and down, round a
+  // hook's tip.)
+  const normal = (a: Vert3, b: Vert3, c: Vert3) => crossV(sub(b, a), sub(c, a));
+  const ref = (() => {
+    const j = Math.floor(us.length / 2);
+    return normal(rings[0]![j]!, rings[0]![j + 1]!, rings[1]![j + 1]!);
+  })();
+  const sign = ref.y * sb.blade.outward >= 0 ? 1 : -1;
+  /**
+   * A triangle kept in its own order, or reversed with all the rest: never judged on its
+   * own (an edge cap's triangles have no area to judge by).
+   */
+  const keep = (a: number, b: number, c: number, pa: Vert3, pb: Vert3, pc: Vert3) => {
+    if (sign > 0) m.tri(a, b, c, normal(pa, pb, pc));
+    else m.tri(a, c, b, normal(pa, pc, pb));
+  };
+  for (let k = 0; k < rings.length - 1; k++) {
+    const r0 = rings[k]!;
+    const r1 = rings[k + 1]!;
+    for (let j = 0; j < n; j++) {
+      const j1 = (j + 1) % n;
+      keep(ids[k]![j]!, ids[k]![j1]!, ids[k + 1]![j1]!, r0[j]!, r0[j1]!, r1[j1]!);
+      keep(ids[k]![j]!, ids[k + 1]![j1]!, ids[k + 1]![j]!, r0[j]!, r1[j1]!, r1[j]!);
+    }
+  }
+  const flat = (ring: readonly Vert3[]) => ring.map((p) => vec2(p.x, p.y));
+  cap(m, ids[0]!, flat(rings[0]!), { x: 0, y: 0, z: -1 });
+  // The tip edge: the last ring is the outside face's row, the trailing-edge cap, the inside
+  // face's row back, and the leading-edge cap; close it face to face, across the minimum.
+  // Each triangle is listed in the ring's own order round it, so it runs the ring's edges
+  // the other way to the quads below (a closed shell), and takes the same outward choice.
+  const top = ids[ids.length - 1]!;
+  const ring = rings[rings.length - 1]!;
+  const last = us.length - 1;
+  const caps = (n - 2 * us.length) / 2;
+  const outAt = (j: number) => j;
+  const inAt = (j: number) => last + caps + 1 + (last - j);
+  const close = (a: number, b: number, c: number) =>
+    keep(top[a]!, top[b]!, top[c]!, ring[a]!, ring[b]!, ring[c]!);
+  for (let j = 0; j < last; j++) {
+    close(outAt(j), outAt(j + 1), inAt(j + 1));
+    close(outAt(j), inAt(j + 1), inAt(j));
+  }
+  // The ends of the strip: each edge cap's points fanned from its first.
+  const teCap = [outAt(last), ...Array.from({ length: caps }, (_, k) => last + 1 + k), inAt(last)];
+  const leCap = [inAt(0), ...Array.from({ length: caps }, (_, k) => n - caps + k), outAt(0)];
+  for (const fan of [teCap, leCap]) {
+    for (let k = 1; k < fan.length - 1; k++) close(fan[0]!, fan[k]!, fan[k + 1]!);
+  }
   return m.done();
 };
 
@@ -288,5 +379,6 @@ const tabMesh = (d: FinDesign, o: Required<FinMeshOptions>): BoardMesh => {
 /** Blade and tab meshes of a valid design (see `validateFinDesign`). */
 export const finMesh = (d: FinDesign, opts: FinMeshOptions = {}): FinMesh => {
   const o = { ...FIN_MESH_PREVIEW, ...opts };
-  return { blade: bladeMesh(d, o), tab: tabMesh(d, o) };
+  const blade = o.engine === 'smooth' ? smoothBladeMesh(d, o) : bladeMesh(d, o);
+  return { blade, tab: tabMesh(d, o) };
 };

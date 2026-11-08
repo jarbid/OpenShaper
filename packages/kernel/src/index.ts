@@ -53,6 +53,7 @@ export * from './fin-design/split-foil';
 export * from './fin-design/mesh-slice';
 export * from './fin-design/fin-mesh';
 export * from './fin-design/fairness';
+export * from './fin-design/smooth-blade';
 export * from './fin-design/panel-fit';
 export {
   defaultCanard,

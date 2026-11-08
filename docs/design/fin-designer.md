@@ -626,3 +626,41 @@ every fin creases, the defaults too.
 stripes on a finer mesh (120 rows, 64 stations), so each stripe follows the points facing
 one band of directions. On the TSN 800 the stripes jog sideways in a line across the hook's
 arm and blot near its tip, where the gate finds its creases.
+
+### Stage 2: the smooth blade, in preview
+
+`smooth-blade.ts` builds the blade from the same design as one smooth surface, shown in
+the 3D view when File settings → Smooth surface (preview) is on (exports keep the sweep).
+Control sections are left out until stage 3.
+
+- **Layout.** The profile's four sides (base, leading edge, tip edge round the tip from
+  the tip line's leading end to its trailing end, trailing edge) are laid out as a 64 × 48
+  elliptic grid (Winslow, `smooth-map.ts`), which can't fold: on a hook, where the Coons
+  start folds, it doesn't (unit-tested), unlike the sweep's averaging, which stopped short.
+  Read through tensor-product not-a-knot bicubic splines, C² everywhere, through the grid
+  exactly; the edges come out within 0.001–0.007 mm of the outline (0.16 mm only at the
+  hatchet hook's raised-rear corner, by the root). Rows (s) run from the base to the tip
+  edge, columns (u) from the leading to the trailing edge.
+- **Shape.** On each row the base and tip foils are laid with their thickest points on
+  the thickness path, by length along the row (a C² table of it), blended by
+  smootherstep up to where the path crosses the tip line. The warp from the row to a foil
+  is x/(x + λ(1 − x)): its slope at the ends is finite, so a round nose stays round. The
+  thickness curve is read at η, the thickness path's length from the base, so along a
+  hook's arm. From the tip line to the tip edge the thickness rounds as √(1 − t³). The
+  minimum is added all over, as before. No clamps, no straight table reads, no switches.
+- **Mesh.** Rings along the rows, gathered toward the tip edge, the tip edge closed as a
+  strip across the minimum. Wound by one choice for the whole shell, from the outside face
+  on the first row: judged quad by quad from above, as the sweep's horizontal rings are,
+  quads round the TSN's tip, where rows run up and down, came out flipped (a staircase in
+  the shading).
+
+Results on the gate (control sections left out): the five starting fins, the TSN 800, the
+hatchet tip crossing, the steep tip line and the swept-back tip are smooth: no creases,
+where the sweep had 78 to 1166 each. What still creases traces to the designs' own curves:
+corner_creases' four outline corners; the hatchet hook's thickness curve, rising 6.5 →
+7.9 mm in its first 6% then turning down; hatchet_slice_toe's base foil, a 2.4° kink in
+its inside face at 64% of the chord; swept_back_two_foils' tip foil, a bend tighter than
+the gate's spacing between knots at 45% and 49%; and the A4C's raised-rear corner (0.75°).
+Volumes: within 4% of the sweep's on the starting fins; the TSN 800 16% fuller, its
+thickness curve read along the arm rather than by height. Built in 80–100 ms, about as the
+sweep.

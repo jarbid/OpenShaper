@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * The fin designer's File settings (owner request): how lengths are shown, the profile
- * view's grid and the exports' minimum thickness. Remembered
+ * view's grid, the exports' minimum thickness, and whether the 3D view tries the new
+ * smooth surface (in preview). Remembered
  * in this browser, like the export options were. The core export's laminate lives with
  * its dialog (CoreExportDialog.tsx), and the panel's thickness with the fin itself
  * (FinDesign.panel); both are edited from the same dialog.
  */
-import { FIN_EXPORT_MIN_THICKNESS } from '@openshaper/kernel';
+import { FIN_EXPORT_MIN_THICKNESS, type FinEngine } from '@openshaper/kernel';
 import { lengthUnitByKey, type LengthUnit } from '../format';
 import { readStored, writeStored } from '../persisted';
 
@@ -24,6 +25,11 @@ export interface FinSettings {
   readonly grid: number | null;
   /** The exports' minimum thickness (cm; see FIN_EXPORT_MIN_THICKNESS). */
   readonly exportMin: number;
+  /**
+   * The surface the 3D view shows: the current one (the sweep) or the new smooth surface,
+   * in preview (smooth-blade.ts). Exports keep the current one until it is finished.
+   */
+  readonly engine: FinEngine;
 }
 
 export const DEFAULT_FIN_SETTINGS: FinSettings = {
@@ -31,6 +37,7 @@ export const DEFAULT_FIN_SETTINGS: FinSettings = {
   fraction: 16,
   grid: null,
   exportMin: FIN_EXPORT_MIN_THICKNESS.default,
+  engine: 'sweep',
 };
 
 const INCH = 2.54;
@@ -85,7 +92,8 @@ export const readFinSettings = (): FinSettings => {
     const fraction = INCH_FRACTIONS.find((f) => f === s.fraction) ?? 16;
     const grid = typeof s.grid === 'number' ? s.grid : null;
     const exportMin = okMin(s.exportMin) ? s.exportMin : oldMin;
-    return withFinSettings(DEFAULT_FIN_SETTINGS, { unit, fraction, grid, exportMin });
+    const engine: FinEngine = s.engine === 'smooth' ? 'smooth' : 'sweep';
+    return withFinSettings(DEFAULT_FIN_SETTINGS, { unit, fraction, grid, exportMin, engine });
   });
 };
 

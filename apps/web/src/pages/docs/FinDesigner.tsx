@@ -570,6 +570,14 @@ export default function DocsFinDesigner() {
             The laminate thickness per face, which faces it goes on, and whether it wraps the tab:
             what Export core… starts from (see <a href="#export">Core</a>).
           </Term>
+          <Term name="Smooth surface (preview)">
+            Shows the new smooth surface in the 3D view: a new way of building the blade, still in
+            progress, that blends the foils, thickness, cant and toe without creasing it. It runs
+            the foils along the fin, from the base round to the tip, so on a hooked or swept fin the
+            thickness curve is read along the arm. Check it with <a href="#analysis">Zebra</a>.
+            Control sections aren&apos;t applied to it yet, and exports still use the current
+            surface.
+          </Term>
         </Terms>
       </Section>
 
