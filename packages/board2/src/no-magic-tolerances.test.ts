@@ -8,8 +8,9 @@
  *
  * Exempt, by name: `params.ts` (where named parameters are written, like geom's
  * `tolerance.ts`) and the `testing/` and `test-support/` directories (test-only
- * fixtures and checks, like tests) and `tailproto/` (the scratch tail-model
- * prototype, which keeps its own `proto-params.ts`).
+ * fixtures and checks, like tests) and the two scratch prototypes, `tailproto/`
+ * and `railproto/`, each of which keeps its own params file (`proto-params.ts`,
+ * `rail-params.ts`) that the rule's intent is satisfied by.
  */
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
@@ -18,7 +19,12 @@ import { describe, expect, it } from 'vitest';
 
 const SRC = dirname(fileURLToPath(import.meta.url));
 const EXEMPT_FILES: ReadonlySet<string> = new Set(['params.ts']);
-const EXEMPT_DIRS: ReadonlySet<string> = new Set(['testing', 'test-support', 'tailproto']);
+const EXEMPT_DIRS: ReadonlySet<string> = new Set([
+  'testing',
+  'test-support',
+  'tailproto',
+  'railproto',
+]);
 const PATTERNS: readonly RegExp[] = [/\b\d+(\.\d+)?e-\d+\b/gi, /\b0\.0{4,}\d/g];
 const LARGE_E = /\b\d+(\.\d+)?e\+?\d+\b/gi;
 const EPSILON = /Number\.EPSILON/g;
