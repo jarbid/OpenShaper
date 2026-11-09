@@ -52,7 +52,7 @@ import {
 } from './foil-analysis';
 import { LenField } from '../components/fields';
 import { FitToPanel, PANEL_FIT, PANEL_OVER } from './panel-tools';
-import { GhostControl } from './VectorImport';
+import { GhostControl, useGhostRightDrag } from './VectorImport';
 import { drawGhost, ghostMarkers, makeGhost, withGhostHandles, type Ghost } from './ghost';
 import { vectorLines, type VectorFacing, type VectorPath } from './vector-import';
 import { PATH_COLOR } from './sweep-overlay';
@@ -568,6 +568,7 @@ export const FinSectionPane = memo(function FinSectionPane({
       ),
     [store, ghost, onGhost, trueScale],
   );
+  const ghostRightDrag = useGhostRightDrag(ghost, onGhost, trueScale);
   const allMarkers = useMemo(
     () => [...markers, ...(ghost ? ghostMarkers(ghost, trueScale) : [])],
     [markers, ghost, trueScale],
@@ -743,6 +744,7 @@ export const FinSectionPane = memo(function FinSectionPane({
         drawUnder={drawUnder}
         markers={allMarkers}
         onHover={ghosts.length ? onHover : undefined}
+        {...ghostRightDrag}
         {...markerHandlers}
         {...handlers}
       />

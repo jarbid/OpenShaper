@@ -30,7 +30,7 @@ import { memo, useCallback, useMemo } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
 import type { LengthUnit } from '../format';
 import { alsoFromSelection, curveEditorHandlers, pickFromSelection } from './curve-editor-wiring';
-import { GhostControl } from './VectorImport';
+import { GhostControl, useGhostRightDrag } from './VectorImport';
 import { drawGhost, ghostMarkers, makeGhost, withGhostHandles, type Ghost } from './ghost';
 import { vectorLines, type VectorFacing, type VectorPath } from './vector-import';
 import { sliceGuideHandlers, sliceGuides } from './slice-guides';
@@ -108,6 +108,7 @@ export const FinOutlinePane = memo(function FinOutlinePane({
     () => withGhostHandles(sweepMarkerHandlers(store), ghost, onGhost),
     [store, ghost, onGhost],
   );
+  const ghostRightDrag = useGhostRightDrag(ghost, onGhost);
   const markers = useMemo(
     () => [...(sweep?.markers ?? []), ...(ghost ? ghostMarkers(ghost) : [])],
     [sweep, ghost],
@@ -260,6 +261,7 @@ export const FinOutlinePane = memo(function FinOutlinePane({
         guides={guides}
         markers={markers}
         onBackgroundClick={onBackgroundClick}
+        {...ghostRightDrag}
         {...markerHandlers}
         {...guideHandlers}
         {...handlers}

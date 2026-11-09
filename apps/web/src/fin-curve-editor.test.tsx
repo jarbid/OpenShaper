@@ -76,6 +76,45 @@ const mount = (opts: { yScale?: number; editable?: boolean } = {}) => {
 };
 
 describe('FinCurveEditor', () => {
+  it('reports a right-button drag’s distance in data space, without panning or selecting', () => {
+    const onRightDragStart = vi.fn();
+    const onRightDrag = vi.fn<(by: Vec2) => void>();
+    const onSelect = vi.fn();
+    let vp: Viewport | null = null;
+    const { getByRole } = render(
+      <FinCurveEditor
+        label="Fin outline"
+        layers={[{ id: 'outline', spline: arch(), editable: true }]}
+        selection={null}
+        yScale={2}
+        onViewport={(v) => (vp = v)}
+        onSelect={onSelect}
+        onRightDragStart={onRightDragStart}
+        onRightDrag={onRightDrag}
+      />,
+    );
+    const canvas = getByRole('img', { name: 'Fin outline' });
+    const scale = vp!.scale;
+    const from = { clientX: 200, clientY: pane.top + 120 };
+    fireEvent.pointerDown(canvas, { ...MOUSE, ...from, button: 2 });
+    fireEvent.pointerMove(canvas, {
+      ...MOUSE,
+      clientX: from.clientX + scale,
+      clientY: from.clientY - scale,
+    });
+    fireEvent.pointerUp(canvas, { ...MOUSE, button: 2 });
+    expect(onRightDragStart).toHaveBeenCalledOnce();
+    const by = onRightDrag.mock.lastCall![0];
+    expect(by.x).toBeCloseTo(1, 6);
+    expect(by.y).toBeCloseTo(0.5, 6); // through the view's stretch
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(vp!.scale).toBe(scale);
+    // No menu in the way, and a control-click does the same on a Mac.
+    expect(fireEvent.contextMenu(canvas)).toBe(false);
+    fireEvent.pointerDown(canvas, { ...MOUSE, ...from, ctrlKey: true });
+    expect(onRightDragStart).toHaveBeenCalledTimes(2);
+  });
+
   it('grabs a point off-centre by touch and drags it by the pointer’s travel', () => {
     const { canvas, calls, screenOf, view } = mount();
     const on = screenOf(vec2(10, 0));

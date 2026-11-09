@@ -595,10 +595,20 @@ const BASE_NEAR = 0.05;
  * shape's base (its lowest run of segments) is left out, the tab top being the base.
  * Facing left in the view is toward +x, the outline's nose.
  */
-export const vectorOutline = (paths: readonly VectorPath[], facing: VectorFacing): Spline => {
+export const vectorOutline = (
+  paths: readonly VectorPath[],
+  facing: VectorFacing,
+  scale = 1,
+): Spline => {
   // The views draw the profile's +x (the nose) to the left, so a left-facing drawing is
   // mirrored into the outline's frame, and a right-facing one already matches it.
-  const p = facing === 'left' ? facingLeft(largest(paths), 'right') : largest(paths);
+  const p = mapPath(
+    facing === 'left' ? facingLeft(largest(paths), 'right') : largest(paths),
+    (q) => ({
+      x: q.x * scale,
+      y: q.y * scale,
+    }),
+  );
   const { minY, maxY } = boundsOf(p.segs);
   const near = (q: P) => q.y - minY <= BASE_NEAR * (maxY - minY);
   let chain: Seg[];
@@ -635,6 +645,22 @@ export const vectorOutline = (paths: readonly VectorPath[], facing: VectorFacing
   const b = lifted[lifted.length - 1]!;
   lifted[lifted.length - 1] = [b[0], b[1], { x: b[2].x, y: b[2].y - b[3].y }, { x: b[3].x, y: 0 }];
   return splineOf(lifted);
+};
+
+/** The depth and base length (cm) a drawing would import at, at full size; null if it can't. */
+export const vectorOutlineSize = (
+  paths: readonly VectorPath[],
+): { depth: number; base: number } | null => {
+  try {
+    const k = vectorOutline(paths, 'right').knots;
+    const ys = vectorLines([largest(paths)], 'right', false)[0]!.map((q) => q.y);
+    return {
+      depth: Math.max(...ys) - Math.min(...ys),
+      base: Math.abs(k[0]!.end.x - k[k.length - 1]!.end.x),
+    };
+  } catch {
+    return null;
+  }
 };
 
 const split = (s: Seg, t: number): [Seg, Seg] => {

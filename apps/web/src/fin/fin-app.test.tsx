@@ -726,6 +726,34 @@ describe('FinApp: importing drawings', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
   });
 
+  it('scales an outline, and stays open to try again when it doesn’t fit', async () => {
+    render(<FinApp />);
+    const before = finStore.getState().design;
+    fireEvent.change(screen.getByLabelText('Open a vector file'), {
+      target: { files: [svg('fin.svg', FIN)] },
+    });
+    const dialog = await screen.findByRole('dialog', { name: 'Import vector outline' });
+    fireEvent.change(within(dialog).getByLabelText('Scale'), { target: { value: '400' } });
+    within(dialog).getByText(/^Depth \d+\.\d mm · Base \d+\.\d mm$/);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Left' }));
+    within(dialog).getByRole('alert');
+    expect(finStore.getState().design).toBe(before);
+    fireEvent.change(within(dialog).getByLabelText('Scale'), { target: { value: '100' } });
+    expect(within(dialog).queryByRole('alert')).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Left' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(finStore.getState().design).not.toBe(before);
+  });
+
+  it('offers no scale for a foil', async () => {
+    render(<FinApp />);
+    fireEvent.change(screen.getByLabelText('Open a ghost vector foil'), {
+      target: { files: [svg('fin.svg', FIN)] },
+    });
+    const dialog = await screen.findByRole('dialog', { name: 'Import ghost' });
+    expect(within(dialog).queryByLabelText('Scale')).toBeNull();
+  });
+
   it('leaves the fin alone when the dialog is cancelled', async () => {
     render(<FinApp />);
     const before = finStore.getState().design;

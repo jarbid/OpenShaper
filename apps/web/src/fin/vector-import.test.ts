@@ -2,7 +2,7 @@
 import { defaultFinDesign, sectionThickest, validateFinDesign } from '@openshaper/kernel';
 import { createFinStore } from '@openshaper/store';
 import { describe, expect, it } from 'vitest';
-import { dragGhost, ghostMarkers, makeGhost, GHOST_MOVE, GHOST_SCALE } from './ghost';
+import { dragGhost, ghostMarkers, makeGhost, moveGhost, GHOST_MOVE, GHOST_SCALE } from './ghost';
 import {
   parseEps,
   parsePathData,
@@ -11,6 +11,7 @@ import {
   vectorFoil,
   vectorLines,
   vectorOutline,
+  vectorOutlineSize,
   VectorError,
 } from './vector-import';
 
@@ -102,6 +103,15 @@ describe('a vector as the profile', () => {
     expect(right.knots[0]!.end.x - right.knots[2]!.end.x).toBeCloseTo(8.5, 9);
     expect(right.knots[1]!.end.x).toBeCloseTo(7, 9);
     expect(left.knots[1]!.end.x).toBeCloseTo(-7, 9);
+  });
+
+  it('scales, and says how big it will come in', () => {
+    const half = vectorOutline(paths, 'left', 0.5);
+    expect(half.knots[1]!.end.y).toBeCloseTo(3.75, 9);
+    expect(half.knots[0]!.end.x - half.knots[2]!.end.x).toBeCloseTo(4.25, 9);
+    const size = vectorOutlineSize(paths)!;
+    expect(size.base).toBeCloseTo(8.5, 9);
+    expect(size.depth).toBeCloseTo(7.5, 2);
   });
 
   it('lands on the current tab, one undo step', () => {
@@ -198,6 +208,13 @@ describe('a ghost', () => {
     });
     expect(twice.scale).toBeCloseTo(2, 9);
     expect([twice.x, twice.y]).toEqual([g.x, g.y]);
+  });
+
+  it('moves by a right-button drag’s distance, true to scale in the foil view', () => {
+    const g = ghost();
+    const by = { x: 1, y: 2 };
+    expect(moveGhost(g, by)).toMatchObject({ x: 6, y: 6, scale: 1 });
+    expect(moveGhost(g, by, 4)).toMatchObject({ x: 6, y: 12 });
   });
 
   it('keeps its handles true to scale in the stretched foil view', () => {

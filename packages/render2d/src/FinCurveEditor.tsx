@@ -17,7 +17,7 @@
  * Mouse and touch: drag a point or handle to move it; drag empty space to pan; wheel
  * to zoom about the cursor; double-click (double-tap) a curve to add a point there.
  */
-import type { Vec2 } from '@openshaper/kernel';
+import { vec2, type Vec2 } from '@openshaper/kernel';
 import {
   useCallback,
   useEffect,
@@ -109,6 +109,12 @@ export interface FinCurveEditorProps {
   /** The point (data space) a guide is dragged to: for a curved guide, where to move it. */
   onGuideDragPoint?: (id: string, p: Vec2) => void;
   onGuideDragEnd?: () => void;
+  /**
+   * A right-button drag anywhere in the view (control-click too, for a Mac): the distance
+   * from where it started, in data space. Given, the view's context menu is off.
+   */
+  onRightDragStart?: () => void;
+  onRightDrag?: (moved: Vec2) => void;
   /** Draggable markers, drawn over the curves and picked before them. */
   markers?: readonly FinCurveMarker[];
   onMarkerDragStart?: (id: string) => void;
@@ -138,6 +144,7 @@ type Drag =
   | { kind: 'handle'; pick: FinCurvePick; grabbed: Vec2; pointerAt: Vec2; id: number }
   | { kind: 'pan'; last: ScreenPoint; start: ScreenPoint; id: number }
   | { kind: 'guide'; guide: FinCurveGuide; id: number }
+  | { kind: 'right'; from: Vec2; id: number }
   | { kind: 'marker'; marker: string; grabbed: Vec2; pointerAt: Vec2; id: number };
 
 /** Radius of a marker's dot (px). */
@@ -166,6 +173,8 @@ export function FinCurveEditor({
   gridStep,
   label,
   background,
+  onRightDragStart,
+  onRightDrag,
   markers,
   onMarkerDragStart,
   onMarkerDrag,
@@ -281,7 +290,18 @@ export function FinCurveEditor({
   const tolFor = (e: PointerEvent) => (e.pointerType === 'touch' ? TOUCH_HIT_TOL_PX : HIT_TOL_PX);
 
   const onPointerDown = (e: PointerEvent<HTMLCanvasElement>) => {
-    if (!vp || e.button !== 0) return;
+    if (!vp) return;
+    if (onRightDrag && (e.button === 2 || (e.button === 0 && e.ctrlKey))) {
+      e.currentTarget.setPointerCapture?.(e.pointerId);
+      drag.current = {
+        kind: 'right',
+        from: fromView(screenToWorld(vp, local(e)), yScale),
+        id: e.pointerId,
+      };
+      onRightDragStart?.();
+      return;
+    }
+    if (e.button !== 0) return;
     const p = local(e);
     e.currentTarget.setPointerCapture?.(e.pointerId);
     const pick = pickHandle(layers, vp, p, yScale, tolFor(e), selection);
@@ -350,6 +370,9 @@ export function FinCurveEditor({
         d.marker,
         fromView(dragTo(d.grabbed, d.pointerAt, screenToWorld(vp, p)), yScale),
       );
+    } else if (d.kind === 'right') {
+      const at = fromView(screenToWorld(vp, p), yScale);
+      onRightDrag?.(vec2(at.x - d.from.x, at.y - d.from.y));
     } else if (d.kind === 'guide') {
       onGuideDrag?.(d.guide.id, guideValueAt(d.guide, vp, p, yScale));
       onGuideDragPoint?.(d.guide.id, guidePointAt(vp, p, yScale));
@@ -407,6 +430,7 @@ export function FinCurveEditor({
         aria-label={label}
         style={{ width: '100%', height: '100%', display: 'block', touchAction: 'none' }}
         onPointerDown={onPointerDown}
+        onContextMenu={onRightDrag ? (e) => e.preventDefault() : undefined}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}

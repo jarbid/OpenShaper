@@ -545,9 +545,11 @@ export default function DocsFinDesigner() {
         </p>
         <Terms>
           <Term name="Outline">
-            Replaces the profile, at the drawing&apos;s real size, placed on the current tab. Draw
-            it closed along the base, or open with both ends at the bottom. If it breaks a rule,
-            such as overhanging the tab, the app says why and leaves your fin as it was.
+            Replaces the profile, placed on the current tab. It comes in at the drawing&apos;s real
+            size unless you change <strong>Scale</strong> in the dialog, which shows the depth and
+            base length it will have. Draw it closed along the base, or open with both ends at the
+            bottom. If it breaks a rule, such as overhanging the tab, the dialog says why and stays
+            open so you can change the scale.
           </Term>
           <Term name="Foil">
             Replaces the base foil. A closed shape is cut at its leading and trailing edges into two
@@ -558,9 +560,10 @@ export default function DocsFinDesigner() {
           </Term>
           <Term name="Ghost">
             The ghost icon at the top left of the profile and foil views brings in a drawing as a
-            half-transparent reference to trace over. Drag the dot at its centre to move it and the
-            dot at its corner to scale it; the × beside the icon removes it. A ghost is not part of
-            the fin: it isn&apos;t saved and isn&apos;t exported.
+            half-transparent reference to trace over. Right-drag anywhere in the view to move it (or
+            drag the dot at its centre, on a tablet), and drag the dot at its corner to scale it;
+            the × beside the icon removes it. A ghost is not part of the fin: it isn&apos;t saved
+            and isn&apos;t exported.
           </Term>
         </Terms>
         <p>An EPS must be saved uncompressed, with any text converted to outlines.</p>

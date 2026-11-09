@@ -2,7 +2,8 @@
 /**
  * A ghost (owner request): a vector drawing shown half transparent behind a view's curves,
  * to trace over. Only a reference: it isn't part of the fin, isn't saved and isn't undone.
- * A dot at its centre moves it and one at the corner of its box scales it.
+ * A right-button drag anywhere in the view moves it, as does the dot at its centre (for a
+ * tablet); the dot at the corner of its box scales it.
  */
 import type { FinCurveMarker } from '@openshaper/render2d';
 import type { Vec2 } from '@openshaper/kernel';
@@ -69,6 +70,13 @@ export const dragGhost = (g: Ghost, id: string, to: P, yDiv = 1): Ghost => {
   const scale = Math.hypot(to.x - g.x, y - g.y) / (Math.hypot(g.halfW, g.halfH) || 1);
   return { ...g, scale: Math.max(MIN_SCALE, scale) };
 };
+
+/** The ghost moved by `by` (the view's data). */
+export const moveGhost = (g: Ghost, by: P, yDiv = 1): Ghost => ({
+  ...g,
+  x: g.x + by.x,
+  y: g.y + by.y * yDiv,
+});
 
 /** Draw the ghost at 50% and its box, under the curves. */
 export const drawGhost = (

@@ -3,10 +3,12 @@
  * Importing vector drawings (owner request): which way a drawing faces, asked once it is
  * opened, and the ghost's button at the top left of the profile and foil views.
  */
+import type { Vec2 } from '@openshaper/kernel';
 import { Button, Panel, PanelBody, PanelHeader, PanelTitle, Tooltip } from '@openshaper/ui';
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Modal } from '../components/modal';
-import type { Ghost } from './ghost';
+import { fmtLen, type LengthUnit } from '../format';
+import { moveGhost, type Ghost } from './ghost';
 import { parseVector, type VectorFacing, type VectorPath } from './vector-import';
 
 export const VECTOR_ACCEPT = '.svg,.eps,image/svg+xml,application/postscript';
@@ -15,19 +17,35 @@ export const VECTOR_ACCEPT = '.svg,.eps,image/svg+xml,application/postscript';
 export const readVectorFile = async (file: File): Promise<VectorPath[]> =>
   parseVector(file.name, await file.text());
 
-/** Asks which way the drawing faces; a right-facing one is flipped. */
+/**
+ * Asks which way the drawing faces; a right-facing one is flipped. With `size`, also how
+ * big it comes in. A reason returned from `onChoose` is shown here, so the scale can be
+ * changed and tried again.
+ */
 export function FacingDialog({
   title,
   what,
+  size,
+  units,
   onChoose,
   onCancel,
 }: {
   title: string;
   /** What is being imported, as the question names it: "vector outline". */
   what: string;
-  onChoose: (facing: VectorFacing) => void;
+  /** The drawing's size at 100% (cm), to offer a scale: none, no scale. */
+  size?: { depth: number; base: number } | null;
+  units?: LengthUnit;
+  onChoose: (facing: VectorFacing, scale: number) => string | void;
   onCancel: () => void;
 }) {
+  const [percent, setPercent] = useState('100');
+  const [problem, setProblem] = useState<string | null>(null);
+  const scale = Number(percent) / 100;
+  const ok = Number.isFinite(scale) && scale > 0;
+  const choose = (facing: VectorFacing) => {
+    setProblem(onChoose(facing, scale) || null);
+  };
   return (
     <Modal
       name="fin-vector-facing"
@@ -41,14 +59,44 @@ export function FacingDialog({
         </PanelHeader>
         <PanelBody className="space-y-4 text-sm">
           <p>Does the {what} face left or right?</p>
+          {size && units && (
+            <div className="space-y-1">
+              <label className="flex items-center gap-2">
+                <span className="flex-1">Scale</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="any"
+                  value={percent}
+                  aria-label="Scale"
+                  className="h-8 w-24 rounded-md border border-input bg-background px-2 text-right"
+                  onChange={(e) => {
+                    setPercent(e.target.value);
+                    setProblem(null);
+                  }}
+                />
+                <span>%</span>
+              </label>
+              <p className="text-right text-xs tabular-nums text-muted-foreground">
+                {ok
+                  ? `Depth ${fmtLen(size.depth * scale, units)} · Base ${fmtLen(size.base * scale, units)}`
+                  : 'Enter a scale above 0'}
+              </p>
+            </div>
+          )}
+          {problem && (
+            <p role="alert" className="text-xs text-destructive">
+              {problem}
+            </p>
+          )}
           <div className="flex justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={onCancel}>
               Cancel
             </Button>
-            <Button size="sm" variant="outline" onClick={() => onChoose('left')}>
+            <Button size="sm" variant="outline" disabled={!ok} onClick={() => choose('left')}>
               Left
             </Button>
-            <Button size="sm" variant="outline" onClick={() => onChoose('right')}>
+            <Button size="sm" variant="outline" disabled={!ok} onClick={() => choose('right')}>
               Right
             </Button>
           </div>
@@ -57,6 +105,32 @@ export function FacingDialog({
     </Modal>
   );
 }
+
+/** A right-button drag in a view moving its ghost: handlers for FinCurveEditor, if there's one. */
+export const useGhostRightDrag = (
+  ghost: Ghost | null | undefined,
+  onGhost: ((g: Ghost | null) => void) | undefined,
+  yDiv = 1,
+) => {
+  const start = useRef<Ghost | null>(null);
+  const current = useRef(ghost);
+  current.current = ghost;
+  const has = !!ghost && !!onGhost;
+  return useMemo(
+    () =>
+      has
+        ? {
+            onRightDragStart: () => {
+              start.current = current.current ?? null;
+            },
+            onRightDrag: (by: Vec2) => {
+              if (start.current) onGhost!(moveGhost(start.current, by, yDiv));
+            },
+          }
+        : {},
+    [has, onGhost, yDiv],
+  );
+};
 
 /** The owner's ghost, in white. */
 function GhostIcon() {
@@ -104,7 +178,7 @@ export function GhostControl({
   };
   return (
     <div className="absolute left-2 top-2 z-10 flex items-center gap-1 text-xs">
-      <Tooltip label="Import ghost: a drawing to trace over (SVG, EPS)">
+      <Tooltip label="Import ghost: a drawing to trace over (SVG, EPS). Right-drag to move it">
         <button
           type="button"
           aria-label="Import ghost"

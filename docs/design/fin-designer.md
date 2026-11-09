@@ -775,3 +775,8 @@ view's curves, with a centre and a corner marker through the views' existing dra
 markers. The profile's is at real size, on the tab top; the foil's as long as the chord and
 true to scale (y divided by the view's stretch). In the foil view Analysis moves right of the
 ghost's button, the top left being the button's in both views.
+
+Owner testing: the outline import takes a scale (percent, in the facing dialog, which shows the
+depth and base length it gives, and stays open with the reason if the fin doesn't fit). A ghost
+moves with a right-button drag anywhere in its view (control-click on a Mac; `onRightDrag`), so
+it can be placed without finding its dot; the dot stays for tablets.
