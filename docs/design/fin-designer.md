@@ -754,3 +754,24 @@ one-colour gradients as plain colours) and two lines of text in the app's font, 
 PT Sans not being loaded here. A plain link rather than Buy Me a Coffee's widget script: no
 third-party code in the app, so nothing changes for consent or the privacy page, and
 nothing is sent until someone clicks it. It opens the page in a new tab.
+
+## Importing drawings and ghosts (owner request, 2026-11)
+
+`vector-import.ts` reads SVG (paths, basic shapes, transforms, real size from width and
+viewBox) and EPS (the path, matrix and paint operators, including the short names Illustrator
+and cairo write; clip paths left out) as cubics, cm, y up. Open's menu imports one as the
+profile or the base foil, the largest path if several; the owner's facing question comes after
+the file is picked, a right-facing drawing mirrored. Each point and handle becomes a knot, one
+smooth where its handles line up within 3°.
+
+A closed outline loses its lowest run of segments (within 5% of its height of the bottom), the
+tab top being the base; the ends are set on y = 0 and it is placed as a fin starts on the
+current tab, the tip line back to its default. A closed foil is cut at its x extremes, turned
+level and scaled to a unit chord. Both go through the design rules: what breaks one is shown,
+and the fin is left as it was. EPS binary or compressed streams can't be read, and say so.
+
+A ghost is view state, not design: `Ghost` holds the flattened lines, drawn at 50% under the
+view's curves, with a centre and a corner marker through the views' existing draggable
+markers. The profile's is at real size, on the tab top; the foil's as long as the chord and
+true to scale (y divided by the view's stretch). In the foil view Analysis moves right of the
+ghost's button, the top left being the button's in both views.

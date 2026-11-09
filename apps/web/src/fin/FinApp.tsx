@@ -74,6 +74,9 @@ import { shortcutKeys } from '../shortcuts';
 import { FinOutlinePane } from './FinOutlinePane';
 import { FinSectionPane, FinSectionTools } from './FinSectionPane';
 import { BuyMeACoffee } from './BuyMeACoffee';
+import { FacingDialog, VECTOR_ACCEPT, readVectorFile } from './VectorImport';
+import type { Ghost } from './ghost';
+import { vectorFoil, vectorOutline, type VectorFacing, type VectorPath } from './vector-import';
 import { FOIL_ANALYSIS_DEFAULT, type FoilAnalysis } from './foil-analysis';
 import { FinTaperPane, MinThicknessField } from './FinTaperPane';
 import { FitToPanel } from './panel-tools';
@@ -917,12 +920,20 @@ function History() {
   );
 }
 
+/** The part of the fin a vector file replaces. */
+type VectorPart = 'outline' | 'foil';
+
 /**
  * Open and Save: `.fin.json` files. Opening replaces the fin and starts a fresh history,
- * and re-fits every view to it (`onOpened`), as a new fin does.
+ * and re-fits every view to it (`onOpened`), as a new fin does. Open's menu also imports a
+ * vector drawing as the profile or the base foil (vector-import.ts).
  */
 function FileButtons({ onSave, onOpened }: { onSave: () => void; onOpened: () => void }) {
   const input = useRef<HTMLInputElement>(null);
+  const vectorInput = useRef<HTMLInputElement>(null);
+  // Which part the next vector file replaces, and the drawing waiting to be told its facing.
+  const [importing, setImporting] = useState<VectorPart>('outline');
+  const [pending, setPending] = useState<VectorPath[] | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const open = async (file: File | undefined) => {
     if (!file) return;
@@ -934,11 +945,74 @@ function FileButtons({ onSave, onOpened }: { onSave: () => void; onOpened: () =>
       setProblem((e as Error).message);
     }
   };
+  const openVector = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      setPending(await readVectorFile(file));
+      setProblem(null);
+    } catch (e) {
+      setProblem((e as Error).message);
+    }
+  };
+  const chooseVector = (part: VectorPart) => {
+    setImporting(part);
+    vectorInput.current?.click();
+  };
+  const place = (paths: VectorPath[], facing: VectorFacing) => {
+    const state = finStore.getState();
+    try {
+      const wrong =
+        importing === 'outline'
+          ? state.importOutline(vectorOutline(paths, facing))
+          : state.importBaseFoil(vectorFoil(paths, facing, state.design?.position === 'centre'));
+      setProblem(wrong.length ? `Not imported: ${wrong.join(' ')}` : null);
+    } catch (e) {
+      setProblem((e as Error).message);
+    }
+  };
   return (
     <>
-      <Button variant="ghost" size="sm" onClick={() => input.current?.click()}>
-        Open…
-      </Button>
+      <MenuBar>
+        <Menu
+          label="Open…"
+          panelClassName="min-w-72"
+          items={[
+            { kind: 'action', label: 'Open fin…', onSelect: () => input.current?.click() },
+            {
+              kind: 'action',
+              label: 'Import vector outline (SVG, EPS)…',
+              onSelect: () => chooseVector('outline'),
+            },
+            {
+              kind: 'action',
+              label: 'Import vector foil (SVG, EPS)…',
+              onSelect: () => chooseVector('foil'),
+            },
+          ]}
+        />
+      </MenuBar>
+      <input
+        ref={vectorInput}
+        type="file"
+        accept={VECTOR_ACCEPT}
+        className="hidden"
+        aria-label="Open a vector file"
+        onChange={(e) => {
+          void openVector(e.target.files?.[0]);
+          e.target.value = '';
+        }}
+      />
+      {pending && (
+        <FacingDialog
+          title={importing === 'outline' ? 'Import vector outline' : 'Import vector foil'}
+          what={importing === 'outline' ? 'vector outline' : 'vector foil'}
+          onCancel={() => setPending(null)}
+          onChoose={(facing) => {
+            place(pending, facing);
+            setPending(null);
+          }}
+        />
+      )}
       <input
         ref={input}
         type="file"
@@ -1096,6 +1170,9 @@ export function FinApp() {
   const [view3d, setView3d] = useState<FinPreviewView>('side');
   // The foil view's analysis: the other sections behind the foil (foil-analysis.ts).
   const [foilAnalysis, setFoilAnalysis] = useState<FoilAnalysis>(FOIL_ANALYSIS_DEFAULT);
+  // A reference drawing behind the profile and the foil views, if one is showing (ghost.ts).
+  const [outlineGhost, setOutlineGhost] = useState<Ghost | null>(null);
+  const [foilGhost, setFoilGhost] = useState<Ghost | null>(null);
   // Section analysis in the 3D view; Reset re-frames the camera to its starting view.
   const [section, setSection] = useState<SectionState>(SECTION_DEFAULT);
   const [resets, setResets] = useState(0);
@@ -1198,6 +1275,8 @@ export function FinApp() {
             units={units}
             frameKey={sizeKey('outline')}
             gridStep={settings.grid ?? undefined}
+            ghost={outlineGhost}
+            onGhost={setOutlineGhost}
           />
         </ViewPane>
         <ViewPane
@@ -1215,6 +1294,8 @@ export function FinApp() {
             minThickness={settings.exportMin}
             analysis={foilAnalysis}
             onAnalysis={setFoilAnalysis}
+            ghost={foilGhost}
+            onGhost={setFoilGhost}
           />
         </ViewPane>
         <ViewPane

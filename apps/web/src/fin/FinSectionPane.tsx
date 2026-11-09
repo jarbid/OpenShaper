@@ -52,6 +52,9 @@ import {
 } from './foil-analysis';
 import { LenField } from '../components/fields';
 import { FitToPanel, PANEL_FIT, PANEL_OVER } from './panel-tools';
+import { GhostControl } from './VectorImport';
+import { drawGhost, ghostMarkers, makeGhost, withGhostHandles, type Ghost } from './ghost';
+import { vectorLines, type VectorFacing, type VectorPath } from './vector-import';
 import { PATH_COLOR } from './sweep-overlay';
 import { usePanelFit } from './use-panel-fit';
 
@@ -257,7 +260,10 @@ function AnalysisOverlay({
   analysis,
   onChange,
   units,
+  ghostShowing,
 }: {
+  /** The ghost's controls sit at the top left, wider with one showing. */
+  ghostShowing: boolean;
   analysis: FoilAnalysis;
   onChange: (a: FoilAnalysis) => void;
   units: LengthUnit;
@@ -267,7 +273,7 @@ function AnalysisOverlay({
   const select = 'h-6 rounded border border-input bg-background px-1 text-xs';
   return (
     <div
-      className="absolute left-2 top-2 z-10 flex flex-wrap items-center gap-2 text-xs"
+      className={`absolute top-2 z-10 flex flex-wrap items-center gap-2 text-xs ${ghostShowing ? 'left-[4.75rem]' : 'left-11'}`}
       role="group"
       aria-label="Analysis"
     >
@@ -437,6 +443,8 @@ export const FinSectionPane = memo(function FinSectionPane({
   minThickness = FIN_EXPORT_MIN_THICKNESS.default,
   analysis = FOIL_ANALYSIS_DEFAULT,
   onAnalysis,
+  ghost,
+  onGhost,
 }: {
   store: StoreApi<FinState>;
   units: LengthUnit;
@@ -447,6 +455,9 @@ export const FinSectionPane = memo(function FinSectionPane({
   analysis?: FoilAnalysis;
   /** Setting it, from the Analysis controls over the canvas: none without it. */
   onAnalysis?: (a: FoilAnalysis) => void;
+  /** The drawing shown behind the foil to trace over, and setting it. */
+  ghost?: Ghost | null;
+  onGhost?: (g: Ghost | null) => void;
 }) {
   const design = useFinState(store, (s) => s.design);
   const selection = useFinState(store, (s) => s.selection);
@@ -543,13 +554,33 @@ export const FinSectionPane = memo(function FinSectionPane({
     [thickestAt, activeFoil],
   );
   const markerHandlers = useMemo(
-    () => ({
-      onMarkerDragStart: () => store.getState().beginEdit('Move the thickest point'),
-      onMarkerDrag: (_id: string, to: { x: number }) =>
-        store.getState().setFoilThickest(store.getState().activeFoil, to.x),
-      onMarkerDragEnd: () => store.getState().endEdit(),
-    }),
-    [store],
+    () =>
+      withGhostHandles(
+        {
+          onMarkerDragStart: () => store.getState().beginEdit('Move the thickest point'),
+          onMarkerDrag: (_id: string, to: { x: number }) =>
+            store.getState().setFoilThickest(store.getState().activeFoil, to.x),
+          onMarkerDragEnd: () => store.getState().endEdit(),
+        },
+        ghost,
+        onGhost,
+        trueScale,
+      ),
+    [store, ghost, onGhost, trueScale],
+  );
+  const allMarkers = useMemo(
+    () => [...markers, ...(ghost ? ghostMarkers(ghost, trueScale) : [])],
+    [markers, ghost, trueScale],
+  );
+  // True to scale, as long as the chord, on the chord line.
+  const makeGhostHere = useCallback(
+    (paths: readonly VectorPath[], facing: VectorFacing) =>
+      makeGhost(vectorLines(paths, facing, false), ({ w }) => ({
+        x: 0.5,
+        y: 0,
+        scale: 1 / (w || 1),
+      })),
+    [],
   );
 
   // The panel's faces, level and true to scale, either side of the foil's middle at its
@@ -587,6 +618,7 @@ export const FinSectionPane = memo(function FinSectionPane({
         ctx.lineTo(sb.x, sb.y);
         ctx.stroke();
       };
+      if (ghost) drawGhost(ctx, ghost, toScreen, trueScale);
       // The analysis's sections first, lowest in the hierarchy: thin slate outlines, the
       // higher on the fin the stronger (the stack order: from above, nearer reads
       // brighter), the one under the pointer named.
@@ -661,13 +693,28 @@ export const FinSectionPane = memo(function FinSectionPane({
       }
       ctx.restore();
     },
-    [thickestAt, panelLines, units, ghosts, hoveredGhost, trueScale],
+    [thickestAt, panelLines, units, ghosts, hoveredGhost, trueScale, ghost],
   );
 
   if (!design || !section) return null;
   return (
     <div className="relative h-full">
-      {onAnalysis && <AnalysisOverlay analysis={analysis} onChange={onAnalysis} units={units} />}
+      {onGhost && (
+        <GhostControl
+          what="vector foil"
+          ghost={ghost ?? null}
+          make={makeGhostHere}
+          onGhost={onGhost}
+        />
+      )}
+      {onAnalysis && (
+        <AnalysisOverlay
+          analysis={analysis}
+          onChange={onAnalysis}
+          units={units}
+          ghostShowing={!!ghost}
+        />
+      )}
       {/* The faces' key at the bottom left: the top left is the Analysis controls'. */}
       <span
         className="pointer-events-none absolute bottom-1 left-2 z-10 flex gap-2 text-xs"
@@ -694,7 +741,7 @@ export const FinSectionPane = memo(function FinSectionPane({
         frameBounds={frame}
         frameKey={`${design.position}-${activeFoil}-${frameKey}-${analysisKey}`}
         drawUnder={drawUnder}
-        markers={markers}
+        markers={allMarkers}
         onHover={ghosts.length ? onHover : undefined}
         {...markerHandlers}
         {...handlers}

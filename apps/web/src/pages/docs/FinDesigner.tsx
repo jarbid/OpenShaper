@@ -65,6 +65,7 @@ export default function DocsFinDesigner() {
         { id: 'colours', label: 'What the colours mean' },
         { id: 'rules', label: 'The rules it keeps' },
         { id: 'files', label: 'Saving your work' },
+        { id: 'import', label: 'Importing drawings' },
         { id: 'export', label: 'Exporting for CNC and printing' },
       ]}
     >
@@ -532,6 +533,37 @@ export default function DocsFinDesigner() {
           fin together to fit the thinnest panel, as one undo step. The angle and tilt are only a
           check, saved with the fin: the fin and its STEP and STL files don&apos;t change.
         </p>
+      </Section>
+
+      <Section id="import" title="Importing drawings">
+        <p>
+          <strong>Open…</strong> also has <strong>Import vector outline</strong> and{' '}
+          <strong>Import vector foil</strong>, for SVG and EPS files. After you pick a file, say
+          whether it faces left or right: a right-facing drawing is flipped, so the leading edge
+          ends up on the left as in the views. Every point and handle in the file comes in, ready to
+          edit, and Undo takes it back. If a file holds several shapes, the largest is used.
+        </p>
+        <Terms>
+          <Term name="Outline">
+            Replaces the profile, at the drawing&apos;s real size, placed on the current tab. Draw
+            it closed along the base, or open with both ends at the bottom. If it breaks a rule,
+            such as overhanging the tab, the app says why and leaves your fin as it was.
+          </Term>
+          <Term name="Foil">
+            Replaces the base foil. A closed shape is cut at its leading and trailing edges into two
+            faces, the upper one the outside, and turned level if it was drawn at an angle. An open
+            line becomes the outside face over a flat inside. A centre fin takes the upper face,
+            mirrored. Only the shape counts: the size comes from the profile and the thickness
+            curve.
+          </Term>
+          <Term name="Ghost">
+            The ghost icon at the top left of the profile and foil views brings in a drawing as a
+            half-transparent reference to trace over. Drag the dot at its centre to move it and the
+            dot at its corner to scale it; the × beside the icon removes it. A ghost is not part of
+            the fin: it isn&apos;t saved and isn&apos;t exported.
+          </Term>
+        </Terms>
+        <p>An EPS must be saved uncompressed, with any text converted to outlines.</p>
       </Section>
 
       <Section id="settings" title="File settings">

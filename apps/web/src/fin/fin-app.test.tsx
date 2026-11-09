@@ -702,6 +702,56 @@ describe('FinApp: export', () => {
   );
 });
 
+describe('FinApp: importing drawings', () => {
+  const FIN =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="100mm" viewBox="0 0 110 110"><path d="M 0 100 C 30 60 60 10 90 5 C 95 40 92 70 105 100 Z"/></svg>';
+  const svg = (name: string, text: string) => {
+    const f = new File([text], name, { type: 'image/svg+xml' });
+    f.text = () => Promise.resolve(text);
+    return f;
+  };
+  beforeEach(() => act(() => finStore.getState().load(defaultFinDesign('side', 'left'))));
+
+  it('asks which way a vector outline faces, then replaces the profile', async () => {
+    render(<FinApp />);
+    const before = finStore.getState().design!.outline;
+    fireEvent.change(screen.getByLabelText('Open a vector file'), {
+      target: { files: [svg('fin.svg', FIN)] },
+    });
+    const dialog = await screen.findByRole('dialog', { name: 'Import vector outline' });
+    within(dialog).getByText('Does the vector outline face left or right?');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Left' }));
+    expect(finStore.getState().design!.outline).not.toBe(before);
+    expect(finStore.getState().design!.outline.knots).toHaveLength(3);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('leaves the fin alone when the dialog is cancelled', async () => {
+    render(<FinApp />);
+    const before = finStore.getState().design;
+    fireEvent.change(screen.getByLabelText('Open a vector file'), {
+      target: { files: [svg('fin.svg', FIN)] },
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+    expect(finStore.getState().design).toBe(before);
+  });
+
+  it('brings in a ghost without touching the fin, and takes it away', async () => {
+    render(<FinApp />);
+    const before = finStore.getState().design;
+    expect(screen.queryAllByRole('button', { name: 'Remove ghost' })).toHaveLength(0);
+    fireEvent.change(screen.getByLabelText('Open a ghost vector outline'), {
+      target: { files: [svg('fin.svg', FIN)] },
+    });
+    const dialog = await screen.findByRole('dialog', { name: 'Import ghost' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Right' }));
+    const remove = await screen.findByRole('button', { name: 'Remove ghost' });
+    expect(finStore.getState().design).toBe(before);
+    fireEvent.click(remove);
+    expect(screen.queryAllByRole('button', { name: 'Remove ghost' })).toHaveLength(0);
+  });
+});
+
 describe('FinApp: the Buy Me a Coffee link', () => {
   it('sits just before Export and opens the owner’s page in a new tab', () => {
     act(() => finStore.getState().load(defaultFinDesign('side', 'left')));

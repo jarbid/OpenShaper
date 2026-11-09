@@ -30,6 +30,9 @@ import { memo, useCallback, useMemo } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
 import type { LengthUnit } from '../format';
 import { alsoFromSelection, curveEditorHandlers, pickFromSelection } from './curve-editor-wiring';
+import { GhostControl } from './VectorImport';
+import { drawGhost, ghostMarkers, makeGhost, withGhostHandles, type Ghost } from './ghost';
+import { vectorLines, type VectorFacing, type VectorPath } from './vector-import';
 import { sliceGuideHandlers, sliceGuides } from './slice-guides';
 import {
   PATH_COLOR,
@@ -65,6 +68,8 @@ export const FinOutlinePane = memo(function FinOutlinePane({
   onViewport,
   frameKey = '',
   gridStep,
+  ghost,
+  onGhost,
 }: {
   store: StoreApi<FinState>;
   units: LengthUnit;
@@ -73,6 +78,9 @@ export const FinOutlinePane = memo(function FinOutlinePane({
   frameKey?: string;
   /** The grid's spacing (cm, File settings); fits the zoom if unset. */
   gridStep?: number;
+  /** The drawing shown behind the profile to trace over, and setting it. */
+  ghost?: Ghost | null;
+  onGhost?: (g: Ghost | null) => void;
 }) {
   const design = useFinState(store, (s) => s.design);
   const selection = useFinState(store, (s) => s.selection);
@@ -96,7 +104,24 @@ export const FinOutlinePane = memo(function FinOutlinePane({
   );
 
   const sweep = useMemo(() => (design ? sweepOverlay(design) : null), [design]);
-  const markerHandlers = useMemo(() => sweepMarkerHandlers(store), [store]);
+  const markerHandlers = useMemo(
+    () => withGhostHandles(sweepMarkerHandlers(store), ghost, onGhost),
+    [store, ghost, onGhost],
+  );
+  const markers = useMemo(
+    () => [...(sweep?.markers ?? []), ...(ghost ? ghostMarkers(ghost) : [])],
+    [sweep, ghost],
+  );
+  // Real size, standing on the tab top in the middle of the fin.
+  const makeGhostHere = useCallback(
+    (paths: readonly VectorPath[], facing: VectorFacing) =>
+      makeGhost(vectorLines(paths, facing, true), ({ h }) => {
+        const k = design?.outline.knots ?? [];
+        const x = ((k[0]?.end.x ?? 0) + (k[k.length - 1]?.end.x ?? 0)) / 2;
+        return { x, y: h / 2, scale: 1 };
+      }),
+    [design],
+  );
 
   const layers = useMemo(
     () => (design ? [{ id: 'outline', spline: design.outline, editable: true }] : []),
@@ -110,6 +135,7 @@ export const FinOutlinePane = memo(function FinOutlinePane({
       toScreen: (p: { x: number; y: number }) => { x: number; y: number },
     ) => {
       if (!design) return;
+      if (ghost) drawGhost(ctx, ghost, toScreen);
       // The tab, with its weight-saving holes cut out.
       ctx.beginPath();
       for (const ring of tab) {
@@ -198,7 +224,7 @@ export const FinOutlinePane = memo(function FinOutlinePane({
         ctx.restore();
       }
     },
-    [design, tab, tabLen, kind, sweep, activeFoil],
+    [design, tab, tabLen, kind, sweep, activeFoil, ghost],
   );
 
   const onBackgroundClick = useCallback(
@@ -211,23 +237,33 @@ export const FinOutlinePane = memo(function FinOutlinePane({
 
   const handlers = useMemo(() => curveEditorHandlers(store), [store]);
   return (
-    <FinCurveEditor
-      gridStep={gridStep}
-      label="Profile"
-      layers={layers}
-      selection={pickFromSelection(selection, ['outline'])}
-      alsoSelected={alsoFromSelection(selection, ['outline'])}
-      frameBounds={frameBounds}
-      yScale={FRONT_LEFT}
-      frameKey={`${position}-${base}-${frameKey}`}
-      drawUnder={drawUnder}
-      onViewport={onViewport}
-      guides={guides}
-      markers={sweep?.markers}
-      onBackgroundClick={onBackgroundClick}
-      {...markerHandlers}
-      {...guideHandlers}
-      {...handlers}
-    />
+    <div className="relative h-full">
+      {onGhost && (
+        <GhostControl
+          what="vector outline"
+          ghost={ghost ?? null}
+          make={makeGhostHere}
+          onGhost={onGhost}
+        />
+      )}
+      <FinCurveEditor
+        gridStep={gridStep}
+        label="Profile"
+        layers={layers}
+        selection={pickFromSelection(selection, ['outline'])}
+        alsoSelected={alsoFromSelection(selection, ['outline'])}
+        frameBounds={frameBounds}
+        yScale={FRONT_LEFT}
+        frameKey={`${position}-${base}-${frameKey}`}
+        drawUnder={drawUnder}
+        onViewport={onViewport}
+        guides={guides}
+        markers={markers}
+        onBackgroundClick={onBackgroundClick}
+        {...markerHandlers}
+        {...guideHandlers}
+        {...handlers}
+      />
+    </div>
   );
 });

@@ -19,8 +19,11 @@ import {
   nudgeLateral,
   placeOnBase,
   vec2,
+  validateFinDesign,
   type FinBase,
   type FinDesign,
+  type FinSection,
+  type Spline,
   type FinTwist,
   type FinHand,
   type Vec2,
@@ -36,6 +39,8 @@ import {
 } from './edits';
 import {
   addSlice,
+  importedOutline,
+  withFoil,
   applyNaca,
   clampEdit,
   constrainKnot,
@@ -171,6 +176,13 @@ export interface FinState {
   fitPanel: (pose: { angle: number; tilt: number }) => boolean;
   /** Move the fin onto another tab, placed as that tab's fins start (placeOnBase). */
   setBase: (base: FinBase) => boolean;
+  /**
+   * Replace the profile with an imported one, placed on the current tab as a fin starts
+   * there. Returns what's wrong with it, empty if it went in.
+   */
+  importOutline: (outline: Spline) => string[];
+  /** Replace the base foil with an imported one. Returns what's wrong, empty if it went in. */
+  importBaseFoil: (section: FinSection) => string[];
   /** Apply a NACA 4-digit preset to the section ('2412'). */
   applyNaca: (code: string) => boolean;
   setInsideFace: (kind: 'flat' | 'symmetric') => boolean;
@@ -295,6 +307,22 @@ export const createFinStore = (): StoreApi<FinState> =>
       const s = design && getFinCurve(design, curve, get().activeFoil);
       if (!design || !s) return false;
       return commitChecked(fn(s), label);
+    };
+
+    /** Replace part of the fin, or say which rules that would break. */
+    const replaceWith = (edit: (d: FinDesign) => FinDesign, label: string): string[] => {
+      const d = get().design;
+      if (!d) return [];
+      const next = withFoilsNearTrueScale(edit(d));
+      const wrong = newIssues(d, next);
+      if (wrong.length > 0) {
+        return validateFinDesign(next)
+          .filter((i) => wrong.includes(i.code))
+          .map((i) => i.message);
+      }
+      commit(next, label);
+      set({ selection: null });
+      return [];
     };
 
     return {
@@ -556,6 +584,12 @@ export const createFinStore = (): StoreApi<FinState> =>
       setHand: (hand) => {
         const d = get().design;
         return d ? commitChecked(setHand(d, hand), 'Set side') : false;
+      },
+      importOutline: (outline) => replaceWith((d) => importedOutline(d, outline), 'Import outline'),
+      importBaseFoil: (section) => {
+        const wrong = replaceWith((d) => withFoil(d, 0, section), 'Import foil');
+        if (wrong.length === 0) set({ activeFoil: 0 });
+        return wrong;
       },
       applyNaca: (code) => {
         const d = get().design;

@@ -17,6 +17,7 @@ import {
   finMinThickness,
   FIN_SLICE_MIN_GAP,
   FIN_THICKNESS_PATH_LIMITS,
+  placeOnBase,
   smoothFoilAt,
   smoothRowSize,
   smoothSectionRow,
@@ -238,6 +239,18 @@ export const withFinCurve = (
     case 'taper':
       return { ...d, taper: s };
   }
+};
+
+/**
+ * `d` with an imported profile, placed on its tab as a fin starts there. Any moved tip line
+ * was on the old outline, so it goes back to the default.
+ */
+export const importedOutline = (d: FinDesign, outline: Spline): FinDesign => {
+  const { tipLine: _old, ...rest } = d;
+  void _old;
+  // placeOnBase leaves a fin already on the tab alone: come at it from another.
+  const other = d.base === 'futures-side' ? 'futures-centre' : 'futures-side';
+  return placeOnBase({ ...rest, outline, base: other }, d.base);
 };
 
 /**
