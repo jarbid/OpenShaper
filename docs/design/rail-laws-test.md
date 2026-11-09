@@ -7,19 +7,27 @@ nose toward +x.
 ## Verdict
 
 **A — build it, and build it smaller than proposed.** Over fourteen boards and the 64 stored
-stations the model can describe at all, a conic pair with the tangent point fixed by convention and **one shape number per
-blend** reproduces the rail to a **worst case of 0.23 mm** and a median of 0.02 mm — every
-station inside the project's 0.5 mm, with better than half the tolerance to spare. The free
-four-parameter fit does not beat it, because two of the four parameters are not shape: the
-tangent points sit wherever the optimiser drops them (roughness 0.18 of their range) and the
-answer barely moves when they do — tripling the blend's length changes the worst station from
-0.23 mm to 0.28 mm. The two ρ values *are* shape, and they are laws: ρ of the tuck ramps
-smoothly from about 0.05 at the tail to about 0.5 by mid-board on every one of the eight
-Shape3D boards, with a roughness of 0.029. Storing them as law curves of four or five degrees
-of freedom costs about **0.1 mm**.
+stations the model can describe at all, a conic pair with the tangent point fixed by
+convention and **one shape number per blend** reproduces the rail to a **worst case of
+0.23 mm** and a median of 0.02 mm — every station inside the project's 0.5 mm, with better
+than half the tolerance to spare. On the dense set, 551 stations, the worst is 0.40 mm.
 
-Two qualifications, neither fatal, both to be designed for rather than discovered later:
+The free four-parameter fit does not beat that, because two of the four parameters are not
+shape. The tangent points sit wherever the optimiser drops them (roughness 0.18 of their
+range) and the answer barely moves when they do: tripling the blend's length changes the
+worst station from 0.23 mm to 0.28 mm. The two ρ values *are* shape, and they are laws — ρ of
+the tuck ramps smoothly from about 0.05 at the tail to about 0.5 by mid-board on every one of
+the eight Shape3D boards, roughness 0.029. **Solved for directly, a law of five control
+points per parameter leaves twelve of the fourteen boards with a worst station between 0.12
+and 0.34 mm.**
 
+Three qualifications, none fatal, all to be designed for rather than discovered later:
+
+- **One board in fourteen will not take a law.** The Diamond Twin's best five-control-point
+  law leaves a worst station of **0.65 mm — over the tolerance** — with every station
+  blendable and no excuse available. It is also the board with the worst per-station fit
+  (0.40 mm): its rail changes along its length faster than five control points follow. More
+  control points, or a station, would be the remedy; this study did not test either.
 - **4% of stations are outside the model, not badly fitted by it.** Where a section is thin
   and its apex sits near the bottom — a 24 mm-thick wedge whose bottom half is 2 mm tall — the
   panel tangent and the vertical apex tangent diverge and *no* conic is tangent to both. 23 of
@@ -31,7 +39,7 @@ Two qualifications, neither fatal, both to be designed for rather than discovere
 
 Both open questions came back clearly: **two conics, not one** (one conic is 33× the median
 deviation and puts the widest point up to 7.7 mm off the apex), and **no fifth parameter**
-(the best candidate removes 0.01 mm on average).
+(the better of the two candidates removes 0.01 mm on average and 0.07 mm at its best).
 
 ## The model under test
 
@@ -238,6 +246,26 @@ The practical reading: **the tangent point does not have to be fitted at all.** 
 at 70° and fitting only ρ gives 0.23 mm worst over all 64 stored stations — the same number
 the four-parameter free fit gets. That halves the model.
 
+### Figures
+
+Four plots of fitted against real sections. They are study output and are **not committed**;
+they were written to the session scratchpad, and anyone re-running the study regenerates them
+with `cases.measure.test.ts` and the drawing script. Each shows the whole half-section to
+true aspect, the rail region enlarged, and the deviation along the blend — the deviation
+panel spans exactly the blend, tangent point to tangent point, and nothing beyond it.
+
+| file | station | what it shows |
+| --- | --- | --- |
+| `rail-fit-good.png` | shortboard, x/L = 0.49 | the ordinary case: **0.02 mm**, the residual a flat line across the whole blend |
+| `rail-fit-worst.png` | gremilin56, x/L = 0.18 | the worst stored station: **0.23 mm**, a single smooth lobe on the bottom side — a shape mismatch, not noise |
+| `rail-fit-tail.png` | Diamond Twin, x/L = 0.18 | where rails go hard: **0.23 mm**, the tuck at ρ = 0.240 and a turn of 88° |
+| `rail-fit-one-conic.png` | Go fish, x/L = 0.17 | the conic pair at **0.20 mm** against a single conic at **2.84 mm**, visibly bowed off the rail |
+
+All four were regenerated after the arc-length sampling fix, so the set is one vintage. The
+header figure of each is the two-sided deviation the tables report; the panel's "worst here"
+is the one-sided section-to-model trace that is plotted, which is the same number to a
+hundredth of a millimetre except where the model bulges off the end of the data.
+
 ## Law smoothness
 
 ### Two of the four parameters are a law. Two are noise.
@@ -378,8 +406,8 @@ curve puts it, and on these boards that is up to 7.7 mm from where the board's o
 the widest point is. The outline is the one curve in a board a shaper measures with a tape.
 A rail model that moves it is not a rail model.
 
-The picture is `rail-fit-one-conic.png`: on the 5.8 Trusther near the tail the single conic
-bows a centimetre outboard of the rail while the conic pair sits on it to 0.03 mm.
+The picture is `rail-fit-one-conic.png` (listed above): on Go fish at x/L = 0.17 the single conic
+bows **2.84 mm** outboard of the rail while the conic pair sits on it to 0.20 mm.
 
 ### Does a fifth parameter earn its place?
 
@@ -453,6 +481,13 @@ PLACEHOLDER_TAILTABLE
 - **The tangent-point floor itself.** 70° is a judgement about where a panel stops being a
   panel, not a measurement. The pinned ladder shows what the choice costs, but no board's
   actual panel geometry was examined to confirm the number.
+- **Laws of more than five control points.** The ladder stops at k = 5, so the one board that
+  exceeds the tolerance under a law (the Diamond Twin, 0.65 mm) was never offered a richer
+  one. Whether six or eight control points would bring it inside 0.5 mm, and what that would
+  cost the other thirteen, is unmeasured — as is whether an extra station would do it instead.
+- **How good the best law really is.** The law coefficients are found by coordinate descent
+  from two starts with two sweeps, so every law number here is an upper bound on what that
+  order of law could achieve. No attempt was made to find the true optimum.
 
 ## Recommendation
 
@@ -483,6 +518,10 @@ and larger piece. **Do not start it until the panel question is answered**: a ra
 blends into a panel nobody has modelled is half a surface, and the 4% of sections the conic
 pair cannot describe are exactly the ones where the panel has to take over.
 
-Before building, two measurements this study did not make are worth a day each: whether a
-surface swept from these laws is smooth **along** the board (everything here is per-station),
-and what the residual does to volume.
+Before building, three measurements this study did not make are worth a day each: whether a
+surface swept from these laws is smooth **along** the board (everything here is per-station);
+what the residual does to volume; and whether a richer law — six or eight control points, or
+one more station — brings the Diamond Twin inside the tolerance. That last one decides
+whether the law order is a fixed property of the format or something the document carries
+per board, which is a format decision and therefore cheaper to settle before the first file
+is written than after.
