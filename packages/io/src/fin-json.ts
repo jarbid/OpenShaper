@@ -49,6 +49,7 @@ import {
   type Knot,
   type Spline,
   type Vec2,
+  cantLinesFromSections,
 } from '@openshaper/kernel';
 import { assertKnots, isObject, splineFromJson, splineToJson, type KnotJson } from './knot-json';
 
@@ -103,12 +104,11 @@ export interface FinJson {
   slices?: {
     height: number;
     section: SectionJson;
-    /**
-     * A cant and toe change at the slice (deg). Version 2 also had `transition` (how far
-     * below the slice it eased in): read and dropped, it eases over the whole span now.
-     */
+    /** Older files: a cant and toe change here. Read as a cant line; never written. */
     twist?: { cant: number; toe: number; transition?: number };
   }[];
+  /** Where the cant and toe change: heights as fractions of the depth. */
+  cantLines?: { height: number; cant: number; toe: number }[];
   taper: KnotJson[];
   metadata?: Record<string, unknown>;
 }
@@ -171,10 +171,10 @@ export const writeFinJson = (d: FinDesign, metadata?: Record<string, unknown>): 
           slices: d.slices.map((sl) => ({
             height: sl.height,
             section: sectionToJson(sl.section),
-            ...(sl.twist ? { twist: { ...sl.twist } } : {}),
           })),
         }
       : {}),
+    ...(d.cantLines?.length ? { cantLines: d.cantLines.map((l) => ({ ...l })) } : {}),
     taper: splineToJson(scaleSpline(d.taper, same, toMm)),
     ...(metadata ? { metadata } : {}),
   };
@@ -231,6 +231,15 @@ const assertStructure = (doc: Record<string, unknown>): void => {
   assertCurve(doc.outline, 'outline');
   assertCurve(doc.taper, 'taper');
   assertSection(doc.section, 'section');
+  if (doc.cantLines !== undefined) {
+    const lines = doc.cantLines;
+    if (
+      !Array.isArray(lines) ||
+      !lines.every((l) => isObject(l) && isNumber(l.height) && isNumber(l.cant) && isNumber(l.toe))
+    ) {
+      fail('Malformed fin: its cant lines are damaged');
+    }
+  }
   if (doc.slices !== undefined) {
     if (!Array.isArray(doc.slices)) fail('Malformed fin: its slices are not a list');
     (doc.slices as unknown[]).forEach((sl, i) => {
@@ -283,9 +292,11 @@ export const readFinJson = (
     slices: (doc.slices ?? []).map((sl) => ({
       height: sl.height,
       section: sectionFromJson(sl.section),
-      ...(sl.twist ? { twist: { cant: sl.twist.cant, toe: sl.twist.toe } } : {}),
     })),
     taper: scaleSpline(splineFromJson(doc.taper), same, toCm),
+    ...(doc.cantLines?.length
+      ? { cantLines: doc.cantLines.map(({ height, cant, toe }) => ({ height, cant, toe })) }
+      : {}),
     ...(doc.tipLine ? { tipLine: { start: doc.tipLine.start, end: doc.tipLine.end } } : {}),
     ...(doc.tipSection ? { tipSection: sectionFromJson(doc.tipSection) } : {}),
     ...(doc.thicknessMid !== undefined ? { thicknessMid: doc.thicknessMid } : {}),
@@ -300,5 +311,13 @@ export const readFinJson = (
         }
       : {}),
   };
-  return doc.metadata ? { design, metadata: doc.metadata } : { design };
+  // An older file's cant and toe, kept on its control sections.
+  const changes = (doc.slices ?? []).flatMap((sl) =>
+    sl.twist ? [{ height: sl.height, cant: sl.twist.cant, toe: sl.twist.toe }] : [],
+  );
+  const converted =
+    changes.length && !doc.cantLines
+      ? { ...design, cantLines: cantLinesFromSections(design, changes) }
+      : design;
+  return doc.metadata ? { design: converted, metadata: doc.metadata } : { design: converted };
 };

@@ -45,6 +45,7 @@ export type FinIssueCode =
   | 'section-crossing'
   | 'section-symmetry'
   | 'slice-height'
+  | 'cant-line-height'
   | 'taper-span'
   | 'taper-thickness';
 
@@ -238,18 +239,32 @@ const checkSection = (d: FinDesign, issues: FinIssue[]): void => {
     }
     below = slice.height;
     checkFoil(d, slice.section, ` (control section at ${pct}%)`, issues);
-    const tw = slice.twist;
-    if (tw) {
-      const where = ` (control section at ${pct}%)`;
-      if (!(tw.cant >= FIN_MIN_SLICE_CANT && tw.cant <= FIN_MAX_CANT)) {
-        issues.push({
-          code: 'cant',
-          message: `A control section's cant must be ${FIN_MIN_SLICE_CANT < 0 ? `−${-FIN_MIN_SLICE_CANT}` : FIN_MIN_SLICE_CANT}° to ${FIN_MAX_CANT}°${where}.`,
-        });
-      }
-      if (!(Math.abs(tw.toe) <= FIN_MAX_TOE)) {
-        issues.push({ code: 'toe', message: `Toe must be within ±${FIN_MAX_TOE}°${where}.` });
-      }
+  }
+};
+
+const checkCantLines = (d: FinDesign, issues: FinIssue[]): void => {
+  let below = 0;
+  for (const l of d.cantLines ?? []) {
+    const where = ` (cant line at ${Math.round(l.height * 100)}%)`;
+    if (
+      !(l.height >= below + FIN_SLICE_MIN_GAP - EPS) ||
+      !(l.height <= 1 - FIN_SLICE_MIN_GAP + EPS)
+    ) {
+      issues.push({
+        code: 'cant-line-height',
+        message: `Cant lines must be at least ${FIN_SLICE_MIN_GAP * 100}% of the depth apart, and from the base and top.`,
+      });
+      return;
+    }
+    below = l.height;
+    if (!(l.cant >= FIN_MIN_SLICE_CANT && l.cant <= FIN_MAX_CANT)) {
+      issues.push({
+        code: 'cant',
+        message: `A cant line's cant must be −${-FIN_MIN_SLICE_CANT}° to ${FIN_MAX_CANT}°${where}.`,
+      });
+    }
+    if (!(Math.abs(l.toe) <= FIN_MAX_TOE)) {
+      issues.push({ code: 'toe', message: `Toe must be within ±${FIN_MAX_TOE}°${where}.` });
     }
   }
 };
@@ -323,6 +338,7 @@ export const validateFinDesign = (d: FinDesign): FinIssue[] => {
   }
   checkOutline(d, issues);
   checkSection(d, issues);
+  checkCantLines(d, issues);
   checkTaper(d, issues);
   // Placing the tab under the foil means building the root section, which needs the
   // rest of the design to be sound.

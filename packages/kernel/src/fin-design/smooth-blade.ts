@@ -52,15 +52,15 @@
  *   So a section's row is its foil exactly, and one added as the foil already there
  *   changes nothing (smoothFoilAt).
  *
- * Then cant and toe: the fin's lean (a shear, as the sweep's) and toe (a turn about the
- * root's thickest point). A section's cant (blade.ts twistAt, by s) leans the blade more
- * from its row up, each point sliding out by the lean summed up its column from the base,
- * so the blade bends; its toe turns each row about the row's own thickest point.
+ * Then cant and toe: the fin's lean (a shear, as z·tan(cant)) and toe (a turn about the
+ * root's thickest point), and any cant lines' changes above them, by height alone, so a
+ * bend runs level, along the flow (blade.ts twistAt).
  */
 import type { Vert3 } from '../loft';
 import { yAtX } from './curve-shape';
 import {
   cosineStations,
+  cantLineReach,
   FIN_SLICE_REACH,
   fitFoil,
   hasTwist,
@@ -76,7 +76,13 @@ import {
   type PreparedBlade,
 } from './blade';
 import { DEG_TO_RAD } from '../constants';
-import { FIN_MIN_THICKNESS, type FinDesign, type FinSection } from './fin-design';
+import {
+  FIN_MIN_THICKNESS,
+  FIN_SLICE_MIN_GAP,
+  type FinCantLine,
+  type FinDesign,
+  type FinSection,
+} from './fin-design';
 import { spline1, spline2, winslowGrid, type P2, type Sides, type Spline2 } from './smooth-map';
 import { findRaisedRear } from './raised-rear';
 import { sweepFrame, thicknessPathAt } from './swept-loft';
@@ -351,6 +357,8 @@ export interface SmoothBlade {
   eta(s: number): number;
   /** The same in cm from the base. */
   alongFin(s: number): number;
+  /** Where the thickness path crosses row s, on the profile. */
+  spine(s: number): P2;
   /** Where the thickness path crosses row s, as a fraction along it. */
   path(s: number): number;
   /** The nearest place on the layout to a profile point; `hint` a place to start from. */
@@ -536,58 +544,56 @@ export const smoothBladeOf = (b: PreparedBlade): SmoothBlade => {
     }
     return [out, ins];
   };
-  // Cant and toe. A section's cant leans the blade more (or less) from its row up, easing in
-  // below it (blade.ts twistAt, by s): each point slides out by the lean summed up its
-  // column from the base, so the blade bends rather than shears. A section's toe turns
-  // each row about its own thickest point, on the thickness path.
+  // Cant and toe, by height alone (cant lines), so a bend runs level, along the flow. Each
+  // point slides out by the lean summed up from the base, and each cant line's toe turns
+  // everything above it about an upright axis through the thickness path at its height.
   const twisted = hasTwist(d);
-  const twist = (s: number) => twistAt(d, Math.min(1, s / sTip));
-  let slide = (s: number, u: number) => point(s, u).y * b.lean;
-  let widen = (_s: number) => b.widen;
+  const lines = d.cantLines ?? [];
+  const twist = (z: number) => twistAt(d, b.depth > 0 ? Math.max(0, z / b.depth) : 0);
+  let slide = (z: number) => z * b.lean;
+  let widen = (_z: number) => b.widen;
   if (twisted) {
-    const w = cols + 1;
-    const table = new Float64Array((rows + 1) * w);
-    const lean = (s: number) => Math.tan(twist(s).cant * DEG_TO_RAD);
-    const STEPS = 4;
-    for (let j = 0; j <= cols; j++) {
-      let run = 0;
-      for (let i = 1; i <= rows; i++) {
-        // Simpson's rule over each grid row, in a few steps, of tan(cant)·dz.
-        for (let q = 0; q < STEPS; q++) {
-          const s0 = (i - 1 + q / STEPS) / rows;
-          const s1 = (i - 1 + (q + 1) / STEPS) / rows;
-          const sm = (s0 + s1) / 2;
-          const z = (t: number) => map.z.at(t * rows, j);
-          const dz = (t: number) => (z(t + 1e-6) - z(t - 1e-6)) / 2e-6;
-          run += ((s1 - s0) / 6) * (lean(s0) * dz(s0) + 4 * lean(sm) * dz(sm) + lean(s1) * dz(s1));
-        }
-        table[i * w + j] = run;
+    const N = 512;
+    const dz = b.depth / N;
+    const lean = (z: number) => Math.tan(twist(z).cant * DEG_TO_RAD);
+    const table = new Float64Array(N + 1);
+    for (let i = 1; i <= N; i++) {
+      const z0 = (i - 1) * dz;
+      table[i] = table[i - 1]! + (dz / 6) * (lean(z0) + 4 * lean(z0 + dz / 2) + lean(z0 + dz));
+    }
+    const spl = spline1(table);
+    slide = (z) => spl.at((Math.max(0, z) / b.depth) * N);
+    widen = (z) => 1 / Math.cos(twist(z).cant * DEG_TO_RAD);
+  }
+  const spineZ = spline1(spine.map((q) => q.y));
+  const spineX = spline1(spine.map((q) => q.x));
+  /** Each cant line's upright axis, where the thickness path first reaches its height. */
+  const axes = lines.map((l, i) => {
+    const h = l.height * b.depth;
+    let x = spine[spine.length - 1]!.x;
+    for (let k = 1; k <= SPINE_SAMPLES; k++) {
+      const [p, q] = [spine[k - 1]!, spine[k]!];
+      if (q.y >= h) {
+        x = p.x + ((q.x - p.x) * (h - p.y)) / (q.y - p.y || 1);
+        break;
       }
     }
-    const spl = spline2(table, rows, cols);
-    slide = (s, u) => spl.at(s * rows, u * cols);
-    widen = (s) => 1 / Math.cos(twist(s).cant * DEG_TO_RAD);
-  }
-  const spineX = spline1(spine.map((q) => q.x));
-  const spineU = spline1(
-    Array.from({ length: SPINE_SAMPLES + 1 }, (_, k) => {
-      const s = k / SPINE_SAMPLES;
-      return uAlong(s, pathAt(s));
-    }),
-  );
-  const finToe = d.toe ?? 0;
+    const before = i > 0 ? lines[i - 1]!.toe : (d.toe ?? 0);
+    return { x, turn: l.toe - before, height: l.height, reach: cantLineReach(d, i) };
+  });
   const turn = toeTurn(b);
-  const place = (s: number, u: number, x0: number, z: number, offset: number): Vert3 => {
+  const place = (x0: number, z: number, offset: number): Vert3 => {
     let x = x0;
-    let y = b.outward * (slide(s, u) + offset * widen(s));
-    const own = twisted ? twist(s).toe - finToe : 0;
-    if (own) {
-      const px = spineX.at(s * SPINE_SAMPLES);
-      const py = b.outward * slide(s, spineU.at(s * SPINE_SAMPLES));
-      const a = -b.outward * own * DEG_TO_RAD;
-      const dx = x - px;
+    let y = b.outward * (slide(z) + offset * widen(z));
+    const eta = b.depth > 0 ? z / b.depth : 0;
+    for (const axis of axes) {
+      if (!(axis.turn && eta > axis.height)) continue;
+      const a =
+        -b.outward * axis.turn * DEG_TO_RAD * smootherstep((eta - axis.height) / axis.reach);
+      const py = b.outward * slide(z);
+      const dx = x - axis.x;
       const dy = y - py;
-      x = px + dx * Math.cos(a) - dy * Math.sin(a);
+      x = axis.x + dx * Math.cos(a) - dy * Math.sin(a);
       y = py + dx * Math.sin(a) + dy * Math.cos(a);
     }
     if (!turn) return { x, y, z };
@@ -610,11 +616,15 @@ export const smoothBladeOf = (b: PreparedBlade): SmoothBlade => {
     eta: etaAt,
     alongFin: (s) => etaAt(s) * total,
     path: pathAt,
+    spine: (s) => ({
+      x: spineX.at(s * SPINE_SAMPLES),
+      y: spineZ.at(s * SPINE_SAMPLES),
+    }),
     nearest: (x, z, hint) => nearestOnMap(map, x, z, hint),
     faces: (s, u) => {
       const p = point(s, u);
       const [o, n] = offsets(s, u);
-      return { outside: place(s, u, p.x, p.y, o), inside: place(s, u, p.x, p.y, n) };
+      return { outside: place(p.x, p.y, o), inside: place(p.x, p.y, n) };
     },
   };
   bladeCache.set(b, smooth);
@@ -706,6 +716,34 @@ export const smoothLocate = (
 ): { s: number; u: number } | null => {
   const at = nearestOnMap(smoothMap(d), x, z);
   return at.miss <= 0.1 ? { s: at.s, u: at.u } : null;
+};
+
+/**
+ * Cant lines for the cant and toe changes old files kept on their control sections: each a
+ * line low enough to reach its section's cant where the section's row crosses the
+ * thickness path. Lines too close to the one below are left out.
+ */
+export const cantLinesFromSections = (
+  d: FinDesign,
+  changes: readonly { readonly height: number; readonly cant: number; readonly toe: number }[],
+): FinCantLine[] => {
+  const sb = smoothBlade(d);
+  const depth = sb.blade.depth || 1;
+  const out: FinCantLine[] = [];
+  const wanted = changes
+    .map((c) => ({
+      ...c,
+      height: Math.max(
+        FIN_SLICE_MIN_GAP,
+        Math.min(1 - FIN_SLICE_MIN_GAP, sb.spine(c.height * sb.sTip).y / depth - FIN_SLICE_REACH),
+      ),
+    }))
+    .sort((p, q) => p.height - q.height);
+  for (const c of wanted) {
+    const below = out[out.length - 1]?.height ?? 0;
+    if (c.height >= below + FIN_SLICE_MIN_GAP) out.push(c);
+  }
+  return out;
 };
 
 /** The row (s) of a control section at `height`, the fraction of the way to the tip line. */

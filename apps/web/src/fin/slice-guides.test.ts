@@ -17,7 +17,7 @@ describe('sliceGuideHandlers', () => {
     const on = sliceGuideHandlers(store, 'y');
     // The editor reports the guide it grabbed ('1') for the whole drag.
     on.onGuideSelect('1');
-    on.onGuideDragStart();
+    on.onGuideDragStart('1');
     on.onGuideDragPoint('1', sb.point(0.8 * sb.sTip, 0.5)); // past the slice at 0.7: now the second slice
     on.onGuideDragPoint('1', sb.point(0.9 * sb.sTip, 0.5));
     on.onGuideDragEnd();
@@ -47,7 +47,7 @@ describe('sliceGuideHandlers', () => {
     expect(taper!.at).toBeCloseTo(smoothEta(d, 0.4 * sb.sTip), 9);
     const on = sliceGuideHandlers(store, 'y');
     on.onGuideSelect('1');
-    on.onGuideDragStart();
+    on.onGuideDragStart('1');
     const to = sb.point(0.65 * sb.sTip, 0.5);
     on.onGuideDragPoint('1', to);
     on.onGuideDragEnd();

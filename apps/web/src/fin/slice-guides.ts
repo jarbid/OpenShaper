@@ -10,6 +10,7 @@
  * places it by how far along the fin its row is, as the thickness curve is read there.
  */
 import {
+  finReadouts,
   smoothEta,
   smoothLocate,
   smoothRowAtEta,
@@ -50,23 +51,53 @@ export const sliceGuides = (
     };
   });
 
+/** Cant lines' colour: pale, set apart from the curves and the sections' pink. */
+export const CANT_LINE_COLOR = 'rgba(226,232,240,0.9)';
+
+const CANT_ID = 'cant-';
+
+/** The cant lines as level guides in the profile. */
+export const cantLineGuides = (
+  d: FinDesign,
+  active: number,
+  units: LengthUnit,
+): FinCurveGuide[] => {
+  const depth = finReadouts(d).depth;
+  return (d.cantLines ?? []).map((l, i) => ({
+    id: `${CANT_ID}${i + 1}`,
+    axis: 'y',
+    at: l.height * depth,
+    color: CANT_LINE_COLOR,
+    selected: active === i + 1,
+    label: `Cant line ${fmtLen(l.height * depth, units)}`,
+  }));
+};
+
 /** FinCurveEditor guide handlers wired to the store. */
 export const sliceGuideHandlers = (store: StoreApi<FinState>, axis: 'x' | 'y') => {
   const s = store.getState;
   return {
-    onGuideSelect: (id: string) => s().setActiveFoil(Number(id)),
-    onGuideDragStart: () => s().beginEdit('Move foil slice'),
+    onGuideSelect: (id: string) => {
+      if (id.startsWith(CANT_ID)) s().setActiveCantLine(Number(id.slice(CANT_ID.length)));
+      else s().setActiveFoil(Number(id));
+    },
+    onGuideDragStart: (id: string) =>
+      s().beginEdit(id.startsWith(CANT_ID) ? 'Move cant line' : 'Move foil slice'),
     // The dragged slice is the active one (selected as the drag starts), followed by
     // index rather than the guide's id: passing another slice renumbers it.
-    onGuideDrag: (_id: string, at: number) => {
-      // The thickness view's; the profile's follow the point (onGuideDragPoint).
+    onGuideDrag: (id: string, at: number) => {
       const d = s().design;
+      if (d && id.startsWith(CANT_ID)) {
+        s().moveCantLine(Number(id.slice(CANT_ID.length)), at / finReadouts(d).depth);
+        return;
+      }
+      // The thickness view's; the profile's sections follow the point (onGuideDragPoint).
       if (d && axis === 'x')
         s().moveSlice(s().activeFoil, smoothSectionHeight(d, smoothRowAtEta(d, at)));
     },
-    onGuideDragPoint: (_id: string, p: { x: number; y: number }) => {
+    onGuideDragPoint: (id: string, p: { x: number; y: number }) => {
       const d = s().design;
-      if (!(d && axis === 'y')) return;
+      if (!(d && axis === 'y') || id.startsWith(CANT_ID)) return;
       // The row under the pointer; off the blade, it stays where it is.
       const at = smoothLocate(d, p.x, p.y);
       if (at) s().moveSlice(s().activeFoil, smoothSectionHeight(d, at.s));

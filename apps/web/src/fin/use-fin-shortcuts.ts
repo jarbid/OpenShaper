@@ -53,12 +53,12 @@ export function useFinShortcuts(
           if (!s.selection) return false;
           s.select(null);
           return true;
-        // The nudges move the whole fin: off while a slice is selected, as their buttons are.
+        // The nudges move the whole fin: off while a cant line is selected, as their buttons are.
         case 'fin-nudge-forward':
         case 'fin-nudge-back':
         case 'fin-nudge-left':
         case 'fin-nudge-right':
-          if (s.activeFoil > 0) return false;
+          if (s.activeCantLine > 0) return false;
           // On a US box the arrows are fore and aft only, as the buttons are.
           if (s.design?.base === 'us-box' && (id === 'fin-nudge-left' || id === 'fin-nudge-right'))
             return false;

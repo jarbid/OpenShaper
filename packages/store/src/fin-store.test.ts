@@ -477,11 +477,10 @@ describe('fin store: foil slices', () => {
     expect(design(s).slices[0]!.height).toBe(FIN_SLICE_MIN_GAP);
   });
 
-  it("takes a slice's foil and twist with it past another", () => {
+  it("takes a slice's foil with it past another", () => {
     const s = storeWith();
     s.getState().addSlice(0.3);
     s.getState().applyNaca('0008');
-    s.getState().setSliceTwist(1, { cant: 12 });
     s.getState().addSlice(0.7);
     const moving = design(s).slices[0]!;
     s.getState().setActiveFoil(1);
@@ -491,11 +490,9 @@ describe('fin store: foil slices', () => {
     // Its reshaping goes with it: still symmetric, the 0008 laid on the fin up there.
     expect(b!.section.inside).toBeNull();
     expect(moving.section.inside).toBeNull();
-    expect(b!.twist).toEqual(moving.twist);
     s.getState().moveSlice(2, 0.1);
     const low = design(s).slices[0]!;
     expect(low.height).toBe(0.1);
-    expect(low.twist).toEqual(moving.twist);
     expect(validateFinDesign(design(s))).toEqual([]);
   });
 
@@ -564,34 +561,43 @@ describe('fin store: foil slices', () => {
   });
 });
 
-describe('fin store: a slice’s cant and toe', () => {
-  it('starts a change from what the blade has there', () => {
+describe('fin store: cant lines', () => {
+  const lines = (s: ReturnType<typeof storeWith>) => design(s).cantLines ?? [];
+
+  it('adds one at what the blade has there, selected', () => {
     const s = storeWith();
-    s.getState().addSlice(0.5);
-    expect(s.getState().setSliceTwist(1, { cant: 12 })).toBe(true);
-    const tw = design(s).slices[0]!.twist!;
-    expect(tw.cant).toBe(12);
-    expect(tw.toe).toBe(0); // the fin's toe, unchanged
-    expect(Object.keys(tw).sort()).toEqual(['cant', 'toe']);
+    expect(s.getState().addCantLine(0.5)).toBe(true);
+    expect(lines(s)[0]).toEqual({ height: 0.5, cant: design(s).cant, toe: 0 });
+    expect(s.getState().activeCantLine).toBe(1);
   });
 
   it('clamps its values', () => {
     const s = storeWith();
-    s.getState().addSlice(0.5);
-    s.getState().setSliceTwist(1, { cant: -40, toe: 9 });
-    const tw = design(s).slices[0]!.twist!;
-    expect([tw.cant, tw.toe]).toEqual([-20, 5]);
+    s.getState().addCantLine(0.5);
+    s.getState().setCantLine(1, { cant: -40, toe: 9 });
+    expect([lines(s)[0]!.cant, lines(s)[0]!.toe]).toEqual([-20, 5]);
     expect(validateFinDesign(design(s))).toEqual([]);
   });
 
-  it('drops the change, and an undo brings it back', () => {
+  it('moves between its neighbours, keeps its values, and stops short of them', () => {
     const s = storeWith();
-    s.getState().addSlice(0.5);
-    s.getState().setSliceTwist(1, { toe: 1 });
-    s.getState().setSliceTwist(1, null);
-    expect(design(s).slices[0]!.twist).toBeUndefined();
+    s.getState().addCantLine(0.3);
+    s.getState().addCantLine(0.7);
+    s.getState().setCantLine(1, { toe: 1 });
+    s.getState().moveCantLine(1, 0.9);
+    expect(lines(s)[0]!.height).toBeCloseTo(0.7 - FIN_SLICE_MIN_GAP, 9);
+    expect(lines(s)[0]!.toe).toBe(1);
+  });
+
+  it('removes one, and an undo brings it back', () => {
+    const s = storeWith();
+    s.getState().addCantLine(0.5);
+    s.getState().setCantLine(1, { toe: 1 });
+    expect(s.getState().removeCantLine(1)).toBe(true);
+    expect(design(s).cantLines).toBeUndefined();
+    expect(s.getState().activeCantLine).toBe(0);
     s.getState().undo();
-    expect(design(s).slices[0]!.twist!.toe).toBe(1);
+    expect(lines(s)[0]!.toe).toBe(1);
   });
 });
 

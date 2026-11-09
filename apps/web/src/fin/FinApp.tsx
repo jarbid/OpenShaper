@@ -21,11 +21,9 @@ import {
   FIN_MAX_CANT,
   FIN_MAX_TOE,
   FIN_MIN_SLICE_CANT,
-  twistAt,
   finTabOutline,
   futuresKind,
   finReadouts,
-  smoothSectionDistance,
   validateFinDesign,
   type FinBase,
   type FinDesign,
@@ -390,28 +388,26 @@ function ToeTools({
   );
 }
 
-/**
- * Where the 3D view's cant and toe apply: the whole fin, or a control section's change
- * above it. Shares the selection with the foil view's tabs.
- */
-function SliceSelect({ units }: { units: LengthUnit }) {
+/** Picks a cant line for the tools below; "Whole fin" is the fin's own placement. */
+function CantLineSelect({ units }: { units: LengthUnit }) {
   const design = useFinState(finStore, (s) => s.design);
-  const activeFoil = useFinState(finStore, (s) => s.activeFoil);
-  if (!design || design.slices.length === 0) return null;
+  const active = useFinState(finStore, (s) => s.activeCantLine);
+  const lines = design?.cantLines ?? [];
+  if (!design || lines.length === 0) return null;
+  const depth = finReadouts(design).depth;
   return (
     <label className="flex items-center gap-2">
-      <span className="text-muted-foreground">Shape at</span>
+      <span className="text-muted-foreground">Cant and toe at</span>
       <select
         className="h-8 rounded-md border border-input bg-background px-2 text-sm"
-        value={activeFoil > 0 ? activeFoil : 0}
-        aria-label="Shape at"
-        onChange={(e) => finStore.getState().setActiveFoil(Number(e.target.value))}
+        value={active <= lines.length ? active : 0}
+        aria-label="Cant and toe at"
+        onChange={(e) => finStore.getState().setActiveCantLine(Number(e.target.value))}
       >
         <option value={0}>Whole fin</option>
-        {design.slices.map((sl, i) => (
+        {lines.map((l, i) => (
           <option key={i} value={i + 1}>
-            Control section {fmtLen(smoothSectionDistance(design, sl.height), units)}
-            {sl.twist ? ' · cant / toe' : ''}
+            Cant line {fmtLen(l.height * depth, units)}
           </option>
         ))}
       </select>
@@ -419,32 +415,23 @@ function SliceSelect({ units }: { units: LengthUnit }) {
   );
 }
 
-/**
- * A selected control section's cant and toe: the blade eases to them from the whole
- * fin's (or the control section below's) over the span up to it, and keeps them above.
- */
-function SliceTwistTools({ foil, units }: { foil: number; units: LengthUnit }) {
+/** A selected cant line's cant and toe: the blade eases to them going up from the line. */
+function CantLineTools({ line, units }: { line: number; units: LengthUnit }) {
   const design = useFinState(finStore, (s) => s.design);
-  if (!design) return null;
-  const sl = design.slices[foil - 1];
-  if (!sl) return null;
-  // One without a change shows what the blade has there now.
-  const now = sl.twist ?? twistAt(design, sl.height);
-  const set = (change: Partial<FinTwist> | null) => finStore.getState().setSliceTwist(foil, change);
-  const at = fmtLen(smoothSectionDistance(design, sl.height), units);
+  const l = design?.cantLines?.[line - 1];
+  if (!design || !l) return null;
+  const set = (change: Partial<FinTwist>) => finStore.getState().setCantLine(line, change);
+  const at = fmtLen(l.height * finReadouts(design).depth, units);
   return (
-    <ToolGroup title={`Control section ${at}`}>
-      <Tooltip label={`Blade lean here, ${minus(FIN_MIN_SLICE_CANT)}° to ${FIN_MAX_CANT}°`}>
+    <ToolGroup title={`Cant line ${at}`}>
+      <Tooltip
+        label={`Blade lean from this line up, ${minus(FIN_MIN_SLICE_CANT)}° to ${FIN_MAX_CANT}°`}
+      >
         <div>
-          <DegField label="Cant" value={now.cant} onCommit={(v) => set({ cant: v })} />
+          <DegField label="Cant" value={l.cant} onCommit={(v) => set({ cant: v })} />
         </div>
       </Tooltip>
-      <ToeTools toe={now.toe} onSet={(v) => set({ toe: v })} label="Toe" />
-      {sl.twist && (
-        <Button size="sm" variant="outline" onClick={() => set(null)}>
-          Reset cant and toe
-        </Button>
-      )}
+      <ToeTools toe={l.toe} onSet={(v) => set({ toe: v })} label="Toe" />
     </ToolGroup>
   );
 }
@@ -555,17 +542,17 @@ function PlacementTools({
   const hand = useFinState(finStore, (s) => s.design?.hand);
   const toe = useFinState(finStore, (s) => s.design?.toe ?? 0);
   const base = useFinState(finStore, (s) => s.design?.base);
-  // A control section selected (here or in the foil view): cant and toe set its change.
-  const slice = useFinState(finStore, (s) =>
-    s.design && s.activeFoil > 0 && s.activeFoil <= s.design.slices.length ? s.activeFoil : 0,
+  // A cant line selected (here or in the profile): cant and toe set its change.
+  const cantLine = useFinState(finStore, (s) =>
+    s.activeCantLine <= (s.design?.cantLines?.length ?? 0) ? s.activeCantLine : 0,
   );
   if (!position || !base) return null;
   const s = finStore.getState;
   return (
     <>
-      <SliceSelect units={units} />
-      {slice > 0 ? (
-        <SliceTwistTools foil={slice} units={units} />
+      <CantLineSelect units={units} />
+      {cantLine > 0 ? (
+        <CantLineTools line={cantLine} units={units} />
       ) : (
         <>
           <ToolGroup title="Placement">
@@ -637,13 +624,17 @@ function PlacementTools({
  * Where a new slice goes: halfway up the biggest gap between the root, the slices and
  * the tip, so repeated clicks spread them out.
  */
-const nextSliceHeight = (d: FinDesign): number => {
-  const hs = [0, ...d.slices.map((sl) => sl.height), 1];
+const widestGap = (heights: readonly number[]): number => {
+  const hs = [0, ...heights, 1];
   let best = 0;
   for (let i = 1; i < hs.length - 1; i++)
     if (hs[i + 1]! - hs[i]! > hs[best + 1]! - hs[best]!) best = i;
   return (hs[best]! + hs[best + 1]!) / 2;
 };
+
+const nextSliceHeight = (d: FinDesign): number => widestGap(d.slices.map((sl) => sl.height));
+const nextCantHeight = (d: FinDesign): number =>
+  widestGap((d.cantLines ?? []).map((l) => l.height));
 
 /** The profile view's controls. */
 function OutlineTools({ units }: { units: LengthUnit }) {
@@ -659,7 +650,7 @@ function OutlineTools({ units }: { units: LengthUnit }) {
         onCommit={(cm) => finStore.getState().setDepth(cm)}
       />
       <PointTools store={finStore} />
-      <Tooltip label="Add a control section: set the foil, cant and toe at a height">
+      <Tooltip label="Add a control section: set the foil on a line across the fin">
         <Button
           variant="outline"
           size="sm"
@@ -669,6 +660,16 @@ function OutlineTools({ units }: { units: LengthUnit }) {
         </Button>
       </Tooltip>
       {design.slices.length > 0 && <RemoveSlice />}
+      <Tooltip label="Add a cant line: change the cant and toe from a height up">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => finStore.getState().addCantLine(nextCantHeight(design))}
+        >
+          Add cant line
+        </Button>
+      </Tooltip>
+      {(design.cantLines?.length ?? 0) > 0 && <RemoveCantLine />}
     </>
   );
 }
@@ -687,6 +688,25 @@ function RemoveSlice() {
         onClick={() => finStore.getState().removeSlice(foil)}
       >
         Remove control section
+      </Button>
+    </Tooltip>
+  );
+}
+
+/** Beside Add cant line. */
+function RemoveCantLine() {
+  const line = useFinState(finStore, (s) =>
+    s.activeCantLine <= (s.design?.cantLines?.length ?? 0) ? s.activeCantLine : 0,
+  );
+  return (
+    <Tooltip label="Remove the selected cant line (click its line to select it)">
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={line === 0}
+        onClick={() => finStore.getState().removeCantLine(line)}
+      >
+        Remove cant line
       </Button>
     </Tooltip>
   );

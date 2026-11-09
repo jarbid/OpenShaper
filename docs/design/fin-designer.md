@@ -780,3 +780,19 @@ Owner testing: the outline import takes a scale (percent, in the facing dialog, 
 depth and base length it gives, and stays open with the reason if the fin doesn't fit). A ghost
 moves with a right-button drag anywhere in its view (control-click on a Mac; `onRightDrag`), so
 it can be placed without finding its dot; the dot stays for tablets.
+
+## Cant lines (owner request, 2026-11)
+
+A control section's cant and toe bent the blade along its row. On a hatchet's arm those rows
+stand across the water flow, so a bend there worked as a flap, and a tip couldn't be canted out
+more than the base. Cant and toe now belong to level lines in the profile
+(`FinDesign.cantLines`), and control sections set the foil only.
+
+A line's change starts at it and builds going up, over 15% of the depth or to the next line,
+by smootherstep (`twistAt`), then holds. Everything depends on height alone: the slide is
+tan(cant) summed up from the base (a C² table in height), and a line's toe turns the blade above
+it about an upright axis where the thickness path first reaches its height. So a level cut
+moves as one, and the surface stays as smooth as before.
+
+Older files' section cant and toe load as a line 15% of the depth below where the section's row
+crosses the thickness path, which reaches the section's values where they were reached before.

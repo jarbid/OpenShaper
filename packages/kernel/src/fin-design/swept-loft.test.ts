@@ -8,7 +8,7 @@ import { knot } from '../knot';
 import { vec2 } from '../vec2';
 import { bladeSection, moveFoilThickest, prepareBlade, sectionThickest } from './blade';
 import { defaultFinDesign, defaultKeel, defaultSingleFin, defaultTwinFin } from './fin-defaults';
-import type { FinDesign, FinTwist } from './fin-design';
+import type { FinDesign } from './fin-design';
 import {
   defaultTipLine,
   outlineAtFraction,
@@ -30,7 +30,7 @@ const ownerFin = (name: string): FinDesign => {
     cant?: number;
     outline: Row[];
     section: Section;
-    slices?: { height: number; section: Section; twist?: FinTwist }[];
+    slices?: { height: number; section: Section }[];
     taper: Row[];
     tipLine?: { start: number; end: number };
     tipSection?: Section;
@@ -59,7 +59,6 @@ const ownerFin = (name: string): FinDesign => {
     slices: (file.slices ?? []).map((sl) => ({
       height: sl.height,
       section: section(sl.section),
-      ...(sl.twist ? { twist: sl.twist } : {}),
     })),
     taper: spline(file.taper, 1, 0.1),
     ...(file.tipLine ? { tipLine: file.tipLine } : {}),

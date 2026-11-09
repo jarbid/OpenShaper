@@ -31,7 +31,7 @@ import { FIN_MESH_FINE, finMesh } from './fin-mesh';
 import { bladeSection, chordAt, cosineStations, findRaisedRear, prepareBlade } from './blade';
 import { BLADE_CI_TOLERANCE, bladeSurfaceDeviation, fitBladeSurface } from './blade-surface';
 import { splineExtremes } from './curve-shape';
-import type { FinDesign, FinTwist } from './fin-design';
+import type { FinDesign } from './fin-design';
 import { finReadouts } from './fin-readouts';
 import { validateFinDesign } from './fin-rules';
 
@@ -277,7 +277,7 @@ describe('a raised rear behind a steep start at the root (the owner’s twin fin
   });
 });
 
-/** An owner's fin, read straight from its file in docs/specs/fins (mm → cm), slices and twist included. */
+/** An owner's fin, read straight from its file in docs/specs/fins (mm → cm), slices included. */
 const ownerFin = (name: string): FinDesign => {
   type Row = { e: [number, number]; p: [number, number]; n: [number, number]; c: boolean };
   type Section = { outside: Row[]; inside: Row[] | null };
@@ -287,7 +287,7 @@ const ownerFin = (name: string): FinDesign => {
     hand: 'left' | 'right';
     outline: Row[];
     section: Section;
-    slices: { height: number; section: Section; twist?: FinTwist }[];
+    slices: { height: number; section: Section }[];
     taper: Row[];
   };
   const spline = (rows: Row[], fx: number, fy: number) =>
@@ -312,7 +312,6 @@ const ownerFin = (name: string): FinDesign => {
     slices: file.slices.map((sl) => ({
       height: sl.height,
       section: section(sl.section),
-      ...(sl.twist ? { twist: sl.twist } : {}),
     })),
     taper: spline(file.taper, 1, 0.1),
   };
@@ -328,7 +327,7 @@ describe('a raised rear behind a tall steep start (the owner’s A4C, docs/specs
     return Math.abs(s.outside[j]!.y - s.inside[j]!.y);
   };
 
-  it('is a valid design, slices and twist included', () => {
+  it('is a valid design, slices included', () => {
     expect(validateFinDesign(d)).toEqual([]);
     expect(d.slices).toHaveLength(3);
   });

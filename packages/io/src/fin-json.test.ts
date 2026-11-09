@@ -147,24 +147,23 @@ describe('.fin.json versions', () => {
     expect(readFinJson(writeFinJson(d)).design.base).toBe('fcs-single');
   });
 
-  it('keeps a slice’s cant and toe change through a save', () => {
+  it('keeps cant lines', () => {
     const base = defaultFinDesign('side', 'left');
-    const d = {
-      ...base,
-      slices: [{ height: 0.6, section: base.section, twist: { cant: 12, toe: -1 } }],
-    };
-    expect(readFinJson(writeFinJson(d)).design.slices[0]!.twist).toEqual({ cant: 12, toe: -1 });
+    const d = { ...base, cantLines: [{ height: 0.6, cant: 12, toe: -1 }] };
+    expect(readFinJson(writeFinJson(d)).design.cantLines).toEqual(d.cantLines);
   });
 
-  it('reads an older file’s transition zone and drops it: the change eases over the whole span', () => {
+  it('turns an older file’s control-section cant and toe into a cant line below it', () => {
     const base = defaultFinDesign('side', 'left');
-    const d = {
-      ...base,
-      slices: [{ height: 0.6, section: base.section, twist: { cant: 12, toe: -1 } }],
-    };
-    const doc = JSON.parse(writeFinJson(d));
-    doc.slices[0].twist.transition = 0.15;
-    expect(readFinJson(JSON.stringify(doc)).design.slices[0]!.twist).toEqual({ cant: 12, toe: -1 });
+    const doc = JSON.parse(
+      writeFinJson({ ...base, slices: [{ height: 0.6, section: base.section }] }),
+    );
+    doc.slices[0].twist = { cant: 12, toe: -1, transition: 0.15 };
+    const [line, ...rest] = readFinJson(JSON.stringify(doc)).design.cantLines!;
+    expect(rest).toEqual([]);
+    expect(line).toMatchObject({ cant: 12, toe: -1 });
+    expect(line!.height).toBeGreaterThan(0);
+    expect(line!.height).toBeLessThan(0.6);
   });
 
   it('writes a toe correction and reads it back', () => {

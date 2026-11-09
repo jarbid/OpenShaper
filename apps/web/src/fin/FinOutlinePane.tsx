@@ -33,7 +33,7 @@ import { alsoFromSelection, curveEditorHandlers, pickFromSelection } from './cur
 import { GhostControl, useGhostRightDrag } from './VectorImport';
 import { drawGhost, ghostMarkers, makeGhost, withGhostHandles, type Ghost } from './ghost';
 import { vectorLines, type VectorFacing, type VectorPath } from './vector-import';
-import { sliceGuideHandlers, sliceGuides } from './slice-guides';
+import { cantLineGuides, sliceGuideHandlers, sliceGuides } from './slice-guides';
 import {
   PATH_COLOR,
   SWEEP_BAND,
@@ -85,10 +85,17 @@ export const FinOutlinePane = memo(function FinOutlinePane({
   const design = useFinState(store, (s) => s.design);
   const selection = useFinState(store, (s) => s.selection);
   const activeFoil = useFinState(store, (s) => s.activeFoil);
+  const activeCantLine = useFinState(store, (s) => s.activeCantLine);
   const position = design?.position ?? 'side';
   const guides = useMemo(
-    () => (design ? sliceGuides(design, activeFoil, units, 'y') : []),
-    [design, activeFoil, units],
+    () =>
+      design
+        ? [
+            ...sliceGuides(design, activeFoil, units, 'y'),
+            ...cantLineGuides(design, activeCantLine, units),
+          ]
+        : [],
+    [design, activeFoil, activeCantLine, units],
   );
   const guideHandlers = useMemo(() => sliceGuideHandlers(store, 'y'), [store]);
 

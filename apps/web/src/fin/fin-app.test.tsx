@@ -475,36 +475,27 @@ describe('FinApp', () => {
     expect(finStore.getState().design!.toe).toBe(-5); // already at the limit
   });
 
-  it('bends and twists the blade above a slice from the 3D view', () => {
+  it('bends and twists the blade from a cant line, set from the 3D view', () => {
     localStorage.removeItem('bs.fin.views');
     render(<FinApp />);
-    fireEvent.click(screen.getByRole('button', { name: 'Add control section' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add cant line' }));
     const d = () => finStore.getState().design!;
     const threeD = within(screen.getByRole('region', { name: '3D' }));
-    // The new slice is selected: cant and toe now set its change; the arrows are off.
-    expect(threeD.getByLabelText('Shape at')).toHaveProperty('value', '1');
-    // The whole fin's placement gives way to the control section's own cant and toe.
+    // The new line is selected: cant and toe now set it.
+    expect(threeD.getByLabelText('Cant and toe at')).toHaveProperty('value', '1');
     expect(threeD.queryByRole('group', { name: 'Position on the tab' })).toBeNull();
-    // No change yet; no transition zone either: a change eases in over the whole span.
-    expect(threeD.queryByLabelText(/^Transition/)).toBeNull();
-    expect(threeD.queryByRole('button', { name: 'Reset cant and toe' })).toBeNull();
-    const cant = threeD.getByLabelText(/^Cant/);
+    const cant = threeD.getByLabelText(/^Cant(?! and| line)/);
     fireEvent.change(cant, { target: { value: '12' } });
     fireEvent.keyDown(cant, { key: 'Enter' });
-    expect(d().slices[0]!.twist).toEqual({ cant: 12, toe: 0 });
+    expect(d().cantLines![0]).toMatchObject({ cant: 12, toe: 0 });
     fireEvent.click(threeD.getByRole('button', { name: 'Toe out' }));
-    expect(d().slices[0]!.twist!.toe).toBe(-0.25);
+    expect(d().cantLines![0]!.toe).toBe(-0.25);
     expect(d().toe).toBe(0); // the whole fin's toe is untouched
-    // The arrow keys don't move the fin while a slice is selected.
-    const le = d().outline.knots[0]!.end.x;
-    fireEvent.keyDown(window, { key: 'ArrowUp' });
-    expect(d().outline.knots[0]!.end.x).toBe(le);
-    fireEvent.click(threeD.getByRole('button', { name: 'Reset cant and toe' }));
-    expect(d().slices[0]!.twist).toBeUndefined();
-    // Back to the root: the arrows work again.
-    fireEvent.change(threeD.getByLabelText('Shape at'), { target: { value: '0' } });
-    fireEvent.keyDown(window, { key: 'ArrowUp' });
-    expect(d().outline.knots[0]!.end.x).toBeGreaterThan(le);
+    fireEvent.change(threeD.getByLabelText('Cant and toe at'), { target: { value: '0' } });
+    expect(threeD.getByRole('group', { name: 'Position on the tab' })).toBeTruthy();
+    fireEvent.change(threeD.getByLabelText('Cant and toe at'), { target: { value: '1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove cant line' }));
+    expect(d().cantLines).toBeUndefined();
   });
 
   it('lists the rules the design breaks', () => {

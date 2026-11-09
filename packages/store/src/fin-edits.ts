@@ -49,6 +49,7 @@ import {
   type FinIssueCode,
   type FinPosition,
   type FinSection,
+  type FinCantLine,
   type FinTwist,
   type Spline,
   type Vec2,
@@ -275,34 +276,76 @@ export const addSlice = (
   return { design: { ...d, slices }, foil: pos + 1 };
 };
 
+const withCantLines = (d: FinDesign, lines: readonly FinCantLine[]): FinDesign => {
+  const { cantLines: _old, ...rest } = d;
+  void _old;
+  return lines.length ? { ...rest, cantLines: lines } : rest;
+};
+
 /**
- * Slice `foil` (1-based) changing the cant and toe: `change` sets either, starting from
- * what the blade has there now (so a new change begins as no change). `null` removes
- * it. Values are clamped to their ranges.
+ * A new cant line at `height` (fraction of the depth), starting at the cant and toe the
+ * blade has there. Clamped into the room between its neighbours; null if there is none.
+ * Returns the design and the line's number (1-based).
  */
-export const setSliceTwist = (
+export const addCantLine = (
   d: FinDesign,
-  foil: FinFoilIndex,
-  change: Partial<FinTwist> | null,
-): FinDesign => {
-  const i = foil - 1;
-  const sl = d.slices[i];
-  if (!sl) return d;
-  let twist: FinTwist | undefined;
-  if (change) {
-    const next = { ...(sl.twist ?? twistAt(d, sl.height)), ...change };
-    twist = {
-      cant: Math.min(FIN_MAX_CANT, Math.max(FIN_MIN_SLICE_CANT, next.cant)),
-      toe: Math.round(Math.min(FIN_MAX_TOE, Math.max(-FIN_MAX_TOE, next.toe)) * 1e6) / 1e6,
-    };
-  }
-  const slices = d.slices.map((s, j) => {
-    if (j !== i) return s;
-    const { twist: _old, ...rest } = s;
-    void _old;
-    return twist ? { ...rest, twist } : rest;
-  });
-  return { ...d, slices };
+  height: number,
+): { design: FinDesign; line: number } | null => {
+  const lines = d.cantLines ?? [];
+  const at = lines.findIndex((l) => l.height > height);
+  const pos = at === -1 ? lines.length : at;
+  const lo = (pos === 0 ? 0 : lines[pos - 1]!.height) + FIN_SLICE_MIN_GAP;
+  const hi = (pos === lines.length ? 1 : lines[pos]!.height) - FIN_SLICE_MIN_GAP;
+  if (hi < lo) return null;
+  const h = Math.min(hi, Math.max(lo, height));
+  const added = { height: h, ...twistAt(d, h) };
+  return {
+    design: withCantLines(d, [...lines.slice(0, pos), added, ...lines.slice(pos)]),
+    line: pos + 1,
+  };
+};
+
+/** Cant line `line` (1-based) with new cant or toe, clamped to their ranges. */
+export const setCantLine = (d: FinDesign, line: number, change: Partial<FinTwist>): FinDesign => {
+  const lines = d.cantLines ?? [];
+  if (!lines[line - 1]) return d;
+  return withCantLines(
+    d,
+    lines.map((l, i) => {
+      if (i !== line - 1) return l;
+      const next = { ...l, ...change };
+      return {
+        height: l.height,
+        cant: Math.min(FIN_MAX_CANT, Math.max(FIN_MIN_SLICE_CANT, next.cant)),
+        toe: Math.round(Math.min(FIN_MAX_TOE, Math.max(-FIN_MAX_TOE, next.toe)) * 1e6) / 1e6,
+      };
+    }),
+  );
+};
+
+/** The design without cant line `line` (1-based). */
+export const removeCantLine = (d: FinDesign, line: number): FinDesign =>
+  d.cantLines?.[line - 1]
+    ? withCantLines(
+        d,
+        d.cantLines.filter((_, i) => i !== line - 1),
+      )
+    : d;
+
+/**
+ * Cant line `line` moved to `height`, its cant and toe with it; it stops short of the line
+ * either side, the base and the top. Returns the design unchanged if it can't move.
+ */
+export const moveCantLine = (d: FinDesign, line: number, height: number): FinDesign => {
+  const lines = d.cantLines ?? [];
+  if (!lines[line - 1]) return d;
+  const lo = (line > 1 ? lines[line - 2]!.height : 0) + FIN_SLICE_MIN_GAP;
+  const hi = (line < lines.length ? lines[line]!.height : 1) - FIN_SLICE_MIN_GAP;
+  const h = Math.min(hi, Math.max(lo, height));
+  return withCantLines(
+    d,
+    lines.map((l, i) => (i === line - 1 ? { ...l, height: h } : l)),
+  );
 };
 
 /** The design without slice `foil` (1-based); unchanged for the root or no such slice. */

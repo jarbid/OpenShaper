@@ -109,25 +109,26 @@ export interface FinSlice {
   /** Where it is: the fraction of the way along the fin from the base (0) to the tip line (1). */
   readonly height: number;
   readonly section: FinSection;
-  /**
-   * A change of cant and toe at this slice, or none (the blade carries on as below it).
-   * The blade eases from the cant and toe below (the root's, or the slice below's) to
-   * these over the whole span up to the slice, and keeps them above it. More cant bends
-   * the blade out, a different toe twists it (Futures' upper-blade designs). Each
-   * section turns about its own centre (of area).
-   */
-  readonly twist?: FinTwist;
 }
 
-/** Cant and toe at a slice. */
-export interface FinTwist {
-  /** Cant at the slice and above (deg), {@link FIN_MIN_SLICE_CANT} to {@link FIN_MAX_CANT}. */
+/**
+ * A level line across the profile from which the blade's cant and toe change (owner
+ * request): level so the bend runs along the water's flow, not across it. The blade eases
+ * from what it had to these going up from the line, and keeps them above it.
+ */
+export interface FinCantLine {
+  /** Its height as a fraction of the depth, 0 the base and 1 the top. */
+  readonly height: number;
+  /** Cant from here up (deg), {@link FIN_MIN_SLICE_CANT} to {@link FIN_MAX_CANT}. */
   readonly cant: number;
-  /** Toe at the slice and above (deg, + toe in), ±{@link FIN_MAX_TOE}. */
+  /** Toe from here up (deg, + toe in), ±{@link FIN_MAX_TOE}. */
   readonly toe: number;
 }
 
-/** A slice may take the blade's lean back past upright: an edge case owners asked for. */
+/** Cant and toe, as read at a height. */
+export type FinTwist = Pick<FinCantLine, 'cant' | 'toe'>;
+
+/** A cant line may take the blade's lean back past upright: an edge case owners asked for. */
 export const FIN_MIN_SLICE_CANT = -20;
 
 /**
@@ -235,6 +236,8 @@ export interface FinDesign {
    * way along the thickness path from the base (0) to the tip (1), y = thickness (cm).
    */
   readonly taper: Spline;
+  /** Where the cant and toe change, lowest first; absent for none. */
+  readonly cantLines?: readonly FinCantLine[];
   /** Where the foil sweep ends; absent for the default (swept-loft.ts, defaultTipLine). */
   readonly tipLine?: FinTipLine;
   /**

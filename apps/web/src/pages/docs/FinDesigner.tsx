@@ -58,6 +58,7 @@ export default function DocsFinDesigner() {
         { id: 'sweep', label: 'The foil sweep' },
         { id: 'foil', label: 'The foil' },
         { id: 'control sections', label: 'Control sections' },
+        { id: 'cant-lines', label: 'Cant lines' },
         { id: 'taper', label: 'Thickness and flex' },
         { id: 'base', label: 'The tab' },
         { id: 'tab', label: 'Placing the fin on its tab' },
@@ -249,16 +250,15 @@ export default function DocsFinDesigner() {
       <Section id="slices" title="Control sections">
         <p>
           The sweep carries one foil up the blade. A <strong>control section</strong> sets the foil
-          on one line across the fin, from edge to edge, always below the tip line. Control sections
-          are also how you twist a fin (see below). <strong>Add control section</strong> (in the
-          profile&apos;s toolbar) puts a dashed line across the profile, following the fin; drag it
-          along the fin in the profile or the thickness view. A control section can be dragged past
-          another: it waits just short of it, then hops to the other side, and it takes its foil
-          with it. Its name is its distance along the fin from the base. Each control section has
-          its own foil: pick its tab in the foil view and shape it with the same tools, NACA presets
-          included. A new control section starts as the shape already there, drawn with as few
-          points as follow it to within 2% of its thickness, so adding one changes next to nothing
-          until you reshape it.
+          on one line across the fin, from edge to edge, always below the tip line.{' '}
+          <strong>Add control section</strong> (in the profile&apos;s toolbar) puts a dashed line
+          across the profile, following the fin; drag it along the fin in the profile or the
+          thickness view. A control section can be dragged past another: it waits just short of it,
+          then hops to the other side, and it takes its foil with it. Its name is its distance along
+          the fin from the base. Each control section has its own foil: pick its tab in the foil
+          view and shape it with the same tools, NACA presets included. A new control section starts
+          as the shape already there, drawn with as few points as follow it to within 2% of its
+          thickness, so adding one changes next to nothing until you reshape it.
         </p>
         <p>
           A control section&apos;s foil is the fin&apos;s shape along its line, exactly as drawn.
@@ -273,17 +273,27 @@ export default function DocsFinDesigner() {
           the way from each other and from the base and tip line.
         </p>
         <p>
-          A control section can also change the cant and toe above it, bending the upper blade out
-          and twisting it, as some Futures designs do. Pick the control section in the 3D
-          view&apos;s <strong>Shape at</strong> list (or its tab in the foil view): the whole
-          fin&apos;s placement gives way to the control section&apos;s own <strong>Cant</strong>{' '}
-          (−20° to 20°: it may lean back past upright) and <strong>Toe</strong>, which set its
-          change. The blade eases from the cant and toe below (the whole fin&apos;s, or the control
-          section below&apos;s) to the control section&apos;s over the 15% of the way just under it,
-          with no crease, and holds them above it. Each line across the fin turns about its own
-          thickest point, which moves smoothly up the blade. <strong>Reset cant and toe</strong>{' '}
-          takes the change away. On an FCS single tab the fin has no cant of its own (the plug sets
-          it), but a control section may still add some.
+          A control section sets the foil only. To bend or twist the blade, use a{' '}
+          <a href="#cant-lines">cant line</a>.
+        </p>
+      </Section>
+
+      <Section id="cant-lines" title="Cant lines">
+        <p>
+          A <strong>cant line</strong> changes the blade&apos;s cant and toe from a height up: more
+          cant leans the upper blade out, and toe twists it in or out, as a hatchet fin&apos;s tip
+          often does. The line is level, so the bend runs along the water&apos;s flow, not across
+          it. <strong>Add cant line</strong> in the profile&apos;s toolbar puts one at a height;
+          drag it up or down.
+        </p>
+        <p>
+          Click a line, or pick it in the 3D view&apos;s <strong>Cant and toe at</strong> list, to
+          set its <strong>Cant</strong> (−20° to 20°: it may lean back past upright) and{' '}
+          <strong>Toe</strong>. A new line starts at what the blade has there, so adding one changes
+          nothing until you edit it. The blade eases from what it had to the line&apos;s values over
+          the 15% of the depth above the line, or up to the next line if that is nearer, with no
+          crease, and holds them above. <strong>Remove cant line</strong> takes the selected one
+          away. Cant lines keep at least 2% of the depth from each other, the base and the top.
         </p>
       </Section>
 
@@ -428,7 +438,8 @@ export default function DocsFinDesigner() {
         <Terms>
           <Term name="Cyan">The profile and the outside face; also what is selected or on.</Term>
           <Term name="Violet">The inside face.</Term>
-          <Term name="Pink">Control sections: their lines, and their dot in the tip foil.</Term>
+          <Term name="Pink">Control sections: their lines.</Term>
+          <Term name="Pale grey">Cant lines.</Term>
           <Term name="Green">The base foil and the tip foil: the sweep&apos;s two lines.</Term>
           <Term name="Amber">Thickness: the thickness curve and the thickness path.</Term>
           <Term name="Orange">

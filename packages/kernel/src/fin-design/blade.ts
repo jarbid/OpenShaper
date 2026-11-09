@@ -40,6 +40,7 @@ import {
   finOutward,
   type FinDesign,
   type FinSection,
+  type FinTwist,
   type FinThicknessPath,
 } from './fin-design';
 import { findRaisedRear, type RaisedRear } from './raised-rear';
@@ -445,31 +446,31 @@ export const rootThickestFaces = (b: PreparedBlade): { outside: number; inside: 
 /** 0 → 1 with flat ends: 6t⁵ − 15t⁴ + 10t³, curvature continuous where it joins. */
 const smoother = (t: number): number => t * t * t * (t * (t * 6 - 15) + 10);
 
-/** Whether any slice changes the cant or toe. */
-export const hasTwist = (d: FinDesign): boolean => d.slices.some((sl) => sl.twist);
+/** Whether any cant line changes the cant or toe. */
+export const hasTwist = (d: FinDesign): boolean => (d.cantLines?.length ?? 0) > 0;
+
+/** How far above cant line `i` its change is complete (fraction of the depth). */
+export const cantLineReach = (d: FinDesign, i: number): number => {
+  const lines = d.cantLines ?? [];
+  return Math.min(FIN_SLICE_REACH, (lines[i + 1]?.height ?? 1) - lines[i]!.height);
+};
 
 /**
- * Cant and toe (deg) at height `eta` (fraction of the depth): the fin's own at the root,
- * each slice's with a twist from its height up, easing in over {@link FIN_SLICE_REACH}
- * below it (less if the root or the slice below is nearer) with no crease where it
- * starts or ends (`smoother`).
+ * Cant and toe (deg) at height `eta` (fraction of the depth): the fin's own at the base,
+ * each cant line's easing in going up from it, over {@link FIN_SLICE_REACH} of the depth
+ * or to the next line if that is nearer, with no crease where it starts or ends. Height
+ * alone, so the bends run level, along the flow.
  */
-export const twistAt = (d: FinDesign, eta: number): { cant: number; toe: number } => {
-  let from = { height: 0, cant: d.cant, toe: d.toe ?? 0 };
-  for (const sl of d.slices) {
-    if (!sl.twist) continue;
-    const to = { height: sl.height, cant: sl.twist.cant, toe: sl.twist.toe };
-    if (eta < to.height) {
-      const start = Math.max(from.height, to.height - FIN_SLICE_REACH);
-      const w = smoother(Math.max(0, (eta - start) / (to.height - start)));
-      return {
-        cant: from.cant + (to.cant - from.cant) * w,
-        toe: from.toe + (to.toe - from.toe) * w,
-      };
-    }
-    from = to;
-  }
-  return { cant: from.cant, toe: from.toe };
+export const twistAt = (d: FinDesign, eta: number): FinTwist => {
+  let cant = d.cant;
+  let toe = d.toe ?? 0;
+  (d.cantLines ?? []).forEach((l, i) => {
+    if (!(eta > l.height)) return;
+    const w = smoother(Math.min(1, (eta - l.height) / cantLineReach(d, i)));
+    cant += (l.cant - cant) * w;
+    toe += (l.toe - toe) * w;
+  });
+  return { cant, toe };
 };
 
 /**

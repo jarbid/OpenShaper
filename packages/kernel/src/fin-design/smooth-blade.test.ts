@@ -8,7 +8,7 @@ import { knot } from '../knot';
 import { vec2 } from '../vec2';
 import { prepareBlade, thicknessAt } from './blade';
 import { defaultFinDesign, defaultKeel, defaultSingleFin, defaultTwinFin } from './fin-defaults';
-import type { FinDesign, FinTwist } from './fin-design';
+import type { FinDesign } from './fin-design';
 import { fairness } from './fairness';
 import { finMesh, FIN_MESH_PREVIEW } from './fin-mesh';
 import {
@@ -36,7 +36,7 @@ const ownerFin = (name: string): FinDesign => {
     cant?: number;
     outline: Row[];
     section: Section;
-    slices?: { height: number; section: Section; twist?: FinTwist }[];
+    slices?: { height: number; section: Section }[];
     taper: Row[];
     tipLine?: { start: number; end: number };
     tipSection?: Section;
@@ -65,7 +65,6 @@ const ownerFin = (name: string): FinDesign => {
     slices: (file.slices ?? []).map((sl) => ({
       height: sl.height,
       section: section(sl.section),
-      ...(sl.twist ? { twist: sl.twist } : {}),
     })),
     taper: spline(file.taper, 1, 0.1),
     ...(file.tipLine ? { tipLine: file.tipLine } : {}),
@@ -236,19 +235,6 @@ describe('the smooth blade', () => {
         }
       }
       expect(worst / thickest).toBeLessThan(0.02);
-    });
-
-    it('bend the blade with their cant, and stay smooth', () => {
-      const d = {
-        ...d0,
-        slices: [{ height: 0.6, section: smoothFoilAt(d0, 0.6), twist: { cant: 15, toe: 2 } }],
-      };
-      const plain = smoothBlade(d0);
-      const bent = smoothBlade(d);
-      // Low down as before; high up leant further out (a left fin: + y).
-      expect(bent.faces(0.1, 0.5).outside.y).toBeCloseTo(plain.faces(0.1, 0.5).outside.y, 6);
-      expect(bent.faces(0.9, 0.5).outside.y).toBeGreaterThan(plain.faces(0.9, 0.5).outside.y + 0.2);
-      expect(fairness(smoothSampler(d)).creases).toEqual([]);
     });
 
     it.each([

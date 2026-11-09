@@ -64,7 +64,10 @@ import {
   setFoilSplit,
   setInsideFace,
   setRootThickness,
-  setSliceTwist,
+  addCantLine,
+  moveCantLine,
+  removeCantLine,
+  setCantLine,
   setToe,
   setPanelAngle,
   setPanelThickness,
@@ -157,11 +160,14 @@ export interface FinState {
   setRootThickness: (cm: number) => boolean;
   setDepth: (cm: number) => boolean;
   setHand: (hand: FinHand) => boolean;
-  /**
-   * Slice `foil` (1-based) changing the cant / toe / transition (any of them), or `null`
-   * to drop its change. Clamped to range.
-   */
-  setSliceTwist: (foil: number, change: Partial<FinTwist> | null) => boolean;
+  /** The cant line (1-based) the 3D view's tools are editing; 0 for the whole fin. */
+  activeCantLine: number;
+  setActiveCantLine: (line: number) => void;
+  /** Add a cant line at a height (fraction of the depth), and select it. */
+  addCantLine: (height: number) => boolean;
+  setCantLine: (line: number, change: Partial<FinTwist>) => boolean;
+  moveCantLine: (line: number, height: number) => boolean;
+  removeCantLine: (line: number) => boolean;
   /** Toe correction (deg, + toe in), clamped to ±5°. */
   setToe: (deg: number) => boolean;
   /** The thinnest the blade may get (cm), the taper following (fin-edits setMinThickness). */
@@ -332,6 +338,7 @@ export const createFinStore = (): StoreApi<FinState> =>
       editing: false,
       selection: null,
       activeFoil: 0,
+      activeCantLine: 0,
 
       load: (d) =>
         set({
@@ -343,6 +350,7 @@ export const createFinStore = (): StoreApi<FinState> =>
           editing: false,
           selection: null,
           activeFoil: 0,
+          activeCantLine: 0,
         }),
       newFin: (position, hand) => {
         if (!get().design) {
@@ -528,11 +536,27 @@ export const createFinStore = (): StoreApi<FinState> =>
           ),
         ),
 
-      setSliceTwist: (foil, change) => {
+      setActiveCantLine: (line) => set({ activeCantLine: line }),
+      addCantLine: (height) => {
         const d = get().design;
-        const next = d && setSliceTwist(d, foil, change);
-        if (!d || !next) return false;
-        return commitChecked(next, change ? 'Change slice cant / toe' : 'Remove slice twist');
+        const r = d && addCantLine(d, height);
+        if (!r || !commitChecked(r.design, 'Add cant line')) return false;
+        set({ activeCantLine: r.line });
+        return true;
+      },
+      setCantLine: (line, change) => {
+        const d = get().design;
+        return !!d && commitChecked(setCantLine(d, line, change), 'Change cant line');
+      },
+      moveCantLine: (line, height) => {
+        const d = get().design;
+        return !!d && commitChecked(moveCantLine(d, line, height), 'Move cant line');
+      },
+      removeCantLine: (line) => {
+        const d = get().design;
+        if (!d || !commitChecked(removeCantLine(d, line), 'Remove cant line')) return false;
+        set({ activeCantLine: 0 });
+        return true;
       },
       setToe: (deg) => {
         const d = get().design;
