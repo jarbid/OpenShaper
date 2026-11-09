@@ -15,6 +15,8 @@
  * ({@link fitPinned}) remove the freedom altogether.
  */
 import {
+  FLAT_RANGE,
+  FLAT_STEPS,
   LEAN_RANGE,
   LEAN_STEPS,
   RHO_ITERS,
@@ -45,8 +47,12 @@ const apexTangent = (lean: number): P2 => {
 
 /**
  * The blend of one half at tangent-point turn angle `turn` and shape `rho`, with the apex
- * tangent leaning `lean` degrees off vertical. `null` when the tangent lines do not meet on
- * the right side (a section whose half never turns that far, or a tuck already past vertical).
+ * tangent leaning `lean` degrees off vertical and a vertical flat of height `flat` cm on the
+ * apex side. `null` when the section's half never turns that far, or when the two end
+ * tangents diverge so there is no conic arc between them.
+ *
+ * With a flat the conic stops `flat` short of the apex in z and a straight segment carries
+ * the rest, so the halves stay independent and the apex stays the widest point.
  */
 export function blend(
   s: RealSection,
@@ -54,26 +60,52 @@ export function blend(
   turn: number,
   rho: number,
   lean = 0,
-): { conic: Conic; from: number; to: number } | null {
+  flat = 0,
+): { conic: Conic; flatTo: P2 | null; from: number; to: number } | null {
   const f = turnIndex(s, half, turn);
   if (f < 0) return null;
   const { p, t } = sampleAt(s, f);
   const apex = at(s, s.apex);
+  const end: P2 = [apex[0], half === 'bottom' ? apex[1] - flat : apex[1] + flat];
   const ta = apexTangent(lean);
-  // The blend runs from the tangent point to the apex on the bottom half, and from the apex
-  // out to the tangent point on the deck half; the tangent at the panel end points along the
-  // blend in both cases.
-  const p1 = lineMeet(p, t, apex, ta);
-  if (p1 === null) return null;
-  // The shoulder must sit between the two ends in y, or the conic is not the arc we meant.
-  const lo = Math.min(p[0], apex[0]);
-  const hi = Math.max(p[0], apex[0]);
-  if (p1[0] < lo - 1e-9 || p1[0] > hi + 1e-9) return null;
+  // Tangent rays pointing into the arc: along `t` from the panel end (it already points
+  // towards the apex on the bottom half and away from it on the deck half, which is the
+  // arc's own direction), and along the apex tangent reversed on the bottom half.
+  const m =
+    half === 'bottom'
+      ? lineMeet(p, t, end, [-ta[0], -ta[1]])
+      : lineMeet(end, ta, p, [-t[0], -t[1]]);
+  if (m === null || m.sa <= 0 || m.sb <= 0) return null;
   const conic: Conic =
-    half === 'bottom' ? { p0: p, p1, p2: apex, rho } : { p0: apex, p1, p2: p, rho };
+    half === 'bottom'
+      ? { p0: p, p1: m.p, p2: end, rho }
+      : { p0: end, p1: m.p, p2: p, rho };
+  const flatTo: P2 | null = flat > 0 ? apex : null;
   return half === 'bottom'
-    ? { conic, from: f, to: s.apex }
-    : { conic, from: s.apex, to: f };
+    ? { conic, flatTo, from: f, to: s.apex }
+    : { conic, flatTo, from: s.apex, to: f };
+}
+
+/** `[y, z, …]` of a half's model: its conic, plus the flat segment to the apex when there is one. */
+function halfPolyline(b: {
+  conic: Conic;
+  flatTo: P2 | null;
+}): Float64Array {
+  const poly = conicPolyline(b.conic);
+  if (b.flatTo === null) return poly;
+  const out = new Float64Array(poly.length + 2);
+  // The bottom half's conic ends at the flat's lower end; the deck half's starts at its upper one.
+  const bottom = b.conic.p2[0] === b.flatTo[0] && b.conic.p2[1] !== b.flatTo[1];
+  if (bottom) {
+    out.set(poly, 0);
+    out[poly.length] = b.flatTo[0];
+    out[poly.length + 1] = b.flatTo[1];
+  } else {
+    out[0] = b.flatTo[0];
+    out[1] = b.flatTo[1];
+    out.set(poly, 2);
+  }
+  return out;
 }
 
 /** Deviation of one half's blend, or `null` when the blend does not exist. */
@@ -83,10 +115,11 @@ export function halfDeviation(
   turn: number,
   rho: number,
   lean = 0,
+  flat = 0,
 ): Deviation | null {
-  const b = blend(s, half, turn, rho, lean);
+  const b = blend(s, half, turn, rho, lean, flat);
   if (b === null) return null;
-  return deviation(s, b.from, b.to, conicPolyline(b.conic));
+  return deviation(s, b.from, b.to, halfPolyline(b));
 }
 
 /** Golden-section minimisation of max deviation over rho at a fixed tangent point. */
@@ -95,8 +128,10 @@ function bestRho(
   half: Half,
   turn: number,
   lean: number,
+  flat: number,
 ): { rho: number; dev: Deviation } | null {
-  const cost = (r: number): number => halfDeviation(s, half, turn, r, lean)?.max ?? Infinity;
+  const cost = (r: number): number =>
+    halfDeviation(s, half, turn, r, lean, flat)?.max ?? Infinity;
   const g = (Math.sqrt(5) - 1) / 2;
   let a = RHO_MIN;
   let b = RHO_MAX;
@@ -120,7 +155,7 @@ function bestRho(
     }
   }
   const rho = fc < fd ? c : d;
-  const dev = halfDeviation(s, half, turn, rho, lean);
+  const dev = halfDeviation(s, half, turn, rho, lean, flat);
   return dev === null ? null : { rho, dev };
 }
 
@@ -136,8 +171,16 @@ export interface HalfFit {
   readonly worstAt: number;
 }
 
-const describe = (s: RealSection, half: Half, turn: number, rho: number, dev: Deviation, lean: number): HalfFit => {
-  const b = blend(s, half, turn, rho, lean)!;
+const describe = (
+  s: RealSection,
+  half: Half,
+  turn: number,
+  rho: number,
+  dev: Deviation,
+  lean: number,
+  flat: number,
+): HalfFit => {
+  const b = blend(s, half, turn, rho, lean, flat)!;
   const lo = Math.min(b.from, b.to);
   const hi = Math.max(b.from, b.to);
   const arcAt = (f: number): number => {
@@ -161,11 +204,11 @@ const describe = (s: RealSection, half: Half, turn: number, rho: number, dev: De
  * Best (turn, rho) for one half: a grid over the turn angle between {@link TURN_FLOOR} and
  * {@link TURN_CEIL}, each rung's rho fitted, then the grid's best rung bisected.
  */
-export function fitHalf(s: RealSection, half: Half, lean = 0): HalfFit | null {
+export function fitHalf(s: RealSection, half: Half, lean = 0, flat = 0): HalfFit | null {
   let best: { turn: number; rho: number; dev: Deviation } | null = null;
   const try1 = (turn: number): void => {
     if (turn < TURN_FLOOR || turn > TURN_CEIL) return;
-    const r = bestRho(s, half, turn, lean);
+    const r = bestRho(s, half, turn, lean, flat);
     if (r !== null && (best === null || r.dev.max < best.dev.max)) {
       best = { turn, rho: r.rho, dev: r.dev };
     }
@@ -182,13 +225,26 @@ export function fitHalf(s: RealSection, half: Half, lean = 0): HalfFit | null {
     try1(t + step);
   }
   const b = best as { turn: number; rho: number; dev: Deviation };
-  return describe(s, half, b.turn, b.rho, b.dev, lean);
+  return describe(s, half, b.turn, b.rho, b.dev, lean, flat);
 }
 
 /** The same half fitted with the tangent point pinned at `turn`: rho is the only freedom. */
 export function fitPinned(s: RealSection, half: Half, turn: number): HalfFit | null {
-  const r = bestRho(s, half, turn, 0);
-  return r === null ? null : describe(s, half, turn, r.rho, r.dev, 0);
+  const r = bestRho(s, half, turn, 0, 0);
+  return r === null ? null : describe(s, half, turn, r.rho, r.dev, 0, 0);
+}
+
+/** One half at parameters already chosen: what a law curve's values cost, with nothing refitted. */
+export function halfAt(
+  s: RealSection,
+  half: Half,
+  turn: number,
+  rho: number,
+): HalfFit | null {
+  const t = Math.max(TURN_FLOOR, Math.min(TURN_CEIL, turn));
+  const r = Math.max(RHO_MIN, Math.min(RHO_MAX, rho));
+  const dev = halfDeviation(s, half, t, r, 0, 0);
+  return dev === null ? null : describe(s, half, t, r, dev, 0, 0);
 }
 
 export interface StationFit {
@@ -202,32 +258,56 @@ export interface StationFit {
   readonly rms: number;
 }
 
+const station = (s: RealSection, bottom: HalfFit | null, deck: HalfFit | null): StationFit | null =>
+  bottom === null || deck === null
+    ? null
+    : {
+        x: s.x,
+        chord: s.chord,
+        thickness: s.thickness,
+        bottom,
+        deck,
+        max: Math.max(bottom.max, deck.max),
+        rms: Math.sqrt((bottom.rms * bottom.rms + deck.rms * deck.rms) / 2),
+      };
+
 /** The four-parameter fit of one station. */
-export function fitStation(s: RealSection, lean = 0): StationFit | null {
-  const bottom = fitHalf(s, 'bottom', lean);
-  const deck = fitHalf(s, 'deck', lean);
-  if (bottom === null || deck === null) return null;
-  return {
-    x: s.x,
-    chord: s.chord,
-    thickness: s.thickness,
-    bottom,
-    deck,
-    max: Math.max(bottom.max, deck.max),
-    rms: Math.sqrt((bottom.rms * bottom.rms + deck.rms * deck.rms) / 2),
-  };
+export function fitStation(s: RealSection, lean = 0, flat = 0): StationFit | null {
+  return station(s, fitHalf(s, 'bottom', lean, flat), fitHalf(s, 'deck', lean, flat));
 }
 
+/** One station at parameters already chosen (a law curve's values). */
+export function stationAt(
+  s: RealSection,
+  turnB: number,
+  rhoB: number,
+  turnD: number,
+  rhoD: number,
+): StationFit | null {
+  return station(s, halfAt(s, 'bottom', turnB, rhoB), halfAt(s, 'deck', turnD, rhoD));
+}
+
+export type Fifth = 'lean' | 'flat';
+
 /**
- * The five-parameter variant: the apex tangent may lean off vertical, the same lean on both
- * blends so the section stays G1 through the apex. Returns the best lean and its fit.
+ * The five-parameter variants. `lean` lets the apex tangent tip off vertical, the same tip on
+ * both blends so the section stays G1 there; `flat` puts a short vertical straight segment at
+ * the apex, which keeps the apex the widest point. One extra number either way, searched on a
+ * grid with the four inner parameters refitted at each rung.
  */
-export function fitStationLeaning(s: RealSection): { lean: number; fit: StationFit } | null {
-  let best: { lean: number; fit: StationFit } | null = null;
-  for (let i = 0; i < LEAN_STEPS; i++) {
-    const lean = -LEAN_RANGE + (2 * LEAN_RANGE * i) / (LEAN_STEPS - 1);
-    const fit = fitStation(s, lean);
-    if (fit !== null && (best === null || fit.max < best.fit.max)) best = { lean, fit };
+export function fitStationFifth(
+  s: RealSection,
+  kind: Fifth,
+): { value: number; fit: StationFit } | null {
+  let best: { value: number; fit: StationFit } | null = null;
+  const steps = kind === 'lean' ? LEAN_STEPS : FLAT_STEPS;
+  for (let i = 0; i < steps; i++) {
+    const value =
+      kind === 'lean'
+        ? -LEAN_RANGE + (2 * LEAN_RANGE * i) / (steps - 1)
+        : (FLAT_RANGE * i) / (steps - 1);
+    const fit = kind === 'lean' ? fitStation(s, value, 0) : fitStation(s, 0, value * s.thickness);
+    if (fit !== null && (best === null || fit.max < best.fit.max - 1e-9)) best = { value, fit };
   }
   return best;
 }
@@ -255,8 +335,9 @@ export function fitSingle(s: RealSection, turnB: number, turnD: number): SingleF
   if (fB < 0 || fD < 0) return null;
   const B = sampleAt(s, fB);
   const D = sampleAt(s, fD);
-  const p1 = lineMeet(B.p, B.t, D.p, D.t);
-  if (p1 === null) return null;
+  const m = lineMeet(B.p, B.t, D.p, [-D.t[0], -D.t[1]]);
+  if (m === null || m.sa <= 0 || m.sb <= 0) return null;
+  const p1 = m.p;
   const apex = at(s, s.apex);
   const cost = (rho: number): Deviation | null => {
     const poly = conicPolyline({ p0: B.p, p1, p2: D.p, rho });

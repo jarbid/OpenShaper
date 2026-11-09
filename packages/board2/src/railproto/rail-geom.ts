@@ -201,16 +201,26 @@ export function conicPolyline(c: Conic): Float64Array {
 }
 
 /**
- * Intersection of the line through `a` along `da` with the line through `b` along `db`,
- * or `null` when they are near-parallel.
+ * Intersection of the ray from `a` along `da` with the ray from `b` along `db`, as the point
+ * and the two ray parameters. `null` when the lines are near-parallel.
+ *
+ * A conic's shoulder control point is the meeting of the two end tangents pointing **into**
+ * the arc, so both parameters must come back positive; a negative one says the tangents
+ * diverge and there is no conic arc between the ends with those tangents.
  */
-export function lineMeet(a: P2, da: P2, b: P2, db: P2): P2 | null {
+export function lineMeet(
+  a: P2,
+  da: P2,
+  b: P2,
+  db: P2,
+): { p: P2; sa: number; sb: number } | null {
   const det = da[0] * -db[1] - da[1] * -db[0];
   if (Math.abs(det) < 1e-12) return null;
   const rx = b[0] - a[0];
   const rz = b[1] - a[1];
-  const s = (rx * -db[1] - rz * -db[0]) / det;
-  return [a[0] + s * da[0], a[1] + s * da[1]];
+  const sa = (rx * -db[1] - rz * -db[0]) / det;
+  const sb = (da[0] * rz - da[1] * rx) / det;
+  return { p: [a[0] + sa * da[0], a[1] + sa * da[1]], sa, sb };
 }
 
 // ---------------------------------------------------------------------------
