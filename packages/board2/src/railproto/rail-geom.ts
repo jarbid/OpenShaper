@@ -238,29 +238,24 @@ const segDist = (py: number, pz: number, qy: number, qz: number, ry: number, rz:
 };
 
 /**
- * Distance from `(py, pz)` to the polyline `poly`, searching outward from `hint` while the
- * distance improves. Both curves here are ordered arcs that nearly coincide, so the
- * hill-climb from the previous answer finds the true nearest segment; `{ d, i }` carries the
- * index on for the next point.
+ * Distance from `(py, pz)` to the polyline `poly`, by an exact scan of its segments.
+ *
+ * It was a marching search from the previous point's answer, which is what one reaches for
+ * when two ordered arcs nearly coincide. It is wrong here: a hill climb stops at the first
+ * local minimum, and a section with a hard rail edge — a near-corner where the tangent swings
+ * 50 degrees within half a millimetre — gives the distance along the curve several minima.
+ * On one such station it reported 15.4 mm where the true distance was a tenth of that. The
+ * rail region is a few hundred samples and the model four hundred, so the exact scan costs
+ * about a third of a millisecond and removes the question.
  */
-function nearest(poly: Float64Array, py: number, pz: number, hint: number): { d: number; i: number } {
+function nearest(poly: Float64Array, py: number, pz: number): number {
   const segs = poly.length / 2 - 1;
-  const dOf = (k: number): number =>
-    segDist(py, pz, poly[2 * k]!, poly[2 * k + 1]!, poly[2 * k + 2]!, poly[2 * k + 3]!);
-  let i = Math.max(0, Math.min(segs - 1, hint));
-  let d = dOf(i);
-  for (;;) {
-    const up = i + 1 < segs ? dOf(i + 1) : Infinity;
-    const dn = i > 0 ? dOf(i - 1) : Infinity;
-    if (up < d && up <= dn) {
-      i += 1;
-      d = up;
-    } else if (dn < d) {
-      i -= 1;
-      d = dn;
-    } else break;
+  let d = Infinity;
+  for (let k = 0; k < segs; k++) {
+    const e = segDist(py, pz, poly[2 * k]!, poly[2 * k + 1]!, poly[2 * k + 2]!, poly[2 * k + 3]!);
+    if (e < d) d = e;
   }
-  return { d, i };
+  return d;
 }
 
 export interface Deviation {
@@ -290,14 +285,12 @@ export function deviation(
   let sum = 0;
   let n = 0;
   let worstAt = -1;
-  let hint = 0;
   for (let i = lo; i <= hi; i++) {
-    const r = nearest(model, s.pts[2 * i]!, s.pts[2 * i + 1]!, hint);
-    hint = r.i;
-    sum += r.d * r.d;
+    const d = nearest(model, s.pts[2 * i]!, s.pts[2 * i + 1]!);
+    sum += d * d;
     n += 1;
-    if (r.d > max) {
-      max = r.d;
+    if (d > max) {
+      max = d;
       worstAt = i;
     }
   }
@@ -315,12 +308,10 @@ export function deviation(
   }
   stretch[stretch.length - 2] = b[0];
   stretch[stretch.length - 1] = b[1];
-  hint = 0;
   for (let k = 0; k * 2 + 1 < model.length; k++) {
-    const r = nearest(stretch, model[2 * k]!, model[2 * k + 1]!, hint);
-    hint = r.i;
-    if (r.d > max) {
-      max = r.d;
+    const d = nearest(stretch, model[2 * k]!, model[2 * k + 1]!);
+    if (d > max) {
+      max = d;
       worstAt = -1;
     }
   }

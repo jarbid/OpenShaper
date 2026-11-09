@@ -109,3 +109,100 @@ export function roughness(ys: readonly number[]): number {
   for (let i = 1; i + 1 < ys.length; i++) sum += Math.abs(ys[i + 1]! - 2 * ys[i]! + ys[i - 1]!);
   return sum / (ys.length - 2) / range;
 }
+
+// ---------------------------------------------------------------------------
+// Laws fitted to the sections, not to the per-station parameters
+// ---------------------------------------------------------------------------
+
+/**
+ * Cost of a law when the blend it asks for does not exist at some station, cm. Far above any
+ * real deviation, so the search leaves those regions, and finite rather than infinite so a
+ * line search still has a gradient to follow out of them.
+ */
+export const LAW_PENALTY = 1;
+
+/**
+ * Law coefficients optimised against the sections themselves: a coordinate descent over the
+ * two laws' coefficients, minimising the worst station's deviation.
+ *
+ * Fitting a law through the per-station parameters, as {@link fitLaw} does, fits it through
+ * noise: the per-station cost is nearly flat in the tangent point, so the fitted turn angles
+ * scatter across the whole allowed band and a law chasing them is chasing nothing. This asks
+ * the question the engine would ask — what is the best a law of `k` degrees of freedom can
+ * do? — and so bounds the law's cost from the right side.
+ */
+export function optimiseLaws(
+  ts: readonly number[],
+  start: { turn: Law; rho: Law },
+  cost: (turns: readonly number[], rhos: readonly number[]) => number,
+  sweeps: number,
+  iters: number,
+  turnScale: number,
+): { turn: Law; rho: Law; cost: number } {
+  const coef = [...start.turn.coef, ...start.rho.coef];
+  const k = start.turn.k;
+  const bases = ts.map((t) => lawBasis(k, t));
+  const evalAt = (c: readonly number[]): number => {
+    const turns: number[] = [];
+    const rhos: number[] = [];
+    for (let i = 0; i < ts.length; i++) {
+      let a = 0;
+      let b = 0;
+      for (let j = 0; j < k; j++) {
+        a += bases[i]![j]! * c[j]!;
+        b += bases[i]![j]! * c[k + j]!;
+      }
+      turns.push(a);
+      rhos.push(b);
+    }
+    return cost(turns, rhos);
+  };
+  let best = evalAt(coef);
+  for (let sweep = 0; sweep < sweeps; sweep++) {
+    const width = (sweep === 0 ? 1 : 0.4) ;
+    for (let j = 0; j < coef.length; j++) {
+      const span = (j < k ? turnScale : 0.25) * width;
+      const c0 = coef[j]!;
+      const g = (Math.sqrt(5) - 1) / 2;
+      let lo = c0 - span;
+      let hi = c0 + span;
+      const probe = (v: number): number => {
+        const save = coef[j]!;
+        coef[j] = v;
+        const r = evalAt(coef);
+        coef[j] = save;
+        return r;
+      };
+      let p = hi - g * (hi - lo);
+      let q = lo + g * (hi - lo);
+      let fp = probe(p);
+      let fq = probe(q);
+      for (let i = 0; i < iters; i++) {
+        if (fp < fq) {
+          hi = q;
+          q = p;
+          fq = fp;
+          p = hi - g * (hi - lo);
+          fp = probe(p);
+        } else {
+          lo = p;
+          p = q;
+          fp = fq;
+          q = lo + g * (hi - lo);
+          fq = probe(q);
+        }
+      }
+      const v = fp < fq ? p : q;
+      const f = Math.min(fp, fq);
+      if (f < best) {
+        best = f;
+        coef[j] = v;
+      }
+    }
+  }
+  return {
+    turn: { ...start.turn, coef: coef.slice(0, k) },
+    rho: { ...start.rho, coef: coef.slice(k) },
+    cost: best,
+  };
+}
