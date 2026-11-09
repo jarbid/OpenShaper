@@ -70,11 +70,13 @@ export function syntheticBoards(): StudyBoard[] {
   ];
 }
 
-export const allBoards = (): StudyBoard[] => [
-  ...carlosBoards(),
-  ...goldenBoards(),
-  ...syntheticBoards(),
-];
+let boardsCache: StudyBoard[] | null = null;
+
+/** Every board of the study, built once so the section and fit caches key on one identity. */
+export const allBoards = (): StudyBoard[] => {
+  boardsCache ??= [...carlosBoards(), ...goldenBoards(), ...syntheticBoards()];
+  return boardsCache;
+};
 
 export interface BoardSections {
   readonly name: string;
@@ -89,7 +91,17 @@ export interface BoardSections {
  * Every usable station of a board as a real-coordinate section. A station is dropped when
  * the board is too thin or too narrow there to have a rail at all (the tips are a lens).
  */
+const storedCache = new Map<string, BoardSections>();
+
 export function boardSections(b: StudyBoard): BoardSections {
+  const hit = storedCache.get(b.name);
+  if (hit !== undefined) return hit;
+  const r = boardSectionsUncached(b);
+  storedCache.set(b.name, r);
+  return r;
+}
+
+function boardSectionsUncached(b: StudyBoard): BoardSections {
   const built = buildBoard(b.doc, { check: false });
   if (!built.ok) throw new Error(`${b.name}: ${built.issues.map((i) => i.message).join('; ')}`);
   const chordOf = createChordFn(b.doc);
@@ -129,7 +141,18 @@ export function boardSections(b: StudyBoard): BoardSections {
  * board2's own C2 blend of the stored sections, not independent designer data, so it is
  * smoother than reality. It bounds law smoothness from the optimistic side.
  */
+const denseCache = new Map<string, BoardSections>();
+
 export function denseSections(b: StudyBoard, count: number): BoardSections {
+  const key = `${b.name}:${count}`;
+  const hit = denseCache.get(key);
+  if (hit !== undefined) return hit;
+  const r = denseSectionsUncached(b, count);
+  denseCache.set(key, r);
+  return r;
+}
+
+function denseSectionsUncached(b: StudyBoard, count: number): BoardSections {
   const built = buildBoard(b.doc, { check: false });
   if (!built.ok) throw new Error(`${b.name}: ${built.issues.map((i) => i.message).join('; ')}`);
   const ev = createEvaluator(built.value);

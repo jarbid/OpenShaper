@@ -271,9 +271,20 @@ const station = (s: RealSection, bottom: HalfFit | null, deck: HalfFit | null): 
         rms: Math.sqrt((bottom.rms * bottom.rms + deck.rms * deck.rms) / 2),
       };
 
-/** The four-parameter fit of one station. */
+/**
+ * The four-parameter fit of one station. The plain fit is cached by section identity: the
+ * study's tables ask for it several times over the same sections and it is the run's cost.
+ */
+const fitCache = new WeakMap<RealSection, StationFit | null>();
+
 export function fitStation(s: RealSection, lean = 0, flat = 0): StationFit | null {
-  return station(s, fitHalf(s, 'bottom', lean, flat), fitHalf(s, 'deck', lean, flat));
+  if (lean !== 0 || flat !== 0) {
+    return station(s, fitHalf(s, 'bottom', lean, flat), fitHalf(s, 'deck', lean, flat));
+  }
+  if (fitCache.has(s)) return fitCache.get(s)!;
+  const r = station(s, fitHalf(s, 'bottom'), fitHalf(s, 'deck'));
+  fitCache.set(s, r);
+  return r;
 }
 
 /** One station at parameters already chosen (a law curve's values). */
