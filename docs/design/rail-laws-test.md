@@ -159,17 +159,221 @@ is not a shape the model fits badly; it is a shape the model does not describe. 
 would have to carry such a station by convention — fall back to the panel alone — not by
 fitting.
 
+### The same four parameters against the dense set
+
+The as-built section at 41 stations per board — 574 asked for, **551 fitted, max 0.40 mm,
+median 0.04 mm, every one within 0.5 mm**. Freeing the tangent point buys the free fit a
+larger blend than the stored stations chose (bottom 14–20 mm, deck 22–50 mm).
+
+| board | n | no blend | max mm | RMS mm | ≤0.5 mm | ρ (bottom / deck) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 5.10 × 19.8 MLC | 39 | 2 | 0.15 | 0.03 | 100% | 0.43 / 0.52 |
+| 5.8 × 20 Trusther White Tiger | 23 | **18** | 0.10 | 0.02 | 100% | 0.33 / 0.51 |
+| 6.0 × 22 Master Trusther 3 | 41 | – | 0.12 | 0.03 | 100% | 0.40 / 0.49 |
+| 6.11 × 21.3 Diamond Twin | 41 | – | **0.40** | 0.11 | 100% | 0.29 / 0.51 |
+| Go fish | 38 | 3 | 0.18 | 0.03 | 100% | 0.38 / 0.53 |
+| gremilin56 | 41 | – | 0.11 | 0.02 | 100% | 0.39 / 0.52 |
+| hyptocrypto | 41 | – | 0.17 | 0.03 | 100% | 0.46 / 0.52 |
+| long classico 9'6" | 41 | – | 0.11 | 0.02 | 100% | 0.47 / 0.50 |
+| shortboard | 41 | – | 0.09 | 0.02 | 100% | 0.49 / 0.52 |
+| funboard | 41 | – | 0.15 | 0.02 | 100% | 0.50 / 0.50 |
+| longboard | 41 | – | 0.13 | 0.02 | 100% | 0.55 / 0.50 |
+| swallow | 41 | – | 0.16 | 0.06 | 100% | 0.56 / 0.53 |
+| fish | 41 | – | 0.11 | 0.05 | 100% | 0.55 / 0.53 |
+| asymmetric | 41 | – | 0.10 | 0.05 | 100% | 0.56 / 0.53 |
+
+The 23 stations with no blend are the model's real gap, and they are not spread evenly: 18
+of them are one board, the 5.8 Trusther, over x = 19 to 55 cm (x/L 0.11 to 0.32). They are
+the same geometry as the stored station above — a thin section whose apex sits near the
+bottom, so the bottom half is a couple of millimetres tall and the two end tangents diverge
+across it. **4% of the dense set is outside the model, not badly fitted by it.**
+
+### What the blend is allowed to carry: the pinned ladder
+
+This is the table to read, because the tangent point has no freedom in it. The blend is
+pinned at a fixed turn angle and ρ is the only parameter left.
+
+| turn° the blend must carry | n | median mm | p90 mm | max mm | ≤0.5 mm | mean blend span mm |
+| --- | --- | --- | --- | --- | --- | --- |
+| 50 | 64 | 0.01 | 0.07 | 0.23 | 100% | 10.4 |
+| 60 | 64 | 0.01 | 0.09 | 0.21 | 100% | 13.2 |
+| **70** | 64 | **0.02** | **0.12** | **0.23** | **100%** | **17.7** |
+| 80 | 64 | 0.09 | 0.24 | 0.28 | 100% | 30.2 |
+| 85 | 64 | 0.20 | 0.47 | 1.17 | 94% | 54.0 |
+| 88 | 64 | 0.46 | 1.11 | 1.77 | 53% | 87.5 |
+
+Read it as the answer to "how much rail can a conic carry?". Out to 80° of the 90° turn —
+a blend averaging **30 mm of arc**, which is the rail band as a shaper would describe it —
+the worst station on fourteen boards is **0.28 mm**, with the tangent point fixed by
+convention and ρ the only number fitted. The model does not begin to strain until 85°
+(54 mm blends, 1.17 mm), and gives way at 88° (88 mm — by then the "blend" has eaten the
+whole panel and is being asked to be a deck crown, which is not its job).
+
+The practical reading: **the tangent point does not have to be fitted at all.** Pinning it
+at 70° and fitting only ρ gives 0.23 mm worst over all 64 stored stations — the same number
+the four-parameter free fit gets. That halves the model.
+
 ## Law smoothness
 
-PLACEHOLDER_LAWS
+### Two of the four parameters are a law. Two are noise.
+
+Plotted against position along the board, on the dense set, the four parameters do not
+behave alike. Roughness below is the mean absolute second difference between neighbouring
+stations over the parameter's own range: near 0 is a trend, near 1 means neighbours disagree
+as much as the whole board does.
+
+| parameter | median roughness | range across a board | reads as |
+| --- | --- | --- | --- |
+| ρ bottom (tuck) | **0.029** | 0.07 – 0.49 | a smooth monotone ramp |
+| ρ deck (rail) | **0.043** | 0.04 – 0.26 | a smooth shallow curve |
+| turn angle, bottom | 0.179 | up to the full 18° band | noise against the band's edges |
+| turn angle, deck | 0.178 | 0.3° – 15.8° | noise |
+
+The text plots make it plain. Each row is one parameter across 41 stations, tail on the
+left, darker meaning larger:
+
+```
+gremilin56
+  rhoB    0.050 .. 0.520  |.     .:-==+*%%%%%@@@@@@@@@@@@@@@@@@@@@@@|  rough 0.016
+  rhoD    0.502 .. 0.562  |--*@+=-:::-----=======+----::...         |  rough 0.052
+  turnB  70.000 .. 88.000 |@@@@@@    @@@ **++++==#                  |  rough 0.243
+  turnD  70.000 .. 76.938 |+*@.                 .-           **  +  |  rough 0.209
+
+Go_fish
+  rhoB    0.050 .. 0.482  |     .:=*##%%@@@@@@@@@@@@@@@@@@@@@@@@@|  rough 0.018
+  turnB  70.000 .. 88.000 |@@@@@#          ..:::::-==+++      ###|  rough 0.126
+```
+
+**ρ of the tuck is the rail's own story told in one number**: 0.05 at the tail, where the
+rail is hard and the tuck is a flat ellipse, climbing smoothly to about 0.5 — a parabola —
+by the middle of the board, and that same ramp appears on every one of the eight Shape3D
+boards. It is exactly what a law is for. ρ of the deck blend is flatter and stays near 0.5.
+
+The turn angles are noise, and the noise is **fitting slack, not shape**. Three things say
+so, and they agree:
+
+1. The per-station cost is nearly flat in the turn angle. The pinned ladder above is the
+   proof: moving the tangent point from 50° to 80° of turn — tripling the blend — changes the
+   worst station from 0.23 mm to 0.28 mm. A parameter the answer barely depends on is a
+   parameter the optimiser can put anywhere, and it does: turnB sits against one edge of the
+   allowed band or the other on nine of fourteen boards.
+2. Replacing the noisy values with a smooth law costs almost nothing in millimetres (below).
+3. Pinning the turn angle at a constant 70° — no law at all — gives the same 0.23 mm worst
+   station as fitting it freely.
+
+### What a law costs, in millimetres
+
+Two ways of asking. A law fitted **through the per-station parameters** is a law fitted
+through that noise, so it is the pessimistic answer; a law fitted **against the sections
+themselves** is what an engine would actually solve for.
+
+Through the per-station parameters, on the dense set:
+
+| law | median mm | p90 mm | within 0.5 mm | extra over the free fit (median) |
+| --- | --- | --- | --- | --- |
+| per-station free fit | 0.04 | 0.11 | 100% | – |
+| k = 3 (quadratic) | 0.16 | 0.41 | 95% | 0.10 |
+| k = 4 (one cubic span) | 0.15 | 0.37 | 95% | 0.09 |
+| k = 5 (two cubic spans) | 0.13 | 0.28 | 97% | 0.06 |
+
+**A law of four or five degrees of freedom per parameter costs about a tenth of a
+millimetre**, and three quarters of what is left is under 0.3 mm. That is the measurement
+that settles the "noise or shape" question: if the per-station scatter were real shape,
+smoothing it would have cost a great deal more than 0.1 mm.
+
+PLACEHOLDER_OPTIMISED
+
+On the stored stations alone, where the law has nearly as many degrees of freedom as there
+are data points, the law is essentially free on half the boards and costs up to 1.08 mm on
+`gremilin56` at k = 3 — which is the three-point-law artefact, not a result. It is recorded
+for completeness and should not be read as the law's cost.
 
 ## The two open questions
 
-PLACEHOLDER_OPEN
+### One blend or two?
+
+**Two. It is not close, and the reason is structural, not a matter of a millimetre.**
+
+A single conic from the bottom tangent point straight to the deck tangent point, tangent to
+both panels, fitted over exactly the stretch of rail the two-conic model covers:
+
+| | two conics, vertical at the apex | one conic |
+| --- | --- | --- |
+| median deviation | **0.02 mm** | 0.67 mm |
+| worst station | **0.23 mm** | 2.84 mm |
+| within 0.5 mm | **100%** | 34% |
+| widest point misses the apex by | 0 (by construction) | 1.18 mm median, **7.73 mm** worst |
+
+Thirty-three times the median deviation is the small part. The real objection is the last
+row: a single conic has no vertical tangent in it, so its widest point is wherever the
+curve puts it, and on these boards that is up to 7.7 mm from where the board's outline says
+the widest point is. The outline is the one curve in a board a shaper measures with a tape.
+A rail model that moves it is not a rail model.
+
+The picture is `rail-fit-one-conic.png`: on the 5.8 Trusther near the tail the single conic
+bows a centimetre outboard of the rail while the conic pair sits on it to 0.03 mm.
+
+### Does a fifth parameter earn its place?
+
+**No, for either candidate. Neither pays, and one of them cannot.**
+
+| fifth parameter | residual removed, median | mean | best station | stations improved by > 0.05 mm | stations wanting it at all |
+| --- | --- | --- | --- | --- | --- |
+| short vertical flat at the apex | 0.00 mm | 0.01 mm | 0.07 mm | 14% | 23% |
+| apex tangent leaning off vertical | PLACEHOLDER_LEAN |
+
+Against a four-parameter residual whose worst station is 0.23 mm, a fifth parameter that
+removes 0.01 mm on average and 0.07 mm at its best is not worth storing, fitting or
+explaining.
+
+The lean also has a reason it must lose, which the numbers only confirm. Tipping the apex
+tangent off vertical moves the model's widest point off the apex — the same defect that
+disqualifies the single conic, in miniature. The flat at least keeps the apex where it
+belongs, which is why it is the better of the two candidates and still does not pay.
 
 ## Context
 
-PLACEHOLDER_CONTEXT
+### Against the project's tolerances
+
+| measure | mm |
+| --- | --- |
+| Project section tolerance | 0.50 |
+| Engine against the classic loft, between stations (`m1-model.md`) | ≈ 1.0 |
+| Section least-squares fit budget today (`SECTION_FIT_TOL`) | 0.50 |
+| **This model, per station, stored data** | **0.23 worst, 0.02 median** |
+| **This model, per station, dense set** | The as-built section at 41 stations per board — 574 asked for, **551 fitted, max 0.40 mm,
+median 0.04 mm, every one within 0.5 mm**. Freeing the tangent point buys the free fit a
+larger blend than the stored stations chose (bottom 14–20 mm, deck 22–50 mm).
+
+| board | n | no blend | max mm | RMS mm | ≤0.5 mm | ρ (bottom / deck) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 5.10 × 19.8 MLC | 39 | 2 | 0.15 | 0.03 | 100% | 0.43 / 0.52 |
+| 5.8 × 20 Trusther White Tiger | 23 | **18** | 0.10 | 0.02 | 100% | 0.33 / 0.51 |
+| 6.0 × 22 Master Trusther 3 | 41 | – | 0.12 | 0.03 | 100% | 0.40 / 0.49 |
+| 6.11 × 21.3 Diamond Twin | 41 | – | **0.40** | 0.11 | 100% | 0.29 / 0.51 |
+| Go fish | 38 | 3 | 0.18 | 0.03 | 100% | 0.38 / 0.53 |
+| gremilin56 | 41 | – | 0.11 | 0.02 | 100% | 0.39 / 0.52 |
+| hyptocrypto | 41 | – | 0.17 | 0.03 | 100% | 0.46 / 0.52 |
+| long classico 9'6" | 41 | – | 0.11 | 0.02 | 100% | 0.47 / 0.50 |
+| shortboard | 41 | – | 0.09 | 0.02 | 100% | 0.49 / 0.52 |
+| funboard | 41 | – | 0.15 | 0.02 | 100% | 0.50 / 0.50 |
+| longboard | 41 | – | 0.13 | 0.02 | 100% | 0.55 / 0.50 |
+| swallow | 41 | – | 0.16 | 0.06 | 100% | 0.56 / 0.53 |
+| fish | 41 | – | 0.11 | 0.05 | 100% | 0.55 / 0.53 |
+| asymmetric | 41 | – | 0.10 | 0.05 | 100% | 0.56 / 0.53 |
+
+The 23 stations with no blend are the model's real gap, and they are not spread evenly: 18
+of them are one board, the 5.8 Trusther, over x = 19 to 55 cm (x/L 0.11 to 0.32). They are
+the same geometry as the stored station above — a thin section whose apex sits near the
+bottom, so the bottom half is a couple of millimetres tall and the two end tangents diverge
+across it. **4% of the dense set is outside the model, not badly fitted by it.**CTX |
+| **This model with laws, dense set** | PLACEHOLDER_LAWCTX |
+
+PLACEHOLDER_CONTEXT_PROSE
+
+### Tail against middle
+
+PLACEHOLDER_TAILTABLE
 
 ## What I did not measure
 

@@ -7,7 +7,7 @@
  *   RAIL_STUDY=1 pnpm --filter @openshaper/board2 exec vitest run src/railproto/laws.measure.test.ts
  */
 import { describe, expect, it } from 'vitest';
-import { fitStation, halfDeviation, stationAt } from './rail-fit';
+import { fitHalf, fitStation, halfDeviation, stationAt } from './rail-fit';
 import type { StationFit } from './rail-fit';
 import { LAW_PENALTY, fitLaw, lawAt, optimiseLaws, roughness } from './rail-laws';
 import { allBoards, boardSections, denseSections } from './rail-samples';
@@ -217,22 +217,38 @@ study('laws fitted to the sections', () => {
         for (const half of ['bottom', 'deck'] as const) {
           const turns = b.fits.map((f) => (half === 'bottom' ? f.bottom.turn : f.deck.turn));
           const rhos = b.fits.map((f) => (half === 'bottom' ? f.bottom.rho : f.deck.rho));
+          // Stations the per-station fit could not blend at any tangent point are left out:
+          // no law value works there, and charging the law for them says nothing about laws.
+          const usable = b.sections.map((s) => fitHalf(s, half) !== null);
           const cost = (ts: readonly number[], rs: readonly number[]): number => {
             let m = 0;
+            let fails = 0;
             for (let i = 0; i < b.sections.length; i++) {
+              if (!usable[i]) continue;
               const d = halfDeviation(b.sections[i]!, half, ts[i]!, rs[i]!);
-              m = Math.max(m, d === null ? LAW_PENALTY : d.max);
+              if (d === null) fails += 1;
+              else m = Math.max(m, d.max);
             }
-            return m;
+            // A flat plateau would stall the line search, so a failure's cost counts them.
+            return m + LAW_PENALTY * fails;
           };
-          const r = optimiseLaws(
-            b.ts,
+          const validTurns = b.sections
+            .map((_s, i) => (usable[i] ? turns[i]! : NaN))
+            .filter((v) => !Number.isNaN(v));
+          const mid = [...validTurns].sort((a, c) => a - c)[validTurns.length >> 1] ?? 75;
+          // Two starts: the least-squares law through the per-station values, and a constant
+          // turn at their median. The first saturates against the band's edges on some boards
+          // and starts outside the valid range; the second is dull but always lands inside it.
+          const starts = [
             { turn: fitLaw(b.ts, turns, k), rho: fitLaw(b.ts, rhos, k) },
-            cost,
-            2,
-            14,
-            6,
-          );
+            { turn: fitLaw(b.ts, b.ts.map(() => mid), k), rho: fitLaw(b.ts, rhos, k) },
+          ];
+          let bestCost = Infinity;
+          for (const st of starts) {
+            const r = optimiseLaws(b.ts, st, cost, 2, 14, 6);
+            bestCost = Math.min(bestCost, r.cost);
+          }
+          const r = { cost: bestCost };
           worst = Math.max(worst, r.cost);
         }
         byK[k]!.push(worst);
