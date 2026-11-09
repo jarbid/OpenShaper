@@ -38,11 +38,15 @@ study('rail study data', () => {
       const fd = turnIndex(s, 'deck', deg);
       const insetOf = (f: number): string =>
         f < 0 ? '  n/a' : (s.chord - s.pts[2 * Math.round(f)]!).toFixed(2).padStart(5);
-      console.log(`  turn ${String(deg).padStart(2)}deg  bottom inset ${insetOf(fb)} cm   deck inset ${insetOf(fd)} cm`);
+      console.log(
+        `  turn ${String(deg).padStart(2)}deg  bottom inset ${insetOf(fb)} cm   deck inset ${insetOf(fd)} cm`,
+      );
     }
     // the stored section's bottom half turns monotonically into the apex
     const phi = Array.from({ length: s.apex + 1 }, (_, i) => s.phi[i]!);
-    console.log(`  phi bottom centre=${phi[0]!.toFixed(1)} apex=${phi[phi.length - 1]!.toFixed(1)}`);
+    console.log(
+      `  phi bottom centre=${phi[0]!.toFixed(1)} apex=${phi[phi.length - 1]!.toFixed(1)}`,
+    );
     console.log(`  phi deck centre=${s.phi[s.count - 1]!.toFixed(1)}`);
     expect(s.count).toBeGreaterThan(100);
   });
@@ -50,7 +54,9 @@ study('rail study data', () => {
 
 study('the dense as-built set', () => {
   it('puts the apex on the middle sample and tracks the stored sections', () => {
-    for (const b of allBoards().filter((x) => x.group !== 'synthetic').slice(0, 5)) {
+    for (const b of allBoards()
+      .filter((x) => x.group !== 'synthetic')
+      .slice(0, 5)) {
       const dense = denseSections(b, 21);
       let apexSlip = 0;
       for (const s of dense.sections) {

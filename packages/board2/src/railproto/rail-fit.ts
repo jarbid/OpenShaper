@@ -15,6 +15,7 @@
  * ({@link fitPinned}) remove the freedom altogether.
  */
 import {
+  FIFTH_MARGIN,
   FLAT_RANGE,
   FLAT_STEPS,
   LEAN_RANGE,
@@ -27,14 +28,7 @@ import {
   TURN_REFINE,
   TURN_STEPS,
 } from './rail-params';
-import {
-  at,
-  conicPolyline,
-  deviation,
-  lineMeet,
-  sampleAt,
-  turnIndex,
-} from './rail-geom';
+import { at, conicPolyline, deviation, lineMeet, sampleAt, turnIndex } from './rail-geom';
 import type { Conic, Deviation, P2, RealSection } from './rail-geom';
 
 export type Half = 'bottom' | 'deck';
@@ -77,9 +71,7 @@ export function blend(
       : lineMeet(end, ta, p, [-t[0], -t[1]]);
   if (m === null || m.sa <= 0 || m.sb <= 0) return null;
   const conic: Conic =
-    half === 'bottom'
-      ? { p0: p, p1: m.p, p2: end, rho }
-      : { p0: end, p1: m.p, p2: p, rho };
+    half === 'bottom' ? { p0: p, p1: m.p, p2: end, rho } : { p0: end, p1: m.p, p2: p, rho };
   const flatTo: P2 | null = flat > 0 ? apex : null;
   return half === 'bottom'
     ? { conic, flatTo, from: f, to: s.apex }
@@ -87,10 +79,7 @@ export function blend(
 }
 
 /** `[y, z, …]` of a half's model: its conic, plus the flat segment to the apex when there is one. */
-function halfPolyline(b: {
-  conic: Conic;
-  flatTo: P2 | null;
-}): Float64Array {
+function halfPolyline(b: { conic: Conic; flatTo: P2 | null }): Float64Array {
   const poly = conicPolyline(b.conic);
   if (b.flatTo === null) return poly;
   const out = new Float64Array(poly.length + 2);
@@ -130,8 +119,7 @@ function bestRho(
   lean: number,
   flat: number,
 ): { rho: number; dev: Deviation } | null {
-  const cost = (r: number): number =>
-    halfDeviation(s, half, turn, r, lean, flat)?.max ?? Infinity;
+  const cost = (r: number): number => halfDeviation(s, half, turn, r, lean, flat)?.max ?? Infinity;
   const g = (Math.sqrt(5) - 1) / 2;
   let a = RHO_MIN;
   let b = RHO_MAX;
@@ -235,12 +223,7 @@ export function fitPinned(s: RealSection, half: Half, turn: number): HalfFit | n
 }
 
 /** One half at parameters already chosen: what a law curve's values cost, with nothing refitted. */
-export function halfAt(
-  s: RealSection,
-  half: Half,
-  turn: number,
-  rho: number,
-): HalfFit | null {
+export function halfAt(s: RealSection, half: Half, turn: number, rho: number): HalfFit | null {
   const t = Math.max(TURN_FLOOR, Math.min(TURN_CEIL, turn));
   const r = Math.max(RHO_MIN, Math.min(RHO_MAX, rho));
   const dev = halfDeviation(s, half, t, r, 0, 0);
@@ -258,7 +241,11 @@ export interface StationFit {
   readonly rms: number;
 }
 
-const station = (s: RealSection, bottom: HalfFit | null, deck: HalfFit | null): StationFit | null =>
+const station = (
+  s: RealSection,
+  bottom: HalfFit | null,
+  deck: HalfFit | null,
+): StationFit | null =>
   bottom === null || deck === null
     ? null
     : {
@@ -318,7 +305,8 @@ export function fitStationFifth(
         ? -LEAN_RANGE + (2 * LEAN_RANGE * i) / (steps - 1)
         : (FLAT_RANGE * i) / (steps - 1);
     const fit = kind === 'lean' ? fitStation(s, value, 0) : fitStation(s, 0, value * s.thickness);
-    if (fit !== null && (best === null || fit.max < best.fit.max - 1e-9)) best = { value, fit };
+    if (fit !== null && (best === null || fit.max < best.fit.max - FIFTH_MARGIN))
+      best = { value, fit };
   }
   return best;
 }

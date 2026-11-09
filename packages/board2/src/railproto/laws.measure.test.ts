@@ -69,13 +69,16 @@ study('law smoothness', () => {
   it('how jagged each parameter is along a board, and what a law curve costs in mm', () => {
     const boards = measured(true);
     console.log('\n### Parameter roughness (dense set): mean |second difference| over the range');
-    console.log('| board | n | turnB | rhoB | turnD | rhoD | turnB range deg | rhoB range | turnD range deg | rhoD range |');
+    console.log(
+      '| board | n | turnB | rhoB | turnD | rhoD | turnB range deg | rhoB range | turnD range deg | rhoD range |',
+    );
     console.log('|---|---|---|---|---|---|---|---|---|---|');
     const rough: Record<Key, number[]> = { turnB: [], rhoB: [], turnD: [], rhoD: [] };
     for (const b of boards) {
-      const vals = Object.fromEntries(
-        KEYS.map((k) => [k, b.fits.map(pick[k])]),
-      ) as Record<Key, number[]>;
+      const vals = Object.fromEntries(KEYS.map((k) => [k, b.fits.map(pick[k])])) as Record<
+        Key,
+        number[]
+      >;
       for (const k of KEYS) rough[k].push(roughness(vals[k]));
       const rng = (k: Key): string =>
         (Math.max(...vals[k]) - Math.min(...vals[k])).toFixed(k.startsWith('turn') ? 1 : 3);
@@ -90,7 +93,9 @@ study('law smoothness', () => {
     );
 
     console.log('\n### What a law curve costs, in mm on the reconstructed section (dense set)');
-    console.log('| board | per-station max mm | k=3 max mm | k=4 max mm | k=5 max mm | k=5 extra mm (median/max) |');
+    console.log(
+      '| board | per-station max mm | k=3 max mm | k=4 max mm | k=5 max mm | k=5 extra mm (median/max) |',
+    );
     console.log('|---|---|---|---|---|---|');
     const byK: Record<number, number[]> = {};
     const freeAll: number[] = [];
@@ -171,7 +176,9 @@ study('law smoothness', () => {
 
   it('a law across the stored stations alone, for the record', () => {
     const boards = measured(false);
-    console.log('\n### Laws fitted to the stored stations only (3 to 6 points: the law has as many degrees of freedom as data)');
+    console.log(
+      '\n### Laws fitted to the stored stations only (3 to 6 points: the law has as many degrees of freedom as data)',
+    );
     console.log('| board | n | free max mm | k=3 max mm | k=4 max mm |');
     console.log('|---|---|---|---|---|');
     for (const b of boards) {
@@ -193,7 +200,9 @@ study('law smoothness', () => {
         });
         return mm(Math.max(...maxes));
       });
-      console.log(`| ${b.name} | ${b.fits.length} | ${mm(Math.max(...free))} | ${cells.join(' | ')} |`);
+      console.log(
+        `| ${b.name} | ${b.fits.length} | ${mm(Math.max(...free))} | ${cells.join(' | ')} |`,
+      );
     }
     expect(boards.length).toBeGreaterThan(0);
   });
@@ -202,7 +211,9 @@ study('law smoothness', () => {
 study('laws fitted to the sections', () => {
   it('the best a law of k degrees of freedom can do, per half', () => {
     const boards = measured(true);
-    console.log('\n### Laws optimised against the sections (not through the per-station parameters)');
+    console.log(
+      '\n### Laws optimised against the sections (not through the per-station parameters)',
+    );
     console.log('| board | n | per-station max mm | k=3 max mm | k=4 max mm | k=5 max mm |');
     console.log('|---|---|---|---|---|---|');
     const byK: Record<number, number[]> = {};
@@ -241,7 +252,14 @@ study('laws fitted to the sections', () => {
           // and starts outside the valid range; the second is dull but always lands inside it.
           const starts = [
             { turn: fitLaw(b.ts, turns, k), rho: fitLaw(b.ts, rhos, k) },
-            { turn: fitLaw(b.ts, b.ts.map(() => mid), k), rho: fitLaw(b.ts, rhos, k) },
+            {
+              turn: fitLaw(
+                b.ts,
+                b.ts.map(() => mid),
+                k,
+              ),
+              rho: fitLaw(b.ts, rhos, k),
+            },
           ];
           let bestCost = Infinity;
           for (const st of starts) {
@@ -254,11 +272,16 @@ study('laws fitted to the sections', () => {
         byK[k]!.push(worst);
         cells.push(mm(worst));
       }
-      console.log(`| ${b.name} | ${b.fits.length} | ${mm(Math.max(...free))} | ${cells.join(' | ')} |`);
+      console.log(
+        `| ${b.name} | ${b.fits.length} | ${mm(Math.max(...free))} | ${cells.join(' | ')} |`,
+      );
     }
     console.log(
       `\n**overall** worst board, per-station free fit ${mm(Math.max(...freeAll))} mm; ` +
-        LAW_DOFS.map((k) => `k=${k} worst board ${mm(Math.max(...byK[k]!))} mm, median board ${mm(med(byK[k]!))} mm`).join('; '),
+        LAW_DOFS.map(
+          (k) =>
+            `k=${k} worst board ${mm(Math.max(...byK[k]!))} mm, median board ${mm(med(byK[k]!))} mm`,
+        ).join('; '),
     );
     expect(boards.length).toBeGreaterThan(0);
   });

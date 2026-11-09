@@ -58,5 +58,15 @@ export const LAW_DOFS: readonly number[] = [3, 4, 5];
 /** Stations in the dense as-built set, per board. */
 export const DENSE_STATIONS = 41;
 
+/**
+ * A fifth parameter must beat the four-parameter fit by this much (cm) to be preferred, so a
+ * rounding difference is not read as an improvement.
+ */
+export const FIFTH_MARGIN = 1e-9;
+/** Two tangent lines closer to parallel than this (cross product of unit directions) do not meet. */
+export const LINE_PARALLEL = 1e-12;
+/** A pivot below this is treated as zero when a law's small normal equations are solved. */
+export const LAW_PIVOT = 1e-14;
+
 /** The project's section tolerance, cm — what a residual is measured against. */
 export const PROJECT_TOL_CM = 0.05;

@@ -54,7 +54,9 @@ function table(rows: readonly Row[], title: string): number[] {
   for (const r of rows) {
     const maxes = r.fits.map((f) => f.max);
     all.push(...maxes);
-    const rms = Math.sqrt(r.fits.reduce((a, f) => a + f.rms * f.rms, 0) / Math.max(1, r.fits.length));
+    const rms = Math.sqrt(
+      r.fits.reduce((a, f) => a + f.rms * f.rms, 0) / Math.max(1, r.fits.length),
+    );
     const avg = (pick: (f: StationFit) => number): string =>
       (r.fits.reduce((a, f) => a + pick(f), 0) / Math.max(1, r.fits.length)).toFixed(2);
     console.log(
@@ -66,7 +68,8 @@ function table(rows: readonly Row[], title: string): number[] {
     );
   }
   all.sort((a, b) => a - b);
-  const q = (p: number): string => mm(all[Math.min(all.length - 1, Math.floor(p * all.length))] ?? 0);
+  const q = (p: number): string =>
+    mm(all[Math.min(all.length - 1, Math.floor(p * all.length))] ?? 0);
   console.log(
     `\n**overall** n=${all.length}  median ${q(0.5)} mm  p90 ${q(0.9)} mm  p99 ${q(0.99)} mm  ` +
       `max ${mm(all[all.length - 1] ?? 0)} mm\n` +
@@ -136,8 +139,12 @@ study('fit quality', () => {
 
 study('open questions', () => {
   it('one conic or two', () => {
-    console.log('\n### One conic from tangent point to tangent point, versus two meeting vertically at the apex');
-    console.log('| board | n | two-conic max mm | one-conic max mm | one-conic median mm | apex miss mm (median/max) |');
+    console.log(
+      '\n### One conic from tangent point to tangent point, versus two meeting vertically at the apex',
+    );
+    console.log(
+      '| board | n | two-conic max mm | one-conic max mm | one-conic median mm | apex miss mm (median/max) |',
+    );
     console.log('|---|---|---|---|---|---|');
     const two: number[] = [];
     const one: number[] = [];
@@ -159,7 +166,8 @@ study('open questions', () => {
       two.push(...t);
       one.push(...o);
       miss.push(...m);
-      const med = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
+      const med = (xs: number[]): number =>
+        [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
       console.log(
         `| ${b.name} | ${t.length} | ${mm(Math.max(...t))} | ${mm(Math.max(...o))} | ` +
           `${mm(med(o))} | ${mm(med(m))} / ${mm(Math.max(...m))} |`,
@@ -176,9 +184,14 @@ study('open questions', () => {
   });
 
   it.each(['flat', 'lean'] as const)('a fifth parameter: %s at the apex', (kind) => {
-    const label = kind === 'flat' ? 'a short vertical flat at the apex' : 'the apex tangent leaning off vertical';
+    const label =
+      kind === 'flat'
+        ? 'a short vertical flat at the apex'
+        : 'the apex tangent leaning off vertical';
     console.log(`\n### A fifth parameter: ${label}`);
-    console.log('| board | n | 4-param max mm | 5-param max mm | 4-param median | 5-param median | value (median/max) |');
+    console.log(
+      '| board | n | 4-param max mm | 5-param max mm | 4-param median | 5-param median | value (median/max) |',
+    );
     console.log('|---|---|---|---|---|---|---|');
     const four: number[] = [];
     const five: number[] = [];
@@ -199,7 +212,8 @@ study('open questions', () => {
       four.push(...f4);
       five.push(...f5);
       vals.push(...vs);
-      const med = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
+      const med = (xs: number[]): number =>
+        [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)]!;
       console.log(
         `| ${b.name} | ${f4.length} | ${mm(Math.max(...f4))} | ${mm(Math.max(...f5))} | ` +
           `${mm(med(f4))} | ${mm(med(f5))} | ${med(vs).toFixed(3)} / ${Math.max(...vs.map(Math.abs)).toFixed(3)} |`,

@@ -34,7 +34,11 @@ const coarse = (poly: Float64Array, y: number, z: number): number => {
       at = k;
     }
   }
-  for (let k = Math.max(0, at - NEAREST_STRIDE); k <= Math.min(segs - 1, at + NEAREST_STRIDE); k++) {
+  for (
+    let k = Math.max(0, at - NEAREST_STRIDE);
+    k <= Math.min(segs - 1, at + NEAREST_STRIDE);
+    k++
+  ) {
     best = Math.min(best, seg(k));
   }
   return best;

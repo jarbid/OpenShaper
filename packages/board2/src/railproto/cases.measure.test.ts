@@ -77,7 +77,14 @@ function residualOf(s: RealSection, from: number, to: number, model: number[]): 
     const z = s.pts[2 * i + 1]!;
     let best = { d: Infinity, y: 0, z: 0 };
     for (let j = 0; 2 * j + 3 < model.length; j++) {
-      const c = segDist(y, z, model[2 * j]!, model[2 * j + 1]!, model[2 * j + 2]!, model[2 * j + 3]!);
+      const c = segDist(
+        y,
+        z,
+        model[2 * j]!,
+        model[2 * j + 1]!,
+        model[2 * j + 2]!,
+        model[2 * j + 3]!,
+      );
       if (c.d < best.d) best = c;
     }
     out.push(s.arc[i]! - apexArc, (best.y >= y ? 1 : -1) * best.d * 10);

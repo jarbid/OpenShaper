@@ -11,6 +11,7 @@
  * residual is interesting; the millimetres are the answer.
  */
 import { basisDers, spanOfKnots } from '../bspline';
+import { LAW_PIVOT } from './rail-params';
 
 /** Basis values of a `k`-degree-of-freedom law at normalised position `t` in [0, 1]. */
 export function lawBasis(k: number, t: number): Float64Array {
@@ -43,14 +44,14 @@ function solve(a: number[][], b: number[]): number[] {
     for (let r = c + 1; r < n; r++) if (Math.abs(m[r]![c]!) > Math.abs(m[piv]![c]!)) piv = r;
     [m[c], m[piv]] = [m[piv]!, m[c]!];
     const d = m[c]![c]!;
-    if (Math.abs(d) < 1e-14) continue;
+    if (Math.abs(d) < LAW_PIVOT) continue;
     for (let r = 0; r < n; r++) {
       if (r === c) continue;
       const f = m[r]![c]! / d;
       for (let j = c; j <= n; j++) m[r]![j]! -= f * m[c]![j]!;
     }
   }
-  return m.map((row, i) => (Math.abs(row[i]!) < 1e-14 ? 0 : row[n]! / row[i]!));
+  return m.map((row, i) => (Math.abs(row[i]!) < LAW_PIVOT ? 0 : row[n]! / row[i]!));
 }
 
 export interface Law {
@@ -159,7 +160,7 @@ export function optimiseLaws(
   };
   let best = evalAt(coef);
   for (let sweep = 0; sweep < sweeps; sweep++) {
-    const width = (sweep === 0 ? 1 : 0.4) ;
+    const width = sweep === 0 ? 1 : 0.4;
     for (let j = 0; j < coef.length; j++) {
       const span = (j < k ? turnScale : 0.25) * width;
       const c0 = coef[j]!;

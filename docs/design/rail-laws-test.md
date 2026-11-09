@@ -15,7 +15,7 @@ than half the tolerance to spare. On the dense set, 551 stations, the worst is 0
 The free four-parameter fit does not beat that, because two of the four parameters are not
 shape. The tangent points sit wherever the optimiser drops them (roughness 0.18 of their
 range) and the answer barely moves when they do: tripling the blend's length changes the
-worst station from 0.23 mm to 0.28 mm. The two ρ values *are* shape, and they are laws — ρ of
+worst station from 0.23 mm to 0.28 mm. The two ρ values _are_ shape, and they are laws — ρ of
 the tuck ramps smoothly from about 0.05 at the tail to about 0.5 by mid-board on every one of
 the eight Shape3D boards, roughness 0.029. **Solved for directly, a law of five control
 points per parameter leaves twelve of the fourteen boards with a worst station between 0.12
@@ -30,9 +30,12 @@ Three qualifications, none fatal, all to be designed for rather than discovered 
   control points, or a station, would be the remedy; this study did not test either.
 - **4% of stations are outside the model, not badly fitted by it.** Where a section is thin
   and its apex sits near the bottom — a 24 mm-thick wedge whose bottom half is 2 mm tall — the
-  panel tangent and the vertical apex tangent diverge and *no* conic is tangent to both. 23 of
-  574 dense stations, 18 of them on one board. These need a fallback by convention, not a
-  better fit.
+  panel tangent and the vertical apex tangent diverge and _no_ conic is tangent to both. 23 of
+  574 dense stations, 18 of them on one board — and **every one of them below x/L = 0.45**,
+  21 below 0.30. The hard rails of the tail do not cost accuracy (the two tail bands are among
+  the most accurate on the board, 0.15 and 0.23 mm) — they cost existence. These need a
+  fallback by convention, not a better fit, and they need it where a shaper would say the rail
+  is most interesting.
 - **The blend must stay a blend.** It reproduces the rail band — out to 80° of the 90° turn,
   about 30 mm of arc — and not the panel. Asked to carry 88° it reaches 1.77 mm. The panels
   are the other half of this architecture and this study does not touch them.
@@ -144,36 +147,36 @@ section gives.
 
 The designers' own data. 64 of the 65 usable stations fit; the one exception is noted below.
 
-| board | n | max mm | RMS mm | ≤0.5 mm | blend span mm (bottom / deck) | ρ (bottom / deck) |
-| --- | --- | --- | --- | --- | --- | --- |
-| 5.10 × 19.8 × 2.6 MLC | 4 | 0.04 | 0.01 | 100% | 10.6 / 28.5 | 0.45 / 0.51 |
-| 5.8 × 20 × 2.6 Trusther White Tiger | 3 | 0.03 | 0.01 | 100% | 10.0 / 21.2 | 0.78 / 0.52 |
-| 6.0 × 22 × 2.75 Master Trusther 3 | 5 | 0.11 | 0.02 | 100% | 11.8 / 29.4 | 0.53 / 0.50 |
-| 6.11 × 21.3 × 2.8 Diamond Twin | 3 | 0.15 | 0.05 | 100% | 11.6 / 21.0 | 0.33 / 0.53 |
-| Go fish | 6 | 0.20 | 0.04 | 100% | 15.1 / 31.6 | 0.53 / 0.54 |
-| gremilin56 | 4 | 0.23 | 0.05 | 100% | 12.1 / 28.2 | 0.56 / 0.52 |
-| hyptocrypto | 3 | 0.22 | 0.06 | 100% | 15.9 / 32.6 | 0.46 / 0.52 |
-| long classico 9'6" | 5 | 0.08 | 0.02 | 100% | 12.3 / 19.8 | 0.49 / 0.50 |
-| shortboard (golden) | 4 | 0.02 | 0.01 | 100% | 12.6 / 17.3 | 0.46 / 0.52 |
-| funboard (golden) | 5 | 0.12 | 0.02 | 100% | 11.2 / 17.9 | 0.58 / 0.53 |
-| longboard (golden) | 5 | 0.13 | 0.02 | 100% | 10.9 / 18.7 | 0.61 / 0.52 |
-| swallow | 6 | 0.10 | 0.04 | 100% | 15.0 / 20.8 | 0.54 / 0.52 |
-| fish | 6 | 0.11 | 0.04 | 100% | 14.5 / 19.8 | 0.54 / 0.52 |
-| asymmetric | 5 | 0.10 | 0.04 | 100% | 13.0 / 18.5 | 0.55 / 0.53 |
+| board                               | n   | max mm | RMS mm | ≤0.5 mm | blend span mm (bottom / deck) | ρ (bottom / deck) |
+| ----------------------------------- | --- | ------ | ------ | ------- | ----------------------------- | ----------------- |
+| 5.10 × 19.8 × 2.6 MLC               | 4   | 0.04   | 0.01   | 100%    | 10.6 / 28.5                   | 0.45 / 0.51       |
+| 5.8 × 20 × 2.6 Trusther White Tiger | 3   | 0.03   | 0.01   | 100%    | 10.0 / 21.2                   | 0.78 / 0.52       |
+| 6.0 × 22 × 2.75 Master Trusther 3   | 5   | 0.11   | 0.02   | 100%    | 11.8 / 29.4                   | 0.53 / 0.50       |
+| 6.11 × 21.3 × 2.8 Diamond Twin      | 3   | 0.15   | 0.05   | 100%    | 11.6 / 21.0                   | 0.33 / 0.53       |
+| Go fish                             | 6   | 0.20   | 0.04   | 100%    | 15.1 / 31.6                   | 0.53 / 0.54       |
+| gremilin56                          | 4   | 0.23   | 0.05   | 100%    | 12.1 / 28.2                   | 0.56 / 0.52       |
+| hyptocrypto                         | 3   | 0.22   | 0.06   | 100%    | 15.9 / 32.6                   | 0.46 / 0.52       |
+| long classico 9'6"                  | 5   | 0.08   | 0.02   | 100%    | 12.3 / 19.8                   | 0.49 / 0.50       |
+| shortboard (golden)                 | 4   | 0.02   | 0.01   | 100%    | 12.6 / 17.3                   | 0.46 / 0.52       |
+| funboard (golden)                   | 5   | 0.12   | 0.02   | 100%    | 11.2 / 17.9                   | 0.58 / 0.53       |
+| longboard (golden)                  | 5   | 0.13   | 0.02   | 100%    | 10.9 / 18.7                   | 0.61 / 0.52       |
+| swallow                             | 6   | 0.10   | 0.04   | 100%    | 15.0 / 20.8                   | 0.54 / 0.52       |
+| fish                                | 6   | 0.11   | 0.04   | 100%    | 14.5 / 19.8                   | 0.54 / 0.52       |
+| asymmetric                          | 5   | 0.10   | 0.04   | 100%    | 13.0 / 18.5                   | 0.55 / 0.53       |
 
 **Overall, n = 64: median 0.02 mm, p90 0.11 mm, max 0.23 mm. Every station within 0.5 mm;
 every station within a quarter of it.**
 
 The worst stations are worth naming because they have one thing in common.
 
-| board | x cm | x/L | max mm | half | turn° | ρ | span mm | W cm | T cm |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| gremilin56 | 29.0 | 0.18 | 0.23 | bottom | 70.0 | 0.286 | 12.0 | 19.9 | 4.41 |
-| hyptocrypto | 32.1 | 0.18 | 0.22 | bottom | 70.0 | 0.393 | 13.4 | 20.1 | 5.29 |
-| Go fish | 29.3 | 0.17 | 0.20 | bottom | 70.0 | 0.340 | 13.6 | 20.4 | 5.53 |
-| 6.11 Diamond Twin | 0.5 | 0.00 | 0.15 | deck | 70.0 | 0.510 | 11.5 | 3.5 | 2.09 |
-| longboard | 1.0 | 0.00 | 0.13 | deck | 70.0 | 0.649 | 11.8 | 6.4 | 1.59 |
-| funboard | 1.0 | 0.00 | 0.12 | deck | 70.0 | 0.697 | 8.9 | 3.9 | 1.37 |
+| board             | x cm | x/L  | max mm | half   | turn° | ρ     | span mm | W cm | T cm |
+| ----------------- | ---- | ---- | ------ | ------ | ----- | ----- | ------- | ---- | ---- |
+| gremilin56        | 29.0 | 0.18 | 0.23   | bottom | 70.0  | 0.286 | 12.0    | 19.9 | 4.41 |
+| hyptocrypto       | 32.1 | 0.18 | 0.22   | bottom | 70.0  | 0.393 | 13.4    | 20.1 | 5.29 |
+| Go fish           | 29.3 | 0.17 | 0.20   | bottom | 70.0  | 0.340 | 13.6    | 20.4 | 5.53 |
+| 6.11 Diamond Twin | 0.5  | 0.00 | 0.15   | deck   | 70.0  | 0.510 | 11.5    | 3.5  | 2.09 |
+| longboard         | 1.0  | 0.00 | 0.13   | deck   | 70.0  | 0.649 | 11.8    | 6.4  | 1.59 |
+| funboard          | 1.0  | 0.00 | 0.12   | deck   | 70.0  | 0.697 | 8.9     | 3.9  | 1.37 |
 
 Two families. The top three are the **bottom tuck at x/L ≈ 0.18**, a fifth of the way up
 from the tail, where the rail is going hard and the tuck is both tight and low-ρ (0.29–0.39,
@@ -198,22 +201,22 @@ The as-built section at 41 stations per board — 574 asked for, **551 fitted, m
 median 0.04 mm, every one within 0.5 mm**. Freeing the tangent point buys the free fit a
 larger blend than the stored stations chose (bottom 14–20 mm, deck 22–50 mm).
 
-| board | n | no blend | max mm | RMS mm | ≤0.5 mm | ρ (bottom / deck) |
-| --- | --- | --- | --- | --- | --- | --- |
-| 5.10 × 19.8 MLC | 39 | 2 | 0.15 | 0.03 | 100% | 0.43 / 0.52 |
-| 5.8 × 20 Trusther White Tiger | 23 | **18** | 0.10 | 0.02 | 100% | 0.33 / 0.51 |
-| 6.0 × 22 Master Trusther 3 | 41 | – | 0.12 | 0.03 | 100% | 0.40 / 0.49 |
-| 6.11 × 21.3 Diamond Twin | 41 | – | **0.40** | 0.11 | 100% | 0.29 / 0.51 |
-| Go fish | 38 | 3 | 0.18 | 0.03 | 100% | 0.38 / 0.53 |
-| gremilin56 | 41 | – | 0.11 | 0.02 | 100% | 0.39 / 0.52 |
-| hyptocrypto | 41 | – | 0.17 | 0.03 | 100% | 0.46 / 0.52 |
-| long classico 9'6" | 41 | – | 0.11 | 0.02 | 100% | 0.47 / 0.50 |
-| shortboard | 41 | – | 0.09 | 0.02 | 100% | 0.49 / 0.52 |
-| funboard | 41 | – | 0.15 | 0.02 | 100% | 0.50 / 0.50 |
-| longboard | 41 | – | 0.13 | 0.02 | 100% | 0.55 / 0.50 |
-| swallow | 41 | – | 0.16 | 0.06 | 100% | 0.56 / 0.53 |
-| fish | 41 | – | 0.11 | 0.05 | 100% | 0.55 / 0.53 |
-| asymmetric | 41 | – | 0.10 | 0.05 | 100% | 0.56 / 0.53 |
+| board                         | n   | no blend | max mm   | RMS mm | ≤0.5 mm | ρ (bottom / deck) |
+| ----------------------------- | --- | -------- | -------- | ------ | ------- | ----------------- |
+| 5.10 × 19.8 MLC               | 39  | 2        | 0.15     | 0.03   | 100%    | 0.43 / 0.52       |
+| 5.8 × 20 Trusther White Tiger | 23  | **18**   | 0.10     | 0.02   | 100%    | 0.33 / 0.51       |
+| 6.0 × 22 Master Trusther 3    | 41  | –        | 0.12     | 0.03   | 100%    | 0.40 / 0.49       |
+| 6.11 × 21.3 Diamond Twin      | 41  | –        | **0.40** | 0.11   | 100%    | 0.29 / 0.51       |
+| Go fish                       | 38  | 3        | 0.18     | 0.03   | 100%    | 0.38 / 0.53       |
+| gremilin56                    | 41  | –        | 0.11     | 0.02   | 100%    | 0.39 / 0.52       |
+| hyptocrypto                   | 41  | –        | 0.17     | 0.03   | 100%    | 0.46 / 0.52       |
+| long classico 9'6"            | 41  | –        | 0.11     | 0.02   | 100%    | 0.47 / 0.50       |
+| shortboard                    | 41  | –        | 0.09     | 0.02   | 100%    | 0.49 / 0.52       |
+| funboard                      | 41  | –        | 0.15     | 0.02   | 100%    | 0.50 / 0.50       |
+| longboard                     | 41  | –        | 0.13     | 0.02   | 100%    | 0.55 / 0.50       |
+| swallow                       | 41  | –        | 0.16     | 0.06   | 100%    | 0.56 / 0.53       |
+| fish                          | 41  | –        | 0.11     | 0.05   | 100%    | 0.55 / 0.53       |
+| asymmetric                    | 41  | –        | 0.10     | 0.05   | 100%    | 0.56 / 0.53       |
 
 The 23 stations with no blend are the model's real gap, and they are not spread evenly: 18
 of them are one board, the 5.8 Trusther, over x = 19 to 55 cm (x/L 0.11 to 0.32). They are
@@ -226,14 +229,14 @@ across it. **4% of the dense set is outside the model, not badly fitted by it.**
 This is the table to read, because the tangent point has no freedom in it. The blend is
 pinned at a fixed turn angle and ρ is the only parameter left.
 
-| turn° the blend must carry | n | median mm | p90 mm | max mm | ≤0.5 mm | mean blend span mm |
-| --- | --- | --- | --- | --- | --- | --- |
-| 50 | 64 | 0.01 | 0.07 | 0.23 | 100% | 10.4 |
-| 60 | 64 | 0.01 | 0.09 | 0.21 | 100% | 13.2 |
-| **70** | 64 | **0.02** | **0.12** | **0.23** | **100%** | **17.7** |
-| 80 | 64 | 0.09 | 0.24 | 0.28 | 100% | 30.2 |
-| 85 | 64 | 0.20 | 0.47 | 1.17 | 94% | 54.0 |
-| 88 | 64 | 0.46 | 1.11 | 1.77 | 53% | 87.5 |
+| turn° the blend must carry | n   | median mm | p90 mm   | max mm   | ≤0.5 mm  | mean blend span mm |
+| -------------------------- | --- | --------- | -------- | -------- | -------- | ------------------ |
+| 50                         | 64  | 0.01      | 0.07     | 0.23     | 100%     | 10.4               |
+| 60                         | 64  | 0.01      | 0.09     | 0.21     | 100%     | 13.2               |
+| **70**                     | 64  | **0.02**  | **0.12** | **0.23** | **100%** | **17.7**           |
+| 80                         | 64  | 0.09      | 0.24     | 0.28     | 100%     | 30.2               |
+| 85                         | 64  | 0.20      | 0.47     | 1.17     | 94%      | 54.0               |
+| 88                         | 64  | 0.46      | 1.11     | 1.77     | 53%      | 87.5               |
 
 Read it as the answer to "how much rail can a conic carry?". Out to 80° of the 90° turn —
 a blend averaging **30 mm of arc**, which is the rail band as a shaper would describe it —
@@ -254,12 +257,12 @@ with `cases.measure.test.ts` and the drawing script. Each shows the whole half-s
 true aspect, the rail region enlarged, and the deviation along the blend — the deviation
 panel spans exactly the blend, tangent point to tangent point, and nothing beyond it.
 
-| file | station | what it shows |
-| --- | --- | --- |
-| `rail-fit-good.png` | shortboard, x/L = 0.49 | the ordinary case: **0.02 mm**, the residual a flat line across the whole blend |
-| `rail-fit-worst.png` | gremilin56, x/L = 0.18 | the worst stored station: **0.23 mm**, a single smooth lobe on the bottom side — a shape mismatch, not noise |
-| `rail-fit-tail.png` | Diamond Twin, x/L = 0.18 | where rails go hard: **0.23 mm**, the tuck at ρ = 0.240 and a turn of 88° |
-| `rail-fit-one-conic.png` | Go fish, x/L = 0.17 | the conic pair at **0.20 mm** against a single conic at **2.84 mm**, visibly bowed off the rail |
+| file                     | station                  | what it shows                                                                                                |
+| ------------------------ | ------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| `rail-fit-good.png`      | shortboard, x/L = 0.49   | the ordinary case: **0.02 mm**, the residual a flat line across the whole blend                              |
+| `rail-fit-worst.png`     | gremilin56, x/L = 0.18   | the worst stored station: **0.23 mm**, a single smooth lobe on the bottom side — a shape mismatch, not noise |
+| `rail-fit-tail.png`      | Diamond Twin, x/L = 0.18 | where rails go hard: **0.23 mm**, the tuck at ρ = 0.240 and a turn of 88°                                    |
+| `rail-fit-one-conic.png` | Go fish, x/L = 0.17      | the conic pair at **0.20 mm** against a single conic at **2.84 mm**, visibly bowed off the rail              |
 
 All four were regenerated after the arc-length sampling fix, so the set is one vintage. The
 header figure of each is the two-sided deviation the tables report; the panel's "worst here"
@@ -275,12 +278,12 @@ behave alike. Roughness below is the mean absolute second difference between nei
 stations over the parameter's own range: near 0 is a trend, near 1 means neighbours disagree
 as much as the whole board does.
 
-| parameter | median roughness | range across a board | reads as |
-| --- | --- | --- | --- |
-| ρ bottom (tuck) | **0.029** | 0.07 – 0.49 | a smooth monotone ramp |
-| ρ deck (rail) | **0.043** | 0.04 – 0.26 | a smooth shallow curve |
-| turn angle, bottom | 0.179 | up to the full 18° band | noise against the band's edges |
-| turn angle, deck | 0.178 | 0.3° – 15.8° | noise |
+| parameter          | median roughness | range across a board    | reads as                       |
+| ------------------ | ---------------- | ----------------------- | ------------------------------ |
+| ρ bottom (tuck)    | **0.029**        | 0.07 – 0.49             | a smooth monotone ramp         |
+| ρ deck (rail)      | **0.043**        | 0.04 – 0.26             | a smooth shallow curve         |
+| turn angle, bottom | 0.179            | up to the full 18° band | noise against the band's edges |
+| turn angle, deck   | 0.178            | 1.8° – 15.8°            | noise                          |
 
 The text plots make it plain. Each row is one parameter across 41 stations, tail on the
 left, darker meaning larger:
@@ -322,12 +325,12 @@ themselves** is what an engine would actually solve for.
 
 Through the per-station parameters, on the dense set:
 
-| law | median mm | p90 mm | within 0.5 mm | extra over the free fit (median) |
-| --- | --- | --- | --- | --- |
-| per-station free fit | 0.04 | 0.11 | 100% | – |
-| k = 3 (quadratic) | 0.16 | 0.41 | 95% | 0.10 |
-| k = 4 (one cubic span) | 0.15 | 0.37 | 95% | 0.09 |
-| k = 5 (two cubic spans) | 0.13 | 0.28 | 97% | 0.06 |
+| law                     | median mm | p90 mm | within 0.5 mm | extra over the free fit (median) |
+| ----------------------- | --------- | ------ | ------------- | -------------------------------- |
+| per-station free fit    | 0.04      | 0.11   | 100%          | –                                |
+| k = 3 (quadratic)       | 0.16      | 0.41   | 95%           | 0.10                             |
+| k = 4 (one cubic span)  | 0.15      | 0.37   | 95%           | 0.09                             |
+| k = 5 (two cubic spans) | 0.13      | 0.28   | 97%           | 0.06                             |
 
 **A law of four or five degrees of freedom per parameter costs about a tenth of a
 millimetre**, and three quarters of what is left is under 0.3 mm. That is the measurement
@@ -339,22 +342,22 @@ question an engine would actually solve. This is the **worst station on each boa
 distribution over stations, so it is not comparable with the table above row for row; the
 right comparison is board against board, and it wins every one.
 
-| board | n | per-station free fit | k = 3 | k = 4 | k = 5 | law through parameters, k = 5 |
-| --- | --- | --- | --- | --- | --- | --- |
-| 5.10 × 19.8 MLC | 39 | 0.15 | 0.28 + 1 ✗ | 0.26 + 1 ✗ | 0.24 + 1 ✗ | no law found |
-| 5.8 × 20 Trusther White Tiger | 23 | 0.10 | 0.20 + 1 ✗ | 0.10 + 1 ✗ | 0.10 + 1 ✗ | no law found |
-| 6.0 × 22 Master Trusther 3 | 41 | 0.12 | 0.34 | 0.28 | **0.26** | 0.51 |
-| 6.11 × 21.3 Diamond Twin | 41 | 0.40 | 0.89 | 1.12 | **0.65** | no law found |
-| Go fish | 38 | 0.18 | 0.25 | 0.24 | **0.24** | 0.43 |
-| gremilin56 | 41 | 0.11 | 0.29 | 0.29 | 0.34 | 0.39 |
-| hyptocrypto | 41 | 0.17 | 0.31 | 0.30 | **0.30** | 0.60 |
-| long classico 9'6" | 41 | 0.11 | 0.22 | 0.33 | **0.21** | 0.35 |
-| shortboard | 41 | 0.09 | 0.23 | 0.32 | **0.20** | 0.27 |
-| funboard | 41 | 0.15 | 0.41 | 0.35 | **0.31** | 0.89 |
-| longboard | 41 | 0.13 | 0.33 | 0.28 | 0.32 | 0.37 |
-| swallow | 41 | 0.16 | 0.16 | 0.16 | **0.12** | 0.20 |
-| fish | 41 | 0.11 | 0.14 | 0.14 | **0.12** | 0.20 |
-| asymmetric | 41 | 0.10 | 0.15 | 0.15 | **0.12** | 0.19 |
+| board                         | n   | per-station free fit | k = 3      | k = 4      | k = 5      | law through parameters, k = 5 |
+| ----------------------------- | --- | -------------------- | ---------- | ---------- | ---------- | ----------------------------- |
+| 5.10 × 19.8 MLC               | 39  | 0.15                 | 0.28 + 1 ✗ | 0.26 + 1 ✗ | 0.24 + 1 ✗ | no law found                  |
+| 5.8 × 20 Trusther White Tiger | 23  | 0.10                 | 0.20 + 1 ✗ | 0.10 + 1 ✗ | 0.10 + 1 ✗ | no law found                  |
+| 6.0 × 22 Master Trusther 3    | 41  | 0.12                 | 0.34       | 0.28       | **0.26**   | 0.51                          |
+| 6.11 × 21.3 Diamond Twin      | 41  | 0.40                 | 0.89       | 1.12       | **0.65**   | no law found                  |
+| Go fish                       | 38  | 0.18                 | 0.25       | 0.24       | **0.24**   | 0.43                          |
+| gremilin56                    | 41  | 0.11                 | 0.29       | 0.29       | 0.34       | 0.39                          |
+| hyptocrypto                   | 41  | 0.17                 | 0.31       | 0.30       | **0.30**   | 0.60                          |
+| long classico 9'6"            | 41  | 0.11                 | 0.22       | 0.33       | **0.21**   | 0.35                          |
+| shortboard                    | 41  | 0.09                 | 0.23       | 0.32       | **0.20**   | 0.27                          |
+| funboard                      | 41  | 0.15                 | 0.41       | 0.35       | **0.31**   | 0.89                          |
+| longboard                     | 41  | 0.13                 | 0.33       | 0.28       | 0.32       | 0.37                          |
+| swallow                       | 41  | 0.16                 | 0.16       | 0.16       | **0.12**   | 0.20                          |
+| fish                          | 41  | 0.11                 | 0.14       | 0.14       | **0.12**   | 0.20                          |
+| asymmetric                    | 41  | 0.10                 | 0.15       | 0.15       | **0.12**   | 0.19                          |
 
 All in mm. "✗" is a station where the law's own values ask for a blend that does not exist;
 the mm figure beside it is the worst of the rest. The search is coordinate descent from two
@@ -393,12 +396,12 @@ for completeness and should not be read as the law's cost.
 A single conic from the bottom tangent point straight to the deck tangent point, tangent to
 both panels, fitted over exactly the stretch of rail the two-conic model covers:
 
-| | two conics, vertical at the apex | one conic |
-| --- | --- | --- |
-| median deviation | **0.02 mm** | 0.67 mm |
-| worst station | **0.23 mm** | 2.84 mm |
-| within 0.5 mm | **100%** | 34% |
-| widest point misses the apex by | 0 (by construction) | 1.18 mm median, **7.73 mm** worst |
+|                                 | two conics, vertical at the apex | one conic                         |
+| ------------------------------- | -------------------------------- | --------------------------------- |
+| median deviation                | **0.02 mm**                      | 0.67 mm                           |
+| worst station                   | **0.23 mm**                      | 2.84 mm                           |
+| within 0.5 mm                   | **100%**                         | 34%                               |
+| widest point misses the apex by | 0 (by construction)              | 1.18 mm median, **7.73 mm** worst |
 
 Thirty-three times the median deviation is the small part. The real objection is the last
 row: a single conic has no vertical tangent in it, so its widest point is wherever the
@@ -413,10 +416,10 @@ bows **2.84 mm** outboard of the rail while the conic pair sits on it to 0.20 mm
 
 **No, for either candidate. Neither pays, and one of them cannot.**
 
-| fifth parameter | residual removed, median | mean | best station | stations improved by > 0.05 mm | stations wanting it at all |
-| --- | --- | --- | --- | --- | --- |
-| short vertical flat at the apex | 0.00 mm | 0.01 mm | 0.07 mm | 14% | 23% |
-| apex tangent leaning off vertical | 0.00 mm | 0.00 mm | 0.05 mm | 2% | 11% |
+| fifth parameter                   | residual removed, median | mean    | best station | stations improved by > 0.05 mm | stations wanting it at all |
+| --------------------------------- | ------------------------ | ------- | ------------ | ------------------------------ | -------------------------- |
+| short vertical flat at the apex   | 0.00 mm                  | 0.01 mm | 0.07 mm      | 14%                            | 23%                        |
+| apex tangent leaning off vertical | 0.00 mm                  | 0.00 mm | 0.05 mm      | 2%                             | 11%                        |
 
 Against a four-parameter residual whose worst station is 0.23 mm, a fifth parameter that
 removes 0.01 mm on average and 0.07 mm at its best is not worth storing, fitting or
@@ -431,14 +434,14 @@ belongs, which is why it is the better of the two candidates and still does not 
 
 ### Against the project's tolerances
 
-| measure | mm |
-| --- | --- |
-| Project section tolerance | 0.50 |
-| Engine against the classic loft, between stations (`m1-model.md`) | ≈ 1.0 |
-| Section least-squares fit budget today (`SECTION_FIT_TOL`) | 0.50 |
-| **This model, per station, stored data** | **0.23 worst, 0.02 median** |
-| **This model, per station, dense set** | **0.40 worst, 0.04 median** |
-| **This model with laws (k = 5), dense set** | **0.65 worst board, 0.25 median board** |
+| measure                                                           | mm                                      |
+| ----------------------------------------------------------------- | --------------------------------------- |
+| Project section tolerance                                         | 0.50                                    |
+| Engine against the classic loft, between stations (`m1-model.md`) | ≈ 1.0                                   |
+| Section least-squares fit budget today (`SECTION_FIT_TOL`)        | 0.50                                    |
+| **This model, per station, stored data**                          | **0.23 worst, 0.02 median**             |
+| **This model, per station, dense set**                            | **0.40 worst, 0.04 median**             |
+| **This model with laws (k = 5), dense set**                       | **0.65 worst board, 0.25 median board** |
 
 Per station the model costs about a twelfth of the tolerance and a fortieth of the gap the
 engine already carries against the classic loft between stations. Even with the parameters
@@ -449,12 +452,47 @@ That is the honest size of the claim, and it is worth stating what it is not. Th
 not a licence to spend: this is the rail region of a section measured against the section
 the designer stored, with the panels given. It says nothing about what the panels cost, what
 the laws do to volume, or what a surface swept from them does between stations. The engine's
-≈ 1 mm against the classic loft is a *different* measurement — a whole surface against
+≈ 1 mm against the classic loft is a _different_ measurement — a whole surface against
 another whole surface — and the two are not additive in any way this study established.
 
 ### Tail against middle
 
-PLACEHOLDER_TAILTABLE
+Rails go hard near the tail, so that is where the model should struggle if it is going to.
+The dense set, split by position (tail at x/L = 0):
+
+| x/L       | n   | no blend | median mm | p90 mm | max mm   | ≤0.5 mm | mean blend span mm | median ρ bottom | median ρ deck |
+| --------- | --- | -------- | --------- | ------ | -------- | ------- | ------------------ | --------------- | ------------- |
+| 0.00–0.10 | 48  | **3**    | 0.03      | 0.13   | 0.15     | 100%    | 11.2               | **0.254**       | 0.526         |
+| 0.10–0.20 | 56  | **10**   | 0.04      | 0.11   | 0.23     | 100%    | 15.6               | 0.510           | 0.503         |
+| 0.20–0.30 | 66  | **8**    | 0.06      | 0.32   | **0.39** | 100%    | 22.5               | 0.460           | 0.508         |
+| 0.30–0.45 | 108 | **2**    | 0.07      | 0.15   | **0.40** | 100%    | 30.5               | 0.456           | 0.503         |
+| 0.45–0.60 | 93  | –        | 0.03      | 0.11   | 0.16     | 100%    | 33.2               | 0.485           | 0.512         |
+| 0.60–0.75 | 83  | –        | 0.05      | 0.10   | 0.16     | 100%    | 29.5               | 0.491           | 0.516         |
+| 0.75–1.00 | 97  | –        | 0.02      | 0.05   | 0.10     | 100%    | 18.9               | 0.499           | 0.502         |
+
+**The hard rails of the tail do not cost accuracy. They cost existence.**
+
+Accuracy, first: the two tail bands are among the _best_ on the board — 0.15 mm and 0.23 mm
+worst, against 0.39 and 0.40 mm in the bands from x/L 0.20 to 0.45. The residual peaks under
+the front foot, not at the tail, and every band is 100% within 0.5 mm. A conic is a good
+description of a hard rail; it is marginally less good where the rail is transitioning.
+
+Coverage is the real tail story, and it is unambiguous: **all 23 stations with no blend lie
+below x/L = 0.45, and 21 of them below 0.30.** Beyond the mid-point there is not one. Where
+a section is thin and its apex low — the tail — the model does not fit badly, it does not
+apply, and the number of such stations rises as the tail is approached. A rail-law engine
+needs its fallback precisely where a shaper would say the rail is most interesting.
+
+The blend span tells the same story from the other side. The rail band the conic carries
+grows from 11 mm of arc at the tail to 33 mm amidships and narrows to 19 mm at the nose,
+which is the rail physically narrowing at both tips — not a fitting artefact.
+
+One caution on the ρ columns: these are medians pooled over fourteen boards of different
+lengths and rail styles, and the three synthetic test boards have a nearly constant ρ that
+dilutes the trend. The ramp is far clearer per board, in the traces above, than in this
+pooled column. What the pooled column does show is the tail band, at **ρ = 0.254**, sitting
+distinctly below every other band — a flat ellipse where the rest of the board is near a
+parabola, which is what a hard tail rail is.
 
 ## What I did not measure
 
@@ -465,7 +503,7 @@ PLACEHOLDER_TAILTABLE
 - **Asymmetric boards' minus side.** Only the plus side of every board is measured. The
   asymmetric test board has a minus side and it was not fitted.
 - **The panels.** They are taken from the section and never checked. A real law engine would
-  build them from a bottom-contour and a deck-crown law, and whether *those* are a few numbers
+  build them from a bottom-contour and a deck-crown law, and whether _those_ are a few numbers
   is a separate question this study does not touch. It is the larger half of the architecture.
 - **Continuity along the board.** Only each station's own section is measured. Whether a
   surface swept from these laws is G1/G2 **along** x, and whether it sheds the banding the
@@ -505,13 +543,13 @@ The model to implement, per side of a station:
 
 Rough size, rails only, with the panels taken as given:
 
-| | |
-| --- | --- |
-| Kernel: conic blend evaluation, tangent-point finder, the two laws in the document | ~500 lines, with tests |
-| Converting an existing board to laws (fit ρ per station, then the law) | ~250 lines; the prototype's fitter is most of it already |
-| The thin-section fallback and its validator issue | ~150 lines |
-| Editor: two law curves in the section pane, which the curve editor already draws | ~300 lines |
-| Golden fixtures and divergence note (`docs/specs/divergences.md`) | a day |
+|                                                                                    |                                                          |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Kernel: conic blend evaluation, tangent-point finder, the two laws in the document | ~500 lines, with tests                                   |
+| Converting an existing board to laws (fit ρ per station, then the law)             | ~250 lines; the prototype's fitter is most of it already |
+| The thin-section fallback and its validator issue                                  | ~150 lines                                               |
+| Editor: two law curves in the section pane, which the curve editor already draws   | ~300 lines                                               |
+| Golden fixtures and divergence note (`docs/specs/divergences.md`)                  | a day                                                    |
 
 Call it a fortnight for the rail half, on the assumption that the panel half is a separate
 and larger piece. **Do not start it until the panel question is answered**: a rail law that

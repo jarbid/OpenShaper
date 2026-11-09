@@ -15,7 +15,7 @@
  * along a curve of unknown length the point sits.
  */
 import { chainEval, compileChain } from '../chain';
-import { CONIC_SAMPLES, NEAREST_STRIDE, SECTION_SAMPLES } from './rail-params';
+import { CONIC_SAMPLES, LINE_PARALLEL, NEAREST_STRIDE, SECTION_SAMPLES } from './rail-params';
 import type { Section } from '../types';
 
 export type P2 = readonly [number, number];
@@ -114,7 +114,8 @@ export function fromPolyline(
     arc[i] =
       i === 0
         ? 0
-        : arc[i - 1]! + Math.hypot(pts[2 * i]! - pts[2 * i - 2]!, pts[2 * i + 1]! - pts[2 * i - 1]!);
+        : arc[i - 1]! +
+          Math.hypot(pts[2 * i]! - pts[2 * i - 2]!, pts[2 * i + 1]! - pts[2 * i - 1]!);
   }
   return { x, chord, thickness, pts, tan, phi, arc, apex, count };
 }
@@ -213,8 +214,7 @@ export function conicPolyline(c: Conic): Float64Array {
     arcLen[i] =
       i === 0
         ? 0
-        : arcLen[i - 1]! +
-          Math.hypot(p[0] - arcBuf[2 * i - 2]!, p[1] - arcBuf[2 * i - 1]!);
+        : arcLen[i - 1]! + Math.hypot(p[0] - arcBuf[2 * i - 2]!, p[1] - arcBuf[2 * i - 1]!);
   }
   const total = arcLen[ARC_PASS]!;
   const out = new Float64Array(2 * (CONIC_SAMPLES + 1));
@@ -244,14 +244,9 @@ export function conicPolyline(c: Conic): Float64Array {
  * the arc, so both parameters must come back positive; a negative one says the tangents
  * diverge and there is no conic arc between the ends with those tangents.
  */
-export function lineMeet(
-  a: P2,
-  da: P2,
-  b: P2,
-  db: P2,
-): { p: P2; sa: number; sb: number } | null {
+export function lineMeet(a: P2, da: P2, b: P2, db: P2): { p: P2; sa: number; sb: number } | null {
   const det = da[0] * -db[1] - da[1] * -db[0];
-  if (Math.abs(det) < 1e-12) return null;
+  if (Math.abs(det) < LINE_PARALLEL) return null;
   const rx = b[0] - a[0];
   const rz = b[1] - a[1];
   const sa = (rx * -db[1] - rz * -db[0]) / det;
@@ -263,7 +258,14 @@ export function lineMeet(
 // Deviation
 // ---------------------------------------------------------------------------
 
-const segDist = (py: number, pz: number, qy: number, qz: number, ry: number, rz: number): number => {
+const segDist = (
+  py: number,
+  pz: number,
+  qy: number,
+  qz: number,
+  ry: number,
+  rz: number,
+): number => {
   const ey = ry - qy;
   const ez = rz - qz;
   const wy = py - qy;
