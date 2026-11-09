@@ -73,6 +73,7 @@ import { GITHUB_URL } from '../seo/site';
 import { shortcutKeys } from '../shortcuts';
 import { FinOutlinePane } from './FinOutlinePane';
 import { FinSectionPane, FinSectionTools } from './FinSectionPane';
+import { BuyMeACoffee } from './BuyMeACoffee';
 import { FOIL_ANALYSIS_DEFAULT, type FoilAnalysis } from './foil-analysis';
 import { FinTaperPane, MinThicknessField } from './FinTaperPane';
 import { FitToPanel } from './panel-tools';
@@ -1167,6 +1168,7 @@ export function FinApp() {
           <History />
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          <BuyMeACoffee />
           <ExportMenu
             pair={pair}
             onPair={changePair}

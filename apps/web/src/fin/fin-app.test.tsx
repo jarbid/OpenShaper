@@ -702,6 +702,21 @@ describe('FinApp: export', () => {
   );
 });
 
+describe('FinApp: the Buy Me a Coffee link', () => {
+  it('sits just before Export and opens the owner’s page in a new tab', () => {
+    act(() => finStore.getState().load(defaultFinDesign('side', 'left')));
+    render(<FinApp />);
+    const link = screen.getByRole('link', { name: /buy me a coffee/i });
+    expect(link.getAttribute('href')).toBe('https://buymeacoffee.com/stephenfranklin');
+    expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('rel')).toContain('noopener');
+    const exportControl = screen.getByRole('menuitem', { name: /export/i });
+    expect(
+      link.compareDocumentPosition(exportControl) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+});
+
 describe('FinApp: section analysis in the 3D view', () => {
   beforeEach(() => act(() => finStore.getState().load(defaultFinDesign('side', 'left'))));
   // The 3D view's: the foil view has an Analysis of its own, in the same place.

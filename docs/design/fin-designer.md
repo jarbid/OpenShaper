@@ -746,3 +746,11 @@ checkbox). `swept-loft.ts` keeps only the sides of the profile and the thickness
 - Tests of the sweep's internals went with it; tests of behaviour were rewritten for the
   rows. Drag steps measured on the hatchet tip crossing: 27 ms in the profile, thickness
   and all three foils, the measuring floor (max 120 ms, outline).
+
+## Buy Me a Coffee (owner request, 2026-11)
+
+A link just left of Export, in the fin designer only: the owner's artwork (`BMAC.svg`, its
+one-colour gradients as plain colours) and two lines of text in the app's font, the file's
+PT Sans not being loaded here. A plain link rather than Buy Me a Coffee's widget script: no
+third-party code in the app, so nothing changes for consent or the privacy page, and
+nothing is sent until someone clicks it. It opens the page in a new tab.
