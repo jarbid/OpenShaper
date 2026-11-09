@@ -21,6 +21,8 @@ interface Row {
   readonly group: string;
   readonly length: number;
   readonly fits: readonly StationFit[];
+  /** Stations with no valid blend at any turn angle in the allowed band. */
+  readonly unfitted: readonly number[];
 }
 
 function collect(dense: boolean): Row[] {
@@ -28,11 +30,13 @@ function collect(dense: boolean): Row[] {
   for (const b of allBoards()) {
     const bs = dense ? denseSections(b, DENSE_STATIONS) : boardSections(b);
     const fits: StationFit[] = [];
+    const unfitted: number[] = [];
     for (const s of bs.sections) {
       const f = fitStation(s);
-      if (f !== null) fits.push(f);
+      if (f === null) unfitted.push(s.x);
+      else fits.push(f);
     }
-    rows.push({ board: bs.name, group: bs.group, length: bs.length, fits });
+    rows.push({ board: bs.name, group: bs.group, length: bs.length, fits, unfitted });
   }
   return rows;
 }
@@ -43,9 +47,9 @@ const share = (xs: readonly number[], limit: number): number =>
 function table(rows: readonly Row[], title: string): number[] {
   console.log(`\n### ${title}`);
   console.log(
-    '| board | n | max mm | RMS mm | <=0.5mm | <=1mm | blend span mm (b/d) | rho (b/d) |',
+    '| board | n | no blend | max mm | RMS mm | <=0.5mm | <=1mm | blend span mm (b/d) | rho (b/d) |',
   );
-  console.log('|---|---|---|---|---|---|---|---|');
+  console.log('|---|---|---|---|---|---|---|---|---|');
   const all: number[] = [];
   for (const r of rows) {
     const maxes = r.fits.map((f) => f.max);
@@ -54,7 +58,8 @@ function table(rows: readonly Row[], title: string): number[] {
     const avg = (pick: (f: StationFit) => number): string =>
       (r.fits.reduce((a, f) => a + pick(f), 0) / Math.max(1, r.fits.length)).toFixed(2);
     console.log(
-      `| ${r.board} | ${r.fits.length} | ${mm(Math.max(...maxes, 0))} | ${mm(rms)} | ` +
+      `| ${r.board} | ${r.fits.length} | ${r.unfitted.length === 0 ? '-' : r.unfitted.map((x) => x.toFixed(1)).join(', ')} | ` +
+        `${mm(Math.max(...maxes, 0))} | ${mm(rms)} | ` +
         `${(100 * share(maxes, PROJECT_TOL_CM)).toFixed(0)}% | ${(100 * share(maxes, 0.1)).toFixed(0)}% | ` +
         `${avg((f) => f.bottom.span * 10)} / ${avg((f) => f.deck.span * 10)} | ` +
         `${avg((f) => f.bottom.rho)} / ${avg((f) => f.deck.rho)} |`,

@@ -6,8 +6,15 @@
 
 /** Samples per section half when a stored section is turned into a real-coordinate polyline. */
 export const SECTION_SAMPLES = 600;
+/**
+ * Stride of the coarse pass when a point's distance to a polyline is found. Both polylines
+ * here are sampled evenly by arc length, so a stride this small cannot step over a minimum;
+ * `rail-geom.test.ts` checks it against the exact scan on every station of every board.
+ */
+export const NEAREST_STRIDE = 8;
+
 /** Samples along one fitted conic when its deviation from the section is measured. */
-export const CONIC_SAMPLES = 400;
+export const CONIC_SAMPLES = 250;
 
 /**
  * The turn a blend must cover, in degrees from the vertical apex tangent. A tangent point
@@ -25,11 +32,11 @@ export const PINNED_TURNS: readonly number[] = [50, 60, 70, 80, 85, 88];
 export const RHO_MIN = 0.05;
 export const RHO_MAX = 0.95;
 /** Golden-section iterations when rho is fitted at a fixed tangent point. */
-export const RHO_ITERS = 42;
+export const RHO_ITERS = 26;
 /** Turn-angle values tried for a tangent point, between the floor and the ceiling. */
-export const TURN_STEPS = 19;
+export const TURN_STEPS = 13;
 /** Local refinements of the turn angle around the grid's best rung. */
-export const TURN_REFINE = 3;
+export const TURN_REFINE = 4;
 
 /** Apex-tangent lean values tried for the five-parameter variant, in degrees off vertical. */
 export const LEAN_RANGE = 12;

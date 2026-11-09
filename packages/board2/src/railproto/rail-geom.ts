@@ -15,7 +15,7 @@
  * along a curve of unknown length the point sits.
  */
 import { chainEval, compileChain } from '../chain';
-import { CONIC_SAMPLES, SECTION_SAMPLES } from './rail-params';
+import { CONIC_SAMPLES, NEAREST_STRIDE, SECTION_SAMPLES } from './rail-params';
 import type { Section } from '../types';
 
 export type P2 = readonly [number, number];
@@ -189,11 +189,47 @@ export function conicPoint(c: Conic, t: number): P2 {
   ];
 }
 
-/** `[y0, z0, …]` of `CONIC_SAMPLES + 1` points along a conic. */
+const ARC_PASS = 600;
+const arcBuf = new Float64Array(2 * (ARC_PASS + 1));
+const arcLen = new Float64Array(ARC_PASS + 1);
+
+/**
+ * `[y0, z0, …]` of `CONIC_SAMPLES + 1` points along a conic, spaced evenly **by arc length**.
+ *
+ * Uniform spacing in the rational parameter will not do. A conic's speed varies by about the
+ * square of its weight, so at rho = 0.95 (weight 19) uniform-t samples leave chords hundreds
+ * of times longer at one end than the other, and the distance from a section sample to that
+ * polyline reads the chord's sagitta as deviation — a 0.2 mm sawtooth on a rail the model
+ * actually follows to a hundredth of that. A first pass in t builds the arc table, the second
+ * inverts it — interpolating the *parameter* and evaluating the conic there, not the chord
+ * position, so every output point is exactly on the curve. Both passes reuse module buffers,
+ * so the whole thing allocates one output array.
+ */
 export function conicPolyline(c: Conic): Float64Array {
+  for (let i = 0; i <= ARC_PASS; i++) {
+    const p = conicPoint(c, i / ARC_PASS);
+    arcBuf[2 * i] = p[0];
+    arcBuf[2 * i + 1] = p[1];
+    arcLen[i] =
+      i === 0
+        ? 0
+        : arcLen[i - 1]! +
+          Math.hypot(p[0] - arcBuf[2 * i - 2]!, p[1] - arcBuf[2 * i - 1]!);
+  }
+  const total = arcLen[ARC_PASS]!;
   const out = new Float64Array(2 * (CONIC_SAMPLES + 1));
-  for (let i = 0; i <= CONIC_SAMPLES; i++) {
-    const p = conicPoint(c, i / CONIC_SAMPLES);
+  out[0] = arcBuf[0]!;
+  out[1] = arcBuf[1]!;
+  out[2 * CONIC_SAMPLES] = arcBuf[2 * ARC_PASS]!;
+  out[2 * CONIC_SAMPLES + 1] = arcBuf[2 * ARC_PASS + 1]!;
+  let j = 0;
+  for (let i = 1; i < CONIC_SAMPLES; i++) {
+    const want = (total * i) / CONIC_SAMPLES;
+    while (j + 1 < ARC_PASS && arcLen[j + 1]! < want) j++;
+    const a = arcLen[j]!;
+    const b = arcLen[j + 1]!;
+    const f = b > a ? (want - a) / (b - a) : 0;
+    const p = conicPoint(c, (j + f) / ARC_PASS);
     out[2 * i] = p[0];
     out[2 * i + 1] = p[1];
   }
@@ -238,7 +274,8 @@ const segDist = (py: number, pz: number, qy: number, qz: number, ry: number, rz:
 };
 
 /**
- * Distance from `(py, pz)` to the polyline `poly`, by an exact scan of its segments.
+ * Distance from `(py, pz)` to the polyline `poly`: a coarse scan every `stride` segments,
+ * then the neighbourhood of the coarse winner.
  *
  * It was a marching search from the previous point's answer, which is what one reaches for
  * when two ordered arcs nearly coincide. It is wrong here: a hill climb stops at the first
@@ -246,17 +283,36 @@ const segDist = (py: number, pz: number, qy: number, qz: number, ry: number, rz:
  * 50 degrees within half a millimetre — gives the distance along the curve several minima.
  * On one such station it reported 15.4 mm where the true distance was a tenth of that. The
  * rail region is a few hundred samples and the model four hundred, so the exact scan costs
- * about a third of a millisecond and removes the question.
+ * about a third of a millisecond — but it is called some half a million times in a run, and
+ * that was 15 times too slow, so the scan is coarse-to-fine. The stride is small against the
+ * features of these arcs (both are sampled evenly by arc length), and
+ * `rail-geom.test.ts` pins it against the exact scan on every station of every board.
  */
-function nearest(poly: Float64Array, py: number, pz: number): number {
+function nearest(poly: Float64Array, py: number, pz: number, stride = NEAREST_STRIDE): number {
   const segs = poly.length / 2 - 1;
-  let d = Infinity;
-  for (let k = 0; k < segs; k++) {
-    const e = segDist(py, pz, poly[2 * k]!, poly[2 * k + 1]!, poly[2 * k + 2]!, poly[2 * k + 3]!);
-    if (e < d) d = e;
+  const dOf = (k: number): number =>
+    segDist(py, pz, poly[2 * k]!, poly[2 * k + 1]!, poly[2 * k + 2]!, poly[2 * k + 3]!);
+  let best = Infinity;
+  let at = 0;
+  for (let k = 0; k < segs; k += stride) {
+    const e = dOf(k);
+    if (e < best) {
+      best = e;
+      at = k;
+    }
   }
-  return d;
+  const lo = Math.max(0, at - stride);
+  const hi = Math.min(segs - 1, at + stride);
+  for (let k = lo; k <= hi; k++) {
+    const e = dOf(k);
+    if (e < best) best = e;
+  }
+  return best;
 }
+
+/** The exact scan, for the test that pins the coarse-to-fine one against it. */
+export const nearestExact = (poly: Float64Array, py: number, pz: number): number =>
+  nearest(poly, py, pz, 1);
 
 export interface Deviation {
   /** Largest two-sided distance, cm. */

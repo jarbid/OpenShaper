@@ -47,25 +47,40 @@ function modelOf(s: RealSection, f: NonNullable<ReturnType<typeof fitStation>>):
   return [...conicPolyline(b.conic), ...conicPolyline(d.conic)];
 }
 
-/** Signed distance of each section sample in the rail region from the model, mm. */
+const segDist = (
+  py: number,
+  pz: number,
+  qy: number,
+  qz: number,
+  ry: number,
+  rz: number,
+): { d: number; y: number; z: number } => {
+  const ey = ry - qy;
+  const ez = rz - qz;
+  const wy = py - qy;
+  const wz = pz - qz;
+  const ee = ey * ey + ez * ez;
+  const f = ee > 0 ? Math.min(1, Math.max(0, (wy * ey + wz * ez) / ee)) : 0;
+  return { d: Math.hypot(wy - f * ey, wz - f * ez), y: qy + f * ey, z: qz + f * ez };
+};
+
+/**
+ * Signed distance of each section sample in the rail region from the model, mm, against the
+ * model's **segments** — the same measure `deviation` uses. Positive means the model lies
+ * outboard of the section (further from the stringer).
+ */
 function residualOf(s: RealSection, from: number, to: number, model: number[]): number[] {
   const out: number[] = [];
   const apexArc = s.arc[s.apex]!;
   for (let i = Math.ceil(from); i <= Math.floor(to); i++) {
     const y = s.pts[2 * i]!;
     const z = s.pts[2 * i + 1]!;
-    let best = Infinity;
-    let bj = 0;
-    for (let j = 0; j * 2 + 1 < model.length; j++) {
-      const dd = (model[2 * j]! - y) ** 2 + (model[2 * j + 1]! - z) ** 2;
-      if (dd < best) {
-        best = dd;
-        bj = j;
-      }
+    let best = { d: Infinity, y: 0, z: 0 };
+    for (let j = 0; 2 * j + 3 < model.length; j++) {
+      const c = segDist(y, z, model[2 * j]!, model[2 * j + 1]!, model[2 * j + 2]!, model[2 * j + 3]!);
+      if (c.d < best.d) best = c;
     }
-    // Sign: positive when the section lies outside the model (further from the stringer).
-    const sign = y - model[2 * bj]! + (z - model[2 * bj + 1]!) * 0 >= 0 ? 1 : -1;
-    out.push(s.arc[i]! - apexArc, sign * Math.sqrt(best) * 10);
+    out.push(s.arc[i]! - apexArc, (best.y >= y ? 1 : -1) * best.d * 10);
   }
   return out;
 }

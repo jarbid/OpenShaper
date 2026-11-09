@@ -7,9 +7,9 @@
  *   RAIL_STUDY=1 pnpm --filter @openshaper/board2 exec vitest run src/railproto/laws.measure.test.ts
  */
 import { describe, expect, it } from 'vitest';
-import { fitStation, stationAt } from './rail-fit';
+import { fitStation, halfDeviation, stationAt } from './rail-fit';
 import type { StationFit } from './rail-fit';
-import { fitLaw, lawAt, roughness } from './rail-laws';
+import { LAW_PENALTY, fitLaw, lawAt, optimiseLaws, roughness } from './rail-laws';
 import { allBoards, boardSections, denseSections } from './rail-samples';
 import { DENSE_STATIONS, LAW_DOFS, PROJECT_TOL_CM } from './rail-params';
 import type { RealSection } from './rail-geom';
@@ -195,6 +195,55 @@ study('law smoothness', () => {
       });
       console.log(`| ${b.name} | ${b.fits.length} | ${mm(Math.max(...free))} | ${cells.join(' | ')} |`);
     }
+    expect(boards.length).toBeGreaterThan(0);
+  });
+});
+
+study('laws fitted to the sections', () => {
+  it('the best a law of k degrees of freedom can do, per half', () => {
+    const boards = measured(true);
+    console.log('\n### Laws optimised against the sections (not through the per-station parameters)');
+    console.log('| board | n | per-station max mm | k=3 max mm | k=4 max mm | k=5 max mm |');
+    console.log('|---|---|---|---|---|---|');
+    const byK: Record<number, number[]> = {};
+    for (const k of LAW_DOFS) byK[k] = [];
+    const freeAll: number[] = [];
+    for (const b of boards) {
+      const free = b.fits.map((f) => f.max);
+      freeAll.push(...free);
+      const cells: string[] = [];
+      for (const k of LAW_DOFS) {
+        let worst = 0;
+        for (const half of ['bottom', 'deck'] as const) {
+          const turns = b.fits.map((f) => (half === 'bottom' ? f.bottom.turn : f.deck.turn));
+          const rhos = b.fits.map((f) => (half === 'bottom' ? f.bottom.rho : f.deck.rho));
+          const cost = (ts: readonly number[], rs: readonly number[]): number => {
+            let m = 0;
+            for (let i = 0; i < b.sections.length; i++) {
+              const d = halfDeviation(b.sections[i]!, half, ts[i]!, rs[i]!);
+              m = Math.max(m, d === null ? LAW_PENALTY : d.max);
+            }
+            return m;
+          };
+          const r = optimiseLaws(
+            b.ts,
+            { turn: fitLaw(b.ts, turns, k), rho: fitLaw(b.ts, rhos, k) },
+            cost,
+            2,
+            14,
+            6,
+          );
+          worst = Math.max(worst, r.cost);
+        }
+        byK[k]!.push(worst);
+        cells.push(mm(worst));
+      }
+      console.log(`| ${b.name} | ${b.fits.length} | ${mm(Math.max(...free))} | ${cells.join(' | ')} |`);
+    }
+    console.log(
+      `\n**overall** worst board, per-station free fit ${mm(Math.max(...freeAll))} mm; ` +
+        LAW_DOFS.map((k) => `k=${k} worst board ${mm(Math.max(...byK[k]!))} mm, median board ${mm(med(byK[k]!))} mm`).join('; '),
+    );
     expect(boards.length).toBeGreaterThan(0);
   });
 });
