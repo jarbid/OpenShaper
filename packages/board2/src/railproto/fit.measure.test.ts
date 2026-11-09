@@ -225,31 +225,46 @@ study('context', () => {
     const bins = [0.1, 0.2, 0.3, 0.45, 0.6, 0.75, 1.01];
     const buckets = bins.map(() => [] as number[]);
     const bSpan = bins.map(() => [] as number[]);
+    const rhoB = bins.map(() => [] as number[]);
+    const rhoD = bins.map(() => [] as number[]);
+    const noBlend = bins.map(() => 0);
     for (const b of allBoards()) {
       const bs = denseSections(b, DENSE_STATIONS);
       for (const s of bs.sections) {
-        const f = fitStation(s);
-        if (f === null) continue;
         const r = s.x / bs.length;
         const k = bins.findIndex((e) => r < e);
-        if (k >= 0) {
-          buckets[k]!.push(f.max);
-          bSpan[k]!.push(f.bottom.span * 10, f.deck.span * 10);
+        if (k < 0) continue;
+        const f = fitStation(s);
+        if (f === null) {
+          noBlend[k] = noBlend[k]! + 1;
+          continue;
         }
+        buckets[k]!.push(f.max);
+        bSpan[k]!.push(f.bottom.span * 10, f.deck.span * 10);
+        rhoB[k]!.push(f.bottom.rho);
+        rhoD[k]!.push(f.deck.rho);
       }
     }
-    console.log('| x/L | n | median mm | p90 mm | max mm | <=0.5mm | mean blend span mm |');
-    console.log('|---|---|---|---|---|---|---|');
+    const med = (xs: readonly number[]): number =>
+      [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0;
+    console.log(
+      '| x/L | n | no blend | median mm | p90 mm | max mm | <=0.5mm | mean blend span mm | median rhoB | median rhoD |',
+    );
+    console.log('|---|---|---|---|---|---|---|---|---|---|');
     let lo = 0;
     for (let k = 0; k < bins.length; k++) {
       const xs = [...buckets[k]!].sort((a, b) => a - b);
-      if (xs.length === 0) { lo = bins[k]!; continue; }
+      if (xs.length === 0) {
+        lo = bins[k]!;
+        continue;
+      }
       const sp = bSpan[k]!;
       console.log(
-        `| ${lo.toFixed(2)}–${Math.min(1, bins[k]!).toFixed(2)} | ${xs.length} | ` +
+        `| ${lo.toFixed(2)}\u2013${Math.min(1, bins[k]!).toFixed(2)} | ${xs.length} | ${noBlend[k]} | ` +
           `${mm(xs[Math.floor(0.5 * xs.length)]!)} | ${mm(xs[Math.floor(0.9 * xs.length)]!)} | ` +
           `${mm(xs[xs.length - 1]!)} | ${(100 * share(xs, PROJECT_TOL_CM)).toFixed(0)}% | ` +
-          `${(sp.reduce((a, b) => a + b, 0) / sp.length).toFixed(1)} |`,
+          `${(sp.reduce((a, b) => a + b, 0) / sp.length).toFixed(1)} | ` +
+          `${med(rhoB[k]!).toFixed(3)} | ${med(rhoD[k]!).toFixed(3)} |`,
       );
       lo = bins[k]!;
     }

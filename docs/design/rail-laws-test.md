@@ -6,8 +6,8 @@ nose toward +x.
 
 ## Verdict
 
-**A — build it, and build it smaller than proposed.** Over fourteen boards and 65 stored
-stations, a conic pair with the tangent point fixed by convention and **one shape number per
+**A — build it, and build it smaller than proposed.** Over fourteen boards and the 64 stored
+stations the model can describe at all, a conic pair with the tangent point fixed by convention and **one shape number per
 blend** reproduces the rail to a **worst case of 0.23 mm** and a median of 0.02 mm — every
 station inside the project's 0.5 mm, with better than half the tolerance to spare. The free
 four-parameter fit does not beat it, because two of the four parameters are not shape: the
@@ -306,7 +306,50 @@ millimetre**, and three quarters of what is left is under 0.3 mm. That is the me
 that settles the "noise or shape" question: if the per-station scatter were real shape,
 smoothing it would have cost a great deal more than 0.1 mm.
 
-PLACEHOLDER_OPTIMISED
+Against the sections themselves, by coordinate descent on the law coefficients — the
+question an engine would actually solve. This is the **worst station on each board**, not a
+distribution over stations, so it is not comparable with the table above row for row; the
+right comparison is board against board, and it wins every one.
+
+| board | n | per-station free fit | k = 3 | k = 4 | k = 5 | law through parameters, k = 5 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 5.10 × 19.8 MLC | 39 | 0.15 | 0.28 + 1 ✗ | 0.26 + 1 ✗ | 0.24 + 1 ✗ | no law found |
+| 5.8 × 20 Trusther White Tiger | 23 | 0.10 | 0.20 + 1 ✗ | 0.10 + 1 ✗ | 0.10 + 1 ✗ | no law found |
+| 6.0 × 22 Master Trusther 3 | 41 | 0.12 | 0.34 | 0.28 | **0.26** | 0.51 |
+| 6.11 × 21.3 Diamond Twin | 41 | 0.40 | 0.89 | 1.12 | **0.65** | no law found |
+| Go fish | 38 | 0.18 | 0.25 | 0.24 | **0.24** | 0.43 |
+| gremilin56 | 41 | 0.11 | 0.29 | 0.29 | 0.34 | 0.39 |
+| hyptocrypto | 41 | 0.17 | 0.31 | 0.30 | **0.30** | 0.60 |
+| long classico 9'6" | 41 | 0.11 | 0.22 | 0.33 | **0.21** | 0.35 |
+| shortboard | 41 | 0.09 | 0.23 | 0.32 | **0.20** | 0.27 |
+| funboard | 41 | 0.15 | 0.41 | 0.35 | **0.31** | 0.89 |
+| longboard | 41 | 0.13 | 0.33 | 0.28 | 0.32 | 0.37 |
+| swallow | 41 | 0.16 | 0.16 | 0.16 | **0.12** | 0.20 |
+| fish | 41 | 0.11 | 0.14 | 0.14 | **0.12** | 0.20 |
+| asymmetric | 41 | 0.10 | 0.15 | 0.15 | **0.12** | 0.19 |
+
+All in mm. "✗" is a station where the law's own values ask for a blend that does not exist;
+the mm figure beside it is the worst of the rest. The search is coordinate descent from two
+starts with two sweeps, so every number here is an **upper bound** on what the best law of
+that order could do — the conservative direction.
+
+**Of the fourteen boards, twelve have a k = 5 law whose worst station is between 0.12 and
+0.34 mm**, against a per-station free fit of 0.09 to 0.18 mm. Solving for the law directly
+rather than through the parameters roughly halves its cost — funboard 0.89 → 0.31,
+hyptocrypto 0.60 → 0.30, Master Trusther 0.51 → 0.26 — and recovers three boards the
+pessimistic fit could not fit a law to at all. That is the measure of how much of the
+per-station scatter was slack: a law aimed at the sections sails through noise the
+parameters were full of.
+
+Two boards do not come clean, and both deserve naming rather than averaging away:
+
+- **The Diamond Twin is the one genuine law failure: 0.65 mm at k = 5, over the 0.5 mm
+  tolerance**, with every station blendable and no excuse available. It is also the board
+  with the worst per-station fit (0.40 mm), so the law is not the whole story there; it is a
+  board whose rail changes faster along its length than five control points can follow.
+- **The 5.10 MLC and the 5.8 Trusther each keep one station no law value can blend.** These
+  are the thin-wedge sections of the previous section, the ones outside the model altogether.
+  The law is not at fault and a fallback would carry them.
 
 On the stored stations alone, where the law has nearly as many degrees of freedom as there
 are data points, the law is essentially free on half the boards and costs up to 1.08 mm on
@@ -345,7 +388,7 @@ bows a centimetre outboard of the rail while the conic pair sits on it to 0.03 m
 | fifth parameter | residual removed, median | mean | best station | stations improved by > 0.05 mm | stations wanting it at all |
 | --- | --- | --- | --- | --- | --- |
 | short vertical flat at the apex | 0.00 mm | 0.01 mm | 0.07 mm | 14% | 23% |
-| apex tangent leaning off vertical | PLACEHOLDER_LEAN |
+| apex tangent leaning off vertical | 0.00 mm | 0.00 mm | 0.05 mm | 2% | 11% |
 
 Against a four-parameter residual whose worst station is 0.23 mm, a fifth parameter that
 removes 0.01 mm on average and 0.07 mm at its best is not worth storing, fitting or
@@ -366,35 +409,20 @@ belongs, which is why it is the better of the two candidates and still does not 
 | Engine against the classic loft, between stations (`m1-model.md`) | ≈ 1.0 |
 | Section least-squares fit budget today (`SECTION_FIT_TOL`) | 0.50 |
 | **This model, per station, stored data** | **0.23 worst, 0.02 median** |
-| **This model, per station, dense set** | The as-built section at 41 stations per board — 574 asked for, **551 fitted, max 0.40 mm,
-median 0.04 mm, every one within 0.5 mm**. Freeing the tangent point buys the free fit a
-larger blend than the stored stations chose (bottom 14–20 mm, deck 22–50 mm).
+| **This model, per station, dense set** | **0.40 worst, 0.04 median** |
+| **This model with laws (k = 5), dense set** | **0.65 worst board, 0.25 median board** |
 
-| board | n | no blend | max mm | RMS mm | ≤0.5 mm | ρ (bottom / deck) |
-| --- | --- | --- | --- | --- | --- | --- |
-| 5.10 × 19.8 MLC | 39 | 2 | 0.15 | 0.03 | 100% | 0.43 / 0.52 |
-| 5.8 × 20 Trusther White Tiger | 23 | **18** | 0.10 | 0.02 | 100% | 0.33 / 0.51 |
-| 6.0 × 22 Master Trusther 3 | 41 | – | 0.12 | 0.03 | 100% | 0.40 / 0.49 |
-| 6.11 × 21.3 Diamond Twin | 41 | – | **0.40** | 0.11 | 100% | 0.29 / 0.51 |
-| Go fish | 38 | 3 | 0.18 | 0.03 | 100% | 0.38 / 0.53 |
-| gremilin56 | 41 | – | 0.11 | 0.02 | 100% | 0.39 / 0.52 |
-| hyptocrypto | 41 | – | 0.17 | 0.03 | 100% | 0.46 / 0.52 |
-| long classico 9'6" | 41 | – | 0.11 | 0.02 | 100% | 0.47 / 0.50 |
-| shortboard | 41 | – | 0.09 | 0.02 | 100% | 0.49 / 0.52 |
-| funboard | 41 | – | 0.15 | 0.02 | 100% | 0.50 / 0.50 |
-| longboard | 41 | – | 0.13 | 0.02 | 100% | 0.55 / 0.50 |
-| swallow | 41 | – | 0.16 | 0.06 | 100% | 0.56 / 0.53 |
-| fish | 41 | – | 0.11 | 0.05 | 100% | 0.55 / 0.53 |
-| asymmetric | 41 | – | 0.10 | 0.05 | 100% | 0.56 / 0.53 |
+Per station the model costs about a twelfth of the tolerance and a fortieth of the gap the
+engine already carries against the classic loft between stations. Even with the parameters
+reduced to law curves, the typical board's worst station is **half the tolerance** and a
+third of the engine's existing between-station error.
 
-The 23 stations with no blend are the model's real gap, and they are not spread evenly: 18
-of them are one board, the 5.8 Trusther, over x = 19 to 55 cm (x/L 0.11 to 0.32). They are
-the same geometry as the stored station above — a thin section whose apex sits near the
-bottom, so the bottom half is a couple of millimetres tall and the two end tangents diverge
-across it. **4% of the dense set is outside the model, not badly fitted by it.**CTX |
-| **This model with laws, dense set** | PLACEHOLDER_LAWCTX |
-
-PLACEHOLDER_CONTEXT_PROSE
+That is the honest size of the claim, and it is worth stating what it is not. The margin is
+not a licence to spend: this is the rail region of a section measured against the section
+the designer stored, with the panels given. It says nothing about what the panels cost, what
+the laws do to volume, or what a surface swept from them does between stations. The engine's
+≈ 1 mm against the classic loft is a *different* measurement — a whole surface against
+another whole surface — and the two are not additive in any way this study established.
 
 ### Tail against middle
 
