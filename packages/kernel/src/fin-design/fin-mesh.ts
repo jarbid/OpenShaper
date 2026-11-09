@@ -24,7 +24,7 @@ import { smoothBlade } from './smooth-blade';
 import { finTabOutline } from './fin-tab';
 import { tabCentreY, tabFacesY } from './fin-placement';
 import type { TabSegment } from './futures-tab';
-import { triangulate, triangulateWithHoles } from './triangulate';
+import { triangulateWithHoles } from './triangulate';
 
 export interface FinMeshOptions {
   /** Rings up the blade. */
@@ -94,16 +94,6 @@ const builder = () => {
   };
 };
 
-/** Fill a flat ring (vertex ids, positions in the plane) facing `outward`. */
-const cap = (
-  m: ReturnType<typeof builder>,
-  ids: readonly number[],
-  flat: readonly Vec2[],
-  outward: Vert3,
-): void => {
-  for (const [a, b, c] of triangulate(flat)) m.tri(ids[a]!, ids[b]!, ids[c]!, outward);
-};
-
 /**
  * The smooth blade's mesh (smooth-blade.ts): rings along its rows (s), each a section
  * loop from edge to edge, gathered toward the tip edge where the tip rounds over fastest;
@@ -113,6 +103,7 @@ const cap = (
 const smoothBladeMesh = (d: FinDesign, o: Required<FinMeshOptions>): BoardMesh => {
   const sb = smoothBlade(d, o.laminate, o.minThickness);
   const us = cosineStations(o.stations);
+  const rootEnd = d.outline.knots[d.outline.knots.length - 1]!.end.x;
   // Gathered toward the tip edge (s = 1), even near the base.
   const ss = Array.from({ length: o.rows + 1 }, (_, i) => Math.sin((Math.PI / 2) * (i / o.rows)));
   const rows = ss.map((s) => {
@@ -120,8 +111,11 @@ const smoothBladeMesh = (d: FinDesign, o: Required<FinMeshOptions>): BoardMesh =
     const inside: Vert3[] = [];
     for (const u of us) {
       const f = sb.faces(s, u);
-      outside.push(f.outside);
-      inside.push(f.inside);
+      // Along the root the first row sits exactly on the tab top; the layout's spline can
+      // stray from it by a few microns beside a raised rear's corner.
+      const onRoot = s === 0 && sb.point(0, u).x >= rootEnd;
+      outside.push(onRoot ? { ...f.outside, z: 0 } : f.outside);
+      inside.push(onRoot ? { ...f.inside, z: 0 } : f.inside);
     }
     return { outside, inside };
   });
@@ -157,30 +151,40 @@ const smoothBladeMesh = (d: FinDesign, o: Required<FinMeshOptions>): BoardMesh =
       keep(ids[k]![j]!, ids[k + 1]![j1]!, ids[k + 1]![j]!, r0[j]!, r1[j1]!, r1[j]!);
     }
   }
-  const flat = (ring: readonly Vert3[]) => ring.map((p) => vec2(p.x, p.y));
-  cap(m, ids[0]!, flat(rings[0]!), { x: 0, y: 0, z: -1 });
-  // The tip edge: the last ring is the outside face's row, the trailing-edge cap, the inside
-  // face's row back, and the leading-edge cap; close it face to face, across the minimum.
-  // Each triangle is listed in the ring's own order round it, so it runs the ring's edges
-  // the other way to the quads below (a closed shell), and takes the same outward choice.
-  const top = ids[ids.length - 1]!;
-  const ring = rings[rings.length - 1]!;
+  // The two ends: the base, and the short last row at the tip edge. Each is closed face to
+  // face across the blade. The base isn't flat on a raised rear, whose underside it climbs:
+  // capped as a flat polygon seen from above, triangles ran from the underside down to the
+  // tab top, a V in any cut through it (owner testing). Each triangle is listed in the ring's
+  // own order, running its edges against the quads next to it (reversed at the base, whose
+  // quads are on its other side), and takes the same outward choice.
   const last = us.length - 1;
   const caps = (n - 2 * us.length) / 2;
   const outAt = (j: number) => j;
   const inAt = (j: number) => last + caps + 1 + (last - j);
-  const close = (a: number, b: number, c: number) =>
-    keep(top[a]!, top[b]!, top[c]!, ring[a]!, ring[b]!, ring[c]!);
-  for (let j = 0; j < last; j++) {
-    close(outAt(j), outAt(j + 1), inAt(j + 1));
-    close(outAt(j), inAt(j + 1), inAt(j));
-  }
-  // The ends of the strip: each edge cap's points fanned from its first.
-  const teCap = [outAt(last), ...Array.from({ length: caps }, (_, k) => last + 1 + k), inAt(last)];
-  const leCap = [inAt(0), ...Array.from({ length: caps }, (_, k) => n - caps + k), outAt(0)];
-  for (const fan of [teCap, leCap]) {
-    for (let k = 1; k < fan.length - 1; k++) close(fan[0]!, fan[k]!, fan[k + 1]!);
-  }
+  const closeRing = (k: number, reverse: boolean) => {
+    const id = ids[k]!;
+    const ring = rings[k]!;
+    const close = (a: number, b: number, c: number) =>
+      reverse
+        ? keep(id[a]!, id[c]!, id[b]!, ring[a]!, ring[c]!, ring[b]!)
+        : keep(id[a]!, id[b]!, id[c]!, ring[a]!, ring[b]!, ring[c]!);
+    for (let j = 0; j < last; j++) {
+      close(outAt(j), outAt(j + 1), inAt(j + 1));
+      close(outAt(j), inAt(j + 1), inAt(j));
+    }
+    // The ends of the strip: each edge cap's points fanned from its first.
+    const teCap = [
+      outAt(last),
+      ...Array.from({ length: caps }, (_, q) => last + 1 + q),
+      inAt(last),
+    ];
+    const leCap = [inAt(0), ...Array.from({ length: caps }, (_, q) => n - caps + q), outAt(0)];
+    for (const fan of [teCap, leCap]) {
+      for (let q = 1; q < fan.length - 1; q++) close(fan[0]!, fan[q]!, fan[q + 1]!);
+    }
+  };
+  closeRing(0, true);
+  closeRing(rings.length - 1, false);
   return m.done();
 };
 

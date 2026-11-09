@@ -26,6 +26,7 @@ import {
 } from '../test-support/fin-designs';
 import { FIN_MIN_THICKNESS, FIN_POSITIONS } from './fin-design';
 import { FIN_RAISED_REAR_MAX } from './raised-rear';
+import { sliceMesh } from './mesh-slice';
 import { defaultFinDesign, defaultKeel, defaultTwinFin } from './fin-defaults';
 import { FIN_MESH_FINE, finMesh } from './fin-mesh';
 import { bladeSection, chordAt, cosineStations, findRaisedRear, prepareBlade } from './blade';
@@ -535,5 +536,48 @@ describe('the underside of a hooked tip (the owner’s hatchet, docs/specs/fins/
       a.outside.forEach((p, j) => expect(Math.abs(p.y - c.outside[j]!.y)).toBeLessThan(1.5e-2));
       a.inside.forEach((p, j) => expect(Math.abs(p.y - c.inside[j]!.y)).toBeLessThan(1.5e-2));
     }
+  });
+});
+
+describe('the mesh under a raised rear (owner testing: a V in the cut, a wedge at the base)', () => {
+  const d = ownerFin('hatchet_tip_crossing.fin.json');
+  const m = finMesh(d, FIN_MESH_FINE).blade;
+
+  it('closes flat along the tab top, face to face, in a cut through the root', () => {
+    // The old flat cap's triangles ran from the underside to the root: a cut through them
+    // showed a V, a notch up to 1 mm above the tab top.
+    for (const x of [0.05, 0.3, 2]) {
+      const cut = sliceMesh(m, 'x', x);
+      let flat = 0;
+      for (let i = 0; i + 5 < cut.length; i += 6) {
+        if (Math.abs(cut[i + 2]!) < 1e-6 && Math.abs(cut[i + 5]!) < 1e-6) {
+          flat += Math.abs(cut[i + 1]! - cut[i + 4]!);
+        }
+      }
+      expect(flat).toBeGreaterThan(0.08);
+    }
+  });
+
+  it('sits on the tab top along the root, not under or over it', () => {
+    let lo = Infinity;
+    for (let i = 2; i < m.positions.length; i += 3) lo = Math.min(lo, m.positions[i]!);
+    expect(lo).toBeCloseTo(0, 7);
+  });
+
+  it('is a closed shell, wound one way', () => {
+    const directed = new Set<string>();
+    const count = new Map<string, number>();
+    let flipped = 0;
+    for (let t = 0; t < m.indices.length; t += 3) {
+      for (let e = 0; e < 3; e++) {
+        const [a, b] = [m.indices[t + e]!, m.indices[t + ((e + 1) % 3)]!];
+        if (directed.has(`${a}>${b}`)) flipped++;
+        directed.add(`${a}>${b}`);
+        const key = a < b ? `${a}-${b}` : `${b}-${a}`;
+        count.set(key, (count.get(key) ?? 0) + 1);
+      }
+    }
+    expect(flipped).toBe(0);
+    expect([...count.values()].every((n) => n === 2)).toBe(true);
   });
 });

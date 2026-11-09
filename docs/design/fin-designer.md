@@ -796,3 +796,14 @@ moves as one, and the surface stays as smooth as before.
 
 Older files' section cant and toe load as a line 15% of the depth below where the section's row
 crosses the thickness path, which reaches the section's values where they were reached before.
+
+## The base of the mesh (owner testing, 2026-11)
+
+A cut through a hatchet's base showed a V, a notch up to about 1 mm above the tab top, and a wedge
+at the trailing root. The smooth blade's first row isn't flat on a raised rear: it runs along the
+root and climbs the underside. The mesh capped that ring as if it were flat, triangulated from
+above, so triangles ran from the underside down to the root. It now closes the first row face to
+face across the blade, as it does the last, flat along the root and following the underside behind
+it. The STEP surface was not affected: it is fitted to level cuts, with a flat cap at the root. The
+first row is also set exactly on the tab top along the root (it strayed by up to 0.04 mm beside the
+raised rear's corner).
