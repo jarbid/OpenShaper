@@ -6,7 +6,32 @@ nose toward +x.
 
 ## Verdict
 
-PLACEHOLDER_VERDICT
+**A — build it, and build it smaller than proposed.** Over fourteen boards and 65 stored
+stations, a conic pair with the tangent point fixed by convention and **one shape number per
+blend** reproduces the rail to a **worst case of 0.23 mm** and a median of 0.02 mm — every
+station inside the project's 0.5 mm, with better than half the tolerance to spare. The free
+four-parameter fit does not beat it, because two of the four parameters are not shape: the
+tangent points sit wherever the optimiser drops them (roughness 0.18 of their range) and the
+answer barely moves when they do — tripling the blend's length changes the worst station from
+0.23 mm to 0.28 mm. The two ρ values *are* shape, and they are laws: ρ of the tuck ramps
+smoothly from about 0.05 at the tail to about 0.5 by mid-board on every one of the eight
+Shape3D boards, with a roughness of 0.029. Storing them as law curves of four or five degrees
+of freedom costs about **0.1 mm**.
+
+Two qualifications, neither fatal, both to be designed for rather than discovered later:
+
+- **4% of stations are outside the model, not badly fitted by it.** Where a section is thin
+  and its apex sits near the bottom — a 24 mm-thick wedge whose bottom half is 2 mm tall — the
+  panel tangent and the vertical apex tangent diverge and *no* conic is tangent to both. 23 of
+  574 dense stations, 18 of them on one board. These need a fallback by convention, not a
+  better fit.
+- **The blend must stay a blend.** It reproduces the rail band — out to 80° of the 90° turn,
+  about 30 mm of arc — and not the panel. Asked to carry 88° it reaches 1.77 mm. The panels
+  are the other half of this architecture and this study does not touch them.
+
+Both open questions came back clearly: **two conics, not one** (one conic is 33× the median
+deviation and puts the widest point up to 7.7 mm off the apex), and **no fifth parameter**
+(the best candidate removes 0.01 mm on average).
 
 ## The model under test
 
@@ -403,4 +428,33 @@ PLACEHOLDER_TAILTABLE
 
 ## Recommendation
 
-PLACEHOLDER_REC
+**Build it, as two laws and a convention, not four laws.**
+
+The model to implement, per side of a station:
+
+- the apex from the outline and the thickness, as now;
+- the tangent points by **convention** — the point where the section's tangent is 70° from
+  vertical, found by walking out from the apex — not stored, not fitted, not a law;
+- **ρ_tuck(x)** and **ρ_rail(x)**, two law curves of four or five control points each, which
+  are what the designer edits;
+- the panels from whatever the bottom-contour and deck-crown model turns out to be — unknown,
+  and the larger half of the work.
+
+Rough size, rails only, with the panels taken as given:
+
+| | |
+| --- | --- |
+| Kernel: conic blend evaluation, tangent-point finder, the two laws in the document | ~500 lines, with tests |
+| Converting an existing board to laws (fit ρ per station, then the law) | ~250 lines; the prototype's fitter is most of it already |
+| The thin-section fallback and its validator issue | ~150 lines |
+| Editor: two law curves in the section pane, which the curve editor already draws | ~300 lines |
+| Golden fixtures and divergence note (`docs/specs/divergences.md`) | a day |
+
+Call it a fortnight for the rail half, on the assumption that the panel half is a separate
+and larger piece. **Do not start it until the panel question is answered**: a rail law that
+blends into a panel nobody has modelled is half a surface, and the 4% of sections the conic
+pair cannot describe are exactly the ones where the panel has to take over.
+
+Before building, two measurements this study did not make are worth a day each: whether a
+surface swept from these laws is smooth **along** the board (everything here is per-station),
+and what the residual does to volume.
