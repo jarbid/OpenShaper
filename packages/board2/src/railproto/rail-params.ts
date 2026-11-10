@@ -70,3 +70,34 @@ export const LAW_PIVOT = 1e-14;
 
 /** The project's section tolerance, cm — what a residual is measured against. */
 export const PROJECT_TOL_CM = 0.05;
+
+// ---------------------------------------------------------------------------
+// The law-swept mockup (`mockup.ts`)
+// ---------------------------------------------------------------------------
+
+/** Stations the mockup fits its two laws on: the study's own dense set. */
+export const MOCKUP_FIT_STATIONS = 41;
+/**
+ * Stations the mockup *sweeps*. Four times the fit set, because the question is what the
+ * surface does **between** the stations a law was fitted at — at 41 rows a ripple of one
+ * period per fit interval is invisible, which is exactly the ripple to look for.
+ */
+export const MOCKUP_SWEEP_STATIONS = 181;
+/** Columns per section half; the apex is the shared middle column, so `2 h + 1` in all. */
+export const MOCKUP_HALF_COLUMNS = 80;
+/**
+ * Exponential bias of the column schedule towards the apex. The blend is some 30 mm of a
+ * 250 mm half, so a uniform ladder would put eight columns on the thing being judged; at
+ * this bias about two fifths of them land in the rail band.
+ */
+export const MOCKUP_COLUMN_BIAS = 3.2;
+/** Degrees of freedom of each law curve: the study's recommendation. */
+export const MOCKUP_LAW_DOF = 5;
+/** Coordinate-descent sweeps and line-search iterations when a law is fitted. */
+export const MOCKUP_LAW_SWEEPS = 2;
+export const MOCKUP_LAW_ITERS = 14;
+/**
+ * Turn angles probed when asking whether a half has a blend at *any* allowed tangent point.
+ * One-degree steps over the 18-degree band, which is finer than the band's own meaning.
+ */
+export const MOCKUP_TURN_PROBES = 18;
