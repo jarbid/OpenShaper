@@ -147,7 +147,9 @@ export const nudgeLateral = (d: FinDesign, dy: number): FinDesign => {
  * The design moved onto another base, placed as that base's fins start: on an FCS single
  * tab, its root centred over the tab; on FCS 1, aligned from the back (the trailing-edge
  * root 20.5 mm behind the rear tab), so a bigger fin overhangs at the
- * front, and a smaller one comes forward to cover the front tab; both with no cant (the plug carries it). On a Futures tab, rear-aligned (the
+ * front, and a smaller one comes forward to cover the front tab; both with no cant (the plug carries it). On a Gbox tab,
+ * the same from the back, its trailing-edge root 13/16" behind the tab, and no cant (the
+ * box carries it). On a Futures tab, rear-aligned (the
  * trailing-edge root on the tab's rear end), its cant kept. On a US box the head follows
  * the leading edge, its rear end fixed at x = 0: the fin starts with its trailing-edge
  * root 25 mm ahead of that rear end; no cant.
@@ -170,9 +172,11 @@ export const placeOnBase = (d: FinDesign, base: FinBase): FinDesign => {
   }
   const rear = baseTrailingRoot(base);
   let dx = rear === null ? tab.length / 2 - (le + te) / 2 : rear - te;
-  // FCS 1: a fin too short for the usual spot comes forward just enough to cover the
-  // front tab (one too short for both tabs can't be placed, and says so).
-  if (base === 'fcs-1' && le + dx < tab.length) dx = Math.min(tab.length - le, -te);
+  // FCS 1 and Gbox: a fin too short for the usual spot comes forward just enough to
+  // cover the (front) tab (one too short for it can't be placed, and says so).
+  if ((base === 'fcs-1' || base === 'gbox') && le + dx < tab.length) {
+    dx = Math.min(tab.length - le, -te);
+  }
   const moved = dx === 0 ? d : shiftOutline(d, dx);
   return { ...moved, base, cant: fcs ? 0 : d.cant };
 };

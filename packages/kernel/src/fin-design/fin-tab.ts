@@ -3,8 +3,9 @@
  * The tab a fin sits on: its base. Two Futures tabs (futures-tab.ts), the FCS single
  * tab that plugs into an FCS 1 style single plug (small canard fins), and the FCS 1
  * base: two such tabs, one for each of the fin's two plugs. FCS II plugs take FCS 1
- * fins too. And the US box head: one long block for a longboard's single-fin box,
- * whose length follows the fin.
+ * fins too. The US box head: one long block for a longboard's single-fin box,
+ * whose length follows the fin. And the legacy Gbox tab: one block with a hole-saw
+ * notch in its underside.
  *
  * All share one frame (cm): x from the base's rear end at 0 toward the nose, y up from
  * the tab bottom to its top at `height` (the blade root plane), extruded `thickness`
@@ -21,7 +22,8 @@ import {
 } from './futures-tab';
 
 /** Which tab the fin sits on. */
-export type FinBase = 'futures-side' | 'futures-centre' | 'fcs-single' | 'fcs-1' | 'us-box';
+export type FinBase =
+  'futures-side' | 'futures-centre' | 'fcs-single' | 'fcs-1' | 'us-box' | 'gbox';
 
 export const FIN_BASES: readonly FinBase[] = [
   'futures-side',
@@ -29,6 +31,7 @@ export const FIN_BASES: readonly FinBase[] = [
   'fcs-single',
   'fcs-1',
   'us-box',
+  'gbox',
 ];
 
 /** What the designer calls each base. */
@@ -38,6 +41,7 @@ export const FIN_BASE_LABEL: Record<FinBase, string> = {
   'fcs-single': 'FCS single',
   'fcs-1': 'FCS 1',
   'us-box': 'US box',
+  gbox: 'Gbox',
 };
 
 /** The Futures tab a base is, or null for one that isn't Futures. */
@@ -94,6 +98,71 @@ export const US_BOX_HEAD = {
   rearRadius: 0.6,
   rearStub: 2.5,
 } as const;
+
+const INCH = 2.54;
+
+/**
+ * The legacy Gbox fin base (cm), from Gbox's drawing "Legacy GBOX FIN BASE Details"
+ * (revision 6, 2026-05-07). The drawing is in inches, millimetres rounded beside them;
+ * the inch figures are used.
+ *
+ * One block 2 7/8" long, 17/32" deep and 1/4" thick. A 7/8" hole saw, centred along the
+ * tab with its centre 1/8" below the bottom, cuts a notch 5/16" up into the underside.
+ * The blade's trailing-edge root sits 13/16" behind the tab's rear end, as drawn. The
+ * box carries the cant, so the fin has none.
+ *
+ * Not modelled: the two screw grooves, cut into the tab's side with a 1/8" flat end mill
+ * 1/16" deep, 7/16" long, 3/16" in from each end and 1/4" above the bottom, for the box's
+ * screws (2 1/8" apart). They are recorded here for the documentation.
+ */
+export const GBOX_TAB = {
+  length: (2 + 7 / 8) * INCH,
+  height: (17 / 32) * INCH,
+  thickness: (1 / 4) * INCH,
+  notchRadius: (7 / 16) * INCH,
+  /** Hole-saw centre, below the tab bottom. */
+  notchCentreBelow: (1 / 8) * INCH,
+  rearBlade: (13 / 16) * INCH,
+  screwSpacing: (2 + 1 / 8) * INCH,
+  grooveLength: (7 / 16) * INCH,
+  grooveFromEnd: (3 / 16) * INCH,
+  grooveAbove: (1 / 4) * INCH,
+  grooveWidth: (1 / 8) * INCH,
+  grooveDepth: (1 / 16) * INCH,
+} as const;
+
+/** How far the Gbox notch reaches up into the tab (cm): 5/16". */
+export const gboxNotchHeight = (): number => GBOX_TAB.notchRadius - GBOX_TAB.notchCentreBelow;
+
+/** The Gbox tab's profile: a block with the hole-saw notch arching up from its bottom. */
+const gboxTab = (): FinTabOutline => {
+  const { length: L, height: H, thickness, notchRadius: r, notchCentreBelow: c } = GBOX_TAB;
+  const mid = L / 2;
+  const half = Math.sqrt(r * r - c * c); // the notch's half-width at the bottom
+  const segments: TabSegment[] = [
+    { kind: 'line', from: vec2(0, 0), to: vec2(mid - half, 0) },
+    {
+      kind: 'arc',
+      from: vec2(mid - half, 0),
+      to: vec2(mid + half, 0),
+      center: vec2(mid, -c),
+      radius: r,
+      ccw: false,
+    },
+    { kind: 'line', from: vec2(mid + half, 0), to: vec2(L, 0) },
+    { kind: 'line', from: vec2(L, 0), to: vec2(L, H) },
+    { kind: 'line', from: vec2(L, H), to: vec2(0, H) },
+    { kind: 'line', from: vec2(0, H), to: vec2(0, 0) },
+  ];
+  return {
+    base: 'gbox',
+    rear: 0,
+    length: L,
+    height: H,
+    thickness,
+    parts: [{ segments, holes: [] }],
+  };
+};
 
 /**
  * A round hole straight down through a tab (along the blade's height), between two of
@@ -163,7 +232,13 @@ const roundedBlock = (x0: number, x1: number, h: number, r: number): TabSegment[
  * is moved onto it, or null where the fin is centred over the tab instead.
  */
 export const baseTrailingRoot = (base: FinBase): number | null =>
-  futuresKind(base) ? 0 : base === 'fcs-1' ? -FCS1_BASE.rearBlade : null;
+  futuresKind(base)
+    ? 0
+    : base === 'fcs-1'
+      ? -FCS1_BASE.rearBlade
+      : base === 'gbox'
+        ? -GBOX_TAB.rearBlade
+        : null;
 
 /**
  * The US box head's length (cm) under a fin whose leading-edge root is at `le`: from its
@@ -235,6 +310,7 @@ export const finTabOutline = (base: FinBase, outline?: Spline): FinTabOutline =>
     const k = outline?.knots;
     return usBoxHead(k && k.length ? k[0]!.end.x : 20 - US_BOX_HEAD.noseAhead);
   }
+  if (base === 'gbox') return gboxTab();
   const kind = futuresKind(base);
   if (kind) {
     const spec = FUTURES_TABS[kind];

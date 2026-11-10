@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-/** The fin's base: Futures tabs and the FCS single tab (fin-tab.ts). */
+/** The fin's base: Futures, FCS, US box and Gbox tabs (fin-tab.ts). */
 import { describe, expect, it } from 'vitest';
 import { splineFromKnots } from '../bezier-spline';
 import { knot } from '../knot';
@@ -15,7 +15,9 @@ import {
   FCS1_BASE,
   FCS_SINGLE_TAB,
   FIN_BASES,
+  GBOX_TAB,
   US_BOX_HEAD,
+  gboxNotchHeight,
   finTabOutline,
   futuresKind,
   usBoxHeadLength,
@@ -59,7 +61,7 @@ describe('finTabOutline', () => {
   });
 
   it('names a Futures kind only for the Futures bases', () => {
-    expect(FIN_BASES.map(futuresKind)).toEqual(['side', 'centre', null, null, null]);
+    expect(FIN_BASES.map(futuresKind)).toEqual(['side', 'centre', null, null, null, null]);
   });
 });
 
@@ -230,6 +232,91 @@ describe('the FCS 1 base', () => {
       }
     }
     expect([...edges.values()].every((n) => n === 2)).toBe(true);
+  });
+});
+
+describe('the Gbox base', () => {
+  const t = finTabOutline('gbox');
+  const segs = t.parts[0]!.segments;
+  const mm = (cm: number) => cm * 10;
+
+  // The drawing's inch figures (millimetres in brackets on it are rounded).
+  it('is one 2 7/8" × 17/32" × 1/4" block', () => {
+    expect(mm(t.length)).toBeCloseTo(73.025, 9);
+    expect(mm(t.height)).toBeCloseTo(13.494, 3);
+    expect(mm(t.thickness)).toBeCloseTo(6.35, 9);
+    expect(t.parts).toHaveLength(1);
+    expect(t.parts[0]!.holes).toEqual([]);
+    expect(t.rear).toBe(0);
+  });
+
+  it('has a 7/8" hole-saw notch, centred, reaching 5/16" up into the underside', () => {
+    const arcs = segs.filter((s) => s.kind === 'arc');
+    expect(arcs).toHaveLength(1);
+    const a = arcs[0]!;
+    if (a.kind !== 'arc') throw new Error('arc expected');
+    expect(mm(a.radius * 2)).toBeCloseTo(22.225, 9);
+    expect(a.center.x).toBeCloseTo(t.length / 2, 12);
+    expect(mm(-a.center.y)).toBeCloseTo(3.175, 9); // 1/8" below the bottom
+    expect(mm(gboxNotchHeight())).toBeCloseTo(7.9375, 9); // 5/16"
+    // Its feet are on the bottom, symmetric about the middle.
+    expect(a.from.y).toBe(0);
+    expect(a.to.y).toBe(0);
+    expect(a.from.x + a.to.x).toBeCloseTo(t.length, 12);
+    expect(a.ccw).toBe(false); // over the top of the circle: material stays above
+  });
+
+  it('is closed, each segment starting where the last ended', () => {
+    segs.forEach((s, i) => expect(s.from).toEqual(segs[(i + segs.length - 1) % segs.length]!.to));
+  });
+
+  it('places a fin from the back: its trailing edge 13/16" behind the tab, no cant', () => {
+    const d = placeOnBase(defaultFinDesign('side', 'left'), 'gbox');
+    const knots = d.outline.knots;
+    expect(mm(-knots[knots.length - 1]!.end.x)).toBeCloseTo(20.6375, 9);
+    expect(d.cant).toBe(0);
+    expect(validateFinDesign(d)).toEqual([]);
+  });
+
+  it('says the box sets the cant', () => {
+    const d = { ...placeOnBase(defaultFinDesign('side', 'left'), 'gbox'), cant: 5 };
+    expect(validateFinDesign(d).map((i) => i.message)).toContain(
+      'In a Gbox the box sets the cant: the fin has none.',
+    );
+  });
+
+  it('brings a fin too short for that forward, just enough to cover the tab', () => {
+    const d = placeOnBase(defaultFinDesign('quad-rear', 'left'), 'gbox');
+    const k = d.outline.knots;
+    // The default quad-rear's base is shorter than the tab plus the 13/16" overhang.
+    expect(k[0]!.end.x - k[k.length - 1]!.end.x).toBeLessThan(t.length + GBOX_TAB.rearBlade);
+    expect(k[0]!.end.x).toBeCloseTo(t.length, 12);
+    expect(validateFinDesign(d)).toEqual([]);
+  });
+
+  it('asks for the tab under the base of a fin too short to cover it', () => {
+    const d = placeOnBase(defaultCanard('left'), 'gbox');
+    expect(validateFinDesign(d).map((i) => i.message)).toContain(
+      'The tab must sit wholly under the fin’s base.',
+    );
+  });
+
+  it('meshes as one closed shell, with nothing in the notch', () => {
+    const m = finMesh(placeOnBase(defaultFinDesign('side', 'left'), 'gbox')).tab;
+    expect(closedAndOriented(m)).toBe(true);
+    const { notchRadius: r, notchCentreBelow: c } = GBOX_TAB;
+    for (let i = 0; i < m.positions.length; i += 3) {
+      const x = m.positions[i]!;
+      expect(x).toBeGreaterThan(-1e-5);
+      expect(x).toBeLessThan(t.length + 1e-5);
+    }
+    // Every vertex is outside the hole saw's circle (or on it), in the tab's own frame.
+    const z0 = Math.min(...Array.from(m.positions).filter((_, i) => i % 3 === 2));
+    for (let i = 0; i < m.positions.length; i += 3) {
+      const dx = m.positions[i]! - t.length / 2;
+      const dz = m.positions[i + 2]! - z0 + c;
+      expect(Math.hypot(dx, dz)).toBeGreaterThan(r - 1e-4);
+    }
   });
 });
 

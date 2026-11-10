@@ -451,6 +451,18 @@ describe('FinApp', () => {
     expect((screen.getByLabelText(/^Cant/) as HTMLInputElement).disabled).toBe(false);
   });
 
+  it('moves a fin onto a Gbox: rear-aligned, cant set by the box', () => {
+    render(<FinApp />);
+    fireEvent.change(screen.getByLabelText('Tab'), { target: { value: 'gbox' } });
+    const d = finStore.getState().design!;
+    expect(d.base).toBe('gbox');
+    expect(d.cant).toBe(0);
+    expect((screen.getByLabelText(/^Cant/) as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByText(/on Gbox \(73\.0 mm × 13\.5 mm\)/)).toBeTruthy();
+    expect(screen.getByLabelText(/^Cant \(box\)/)).toBeTruthy();
+    expect(screen.queryByRole('status')).toBeNull(); // no rule broken
+  });
+
   it('starts a canard on the FCS single tab', () => {
     render(<FinApp />);
     pickNewFin('Canard, right (FCS single)');

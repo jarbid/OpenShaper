@@ -206,6 +206,15 @@ describe('.fin.json versions', () => {
     expect(() => readFinJson(JSON.stringify(tilted))).toThrow(/panel/);
   });
 
+  it('writes a Gbox fin with its base, and reads it back', () => {
+    const d = placeOnBase(defaultFinDesign('side', 'left'), 'gbox');
+    expect(JSON.parse(writeFinJson(d)).base).toBe('gbox');
+    const back = readFinJson(writeFinJson(d)).design;
+    expect(back.base).toBe('gbox');
+    expect(back.cant).toBe(0);
+    expect(back.outline.knots[0]!.end.x).toBeCloseTo(d.outline.knots[0]!.end.x, 12);
+  });
+
   it('writes an FCS 1 fin with its base, and reads it back', () => {
     const d = placeOnBase(defaultFinDesign('side', 'left'), 'fcs-1');
     const doc = JSON.parse(writeFinJson(d));

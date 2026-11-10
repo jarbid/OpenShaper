@@ -814,3 +814,18 @@ OpenFinShaper replaces OpenShaper on its own domain, and the deployed site is no
 alone: `/fin`, its help and `/privacy`, with `/` sent to `/fin`. Fin exports name OpenFinShaper,
 not OpenShaper, as the program that made them. The site has a Content-Security-Policy built from
 hashes of each build's inline scripts. See [openfinshaper-site.md](openfinshaper-site.md).
+
+## Gbox tab (owner request, 2026-11)
+
+A sixth base, `gbox`, from Gbox's "Legacy GBOX FIN BASE Details" drawing (rev. 6, 2026-05-07),
+`GBOX_TAB` in `fin-tab.ts`. The drawing is in inches with rounded millimetres beside them, and the
+inch figures fit together exactly, so they are used. The tab is 2 7/8" × 17/32" × 1/4". A 7/8" hole
+saw, centred 1/8" below the bottom, cuts a notch 5/16" up into the underside (7/16" radius minus
+1/8"), drawn as one arc in the profile, so the mesh and the STEP solid (a cylindrical face) follow
+it with no new geometry code. Fins are rear-aligned, like FCS 1: the trailing-edge root 13/16"
+behind the tab's rear end, the overhang the drawing dimensions; a fin too short for that comes
+forward to cover the tab. The box carries the cant, so the fin has none, as on FCS.
+
+The two screw grooves in the tab's side (1/8" end mill, 1/16" deep) are not modelled: the tab is a
+side profile extruded across its thickness, and a pocket in one face is not something that model
+can hold. They are recorded in `GBOX_TAB` and in the help.

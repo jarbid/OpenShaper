@@ -2,6 +2,8 @@
 import {
   FCS_SINGLE_TAB,
   FCS1_BASE,
+  GBOX_TAB,
+  gboxNotchHeight,
   US_BOX_HEAD,
   FUTURES_TAB_HOLES,
   FIN_BASE_LABEL,
@@ -365,6 +367,19 @@ export default function DocsFinDesigner() {
             the head&apos;s rear end, forward until the head is {mm(US_BOX_HEAD.maxLength)} long. A
             symmetric fin centred on the head has no side to slide to, so there are no left and
             right arrows. No cant, and no toe.
+          </Term>
+          <Term name={FIN_BASE_LABEL.gbox}>
+            The legacy Gbox fin base, from Gbox&apos;s drawing: one 2 7/8&quot; × 17/32&quot; ×
+            1/4&quot; block ({mm(GBOX_TAB.length)} × {mm(GBOX_TAB.height)} ×{' '}
+            {mm(GBOX_TAB.thickness)}). A 7/8&quot; ({mm(GBOX_TAB.notchRadius * 2)}) hole saw,
+            centred along the tab with its centre 1/8&quot; below the bottom, cuts a notch{' '}
+            {mm(gboxNotchHeight())} (5/16&quot;) up into its underside. The box sets the cant, so
+            the fin has none, and the tab must stay wholly under the fin&apos;s base. A fin moved
+            onto it starts with its trailing edge 13/16&quot; ({mm(GBOX_TAB.rearBlade)}) behind the
+            tab&apos;s rear end, as drawn; a fin too short for that comes forward just enough to
+            cover the tab. Not in the exported files: the two screw grooves in the tab&apos;s side
+            (a 1/8&quot; flat end mill, 1/16&quot; deep, 7/16&quot; long, 3/16&quot; in from each
+            end, 1/4&quot; above the bottom). Cut them after printing or machining.
           </Term>
         </Terms>
       </Section>

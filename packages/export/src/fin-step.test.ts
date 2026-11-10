@@ -536,6 +536,46 @@ describe('exportFinStep: FCS 1 base', () => {
   });
 });
 
+describe('exportFinStep: Gbox base', () => {
+  const d = placeOnBase(defaultFinDesign('side', 'left'), 'gbox');
+  const step = exportFinStep(d, { timestamp: FIXED });
+  const m = parse(step);
+  const solids = solidsOf(m);
+  const tab = solids[1]!;
+
+  it('writes the blade and the tab as two solids', () => {
+    expect(solids.map((s) => s.name)).toEqual(['blade', 'tab']);
+    // Two sides, then one face per profile segment: five lines and the notch.
+    expect(tab.faces).toHaveLength(8);
+    const surfaces = tab.faces.map((f) => m.get(refOf(f.args[2]))!.name);
+    expect(surfaces.filter((n) => n === 'CYLINDRICAL_SURFACE')).toHaveLength(1);
+  });
+
+  it('closes the tab, notch and all: each edge used once each way', () => {
+    const uses = new Map<number, boolean[]>();
+    for (const f of tab.faces) {
+      for (const [edge, sense] of allEdgesOf(m, f))
+        uses.set(edge, [...(uses.get(edge) ?? []), sense]);
+    }
+    for (const senses of uses.values()) expect(senses.sort()).toEqual([false, true]);
+  });
+
+  it('winds every flat face counter-clockwise about its outward normal', () => {
+    for (const f of tab.faces) {
+      if (m.get(refOf(f.args[2]))!.name !== 'PLANE') continue;
+      const { normal } = faceNormal(m, f);
+      expect(dotV(newell(loopPolyline(m, f)), normal)).toBeGreaterThan(0);
+    }
+  });
+
+  it('is 2 7/8" long, in mm', () => {
+    const xs = [...step.matchAll(/CARTESIAN_POINT\('',\(([^)]*)\)\)/g)].map((x) =>
+      Number(x[1]!.split(',')[0]),
+    );
+    expect(xs.some((x) => Math.abs(x - 73.025) < 1e-6)).toBe(true);
+  });
+});
+
 describe('exportFinStep: US box head', () => {
   const d = defaultSingleFin();
   const step = exportFinStep(d, { timestamp: FIXED });
