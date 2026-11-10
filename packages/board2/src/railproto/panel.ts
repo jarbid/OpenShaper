@@ -16,7 +16,7 @@ import { conicPolyline, deviation, at } from './rail-geom';
 import type { Conic, Deviation, RealSection } from './rail-geom';
 import type { Half } from './rail-fit';
 import { lawBasis } from './rail-laws';
-import { FWD_NO_BLEND } from './forward';
+import { FWD_NO_BLEND, panelDirection } from './forward';
 
 /** Samples of the panel in an assembled section. */
 export const PANEL_SAMPLES = 160;
@@ -127,9 +127,7 @@ export function panelSamples(s: RealSection, half: Half, u: number, edge: number
   if (edge < 0) return out;
   // tangent extension from the last panel sample to the wall
   const k = half === 'bottom' ? hi : lo;
-  const sign = half === 'bottom' ? 1 : -1;
-  const dy = sign * s.tan[2 * k]!;
-  const dz = sign * s.tan[2 * k + 1]!;
+  const [dy, dz] = panelDirection(s, half, k);
   const y0 = s.pts[2 * k]!;
   const z0 = s.pts[2 * k + 1]!;
   if (dy > 0 && chord > y0) {

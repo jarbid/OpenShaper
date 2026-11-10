@@ -10,7 +10,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { fitForward } from './forward';
+import { FWD_TANGENT_DEG, fitForward } from './forward';
 import type { ForwardFit, HalfForward } from './forward';
 import { allBoards, denseSections } from './rail-samples';
 import { DENSE_STATIONS, PROJECT_TOL_CM } from './rail-params';
@@ -26,13 +26,15 @@ const lite = (f: ForwardFit | null): object | null =>
   f === null
     ? null
     : {
-        turn: f.turn,
-        e: f.e,
+        f: f.f,
+        z1: f.z1,
+        g1: Number.isFinite(f.g1) ? f.g1 : null,
         rho: f.rho,
         max: f.dev.max,
         width: f.width,
         height: f.height,
         edgeDeg: f.edgeDeg,
+        bevel: f.bevel,
       };
 
 study('forward rail model on the dense set', () => {
@@ -42,7 +44,9 @@ study('forward rail model on the dense set', () => {
     lines.push(
       'board | n | tangent: none b/d, max, med | edge: none b/d, max, med | hard edge at apex | edge chosen (bottom/deck) | med edge deg',
     );
+    const only = process.env.TRIM_ONLY ?? '';
     for (const b of allBoards()) {
+      if (only !== '' && !b.name.includes(only)) continue;
       const bs = denseSections(b, DENSE_STATIONS);
       const rows: { x: number; bottom: HalfForward; deck: HalfForward }[] = [];
       for (const s of bs.sections)
@@ -61,7 +65,9 @@ study('forward rail model on the dense set', () => {
       const none = (pick: (h: HalfForward) => ForwardFit | null, half: 'bottom' | 'deck'): number =>
         rows.filter((r) => pick(r[half]) === null).length;
       const chosen = (half: 'bottom' | 'deck'): ForwardFit[] =>
-        rows.map((r) => r[half].best).filter((f): f is ForwardFit => f !== null && f.e > 0);
+        rows
+          .map((r) => r[half].best)
+          .filter((f): f is ForwardFit => f !== null && f.edgeDeg > FWD_TANGENT_DEG);
       const hard = rows.filter((r) => r.bottom.hardEdge).length;
       lines.push(
         [
@@ -102,7 +108,10 @@ study('forward rail model on the dense set', () => {
     const dir = process.env.TRIM_OUT;
     if (dir !== undefined && dir !== '') {
       mkdirSync(dir, { recursive: true });
-      writeFileSync(resolve(dir, 'forward-fits.json'), JSON.stringify(out));
+      writeFileSync(
+        resolve(dir, only === '' ? 'forward-fits.json' : `forward-fits-${only}.json`),
+        JSON.stringify(out),
+      );
     }
   });
 });

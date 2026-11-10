@@ -13,7 +13,6 @@ import { describe, expect, it } from 'vitest';
 import { FWD_NO_BLEND, FWD_RHO_ITERS } from './forward';
 import { assembleHalf, fitPanel, panelAt, panelEdge, panelSamples } from './panel';
 import type { PanelEdge, PanelField, PanelSample } from './panel';
-import { turnIndex } from './rail-geom';
 import type { RealSection } from './rail-geom';
 import type { Half } from './rail-fit';
 import { fitLaw, lawAt } from './rail-laws';
@@ -42,8 +41,8 @@ const E_GRID: readonly number[] = [0, 0.2, 0.4, 0.6, 0.8, 1];
 const HALVES: readonly Half[] = ['bottom', 'deck'];
 
 interface StoredFit {
-  readonly turn: number;
-  readonly e: number;
+  readonly f: number;
+  readonly z1: number;
   readonly rho: number;
   readonly max: number;
   readonly width: number;
@@ -126,12 +125,11 @@ study('trim-and-blend conversion on the dense set', () => {
       const us = secs.map((s) => (s.x - x0) / (x1 - x0));
       // per-station band widths and blend numbers from stage 1
       const per = HALVES.map((half) =>
-        secs.map((s, i) => {
+        secs.map((_, i) => {
           const h = sb.stations[i]![half];
-          const f = h.hardEdge || h.best === null ? -1 : turnIndex(s, half, h.best.turn);
-          return f < 0
-            ? { edge: -1, width: 0, e: 0, rho: 0.5 }
-            : { edge: f, width: h.best!.width, e: h.best!.e, rho: h.best!.rho };
+          return h.hardEdge || h.best === null
+            ? { edge: -1, width: 0, z1: 0, rho: 0.5 }
+            : { edge: h.best.f, width: h.best.width, z1: h.best.z1, rho: h.best.rho };
         }),
       );
       // panels on every grid, and their own residual against the real panel
@@ -166,7 +164,11 @@ study('trim-and-blend conversion on the dense set', () => {
             ...HALVES.map((half, hi) => {
               const p = per[hi]![i]!;
               const pe = panelEdge(s, fields[grid]![hi]!, us[i]!, p.width);
-              return assembleHalf(s, half, pe, p.e, p.rho).dev.max;
+              // stage 1 stored the shoulder's height; turn it into this panel's own edge fraction
+              const zA = s.pts[2 * s.apex + 1]!;
+              const span = zA - pe.g1;
+              const e = Math.abs(span) < 1e-9 ? 0 : Math.min(1, Math.max(0, (p.z1 - pe.g1) / span));
+              return assembleHalf(s, half, pe, e, p.rho).dev.max;
             }),
           ),
         );
@@ -236,5 +238,6 @@ study('trim-and-blend conversion on the dense set', () => {
       lines.push(`ALL laws k=${k} + 16x8 panels: ${share(allC.get(k) ?? [])}`);
     console.log('\n' + lines.join('\n') + '\n');
     writeFileSync(resolve(dir, 'convert.json'), JSON.stringify(dump));
+    writeFileSync(resolve(dir, 'convert.txt'), lines.join('\n') + '\n');
   });
 });
