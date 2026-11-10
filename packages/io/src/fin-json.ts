@@ -128,9 +128,8 @@ const MM_PER_CM = 10;
 const scaleSpline = (s: Spline, fx: (n: number) => number, fy: (n: number) => number): Spline => {
   const p = (v: Vec2) => vec2(fx(v.x), fy(v.y));
   return splineFromKnots(
-    s.knots.map(
-      (k): Knot =>
-        knot(p(k.end), p(k.tangentToPrev), p(k.tangentToNext), k.continuous, k.other, k.lock),
+    s.knots.map((k): Knot =>
+      knot(p(k.end), p(k.tangentToPrev), p(k.tangentToNext), k.continuous, k.other, k.lock),
     ),
   );
 };
@@ -271,7 +270,7 @@ export const readFinJson = (
     return fail(`Not valid JSON: ${(e as Error).message}`);
   }
   if (!isObject(parsed) || parsed.format !== FIN_JSON_FORMAT) {
-    return fail('Not an OpenShaper fin (missing format marker)');
+    return fail('Not an OpenFinShaper fin file (missing format marker)');
   }
   if (!isNumber(parsed.version) || parsed.version > FIN_JSON_VERSION) {
     return fail(

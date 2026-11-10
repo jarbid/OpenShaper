@@ -1,12 +1,13 @@
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { addCspToHeaders, buildCsp, inlineScripts, scriptHash } from './tools/csp';
 import { assertEditorPrecache, rewriteAppShellUrl } from './tools/precache-guard';
 
-const SITE_URL = (process.env.VITE_SITE_URL ?? 'https://openshaper.com').replace(/\/+$/, '');
+const SITE_URL = (process.env.VITE_SITE_URL ?? 'https://openfinshaper.com').replace(/\/+$/, '');
 
 // The Tauri desktop shell loads bundled files over a custom protocol with a
 // relative base and has no service-worker support.
@@ -16,17 +17,12 @@ const OUT_DIR = join(import.meta.dirname, 'dist');
 
 // Kept in sync with SITE_TAGLINE in src/seo/site.ts by hand: that module reads
 // import.meta.env, which isn't available in the config's Node context.
-const SITE_TAGLINE = 'Free, open-source surfboard design software';
+const SITE_TAGLINE = 'Free, open-source surf fin design software';
 
-// Routes worth advertising to crawlers (the editor /app shell is intentionally
-// excluded — it's a noindex hydration shell, not content).
+// Routes worth advertising to crawlers: every page the site has (`/` redirects to /fin).
 const SITEMAP_ROUTES: { path: string; priority: string; changefreq: string }[] = [
-  { path: '/', priority: '1.0', changefreq: 'weekly' },
-  { path: '/surfboard-design-guide', priority: '0.8', changefreq: 'monthly' },
-  { path: '/surfboard-construction-methods', priority: '0.8', changefreq: 'monthly' },
-  { path: '/surfboard-volume-calculator', priority: '0.7', changefreq: 'monthly' },
-  { path: '/build-a-hollow-wooden-surfboard', priority: '0.7', changefreq: 'monthly' },
-  { path: '/about', priority: '0.6', changefreq: 'monthly' },
+  { path: '/fin', priority: '1.0', changefreq: 'weekly' },
+  { path: '/docs/fin-designer', priority: '0.8', changefreq: 'weekly' },
   { path: '/privacy', priority: '0.3', changefreq: 'yearly' },
 ];
 
@@ -41,6 +37,23 @@ function writeSitemap(outDir: string) {
   writeFileSync(join(outDir, 'sitemap.xml'), xml, 'utf8');
 }
 
+/** Every .html file under `dir`. */
+function htmlFiles(dir: string): string[] {
+  return readdirSync(dir, { recursive: true, encoding: 'utf8' })
+    .filter((f) => f.endsWith('.html'))
+    .map((f) => join(dir, f));
+}
+
+/** Add a Content-Security-Policy allowing exactly this build's inline scripts. See tools/csp.ts. */
+function writeCsp(outDir: string) {
+  const hashes = htmlFiles(outDir).flatMap((f) =>
+    inlineScripts(readFileSync(f, 'utf8')).map(scriptHash),
+  );
+  const headersPath = join(outDir, '_headers');
+  const headers = readFileSync(headersPath, 'utf8');
+  writeFileSync(headersPath, addCspToHeaders(headers, buildCsp(hashes)), 'utf8');
+}
+
 export default defineConfig({
   plugins: [
     react(),
@@ -53,20 +66,20 @@ export default defineConfig({
       srcDir: 'src',
       filename: 'sw.ts',
       registerType: 'prompt',
-      injectRegister: null, // registered from the editor only — see UpdatePrompt
+      injectRegister: null, // registered from the designer only — see UpdatePrompt
       devOptions: { enabled: false }, // keep the dev server (and its e2e run) worker-free
       // Registration scope is the origin root so the worker can serve the
-      // offline fallback for marketing navigations. Manifest `scope` is separate.
+      // offline fallback for other navigations. Manifest `scope` is separate.
       scope: '/',
       manifest: {
-        id: '/app',
+        id: '/fin',
         name: 'OpenFinShaper — Surf Fin Design',
         short_name: 'OpenFinShaper',
         description: SITE_TAGLINE,
-        // Installing launches straight into the editor, but scope stays '/' so
+        // Installing launches straight into the designer, but scope stays '/' so
         // the manifest linked from every prerendered page is in-scope for that
-        // page — a narrower scope makes Chrome log a warning on marketing routes.
-        start_url: '/app',
+        // page — a narrower scope makes Chrome log a warning on the others.
+        start_url: '/fin',
         scope: '/',
         display: 'standalone',
         background_color: '#0A1424',
@@ -90,16 +103,14 @@ export default defineConfig({
         ],
       },
       injectManifest: {
-        // An allowlist: nothing is precached unless it is named here. Marketing
-        // HTML and the ~2.7 MB of guide images are excluded by omission.
+        // An allowlist: nothing is precached unless it is named here (the
+        // privacy page, for one, is excluded by omission).
         globPatterns: [
           'assets/**/*.{js,css,woff2}',
-          'app/index.html',
-          // The fin designer's shell: the second offline island, like /app.
+          // The fin designer's shell: the offline island.
           'fin/index.html',
-          // Reference docs ride along: a few KB of HTML, and being unable to read
-          // how a feature works is worst precisely when there's no signal.
-          'docs/index.html',
+          // Its help rides along: a few KB of HTML, and being unable to read how
+          // a feature works is worst precisely when there's no signal.
           'docs/**/index.html',
           'offline.html',
           'static-loader-data-manifest-*.json',
@@ -107,7 +118,7 @@ export default defineConfig({
           'favicon.svg',
           'icons/*.png',
         ],
-        globIgnores: ['**/*.map', 'images/**', 'og-cover.*', 'sitemap.xml', 'robots.txt'],
+        globIgnores: ['**/*.map', 'og-cover.*', 'sitemap.xml', 'robots.txt'],
         // The three.js chunk exceeds the 2 MiB default, and an over-size entry is
         // dropped with only a warning — which would silently break the editor offline.
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
@@ -115,9 +126,9 @@ export default defineConfig({
           (entries) => {
             const manifest = rewriteAppShellUrl(entries);
             // vite-plugin-pwa runs once at closeBundle, before prerendering, when
-            // dist/app/index.html does not exist yet; vite-react-ssg then re-runs
+            // dist/fin/index.html does not exist yet; vite-react-ssg then re-runs
             // it afterwards. Only assert on that second, complete pass.
-            if (existsSync(join(OUT_DIR, 'app/index.html'))) {
+            if (existsSync(join(OUT_DIR, 'fin/index.html'))) {
               assertEditorPrecache(manifest);
             }
             return { manifest, warnings: [] };
@@ -134,7 +145,7 @@ export default defineConfig({
     port: 4173,
     strictPort: true,
   },
-  // Web is served from a domain root (Cloudflare Pages → openshaper.com); the
+  // Web is served from a domain root (Cloudflare → openfinshaper.com); the
   // Tauri desktop shell loads bundled files over a custom protocol and needs a
   // relative base. Tauri v2 sets TAURI_ENV_PLATFORM during its build command.
   base: process.env.TAURI_ENV_PLATFORM ? './' : '/',
@@ -146,6 +157,9 @@ export default defineConfig({
     // `...-undefined.json` (404) behind a fast CDN — a race that passes locally
     // but crashes in production.
     formatting: 'none',
-    onFinished: (outDir: string) => writeSitemap(outDir),
+    onFinished: (outDir: string) => {
+      writeSitemap(outDir);
+      writeCsp(outDir);
+    },
   },
 });

@@ -35,19 +35,20 @@ afterEach(() => {
 const call = (url: string, init?: RequestInit) => worker.fetch(new Request(url, init), env, ctx);
 
 describe('static site passthrough', () => {
-  it.each(['https://openshaper.com/', 'https://openshaper.com/app', 'https://openshaper.com/docs'])(
-    'hands %s to the assets binding, untouched',
-    async (url) => {
-      await call(url);
-      expect(assetsFetch).toHaveBeenCalledOnce();
-      expect(upstream).toBeNull();
-    },
-  );
+  it.each([
+    'https://openfinshaper.com/',
+    'https://openfinshaper.com/fin',
+    'https://openfinshaper.com/docs',
+  ])('hands %s to the assets binding, untouched', async (url) => {
+    await call(url);
+    expect(assetsFetch).toHaveBeenCalledOnce();
+    expect(upstream).toBeNull();
+  });
 
   // The prefix must not swallow a real route that merely starts with the same
   // letters — /edgeboard is a plausible future marketing page.
   it('does not capture paths that merely share the prefix', async () => {
-    await call('https://openshaper.com/edgeboard');
+    await call('https://openfinshaper.com/edgeboard');
     expect(assetsFetch).toHaveBeenCalledOnce();
     expect(upstream).toBeNull();
   });
@@ -55,7 +56,7 @@ describe('static site passthrough', () => {
 
 describe('PostHog proxying', () => {
   it('forwards ingestion to the API host, preserving path and query', async () => {
-    await call('https://openshaper.com/edge/e/?ip=1', { method: 'POST', body: '{}' });
+    await call('https://openfinshaper.com/edge/e/?ip=1', { method: 'POST', body: '{}' });
     expect(assetsFetch).not.toHaveBeenCalled();
     const sent = new URL(upstream!.url);
     expect(sent.hostname).toBe('us.i.posthog.com');
@@ -67,7 +68,7 @@ describe('PostHog proxying', () => {
   // Bundles live on a different upstream host than the ingestion endpoints;
   // sending them to the API host returns 404 and silently breaks replay.
   it('routes /static/ bundles to the asset host', async () => {
-    await call('https://openshaper.com/edge/static/recorder.js');
+    await call('https://openfinshaper.com/edge/static/recorder.js');
     expect(new URL(upstream!.url).hostname).toBe('us-assets.i.posthog.com');
     expect(new URL(upstream!.url).pathname).toBe('/static/recorder.js');
   });
@@ -79,31 +80,45 @@ describe('PostHog proxying', () => {
    * unique visitors collapse to 1.
    */
   it('forwards the real client IP so the cookieless hash stays per-visitor', async () => {
-    await call('https://openshaper.com/edge/e/', {
+    await call('https://openfinshaper.com/edge/e/', {
       headers: { 'CF-Connecting-IP': '203.0.113.9' },
     });
     expect(upstream!.headers.get('X-Forwarded-For')).toBe('203.0.113.9');
   });
 
   it('never forwards our own cookies to the analytics vendor', async () => {
-    await call('https://openshaper.com/edge/e/', {
+    await call('https://openfinshaper.com/edge/e/', {
       headers: { cookie: 'bs.consent=accepted', 'CF-Connecting-IP': '203.0.113.9' },
     });
     expect(upstream!.headers.get('cookie')).toBeNull();
+  });
+
+  // A cached failure would be served to every visitor at that datacentre.
+  it('caches a bundle only when upstream returned it successfully', async () => {
+    const put = vi.fn(async () => undefined);
+    vi.stubGlobal('caches', { default: { match: async () => undefined, put } });
+    vi.stubGlobal('fetch', async () => new Response('gone', { status: 404 }));
+    const missing = await call('https://openfinshaper.com/edge/static/recorder.js');
+    expect(missing.status).toBe(404);
+    expect(put).not.toHaveBeenCalled();
+
+    vi.stubGlobal('fetch', async () => new Response('bundle'));
+    await call('https://openfinshaper.com/edge/static/recorder.js');
+    expect(put).toHaveBeenCalledOnce();
   });
 
   it('serves a cached bundle without a second upstream fetch', async () => {
     vi.stubGlobal('caches', {
       default: { match: async () => new Response('cached'), put: async () => undefined },
     });
-    const res = await call('https://openshaper.com/edge/static/recorder.js');
+    const res = await call('https://openfinshaper.com/edge/static/recorder.js');
     expect(await res.text()).toBe('cached');
     expect(upstream).toBeNull();
   });
 });
 
 /**
- * `http://openshaper.com` served a 200 for months. localStorage is partitioned
+ * `http://openfinshaper.com` served a 200 for months. localStorage is partitioned
  * by origin, so a visitor who landed there got a different bucket from the one
  * holding their analytics consent and was asked to accept or reject all over
  * again — on a device where they had already answered. The same split made the
@@ -114,59 +129,35 @@ describe('canonical origin', () => {
   const scheme = (s: string) => ({ headers: { 'CF-Visitor': JSON.stringify({ scheme: s }) } });
 
   it('sends http to https, keeping the path and query', async () => {
-    const res = await call('http://openshaper.com/docs?a=1', scheme('http'));
+    const res = await call('http://openfinshaper.com/docs?a=1', scheme('http'));
     expect(res.status).toBe(301);
-    expect(res.headers.get('location')).toBe('https://openshaper.com/docs?a=1');
+    expect(res.headers.get('location')).toBe('https://openfinshaper.com/docs?a=1');
     expect(assetsFetch).not.toHaveBeenCalled();
   });
 
   it('sends www to the apex', async () => {
-    const res = await call('https://www.openshaper.com/app', scheme('https'));
+    const res = await call('https://www.openfinshaper.com/fin', scheme('https'));
     expect(res.status).toBe(301);
-    expect(res.headers.get('location')).toBe('https://openshaper.com/app');
+    expect(res.headers.get('location')).toBe('https://openfinshaper.com/fin');
   });
 
   // Cloudflare terminates TLS ahead of the Worker, so request.url can already
   // read https: on a request the visitor made over http. CF-Visitor is the
   // header that still knows.
   it('trusts CF-Visitor over the rewritten request scheme', async () => {
-    const res = await call('https://openshaper.com/', scheme('http'));
+    const res = await call('https://openfinshaper.com/', scheme('http'));
     expect(res.status).toBe(301);
-    expect(res.headers.get('location')).toBe('https://openshaper.com/');
+    expect(res.headers.get('location')).toBe('https://openfinshaper.com/');
   });
 
   it('leaves the canonical origin alone', async () => {
-    await call('https://openshaper.com/app', scheme('https'));
+    await call('https://openfinshaper.com/fin', scheme('https'));
     expect(assetsFetch).toHaveBeenCalledOnce();
   });
 
   // Bouncing a preview deploy at the production domain would make it untestable.
   it('does not redirect preview deploys', async () => {
-    await call('https://openshaper.workers.dev/app');
+    await call('https://openfinshaper.workers.dev/fin');
     expect(assetsFetch).toHaveBeenCalledOnce();
-  });
-});
-
-describe('home page setting (HOME_PATH)', () => {
-  const withHome = { ...env, HOME_PATH: '/fin' };
-  const callWith = (url: string) => worker.fetch(new Request(url), withHome, ctx);
-
-  it('sends the home page to the configured tool, temporarily', async () => {
-    const res = await callWith('https://openfinshaper.example.workers.dev/');
-    expect(res.status).toBe(302);
-    expect(res.headers.get('Location')).toBe('https://openfinshaper.example.workers.dev/fin');
-    expect(assetsFetch).not.toHaveBeenCalled();
-  });
-
-  it('leaves every other path alone, the tool itself included', async () => {
-    for (const path of ['/fin', '/app', '/docs/fin-designer']) {
-      await callWith(`https://openfinshaper.example.workers.dev${path}`);
-    }
-    expect(assetsFetch).toHaveBeenCalledTimes(3);
-  });
-
-  it('serves the home page as usual when unset', async () => {
-    const res = await call('https://openfinshaper.example.workers.dev/');
-    expect(res.status).toBe(200);
   });
 });

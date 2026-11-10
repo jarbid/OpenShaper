@@ -14,7 +14,7 @@ import {
   type BSplineSurface,
   type Vert3,
 } from '@openshaper/kernel';
-import { BRAND_LINE } from './brand';
+import type { Brand } from './brand';
 import { SHEET_UNIT, type SheetUnit } from './construction/units';
 
 // --- Part 21 lexical rules ---
@@ -174,19 +174,25 @@ export const cross = (a: Vert3, b: Vert3): Vert3 => ({
 
 // --- the document ---
 
-export const header = (w: Writer, description: string, name: string, timestamp: string): void => {
+export const header = (
+  w: Writer,
+  description: string,
+  name: string,
+  timestamp: string,
+  brand: Brand,
+): void => {
   w.lines.push(
     'ISO-10303-21;',
     'HEADER;',
     `FILE_DESCRIPTION((${p21(description)}),'2;1');`,
     `FILE_NAME(${p21(name)},${p21(timestamp)},(${p21('')}),(${p21('')}),` +
-      `${p21('OpenShaper')},${p21(BRAND_LINE)},${p21('')});`,
+      `${p21(brand.product)},${p21(brand.line)},${p21('')});`,
     "FILE_SCHEMA(('AUTOMOTIVE_DESIGN { 1 0 10303 214 1 1 1 1 }'));",
     'ENDSEC;',
     // Part 21 comments have no escape syntax, so this one is transliterated to
     // ASCII. The exact brand string still goes out verbatim, escaped, as
     // FILE_NAME's originating_system above.
-    `/* ${BRAND_LINE.replace(/[^\x20-\x7e]/g, '-')} */`,
+    `/* ${brand.line.replace(/[^\x20-\x7e]/g, '-')} */`,
     'DATA;',
   );
 };

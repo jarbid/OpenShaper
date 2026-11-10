@@ -1,4 +1,4 @@
-# Cloudflare Pages serves these from the published site root (apps/web/dist).
+# Cloudflare serves these with the static assets in apps/web/dist (wrangler.toml [assets]).
 
 # Sensible security headers on everything.
 /*
@@ -11,6 +11,10 @@
   # No includeSubDomains: www. is not currently a working host, and forcing
   # https on it would only harden a broken one.
   Strict-Transport-Security: max-age=31536000
+  # Nothing here uses the camera, microphone, location or payment APIs.
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
+  # Content-Security-Policy is added to this block by the build (tools/csp.ts),
+  # because it lists hashes of the prerendered pages' inline scripts.
 
 # Fingerprinted build assets never change — cache them hard.
 /assets/*

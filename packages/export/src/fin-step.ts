@@ -64,6 +64,7 @@ import {
   writerFor,
   type Writer,
 } from './step-writer';
+import { FIN_BRAND } from './brand';
 import { SHEET_UNIT } from './construction/units';
 
 export interface FinStepOptions {
@@ -486,7 +487,7 @@ export const exportFinStep = (d: FinDesign, opts: FinStepOptions = {}): string =
   });
 
   const w = writerFor(unit);
-  header(w, 'Surf fin as B-spline surfaces', `${name}.step`, timestamp);
+  header(w, 'Surf fin as B-spline surfaces', `${name}.step`, timestamp, FIN_BRAND);
   const defShape = productDefinition(w, name);
   const context = unitContext(w, unit);
   const blade = emitBlade(w, model);

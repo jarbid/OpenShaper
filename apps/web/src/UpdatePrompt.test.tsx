@@ -12,6 +12,14 @@ function withServiceWorkerSupport() {
   Object.defineProperty(navigator, 'serviceWorker', { value: {}, configurable: true });
 }
 
+/** A document store stand-in the test can poke: `edit()` notifies every listener. */
+const listeners = new Set<() => void>();
+const subscribe = (l: () => void) => {
+  listeners.add(l);
+  return () => listeners.delete(l);
+};
+const edit = () => listeners.forEach((l) => l());
+
 afterEach(() => {
   resetRegisterSWState();
   Reflect.deleteProperty(navigator, 'serviceWorker');
@@ -21,7 +29,7 @@ afterEach(() => {
 describe('UpdatePrompt', () => {
   it('renders nothing where service workers are unavailable', () => {
     setRegisterSWState({ needRefresh: true });
-    const { container } = render(<UpdatePrompt />);
+    const { container } = render(<UpdatePrompt subscribe={subscribe} />);
     expect(container.innerHTML).toBe('');
   });
 
@@ -33,7 +41,7 @@ describe('UpdatePrompt', () => {
     it('says nothing when the worker finishes its first install', () => {
       vi.useFakeTimers();
       setRegisterSWState({ offlineReady: true, needRefresh: false });
-      const { container } = render(<UpdatePrompt />);
+      const { container } = render(<UpdatePrompt subscribe={subscribe} />);
 
       expect(container.innerHTML).toBe('');
 
@@ -48,7 +56,7 @@ describe('UpdatePrompt', () => {
     it('withholds the update prompt until the editor goes quiet', () => {
       vi.useFakeTimers();
       setRegisterSWState({ needRefresh: true });
-      render(<UpdatePrompt />);
+      render(<UpdatePrompt subscribe={subscribe} />);
 
       expect(screen.queryByRole('alert')).toBeNull();
 
@@ -58,11 +66,31 @@ describe('UpdatePrompt', () => {
       expect(screen.getByRole('alert').textContent).toMatch(/new version is available/i);
     });
 
+    // The gate listens to the document it is given: the fin designer passes its own
+    // store, so its edits (not the unused board store's) hold the prompt back.
+    it('keeps waiting while the document is being edited', () => {
+      vi.useFakeTimers();
+      setRegisterSWState({ needRefresh: true });
+      render(<UpdatePrompt subscribe={subscribe} />);
+
+      act(() => {
+        vi.advanceTimersByTime(15_000);
+        edit();
+        vi.advanceTimersByTime(15_000);
+      });
+      expect(screen.queryByRole('alert')).toBeNull();
+
+      act(() => {
+        vi.advanceTimersByTime(5_000);
+      });
+      expect(screen.getByRole('alert').textContent).toMatch(/new version is available/i);
+    });
+
     it('applies the update only when the user asks for it', () => {
       vi.useFakeTimers();
       const updateServiceWorker = vi.fn(async () => {});
       setRegisterSWState({ needRefresh: true, updateServiceWorker });
-      render(<UpdatePrompt />);
+      render(<UpdatePrompt subscribe={subscribe} />);
 
       act(() => {
         vi.advanceTimersByTime(20_000);
@@ -77,7 +105,7 @@ describe('UpdatePrompt', () => {
     it('can be dismissed', () => {
       vi.useFakeTimers();
       setRegisterSWState({ needRefresh: true });
-      render(<UpdatePrompt />);
+      render(<UpdatePrompt subscribe={subscribe} />);
 
       act(() => {
         vi.advanceTimersByTime(20_000);

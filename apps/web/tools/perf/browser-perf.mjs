@@ -236,7 +236,7 @@ async function dragWideKnot(page, cdp, profile) {
   const releasedAt = await page.evaluate(() => performance.now());
   // Settled = no worker reply for 1 s; report when the last one arrived.
   let settleMs = 0;
-  for (let quiet = 0; quiet < 1000; ) {
+  for (let quiet = 0; quiet < 1000;) {
     const last = await page.evaluate(() => Math.max(0, ...Object.values(window.__perf.lastReply)));
     await page.waitForTimeout(100);
     const now = await page.evaluate(() => Math.max(0, ...Object.values(window.__perf.lastReply)));

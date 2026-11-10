@@ -10,6 +10,7 @@
  */
 import { FIN_MESH_FINE, finMesh, type FinDesign, type FinLaminate } from '@openshaper/kernel';
 import { SHEET_UNIT, type SheetUnit } from './construction/units';
+import { FIN_BRAND } from './brand';
 import { encodeBinaryStl, writeMesh } from './stl';
 
 export interface FinStlOptions {
@@ -36,5 +37,5 @@ export const exportFinStl = (d: FinDesign, opts: FinStlOptions = {}): Uint8Array
   const facets: number[] = [];
   writeMesh(facets, mesh.blade, scale);
   writeMesh(facets, mesh.tab, scale);
-  return encodeBinaryStl(facets, opts.name ?? 'fin');
+  return encodeBinaryStl(facets, opts.name ?? 'fin', FIN_BRAND.product);
 };

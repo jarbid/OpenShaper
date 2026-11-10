@@ -59,8 +59,7 @@ export async function loadFinSession(factory?: IDBFactory): Promise<string | und
     const db = await openDb(f);
     try {
       const rec = (await promisify(objectStore(db, STORE_NAME, 'readonly').get(KEY))) as
-        | Partial<StoredFin>
-        | undefined;
+        Partial<StoredFin> | undefined;
       if (!rec || rec.version !== FIN_SESSION_VERSION || typeof rec.finJson !== 'string') {
         return undefined;
       }

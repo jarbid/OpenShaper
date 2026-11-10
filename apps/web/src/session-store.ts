@@ -78,8 +78,7 @@ export async function loadSession(factory?: IDBFactory): Promise<SessionSnapshot
     const db = await openDb(f);
     try {
       const rec = (await promisify(store(db, 'readonly').get(KEY))) as
-        | Partial<StoredSession>
-        | undefined;
+        Partial<StoredSession> | undefined;
       if (!rec || rec.version !== SESSION_VERSION || typeof rec.boardJson !== 'string') {
         return undefined;
       }

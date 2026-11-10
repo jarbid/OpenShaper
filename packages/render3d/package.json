@@ -28,13 +28,13 @@
   },
   "devDependencies": {
     "@react-three/drei": "^10.7.9",
-    "@react-three/fiber": "^9.8.1",
+    "@react-three/fiber": "^9.8.2",
     "@types/react": "^19.3.0",
     "@types/three": "^0.186.0",
-    "react": "^19.3.0",
+    "react": "^19.3.1",
     "three": "^0.186.1",
     "typescript": "~6.0.3",
-    "vitest": "^5.0.3",
-    "zustand": "^5.0.2"
+    "vitest": "^5.1.0",
+    "zustand": "^5.1.0"
   }
 }

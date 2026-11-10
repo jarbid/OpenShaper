@@ -45,12 +45,10 @@ const SAMPLES: Sample[] = [
   ...readdirSync(fixtures)
     .filter((f) => f.endsWith('.s3dx'))
     .sort()
-    .map(
-      (f): Sample => ({
-        name: `packages/io/src/__fixtures__/${f}`,
-        load: () => parseS3dx(readFileSync(resolve(fixtures, f), 'utf8')).board,
-      }),
-    ),
+    .map((f): Sample => ({
+      name: `packages/io/src/__fixtures__/${f}`,
+      load: () => parseS3dx(readFileSync(resolve(fixtures, f), 'utf8')).board,
+    })),
 ];
 
 /**

@@ -7,28 +7,31 @@
  * ordinary PWA behaviour that users neither ask for nor expect to be told about
  * — announcing it reads as the app doing something unrequested. (The opt-in
  * "work offline" switches in Google Docs and Gmail are about caching a user's
- * *documents*; OpenShaper's boards were already local in IndexedDB, and this
+ * *documents*; designs were already kept locally in IndexedDB, and this
  * worker caches app code only.) Discoverability comes from the browser's own
  * install affordance instead.
  *
- * Mounted from EditorPage so registration only ever happens on /app — see
- * pwa.ts and docs/design/offline.md for why the marketing pages stay
- * network-served.
+ * Mounted from the designer's page (FinPage), so registration only happens there —
+ * see pwa.ts and docs/design/offline.md.
  *
  * The update is never applied on its own. `registerType: 'prompt'` keeps the new
  * worker waiting, and it only activates when the user presses Reload, so a
- * half-finished board is never yanked out from under them. The reload itself is
- * safe regardless: App.tsx flushes the session to IndexedDB on `pagehide`, and
- * loadSession() restores it on the way back.
+ * half-finished design is never yanked out from under them. The prompt waits until
+ * the store passed as `subscribe` has been quiet for a while — the designer passes
+ * its own document store, so the gate hears its edits.
  */
 import { useEffect, useState } from 'react';
 import { Button, Toast } from '@openshaper/ui';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 import { captureError } from './analytics';
 import { canUseServiceWorker, createIdleGate } from './pwa';
-import { boardStore } from './store';
 
-export function UpdatePrompt() {
+export interface UpdatePromptProps {
+  /** Subscribe to the document being edited; the prompt waits until it goes quiet. */
+  subscribe: (listener: () => void) => () => void;
+}
+
+export function UpdatePrompt({ subscribe }: UpdatePromptProps) {
   const supported = canUseServiceWorker();
 
   const {
@@ -52,9 +55,9 @@ export function UpdatePrompt() {
   useEffect(() => {
     if (!needRefresh) return;
     setSettled(false);
-    const gate = createIdleGate({ subscribe: (cb) => boardStore.subscribe(cb) });
+    const gate = createIdleGate({ subscribe });
     return gate.onSettled(() => setSettled(true));
-  }, [needRefresh]);
+  }, [needRefresh, subscribe]);
 
   if (!supported) return null;
 

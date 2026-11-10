@@ -174,8 +174,7 @@ describe('initAnalytics consent gating', () => {
     const { posthog, initAnalytics } = await load();
     initAnalytics();
     const config = vi.mocked(posthog.init).mock.calls[0]?.[1] as
-      | { cookieless_mode?: string; persistence?: string }
-      | undefined;
+      { cookieless_mode?: string; persistence?: string } | undefined;
     expect(config?.cookieless_mode).toBe('on_reject');
     // The bug this replaced: memory persistence left no id, so every page load
     // counted as a fresh person *and* a fresh session.
@@ -192,8 +191,7 @@ describe('initAnalytics consent gating', () => {
     const { posthog, initAnalytics } = await load();
     initAnalytics();
     const config = vi.mocked(posthog.init).mock.calls[0]?.[1] as
-      | { respect_dnt?: boolean }
-      | undefined;
+      { respect_dnt?: boolean } | undefined;
     expect(config?.respect_dnt).toBeUndefined();
   });
 
@@ -208,8 +206,7 @@ describe('initAnalytics consent gating', () => {
     const { posthog, initAnalytics } = await load();
     initAnalytics();
     const config = vi.mocked(posthog.init).mock.calls[0]?.[1] as
-      | { capture_pageview?: boolean | string }
-      | undefined;
+      { capture_pageview?: boolean | string } | undefined;
     expect(config?.capture_pageview).toBe('history_change');
   });
 });

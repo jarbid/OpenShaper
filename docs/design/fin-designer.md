@@ -807,3 +807,10 @@ face across the blade, as it does the last, flat along the root and following th
 it. The STEP surface was not affected: it is fitted to level cuts, with a flat cap at the root. The
 first row is also set exactly on the tab top along the root (it strayed by up to 0.04 mm beside the
 raised rear's corner).
+
+## openfinshaper.com (owner request, 2026-11)
+
+OpenFinShaper replaces OpenShaper on its own domain, and the deployed site is now the designer
+alone: `/fin`, its help and `/privacy`, with `/` sent to `/fin`. Fin exports name OpenFinShaper,
+not OpenShaper, as the program that made them. The site has a Content-Security-Policy built from
+hashes of each build's inline scripts. See [openfinshaper-site.md](openfinshaper-site.md).

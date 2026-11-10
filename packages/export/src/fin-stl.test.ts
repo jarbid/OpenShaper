@@ -74,7 +74,7 @@ describe.each([
 
   it('writes both shells, every triangle', () => {
     expect(stl.count).toBe((mesh.blade.indices.length + mesh.tab.indices.length) / 3);
-    expect(stl.header.startsWith('OpenShaper STL test fin')).toBe(true);
+    expect(stl.header.startsWith('OpenFinShaper STL test fin')).toBe(true);
     expect(stl.header.startsWith('solid')).toBe(false); // would read as ASCII
   });
 

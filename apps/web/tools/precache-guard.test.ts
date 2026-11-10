@@ -10,7 +10,6 @@ import {
 /** A manifest shaped like a real, correct build. */
 function validManifest(): PrecacheEntry[] {
   return [
-    { url: 'app', revision: 'abc' },
     { url: 'fin', revision: 'fin0' },
     { url: 'offline.html', revision: 'def' },
     { url: 'static-loader-data-manifest-8zwffmvx8g.json', revision: null },
@@ -19,15 +18,13 @@ function validManifest(): PrecacheEntry[] {
     { url: 'assets/app-BN5.css', revision: null, size: 48_000 },
     { url: 'assets/index-CCE.js', revision: null, size: 852_000 },
     { url: 'assets/app-BzR.js', revision: null, size: 500_000 },
-    { url: 'assets/App-Cpg.js', revision: null, size: 356_000 },
-    { url: 'assets/specs-worker-DKz.js', revision: null, size: 16_000 },
-    { url: 'assets/tessellate.worker-DYN.js', revision: null, size: 16_000 },
-    { url: 'assets/EditorPage-DQk.js', revision: null, size: 2_000 },
+    { url: 'assets/FinApp-Cpg.js', revision: null, size: 356_000 },
+    { url: 'assets/fin-mesh.worker-DKz.js', revision: null, size: 16_000 },
+    { url: 'assets/FinPreview3D-DYN.js', revision: null, size: 16_000 },
+    { url: 'assets/FinPage-DQk.js', revision: null, size: 2_000 },
     { url: 'icons/icon-192.png', revision: 'mno', size: 6_000 },
     // Post-rewrite form: the guard runs after rewriteAppShellUrl in vite.config.ts.
-    { url: 'docs', revision: 'd0' },
-    { url: 'docs/editing', revision: 'd1' },
-    { url: 'docs/shortcuts', revision: 'd2' },
+    { url: 'docs/fin-designer', revision: 'd0' },
   ];
 }
 
@@ -41,19 +38,11 @@ const messageOf = (run: () => void): string => {
 };
 
 describe('rewriteAppShellUrl', () => {
-  it("maps the prerendered shell to the canonical '/app' URL", () => {
-    const out = rewriteAppShellUrl([{ url: 'app/index.html', revision: 'x' }]);
-    expect(out).toEqual([{ url: 'app', revision: 'x' }]);
-  });
-
   // Without this, docs are cached under a URL nobody navigates to and the offline
   // page shows instead — cached, but unreachable.
   it('maps docs pages to their canonical no-trailing-slash URLs', () => {
-    const out = rewriteAppShellUrl([
-      { url: 'docs/index.html', revision: 'a' },
-      { url: 'docs/fins/index.html', revision: 'b' },
-    ]);
-    expect(out.map((e) => e.url)).toEqual(['docs', 'docs/fins']);
+    const out = rewriteAppShellUrl([{ url: 'docs/fin-designer/index.html', revision: 'a' }]);
+    expect(out.map((e) => e.url)).toEqual(['docs/fin-designer']);
   });
 
   it("maps the fin designer's shell to the canonical '/fin' URL", () => {
@@ -63,16 +52,16 @@ describe('rewriteAppShellUrl', () => {
 
   it('leaves every other entry untouched', () => {
     const entries = [
-      { url: 'about/index.html', revision: 'a' },
+      { url: 'privacy/index.html', revision: 'a' },
       { url: 'assets/app-BzR.js', revision: null },
     ];
     expect(rewriteAppShellUrl(entries)).toEqual(entries);
   });
 
   it('does not mutate the input array', () => {
-    const entries: PrecacheEntry[] = [{ url: 'app/index.html', revision: 'x' }];
+    const entries: PrecacheEntry[] = [{ url: 'fin/index.html', revision: 'x' }];
     rewriteAppShellUrl(entries);
-    expect(entries.map((e) => e.url)).toEqual(['app/index.html']);
+    expect(entries.map((e) => e.url)).toEqual(['fin/index.html']);
   });
 });
 
@@ -92,15 +81,12 @@ describe('assertEditorPrecache', () => {
     );
   });
 
-  it('rejects a manifest whose app shell was never rewritten', () => {
-    const entries = validManifest().filter((e) => e.url !== 'app');
-    entries.push({ url: 'app/index.html', revision: 'x' });
-    expect(messageOf(() => assertEditorPrecache(entries))).toMatch(/was not rewritten/);
-  });
-
-  it('rejects a missing editor shell', () => {
-    const entries = validManifest().filter((e) => e.url !== 'app');
-    expect(messageOf(() => assertEditorPrecache(entries))).toMatch(/missing the editor shell/);
+  // openfinshaper.com serves the fin designer alone: none of the board editor.
+  it('rejects the board editor, its shell or its code', () => {
+    const shell = [...validManifest(), { url: 'app', revision: 'a' }];
+    expect(messageOf(() => assertEditorPrecache(shell))).toMatch(/no other page.*app/);
+    const code = [...validManifest(), { url: 'assets/EditorPage-DQk.js', revision: null }];
+    expect(messageOf(() => assertEditorPrecache(code))).toMatch(/board editor must not ship/);
   });
 
   it('rejects a missing offline fallback', () => {
@@ -123,26 +109,14 @@ describe('assertEditorPrecache', () => {
     expect(messageOf(() => assertEditorPrecache(entries))).toMatch(/matched nothing/);
   });
 
-  it('rejects precached marketing HTML', () => {
-    const entries = [...validManifest(), { url: 'about/index.html', revision: 'a' }];
-    expect(messageOf(() => assertEditorPrecache(entries))).toMatch(/marketing HTML/);
-  });
-
-  // Docs are the one exception: they're precached deliberately so they're
-  // readable in a workshop with no signal.
-  it('accepts precached docs pages', () => {
-    const entries = [...validManifest(), { url: 'docs/fins', revision: 'd' }];
-    expect(() => assertEditorPrecache(entries)).not.toThrow();
+  it('rejects any other precached page', () => {
+    const entries = [...validManifest(), { url: 'privacy/index.html', revision: 'a' }];
+    expect(messageOf(() => assertEditorPrecache(entries))).toMatch(/no other page/);
   });
 
   it('rejects a docs glob that matched nothing', () => {
     const entries = validManifest().filter((e) => !e.url.startsWith('docs/'));
     expect(messageOf(() => assertEditorPrecache(entries))).toMatch(/docs glob/);
-  });
-
-  it('rejects precached guide images', () => {
-    const entries = [...validManifest(), { url: 'images/guides/rocker.webp', revision: 'a' }];
-    expect(messageOf(() => assertEditorPrecache(entries))).toMatch(/guide images/);
   });
 
   it('rejects raster assets outside icons/', () => {
@@ -164,7 +138,7 @@ describe('assertEditorPrecache', () => {
       caught = err;
     }
     expect(caught).toBeInstanceOf(PrecacheGuardError);
-    expect((caught as Error).message).toMatch(/missing the editor shell/);
+    expect((caught as Error).message).toMatch(/missing the fin designer shell/);
     expect((caught as Error).message).toMatch(/offline\.html/);
   });
 });

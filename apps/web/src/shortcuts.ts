@@ -171,15 +171,13 @@ export const SHORTCUTS: readonly Shortcut[] = [
     group: 'OpenFinShaper',
     match: { keys: ['arrowright'], notInField: true },
   },
-  ...VIEW_KEYS.map(
-    ({ key, label }): Shortcut => ({
-      id: `view-${key}`,
-      keys: key,
-      label,
-      group: 'View',
-      match: { keys: [key], notInField: true },
-    }),
-  ),
+  ...VIEW_KEYS.map(({ key, label }): Shortcut => ({
+    id: `view-${key}`,
+    keys: key,
+    label,
+    group: 'View',
+    match: { keys: [key], notInField: true },
+  })),
 ];
 
 /** Look up a shortcut's display chord, for tooltips. Throws on an unknown id. */

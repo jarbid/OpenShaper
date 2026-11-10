@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /// <reference lib="webworker" />
 /**
- * OpenShaper service worker — offline support for the `/app` editor and the `/fin`
- * fin designer only.
+ * OpenFinShaper service worker — offline support for the `/fin` fin designer and its
+ * help only.
  *
  * Navigation model (the reason this is a hand-written `injectManifest` worker
  * rather than a generated one):
  *
- *  1. `/app`, `/fin` and their variants are served from the precache, so the editor
- *     and the fin designer open with no network at all.
+ *  1. `/fin` and its variants are served from the precache, so the designer opens
+ *     with no network at all; so is its help page.
  *  2. Every other navigation is `NetworkOnly` — online it behaves exactly as if
  *     no service worker existed: real HTML, and real 404s for unknown paths
  *     (the site has no SPA catch-all by design). Only a network *failure* falls
@@ -16,10 +16,9 @@
  *
  * workbox's generated `navigateFallback` cannot express this: it uses
  * `createHandlerBoundToURL`, which is cache-only, so pointing it at the offline
- * page would serve that page to marketing routes *even when online*.
+ * page would serve that page to every other route *even when online*.
  *
- * Nothing marketing-related is ever cached, so stale marketing HTML is
- * structurally impossible.
+ * No other page is ever cached, so stale HTML is structurally impossible.
  */
 import { clientsClaim } from 'workbox-core';
 import { createHandlerBoundToURL, matchPrecache, precacheAndRoute } from 'workbox-precaching';
@@ -31,19 +30,15 @@ import { NetworkOnly } from 'workbox-strategies';
 const sw = self as unknown as ServiceWorkerGlobalScope;
 
 const OFFLINE_URL = '/offline.html';
-/** Each offline island: its precached shell, and the paths it answers (never /apple). */
-const SHELLS: readonly { url: string; path: RegExp }[] = [
-  { url: '/app', path: /^\/app(?:\/|$)/ },
-  { url: '/fin', path: /^\/fin(?:\/|$)/ },
-];
+/** Each offline island: its precached shell, and the paths it answers (never /finish). */
+const SHELLS: readonly { url: string; path: RegExp }[] = [{ url: '/fin', path: /^\/fin(?:\/|$)/ }];
 
 // NOTE: this must stay spelled `self.__WB_MANIFEST` verbatim — workbox injects
 // the precache list by string-replacing that exact token in the built worker, so
 // routing it through the `sw` alias above makes the build fail.
 precacheAndRoute((self as unknown as ServiceWorkerGlobalScope).__WB_MANIFEST);
 
-// Editor and fin designer navigations → their precached shells. A bare `/app` or
-// `/fin` is already served by the precache route registered above; this covers the
+// Designer navigations → its precached shell. A bare `/fin` is already served by the precache route registered above; this covers the
 // trailing-slash and query-string variants.
 for (const shell of SHELLS) {
   registerRoute(
@@ -76,5 +71,5 @@ sw.addEventListener('message', (event) => {
 
 // Safe with skipWaiting disabled: an updated worker only activates after the
 // user accepts, so claiming can never hand an old page new assets. On first
-// install it makes /app and /fin offline-capable without needing a second visit.
+// install it makes /fin offline-capable without needing a second visit.
 clientsClaim();

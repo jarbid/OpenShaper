@@ -1,6 +1,5 @@
 import type { RouteRecord } from 'vite-react-ssg';
 import { FinHelpLayout } from './layouts/FinHelpLayout';
-import { MarketingLayout } from './layouts/MarketingLayout';
 import { RootLayout } from './layouts/RootLayout';
 import { RouteErrorBoundary } from './RouteErrorBoundary';
 
@@ -15,17 +14,21 @@ const page = (importer: () => Promise<{ default: React.ComponentType }>) => asyn
 });
 
 /**
- * Route table consumed by vite-react-ssg.
+ * Route table consumed by vite-react-ssg: the OpenFinShaper site, and nothing else.
  *
  * - `RootLayout` is a pathless wrapper around every route below — it's the one
  *   site-wide mount point for analytics init and the consent banner.
- * - `/`, `/about`, `/privacy`, and the two guide pillars share the marketing
- *   layout and are fully prerendered to static HTML for SEO.
- * - `/app` is the editor: a client-only island (see EditorPage) prerendered as a
- *   lightweight, `noindex` hydration shell.
- * - `errorElement` sits on both the root and `/app`: an error in the root's own
+ * - `/fin` is the fin designer: a client-only island (see FinPage) prerendered as a
+ *   lightweight hydration shell. `/` redirects to it (public/_redirects, with
+ *   pages/Home as the fallback).
+ * - `/docs/fin-designer` (help) and `/privacy` share the bare FinHelpLayout, which
+ *   leads only back to the designer.
+ * - `errorElement` sits on both the root and `/fin`: an error in the root's own
  *   (vite-react-ssg synthetic) loader bubbles to its own boundary, not a child's,
- *   so the editor needs its own to keep failures scoped.
+ *   so the designer needs its own to keep failures scoped.
+ *
+ * The board editor's pages (EditorPage, the board docs) are still in the source tree
+ * but unrouted, so the build neither prerenders nor bundles them.
  */
 export const routes: RouteRecord[] = [
   {
@@ -33,63 +36,24 @@ export const routes: RouteRecord[] = [
     entry: 'src/layouts/RootLayout.tsx',
     errorElement: <RouteErrorBoundary />,
     children: [
+      // `/` → `/fin` (public/_redirects); this page is the fallback where that file isn't honoured.
+      { index: true, lazy: page(() => import('./pages/Home')) },
       {
-        path: '/',
-        element: <MarketingLayout />,
-        entry: 'src/layouts/MarketingLayout.tsx',
-        children: [
-          { index: true, lazy: page(() => import('./pages/Landing')) },
-          { path: 'about', lazy: page(() => import('./pages/About')) },
-          { path: 'privacy', lazy: page(() => import('./pages/Privacy')) },
-          {
-            path: 'surfboard-design-guide',
-            lazy: page(() => import('./pages/SurfboardDesignGuide')),
-          },
-          {
-            path: 'surfboard-construction-methods',
-            lazy: page(() => import('./pages/SurfboardConstructionMethods')),
-          },
-          {
-            path: 'surfboard-volume-calculator',
-            lazy: page(() => import('./pages/SurfboardVolumeCalculator')),
-          },
-          {
-            path: 'build-a-hollow-wooden-surfboard',
-            lazy: page(() => import('./pages/HollowWoodenSurfboard')),
-          },
-          // Reference documentation for the editor. Shares the marketing layout
-          // (and so the marketing chrome), but unlike the guide pillars above it
-          // is precached by the service worker so it stays readable offline —
-          // see docs/design/offline.md.
-          { path: 'docs', lazy: page(() => import('./pages/docs/Overview')) },
-          { path: 'docs/editing', lazy: page(() => import('./pages/docs/Editing')) },
-          { path: 'docs/specs', lazy: page(() => import('./pages/docs/Specs')) },
-          { path: 'docs/fins', lazy: page(() => import('./pages/docs/Fins')) },
-          { path: 'docs/construction', lazy: page(() => import('./pages/docs/Construction')) },
-          { path: 'docs/export', lazy: page(() => import('./pages/docs/Export')) },
-          { path: 'docs/files', lazy: page(() => import('./pages/docs/Files')) },
-          { path: 'docs/offline', lazy: page(() => import('./pages/docs/Offline')) },
-          { path: 'docs/shortcuts', lazy: page(() => import('./pages/docs/Shortcuts')) },
-        ],
-      },
-      {
-        path: 'app',
-        lazy: page(() => import('./pages/EditorPage')),
+        path: 'fin',
+        lazy: page(() => import('./pages/FinPage')),
         errorElement: <RouteErrorBoundary />,
       },
       {
-        // The fin designer's help: documentation, but in a bare frame that leads only
-        // back to the designer (FinHelpLayout), not the site's marketing chrome.
         path: 'docs/fin-designer',
         element: <FinHelpLayout />,
         entry: 'src/layouts/FinHelpLayout.tsx',
         children: [{ index: true, lazy: page(() => import('./pages/docs/FinDesigner')) }],
       },
       {
-        // The fin designer: a second client-only island, offline like /app.
-        path: 'fin',
-        lazy: page(() => import('./pages/FinPage')),
-        errorElement: <RouteErrorBoundary />,
+        path: 'privacy',
+        element: <FinHelpLayout />,
+        entry: 'src/layouts/FinHelpLayout.tsx',
+        children: [{ index: true, lazy: page(() => import('./pages/Privacy')) }],
       },
     ],
   },

@@ -150,7 +150,7 @@ const DIRECT_API_HOST = 'https://us.i.posthog.com';
  * page is actually on.
  *
  * `VITE_POSTHOG_HOST` is set in a hosting dashboard, so it is naturally written
- * as one absolute URL — `https://openshaper.com/edge`. That silently stops being
+ * as one absolute URL — `https://openfinshaper.com/edge`. That silently stops being
  * same-origin the moment the page is served from anywhere else: `http://`, a
  * `www.` host, a preview deploy. posthog-js then makes a cross-origin request
  * the browser rejects on CORS grounds, and the visit is simply never recorded —

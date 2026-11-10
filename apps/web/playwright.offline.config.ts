@@ -11,9 +11,8 @@ const BASE_URL = `http://localhost:${PORT}`;
  * `devOptions.enabled` is deliberately false so the fast dev loop and the main
  * e2e suite stay worker-free). So this config builds and serves `dist`.
  *
- * It serves via tools/serve-dist.mjs rather than `vite preview`, which does not
- * reproduce Cloudflare's `drop-trailing-slash` (it returns the landing page for
- * `/app`) and answers unknown paths with 200 instead of 404.
+ * It serves via tools/serve-dist.mjs rather than `vite preview`, which answers
+ * unknown paths with 200 instead of 404 and ignores `_headers` and `_redirects`.
  *
  * Run with: pnpm --filter @openshaper/web e2e:offline
  */

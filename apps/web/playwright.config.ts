@@ -4,11 +4,8 @@ const PORT = 5173;
 const BASE_URL = `http://localhost:${PORT}`;
 
 /**
- * E2E config for the OpenShaper web app.
- *
- * The editor is free and needs no auth: every export (STEP/STL/DXF/PDF +
- * native save) is available to everyone. Specs cover the marketing/content
- * routes and the editor at /app.
+ * E2E config for the OpenFinShaper site: the fin designer at /fin and its help page.
+ * Free, no auth: every export is available to everyone.
  */
 export default defineConfig({
   testDir: './e2e',

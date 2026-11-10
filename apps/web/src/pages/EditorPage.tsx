@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { ClientOnly } from 'vite-react-ssg';
 import { Seo } from '../seo/Seo';
+import { boardStore } from '../store';
 import { UpdatePrompt } from '../UpdatePrompt';
 
 // The editor pulls in the canvas editors, three.js and the board store — all of
@@ -23,7 +24,7 @@ export default function EditorPage() {
             {/* Outside <Suspense> so service-worker registration starts immediately
                 rather than waiting on the editor chunk — and so the update toast
                 still shows if that chunk fails to load. */}
-            <UpdatePrompt />
+            <UpdatePrompt subscribe={boardStore.subscribe} />
             <Suspense
               fallback={
                 <div className="flex h-full items-center justify-center text-sm text-muted-foreground">

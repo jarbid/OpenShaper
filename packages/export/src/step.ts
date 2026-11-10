@@ -71,6 +71,7 @@ import {
   type Vert3,
 } from '@openshaper/kernel';
 import type { SheetUnit } from './construction/units';
+import { BOARD_BRAND } from './brand';
 import {
   cross,
   direction,
@@ -194,7 +195,7 @@ export const exportStep = (board: BezierBoard, opts: StepOptions = {}): string =
   });
 
   const w = writerFor(unit);
-  header(w, 'Surfboard hull as B-spline surfaces', `${name}.step`, timestamp);
+  header(w, 'Surfboard hull as B-spline surfaces', `${name}.step`, timestamp, BOARD_BRAND);
 
   // --- product / context chain ---
   const defShape = productDefinition(w, name);

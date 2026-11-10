@@ -11,6 +11,7 @@ import {
   type BezierBoard,
   type BoardMesh,
 } from '@openshaper/kernel';
+import { BOARD_BRAND } from './brand';
 
 /** Options for {@link exportStl}. */
 export interface StlOptions {
@@ -194,16 +195,20 @@ const stlFacets = (board: BezierBoard, opts: StlOptions): number[] => {
  * readers take as the mark of an ASCII file.
  */
 export const exportStl = (board: BezierBoard, opts: StlOptions = {}): Uint8Array =>
-  encodeBinaryStl(stlFacets(board, opts), opts.name ?? 'openshaper');
+  encodeBinaryStl(stlFacets(board, opts), opts.name ?? 'openshaper', BOARD_BRAND.product);
 
 /**
  * Facets (12 numbers each: normal, then three vertices) as a binary STL, named in the
  * header. Shared by the board and fin exporters.
  */
-export const encodeBinaryStl = (facets: readonly number[], name: string): Uint8Array => {
+export const encodeBinaryStl = (
+  facets: readonly number[],
+  name: string,
+  product: string,
+): Uint8Array => {
   const count = facets.length / 12;
   const bytes = new Uint8Array(84 + count * 50);
-  const header = `OpenShaper STL ${name}`.slice(0, 80);
+  const header = `${product} STL ${name}`.slice(0, 80);
   for (let i = 0; i < header.length; i++) bytes[i] = header.charCodeAt(i) & 0x7f;
   const view = new DataView(bytes.buffer);
   view.setUint32(80, count, true);

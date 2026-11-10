@@ -658,6 +658,11 @@ export default function DocsFinDesigner() {
           </Term>
         </Terms>
         <p>Export is unavailable while the fin has a problem; the status bar lists it.</p>
+        <p>
+          Exported files are made on your device; nothing is uploaded. Each names OpenFinShaper as
+          the program that made it, in the STEP file&apos;s header and the STL file&apos;s 80-byte
+          title. See <Link to="/privacy">Privacy</Link> for what the site itself measures.
+        </p>
       </Section>
     </DocsPage>
   );

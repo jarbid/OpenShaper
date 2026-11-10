@@ -21,14 +21,22 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^22.10.0",
-    "@vitest/coverage-v8": "^5.0.3",
-    "eslint": "^10.12.0",
+    "@types/node": "^22.20.5",
+    "@vitest/coverage-v8": "^5.1.0",
+    "eslint": "^10.14.0",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "globals": "^17.13.0",
-    "prettier": "^3.4.2",
-    "turbo": "^2.3.3",
+    "globals": "^17.14.0",
+    "prettier": "^3.9.10",
+    "turbo": "^2.11.10",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.71.0"
+    "typescript-eslint": "^8.72.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "dompurify": "^3.4.17",
+      "vite": "^8.3.7",
+      "form-data@4": "^4.0.6",
+      "fflate@0.6": "^0.6.11"
+    }
   }
 }

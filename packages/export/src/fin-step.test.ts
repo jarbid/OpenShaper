@@ -288,6 +288,12 @@ describe.each(designs)('exportFinStep(%s)', (_, d) => {
       expect(exportFinStep(d, { timestamp: FIXED })).toBe(step);
     });
 
+    // A fin file credits OpenFinShaper, not the board editor it was forked from.
+    it('names OpenFinShaper as the originating system', () => {
+      expect(step).toMatch(/FILE_NAME\(.*'OpenFinShaper','Made with OpenFinShaper/);
+      expect(step).not.toMatch(/openshaper\.com|'OpenShaper'/);
+    });
+
     it('holds two solids, blade and tab, in one shape', () => {
       expect(solids.map((s) => s.name)).toEqual(['blade', 'tab']);
       expect(solids[0]!.faces).toHaveLength(3);

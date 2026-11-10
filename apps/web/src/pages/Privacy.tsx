@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { Button } from '@openshaper/ui';
-import { ArticleHero, Container, CtaBand } from '../components/content';
+import { ArticleHero, Container } from '../components/content';
 import { Seo } from '../seo/Seo';
 import { getConsent, setConsent, subscribeConsent } from '../consent';
 import { downgradeFromFullTracking, upgradeToFullTracking } from '../analytics';
@@ -64,29 +64,28 @@ export default function Privacy() {
         <div className="prose-shaper reveal">
           <h2>Anonymous by default</h2>
           <p>
-            Every visitor starts here, and it never changes unless you say so. Nothing is stored in
-            your browser — no cookies, no localStorage, no id following you around. To count visits
-            without storing anything, our analytics provider works out a temporary identifier on its
-            own servers; it resets daily and can&apos;t be traced back to you. We only see:
-            anonymous pageviews, a handful of feature-usage events (loading a starter template,
-            saving, exporting a board, and copying a share link), and lightweight UX health signals
-            (page load speed, rapid frustrated clicks, clicks on things that don&apos;t respond).
-            Sharing is counted and nothing more: the link, the board inside it and its board info
-            never leave your browser, and the board is removed from the address bar before analytics
-            starts. We also get a report when something breaks — a crash, or a part of the app that
-            failed to load — so it can be fixed; that report is the error message and the line of
-            our own code it came from, never anything from a board you opened. It never leaves this
-            anonymous mode on its own.
+            Every visitor starts here, and it never changes unless you say so. Nothing that tracks
+            you is stored in your browser — no analytics cookie, no id following you around. To
+            count visits without storing anything, our analytics provider works out a temporary
+            identifier on its own servers; it resets daily and can&apos;t be traced back to you. We
+            only see: anonymous pageviews, whether the designer was opened as an installed app or in
+            a browser tab, and lightweight UX health signals (page load speed, rapid frustrated
+            clicks, clicks on things that don&apos;t respond). Your fin designs never leave your
+            browser: they are kept on this device, and exported files are made on this device too.
+            We also get a report when something breaks — a crash, or a part of the app that failed
+            to load — so it can be fixed; that report is the error message and the line of our own
+            code it came from, never anything from a fin you drew. It never leaves this anonymous
+            mode on its own.
           </p>
 
           <h2>Full tracking, only if you accept</h2>
           <p>
             If you accept via the banner (or the button below), your browser gets a persistent id (a
             cookie, so we can recognize you across visits), full click/interaction tracking, and
-            session replay so we can see how people actually use the editor. This is genuinely more
-            data — worth being upfront about. Session replay masks form input values by default; a
-            few known plain-text fields (like an imported file&apos;s name) are masked explicitly
-            too.
+            session replay so we can see how people actually use the designer. This is genuinely
+            more data — worth being upfront about. Session replay masks form input values by
+            default; a few known plain-text fields (like an imported file&apos;s name) are masked
+            explicitly too.
           </p>
           <p>
             Accepting is also the only way you&apos;ll ever be asked a question here — an occasional
@@ -120,12 +119,6 @@ export default function Privacy() {
 
         <TrackingControls />
       </Container>
-
-      <CtaBand
-        heading="Build your own board"
-        body="Open the app and start shaping — then take it to foam, foil or timber."
-      />
-      <div className="h-20" />
     </>
   );
 }

@@ -1,5 +1,10 @@
 # Offline support (`/app` and `/fin` only)
 
+> **openfinshaper.com (2026-11):** the site now serves only the fin designer, so `/fin` and its help
+> (`/docs/fin-designer`) are the only things precached. Where this note talks about `/app`, read it
+> as the board editor's history; the same mechanisms (precache route, URL rewrite, NetworkOnly
+> fallthrough) now serve `/fin`. See [openfinshaper-site.md](openfinshaper-site.md).
+
 OpenShaper is a static, client-side SPA, and the editor already needs no network:
 board state lives in IndexedDB (`session-store.ts`, `trace-store.ts`), settings in
 localStorage, the starter templates are inlined into JS via `?raw`, and every

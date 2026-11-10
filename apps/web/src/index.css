@@ -7,8 +7,7 @@
    editor has to render correctly with no network at all, and a render-blocking
    cross-origin stylesheet also stalls first paint on the flaky workshop
    connections this app is built for. Vite emits the woff2 into assets/, where
-   the service worker precaches it. The two display faces used only by the
-   marketing pages are still loaded from Google, from MarketingLayout. */
+   the service worker precaches it. */
 @import '@fontsource-variable/instrument-sans';
 
 /* Scan the design-system package for utility classes used by its components. */

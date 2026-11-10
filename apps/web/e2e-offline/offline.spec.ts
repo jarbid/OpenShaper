@@ -1,19 +1,19 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test';
-import { openSection } from '../e2e/helpers';
 
 /**
- * Offline behaviour of the /app editor.
+ * Offline behaviour of the /fin designer, on the production build as Cloudflare
+ * serves it — including `_headers`, so every spec here also runs under the real
+ * Content-Security-Policy (tools/serve-dist.mjs).
  *
- * The product rule these specs encode: the editor works with no network, and
- * everything else keeps working exactly as if there were no service worker —
- * real pages online, a branded fallback offline, nothing marketing-related ever
+ * The product rule these specs encode: the designer and its help work with no
+ * network, and everything else keeps working exactly as if there were no service
+ * worker — real pages online, a branded fallback offline, no other page ever
  * cached. See docs/design/offline.md.
  *
- * These use the canonical `/app` (no trailing slash), which is what Cloudflare
- * serves and what the precache is keyed on — tools/serve-dist.mjs reproduces
- * that behaviour so the specs exercise the real URL.
+ * These use the canonical `/fin` (no trailing slash), which is what Cloudflare
+ * serves and what the precache is keyed on.
  */
-const APP = '/app';
+const FIN = '/fin';
 
 function trackErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -26,144 +26,90 @@ function trackErrors(page: Page): string[] {
   return errors;
 }
 
-/** Load the editor and wait until the worker controls the page and the precache is populated. */
+/** Load the designer and wait until the worker controls the page and the precache is populated. */
 async function warmServiceWorker(page: Page) {
-  await page.goto(APP);
+  await page.goto(FIN);
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.waitForFunction(() => !!navigator.serviceWorker.controller);
   await page.waitForFunction(async () => {
     const key = (await caches.keys()).find((n) => n.includes('precache'));
     if (!key) return false;
-    return (await (await caches.open(key)).keys()).length > 20;
+    return (await (await caches.open(key)).keys()).length > 10;
   });
 }
 
-test.describe('offline editor', () => {
-  test('the editor still loads and computes with the network cut', async ({ page, context }) => {
+/** The designer has drawn and measured the default fin: the kernel ran. */
+async function expectDesignerWorking(page: Page) {
+  await expect(page.getByRole('heading', { name: 'OpenFinShaper' })).toBeVisible();
+  await expect(page.getByRole('img', { name: 'Profile' })).toBeVisible();
+  await expect(page.getByLabel('Fin measurements')).toContainText('mm²');
+  await expect(page.getByText(/Unexpected Application Error/i)).toHaveCount(0);
+}
+
+test.describe('the production site', () => {
+  // The CSP lists hashes of this build's inline scripts. A wrong hash (or a new
+  // inline script) blocks it, which shows up as a console error, not a test failure,
+  // unless something listens.
+  test('the designer runs under the Content-Security-Policy, with nothing blocked', async ({
+    page,
+  }) => {
+    const errors = trackErrors(page);
+    const response = await page.goto(FIN);
+    expect(response?.headers()['content-security-policy']).toMatch(/script-src 'self' 'sha256-/);
+    await expectDesignerWorking(page);
+    expect(errors.filter((e) => /Content Security Policy/i.test(e))).toEqual([]);
+    expect(errors).toEqual([]);
+  });
+
+  test('the home page goes to the designer', async ({ page }) => {
+    await page.goto('/');
+    await expect(page).toHaveURL(/\/fin$/);
+  });
+
+  // openfinshaper.com is the fin designer alone: the board editor and the
+  // surfboard pages it was forked from are not part of the site.
+  test('none of the board editor or its pages are served', async ({ request }) => {
+    for (const path of ['/app', '/about', '/docs', '/docs/fins', '/surfboard-design-guide']) {
+      expect((await request.get(path)).status(), path).toBe(404);
+    }
+  });
+});
+
+test.describe('offline designer', () => {
+  test('the designer still loads and computes with the network cut', async ({ page, context }) => {
     await warmServiceWorker(page);
     const errors = trackErrors(page);
 
     await context.setOffline(true);
     await page.reload();
 
-    // The live spec readouts only appear once the board is parsed and the specs
-    // worker has answered — so this asserts the whole offline path, not just HTML.
-    await expect(page.getByText(/Length/i).first()).toBeVisible();
-    await expect(page.getByText(/Volume/i).first()).toBeVisible();
-    await expect(page.getByText(/Unexpected Application Error/i)).toHaveCount(0);
+    await expectDesignerWorking(page);
     expect(errors).toEqual([]);
   });
 
-  // The fin designer is the second offline island (sw.ts SHELLS): warmed by the
-  // editor's install, it must open cold with the network cut, never having been
-  // visited online.
-  test('the fin designer opens with the network cut', async ({ page, context }) => {
-    await warmServiceWorker(page);
-    const errors = trackErrors(page);
-
-    await context.setOffline(true);
-    await page.goto('/fin');
-
-    await expect(page.getByRole('heading', { name: 'OpenFinShaper' })).toBeVisible();
-    await expect(page.getByRole('img', { name: 'Profile' })).toBeVisible();
-    // Readouts mean the kernel ran: the default fin's area, in mm².
-    await expect(page.getByLabel('Fin measurements')).toContainText('mm²');
-    await expect(page.getByText(/Unexpected Application Error/i)).toHaveCount(0);
-    expect(errors).toEqual([]);
-  });
-
-  // Docs are precached deliberately: being unable to read how a feature works is
+  // Help is precached deliberately: being unable to read how a feature works is
   // worst precisely when there's no signal. This also pins the URL rewrite —
-  // they're emitted as docs/fins/index.html but navigated to as /docs/fins, and
-  // without the rewrite they'd be cached under a key nobody ever requests.
-  test('reference docs are readable offline', async ({ page, context }) => {
+  // it's emitted as docs/fin-designer/index.html but navigated to as
+  // /docs/fin-designer, and without the rewrite it'd be cached under a key nobody
+  // ever requests.
+  test('the help page is readable offline', async ({ page, context }) => {
     await warmServiceWorker(page);
     await context.setOffline(true);
 
     const fresh = await context.newPage();
-    await fresh.goto('/docs/fins').catch(() => {});
-    await expect(fresh.getByRole('heading', { level: 1 })).toContainText(/Fins/i);
-
-    await fresh.goto('/docs/shortcuts').catch(() => {});
-    await expect(fresh.getByRole('heading', { level: 1 })).toContainText(/shortcuts/i);
+    await fresh.goto('/docs/fin-designer').catch(() => {});
+    await expect(fresh.getByRole('heading', { level: 1 })).toContainText(/OpenFinShaper help/);
   });
 
-  /**
-   * The strongest claim the share feature makes, stated as a test: the link
-   * *is* the board. Nothing is fetched to open one, so a cached editor can
-   * open a shared design with the network cut entirely.
-   */
-  test('a shared link opens with no network at all', async ({ page, context }) => {
-    await warmServiceWorker(page);
-    await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-
-    // Make a link while still online — only the editor itself needs the network.
-    await page.getByRole('button', { name: 'Share board' }).click();
-    await page.getByLabel('Board model').fill('Offline Fish');
-    await expect(page.getByText(/Link size:/)).toBeVisible();
-    await page.getByRole('button', { name: 'Copy link' }).click();
-    const link = await page.evaluate(() => navigator.clipboard.readText());
-    expect(link).toContain('/app#board=v1.');
-
-    // The confirm path needs work to lose. Autosave is debounced (800 ms after
-    // load), and with everything precached the steps above can finish first,
-    // in which case the new tab finds no session and, correctly, opens the link
-    // without asking. Wait for the snapshot so the test is not a race.
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () =>
-            new Promise<boolean>((resolve) => {
-              const req = indexedDB.open('bs.session');
-              req.onerror = () => resolve(false);
-              req.onsuccess = () => {
-                const db = req.result;
-                const done = (found: boolean) => {
-                  db.close();
-                  resolve(found);
-                };
-                if (!db.objectStoreNames.contains('session')) return done(false);
-                const get = db.transaction('session').objectStore('session').get('current');
-                get.onsuccess = () => done(!!get.result);
-                get.onerror = () => done(false);
-              };
-            }),
-        ),
-      )
-      .toBe(true);
-
-    await context.setOffline(true);
-
-    const fresh = await context.newPage();
-    const errors = trackErrors(fresh);
-    await fresh.goto(link).catch(() => {
-      /* offline navigations may reject even when the SW answers */
-    });
-
-    // This tab shares the context's IndexedDB, so the warm page's autosaved
-    // session (waited for above) is there — which makes this the confirm path, exercised
-    // with no network. Asserted rather than skipped past: if the prompt ever
-    // stops appearing, that is a precedence regression worth failing on.
-    await expect(fresh.getByText('Open shared board?')).toBeVisible();
-    await fresh.getByRole('button', { name: 'Open shared board' }).click();
-
-    await expect(fresh.getByText(/Shared board opened as an editable copy/)).toBeVisible();
-    // Board info is a collapsed sidebar section: open it the way a user does.
-    await openSection(fresh, 'Board info');
-    await expect(fresh.getByLabel(/^model$/i)).toHaveValue('Offline Fish');
-    await expect(fresh.getByText(/Unexpected Application Error/i)).toHaveCount(0);
-    expect(errors).toEqual([]);
-  });
-
-  test('marketing routes fall back to the branded offline page', async ({ page, context }) => {
+  test('other pages fall back to the branded offline page', async ({ page, context }) => {
     await warmServiceWorker(page);
     await context.setOffline(true);
 
     // A cold document navigation in a fresh tab is what exercises the worker's
-    // catch handler; navigating inside the already-loaded editor is handled by
+    // catch handler; navigating inside the already-loaded designer is handled by
     // the client router from precached chunks instead.
     const fresh = await context.newPage();
-    await fresh.goto('/about').catch(() => {
+    await fresh.goto('/privacy').catch(() => {
       /* offline navigations may reject even when the SW answers */
     });
 
@@ -175,25 +121,25 @@ test.describe('offline editor', () => {
     );
   });
 
-  test('marketing routes serve real content when online', async ({ page, context }) => {
+  test('other pages serve real content when online', async ({ page, context }) => {
     await warmServiceWorker(page);
     await context.setOffline(false);
 
     // Guards the classic navigateFallback bug, where the worker serves a cached
     // shell to routes it should have left alone.
-    await page.goto('/about');
-    await expect(page.getByRole('heading', { level: 1 })).toContainText(/building things/i);
+    await page.goto('/privacy');
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/What we track/i);
     await expect(page.getByText(/You're offline/i)).toHaveCount(0);
   });
 
-  test('unknown paths still 404 rather than being served the editor shell', async ({
+  test('unknown paths still 404 rather than being served the designer shell', async ({
     page,
     context,
   }) => {
     await warmServiceWorker(page);
 
     // The site has no SPA catch-all: a too-broad navigation route in the worker
-    // would silently turn every 404 into the editor.
+    // would silently turn every 404 into the designer.
     const online = await page.goto('/nope');
     expect(online?.status()).toBe(404);
 
@@ -203,7 +149,7 @@ test.describe('offline editor', () => {
     await expect(fresh).toHaveTitle(/Offline/i);
   });
 
-  test('only the editor is cached — no marketing HTML or guide images', async ({ page }) => {
+  test('only the designer and its help are cached', async ({ page }) => {
     await warmServiceWorker(page);
 
     const cached = await page.evaluate(async () => {
@@ -216,12 +162,9 @@ test.describe('offline editor', () => {
       return paths;
     });
 
-    expect(cached).toContain('/app');
+    expect(cached).toContain('/fin');
+    expect(cached).toContain('/docs/fin-designer');
     expect(cached).toContain('/offline.html');
-    expect(cached.filter((p) => p.startsWith('/images/'))).toEqual([]);
-    expect(cached.filter((p) => /^\/(about|privacy|surfboard-|build-a-)/.test(p))).toEqual([]);
-    // Both module workers must be precached or the editor loses live specs / 3D offline.
-    expect(cached.some((p) => /specs-worker/.test(p))).toBe(true);
-    expect(cached.some((p) => /tessellate\.worker/.test(p))).toBe(true);
+    expect(cached.filter((p) => /^\/(privacy|app)/.test(p))).toEqual([]);
   });
 });

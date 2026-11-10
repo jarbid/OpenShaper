@@ -2,14 +2,14 @@
 /**
  * Route-level error screen.
  *
- * Wired as `errorElement` on the root and `/app` records in routes.tsx. It
+ * Wired as `errorElement` on the root and `/fin` records in routes.tsx. It
  * catches two distinct failures that both used to surface as react-router's
  * bare "Unexpected Application Error":
  *
  *  - a route loader throwing — vite-react-ssg wraps every route in a synthetic
  *    loader that fetches its static-loader-data manifest on client-side
  *    navigation, which fails with no network;
- *  - a rejected `React.lazy` import — `EditorPage` → `App` → `@openshaper/render3d`
+ *  - a rejected `React.lazy` import — `FinPage` → `FinApp` → the 3D preview
  *    are all code-split, and a failed dynamic import is never retried.
  *
  * Deliberately dependency-free: no lazy imports, no store, no icons package, so
@@ -48,7 +48,7 @@ export function RouteErrorBoundary() {
         <h1 className="text-xl font-semibold tracking-tight">Something didn't load</h1>
         <p className="mt-2 text-sm text-muted-foreground">
           You may be offline, or the app was updated while this page was open. Reloading usually
-          fixes it — your saved board is kept on this device.
+          fixes it — your saved design is kept on this device.
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-3">
           <button
@@ -59,10 +59,10 @@ export function RouteErrorBoundary() {
             Reload
           </button>
           <a
-            href="/app"
+            href="/fin"
             className="rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-accent"
           >
-            Open the design app
+            Open OpenFinShaper
           </a>
         </div>
         {detail ? (

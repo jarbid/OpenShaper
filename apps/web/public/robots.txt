@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://openshaper.com/sitemap.xml
+Sitemap: https://openfinshaper.com/sitemap.xml

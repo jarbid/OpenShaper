@@ -67,7 +67,7 @@ import {
   writeFinSettings,
   type FinSettings,
 } from './fin-settings';
-import { GITHUB_URL } from '../seo/site';
+import { UPSTREAM_URL } from '../seo/site';
 import { shortcutKeys } from '../shortcuts';
 import { FinOutlinePane } from './FinOutlinePane';
 import { FinSectionPane, FinSectionTools } from './FinSectionPane';
@@ -839,7 +839,7 @@ function Status({ units, minThickness }: { units: LengthUnit; minThickness: numb
         {/* Credit where it's due: a fork of OpenShaper (GPL), at the bottom (owner review). */}
         <a
           className="text-xs text-muted-foreground underline-offset-4 hover:underline"
-          href={GITHUB_URL}
+          href={UPSTREAM_URL}
           target="_blank"
           rel="noreferrer"
         >
