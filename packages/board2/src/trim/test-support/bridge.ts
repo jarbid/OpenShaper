@@ -15,10 +15,11 @@ import { createChordFn } from '../../probe';
 import { FWD_NO_BLEND, fitForward } from '../../railproto/forward';
 import type { ForwardFit, HalfForward } from '../../railproto/forward';
 import { at as sectionPoint, realSection } from '../../railproto/rail-geom';
+import type { RealSection } from '../../railproto/rail-geom';
 import { MIN_CHORD, MIN_THICKNESS } from '../../railproto/rail-params';
 import { createEvaluator } from '../../surface';
 import type { BuiltBoard, SurfaceEvaluator } from '../../surface';
-import type { Chain, Section } from '../../types';
+import type { Chain } from '../../types';
 import { buildLoop } from '../loop';
 import type { Loop, LoopPiece } from '../loop';
 import { railLaws } from '../rails';
@@ -218,14 +219,8 @@ function pickBottom(h: HalfForward): ForwardFit | null {
 }
 
 /** The rail at one stored station: both blends fitted forward, in the kernel's own terms. */
-function keyAt(
-  section: Section,
-  x: number,
-  chord: number,
-  thickness: number,
-  cosPhi: number,
-): RailKey {
-  const s = realSection(section, x, chord, thickness);
+export function keyAt(s: RealSection, cosPhi: number): RailKey {
+  const x = s.x;
   const zA = sectionPoint(s, s.apex)[1];
   const fb = fitForward(s, 'bottom');
   const fd = fitForward(s, 'deck');
@@ -266,9 +261,18 @@ export function railKeys(built: BuiltBoard, side: 'plus' | 'minus'): RailKey[] {
     const thickness = d[0]! - r[0]!;
     if (thickness < MIN_THICKNESS || chord < MIN_CHORD) continue;
     const slope = (chordOf(st.x + 0.5) - chordOf(st.x - 0.5)) / 1;
-    keys.push(keyAt(section, st.x, chord, thickness, 1 / Math.hypot(1, slope)));
+    keys.push(keyAt(realSection(section, st.x, chord, thickness), 1 / Math.hypot(1, slope)));
   }
   return keys;
+}
+
+/** One rail key at each of `sections`, which are the plus side as built: for asking how many keys a board needs. */
+export function railKeysAt(built: BuiltBoard, sections: readonly RealSection[]): RailKey[] {
+  const chordOf = createChordFn(built.doc);
+  return sections.map((s) => {
+    const slope = (chordOf(s.x + 0.5) - chordOf(s.x - 0.5)) / 1;
+    return keyAt(s, 1 / Math.hypot(1, slope));
+  });
 }
 
 /** Monotone cubic through `(xs, ys)`, held flat outside. */
