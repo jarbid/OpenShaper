@@ -44,8 +44,8 @@ const HALVES: readonly Half[] = ['bottom', 'deck'];
  * within {@link WIDE_TOL}, so the blend carries the rail's whole turn and the panel is left
  * smooth.
  */
-type Rule = 'tight' | 'wide';
-const RULES: readonly Rule[] = ['tight', 'wide'];
+type Rule = 'tight' | 'wide' | 'mixed';
+const RULES: readonly Rule[] = ['tight', 'wide', 'mixed'];
 /** The blend's own share of the 0.5 mm budget under the `wide` rule, cm. */
 const WIDE_TOL = 0.02;
 /** Width of the zone at the band edge that the panel residual is reported for separately, cm. */
@@ -72,9 +72,11 @@ interface StoredBoard {
   }[];
 }
 
-function pick(h: StoredHalf, rule: Rule): StoredFit | null {
+function pick(h: StoredHalf, rule: Rule, half: Half): StoredFit | null {
   if (h.hardEdge || h.best === null) return null;
-  if (rule === 'tight') return h.best;
+  // `mixed`: the bottom turns in its last centimetre or two, so its band is the whole tuck;
+  // the deck turns across the whole dome, so its band stays the narrow one
+  if (rule === 'tight' || (rule === 'mixed' && half === 'deck')) return h.best;
   let wide: StoredFit | null = null;
   for (const c of h.cands) {
     if (c.max <= WIDE_TOL && (wide === null || c.width > wide.width)) wide = c;
@@ -151,7 +153,7 @@ study('trim-and-blend conversion on the dense set', () => {
       for (const rule of RULES) {
         const per = HALVES.map((half) =>
           secs.map((_, i) => {
-            const p = pick(sb.stations[i]![half], rule);
+            const p = pick(sb.stations[i]![half], rule, half);
             return p === null
               ? { edge: -1, width: 0, z1: 0, rho: 0.5 }
               : { edge: p.f, width: p.width, z1: p.z1, rho: p.rho };
@@ -224,8 +226,8 @@ study('trim-and-blend conversion on the dense set', () => {
             cols.join('  |  '),
           ].join(' | '),
         );
-        if (!withLaws || rule !== 'wide') continue;
-        // laws on the wide rule: band width first, then edge and shape refitted at the law's width
+        if (!withLaws || rule !== 'mixed') continue;
+        // laws on the mixed rule: band width first, then edge and shape refitted at the law's width
         for (const k of LAW_DOFS) {
           const stationC = new Array<number>(secs.length).fill(0);
           const laws: object[] = [];

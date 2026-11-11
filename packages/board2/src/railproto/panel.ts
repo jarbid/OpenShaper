@@ -12,7 +12,7 @@
  * "overbuilt" part: it gives the blend a tangent to leave from and keeps the fit well posed
  * where the rail has replaced the data.
  */
-import { conicPolyline, deviation, at } from './rail-geom';
+import { at, conicPolyline, nearestExact } from './rail-geom';
 import type { Conic, Deviation, RealSection } from './rail-geom';
 import type { Half } from './rail-fit';
 import { lawBasis } from './rail-laws';
@@ -139,10 +139,42 @@ export function panelSamples(s: RealSection, half: Half, u: number, edge: number
   return out;
 }
 
+/**
+ * Two-sided deviation between section samples `lo..hi` and a model polyline, by the exact
+ * scan. The rail study's fast scan is coarse-to-fine and is pinned only for arcs sampled
+ * evenly by arc length; an assembled half is coarse on the panel and fine on the rail, and
+ * on it the fast scan over-reads by up to ten times. It can only ever over-read, so the
+ * study's own numbers stand as upper bounds; here the exact scan is the only honest one.
+ */
+function exactDeviation(s: RealSection, lo: number, hi: number, model: Float64Array): Deviation {
+  const real = s.pts.subarray(2 * lo, 2 * hi + 2);
+  let max = 0;
+  let sum = 0;
+  let worstAt = -1;
+  for (let i = lo; i <= hi; i++) {
+    const d = nearestExact(model, s.pts[2 * i]!, s.pts[2 * i + 1]!);
+    sum += d * d;
+    if (d > max) {
+      max = d;
+      worstAt = i;
+    }
+  }
+  for (let k = 0; 2 * k + 1 < model.length; k++) {
+    const d = nearestExact(real, model[2 * k]!, model[2 * k + 1]!);
+    if (d > max) {
+      max = d;
+      worstAt = -1;
+    }
+  }
+  return { max, rms: Math.sqrt(sum / (hi - lo + 1)), worstAt };
+}
+
 export interface Assembled {
   readonly dev: Deviation;
   /** The blend had to fall back to a straight bevel: the panel's tangent overshoots the apex. */
   readonly bevel: boolean;
+  /** The assembled half as `[y, z, …]`, in the section's own direction. */
+  readonly model: Float64Array;
 }
 
 /** The panel part of an assembled half: fixed once the band width is, whatever the blend does. */
@@ -204,7 +236,7 @@ export function assembleHalf(
   if (half === 'bottom') {
     model.set(panel, 0);
     model.set(rail, panel.length);
-    return { dev: deviation(s, 0, s.apex, model), bevel };
+    return { dev: exactDeviation(s, 0, s.apex, model), bevel, model };
   }
   // deck: apex -> band edge -> stringer, the section's own direction
   const nr = rail.length / 2;
@@ -216,5 +248,5 @@ export function assembleHalf(
     model[rail.length + 2 * i] = panel[2 * (PANEL_SAMPLES - i)]!;
     model[rail.length + 2 * i + 1] = panel[2 * (PANEL_SAMPLES - i) + 1]!;
   }
-  return { dev: deviation(s, s.apex, s.count - 1, model), bevel };
+  return { dev: exactDeviation(s, s.apex, s.count - 1, model), bevel, model };
 }
