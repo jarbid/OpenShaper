@@ -255,6 +255,24 @@ export const importedOutline = (d: FinDesign, outline: Spline): FinDesign => {
 };
 
 /**
+ * `d` with its profile scaled by `k` about `about` (the tab frame, cm), evenly in both
+ * directions: every point and handle moves `k` times its distance from `about`. With
+ * `about` on the tab top (y = 0) the base stays on it. Only the profile changes: the
+ * thickness, the foils (by chord) and every height kept as a fraction scale with it or
+ * don't need to.
+ */
+export const scaledOutline = (d: FinDesign, k: number, about: Vec2): FinDesign => {
+  if (k === 1) return d;
+  const f = (p: Vec2) => vec2(about.x + (p.x - about.x) * k, about.y + (p.y - about.y) * k);
+  const outline = splineFromKnots(
+    d.outline.knots.map((kn) =>
+      knot(f(kn.end), f(kn.tangentToPrev), f(kn.tangentToNext), kn.continuous, kn.other),
+    ),
+  );
+  return { ...d, outline };
+};
+
+/**
  * A new control section at `height` (the fraction of the way to the tip line), starting
  * as the foil on its row (kernel smoothFoilAt), so the blade doesn't change until it is edited
  * (owner's rules). Its height is clamped into the room between its neighbours

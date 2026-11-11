@@ -794,3 +794,83 @@ describe('fin store: control sections as rows', () => {
     expect(design(s).slices[0]!.section).toBe(sl.section);
   });
 });
+
+describe('fin store: scaling the profile', () => {
+  const rearRoot = (d: FinDesign) => d.outline.knots[d.outline.knots.length - 1]!.end;
+  const top = (d: FinDesign) => Math.max(...d.outline.knots.map((k) => k.end.y));
+
+  it('scales every point evenly about a point on the tab top, keeping the base on it', () => {
+    const s = storeWith(defaultFinDesign('centre'));
+    const before = design(s);
+    const about = vec2(rearRoot(before).x, 0);
+    expect(s.getState().scaleOutline(0.8, about)).toBe(true);
+    const after = design(s);
+    after.outline.knots.forEach((k, i) => {
+      const b = before.outline.knots[i]!;
+      expect(k.end.x).toBeCloseTo(about.x + (b.end.x - about.x) * 0.8, 12);
+      expect(k.end.y).toBeCloseTo(b.end.y * 0.8, 12);
+      expect(k.tangentToNext.y).toBeCloseTo(b.tangentToNext.y * 0.8, 12);
+    });
+    expect(rearRoot(after).x).toBe(rearRoot(before).x);
+    expect(rearRoot(after).y).toBeCloseTo(0, 12);
+    expect(after.outline.knots[0]!.end.y).toBeCloseTo(0, 12);
+    // Only the profile: the thickness and the foils are as they were.
+    expect(after.taper).toBe(before.taper);
+    expect(after.section).toBe(before.section);
+  });
+
+  it('scales from where a drag began, so moves never compound, as one undo step', () => {
+    const s = storeWith(defaultFinDesign('centre'));
+    const before = design(s);
+    const about = vec2(rearRoot(before).x, 0);
+    s.getState().beginEdit('Scale fin');
+    s.getState().scaleOutline(0.9, about);
+    s.getState().scaleOutline(0.7, about);
+    s.getState().scaleOutline(0.8, about);
+    s.getState().endEdit();
+    expect(top(design(s))).toBeCloseTo(top(before) * 0.8, 9);
+    expect(s.getState().past.at(-1)!.label).toBe('Scale fin');
+    s.getState().undo();
+    expect(design(s)).toBe(before);
+  });
+
+  it('stops growing where the leading edge reaches the front-overhang limit', () => {
+    const s = storeWith(defaultFinDesign('side', 'left'));
+    const before = design(s);
+    s.getState().scaleOutline(2, vec2(rearRoot(before).x, 0));
+    const le = design(s).outline.knots[0]!.end.x;
+    expect(le).toBeGreaterThan(before.outline.knots[0]!.end.x);
+    expect(validateFinDesign(design(s))).toEqual([]);
+    expect(top(design(s))).toBeLessThan(top(before) * 2);
+  });
+
+  it('takes an imported profile too big for the tab, but not one that isn’t a fin', () => {
+    const s = storeWith(defaultFinDesign('side', 'left'));
+    const at = (pts: [number, number][]) =>
+      splineFromKnots(pts.map(([x, y]) => knot(vec2(x, y), vec2(x, y), vec2(x, y), false)));
+    // Twice the tab's length: overhangs the front, which scaling down puts right.
+    expect(
+      s.getState().importOutline(
+        at([
+          [24, 0],
+          [14, 20],
+          [0, 0],
+        ]),
+      ),
+    ).toEqual([]);
+    expect(validateFinDesign(design(s)).map((i) => i.code)).toContain('front-overhang');
+    // A leading edge that turns back down partway up: refused, the fin unchanged.
+    const before = design(s);
+    const wrong = s.getState().importOutline(
+      at([
+        [10, 0],
+        [7, 5],
+        [8, 2],
+        [4, 8],
+        [0, 0],
+      ]),
+    );
+    expect(wrong.join()).toMatch(/rising/);
+    expect(design(s)).toBe(before);
+  });
+});

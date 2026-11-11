@@ -145,6 +145,19 @@ export default function DocsFinDesigner() {
           show the area (the profile above the tab), depth, base length and rake — the angle from
           where the leading edge meets the base to the tip, measured from upright.
         </p>
+        <p>
+          <strong>Scale</strong>, the icon at the top left of the profile view, below the ghost,
+          makes the whole profile larger or smaller, evenly. A dashed box appears round the profile,
+          showing its depth and base length, with a square block at its top-left corner. Drag the
+          block out toward the top left to make the fin larger, or in toward the bottom right to
+          make it smaller; the percentage shows as you drag. The rear end of the base stays put on
+          the top of the tab, so the fin stays on the tab and keeps its place at the back of it. (On
+          a raked fin the tip reaches back past the base, so the box&apos;s lower-right corner is a
+          little behind that point.) The fin stops growing where it would break a rule, such as
+          overhanging the front of the tab. Let go and the tool puts itself away; the whole drag is
+          one undo step. Press Escape or click away from the block to put it away without scaling.
+          Only the profile changes: the thickness stays as it was.
+        </p>
       </Section>
 
       <Section id="sweep" title="The foil sweep">
@@ -582,11 +595,13 @@ export default function DocsFinDesigner() {
         </p>
         <Terms>
           <Term name="Outline">
-            Replaces the profile, placed on the current tab. It comes in at the drawing&apos;s real
-            size unless you change <strong>Scale</strong> in the dialog, which shows the depth and
-            base length it will have. Draw it closed along the base, or open with both ends at the
-            bottom. If it breaks a rule, such as overhanging the tab, the dialog says why and stays
-            open so you can change the scale.
+            Replaces the profile, placed on the current tab, at the drawing&apos;s own size, and the
+            views re-fit to it. Then size it with <a href="#outline">Scale</a> in the profile view,
+            by eye or against a ghost of the drawing. A drawing too big or small for the tab still
+            comes in: the status bar says what is wrong, and export waits until scaling puts it
+            right. Draw it closed along the base, or open with both ends at the bottom. A drawing
+            that isn&apos;t a fin profile, such as one whose leading edge turns back down, is
+            refused, and the dialog says why.
           </Term>
           <Term name="Foil">
             Replaces the base foil. A closed shape is cut at its leading and trailing edges into two

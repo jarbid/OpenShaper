@@ -221,3 +221,45 @@ describe('FinCurveEditor', () => {
     expect(view()).not.toBe(first);
   });
 });
+
+describe('FinCurveEditor: markers over points', () => {
+  /** A marker sitting exactly on the arch's first point. */
+  const mountWith = (marker: { first?: boolean; square?: boolean }) => {
+    let vp: Viewport | null = null;
+    const onDragStart = vi.fn();
+    const onMarkerDragStart = vi.fn();
+    const { getByRole } = render(
+      <FinCurveEditor
+        label="Fin outline"
+        layers={[{ id: 'outline', spline: arch(), editable: true }]}
+        selection={null}
+        onViewport={(v) => {
+          vp = v;
+        }}
+        onDragStart={onDragStart}
+        onMarkerDragStart={onMarkerDragStart}
+        markers={[{ id: 'm', at: vec2(0, 0), color: '#fff', label: 'Block', ...marker }]}
+      />,
+    );
+    const s = worldToScreen(vp!, toView(vec2(0, 0), 1));
+    // Right on the point, where both the point and the marker could take it.
+    fireEvent.pointerDown(getByRole('img', { name: 'Fin outline' }), {
+      ...MOUSE,
+      clientX: s.x,
+      clientY: s.y + pane.top,
+    });
+    return { onDragStart, onMarkerDragStart };
+  };
+
+  it('lets a point under an ordinary marker take the drag', () => {
+    const { onDragStart, onMarkerDragStart } = mountWith({});
+    expect(onDragStart).toHaveBeenCalled();
+    expect(onMarkerDragStart).not.toHaveBeenCalled();
+  });
+
+  it('gives a tool’s block the drag over a point under it', () => {
+    const { onDragStart, onMarkerDragStart } = mountWith({ first: true, square: true });
+    expect(onMarkerDragStart).toHaveBeenCalledWith('m');
+    expect(onDragStart).not.toHaveBeenCalled();
+  });
+});

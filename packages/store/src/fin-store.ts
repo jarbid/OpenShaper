@@ -22,6 +22,7 @@ import {
   validateFinDesign,
   type FinBase,
   type FinDesign,
+  type FinIssueCode,
   type FinSection,
   type Spline,
   type FinTwist,
@@ -40,6 +41,7 @@ import {
 import {
   addSlice,
   importedOutline,
+  scaledOutline,
   withFoil,
   applyNaca,
   clampEdit,
@@ -184,7 +186,8 @@ export interface FinState {
   setBase: (base: FinBase) => boolean;
   /**
    * Replace the profile with an imported one, placed on the current tab as a fin starts
-   * there. Returns what's wrong with it, empty if it went in.
+   * there. Returns what's wrong with it, empty if it went in. One that is only the wrong
+   * size for the tab goes in, for the Profile view's Scale to fit.
    */
   importOutline: (outline: Spline) => string[];
   /** Replace the base foil with an imported one. Returns what's wrong, empty if it went in. */
@@ -226,6 +229,12 @@ export interface FinState {
   resetThicknessPath: () => boolean;
   /** Reshape foil `foil` so it is thickest at `fraction` of its chord. Wrap a drag in beginEdit / endEdit. */
   setFoilThickest: (foil: number, fraction: number) => boolean;
+  /**
+   * Scale the profile by `factor` about `about` (tab frame, cm), from the profile as it was
+   * when the edit began, so a drag never compounds. Stops short where a rule would break
+   * (the front overhang, the tab, the clearance). Wrap a drag in beginEdit / endEdit.
+   */
+  scaleOutline: (factor: number, about: Vec2) => boolean;
   /** Arrow buttons: move the fin along the tab (cm, + toward the nose). */
   nudgeFore: (dx: number) => boolean;
   /** Arrow buttons: slide the blade across the tab (cm, + outboard). */
@@ -238,6 +247,15 @@ export interface FinState {
 }
 
 const MAX_HISTORY = 200;
+
+/** The rules a profile of the wrong size breaks, which scaling it puts right. */
+const SIZE_RULES: readonly FinIssueCode[] = [
+  'front-overhang',
+  'tab-rear',
+  'head-length',
+  'tab-cover',
+  'rear-clearance',
+];
 
 /** The active foil, or the root if an undo took its slice away. */
 const validFoil = (d: FinDesign, foil: number): number =>
@@ -315,12 +333,19 @@ export const createFinStore = (): StoreApi<FinState> =>
       return commitChecked(fn(s), label);
     };
 
-    /** Replace part of the fin, or say which rules that would break. */
-    const replaceWith = (edit: (d: FinDesign) => FinDesign, label: string): string[] => {
+    /**
+     * Replace part of the fin, or say which rules that would break. Rules in `allow` may
+     * break: the status bar says so, and export waits until they are fixed.
+     */
+    const replaceWith = (
+      edit: (d: FinDesign) => FinDesign,
+      label: string,
+      allow: readonly FinIssueCode[] = [],
+    ): string[] => {
       const d = get().design;
       if (!d) return [];
       const next = withFoilsNearTrueScale(edit(d));
-      const wrong = newIssues(d, next);
+      const wrong = newIssues(d, next).filter((c) => !allow.includes(c));
       if (wrong.length > 0) {
         return validateFinDesign(next)
           .filter((i) => wrong.includes(i.code))
@@ -609,7 +634,9 @@ export const createFinStore = (): StoreApi<FinState> =>
         const d = get().design;
         return d ? commitChecked(setHand(d, hand), 'Set side') : false;
       },
-      importOutline: (outline) => replaceWith((d) => importedOutline(d, outline), 'Import outline'),
+      // A drawing at the wrong size still comes in, to be scaled to fit (scaleOutline).
+      importOutline: (outline) =>
+        replaceWith((d) => importedOutline(d, outline), 'Import outline', SIZE_RULES),
       importBaseFoil: (section) => {
         const wrong = replaceWith((d) => withFoil(d, 0, section), 'Import foil');
         if (wrong.length === 0) set({ activeFoil: 0 });
@@ -636,6 +663,13 @@ export const createFinStore = (): StoreApi<FinState> =>
         return d
           ? commitChecked(setFoilSplit(d, outside, get().activeFoil), `Foil ${pct} / ${100 - pct}`)
           : false;
+      },
+      scaleOutline: (factor, about) => {
+        const { design, editing, past } = get();
+        if (!design || !(factor > 0)) return false;
+        const start = (editing && past[past.length - 1]?.design) || design;
+        const next = clampEdit(start, (t) => scaledOutline(start, 1 + (factor - 1) * t, about));
+        return commit(next ?? start, 'Scale fin');
       },
       nudgeFore: (dx) => {
         const d = get().design;

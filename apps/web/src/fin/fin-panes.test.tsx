@@ -15,6 +15,8 @@ import { FOIL_ANALYSIS_DEFAULT, type FoilAnalysis } from './foil-analysis';
 import { useState } from 'react';
 import { FinTaperPane, MinThicknessField } from './FinTaperPane';
 import { finStore } from './fin-store';
+import { scaleBox } from './profile-scale';
+import type { Viewport } from '@openshaper/render2d';
 
 beforeEach(installLayoutStubs);
 afterEach(removeLayoutStubs);
@@ -400,5 +402,93 @@ describe('foil slices in the panes', () => {
     fireEvent.pointerUp(canvas, { ...MOUSE, clientX: hit!.clientX, clientY: hit!.clientY - 40 });
     expect(design().slices[0]!.height).toBeGreaterThan(0.5);
     expect(finStore.getState().past.at(-1)!.label).toBe('Move foil slice');
+  });
+});
+
+describe('the Profile view’s Scale', () => {
+  beforeEach(() => act(() => finStore.getState().load(defaultFinDesign('centre'))));
+
+  /** The pane, with its view caught so a data point can be found on screen. */
+  const mount = () => {
+    let vp: Viewport | null = null;
+    render(
+      <FinOutlinePane
+        store={finStore}
+        units={lengthUnitByKey('mm')}
+        onViewport={(v) => (vp = v)}
+      />,
+    );
+    const canvas = screen.getByRole('img', { name: 'Profile' });
+    // The profile is drawn front on the left: the outline's x mirrored.
+    const at = (p: { x: number; y: number }) => ({
+      clientX: vp!.originX - p.x * vp!.scale,
+      clientY: pane.top + vp!.originY - p.y * vp!.scale,
+    });
+    const button = () => screen.getByRole('button', { name: 'Scale the fin' });
+    return { canvas, at, button };
+  };
+  const depth = () => scaleBox(design().outline).corner.y;
+  const trailingRoot = () => design().outline.knots.at(-1)!.end.x;
+
+  it(
+    'scales the fin evenly from the box’s lower-right corner, as one undo step, then puts itself away',
+    () => {
+      const { canvas, at, button } = mount();
+      const before = design();
+      const box = scaleBox(before.outline);
+      const k = before.outline.knots;
+      const rearRoot = Math.min(k[0]!.end.x, k[k.length - 1]!.end.x);
+      fireEvent.click(button());
+      expect(button().getAttribute('aria-pressed')).toBe('true');
+      const block = at(box.corner);
+      fireEvent.pointerDown(canvas, { ...MOUSE, ...block });
+      // In toward the lower-right corner, along the diagonal: 80%.
+      const to = at({
+        x: box.origin.x + (box.corner.x - box.origin.x) * 0.8,
+        y: box.corner.y * 0.8,
+      });
+      fireEvent.pointerMove(canvas, { ...MOUSE, ...to });
+      fireEvent.pointerMove(canvas, { ...MOUSE, ...to }); // a second move doesn't compound
+      fireEvent.pointerUp(canvas, { ...MOUSE, ...to });
+      expect(depth()).toBeCloseTo(box.corner.y * 0.8, 6);
+      // The rear of the base stays where it was, on the tab top.
+      const after = design().outline.knots;
+      expect(Math.min(after[0]!.end.x, after[after.length - 1]!.end.x)).toBeCloseTo(rearRoot, 9);
+      expect(after[0]!.end.y).toBe(0);
+      expect(after[after.length - 1]!.end.y).toBe(0);
+      expect(finStore.getState().past.at(-1)!.label).toBe('Scale fin');
+      expect(button().getAttribute('aria-pressed')).toBe('false');
+      act(() => finStore.getState().undo());
+      expect(design()).toBe(before);
+    },
+    HEAVY,
+  );
+
+  it('grows the fin when the block is dragged out to the top left', () => {
+    const { canvas, at, button } = mount();
+    const box = scaleBox(design().outline);
+    fireEvent.click(button());
+    fireEvent.pointerDown(canvas, { ...MOUSE, ...at(box.corner) });
+    const out = at({
+      x: box.origin.x + (box.corner.x - box.origin.x) * 1.1,
+      y: box.corner.y * 1.1,
+    });
+    fireEvent.pointerMove(canvas, { ...MOUSE, ...out });
+    fireEvent.pointerUp(canvas, { ...MOUSE, ...out });
+    expect(depth()).toBeGreaterThan(box.corner.y);
+    expect(trailingRoot()).toBeCloseTo(box.origin.x, 9); // the base's rear end stays put
+  });
+
+  it('puts itself away on Escape or a click off the block, changing nothing', () => {
+    const before = design();
+    const { canvas, button } = mount();
+    fireEvent.click(button());
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(button().getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(button());
+    fireEvent.pointerDown(canvas, { ...MOUSE, clientX: 2, clientY: 2 });
+    fireEvent.pointerUp(canvas, { ...MOUSE, clientX: 2, clientY: 2 });
+    expect(button().getAttribute('aria-pressed')).toBe('false');
+    expect(design()).toBe(before);
   });
 });

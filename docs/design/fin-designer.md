@@ -849,3 +849,35 @@ pick the downloads location itself.
 
 Names typed are offered again for the rest of the visit, and forgotten when a fin is opened or
 started. ⌘S opens the same dialog.
+
+## Scaling the profile (owner request, 2026-11)
+
+The import dialog's Scale field is gone: the size of a shape in an SVG is often unknown, so a
+number was guesswork. An outline now comes in at the drawing's own size, the views re-fit to it,
+and **Scale** in the Profile view sizes it by eye (`profile-scale.ts`, `FinOutlinePane`).
+
+The icon (below the ghost's) shows a dashed box round the profile, from the tab top to its highest
+point, with a square block at the box's top-left corner (`FinCurveMarker.square`, and `first`
+so it is picked before any curve point under it). Dragging the block scales the profile evenly:
+the factor is how far the pointer is along the line from the fixed point through the block's
+starting place, so the block stays under the pointer, and a drag across that line does nothing.
+Releasing the block ends the tool; Escape or a click elsewhere puts it away unused.
+
+The owner asked for the box's lower-right corner as the fixed point. That corner is the base's
+rear end, the trailing-edge root, only when the tip doesn't reach back past the base. Every
+default fin is raked, so their corner is in the air behind the root (38 mm behind on the default
+centre fin), and scaling about it slid the base back off the tab as the fin shrank, which the
+rear-clearance rule refused outright. Scaling about any point on the tab top gives the same
+shape, differing only in where it sits fore and aft, so the fixed point is the trailing-edge
+root: the base stays on the tab top and the fin stays rear-aligned, as `placeOnBase` places it.
+
+The store's `scaleOutline(factor, about)` scales from the design as it was when the edit began
+(the top of `past` while editing), so pointer moves never compound, and runs it through
+`clampEdit`: the fin stops where a rule would break, such as the Futures front overhang. One
+drag is one undo step, "Scale fin". Only the outline changes. Slice, cant-line and tip-line
+positions are fractions, and foils are by chord, so they follow; the thickness curve is in cm
+and is left alone, a fin's thickness being set by its material rather than its size.
+
+`importOutline` now lets through the rules a wrongly sized profile breaks (front overhang, tab
+rear, US box head length, FCS tab cover, rear clearance): the fin comes in flagged in the status
+bar, export waits, and Scale puts it right. Anything else wrong with it is still refused.

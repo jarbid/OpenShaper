@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { defaultFinDesign, sectionThickest, validateFinDesign } from '@openshaper/kernel';
+import { defaultFinDesign, sectionThickest, validateFinDesign, vec2 } from '@openshaper/kernel';
 import { createFinStore } from '@openshaper/store';
 import { describe, expect, it } from 'vitest';
 import { dragGhost, ghostMarkers, makeGhost, moveGhost, GHOST_MOVE, GHOST_SCALE } from './ghost';
@@ -11,7 +11,6 @@ import {
   vectorFoil,
   vectorLines,
   vectorOutline,
-  vectorOutlineSize,
   VectorError,
 } from './vector-import';
 
@@ -105,15 +104,6 @@ describe('a vector as the profile', () => {
     expect(left.knots[1]!.end.x).toBeCloseTo(-7, 9);
   });
 
-  it('scales, and says how big it will come in', () => {
-    const half = vectorOutline(paths, 'left', 0.5);
-    expect(half.knots[1]!.end.y).toBeCloseTo(3.75, 9);
-    expect(half.knots[0]!.end.x - half.knots[2]!.end.x).toBeCloseTo(4.25, 9);
-    const size = vectorOutlineSize(paths)!;
-    expect(size.base).toBeCloseTo(8.5, 9);
-    expect(size.depth).toBeCloseTo(7.5, 2);
-  });
-
   it('lands on the current tab, one undo step', () => {
     const s = createFinStore();
     s.getState().load(defaultFinDesign('side', 'left'));
@@ -130,15 +120,19 @@ describe('a vector as the profile', () => {
     expect(s.getState().design).toBe(before);
   });
 
-  it('says what is wrong instead of importing a fin the tab can’t take', () => {
+  it('takes a drawing too big for the tab, flagged, to be scaled down to fit', () => {
     const s = createFinStore();
     s.getState().load(defaultFinDesign('side', 'left'));
-    const before = s.getState().design!;
     const huge = parseSvg(
       '<svg xmlns="http://www.w3.org/2000/svg" width="400mm" viewBox="0 0 400 400"><path d="M 0 390 C 100 200 200 50 300 20 C 320 100 310 300 390 390 Z"/></svg>',
     );
-    expect(s.getState().importOutline(vectorOutline(huge, 'left')).join()).toMatch(/overhangs/);
-    expect(s.getState().design).toBe(before);
+    expect(s.getState().importOutline(vectorOutline(huge, 'left'))).toEqual([]);
+    const codes = () => validateFinDesign(s.getState().design!).map((i) => i.code);
+    expect(codes()).toContain('front-overhang');
+    // The Profile view's Scale, about the base's rear end: a quarter the size fits.
+    const k = s.getState().design!.outline.knots;
+    expect(s.getState().scaleOutline(0.25, vec2(k[k.length - 1]!.end.x, 0))).toBe(true);
+    expect(codes()).not.toContain('front-overhang');
   });
 });
 

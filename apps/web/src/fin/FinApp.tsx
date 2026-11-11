@@ -73,13 +73,7 @@ import { FinSectionPane, FinSectionTools } from './FinSectionPane';
 import { BuyMeACoffee } from './BuyMeACoffee';
 import { FacingDialog, VECTOR_ACCEPT, readVectorFile } from './VectorImport';
 import type { Ghost } from './ghost';
-import {
-  vectorFoil,
-  vectorOutline,
-  vectorOutlineSize,
-  type VectorFacing,
-  type VectorPath,
-} from './vector-import';
+import { vectorFoil, vectorOutline, type VectorFacing, type VectorPath } from './vector-import';
 import { FOIL_ANALYSIS_DEFAULT, type FoilAnalysis } from './foil-analysis';
 import { FinTaperPane, MinThicknessField } from './FinTaperPane';
 import { FitToPanel } from './panel-tools';
@@ -962,16 +956,17 @@ type VectorPart = 'outline' | 'foil';
 /**
  * Open and Save: `.fin.json` files. Opening replaces the fin and starts a fresh history,
  * and re-fits every view to it (`onOpened`), as a new fin does. Open's menu also imports a
- * vector drawing as the profile or the base foil (vector-import.ts).
+ * vector drawing as the profile or the base foil (vector-import.ts); an imported profile
+ * comes in at the drawing's size, so the views re-fit to it (`onImported`).
  */
 function FileButtons({
   onSave,
   onOpened,
-  units,
+  onImported,
 }: {
   onSave: () => void;
   onOpened: () => void;
-  units: LengthUnit;
+  onImported: () => void;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const vectorInput = useRef<HTMLInputElement>(null);
@@ -1003,15 +998,16 @@ function FileButtons({
     vectorInput.current?.click();
   };
   /** Put the drawing in; what's wrong with it if it can't go. */
-  const place = (paths: VectorPath[], facing: VectorFacing, scale: number): string | void => {
+  const place = (paths: VectorPath[], facing: VectorFacing): string | void => {
     const state = finStore.getState();
     try {
       const wrong =
         importing === 'outline'
-          ? state.importOutline(vectorOutline(paths, facing, scale))
+          ? state.importOutline(vectorOutline(paths, facing))
           : state.importBaseFoil(vectorFoil(paths, facing, state.design?.position === 'centre'));
       if (wrong.length) return `Not imported: ${wrong.join(' ')}`;
       setPending(null);
+      if (importing === 'outline') onImported();
     } catch (e) {
       return (e as Error).message;
     }
@@ -1053,9 +1049,7 @@ function FileButtons({
           title={importing === 'outline' ? 'Import vector outline' : 'Import vector foil'}
           what={importing === 'outline' ? 'vector outline' : 'vector foil'}
           onCancel={() => setPending(null)}
-          units={units}
-          size={importing === 'outline' ? vectorOutlineSize(pending) : null}
-          onChoose={(facing, scale) => place(pending, facing, scale)}
+          onChoose={(facing) => place(pending, facing)}
         />
       )}
       <input
@@ -1326,7 +1320,11 @@ export function FinApp() {
               }))}
             />
           </MenuBar>
-          <FileButtons onSave={save} onOpened={restart} units={units} />
+          <FileButtons
+            onSave={save}
+            onOpened={restart}
+            onImported={() => setStarts((n) => n + 1)}
+          />
         </div>
         <div
           role="group"

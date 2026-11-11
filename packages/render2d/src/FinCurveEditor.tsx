@@ -70,6 +70,10 @@ export interface FinCurveMarker {
   readonly color: string;
   /** Accessible and hover name. */
   readonly label: string;
+  /** A square block instead of a dot: a tool's handle, such as the profile's Scale. */
+  readonly square?: boolean;
+  /** Picked before the curves' points, so a point under it can't take the drag. */
+  readonly first?: boolean;
 }
 
 export interface FinCurveEditorProps {
@@ -149,6 +153,8 @@ type Drag =
 
 /** Radius of a marker's dot (px). */
 const MARKER_R = 5;
+/** Half the side of a square marker (px): a block, big enough to grab. */
+const BLOCK_R = 7;
 
 export function FinCurveEditor({
   layers,
@@ -260,7 +266,8 @@ export function FinCurveEditor({
       const x = vp.originX + s.x * vp.scale;
       const y = vp.originY - s.y * vp.scale;
       ctx.beginPath();
-      ctx.arc(x, y, MARKER_R, 0, Math.PI * 2);
+      if (m.square) ctx.rect(x - BLOCK_R, y - BLOCK_R, BLOCK_R * 2, BLOCK_R * 2);
+      else ctx.arc(x, y, MARKER_R, 0, Math.PI * 2);
       ctx.fillStyle = m.color;
       ctx.fill();
       ctx.lineWidth = 1.5;
@@ -304,6 +311,28 @@ export function FinCurveEditor({
     if (e.button !== 0) return;
     const p = local(e);
     e.currentTarget.setPointerCapture?.(e.pointerId);
+    const markerAt = (only: (m: FinCurveMarker) => boolean) => {
+      const tol = tolFor(e);
+      return (markers ?? []).find((m) => {
+        if (!only(m)) return false;
+        const s = toView(m.at, yScale);
+        const dx = Math.abs(vp.originX + s.x * vp.scale - p.x);
+        const dy = Math.abs(vp.originY - s.y * vp.scale - p.y);
+        return m.square ? Math.max(dx, dy) <= BLOCK_R + tol : Math.hypot(dx, dy) <= MARKER_R + tol;
+      });
+    };
+    const grabMarker = (marker: FinCurveMarker) => {
+      drag.current = {
+        kind: 'marker',
+        marker: marker.id,
+        grabbed: toView(marker.at, yScale),
+        pointerAt: screenToWorld(vp, p),
+        id: e.pointerId,
+      };
+      onMarkerDragStart?.(marker.id);
+    };
+    const firstMarker = markerAt((m) => !!m.first);
+    if (firstMarker) return grabMarker(firstMarker);
     const pick = pickHandle(layers, vp, p, yScale, tolFor(e), selection);
     if (pick) {
       const layer = layers.find((l) => l.id === pick.layer)!;
@@ -319,24 +348,8 @@ export function FinCurveEditor({
       onDragStart?.(pick);
     } else {
       // Then the markers: curve points come first, so a marker sitting on one never hides it.
-      const tol = tolFor(e) + MARKER_R;
-      const marker = (markers ?? []).find((m) => {
-        const s = toView(m.at, yScale);
-        return (
-          Math.hypot(vp.originX + s.x * vp.scale - p.x, vp.originY - s.y * vp.scale - p.y) <= tol
-        );
-      });
-      if (marker) {
-        drag.current = {
-          kind: 'marker',
-          marker: marker.id,
-          grabbed: toView(marker.at, yScale),
-          pointerAt: screenToWorld(vp, p),
-          id: e.pointerId,
-        };
-        onMarkerDragStart?.(marker.id);
-        return;
-      }
+      const marker = markerAt((m) => !m.first);
+      if (marker) return grabMarker(marker);
       const guide = guides && pickGuide(guides, vp, p, yScale, tolFor(e));
       if (guide) {
         drag.current = { kind: 'guide', guide, id: e.pointerId };
