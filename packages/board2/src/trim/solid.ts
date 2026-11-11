@@ -111,11 +111,24 @@ function restoreRim(t: number[], m: number): number[] {
   return out;
 }
 
+/** How finely the mesh is cut. */
+export interface TrimMeshOptions {
+  /** Rows across the deck blend and across the tuck. More rows follow a blend's curve more closely. */
+  readonly deckRows?: number;
+  readonly tuckRows?: number;
+}
+
 /** Builds the mesh. `grid` is the panels' node spacing, cm. */
-export function buildTrimMesh(loop: Loop, laws: RailLaws, panels: Panels, grid: number): TrimMesh {
+export function buildTrimMesh(
+  loop: Loop,
+  laws: RailLaws,
+  panels: Panels,
+  grid: number,
+  options: TrimMeshOptions = {},
+): TrimMesh {
   const n = loop.n;
-  const nt = TRIM.deckRows;
-  const nb = TRIM.tuckRows;
+  const nt = options.deckRows ?? TRIM.deckRows;
+  const nb = options.tuckRows ?? TRIM.tuckRows;
   const pos: number[] = [];
   const nrm: number[] = [];
   const vface: number[] = [];

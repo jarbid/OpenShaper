@@ -4,18 +4,14 @@
  * (docs/design/trim-blend-plan.md, step 2). Test-only: it reads its panels off the current
  * engine's surface on a grid, which is far too slow for the app and is not how the app will
  * do it. What it shares with the real conversion is the part that matters here: the outline
- * as a rounded loop, and **one rail per stored station**, with the rail between stations
- * interpolated from them.
+ * as a rounded loop, a rail fitted at chosen stations (`station.ts`) and interpolated between
+ * them, and panels that end where their rail begins.
  *
  * Standard tails only. A notched board's sections are not plane in the current engine, so
  * its surface cannot be read as a height over each station.
  */
 import { chainEval, compileChain, funcEval } from '../../chain';
 import { createChordFn } from '../../probe';
-import { FWD_NO_BLEND, fitForward } from '../../railproto/forward';
-import type { ForwardFit, HalfForward } from '../../railproto/forward';
-import { at as sectionPoint, realSection } from '../../railproto/rail-geom';
-import type { RealSection } from '../../railproto/rail-geom';
 import { MIN_CHORD, MIN_THICKNESS } from '../../railproto/rail-params';
 import { createEvaluator } from '../../surface';
 import type { BuiltBoard, SurfaceEvaluator } from '../../surface';
@@ -25,6 +21,7 @@ import type { Loop, LoopPiece } from '../loop';
 import { railLaws } from '../rails';
 import type { RailLaws, RailRecipe } from '../rails';
 import type { Panels } from '../solid';
+import { panelCurve, sectionRail } from '../station';
 
 /** Default radii, cm: the ball on a nose, on a tail tip or corner, and in a notch's crotch. */
 export const BRIDGE_RADII = { nose: 0.8, tail: 0.6, crotch: 0.2 } as const;
@@ -33,10 +30,11 @@ const PIECE_SAMPLES = 160;
 /** Spacing of the panel grid read off the current surface, cm: along the board and across it. */
 const FIELD_DX = 0.5;
 const FIELD_DY = 0.05;
-/** Samples of each half of a section when a row of that grid is read. */
+/** Samples of each half of a section when a row of that grid is read, and when a rail is fitted to one. */
 const FIELD_ROW = 700;
-/** The deck's band is the blend that fits best; the bottom's is the widest still within this, cm. */
-const WIDE_TOL = 0.02;
+const KEY_ROW = 600;
+/** Half the length (cm) the outline's angle at a key is read over. */
+const KEY_SLOPE_STEP = 0.5;
 
 /** One side of the outline as smooth pieces, tail to nose, split at its corner knots. */
 function sidePieces(chain: Chain, sign: 1 | -1): Float64Array[] {
@@ -96,15 +94,48 @@ export function boardLoop(built: BuiltBoard): Loop {
   return buildLoop({ pieces, corners });
 }
 
-/** A height over the plan read off the current surface: one side, deck or bottom. */
+/** The two halves of the current surface's section at `xi`, each `[y, z, …]` from the stringer out to the apex. */
+export function halves(
+  ev: SurfaceEvaluator,
+  side: 0 | 1,
+  xi: number,
+  samples: number,
+): { bottom: Float64Array; deck: Float64Array } {
+  const out = new Float64Array(3);
+  const bottom = new Float64Array(2 * (samples + 1));
+  const deck = new Float64Array(2 * (samples + 1));
+  ev.row(side, xi, 0);
+  for (let k = 0; k <= samples; k++) {
+    ev.eval((0.5 * k) / samples, 0, out);
+    bottom[2 * k] = Math.abs(out[1]!);
+    bottom[2 * k + 1] = out[2]!;
+    ev.eval(1 - (0.5 * k) / samples, 0, out);
+    deck[2 * k] = Math.abs(out[1]!);
+    deck[2 * k + 1] = out[2]!;
+  }
+  return { bottom, deck };
+}
+
+/** Half width of one side of the current surface at `xi`. */
+function halfWidth(ev: SurfaceEvaluator, side: 0 | 1, xi: number, out: Float64Array): number {
+  ev.at(side, xi, 0.5, 0, out);
+  return Math.abs(out[1]!);
+}
+
+/**
+ * A panel of one side as a height over the plan, stored against the share of the half width,
+ * so what runs along the outline (a band edge, a crease) stays on one column from row to row.
+ */
 class Field {
   readonly z: Float32Array;
+  readonly half: Float64Array;
   constructor(
     private readonly x0: number,
     private readonly rows: number,
     private readonly cols: number,
   ) {
     this.z = new Float32Array(rows * cols);
+    this.half = new Float64Array(rows);
   }
 
   /** Cubic across the board, so the slope is smooth where the rail's tangent is read; linear along it. */
@@ -112,9 +143,10 @@ class Field {
     const fx = Math.min(this.rows - 1, Math.max(0, (x - this.x0) / FIELD_DX));
     const i = Math.min(this.rows - 2, Math.floor(fx));
     const tx = fx - i;
-    const fy = Math.min(this.cols - 1, Math.max(0, y / FIELD_DY));
-    const j = Math.min(this.cols - 2, Math.floor(fy));
-    const ty = fy - j;
+    const half = this.half[i]! + tx * (this.half[i + 1]! - this.half[i]!);
+    const fu = half > 0 ? Math.min(1, Math.max(0, y / half)) * (this.cols - 1) : 0;
+    const j = Math.min(this.cols - 2, Math.floor(fu));
+    const tu = fu - j;
     const row = (r: number): number => {
       const b = r * this.cols;
       const p0 = this.z[b + Math.max(0, j - 1)]!;
@@ -124,9 +156,9 @@ class Field {
       return (
         0.5 *
         (2 * p1 +
-          (p2 - p0) * ty +
-          (2 * p0 - 5 * p1 + 4 * p2 - p3) * ty * ty +
-          (3 * p1 - p0 - 3 * p2 + p3) * ty * ty * ty)
+          (p2 - p0) * tu +
+          (2 * p0 - 5 * p1 + 4 * p2 - p3) * tu * tu +
+          (3 * p1 - p0 - 3 * p2 + p3) * tu * tu * tu)
       );
     };
     return row(i) + tx * (row(i + 1) - row(i));
@@ -143,184 +175,102 @@ const RECIPE_KEYS = [
   'apex',
 ] as const;
 
-/** Arc of panel (cm) the panel's slope at the band edge is read over where its local slope cannot be trusted. */
-const PANEL_BASE = 0.25;
-/** The local slope and that chord may disagree by this much (degrees) before the chord wins. */
-const PANEL_TRUST = 10;
+/** How the rail's numbers run along one side of the board. */
+export type RailLawsAlong = Record<(typeof RECIPE_KEYS)[number], (x: number) => number>;
 
 /**
- * The deck and bottom panels of one side: the current surface inboard of each row's band
- * edge, and from there on the panel's own tangent. Past the band edge the current surface is
- * rail, not panel; a panel that followed it would carry the rail's turn, and at an edge its
- * crease.
+ * The deck and bottom panels of one side: at every row the current section inboard of that
+ * row's band edge, and the panel's own tangent beyond it (`panelCurve`). Past the band edge
+ * the current surface is rail, not panel.
  */
 function readSide(
   built: BuiltBoard,
   ev: SurfaceEvaluator,
   side: 0 | 1,
-  halfMax: number,
-  widths: { deck(x: number): number; tuck(x: number): number },
+  laws: RailLawsAlong,
 ): [Field, Field] {
   const rows = Math.ceil((built.xiMax - built.xiMin) / FIELD_DX) + 1;
-  const cols = Math.ceil(halfMax / FIELD_DY) + 3;
-  const deck = new Field(built.xiMin, rows, cols);
-  const bottom = new Field(built.xiMin, rows, cols);
   const out = new Float64Array(3);
-  const ys = new Float64Array(FIELD_ROW + 1);
-  const zs = new Float64Array(FIELD_ROW + 1);
   const xiOf = (r: number): number => Math.min(built.xiMax, built.xiMin + r * FIELD_DX);
+  let halfMax = 0;
   const half = new Float64Array(rows);
   for (let r = 0; r < rows; r++) {
-    ev.at(side, xiOf(r), 0.5, 0, out);
-    half[r] = Math.abs(out[1]!);
+    half[r] = halfWidth(ev, side, xiOf(r), out);
+    halfMax = Math.max(halfMax, half[r]!);
   }
+  const cols = Math.ceil(halfMax / FIELD_DY) + 1;
+  const deck = new Field(built.xiMin, rows, cols);
+  const bottom = new Field(built.xiMin, rows, cols);
+  deck.half.set(half);
+  bottom.half.set(half);
   for (let r = 0; r < rows; r++) {
     const xi = xiOf(r);
     // the band is measured square to the outline; a row cuts it at the outline's angle
     const a = Math.max(0, r - 1);
     const c = Math.min(rows - 1, r + 1);
     const cos = 1 / Math.hypot(1, c > a ? (half[c]! - half[a]!) / (xiOf(c) - xiOf(a) || 1) : 0);
-    ev.row(side, xi, 0);
-    for (const [field, from, to, width] of [
-      [bottom, 0, 0.5, widths.tuck(xi) / cos],
-      [deck, 1, 0.5, widths.deck(xi) / cos],
-    ] as const) {
-      // stringer out to the apex, keeping only samples that move outward: at a crease the
-      // sampled section steps back on itself by a tenth of a millimetre
-      let n = 0;
-      for (let k = 0; k <= FIELD_ROW; k++) {
-        ev.eval(from + ((to - from) * k) / FIELD_ROW, 0, out);
-        const y = Math.abs(out[1]!);
-        if (n === 0 || y > ys[n - 1]!) {
-          ys[n] = y;
-          zs[n] = out[2]!;
-          n++;
-        }
-      }
-      const zAt = (y: number): number => {
-        let k = 0;
-        while (k + 2 < n && ys[k + 1]! < y) k++;
-        const span = ys[k + 1]! - ys[k]!;
-        return (
-          zs[k]! +
-          (span > 0 ? Math.min(1, Math.max(0, (y - ys[k]!) / span)) : 0) * (zs[k + 1]! - zs[k]!)
-        );
-      };
-      const edge = Math.max(0, ys[n - 1]! - width);
-      const zEdge = zAt(edge);
-      // the panel's slope at the band edge, off the panel side: the local one where it agrees
-      // with the panel just inboard, a chord over a few millimetres where it does not
-      const back = Math.max(0, edge - PANEL_BASE);
-      const chord = edge > back ? (zEdge - zAt(back)) / (edge - back) : 0;
-      const near = Math.max(0, edge - 2 * FIELD_DY);
-      const local = edge > near ? (zEdge - zAt(near)) / (edge - near) : chord;
-      const apart = (Math.abs(Math.atan(local) - Math.atan(chord)) * 180) / Math.PI;
-      const slope = apart < PANEL_TRUST ? local : chord;
-      for (let j = 0; j < cols; j++) {
-        const y = j * FIELD_DY;
-        field.z[r * cols + j] = y <= edge ? zAt(y) : zEdge + slope * (y - edge);
-      }
+    const h = halves(ev, side, xi, FIELD_ROW);
+    const panelB = panelCurve(h.bottom, Math.max(0, laws.tuck(xi)) / cos);
+    const panelD = panelCurve(h.deck, Math.max(0, laws.band(xi)) / cos);
+    for (let j = 0; j < cols; j++) {
+      const y = (j / (cols - 1)) * half[r]!;
+      bottom.z[r * cols + j] = panelB(y);
+      deck.z[r * cols + j] = panelD(y);
     }
   }
   return [deck, bottom];
 }
 
-/** How the rail's numbers run along one side of the board. */
-export type RailLawsAlong = Record<(typeof RECIPE_KEYS)[number], (x: number) => number>;
-
 /** The board's panels, given how wide the rail's bands are along each side. */
-export function boardPanels(
-  built: BuiltBoard,
-  loop: Loop,
-  plus: RailLawsAlong,
-  minus: RailLawsAlong,
-): Panels {
+export function boardPanels(built: BuiltBoard, plus: RailLawsAlong, minus: RailLawsAlong): Panels {
   const ev = createEvaluator(built);
-  let halfMax = 0;
-  for (let i = 0; i < loop.n; i++) halfMax = Math.max(halfMax, Math.abs(loop.y[i]!));
-  const widths = (l: RailLawsAlong): { deck(x: number): number; tuck(x: number): number } => ({
-    deck: (x) => Math.max(0, l.band(x)),
-    tuck: (x) => Math.max(0, l.tuck(x)),
-  });
-  const p = readSide(built, ev, 0, halfMax, widths(plus));
-  const m =
-    built.doc.symmetry === 'asymmetric' ? readSide(built, ev, 1, halfMax, widths(minus)) : p;
+  const p = readSide(built, ev, 0, plus);
+  const m = built.doc.symmetry === 'asymmetric' ? readSide(built, ev, 1, minus) : p;
   return {
     deck: (x, y) => (y >= 0 ? p[0] : m[0]).at(x, Math.abs(y)),
     bottom: (x, y) => (y >= 0 ? p[1] : m[1]).at(x, Math.abs(y)),
   };
 }
 
-/** A rail key: the rail fitted at one stored station. */
+/** A rail key: the rail fitted to the current surface at one station. */
 export interface RailKey extends RailRecipe {
   readonly x: number;
-  /** Worst gap between the fitted blends and the stored section, cm. */
+  /** Worst gap between the section there and the panels and blends that replace it, cm. */
   readonly fit: number;
 }
 
-function pickBottom(h: HalfForward): ForwardFit | null {
-  if (h.hardEdge || h.best === null) return null;
-  let wide: ForwardFit | null = null;
-  for (const c of h.candidates) {
-    if (c.dev.max <= WIDE_TOL && (wide === null || c.width > wide.width)) wide = c;
-  }
-  return wide ?? h.best;
-}
-
-/** The rail at one stored station: both blends fitted forward, in the kernel's own terms. */
-export function keyAt(s: RealSection, cosPhi: number): RailKey {
-  const x = s.x;
-  const zA = sectionPoint(s, s.apex)[1];
-  const fb = fitForward(s, 'bottom');
-  const fd = fitForward(s, 'deck');
-  const b = pickBottom(fb);
-  const d = fd.hardEdge ? null : fd.best;
-  // where each panel's own tangent meets the wall; the band edge's own height where it has none
-  const wallB = b === null ? zA : Number.isFinite(b.g1) ? b.g1 : zA - b.height;
-  const wallD = d === null ? zA : Number.isFinite(d.g1) ? d.g1 : zA + d.height;
-  const deg = (rise: number, run: number): number =>
-    run > FWD_NO_BLEND ? Math.max(0, (Math.atan2(rise, run) * 180) / Math.PI) : 0;
-  const wb = b === null ? 0 : b.width * cosPhi;
-  const wd = d === null ? 0 : d.width * cosPhi;
-  return {
-    x,
-    band: wd,
-    hardness: d?.rho ?? 0.5,
-    tuck: wb,
-    tuckShape: b?.rho ?? 0.9,
-    bottomEdge: b === null ? 0 : deg(b.z1 - wallB, wb),
-    deckEdge: d === null ? 0 : deg(wallD - d.z1, wd),
-    apex: wallD - wallB > 0 ? (zA - wallB) / (wallD - wallB) : 0.5,
-    fit: Math.max(b?.dev.max ?? 0, d?.dev.max ?? 0),
-  };
-}
-
-/** One rail key per usable stored station of one side. */
-export function railKeys(built: BuiltBoard, side: 'plus' | 'minus'): RailKey[] {
+/** The stations of one side that carry a rail worth fitting: not the lens of a tip. */
+export function usableStations(built: BuiltBoard, side: 'plus' | 'minus'): number[] {
   const doc = built.doc;
   const chordOf = side === 'minus' ? createChordFn(doc, 'minus') : createChordFn(doc);
   const r = new Float64Array(3);
   const d = new Float64Array(3);
-  const keys: RailKey[] = [];
+  const out: number[] = [];
   for (const st of doc.stations) {
-    const section = side === 'minus' ? (st.minus ?? st.plus) : st.plus;
-    const chord = chordOf(st.x);
     funcEval(built.rocker, st.x, r, 0);
     funcEval(built.deck, st.x, d, 0);
-    const thickness = d[0]! - r[0]!;
-    if (thickness < MIN_THICKNESS || chord < MIN_CHORD) continue;
-    const slope = (chordOf(st.x + 0.5) - chordOf(st.x - 0.5)) / 1;
-    keys.push(keyAt(realSection(section, st.x, chord, thickness), 1 / Math.hypot(1, slope)));
+    if (d[0]! - r[0]! < MIN_THICKNESS || chordOf(st.x) < MIN_CHORD) continue;
+    out.push(st.x);
   }
-  return keys;
+  return out;
 }
 
-/** One rail key at each of `sections`, which are the plus side as built: for asking how many keys a board needs. */
-export function railKeysAt(built: BuiltBoard, sections: readonly RealSection[]): RailKey[] {
-  const chordOf = createChordFn(built.doc);
-  return sections.map((s) => {
-    const slope = (chordOf(s.x + 0.5) - chordOf(s.x - 0.5)) / 1;
-    return keyAt(s, 1 / Math.hypot(1, slope));
+/** One rail key at each of `xs`, fitted to the current surface of one side. */
+export function railKeysAt(
+  built: BuiltBoard,
+  side: 'plus' | 'minus',
+  xs: readonly number[],
+): RailKey[] {
+  const ev = createEvaluator(built);
+  const s: 0 | 1 = side === 'minus' && built.doc.symmetry === 'asymmetric' ? 1 : 0;
+  const out = new Float64Array(3);
+  return xs.map((x) => {
+    const a = Math.max(built.xiMin, x - KEY_SLOPE_STEP);
+    const c = Math.min(built.xiMax, x + KEY_SLOPE_STEP);
+    const slope = (halfWidth(ev, s, c, out) - halfWidth(ev, s, a, out)) / (c - a);
+    const h = halves(ev, s, x, KEY_ROW);
+    const rail = sectionRail(h.bottom, h.deck, 1 / Math.hypot(1, slope));
+    return { x, ...rail.recipe, fit: Math.max(rail.bottom.gap, rail.deck.gap) };
   });
 }
 

@@ -341,4 +341,52 @@ export const TRIM = {
   /** A panel is sampled every this many cm in a slice, and at least this many times per span. */
   sliceStep: 0.15,
   sliceMin: 4,
+  /**
+   * Reading a rail off a section (`trim/station.ts`). A panel ends `panelLead` (cm) inboard
+   * of its band edge: more than the reach of the finite difference that reads its slope there
+   * (`slopeStep`), so that is read on the straight stretch. Its direction at its end is read
+   * over `panelBase` (cm) of panel before it, through this many even samples. Where a crease
+   * lies in that stretch, or within `panelClear` (cm) outboard of it, the panel ends that far
+   * inboard of the crease instead, so the wobble of a sampled section's last half millimetre
+   * at a crease never sets the panel's tangent.
+   */
+  panelLead: 0.03,
+  panelBase: 0.4,
+  panelSamples: 9,
+  panelClear: 0.1,
+  /** A crease: where a half turns towards its apex by this many degrees or more across this much arc (cm) either side, and by this share of that across the smaller arc (cm). It is looked for every `creaseStep` cm. */
+  edgeJump: 8,
+  creaseBase: 0.08,
+  creaseTight: 0.03,
+  creaseShare: 0.6,
+  creaseStep: 0.01,
+  /** A panel's end is moved clear of creases at most this many times, and a crease closer than this (cm) to the one just cleared is the same crease. */
+  creasePasses: 3,
+  creaseApart: 0.005,
+  /** A deck's band starts where the deck, walking in from the apex, has come down to this slope (degrees above level). */
+  deckSlope: 20,
+  /** A bottom's band starts where the bottom has come back to within this many degrees of the direction of the panel just inboard: read from this far to this far inboard (cm of arc). */
+  bottomTurn: 6,
+  turnRefNear: 0.5,
+  turnRefFar: 2,
+  /** Arc (cm) either side of a sample that its direction is read across when a band edge is looked for. */
+  turnBase: 0.05,
+  /** A panel may slope this much (degrees) where its blend takes over, and no more. */
+  panelSteepest: 25,
+  /** No band reaches further in from the wall than this share of the half width. */
+  fitWidest: 0.6,
+  /** A band edge this close (cm) to the apex leaves no blend: the panel runs to the wall. */
+  fitNoBlend: 0.03,
+  /** A panel's own tangent has to meet the wall at least this far (cm) short of the apex for a blend to stand on it. */
+  fitRiseMin: 0.01,
+  /** Shoulder heights tried besides the tangent one, as fractions of the way up the wall from the panel's tangent to the apex. */
+  fitShoulders: [0.15, 0.3, 0.5, 0.7, 0.95],
+  /** Golden-section steps on a blend's rho, and on its shoulder between two of those heights. */
+  fitRhoSteps: 14,
+  fitShoulderSteps: 8,
+  /** Segments of a blend, and the spacing (cm) of the section's samples, when the gap between them is measured. */
+  fitBlendSteps: 40,
+  fitSpacing: 0.02,
+  /** An edge is taken only when it is this much (cm) closer than the tangent blend. */
+  fitEdgeGain: 0.005,
 } as const;
