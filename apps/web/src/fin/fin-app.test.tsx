@@ -15,9 +15,11 @@ import { FinApp } from './FinApp';
 // No WebGL under jsdom: the preview is checked in a real browser instead.
 vi.mock('@openshaper/render3d', () => ({ FinPreview3D: () => null }));
 import { finStore } from './fin-store';
+import { forgetSavedNames } from './SaveDialog';
 
 beforeEach(() => {
   act(() => finStore.getState().load(defaultFinDesign('side', 'left')));
+  forgetSavedNames();
 });
 
 const measurements = () => within(screen.getByLabelText('Fin measurements'));
@@ -35,6 +37,11 @@ const pairOption = () => {
   }
   return screen.queryByRole('menuitemcheckbox', { name: /^Left and right fin/ });
 };
+/** The save dialog `title` opened by Save or Export, as a query scope. */
+const saveDialog = (title: string) => within(screen.getByRole('dialog', { name: title }));
+/** Press the save dialog's `action` button (Save, Export), taking the names offered. */
+const confirm = (title: string, action: string) =>
+  fireEvent.click(saveDialog(title).getByRole('button', { name: action }));
 /** Start a new fin from the header's New fin menu. */
 const pickNewFin = (label: string) => {
   fireEvent.click(screen.getByRole('menuitem', { name: 'New fin' }));
@@ -520,7 +527,7 @@ describe('FinApp', () => {
 describe('FinApp: files', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('saves the fin to a .fin.json download, from the button and ⌘S', () => {
+  it('saves the fin to a .fin.json download, from the button and ⌘S, through the save dialog', async () => {
     URL.createObjectURL = vi.fn(() => 'blob:fin');
     URL.revokeObjectURL = vi.fn();
     const names: string[] = [];
@@ -531,7 +538,15 @@ describe('FinApp: files', () => {
     });
     render(<FinApp />);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const field = saveDialog('Save fin').getByLabelText('File name') as HTMLInputElement;
+    expect(field.value).toBe('fin-side-left');
+    expect(saveDialog('Save fin').getByText('.fin.json')).toBeTruthy();
+    expect(names).toEqual([]); // nothing until the dialog's Save
+    confirm('Save fin', 'Save');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     fireEvent.keyDown(window, { key: 's', metaKey: true });
+    confirm('Save fin', 'Save');
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(names).toEqual(['fin-side-left.fin.json', 'fin-side-left.fin.json']);
   });
 
@@ -550,6 +565,10 @@ describe('FinApp: files', () => {
     expect(box.getAttribute('aria-checked')).toBe('false');
     fireEvent.click(box);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const dialog = saveDialog('Save fin');
+    expect((dialog.getByLabelText('Left fin') as HTMLInputElement).value).toBe('fin-side-left');
+    expect((dialog.getByLabelText('Right fin') as HTMLInputElement).value).toBe('fin-side-right');
+    confirm('Save fin', 'Save');
     await waitFor(() =>
       expect(names).toEqual(['fin-side-left.fin.json', 'fin-side-right.fin.json']),
     );
@@ -584,6 +603,125 @@ describe('FinApp: files', () => {
   });
 });
 
+describe('FinApp: the save dialog', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete (window as { showDirectoryPicker?: unknown }).showDirectoryPicker;
+  });
+
+  const captureDownloads = () => {
+    URL.createObjectURL = vi.fn(() => 'blob:fin');
+    URL.revokeObjectURL = vi.fn();
+    const names: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      names.push(this.download);
+    });
+    return names;
+  };
+  const nameField = () => saveDialog('Save fin').getByLabelText('File name') as HTMLInputElement;
+
+  it('saves under the name typed, and offers it again until another fin is started', async () => {
+    const names = captureDownloads();
+    render(<FinApp />);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    // The extension is added for you, and isn't doubled if typed.
+    fireEvent.change(nameField(), { target: { value: 'My keel.fin.json' } });
+    confirm('Save fin', 'Save');
+    await waitFor(() => expect(names).toEqual(['My keel.fin.json']));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(nameField().value).toBe('My keel');
+    fireEvent.click(saveDialog('Save fin').getByRole('button', { name: 'Cancel' }));
+    pickNewFin('Centre');
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(nameField().value).toBe('fin-centre');
+  });
+
+  it('writes nothing on Cancel, and makes a name safe for a file', async () => {
+    const names = captureDownloads();
+    render(<FinApp />);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.click(saveDialog('Save fin').getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.change(nameField(), { target: { value: ' keels/side:v2 ' } });
+    confirm('Save fin', 'Save');
+    await waitFor(() => expect(names).toEqual(['keels-side-v2.fin.json']));
+  });
+
+  it('wants a different name for each fin of a pair', () => {
+    localStorage.setItem('bs.fin.pair', 'true');
+    render(<FinApp />);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const dialog = saveDialog('Save fin');
+    fireEvent.change(dialog.getByLabelText('Right fin'), { target: { value: 'fin-side-left' } });
+    expect(dialog.getByRole('alert').textContent).toBe('Give each file its own name.');
+    expect((dialog.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+    localStorage.removeItem('bs.fin.pair');
+  });
+
+  it('saves to Downloads where the browser has no folder picker, and says how to choose', () => {
+    render(<FinApp />);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    const dialog = saveDialog('Save fin');
+    expect(dialog.getByTestId('save-location').textContent).toBe('Downloads');
+    expect(dialog.queryByRole('button', { name: 'Choose folder…' })).toBeNull();
+    expect(dialog.getByText(/Ask where to save each file/)).toBeTruthy();
+  });
+
+  it(
+    'writes into a chosen folder, warning before it replaces a file',
+    async () => {
+      const names = captureDownloads();
+      const files = new Map<string, Blob>([['fin-side-left.step', new Blob(['old'])]]);
+      const folder = {
+        name: 'Fins',
+        queryPermission: async () => 'prompt',
+        requestPermission: vi.fn(async () => 'granted'),
+        async getFileHandle(n: string, o?: { create?: boolean }) {
+          if (!files.has(n) && !o?.create) throw new DOMException('Not found', 'NotFoundError');
+          let written: Blob;
+          return {
+            createWritable: async () => ({
+              write: async (b: Blob) => {
+                written = b;
+              },
+              close: async () => {
+                files.set(n, written);
+              },
+            }),
+          };
+        },
+      };
+      (window as { showDirectoryPicker?: unknown }).showDirectoryPicker = vi.fn(async () => folder);
+      render(<FinApp />);
+      fireEvent.click(exportItem('STL for 3D printing'));
+      const dialog = saveDialog('Export STL for 3D printing');
+      fireEvent.click(dialog.getByRole('button', { name: 'Choose folder…' }));
+      await waitFor(() => expect(dialog.getByTestId('save-location').textContent).toBe('Fins'));
+      // Named as the STEP already there? Say it will be replaced.
+      fireEvent.change(dialog.getByLabelText('File name'), {
+        target: { value: 'fin-side-left.step' },
+      });
+      expect(dialog.queryByText(/already in Fins/)).toBeNull(); // .stl is added: no clash
+      files.set('old.stl', new Blob(['old']));
+      fireEvent.change(dialog.getByLabelText('File name'), { target: { value: 'old.stl' } });
+      await waitFor(() =>
+        expect(dialog.getByText('old.stl is already in Fins: Export replaces it.')).toBeTruthy(),
+      );
+      confirm('Export STL for 3D printing', 'Export');
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull(), { timeout: 10_000 });
+      expect(folder.requestPermission).toHaveBeenCalled();
+      const stl = files.get('old.stl')!;
+      expect(stl.size).toBeGreaterThan(84); // the binary STL, not the old file
+      expect(names).toEqual([]); // nothing downloaded
+    },
+    HEAVY,
+  );
+});
+
 describe('FinApp: export', () => {
   afterEach(() => vi.restoreAllMocks());
 
@@ -603,8 +741,11 @@ describe('FinApp: export', () => {
     const names = captureDownloads();
     render(<FinApp />);
     fireEvent.click(exportItem('STL for 3D printing'));
+    confirm('Export STL for 3D printing', 'Export');
     await waitFor(() => expect(names).toEqual(['fin-side-left.stl']));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     fireEvent.click(exportItem('STEP for CNC'));
+    confirm('Export STEP for CNC', 'Export');
     await waitFor(() => expect(names).toEqual(['fin-side-left.stl', 'fin-side-left.step']), {
       timeout: 10_000,
     });
@@ -627,7 +768,11 @@ describe('FinApp: export', () => {
     fireEvent.change(field, { target: { value: '0.25' } });
     fireEvent.click(dialog.getByLabelText('Inside'));
     fireEvent.click(dialog.getByRole('button', { name: 'Export STL core' }));
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Export core' })).toBeNull();
+    expect(
+      (saveDialog('Export STL core').getByLabelText('File name') as HTMLInputElement).value,
+    ).toBe('fin-side-left-core');
+    confirm('Export STL core', 'Export');
     await waitFor(() => expect(names).toEqual(['fin-side-left-core.stl']), { timeout: 10_000 });
     // Remembered for next time.
     expect(JSON.parse(localStorage.getItem('bs.fin.core')!)).toEqual({
@@ -650,6 +795,7 @@ describe('FinApp: export', () => {
     fireEvent.click(tab);
     expect(dialog.getByText(/The tab is thinned/)).toBeTruthy();
     fireEvent.click(dialog.getByRole('button', { name: 'Export STL core' }));
+    confirm('Export STL core', 'Export');
     await waitFor(() => expect(names).toEqual(['fin-side-left-core.stl']), { timeout: 10_000 });
     const saved = JSON.parse(localStorage.getItem('bs.fin.core')!);
     expect(saved).toMatchObject({ sides: 'inside', tab: true });

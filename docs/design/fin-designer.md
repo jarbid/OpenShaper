@@ -829,3 +829,23 @@ forward to cover the tab. The box carries the cant, so the fin has none, as on F
 The two screw grooves in the tab's side (1/8" end mill, 1/16" deep) are not modelled: the tab is a
 side profile extruded across its thickness, and a pocket in one face is not something that model
 can hold. They are recorded in `GBOX_TAB` and in the help.
+
+## The save dialog (owner request, 2026-11)
+
+Save and each Export used to download straight away, named after the fin's position. They now
+open a dialog (`SaveDialog.tsx`) with a name for each file (two with the left-and-right option on)
+and a location. The extension is fixed and shown beside the field; what is typed is made safe for
+a file (`cleanStem` in `save-files.ts`). A pair needs two different names.
+
+Where the browser has the File System Access API (Chrome and Edge on a computer), **Choose
+folder…** uses `showDirectoryPicker`, and the files are written into that folder with
+`createWritable`. The folder's handle is kept in IndexedDB, so it is offered next visit; write
+permission is asked for inside the Save click, as browsers require, and the dialog warns when a
+name would replace a file already there. A folder rather than `showSaveFilePicker`, because a pair
+is two files and a second picker would need a second click, and because STEP takes about a second
+a fin to make, after the click. Everywhere else (Safari, Firefox, iPad, phones) the files are
+downloads, and the dialog says how to make the browser ask where each one goes: a web page can't
+pick the downloads location itself.
+
+Names typed are offered again for the rest of the visit, and forgotten when a fin is opened or
+started. ⌘S opens the same dialog.

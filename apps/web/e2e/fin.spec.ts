@@ -33,6 +33,25 @@ async function pickNewFin(page: Page, label: string) {
   await page.getByRole('menuitem', { name: label, exact: true }).click();
 }
 
+/** Press the save dialog's `action` button, after typing `name` in its first field if given. */
+async function confirmSave(page: Page, action: 'Save' | 'Export', name?: string) {
+  const dialog = page.getByRole('dialog');
+  if (name !== undefined) await dialog.getByRole('textbox').first().fill(name);
+  await dialog.getByRole('button', { name: action, exact: true }).click();
+}
+
+/** Save the fin through the save dialog. */
+async function saveVia(page: Page, name?: string) {
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await confirmSave(page, 'Save', name);
+}
+
+/** Export through the Export menu's item `item` and the save dialog. */
+async function exportVia(page: Page, item: string, name?: string) {
+  await (await exportItem(page, item)).click();
+  await confirmSave(page, 'Export', name);
+}
+
 /** The Export menu's item `name`, the menu opened first if it is closed. */
 async function exportItem(page: Page, name: string) {
   const item = page.getByRole('menuitem', { name, exact: true });
@@ -84,7 +103,7 @@ test.describe('Fin designer', () => {
     await expect(page.getByRole('status')).toHaveCount(0);
     const [step] = await Promise.all([
       page.waitForEvent('download'),
-      (await exportItem(page, 'STEP for CNC')).click(),
+      exportVia(page, 'STEP for CNC'),
     ]);
     expect(step.suggestedFilename()).toBe('fin-side-right.step');
     const stepText = await readFile((await step.path())!, 'utf8');
@@ -95,7 +114,7 @@ test.describe('Fin designer', () => {
     // STL for printing.
     const [stl] = await Promise.all([
       page.waitForEvent('download'),
-      (await exportItem(page, 'STL for 3D printing')).click(),
+      exportVia(page, 'STL for 3D printing'),
     ]);
     expect(stl.suggestedFilename()).toBe('fin-side-right.stl');
     const stlBytes = await readFile((await stl.path())!);
@@ -103,10 +122,7 @@ test.describe('Fin designer', () => {
     expect(stlBytes.length).toBe(84 + 50 * triangles);
 
     // Save the design, start a different fin, and open the saved one back.
-    const [saved] = await Promise.all([
-      page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Save' }).click(),
-    ]);
+    const [saved] = await Promise.all([page.waitForEvent('download'), saveVia(page)]);
     expect(saved.suggestedFilename()).toBe('fin-side-right.fin.json');
     const savedPath = (await saved.path())!;
     await pickNewFin(page, 'Centre');
@@ -136,16 +152,13 @@ test.describe('Fin designer', () => {
 
     const [step] = await Promise.all([
       page.waitForEvent('download'),
-      (await exportItem(page, 'STEP for CNC')).click(),
+      exportVia(page, 'STEP for CNC'),
     ]);
     expect(
       (await readFile((await step.path())!, 'utf8')).match(/MANIFOLD_SOLID_BREP\(/g),
     ).toHaveLength(2);
 
-    const [saved] = await Promise.all([
-      page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Save' }).click(),
-    ]);
+    const [saved] = await Promise.all([page.waitForEvent('download'), saveVia(page)]);
     const savedPath = (await saved.path())!;
     expect(JSON.parse(await readFile(savedPath, 'utf8')).version).toBe(3);
     await pickNewFin(page, 'Centre');
@@ -162,9 +175,9 @@ test.describe('Fin designer', () => {
     await expect(page.getByRole('status')).toHaveCount(0);
     const [step] = await Promise.all([
       page.waitForEvent('download'),
-      (await exportItem(page, 'STEP for CNC')).click(),
+      exportVia(page, 'STEP for CNC', 'canard-left'),
     ]);
-    expect(step.suggestedFilename()).toBe('fin-side-left.step');
+    expect(step.suggestedFilename()).toBe('canard-left.step');
     expect(
       (await readFile((await step.path())!, 'utf8')).match(/MANIFOLD_SOLID_BREP\(/g),
     ).toHaveLength(2);
@@ -176,7 +189,7 @@ test.describe('Fin designer', () => {
     await page.getByRole('menuitemcheckbox', { name: /^Left and right fin/ }).click();
     const downloads: string[] = [];
     page.on('download', (d) => downloads.push(d.suggestedFilename()));
-    await (await exportItem(page, 'STL for 3D printing')).click();
+    await exportVia(page, 'STL for 3D printing');
     await expect.poll(() => downloads.length).toBe(2);
     expect(downloads.sort()).toEqual(['fin-side-left.stl', 'fin-side-right.stl']);
   });
@@ -196,10 +209,7 @@ test.describe('Fin designer', () => {
     await openFin(page);
     // A file can hold a fin that breaks a rule (saved mid-edit, or hand-edited): here
     // a side fin's cant is set past the 20° limit, then opened.
-    const [saved] = await Promise.all([
-      page.waitForEvent('download'),
-      page.getByRole('button', { name: 'Save' }).click(),
-    ]);
+    const [saved] = await Promise.all([page.waitForEvent('download'), saveVia(page)]);
     const doc = JSON.parse(await readFile((await saved.path())!, 'utf8')) as { cant: number };
     doc.cant = 30;
     await page.getByLabel('Open a fin file').setInputFiles({
@@ -235,7 +245,7 @@ test.describe('Fin designer', () => {
       await expect(page.getByRole('img', { name: 'Thickness' })).toBeAttached();
       const [stl] = await Promise.all([
         page.waitForEvent('download'),
-        (await exportItem(page, 'STL for 3D printing')).click(),
+        exportVia(page, 'STL for 3D printing'),
       ]);
       expect(stl.suggestedFilename()).toMatch(/\.stl$/);
     });

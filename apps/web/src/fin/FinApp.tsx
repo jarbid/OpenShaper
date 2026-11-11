@@ -42,7 +42,6 @@ import {
   Suspense,
   useContext,
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -85,7 +84,16 @@ import { FOIL_ANALYSIS_DEFAULT, type FoilAnalysis } from './foil-analysis';
 import { FinTaperPane, MinThicknessField } from './FinTaperPane';
 import { FitToPanel } from './panel-tools';
 import { PointTools } from './PointTools';
-import { downloadFin, exportFin, readFinFile } from './fin-file';
+import {
+  defaultStems,
+  FIN_EXT,
+  finFiles,
+  finsToWrite,
+  readFinFile,
+  type FinFormat,
+} from './fin-file';
+import { forgetSavedNames, SaveDialog } from './SaveDialog';
+import { writeFiles } from '../save-files';
 import { finStore } from './fin-store';
 import {
   FIN_VIEW_TITLE,
@@ -1087,44 +1095,37 @@ const PAIR_KEY = 'bs.fin.pair';
 function ExportMenu({
   pair,
   onPair,
+  onExport,
   units,
   minThickness,
 }: {
   pair: boolean;
   onPair: (on: boolean) => void;
+  /** Open the save dialog for this export. */
+  onExport: (request: SaveRequest) => void;
   units: LengthUnit;
   /** The exports' minimum thickness (cm, File settings). */
   minThickness: number;
 }) {
   const design = useFinState(finStore, (s) => s.design);
   const issues = useMemo(() => (design ? validateFinDesign(design) : []), [design]);
-  const [busy, setBusy] = useState<'step' | 'stl' | 'core' | null>(null);
   const [coreOpen, setCoreOpen] = useState(false);
-  const run = (format: 'step' | 'stl', laminate?: FinLaminate) => {
-    const d = finStore.getState().design;
-    if (!d || busy) return;
-    setBusy(laminate ? 'core' : format);
-    // Let "Exporting…" paint before the work starts.
-    window.setTimeout(() => {
-      void exportFin(d, format, pair, laminate, minThickness).finally(() => setBusy(null));
-    }, 0);
-  };
-  const blocked = issues.length > 0 || busy !== null;
-  const why = issues.length > 0 ? 'Fix the problems shown in the status bar first' : undefined;
+  const blocked = issues.length > 0;
+  const why = blocked ? 'Fix the problems shown in the status bar first' : undefined;
   const items: MenuItem[] = [
     {
       kind: 'action',
       label: 'STEP for CNC',
       disabled: blocked,
       title: why,
-      onSelect: () => run('step'),
+      onSelect: () => onExport({ format: 'step' }),
     },
     {
       kind: 'action',
       label: 'STL for 3D printing',
       disabled: blocked,
       title: why,
-      onSelect: () => run('stl'),
+      onSelect: () => onExport({ format: 'stl' }),
     },
     {
       kind: 'action',
@@ -1149,7 +1150,7 @@ function ExportMenu({
     <>
       <MenuBar>
         <Menu
-          label={busy ? 'Exporting…' : 'Export ▾'}
+          label="Export ▾"
           items={items}
           triggerClassName="bg-primary px-3 font-semibold text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
           panelClassName="min-w-64"
@@ -1163,11 +1164,63 @@ function ExportMenu({
           onClose={() => setCoreOpen(false)}
           onExport={(format, laminate) => {
             setCoreOpen(false);
-            run(format, laminate);
+            onExport({ format, laminate });
           }}
         />
       )}
     </>
+  );
+}
+
+/** What the save dialog is writing: the design (Save), or an export, maybe a core. */
+interface SaveRequest {
+  readonly format: FinFormat;
+  readonly laminate?: FinLaminate;
+}
+
+const SAVE_TITLES: Record<FinFormat, string> = {
+  fin: 'Save fin',
+  step: 'Export STEP for CNC',
+  stl: 'Export STL for 3D printing',
+};
+
+/**
+ * Save and Export's dialog for the fin as it was when it opened: a name for each file
+ * (a left and a right one with the pair option on), and where they go.
+ */
+function FinSaveDialog({
+  request,
+  pair,
+  minThickness,
+  onClose,
+}: {
+  request: SaveRequest;
+  pair: boolean;
+  minThickness: number;
+  onClose: () => void;
+}) {
+  const [design] = useState(() => finStore.getState().design!);
+  const { format, laminate } = request;
+  const fins = finsToWrite(design, pair);
+  const stems = defaultStems(design, pair, !!laminate);
+  const items = fins.map((f, i) => ({
+    label: fins.length > 1 ? (f.hand === 'left' ? 'Left fin' : 'Right fin') : 'File name',
+    stem: stems[i]!,
+  }));
+  const exporting = format !== 'fin';
+  return (
+    <SaveDialog
+      title={laminate ? `Export ${format.toUpperCase()} core` : SAVE_TITLES[format]}
+      action={exporting ? 'Export' : 'Save'}
+      busyLabel={exporting ? 'Exporting…' : 'Saving…'}
+      items={items}
+      ext={FIN_EXT[format]}
+      note={laminate ? 'The core to laminate over, from the core settings you chose.' : undefined}
+      onSave={async (names, folder) =>
+        writeFiles(await finFiles(design, format, names, pair, { laminate, minThickness }), folder)
+      }
+      onClose={onClose}
+    />
   );
 }
 
@@ -1222,14 +1275,10 @@ export function FinApp() {
     setPair(on);
     writeStored(PAIR_KEY, on);
   }, []);
-  // ⌘S saves through a stable callback, so it reads the option from a ref.
-  const pairRef = useRef(pair);
-  useEffect(() => {
-    pairRef.current = pair;
-  }, [pair]);
+  // Save and Export open the save dialog: names, and where the files go.
+  const [saving, setSaving] = useState<SaveRequest | null>(null);
   const save = useCallback(() => {
-    const d = finStore.getState().design;
-    if (d) void downloadFin(d, pairRef.current);
+    if (finStore.getState().design) setSaving({ format: 'fin' });
   }, []);
   useFinShortcuts(finStore, { onSave: save });
   const ready = useFinAutosave(finStore);
@@ -1245,6 +1294,11 @@ export function FinApp() {
   // A new fin re-fits every view, even one with the same position and side as the last
   // (the twin fin and keel are side fins, like the default).
   const [starts, setStarts] = useState(0);
+  // A different fin is offered its own file names again.
+  const restart = () => {
+    forgetSavedNames();
+    setStarts((n) => n + 1);
+  };
   // Re-fit a view's canvas when it moves between the large pane and a small one.
   const sizeKey = (view: FinView) => `${order[0] === view ? 'large' : 'small'}-${starts}`;
 
@@ -1267,12 +1321,12 @@ export function FinApp() {
                 label: st.label,
                 onSelect: () => {
                   finStore.getState().newFin(st.start, st.hand);
-                  setStarts((n) => n + 1);
+                  restart();
                 },
               }))}
             />
           </MenuBar>
-          <FileButtons onSave={save} onOpened={() => setStarts((n) => n + 1)} units={units} />
+          <FileButtons onSave={save} onOpened={restart} units={units} />
         </div>
         <div
           role="group"
@@ -1286,6 +1340,7 @@ export function FinApp() {
           <ExportMenu
             pair={pair}
             onPair={changePair}
+            onExport={setSaving}
             units={units}
             minThickness={settings.exportMin}
           />
@@ -1368,6 +1423,14 @@ export function FinApp() {
         </ViewPane>
         <Status units={units} minThickness={settings.exportMin} />
       </main>
+      {saving && (
+        <FinSaveDialog
+          request={saving}
+          pair={pair}
+          minThickness={settings.exportMin}
+          onClose={() => setSaving(null)}
+        />
+      )}
     </div>
   );
 }

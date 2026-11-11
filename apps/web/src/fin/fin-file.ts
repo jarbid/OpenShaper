@@ -2,14 +2,20 @@
 /** Saving a fin to a `.fin.json` file and opening one, for the fin designer's File buttons. */
 import type { FinDesign, FinLaminate } from '@openshaper/kernel';
 import { FinJsonError, readFinJson, writeFinJson } from '@openshaper/io';
-import { download, MULTI_DOWNLOAD_GAP_MS } from '../file-io';
+import type { OutFile } from '../save-files';
 
 /** A file name stem for the design: `fin-side-left`, `fin-centre`. */
 export const finFileStem = (d: FinDesign): string =>
   `fin-${d.position}${d.hand ? `-${d.hand}` : ''}`;
 
+/** What the fin designer writes: the design, or the fin for manufacture. */
+export type FinFormat = 'fin' | 'step' | 'stl';
+
+/** Each format's extension, which the save dialog shows after the name. */
+export const FIN_EXT: Record<FinFormat, string> = { fin: '.fin.json', step: '.step', stl: '.stl' };
+
 /** A file name for the design: `fin-side-left.fin.json`, `fin-centre.fin.json`. */
-export const finFileName = (d: FinDesign): string => `${finFileStem(d)}.fin.json`;
+export const finFileName = (d: FinDesign): string => `${finFileStem(d)}${FIN_EXT.fin}`;
 
 /**
  * The fins to write: the design, and with `pair` its mirror for the other side, for
@@ -18,47 +24,48 @@ export const finFileName = (d: FinDesign): string => `${finFileStem(d)}.fin.json
 export const finsToWrite = (d: FinDesign, pair: boolean): FinDesign[] =>
   pair && d.hand ? [d, { ...d, hand: d.hand === 'left' ? 'right' : 'left' }] : [d];
 
-/** Run `write` for each fin, spaced so the browser keeps every download. */
-const each = async (fins: FinDesign[], write: (d: FinDesign) => void | Promise<void>) => {
-  for (let i = 0; i < fins.length; i++) {
-    if (i > 0) await new Promise((r) => setTimeout(r, MULTI_DOWNLOAD_GAP_MS));
-    await write(fins[i]!);
-  }
-};
+/** The name each file is offered under: `fin-side-left`, or `fin-side-left-core` for a core. */
+export const defaultStems = (d: FinDesign, pair: boolean, core = false): string[] =>
+  finsToWrite(d, pair).map((f) => `${finFileStem(f)}${core ? '-core' : ''}`);
+
+/** Options for the manufacturing formats. */
+export interface FinExportOptions {
+  /** The blade is the core to bag this laminate onto. */
+  readonly laminate?: FinLaminate;
+  /** Thickens the edges and tip in the files only, not the design (cm). */
+  readonly minThickness?: number;
+}
 
 /**
- * Export the design for manufacture and download it: STEP (CNC) or STL (printing),
- * both in mm; with `pair`, a left and a right fin, one file each. The exporters are loaded on first use, so the page doesn't carry them.
- * STEP fits its surfaces on the main thread (about a second), as the board's does.
- * With `laminate`, the blade is the core to bag that laminate onto, in `…-core` files.
- * `minThickness` (cm) thickens the edges and tip in the files only, not the design.
+ * The files for `d` in `format`, one per fin of {@link finsToWrite}, named `stems` (in
+ * the same order) plus the format's extension. STEP (CNC) and STL (printing) are in mm;
+ * their exporters are loaded on first use, so the page doesn't carry them. STEP fits its
+ * surfaces on the main thread (about a second a fin), as the board's does.
  */
-export async function exportFin(
+export async function finFiles(
   d: FinDesign,
-  format: 'step' | 'stl',
+  format: FinFormat,
+  stems: readonly string[],
   pair = false,
-  laminate?: FinLaminate,
-  minThickness?: number,
-): Promise<void> {
+  { laminate, minThickness }: FinExportOptions = {},
+): Promise<OutFile[]> {
+  const fins = finsToWrite(d, pair);
+  const name = (i: number) => `${stems[i] ?? finFileStem(fins[i]!)}${FIN_EXT[format]}`;
+  if (format === 'fin') {
+    return fins.map((f, i) => ({ name: name(i), data: writeFinJson(f), type: 'application/json' }));
+  }
   const { exportFinStep, exportFinStl } = await import('@openshaper/export');
-  await each(finsToWrite(d, pair), (f) => {
-    const stem = `${finFileStem(f)}${laminate ? '-core' : ''}`;
+  return fins.map((f, i) => {
     const opts = {
-      name: stem,
+      name: stems[i] ?? finFileStem(f),
       ...(laminate ? { laminate } : {}),
       ...(minThickness === undefined ? {} : { minThickness }),
     };
-    if (format === 'step') {
-      download(exportFinStep(f, opts), `${stem}.step`, 'model/step');
-    } else {
-      download(exportFinStl(f, opts) as unknown as BlobPart, `${stem}.stl`, 'model/stl');
-    }
+    return format === 'step'
+      ? { name: name(i), data: exportFinStep(f, opts), type: 'model/step' }
+      : { name: name(i), data: exportFinStl(f, opts) as unknown as BlobPart, type: 'model/stl' };
   });
 }
-
-/** Download the design as a `.fin.json` file; with `pair`, a left and a right one. */
-export const downloadFin = (d: FinDesign, pair = false): Promise<void> =>
-  each(finsToWrite(d, pair), (f) => download(writeFinJson(f), finFileName(f), 'application/json'));
 
 /** What went wrong opening a file, said for the person opening it. */
 const openProblem = (e: unknown): string => {
