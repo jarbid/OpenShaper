@@ -50,7 +50,11 @@ jobs:
   # never hides a type or unit failure. `e2e` drives the dev server; `e2e:offline`
   # builds `dist` and is the only check of the service worker / offline promises.
   e2e:
-    runs-on: ubuntu-latest
+    # Pinned, not ubuntu-latest: that label moved to Ubuntu 26.04, where the Playwright this
+    # repo pins cannot install its browser ("Playwright does not support chromium on
+    # ubuntu26.04-x64") and the job fails before any test runs. Unpin when Playwright is
+    # upgraded to a version that supports the newer image.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
