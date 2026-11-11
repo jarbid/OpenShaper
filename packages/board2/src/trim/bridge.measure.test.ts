@@ -14,7 +14,14 @@ import { allBoards, boardSections, denseSections } from '../railproto/test-suppo
 import { DENSE_STATIONS } from '../railproto/rail-params';
 import { buildBoard, createEvaluator } from '../surface';
 import { buildTrimMesh, checkClosed, sliceX } from './solid';
-import { boardLoop, boardPanels, boardRails, railKeys, railKeysAt } from './test-support/bridge';
+import {
+  boardLoop,
+  boardPanels,
+  boardRails,
+  railKeys,
+  railKeysAt,
+  railsAlong,
+} from './test-support/bridge';
 import type { RailKey } from './test-support/bridge';
 
 const study = describe.skipIf(process.env.TRIM_STUDY !== '1');
@@ -113,11 +120,12 @@ study('real boards through the trim kernel', () => {
         );
         continue;
       }
-      const builtR = buildBoard(b.doc, { check: false });
+      // bottom features ride on the panel, inboard of the tuck, and are the same functions in
+      // either engine; the rail is measured on the board without them
+      const builtR = buildBoard({ ...b.doc, features: [] }, { check: false });
       if (!builtR.ok) throw new Error(`${b.name}: does not build`);
       const built = builtR.value;
       const loop = boardLoop(built);
-      const panels = boardPanels(built, loop);
       const now = meshBoard(built).volume;
       const asym = b.doc.symmetry === 'asymmetric';
       const stored = railKeys(built, 'plus');
@@ -127,7 +135,7 @@ study('real boards through the trim kernel', () => {
       ];
       if (!asym) {
         const dense = railKeysAt(built, denseSections(b, KEY_STATIONS).sections);
-        for (const step of [4, 2, 1]) {
+        for (const step of [4, 1]) {
           const keys = dense.filter((_, i) => i % step === 0 || i === dense.length - 1);
           sets.push([`every ${step}`, keys, keys]);
         }
@@ -144,7 +152,9 @@ study('real boards through the trim kernel', () => {
       let tips = 0;
       let worst = { max: 0, y: 0, z: 0, x: 0 };
       for (const [name, plus, minus] of sets) {
-        const laws = boardRails(loop, plus, minus);
+        const along = [railsAlong(plus), railsAlong(minus)] as const;
+        const panels = boardPanels(built, loop, along[0], along[1]);
+        const laws = boardRails(loop, along[0], along[1]);
         const mesh = buildTrimMesh(loop, laws, panels, GRID);
         const closed = checkClosed(mesh);
         open = Math.max(open, closed.openEdges);

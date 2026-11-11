@@ -133,12 +133,33 @@ class Field {
   }
 }
 
-/** The deck and bottom of one side of the current surface, as heights over the plan. */
+const RECIPE_KEYS = [
+  'band',
+  'hardness',
+  'tuck',
+  'tuckShape',
+  'bottomEdge',
+  'deckEdge',
+  'apex',
+] as const;
+
+/** Arc of panel (cm) the panel's slope at the band edge is read over where its local slope cannot be trusted. */
+const PANEL_BASE = 0.25;
+/** The local slope and that chord may disagree by this much (degrees) before the chord wins. */
+const PANEL_TRUST = 10;
+
+/**
+ * The deck and bottom panels of one side: the current surface inboard of each row's band
+ * edge, and from there on the panel's own tangent. Past the band edge the current surface is
+ * rail, not panel; a panel that followed it would carry the rail's turn, and at an edge its
+ * crease.
+ */
 function readSide(
   built: BuiltBoard,
   ev: SurfaceEvaluator,
   side: 0 | 1,
   halfMax: number,
+  widths: { deck(x: number): number; tuck(x: number): number },
 ): [Field, Field] {
   const rows = Math.ceil((built.xiMax - built.xiMin) / FIELD_DX) + 1;
   const cols = Math.ceil(halfMax / FIELD_DY) + 3;
@@ -147,12 +168,22 @@ function readSide(
   const out = new Float64Array(3);
   const ys = new Float64Array(FIELD_ROW + 1);
   const zs = new Float64Array(FIELD_ROW + 1);
+  const xiOf = (r: number): number => Math.min(built.xiMax, built.xiMin + r * FIELD_DX);
+  const half = new Float64Array(rows);
   for (let r = 0; r < rows; r++) {
-    const xi = Math.min(built.xiMax, built.xiMin + r * FIELD_DX);
+    ev.at(side, xiOf(r), 0.5, 0, out);
+    half[r] = Math.abs(out[1]!);
+  }
+  for (let r = 0; r < rows; r++) {
+    const xi = xiOf(r);
+    // the band is measured square to the outline; a row cuts it at the outline's angle
+    const a = Math.max(0, r - 1);
+    const c = Math.min(rows - 1, r + 1);
+    const cos = 1 / Math.hypot(1, c > a ? (half[c]! - half[a]!) / (xiOf(c) - xiOf(a) || 1) : 0);
     ev.row(side, xi, 0);
-    for (const [field, from, to] of [
-      [bottom, 0, 0.5],
-      [deck, 1, 0.5],
+    for (const [field, from, to, width] of [
+      [bottom, 0, 0.5, widths.tuck(xi) / cos],
+      [deck, 1, 0.5, widths.deck(xi) / cos],
     ] as const) {
       // stringer out to the apex, keeping only samples that move outward: at a crease the
       // sampled section steps back on itself by a tenth of a millimetre
@@ -166,29 +197,57 @@ function readSide(
           n++;
         }
       }
-      let k = 0;
+      const zAt = (y: number): number => {
+        let k = 0;
+        while (k + 2 < n && ys[k + 1]! < y) k++;
+        const span = ys[k + 1]! - ys[k]!;
+        return (
+          zs[k]! +
+          (span > 0 ? Math.min(1, Math.max(0, (y - ys[k]!) / span)) : 0) * (zs[k + 1]! - zs[k]!)
+        );
+      };
+      const edge = Math.max(0, ys[n - 1]! - width);
+      const zEdge = zAt(edge);
+      // the panel's slope at the band edge, off the panel side: the local one where it agrees
+      // with the panel just inboard, a chord over a few millimetres where it does not
+      const back = Math.max(0, edge - PANEL_BASE);
+      const chord = edge > back ? (zEdge - zAt(back)) / (edge - back) : 0;
+      const near = Math.max(0, edge - 2 * FIELD_DY);
+      const local = edge > near ? (zEdge - zAt(near)) / (edge - near) : chord;
+      const apart = (Math.abs(Math.atan(local) - Math.atan(chord)) * 180) / Math.PI;
+      const slope = apart < PANEL_TRUST ? local : chord;
       for (let j = 0; j < cols; j++) {
         const y = j * FIELD_DY;
-        while (k + 1 < n && ys[k + 1]! < y) k++;
-        const span = k + 1 < n ? ys[k + 1]! - ys[k]! : 0;
-        const f = span > 0 ? Math.min(1, Math.max(0, (y - ys[k]!) / span)) : 1;
-        field.z[r * cols + j] = k + 1 < n ? zs[k]! + f * (zs[k + 1]! - zs[k]!) : zs[n - 1]!;
+        field.z[r * cols + j] = y <= edge ? zAt(y) : zEdge + slope * (y - edge);
       }
     }
   }
   return [deck, bottom];
 }
 
-/** The current surface as panels: the deck and bottom halves, each a height over the plan. */
-export function boardPanels(built: BuiltBoard, loop: Loop): Panels {
+/** How the rail's numbers run along one side of the board. */
+export type RailLawsAlong = Record<(typeof RECIPE_KEYS)[number], (x: number) => number>;
+
+/** The board's panels, given how wide the rail's bands are along each side. */
+export function boardPanels(
+  built: BuiltBoard,
+  loop: Loop,
+  plus: RailLawsAlong,
+  minus: RailLawsAlong,
+): Panels {
   const ev = createEvaluator(built);
   let halfMax = 0;
   for (let i = 0; i < loop.n; i++) halfMax = Math.max(halfMax, Math.abs(loop.y[i]!));
-  const plus = readSide(built, ev, 0, halfMax);
-  const minus = built.doc.symmetry === 'asymmetric' ? readSide(built, ev, 1, halfMax) : plus;
+  const widths = (l: RailLawsAlong): { deck(x: number): number; tuck(x: number): number } => ({
+    deck: (x) => Math.max(0, l.band(x)),
+    tuck: (x) => Math.max(0, l.tuck(x)),
+  });
+  const p = readSide(built, ev, 0, halfMax, widths(plus));
+  const m =
+    built.doc.symmetry === 'asymmetric' ? readSide(built, ev, 1, halfMax, widths(minus)) : p;
   return {
-    deck: (x, y) => (y >= 0 ? plus[0] : minus[0]).at(x, Math.abs(y)),
-    bottom: (x, y) => (y >= 0 ? plus[1] : minus[1]).at(x, Math.abs(y)),
+    deck: (x, y) => (y >= 0 ? p[0] : m[0]).at(x, Math.abs(y)),
+    bottom: (x, y) => (y >= 0 ? p[1] : m[1]).at(x, Math.abs(y)),
   };
 }
 
@@ -198,16 +257,6 @@ export interface RailKey extends RailRecipe {
   /** Worst gap between the fitted blends and the stored section, cm. */
   readonly fit: number;
 }
-
-const RECIPE_KEYS = [
-  'band',
-  'hardness',
-  'tuck',
-  'tuckShape',
-  'bottomEdge',
-  'deckEdge',
-  'apex',
-] as const;
 
 function pickBottom(h: HalfForward): ForwardFit | null {
   if (h.hardEdge || h.best === null) return null;
@@ -316,28 +365,23 @@ function monotone(xs: readonly number[], ys: readonly number[]): (x: number) => 
   };
 }
 
-/** The rail at every sample of the loop, each number interpolated along the board between the keys. */
-export function boardRails(
-  loop: Loop,
-  plus: readonly RailKey[],
-  minus: readonly RailKey[],
-): RailLaws {
-  const laws = (
-    keys: readonly RailKey[],
-  ): Record<(typeof RECIPE_KEYS)[number], (x: number) => number> => {
-    const xs = keys.map((k) => k.x);
-    const out = {} as Record<(typeof RECIPE_KEYS)[number], (x: number) => number>;
-    for (const name of RECIPE_KEYS)
-      out[name] = monotone(
-        xs,
-        keys.map((k) => k[name]),
-      );
-    return out;
-  };
-  const p = laws(plus);
-  const m = laws(minus);
+/** Each of a rail's numbers interpolated along the board between the keys. */
+export function railsAlong(keys: readonly RailKey[]): RailLawsAlong {
+  const xs = keys.map((k) => k.x);
+  const out = {} as RailLawsAlong;
+  for (const name of RECIPE_KEYS) {
+    out[name] = monotone(
+      xs,
+      keys.map((k) => k[name]),
+    );
+  }
+  return out;
+}
+
+/** The rail at every sample of the loop. */
+export function boardRails(loop: Loop, plus: RailLawsAlong, minus: RailLawsAlong): RailLaws {
   return railLaws(loop, (i) => {
-    const l = loop.y[i]! >= 0 ? p : m;
+    const l = loop.y[i]! >= 0 ? plus : minus;
     const x = loop.x[i]!;
     return {
       band: l.band(x),

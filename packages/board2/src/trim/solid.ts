@@ -152,10 +152,11 @@ export function buildTrimMesh(loop: Loop, laws: RailLaws, panels: Panels, grid: 
     const qx = loop.x[i]! + width * loop.nx[i]!;
     const qy = loop.y[i]! + width * loop.ny[i]!;
     const z = surf(qx, qy);
-    const slope =
-      (surf(qx - e * loop.nx[i]!, qy - e * loop.ny[i]!) -
-        surf(qx + e * loop.nx[i]!, qy + e * loop.ny[i]!)) /
-      (2 * e);
+    // the slope is read from the panel side only: past the band edge the panel has given way
+    // to the rail, and a panel need not exist there at all
+    const z1 = surf(qx + e * loop.nx[i]!, qy + e * loop.ny[i]!);
+    const z2 = surf(qx + 2 * e * loop.nx[i]!, qy + 2 * e * loop.ny[i]!);
+    const slope = (3 * z - 4 * z1 + z2) / (2 * e);
     const tangent = z + width * slope;
     return { qx, qy, z, tangent, shoulder: tangent };
   };
