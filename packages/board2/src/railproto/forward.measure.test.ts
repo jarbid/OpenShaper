@@ -92,11 +92,13 @@ study('forward rail model on the dense set', () => {
             hardEdge: r.bottom.hardEdge,
             tangent: lite(r.bottom.tangent),
             best: lite(r.bottom.best),
+            cands: r.bottom.candidates.map(lite),
           },
           deck: {
             hardEdge: r.deck.hardEdge,
             tangent: lite(r.deck.tangent),
             best: lite(r.deck.best),
+            cands: r.deck.candidates.map(lite),
           },
         })),
       });

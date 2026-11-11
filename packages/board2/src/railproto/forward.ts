@@ -237,6 +237,8 @@ export interface HalfForward {
   readonly best: ForwardFit | null;
   /** Fractional index of the crease offered as a band edge, or `-1`. */
   readonly crease: number;
+  /** The best blend at each band edge tried, so a caller can choose the band by its own rule. */
+  readonly candidates: readonly ForwardFit[];
 }
 
 /** Fits one half both ways: leaving tangent only, and with an edge allowed. */
@@ -253,6 +255,7 @@ export function fitForward(s: RealSection, half: Half): HalfForward {
   let hardEdge = false;
   let tangent: ForwardFit | null = null;
   let best: ForwardFit | null = null;
+  const candidates: ForwardFit[] = [];
   for (const f of edges) {
     const p = sampleAt(s, f).p;
     const width = apex[0] - p[0];
@@ -267,27 +270,33 @@ export function fitForward(s: RealSection, half: Half): HalfForward {
     }
     const g1 = dir[0] > PARALLEL ? p[1] + (width * dir[1]) / dir[0] : Number.NaN;
     const tangentOk = Number.isFinite(g1) && up * (apex[1] - g1) > 0;
+    let here: ForwardFit | null = null;
     if (tangentOk) {
       const t0 = fitShoulder(s, half, f, g1, g1, dir);
       if (tangent === null || t0.dev.max < tangent.dev.max) tangent = t0;
+      here = t0;
     }
     const base = tangentOk ? g1 : p[1];
-    if (up * (apex[1] - base) <= 0) continue;
-    for (const frac of FWD_STARTS) {
-      const fe = fitShoulder(
-        s,
-        half,
-        f,
-        base + frac * (apex[1] - base),
-        tangentOk ? g1 : Number.NaN,
-        dir,
-      );
-      if (best === null || fe.dev.max < best.dev.max) best = fe;
+    if (up * (apex[1] - base) > 0) {
+      for (const frac of FWD_STARTS) {
+        const fe = fitShoulder(
+          s,
+          half,
+          f,
+          base + frac * (apex[1] - base),
+          tangentOk ? g1 : Number.NaN,
+          dir,
+        );
+        if (best === null || fe.dev.max < best.dev.max) best = fe;
+        // at this band edge too, an edge has to beat the tangent blend clearly to be kept
+        if (here === null || here.dev.max - fe.dev.max >= FWD_EDGE_GAIN) here = fe;
+      }
     }
+    if (here !== null) candidates.push(here);
   }
   // An edge has to earn its place: keep the tangent blend unless the edge is clearly better.
   if (tangent !== null && (best === null || tangent.dev.max - best.dev.max < FWD_EDGE_GAIN)) {
     best = tangent;
   }
-  return { hardEdge, tangent, best, crease };
+  return { hardEdge, tangent, best, crease, candidates };
 }
