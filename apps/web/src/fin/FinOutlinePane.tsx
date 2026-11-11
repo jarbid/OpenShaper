@@ -28,7 +28,6 @@ import {
 } from '@openshaper/render2d';
 import { TIP_FOIL, type FinState } from '@openshaper/store';
 import { Tooltip } from '@openshaper/ui';
-import { Scaling } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
 import { fmtLen, type LengthUnit } from '../format';
@@ -66,6 +65,39 @@ const tabPolygons = (base: FinBase, outline?: Spline) => {
     tabProfilePoints(segs, 0.002).map((p) => ({ x: p.x, y: p.y - tab.height }));
   return tab.parts.flatMap((part) => [ring(part.segments), ...part.holes.map(ring)]);
 };
+
+/**
+ * The owner's Scale icon (scale_icon.svg): a small box inside a larger one, an arrow out of
+ * the corner. Inkscape's arrowhead marker is drawn as a plain path, and the colour follows
+ * the button's text (muted, or bright while the tool is on).
+ */
+function ScaleIcon() {
+  return (
+    <svg
+      viewBox="163.6 17.3 10.6 10"
+      className="h-5 w-5"
+      fill="none"
+      stroke="currentColor"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <rect x="168.4985" y="22.134506" width="5.298315" height="4.7096133" strokeWidth="0.562576" />
+      <rect
+        x="164.07071"
+        y="17.771286"
+        width="7.561759"
+        height="6.7215629"
+        strokeWidth="0.656287"
+      />
+      <path d="M 165.6287,19.357094 167.75179,21.493294" strokeWidth="0.547325" />
+      <path
+        d="M 167.853,19.267 165.532,19.26 165.525,21.581"
+        strokeWidth="0.547325"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 export const FinOutlinePane = memo(function FinOutlinePane({
   store,
@@ -351,7 +383,7 @@ export const FinOutlinePane = memo(function FinOutlinePane({
           className={`absolute left-2 z-10 grid h-8 w-8 place-items-center rounded-md ${onGhost ? 'top-11' : 'top-2'} ${scaling ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
           onClick={() => setScaling((on) => !on)}
         >
-          <Scaling className="h-4 w-4" />
+          <ScaleIcon />
         </button>
       </Tooltip>
       <FinCurveEditor
