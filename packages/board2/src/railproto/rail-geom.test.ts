@@ -11,7 +11,7 @@ import { conicPoint, conicPolyline, nearestExact } from './rail-geom';
 import type { Conic } from './rail-geom';
 import { CONIC_SAMPLES, NEAREST_STRIDE } from './rail-params';
 import { fishBoard, swallowBoard } from '../testing';
-import { boardSections } from './rail-samples';
+import { boardSections } from './test-support/rail-samples';
 
 /** The study's own coarse-to-fine scan, reached through the deviation it feeds. */
 const coarse = (poly: Float64Array, y: number, z: number): number => {

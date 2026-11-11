@@ -12,7 +12,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { FWD_TANGENT_DEG, fitForward } from './forward';
 import type { ForwardFit, HalfForward } from './forward';
-import { allBoards, denseSections } from './rail-samples';
+import { allBoards, denseSections } from './test-support/rail-samples';
 import { DENSE_STATIONS, PROJECT_TOL_CM } from './rail-params';
 
 const study = describe.skipIf(process.env.TRIM_STUDY !== '1');

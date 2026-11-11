@@ -26,8 +26,8 @@ import {
   MOCKUP_LAW_DOF,
   MOCKUP_SWEEP_STATIONS,
 } from './rail-params';
-import { allBoards } from './rail-samples';
-import type { StudyBoard } from './rail-samples';
+import { allBoards } from './test-support/rail-samples';
+import type { StudyBoard } from './test-support/rail-samples';
 
 const study = describe.skipIf(process.env.RAIL_MOCKUP !== '1');
 

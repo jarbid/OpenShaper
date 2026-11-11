@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { fitHalf, fitStation, halfDeviation, stationAt } from './rail-fit';
 import type { StationFit } from './rail-fit';
 import { LAW_PENALTY, fitLaw, lawAt, optimiseLaws, roughness } from './rail-laws';
-import { allBoards, boardSections, denseSections } from './rail-samples';
+import { allBoards, boardSections, denseSections } from './test-support/rail-samples';
 import { DENSE_STATIONS, LAW_DOFS, PROJECT_TOL_CM } from './rail-params';
 import type { RealSection } from './rail-geom';
 

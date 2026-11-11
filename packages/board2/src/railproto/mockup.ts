@@ -52,7 +52,7 @@ import {
   TURN_CEIL,
   TURN_FLOOR,
 } from './rail-params';
-import type { StudyBoard } from './rail-samples';
+import type { StudyBoard } from './test-support/rail-samples';
 
 // ---------------------------------------------------------------------------
 // Sections, and the lift back into three dimensions

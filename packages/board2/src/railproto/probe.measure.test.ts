@@ -6,7 +6,7 @@
  *   RAIL_STUDY=1 pnpm --filter @openshaper/board2 exec vitest run src/railproto/probe.measure.test.ts
  */
 import { describe, expect, it } from 'vitest';
-import { allBoards, boardSections, denseSections } from './rail-samples';
+import { allBoards, boardSections, denseSections } from './test-support/rail-samples';
 import { deviation, turnIndex } from './rail-geom';
 
 const study = describe.skipIf(process.env.RAIL_STUDY !== '1');

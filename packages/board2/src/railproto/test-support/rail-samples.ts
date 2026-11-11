@@ -12,18 +12,18 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseS3dx } from '@openshaper/io';
 import type { BezierBoard } from '@openshaper/kernel';
-import { convertClassic } from '../classic';
-import { createChordFn, probeSection } from '../probe';
-import { compileChain, funcEval } from '../chain';
-import { buildBoard, createEvaluator } from '../surface';
-import { asymmetricBoard, fishBoard, swallowBoard } from '../testing';
-import { GOLDENS } from '../test-support/classic-samples';
-import { fromPolyline, realSection } from './rail-geom';
-import type { RealSection } from './rail-geom';
-import { MIN_CHORD, MIN_THICKNESS, SECTION_SAMPLES } from './rail-params';
-import type { BoardDoc } from '../types';
+import { convertClassic } from '../../classic';
+import { createChordFn, probeSection } from '../../probe';
+import { compileChain, funcEval } from '../../chain';
+import { buildBoard, createEvaluator } from '../../surface';
+import { asymmetricBoard, fishBoard, swallowBoard } from '../../testing';
+import { GOLDENS } from '../../test-support/classic-samples';
+import { fromPolyline, realSection } from '../rail-geom';
+import type { RealSection } from '../rail-geom';
+import { MIN_CHORD, MIN_THICKNESS, SECTION_SAMPLES } from '../rail-params';
+import type { BoardDoc } from '../../types';
 
-const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
+const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../..');
 const CARLOS = resolve(repo, 'Sample board imports/carlos');
 
 export interface StudyBoard {

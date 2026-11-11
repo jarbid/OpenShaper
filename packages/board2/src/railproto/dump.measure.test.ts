@@ -8,7 +8,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { allBoards, denseSections } from './rail-samples';
+import { allBoards, denseSections } from './test-support/rail-samples';
 import { DENSE_STATIONS } from './rail-params';
 
 const study = describe.skipIf(process.env.TRIM_STUDY !== '1');

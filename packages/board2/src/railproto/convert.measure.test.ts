@@ -16,7 +16,7 @@ import type { PanelEdge, PanelField, PanelSample } from './panel';
 import type { RealSection } from './rail-geom';
 import type { Half } from './rail-fit';
 import { fitLaw, lawAt } from './rail-laws';
-import { allBoards, denseSections } from './rail-samples';
+import { allBoards, denseSections } from './test-support/rail-samples';
 import { DENSE_STATIONS, PROJECT_TOL_CM, RHO_MAX, RHO_MIN } from './rail-params';
 
 const study = describe.skipIf(process.env.TRIM_STUDY !== '1');

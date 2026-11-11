@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { fitPinned, fitSingle, fitStation, fitStationFifth } from './rail-fit';
 import type { StationFit } from './rail-fit';
-import { allBoards, boardSections, denseSections } from './rail-samples';
+import { allBoards, boardSections, denseSections } from './test-support/rail-samples';
 import { DENSE_STATIONS, PINNED_TURNS, PROJECT_TOL_CM } from './rail-params';
 import type { RealSection } from './rail-geom';
 

@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { blend, fitSingle, fitStation } from './rail-fit';
 import { conicPolyline, lineMeet, sampleAt, turnIndex } from './rail-geom';
 import type { RealSection } from './rail-geom';
-import { allBoards, boardSections, denseSections } from './rail-samples';
+import { allBoards, boardSections, denseSections } from './test-support/rail-samples';
 import { DENSE_STATIONS } from './rail-params';
 
 const study = describe.skipIf(process.env.RAIL_STUDY !== '1' || !process.env.RAIL_OUT);
