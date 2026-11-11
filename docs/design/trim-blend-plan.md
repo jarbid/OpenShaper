@@ -97,3 +97,39 @@ Each step leaves the branch working.
 - **The deck-side edge** has no control yet.
 - **`earcut`** becomes a runtime dependency of `@openshaper/board2`, which until now needed
   only `@openshaper/geom`. It is small, has no dependencies of its own and is ISC licensed.
+
+## As built: step 1, the kernel
+
+`packages/board2/src/trim/`, about 900 lines with its tests. Nothing in the engine or the app
+imports it yet, and `@openshaper/board2`'s export list is unchanged.
+
+| File                   | What it holds                                                                                                                                                                                                                                         |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `loop.ts`              | `buildLoop`: the outline as a closed loop from smooth pieces, every corner replaced by an arc of its radius, resampled finely where it turns, with the inward normal, the distance along it and the local feature size at every sample. `smoothAlong` |
+| `rails.ts`             | `RailRecipe`, the seven numbers of a rail. `railLaws`: the rail at every sample, with the bands held to a share of the local feature size                                                                                                             |
+| `solid.ts`             | `buildTrimMesh`: the two blend strips and the two trimmed panels as one mesh with exact normals. `checkClosed`. `sliceX`                                                                                                                              |
+| `test-support/demo.ts` | The sketch's three boards, for the tests                                                                                                                                                                                                              |
+
+Its numbers live in `TRIM` in `params.ts`.
+
+**The gate.** The port is pinned against the sketch on three tails with two sets of rails
+each. The loops agree exactly: the same number of samples, the same perimeter to a thousandth
+of a centimetre, the same narrowest band. The volumes agree to 0.006 L in 30. That last
+difference is the triangulator: the sketch and the kernel put every vertex in the same place
+and stitch the panels to the rail with different libraries.
+
+Beyond the sketch's own cases, the tests hold the kernel to what it promises:
+
+- **Closed at the ends of every control.** Thirty boards: no notch and the deepest, the
+  sharpest and roundest corners, the blends pushed to the tail, to the nose and squeezed to 2%
+  of the length each, and the harshest neighbouring rails. None has an open edge.
+- **Bands cannot cross.** With the widest rail everywhere, no band or tuck exceeds 0.9 of the
+  local feature size at any sample.
+- **Corners are the radius asked for.** The two tips of a fish measure 6 mm and its nose 8 mm.
+- **The apex is on the outline** and the surface is vertical there.
+- **The rail meets the deck tangent**, within a degree, where it has no edge.
+
+`earcut` 3 is the one new dependency.
+
+**Not done in this step:** no real board has been through the kernel, the panels are
+still the sketch's invented foil, and there is no STEP. Those are steps 2 and 6.

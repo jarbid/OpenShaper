@@ -14,7 +14,8 @@
   "sideEffects": false,
   "dependencies": {
     "@openshaper/geom": "workspace:*",
-    "@openshaper/kernel": "workspace:*"
+    "@openshaper/kernel": "workspace:*",
+    "earcut": "^3.0.1"
   },
   "scripts": {
     "bench": "vitest bench src --run",

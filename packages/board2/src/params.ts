@@ -269,3 +269,71 @@ export const STEP_END_BLEND = 0.06;
 export const STEP_WARP_TABLE = 1024;
 /** Check samples per span along the boundary rows (the stringer, the apex and the ends), which `snap` moves. */
 export const STEP_EDGE_SAMPLES = 24;
+
+/**
+ * The trim-and-blend kernel (`trim/`, docs/design/trim-blend-plan.md): the outline as a
+ * closed loop, the rail blends swept along it and the trimmed panels between them.
+ */
+export const TRIM = {
+  /** Outline sample spacing, cm: its floor and ceiling. */
+  spacingMin: 0.035,
+  spacingMax: 0.55,
+  /** Between them, the spacing is this fraction of the local plan radius. */
+  spacingPerRadius: 0.16,
+  /** Spacing may grow by this fraction of the distance travelled, so a tight corner is approached finely from both sides and never stepped over. */
+  spacingGrade: 0.25,
+  /** Samples either side that the local plan radius is measured across. */
+  radiusWindow: 3,
+  /** A turn below this (radians) across that window is straight. */
+  straightTurn: 1e-9,
+  /** The radius reported for a straight stretch, cm. */
+  straightRadius: 1e6,
+  /** Two pieces whose directions differ by less than this (sine of the turn) join smoothly and get no corner. */
+  cornerMinTurn: 0.03,
+  /** How far along each piece a corner's tangent points are looked for: this many radii, plus this many cm. */
+  cornerReachRadii: 7,
+  cornerReach: 1,
+  /** A corner whose radius will not fit is retried smaller: this many times, by this factor, down to this floor (cm). */
+  cornerRetries: 6,
+  cornerShrink: 0.6,
+  cornerFloor: 0.02,
+  /** A rounded corner is sampled in at least this many steps, and one per this many radians. */
+  cornerSteps: 8,
+  cornerStep: 0.07,
+  /** Determinant below which two segments are parallel. */
+  parallel: 1e-14,
+  /** Shortest length treated as a length, cm. */
+  tiny: 1e-12,
+  /** Cap on the local feature size, cm. */
+  featureCap: 60,
+  /** Neighbours skipped either side when measuring local feature size, so a point's own arc does not count. */
+  featureSkip: 2,
+  /** A neighbour counts towards local feature size only when it is this far (cm) to the inside. */
+  featureInside: 1e-9,
+  /** A band may take this share of the smoothed local feature size, and never more than `bandHard` of the raw one, so bands from opposite edges cannot cross. */
+  bandShare: 0.72,
+  bandHard: 0.9,
+  /** Arc length (cm) the local feature size is smoothed over before it limits a band. */
+  bandSmooth: 0.35,
+  /** Neighbours either side that the smoothing looks at. */
+  smoothReach: 90,
+  /** Sharpness of the soft minimum that applies the limit. */
+  bandSoftmin: 5,
+  /** An edge's shoulder stops this fraction of the way short of the apex. */
+  edgeShort: 0.05,
+  /** Rows across the deck blend and across the tuck. */
+  deckRows: 14,
+  tuckRows: 10,
+  /** Half step of the finite difference that reads a panel's slope at a band edge, and a panel's normal, cm. */
+  slopeStep: 0.01,
+  normalStep: 0.02,
+  /** Panel grid nodes are nudged by this fraction of the grid spacing, so no three stitch vertices are collinear and the triangulator drops none. */
+  gridJitter: 0.16,
+  /** The loop is walked at this fraction of the grid spacing to find the cells it touches. */
+  blockStep: 1 / 3,
+  /** Passes of diagonal-pinch removal on the kept cells. */
+  pinchPasses: 30,
+  /** A panel is sampled every this many cm in a slice, and at least this many times per span. */
+  sliceStep: 0.15,
+  sliceMin: 4,
+} as const;
