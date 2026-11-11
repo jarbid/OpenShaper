@@ -319,6 +319,11 @@ export const TRIM = {
   smoothReach: 90,
   /** Sharpness of the soft minimum that applies the limit. */
   bandSoftmin: 5,
+  /** The narrowest a band or tuck is ever built, cm: a hard edge is a very small blend, never a missing one. */
+  bandMin: 0.05,
+  /** The apex is kept this far, as a fraction, from either end of the wall, and a conic's rho this far from 0 and 1. */
+  apexInset: 0.02,
+  rhoInset: 0.05,
   /** An edge's shoulder stops this fraction of the way short of the apex. */
   edgeShort: 0.05,
   /** Rows across the deck blend and across the tuck. */

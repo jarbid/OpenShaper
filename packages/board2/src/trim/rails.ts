@@ -41,6 +41,8 @@ export interface RailLaws {
   readonly bottomEdge: Float64Array;
 }
 
+const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+
 /** `(a^-p + b^-p)^(-1/p)`: a smooth value just under the smaller of two positive numbers. */
 const softMin = (a: number, b: number): number =>
   Math.pow(Math.pow(a, -TRIM.bandSoftmin) + Math.pow(b, -TRIM.bandSoftmin), -1 / TRIM.bandSoftmin);
@@ -69,11 +71,12 @@ export function railLaws(loop: Loop, recipeAt: (i: number) => RailRecipe): RailL
     const r = recipeAt(i);
     const soft = TRIM.bandShare * limit[i]!;
     const hard = TRIM.bandHard * loop.lfs[i]!;
-    laws.deckWidth[i] = Math.min(softMin(r.band, soft), hard);
-    laws.tuckWidth[i] = Math.min(softMin(r.tuck, soft), hard);
-    laws.deckRho[i] = r.hardness;
-    laws.tuckRho[i] = r.tuckShape;
-    laws.apex[i] = r.apex;
+    // never wider than the board allows, and never so narrow that the blend vanishes
+    laws.deckWidth[i] = Math.min(hard, Math.max(TRIM.bandMin, softMin(r.band, soft)));
+    laws.tuckWidth[i] = Math.min(hard, Math.max(TRIM.bandMin, softMin(r.tuck, soft)));
+    laws.deckRho[i] = clamp(r.hardness, TRIM.rhoInset, 1 - TRIM.rhoInset);
+    laws.tuckRho[i] = clamp(r.tuckShape, TRIM.rhoInset, 1 - TRIM.rhoInset);
+    laws.apex[i] = clamp(r.apex, TRIM.apexInset, 1 - TRIM.apexInset);
     laws.deckEdge[i] = Math.tan(r.deckEdge * rad);
     laws.bottomEdge[i] = Math.tan(r.bottomEdge * rad);
   }
