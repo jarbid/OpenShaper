@@ -6,6 +6,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { TRIM } from '../params';
+import { buildLoop } from './loop';
+import { railLaws } from './rails';
 import { buildTrimMesh, checkClosed, sliceX } from './solid';
 import { DEMO_DEFAULTS, DEMO_RAILS, demoBoard } from './test-support/demo';
 import type { DemoOptions, DemoTail } from './test-support/demo';
@@ -92,6 +94,54 @@ describe('trim kernel: the port matches the sketch', () => {
     expect(yMax).toBeCloseTo(26.59, 2);
     expect(zMin).toBeCloseTo(-0.268, 2);
     expect(zMax).toBeCloseTo(6.206, 2);
+  });
+});
+
+describe('trim kernel: what a real board needs', () => {
+  it('stays closed where the outline is exactly straight', () => {
+    // a squash tail's edge is a straight line, so the band edge along it is collinear and the
+    // triangulator drops those vertices; found on the first real boards through the kernel
+    const d = 8;
+    const side = new Float64Array(2 * 201);
+    const edge = new Float64Array(2 * 41);
+    const back = new Float64Array(2 * 201);
+    const nose = new Float64Array(2 * 41);
+    for (let i = 0; i <= 200; i++) {
+      side[2 * i] = 120 - (120 * i) / 200;
+      side[2 * i + 1] = d;
+      back[2 * i] = (120 * i) / 200;
+      back[2 * i + 1] = -d;
+    }
+    for (let i = 0; i <= 40; i++) {
+      edge[2 * i] = 0;
+      edge[2 * i + 1] = d - (2 * d * i) / 40;
+      nose[2 * i] = 120;
+      nose[2 * i + 1] = -d + (2 * d * i) / 40;
+    }
+    const loop = buildLoop({
+      pieces: [
+        { pts: side, kind: 0 },
+        { pts: edge, kind: 1 },
+        { pts: back, kind: 0 },
+        { pts: nose, kind: 1 },
+      ],
+      corners: [1.5, 1.5, 1.5, 1.5],
+    });
+    const laws = railLaws(loop, () => ({
+      band: 2,
+      hardness: 0.5,
+      tuck: 1,
+      tuckShape: 0.5,
+      bottomEdge: 0,
+      deckEdge: 0,
+      apex: 0.4,
+    }));
+    const mesh = buildTrimMesh(loop, laws, { deck: () => 5, bottom: () => 0 }, GRID);
+    const check = checkClosed(mesh);
+    expect(check.openEdges).toBe(0);
+    // a slab 120 by 16 by 5 with rounded corners and edges: a little under 9.6 litres
+    expect(check.volume / 1000).toBeGreaterThan(9);
+    expect(check.volume / 1000).toBeLessThan(9.6);
   });
 });
 

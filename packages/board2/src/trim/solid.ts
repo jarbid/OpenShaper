@@ -57,6 +57,60 @@ interface BandEdge {
   readonly tangent: number;
 }
 
+/**
+ * Puts back the rim vertices a triangulation left out.
+ *
+ * The triangulator drops a vertex that is exactly in line with its neighbours, and on a real
+ * board that happens: a squash tail's edge is straight, so the band edge along it is too. The
+ * strip still uses those vertices, and the panel would be open along them. Each run of
+ * dropped vertices lies on the edge of exactly one triangle, between the kept vertices either
+ * side; that triangle is split into a fan through them. `t` indexes the rim's `m` vertices
+ * first, in loop order.
+ */
+function restoreRim(t: number[], m: number): number[] {
+  const used = new Uint8Array(m);
+  for (const v of t) if (v < m) used[v] = 1;
+  let any = false;
+  for (let i = 0; i < m; i++) any ||= used[i] === 0;
+  if (!any) return t;
+  const out = t.slice();
+  for (let start = 0; start < m; start++) {
+    // the first dropped vertex of a run: its predecessor is kept
+    if (used[start] !== 0 || used[(start + m - 1) % m] === 0) continue;
+    const run: number[] = [];
+    for (let i = start; used[i] === 0; i = (i + 1) % m) run.push(i);
+    const u = (start + m - 1) % m;
+    const w = (run[run.length - 1]! + 1) % m;
+    for (let q = 0; q < out.length; q += 3) {
+      const a = out[q]!;
+      const b = out[q + 1]!;
+      const c = out[q + 2]!;
+      // which corner is opposite the edge u-w, and which way round the triangle runs it
+      let x = -1;
+      let forward = true;
+      for (const [p, r, o] of [
+        [a, b, c],
+        [b, c, a],
+        [c, a, b],
+      ] as const) {
+        if (p === u && r === w) x = o;
+        else if (p === w && r === u) {
+          x = o;
+          forward = false;
+        }
+      }
+      if (x < 0) continue;
+      const chain = forward ? [u, ...run, w] : [w, ...run.slice().reverse(), u];
+      out[q] = chain[0]!;
+      out[q + 1] = chain[1]!;
+      out[q + 2] = x;
+      for (let k = 1; k + 1 < chain.length; k++) out.push(chain[k]!, chain[k + 1]!, x);
+      break;
+    }
+  }
+  return out;
+}
+
 /** Builds the mesh. `grid` is the panels' node spacing, cm. */
 export function buildTrimMesh(loop: Loop, laws: RailLaws, panels: Panels, grid: number): TrimMesh {
   const n = loop.n;
@@ -391,7 +445,7 @@ export function buildTrimMesh(loop: Loop, laws: RailLaws, panels: Panels, grid: 
         flat.push(pos[3 * v]!, pos[3 * v + 1]!);
       }
     }
-    const t = earcut(flat, holes, 2);
+    const t = restoreRim(earcut(flat, holes, 2), m);
     let area = 0;
     for (let q = 0; q < t.length; q += 3) {
       const a = ids[t[q]!]!;
