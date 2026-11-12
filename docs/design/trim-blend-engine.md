@@ -12,13 +12,13 @@ converting on every build. Converting takes one to two seconds (fitting rails, p
 so every edit would lag by that much, and the code that made it tolerable would be thrown away
 one step later. The end state is the same; the order is now:
 
-|     | Step                                                                                                                                                       | Gate                                                                                                                                                  |
-| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 3   | **The rails engine, native.** A rails board in memory, built with no old surface behind it; mesh, section, half width and apex line from it; the converter | Every board, converted and built natively: closed; 1 mm except tips against today's engine; volume within 1%; build and mesh in 30 ms at view quality |
-| 4   | **STEP** for a rails board: two trimmed faces and the strips                                                                                               | OCCT reads one valid closed solid                                                                                                                     |
-| 5   | **The document and the swap.** `model: 'rails'` in the document, conversion once on open, the app's seam dispatching on the model                          | The app's own suites; every export still works                                                                                                        |
-| 6   | **Rails editing**                                                                                                                                          | `trim-blend-workflow.md`                                                                                                                              |
-| 7   | **Remove** the chord frame, the notch zone and the caps                                                                                                    | Nothing imports them                                                                                                                                  |
+|     | Step                                                                                                                                                       | Gate                                                                                                                                                                                                     |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3   | **The rails engine, native.** A rails board in memory, built with no old surface behind it; mesh, section, half width and apex line from it; the converter | Every board, converted and built natively: closed; within 1 mm of its original at its own stations, tips excepted; volume and the gap between stations reported; build and mesh in 30 ms at view quality |
+| 4   | **STEP** for a rails board: two trimmed faces and the strips                                                                                               | OCCT reads one valid closed solid                                                                                                                                                                        |
+| 5   | **The document and the swap.** `model: 'rails'` in the document, conversion once on open, the app's seam dispatching on the model                          | The app's own suites; every export still works                                                                                                                                                           |
+| 6   | **Rails editing**                                                                                                                                          | `trim-blend-workflow.md`                                                                                                                                                                                 |
+| 7   | **Remove** the chord frame, the notch zone and the caps                                                                                                    | Nothing imports them                                                                                                                                                                                     |
 
 STEP moves ahead of the swap so that no export is lost when the app changes engine.
 
@@ -221,18 +221,21 @@ export function convertSections(
 twin and its loop from its own outline. At every station, tips included, read the two halves
 from the section blend, find the band edge (`sectionRail`; a tip station borrows the nearest
 usable station's band share), cut the panel there as `panelCurve` does and fit a chain. Put a
-rail key at each usable station. Then, every 4 cm away from the tips, measure the loft's gap
-to the source's panel and the rail's gap (`recipeGap`): over the loft bar, add a station and
-a key; otherwise over the rail bar, add a key; worst first, until nothing is over a bar. The
-bars are options: how faithful a conversion is to the old surface between stations is the
-caller's choice.
+rail key at each usable station. That is the whole of a conversion: a board keeps its own
+stations and gets one rail key at each.
+
+The converter can also follow the old surface between stations, adding a station where the
+loft is over a bar from the source's panel and a rail key where the rail is over a bar
+(`recipeGap`), worst first. Both bars are options and both are off unless asked for.
 
 ## How it is proved
 
 `native.measure.test.ts`, on demand like the bridge's: each board with its features off goes
 through `convertSections`, `buildRails` and the kernel mesh, and is sliced and measured
-against today's engine at the same 41 stations with the same tip rule and bar. It reports the
-stations and keys added, the time to build and mesh, and, not gated, the gap with features on.
+against today's engine. **Gated:** closed, and within 1 mm at the board's own stations away
+from the tips. **Reported, not gated:** the gap at the 41 even stations (most fall between a
+board's own), the volume against today's, the time to build and mesh, the gap with features
+on, and, for comparison, what following the old surface would cost in added stations and keys.
 
 Unit tests: the blend along the board equals `sections.ts`'s; the loft passes through its
 station curves, is held beyond the end stations, is C1 across the stringer, and its gradient
@@ -261,12 +264,11 @@ fast panel path builds the same mesh as the slow one; a timing test.
 - Rail keys are placed along x, per side.
 - A section probed inside a notch's lobes is the lobe, as one polyline, flagged.
 
-## Open, for the project owner
+## Decided by the project owner (2026-11-12)
 
-**How faithful a conversion should be between stations.** The 1 mm bar was set against the
-old surface everywhere. Between stations the old surface is one interpolation of the
-designer's stations and the new one is another; neither is the design. Holding the new one to
-the old within 1 mm costs added stations (up to ten a side on a board with three) and added
-rail keys. The alternative keeps a board's own stations and lets the new engine run between
-them, at up to 4.6 mm from the old surface on a board with few stations and 0.4 mm or less on
-most. The converter takes the bars as options, and step 3 measures both.
+**A conversion is clean.** Between stations the old surface is one interpolation of the
+designer's stations and the new one is another; neither is the design. Holding the new one
+to the old within 1 mm between stations would cost added stations (up to ten a side on a
+board with three) and added rail keys. A converted board keeps its own stations instead and
+the new engine runs between them: up to 4.6 mm from the old surface on a board with few
+stations, 0.4 mm or less on most. "That's the whole point of this experimental rebuild."
