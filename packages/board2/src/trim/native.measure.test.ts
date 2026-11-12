@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * The gate of the rails engine's step (docs/design/trim-blend-engine.md, "How it is proved"):
+ * The gate of the rails engine's step (docs/design/trim-blend-engine.md, "As built"):
  * each of the study's boards, with its features off, goes through `convertSections`,
  * `buildRails` and the kernel mesh, is sliced, and is measured against today's engine. Run on
  * demand:

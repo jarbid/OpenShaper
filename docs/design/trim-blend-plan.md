@@ -109,8 +109,9 @@ Each step leaves the branch working.
 | 6   | **STEP.** Two trimmed faces and the strips                                                                 | OCCT reads one valid closed solid                                                                                                            |
 | 7   | **Remove** the chord frame, the notch zone and the caps                                                    | Nothing imports them                                                                                                                         |
 
-Steps 1 and 2 are built; see the two As built sections. From step 3 on the order has
-changed: `trim-blend-engine.md` has the new order, the reason, and the design of step 3.
+Steps 1 to 3 are built; see the two As built sections here and the one in
+`trim-blend-engine.md`, which also has the order from step 3 on and the reason it changed.
+Step 4, STEP for a rails board, is next.
 
 ## Open
 
