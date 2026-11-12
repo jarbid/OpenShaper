@@ -24,6 +24,43 @@ export interface Panels {
   bottom(x: number, y: number): number;
 }
 
+/**
+ * Panels no thinner than `least` (cm). At each point the thickness `t = deck - bottom` becomes
+ * `(t^p + least^p)^(1/p)`, or `least` where the panels touch or cross, spread evenly about
+ * their mean, which does not move. The change is smooth, so it puts no crease in a panel, and
+ * it is negligible where the board is a few times `least` thick. A tip then ends in a ball in
+ * thickness as the loop already makes it one in plan. `least <= 0` returns the panels as given.
+ */
+export function withLeastThickness(
+  panels: Panels,
+  least: number,
+  sharpness: number = TRIM.tipSharpness,
+): Panels {
+  if (!(least > 0)) return panels;
+  // the power is taken of a ratio no larger than 1, so it cannot overflow
+  const thicken = (t: number): number => {
+    if (!(t > 0)) return least;
+    const big = Math.max(t, least);
+    const small = Math.min(t, least);
+    return big * Math.pow(1 + Math.pow(small / big, sharpness), 1 / sharpness);
+  };
+  const at = (x: number, y: number): [number, number] => {
+    const d = panels.deck(x, y);
+    const b = panels.bottom(x, y);
+    return [0.5 * (d + b), 0.5 * thicken(d - b)];
+  };
+  return {
+    deck: (x, y) => {
+      const [m, h] = at(x, y);
+      return m + h;
+    },
+    bottom: (x, y) => {
+      const [m, h] = at(x, y);
+      return m - h;
+    },
+  };
+}
+
 /** Which face a vertex or a triangle belongs to. The tuck's faces are the deck blend's plus `tuck`. */
 export const FACE = { deck: 0, bottom: 1, rail: 2, tail: 3, corner: 4, tuck: 3 } as const;
 
@@ -42,6 +79,8 @@ export interface TrimMesh {
   readonly wallTop: Float64Array;
   readonly wallBottom: Float64Array;
   readonly apex: Float64Array;
+  /** The panels the mesh was built on: the caller's, held to the least thickness. Slice with these. */
+  readonly panels: Panels;
 }
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
@@ -116,16 +155,19 @@ export interface TrimMeshOptions {
   /** Rows across the deck blend and across the tuck. More rows follow a blend's curve more closely. */
   readonly deckRows?: number;
   readonly tuckRows?: number;
+  /** The least thickness (cm) the panels are held to (`withLeastThickness`); 0 builds on the panels as given. */
+  readonly leastThickness?: number;
 }
 
 /** Builds the mesh. `grid` is the panels' node spacing, cm. */
 export function buildTrimMesh(
   loop: Loop,
   laws: RailLaws,
-  panels: Panels,
+  given: Panels,
   grid: number,
   options: TrimMeshOptions = {},
 ): TrimMesh {
+  const panels = withLeastThickness(given, options.leastThickness ?? TRIM.tipThickness);
   const n = loop.n;
   const nt = options.deckRows ?? TRIM.deckRows;
   const nb = options.tuckRows ?? TRIM.tuckRows;
@@ -174,9 +216,20 @@ export function buildTrimMesh(
     return { qx, qy, z, tangent, shoulder: tangent };
   };
   for (let i = 0; i < n; i++) {
-    const d = bandEdge(panels.deck, i, laws.deckWidth[i]!);
-    const b = bandEdge(panels.bottom, i, laws.tuckWidth[i]!);
-    const za = b.tangent + laws.apex[i]! * (d.tangent - b.tangent);
+    let d = bandEdge(panels.deck, i, laws.deckWidth[i]!);
+    let b = bandEdge(panels.bottom, i, laws.tuckWidth[i]!);
+    const a = laws.apex[i]!;
+    const za = b.tangent + a * (d.tangent - b.tangent);
+    // A wall shorter than `wallMin`, or a negative one where the tangents cross, is opened to
+    // `wallMin` about the apex. The blends then no longer leave their panels tangent here.
+    // That is accepted: it happens only where the board is a knife edge, and there a blend
+    // that cannot stand on a wall would fold the rail through itself.
+    if (d.tangent - b.tangent < TRIM.wallMin) {
+      const top = za + (1 - a) * TRIM.wallMin;
+      const bottom = za - a * TRIM.wallMin;
+      d = { ...d, tangent: top, shoulder: top };
+      b = { ...b, tangent: bottom, shoulder: bottom };
+    }
     // an edge leaves its panel at an angle, so its shoulder slides along the wall towards the apex, never past it
     d.shoulder = Math.max(
       d.tangent - laws.deckWidth[i]! * laws.deckEdge[i]!,
@@ -495,6 +548,7 @@ export function buildTrimMesh(
     wallTop,
     wallBottom,
     apex,
+    panels,
   };
 }
 

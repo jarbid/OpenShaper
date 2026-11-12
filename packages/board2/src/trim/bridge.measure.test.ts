@@ -168,7 +168,7 @@ function measure(
   const gaps: number[] = [];
   const where: Measured['where'] = [];
   for (const st of stations) {
-    const slice = sliceX(mesh, panels, st.x);
+    const slice = sliceX(mesh, mesh.panels, st.x);
     let worst = { max: -1, y: 0, z: 0 };
     let worstSide: 0 | 1 = 0;
     for (const side of sides) {
@@ -273,7 +273,7 @@ function tailRegion(
   for (const share of LOBE_AT) {
     const x = share * depth;
     // the plus lobe's span across the board, from the kernel's slice
-    const slice = sliceX(mesh, panels, x);
+    const slice = sliceX(mesh, mesh.panels, x);
     let y0 = Infinity;
     let y1 = -Infinity;
     for (let s = 0; s < slice.length; s += 5) {

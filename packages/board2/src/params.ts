@@ -324,6 +324,16 @@ export const TRIM = {
   /** The apex is kept this far, as a fraction, from either end of the wall, and a conic's rho this far from 0 and 1. */
   apexInset: 0.02,
   rhoInset: 0.05,
+  /**
+   * The least thickness (cm) the kernel builds the panels to, so a tip ends in a ball and never
+   * a point: a thickness t becomes `(t^p + T^p)^(1/p)` with `T = tipThickness` and
+   * `p = tipSharpness`, and `T` where the panels touch or cross. At these values a board 1 cm
+   * thick gains 0.026 mm, one 2 cm thick under 0.001 mm.
+   */
+  tipThickness: 0.5,
+  tipSharpness: 6,
+  /** The least height (cm) of the rail's wall, from the bottom's tangent to the deck's, at any loop sample: the strips need a wall to stand on. */
+  wallMin: 0.1,
   /** An edge's shoulder stops this fraction of the way short of the apex. */
   edgeShort: 0.05,
   /** Rows across the deck blend and across the tuck. */

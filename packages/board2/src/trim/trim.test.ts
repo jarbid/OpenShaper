@@ -7,8 +7,10 @@
 import { describe, expect, it } from 'vitest';
 import { TRIM } from '../params';
 import { buildLoop } from './loop';
+import type { Loop } from './loop';
 import { railLaws } from './rails';
-import { buildTrimMesh, checkClosed, sliceX } from './solid';
+import { buildTrimMesh, checkClosed, sliceX, withLeastThickness } from './solid';
+import type { Panels, TrimMesh, TrimMeshOptions } from './solid';
 import { DEMO_DEFAULTS, DEMO_RAILS, demoBoard } from './test-support/demo';
 import type { DemoOptions, DemoTail } from './test-support/demo';
 
@@ -57,6 +59,36 @@ const SKETCH: Record<
   },
 };
 
+/** A slab's outline, 120 by 16 cm, straight sides and ends, every corner 1.5 cm. */
+const slabLoop = (): Loop => {
+  const d = 8;
+  const side = new Float64Array(2 * 201);
+  const edge = new Float64Array(2 * 41);
+  const back = new Float64Array(2 * 201);
+  const nose = new Float64Array(2 * 41);
+  for (let i = 0; i <= 200; i++) {
+    side[2 * i] = 120 - (120 * i) / 200;
+    side[2 * i + 1] = d;
+    back[2 * i] = (120 * i) / 200;
+    back[2 * i + 1] = -d;
+  }
+  for (let i = 0; i <= 40; i++) {
+    edge[2 * i] = 0;
+    edge[2 * i + 1] = d - (2 * d * i) / 40;
+    nose[2 * i] = 120;
+    nose[2 * i + 1] = -d + (2 * d * i) / 40;
+  }
+  return buildLoop({
+    pieces: [
+      { pts: side, kind: 0 },
+      { pts: edge, kind: 1 },
+      { pts: back, kind: 0 },
+      { pts: nose, kind: 1 },
+    ],
+    corners: [1.5, 1.5, 1.5, 1.5],
+  });
+};
+
 const build = (tail: DemoTail, over: Partial<DemoOptions> = {}) => {
   const board = demoBoard(tail, { ...DEMO_DEFAULTS[tail], ...over });
   const mesh = buildTrimMesh(board.loop, board.laws, board.panels, GRID);
@@ -101,32 +133,7 @@ describe('trim kernel: what a real board needs', () => {
   it('stays closed where the outline is exactly straight', () => {
     // a squash tail's edge is a straight line, so the band edge along it is collinear and the
     // triangulator drops those vertices; found on the first real boards through the kernel
-    const d = 8;
-    const side = new Float64Array(2 * 201);
-    const edge = new Float64Array(2 * 41);
-    const back = new Float64Array(2 * 201);
-    const nose = new Float64Array(2 * 41);
-    for (let i = 0; i <= 200; i++) {
-      side[2 * i] = 120 - (120 * i) / 200;
-      side[2 * i + 1] = d;
-      back[2 * i] = (120 * i) / 200;
-      back[2 * i + 1] = -d;
-    }
-    for (let i = 0; i <= 40; i++) {
-      edge[2 * i] = 0;
-      edge[2 * i + 1] = d - (2 * d * i) / 40;
-      nose[2 * i] = 120;
-      nose[2 * i + 1] = -d + (2 * d * i) / 40;
-    }
-    const loop = buildLoop({
-      pieces: [
-        { pts: side, kind: 0 },
-        { pts: edge, kind: 1 },
-        { pts: back, kind: 0 },
-        { pts: nose, kind: 1 },
-      ],
-      corners: [1.5, 1.5, 1.5, 1.5],
-    });
+    const loop = slabLoop();
     const laws = railLaws(loop, () => ({
       band: 2,
       hardness: 0.5,
@@ -235,5 +242,95 @@ describe('trim kernel: what it promises', () => {
     }
     expect(deckWorst).toBeLessThan(1);
     expect(edged).toBeGreaterThan(50);
+  });
+});
+
+describe('trim kernel: a tip is never thinner than the floor', () => {
+  // a plain rail on the slab's outline
+  const slab = (panels: Panels, options: TrimMeshOptions = {}) => {
+    const loop = slabLoop();
+    const laws = railLaws(loop, () => ({
+      band: 2,
+      hardness: 0.5,
+      tuck: 1,
+      tuckShape: 0.5,
+      bottomEdge: 0,
+      deckEdge: 0,
+      apex: 0.4,
+    }));
+    const mesh = buildTrimMesh(loop, laws, panels, GRID, options);
+    return { mesh, check: checkClosed(mesh) };
+  };
+  const thinnestWall = (mesh: TrimMesh): number => {
+    let w = Infinity;
+    for (let i = 0; i < mesh.loop.n; i++) w = Math.min(w, mesh.wallTop[i]! - mesh.wallBottom[i]!);
+    return w;
+  };
+  // half thickness 2.5 cm mid-length, falling to exactly 0 at the ends of the slab, x = 0 and 120
+  const half = (x: number): number => 2.5 * (1 - ((x - 60) / 60) ** 2);
+  const lens: Panels = { deck: (x) => half(x), bottom: (x) => -half(x) };
+  // the same foil 4 cm shorter at each end, so the deck is under the bottom there
+  const short = (x: number): number => 2.5 * (1 - ((x - 60) / 56) ** 2);
+  const crossing: Panels = { deck: (x) => short(x), bottom: (x) => -short(x) };
+
+  it('builds a lens whose foil ends in nothing as a closed solid with a ball at each tip', () => {
+    const { mesh, check } = slab(lens);
+    expect(check.openEdges).toBe(0);
+    expect(mesh.positions.every((v) => Number.isFinite(v))).toBe(true);
+    expect(check.volume).toBeGreaterThan(0);
+    expect(thinnestWall(mesh)).toBeGreaterThanOrEqual(0.9 * TRIM.tipThickness);
+  });
+
+  it('opens a knife-edge wall to the least wall when the floor is off', () => {
+    const { mesh, check } = slab(lens, { leastThickness: 0 });
+    expect(check.openEdges).toBe(0);
+    expect(mesh.positions.every((v) => Number.isFinite(v))).toBe(true);
+    expect(thinnestWall(mesh)).toBeGreaterThanOrEqual(TRIM.wallMin * (1 - 1e-9));
+  });
+
+  it('builds panels that cross as a closed solid', () => {
+    const { mesh, check } = slab(crossing);
+    expect(check.openEdges).toBe(0);
+    expect(mesh.positions.every((v) => Number.isFinite(v))).toBe(true);
+    expect(check.volume).toBeGreaterThan(0);
+    expect(thinnestWall(mesh)).toBeGreaterThanOrEqual(0.9 * TRIM.tipThickness);
+  });
+
+  it('leaves a thick board alone', () => {
+    // the demo foil is at least 1.3 cm thick at the stringer; with the floor the fish gains
+    // under 0.0001 L, so 0.001 L leaves room without hiding a real change
+    const b = demoBoard('fish');
+    const floor = checkClosed(buildTrimMesh(b.loop, b.laws, b.panels, GRID)).volume;
+    const none = checkClosed(
+      buildTrimMesh(b.loop, b.laws, b.panels, GRID, { leastThickness: 0 }),
+    ).volume;
+    expect(Math.abs(floor - none) / 1000).toBeLessThan(0.001);
+  });
+
+  it("holds a thickness to the floor, smoothly, about the panels' mean", () => {
+    const T = TRIM.tipThickness;
+    const flat = (mean: number, t: number): Panels => ({
+      deck: () => mean + t / 2,
+      bottom: () => mean - t / 2,
+    });
+    const after = (mean: number, t: number) => {
+      const p = withLeastThickness(flat(mean, t), T);
+      return { t: p.deck(0, 0) - p.bottom(0, 0), mean: 0.5 * (p.deck(0, 0) + p.bottom(0, 0)) };
+    };
+    expect(after(1.7, 0).t).toBeCloseTo(T, 12);
+    expect(after(1.7, -0.3).t).toBeCloseTo(T, 12);
+    expect(Math.abs(after(1.7, 4 * T).t - 4 * T)).toBeLessThan(T / 1000);
+    let last = -Infinity;
+    for (let k = -20; k <= 200; k++) {
+      const r = after(-2.3, k * 0.02);
+      expect(r.t).toBeGreaterThanOrEqual(last);
+      expect(r.t).toBeGreaterThanOrEqual(T);
+      expect(r.mean).toBeCloseTo(-2.3, 12);
+      last = r.t;
+    }
+    // no overflow on a thickness far beyond any board, and no change when the floor is off
+    expect(after(0, 1e200).t).toBe(1e200);
+    const given = flat(0, 0);
+    expect(withLeastThickness(given, 0)).toBe(given);
   });
 });
