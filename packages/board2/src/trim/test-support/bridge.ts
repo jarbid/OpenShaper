@@ -22,7 +22,7 @@ import type { Loop, LoopPiece } from '../loop';
 import { railLaws } from '../rails';
 import type { RailLaws, RailRecipe } from '../rails';
 import type { Panels } from '../solid';
-import { panelCurve, sectionRail } from '../station';
+import { builtWidth, panelCurve, recipeGap, sectionRail } from '../station';
 
 /** Default radii, cm: the ball on a nose, on a tail tip or corner, and in a notch's crotch. */
 export const BRIDGE_RADII = { nose: 0.8, tail: 0.6, crotch: 0.2 } as const;
@@ -236,8 +236,8 @@ function readSide(
     const c = Math.min(rows - 1, r + 1);
     const cos = 1 / Math.hypot(1, c > a ? (half[c]! - half[a]!) / (xiOf(c) - xiOf(a) || 1) : 0);
     const h = halves(ev, side, xi, FIELD_ROW);
-    const panelB = panelCurve(h.bottom, Math.max(0, laws.tuck(xi)) / cos);
-    const panelD = panelCurve(h.deck, Math.max(0, laws.band(xi)) / cos);
+    const panelB = panelCurve(h.bottom, 1, builtWidth(laws.tuck(xi), cos));
+    const panelD = panelCurve(h.deck, -1, builtWidth(laws.band(xi), cos));
     for (let j = 0; j < cols; j++) {
       const y = (j / (cols - 1)) * half[r]!;
       bottom.z[r * cols + j] = panelB(y);
@@ -281,6 +281,20 @@ export function usableStations(built: BuiltBoard, side: 'plus' | 'minus'): numbe
   return out;
 }
 
+/** A station's section as `sectionRail` and `recipeGap` read it: the two halves and the outline's cosine there. */
+function sectionAt(
+  built: BuiltBoard,
+  ev: SurfaceEvaluator,
+  s: 0 | 1,
+  x: number,
+  out: Float64Array,
+): { bottom: Float64Array; deck: Float64Array; cos: number } {
+  const a = Math.max(built.xiMin, x - KEY_SLOPE_STEP);
+  const c = Math.min(built.xiMax, x + KEY_SLOPE_STEP);
+  const slope = (halfWidth(ev, s, c, out) - halfWidth(ev, s, a, out)) / (c - a);
+  return { ...halves(ev, s, x, KEY_ROW), cos: 1 / Math.hypot(1, slope) };
+}
+
 /** One rail key at each of `xs`, fitted to the current surface of one side. */
 export function railKeysAt(
   built: BuiltBoard,
@@ -291,11 +305,8 @@ export function railKeysAt(
   const s: 0 | 1 = side === 'minus' && built.doc.symmetry === 'asymmetric' ? 1 : 0;
   const out = new Float64Array(3);
   return xs.map((x) => {
-    const a = Math.max(built.xiMin, x - KEY_SLOPE_STEP);
-    const c = Math.min(built.xiMax, x + KEY_SLOPE_STEP);
-    const slope = (halfWidth(ev, s, c, out) - halfWidth(ev, s, a, out)) / (c - a);
-    const h = halves(ev, s, x, KEY_ROW);
-    const rail = sectionRail(h.bottom, h.deck, 1 / Math.hypot(1, slope));
+    const h = sectionAt(built, ev, s, x, out);
+    const rail = sectionRail(h.bottom, h.deck, h.cos);
     return { x, ...rail.recipe, fit: Math.max(rail.bottom.gap, rail.deck.gap) };
   });
 }
@@ -369,4 +380,57 @@ export function boardRails(loop: Loop, plus: RailLawsAlong, minus: RailLawsAlong
       apex: l.apex(x),
     };
   });
+}
+
+/**
+ * Where one side of a board needs rail keys, decided without building a mesh. Starting from the
+ * keys at `start`, it interpolates the rail between them and asks, at each `check` station, how far
+ * the rail the kernel would build stands off that station's section (`recipeGap`). It adds a key at
+ * the station that stands off most, if that is over `bar` (cm) and at least `apart` (cm) from every
+ * key, and repeats until none qualifies or there are `most` keys. Returns the keys' x, sorted.
+ */
+export function placeKeys(
+  built: BuiltBoard,
+  side: 'plus' | 'minus',
+  start: readonly number[],
+  check: readonly number[],
+  options: { bar: number; most: number; apart: number },
+): number[] {
+  const ev = createEvaluator(built);
+  const s: 0 | 1 = side === 'minus' && built.doc.symmetry === 'asymmetric' ? 1 : 0;
+  const out = new Float64Array(3);
+  const sections = check.map((x) => sectionAt(built, ev, s, x, out));
+  const xs = [...start].sort((a, c) => a - c);
+  while (xs.length < options.most) {
+    const along = railsAlong(railKeysAt(built, side, xs));
+    let worst = -1;
+    let worstGap = options.bar;
+    for (let i = 0; i < check.length; i++) {
+      const x = check[i]!;
+      if (xs.some((k) => Math.abs(k - x) < options.apart)) continue;
+      const sec = sections[i]!;
+      const g = recipeGap(
+        sec.bottom,
+        sec.deck,
+        {
+          band: along.band(x),
+          hardness: along.hardness(x),
+          tuck: along.tuck(x),
+          tuckShape: along.tuckShape(x),
+          bottomEdge: along.bottomEdge(x),
+          deckEdge: along.deckEdge(x),
+          apex: along.apex(x),
+        },
+        sec.cos,
+      );
+      if (g > worstGap) {
+        worstGap = g;
+        worst = i;
+      }
+    }
+    if (worst < 0) break;
+    xs.push(check[worst]!);
+    xs.sort((a, c) => a - c);
+  }
+  return xs;
 }

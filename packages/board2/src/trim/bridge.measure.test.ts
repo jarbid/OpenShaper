@@ -29,6 +29,7 @@ import {
   boardPanels,
   boardRails,
   notchFreeTwin,
+  placeKeys,
   railKeysAt,
   railsAlong,
   usableStations,
@@ -53,6 +54,9 @@ const KEY_STATIONS = 21;
 /** Keys are added where the board misses the bar, up to this many; two keys are never closer than this (cm). */
 const KEYS_MAX = 16;
 const KEYS_APART = 2;
+/** Spacing (cm) of the stations `placeKeys` checks, and the gap (cm) it asks a key for: under the gate, to leave room for what a section's plane cannot see. */
+const PLACE_STEP = 4;
+const PLACE_BAR = 0.07;
 const mm = (cm: number): string => (cm * 10).toFixed(2);
 /** Shares of the crotch depth at which a notched tail's lobes are sampled. */
 const LOBE_AT = [0.2, 0.4, 0.6, 0.8] as const;
@@ -318,6 +322,9 @@ interface BoardSummary {
   readonly measuredStations: number;
   readonly sets: Record<string, SetSummary>;
   keysNeeded: number;
+  keysPlaced: number;
+  /** Wall-clock time of `placeKeys` for the first side, ms. */
+  placeMs: number;
   /** Notched boards: largest distance (mm) of a measured section from its station's plane. */
   offPlaneMm?: number;
   /** Notched boards: `TailRegion` with thicknesses in mm and positions in cm. */
@@ -363,13 +370,15 @@ study('real boards through the trim kernel', () => {
       const corners: number[] = [source.xiMin, source.xiMax];
       for (let i = 0; i < loop.n; i++) if (loop.corner[i] !== 0) corners.push(loop.x[i]!);
       const stations: Station[] = [];
+      const inTip = (x: number): boolean =>
+        x < zoneEnd + TIP_REACH || corners.some((c) => Math.abs(c - x) < TIP_REACH);
       for (let k = 0; k < DENSE_STATIONS; k++) {
         const x = x0 + ((x1 - x0) * k) / (DENSE_STATIONS - 1);
-        stations.push({
-          x,
-          tip: x < zoneEnd + TIP_REACH || corners.some((c) => Math.abs(c - x) < TIP_REACH),
-        });
+        stations.push({ x, tip: inTip(x) });
       }
+      // the stations placement checks: every PLACE_STEP, not the measured ones, and not in a tip
+      const check: number[] = [];
+      for (let x = x0; x <= x1 + 1e-9; x += PLACE_STEP) if (!inTip(x)) check.push(x);
       const tips = stations.filter((s) => s.tip).length;
       const keysAt = (xs: readonly number[]): [RailKey[], RailKey[]] => {
         const plus = railKeysAt(source, 'plus', xs);
@@ -395,6 +404,8 @@ study('real boards through the trim kernel', () => {
         measuredStations: stations.length - tips,
         sets: {},
         keysNeeded: 0,
+        keysPlaced: 0,
+        placeMs: 0,
       };
       const cols: string[] = [];
       let open = 0;
@@ -483,11 +494,32 @@ study('real boards through the trim kernel', () => {
         m = run(keysAt(xs));
       }
       report('as needed', xs.length, m);
+      // placed without a mesh: from the stored stations, at the check stations, one side at a time
+      const options = { bar: PLACE_BAR, most: KEYS_MAX, apart: KEYS_APART };
+      const t0 = performance.now();
+      const placedPlus = placeKeys(source, 'plus', usable, check, options);
+      const placeMs = performance.now() - t0;
+      const placedMinus = asym ? placeKeys(source, 'minus', usable, check, options) : placedPlus;
+      const keysPlus = railKeysAt(source, 'plus', placedPlus);
+      const placed = measure(
+        source,
+        built,
+        loop,
+        keysPlus,
+        asym ? railKeysAt(source, 'minus', placedMinus) : keysPlus,
+        stations,
+      );
+      const placedCount = Math.max(placedPlus.length, placedMinus.length);
+      report('placed', placedCount, placed);
+      summary.placeMs = r2(placeMs);
+      summary.keysPlaced = placedCount;
       summary.openEdges = open;
       summary.keysNeeded = xs.length;
       if (notched) summary.offPlaneMm = r2(offPlane * 10);
       summaries.push(summary);
-      needed.push(`${b.name.slice(0, 24)}: ${usable.length} stored stations, ${xs.length} keys`);
+      needed.push(
+        `${b.name.slice(0, 24)}: ${usable.length} stored stations, ${xs.length} keys as needed, ${placedCount} keys placed (${placeMs.toFixed(0)} ms)`,
+      );
       lines.push(
         [
           b.name.slice(0, 24),

@@ -356,14 +356,17 @@ export const TRIM = {
    * of its band edge: more than the reach of the finite difference that reads its slope there
    * (`slopeStep`), so that is read on the straight stretch. Its direction at its end is read
    * over `panelBase` (cm) of panel before it, through this many even samples. Where a crease
-   * lies in that stretch, or within `panelClear` (cm) outboard of it, the panel ends that far
-   * inboard of the crease instead, so the wobble of a sampled section's last half millimetre
-   * at a crease never sets the panel's tangent.
+   * lies within `panelClear` (cm) either side of the end, the panel ends that far inboard of the
+   * crease instead, so the wobble of a sampled section's last half millimetre at a crease never
+   * sets the panel's tangent. A crease further inboard shortens the stretch to the part
+   * `panelClear` clear of it, while at least `panelBaseMin` (cm) is left; with less, the panel
+   * ends inboard of that crease too.
    */
   panelLead: 0.03,
   panelBase: 0.4,
   panelSamples: 9,
   panelClear: 0.1,
+  panelBaseMin: 0.05,
   /** A crease: where a half turns towards its apex by this many degrees or more across this much arc (cm) either side, and by this share of that across the smaller arc (cm). It is looked for every `creaseStep` cm. */
   edgeJump: 8,
   creaseBase: 0.08,
@@ -381,7 +384,7 @@ export const TRIM = {
   turnRefFar: 2,
   /** Arc (cm) either side of a sample that its direction is read across when a band edge is looked for. */
   turnBase: 0.05,
-  /** A panel may slope this much (degrees) where its blend takes over, and no more. */
+  /** Under the 'turn' rule, a half steeper than this (degrees) is rail, even where it has stopped turning: a tall rail's straight wall is not panel. */
   panelSteepest: 25,
   /** No band reaches further in from the wall than this share of the half width. */
   fitWidest: 0.6,
@@ -399,4 +402,6 @@ export const TRIM = {
   fitSpacing: 0.02,
   /** An edge is taken only when it is this much (cm) closer than the tangent blend. */
   fitEdgeGain: 0.005,
+  /** A section is read as cutting the outline at an angle whose cosine is at least this: one nearly tangent to it would see the narrowest band many centimetres wide. */
+  skewMin: 0.2,
 } as const;

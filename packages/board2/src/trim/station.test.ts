@@ -9,8 +9,7 @@ import { buildLoop } from './loop';
 import { railLaws } from './rails';
 import type { RailRecipe } from './rails';
 import { buildTrimMesh, checkClosed, sliceX } from './solid';
-import { TRIM } from '../params';
-import { BAND_RULES, fitHalf, panelCurve, recipeGap, sectionRail } from './station';
+import { BAND_RULES, builtWidth, fitHalf, panelCurve, recipeGap, sectionRail } from './station';
 
 const RAD = Math.PI / 180;
 /** Spacing of a made section's panel samples, and samples along its blend. */
@@ -44,7 +43,6 @@ const truth = (s: Shape): { wall: number; shoulder: number; apex: number } => {
  */
 function made(s: Shape, wobble = 0): Float64Array {
   const ye = s.half - s.width;
-  const t = truth(s);
   const pts: number[] = [];
   const steps = Math.ceil(ye / PANEL_STEP);
   for (let i = 0; i < steps; i++) {
@@ -52,10 +50,23 @@ function made(s: Shape, wobble = 0): Float64Array {
     const near = Math.max(0, 1 - (ye - y) / 0.05);
     pts.push(y, s.slope * y - wobble * near);
   }
+  return Float64Array.from(withBlend(pts, s, s.slope * ye, s.slope));
+}
+
+/**
+ * `pts` followed by the blend of `s` from its band edge, at height `ze` on a panel whose line
+ * there rises at `slope`: the blend leaves that line at `s.edge` and stands `s.rise` above the
+ * point the line meets the wall.
+ */
+function withBlend(pts: number[], s: Shape, ze: number, slope: number): number[] {
+  const ye = s.half - s.width;
+  const wall = ze + s.width * slope;
   if (s.width === 0) {
-    pts.push(s.half, t.wall);
-    return Float64Array.from(pts);
+    pts.push(s.half, wall);
+    return pts;
   }
+  const shoulder = wall + s.width * Math.tan(s.edge * RAD);
+  const apex = wall + s.rise;
   const w = s.rho / (1 - s.rho);
   for (let j = 0; j <= BLEND_SAMPLES; j++) {
     const u = j / BLEND_SAMPLES;
@@ -64,9 +75,28 @@ function made(s: Shape, wobble = 0): Float64Array {
     const k0 = (v * v) / den;
     const k1 = (2 * w * v * u) / den;
     const k2 = (u * u) / den;
-    pts.push(k0 * ye + (k1 + k2) * s.half, k0 * s.slope * ye + k1 * t.shoulder + k2 * t.apex);
+    pts.push(k0 * ye + (k1 + k2) * s.half, k0 * ze + k1 * shoulder + k2 * apex);
   }
-  return Float64Array.from(pts);
+  return pts;
+}
+
+/**
+ * A half with a bevel: a level panel to a crease, a flat facet `facet` cm wide rising at
+ * `degrees`, a second crease, then the blend of `s` from the facet's line.
+ */
+function bevelled(s: Shape, degrees: number, facet: number): Float64Array {
+  const yb = s.half - s.width;
+  const ya = yb - facet;
+  const rise = Math.tan(degrees * RAD);
+  const pts: number[] = [];
+  const steps = Math.ceil(ya / PANEL_STEP);
+  for (let i = 0; i < steps; i++) pts.push((ya * i) / steps, 0);
+  const across = Math.ceil(facet / PANEL_STEP);
+  for (let i = 0; i < across; i++) {
+    const y = ya + (facet * i) / across;
+    pts.push(y, rise * (y - ya));
+  }
+  return Float64Array.from(withBlend(pts, s, rise * facet, rise));
 }
 
 /** The same half as a deck under a top at height `top`: the apex below the panel. */
@@ -134,7 +164,7 @@ describe('the rail of a section', () => {
 
   it('carries a panel on along its own tangent past the cut', () => {
     const pts = made(TUCKED);
-    const panel = panelCurve(pts, TUCKED.width);
+    const panel = panelCurve(pts, 1, TUCKED.width);
     // inboard, the section itself
     expect(panel(10)).toBeCloseTo(TUCKED.slope * 10, 9);
     // at the wall, where the panel's tangent meets it, not where the rail went
@@ -280,8 +310,8 @@ describe('a section through the kernel and back', () => {
     recipe: RailRecipe,
     widths: { readonly bottom: number; readonly deck: number },
   ) => {
-    const panelB = panelCurve(bottom, widths.bottom);
-    const panelD = panelCurve(deck, widths.deck);
+    const panelB = panelCurve(bottom, 1, widths.bottom);
+    const panelD = panelCurve(deck, -1, widths.deck);
     const panels = {
       deck: (_x: number, y: number) => panelD(Math.abs(y)),
       bottom: (_x: number, y: number) => panelB(Math.abs(y)),
@@ -302,8 +332,8 @@ describe('a section through the kernel and back', () => {
     const { half, bottom, deck } = sectionOf(bottomShape, deckShape);
     const rail = sectionRail(bottom, deck, 1);
     const { mesh, slice } = rebuilt(half, bottom, deck, rail.recipe, {
-      bottom: rail.bottom.width,
-      deck: rail.deck.width,
+      bottom: builtWidth(rail.recipe.tuck, 1),
+      deck: builtWidth(rail.recipe.band, 1),
     });
     expect(checkClosed(mesh).openEdges).toBe(0);
     // the solid's own section is the section it was fitted to, to the fit's own gap and two
@@ -327,8 +357,8 @@ describe('a section through the kernel and back', () => {
       const fitted = sectionRail(bottom, deck, 1).recipe;
       const recipe: RailRecipe = { ...fitted, tuck: fitted.tuck * 1.4, apex: fitted.apex + 0.08 };
       const { slice } = rebuilt(half, bottom, deck, recipe, {
-        bottom: Math.max(TRIM.bandMin, recipe.tuck),
-        deck: Math.max(TRIM.bandMin, recipe.band),
+        bottom: builtWidth(recipe.tuck, 1),
+        deck: builtWidth(recipe.band, 1),
       });
       const sliced = gap(slice, [bottom, deck]);
       const predicted = recipeGap(bottom, deck, recipe, 1);

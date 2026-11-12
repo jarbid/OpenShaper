@@ -50,7 +50,12 @@ export interface HalfRail {
   /** Height of the blend's shoulder on the wall. At `wall` the blend leaves the panel tangent. */
   readonly shoulder: number;
   readonly panel: PanelEnd;
-  /** Worst gap between the section and the panel and blend that replace it, cm. */
+  /** Height of the half's apex: its last sample that the fit keeps. */
+  readonly apex: number;
+  /**
+   * Worst gap between the section and the panel and blend that replace it, cm, and never less
+   * than the farthest a sample the fit drops (one that doubles back) lies from what it keeps.
+   */
   readonly gap: number;
 }
 
@@ -76,6 +81,11 @@ interface Half {
   readonly z: Float64Array;
   /** Distance along the half from the stringer. */
   readonly arc: Float64Array;
+  /**
+   * The farthest a dropped sample lies from the last sample kept before it, cm: a bound on how
+   * far the half misses the section there, which no fit to the half can see.
+   */
+  readonly dropped: number;
 }
 
 function makeHalf(pts: ArrayLike<number>, up: 1 | -1): Half {
@@ -84,15 +94,20 @@ function makeHalf(pts: ArrayLike<number>, up: 1 | -1): Half {
   const z = new Float64Array(count);
   const arc = new Float64Array(count);
   let n = 0;
+  let dropped = 0;
   for (let i = 0; i < count; i++) {
     const py = pts[2 * i]!;
-    if (n > 0 && py <= y[n - 1]!) continue;
+    const pz = up * pts[2 * i + 1]!;
+    if (n > 0 && py <= y[n - 1]!) {
+      dropped = Math.max(dropped, Math.hypot(py - y[n - 1]!, pz - z[n - 1]!));
+      continue;
+    }
     y[n] = py;
-    z[n] = up * pts[2 * i + 1]!;
-    arc[n] = n === 0 ? 0 : arc[n - 1]! + Math.hypot(py - y[n - 1]!, z[n]! - z[n - 1]!);
+    z[n] = pz;
+    arc[n] = n === 0 ? 0 : arc[n - 1]! + Math.hypot(py - y[n - 1]!, pz - z[n - 1]!);
     n++;
   }
-  return { n, y: y.subarray(0, n), z: z.subarray(0, n), arc: arc.subarray(0, n) };
+  return { n, y: y.subarray(0, n), z: z.subarray(0, n), arc: arc.subarray(0, n), dropped };
 }
 
 /** Index of the span of the rising array `a` that holds `v`. */
@@ -150,48 +165,85 @@ const turnAcross = (h: Half, a: number, base: number): number =>
   directionAt(h, a, 0, base) - directionAt(h, a, base, 0);
 
 /**
- * The innermost crease of the half between `from` and `to` cm in from the wall (`from` not
- * included), as a distance in from the wall, or -1.
+ * A crease of the half between `from` and `to` cm in from the wall (`from` not included), as a
+ * distance in from the wall, or -1: the innermost one, or the `nearest` the wall.
  *
  * A crease is a turn that is all in one place. A tight curve turns as far over a millimetre
  * and a half, but it turns evenly, so across a third of that length it shows a third of the
- * turn; a crease shows nearly all of it.
+ * turn; a crease shows nearly all of it. The test passes along a short run of arc either side
+ * of a crease, and the crease is placed at the middle of that run.
  */
-function creaseBetween(h: Half, from: number, to: number): number {
+function creaseBetween(h: Half, from: number, to: number, nearest = false): number {
   const yA = h.y[h.n - 1]!;
-  const end = arcAt(h, yA - from);
-  for (let a = arcAt(h, Math.max(0, yA - to)); a < end; a += TRIM.creaseStep) {
+  // a run that starts or ends just outside the range is still found whole
+  const end = arcAt(h, Math.max(0, yA - from)) + TRIM.creaseBase;
+  let start = -1;
+  let found = -1;
+  for (let a = arcAt(h, Math.max(0, yA - to)) - TRIM.creaseBase; a <= end; a += TRIM.creaseStep) {
     const wide = turnAcross(h, a, TRIM.creaseBase);
-    if (wide < TRIM.edgeJump) continue;
-    if (turnAcross(h, a, TRIM.creaseTight) < TRIM.creaseShare * wide) continue;
-    pointAt(h, h.arc, a, P);
+    const hit = wide >= TRIM.edgeJump && turnAcross(h, a, TRIM.creaseTight) >= TRIM.creaseShare * wide;
+    if (hit) {
+      if (start < 0) start = a;
+      if (a + TRIM.creaseStep <= end) continue;
+    }
+    if (start < 0) continue;
+    pointAt(h, h.arc, (start + (hit ? a : a - TRIM.creaseStep)) / 2, P);
+    start = -1;
     const w = yA - P[0]!;
-    if (w > from) return w;
+    if (w <= from || w > to) continue;
+    if (!nearest) return w;
+    found = w;
   }
-  return -1;
+  return found;
 }
 
 /**
- * The panel's end for a blend `width` cm wide. It ends just short of the band edge, so that
- * the kernel, which reads a panel's slope a hair inboard of the band edge, reads the straight
- * stretch; and clear of any crease near it, so the panel its direction is read over is clean.
- * That direction is the end slope of a parabola through that stretch of panel, so a panel
- * that is curving (a deck rolling into its rail) is read as truly as a flat one.
+ * The panel's end for a blend `width` cm wide, and its direction there.
+ *
+ * It ends just short of the band edge, so that the kernel, which reads a panel's slope a hair
+ * inboard of the band edge, reads the straight stretch. The end never sits in a crease's
+ * wobble: a crease within `panelClear` of it moves it that far inboard of the crease. And the
+ * stretch its direction is read over is clean: a crease further inboard, within that stretch,
+ * shortens it to the part clear of the crease, so a bevel facet between two creases is read
+ * as itself. Only a facet too short to leave `panelBaseMin` of clean stretch is given up, and
+ * the end moves inboard of it too.
+ *
+ * Over a full `panelBase` the direction is the end slope of a least-squares parabola, so a
+ * panel that is curving (a deck rolling into its rail) is read as truly as a flat one. Over a
+ * shorter stretch, a parabola's end slope follows the kinks of the sampled section, so it is
+ * the slope of a least-squares line: exact on a flat facet, and on a curving one off by the
+ * turn over half the stretch.
  */
 function panelEnd(h: Half, width: number): PanelEnd {
   let reach = width + TRIM.panelLead;
   let crease = false;
+  let base: number = TRIM.panelBase;
   for (let pass = 0; pass < TRIM.creasePasses; pass++) {
-    const c = creaseBetween(h, reach - TRIM.panelClear + TRIM.creaseApart, reach + TRIM.panelBase);
-    if (c < 0) break;
-    reach = c + TRIM.panelClear;
+    const near = creaseBetween(
+      h,
+      reach - TRIM.panelClear + TRIM.creaseApart,
+      reach + TRIM.panelClear,
+    );
+    if (near >= 0) {
+      reach = near + TRIM.panelClear;
+      crease = true;
+      continue;
+    }
+    const next = creaseBetween(h, reach, reach + TRIM.panelBase + TRIM.panelClear, true);
+    if (next < 0) break;
+    const clean = next - TRIM.panelClear - reach;
+    if (clean >= TRIM.panelBaseMin) {
+      base = Math.min(base, clean);
+      break;
+    }
+    reach = next + TRIM.panelClear;
     crease = true;
   }
   const y = Math.max(0, h.y[h.n - 1]! - reach);
   const z = heightAt(h, y);
-  const base = Math.min(TRIM.panelBase, y);
+  if (y < base) base = y;
   if (base <= TRIM.tiny) return { y, z, slope: 0, crease };
-  // least squares of z = a + b t + c t^2 over even samples of the base, t measured from the end
+  // least squares of z = a + b t (+ c t^2) over even samples of the base, t measured from the end
   const k = TRIM.panelSamples;
   let s1 = 0;
   let s2 = 0;
@@ -211,10 +263,10 @@ function panelEnd(h: Half, width: number): PanelEnd {
     r1 += zz * tt;
     r2 += zz * tt * tt;
   }
-  // Cramer's rule on the normal equations [[k s1 s2] [s1 s2 s3] [s2 s3 s4]] (a b c) = (r0 r1 r2)
+  if (base < TRIM.panelBase) return { y, z, slope: (k * r1 - s1 * r0) / (k * s2 - s1 * s1), crease };
+  // Cramer's rule on the normal equations [[k s1 s2] [s1 s2 s3] [s2 s3 s4]] (a b c) = (r0 r1 r2);
+  // over a full base of `panelSamples` even samples their determinant is a fixed positive number
   const det = k * (s2 * s4 - s3 * s3) - s1 * (s1 * s4 - s3 * s2) + s2 * (s1 * s3 - s2 * s2);
-  if (Math.abs(det) <= TRIM.tiny)
-    return { y, z, slope: (z - heightAt(h, y - base)) / base, crease };
   const slope =
     (k * (r1 * s4 - s3 * r2) - r0 * (s1 * s4 - s3 * s2) + s2 * (s1 * r2 - r1 * s2)) / det;
   return { y, z, slope, crease };
@@ -222,10 +274,13 @@ function panelEnd(h: Half, width: number): PanelEnd {
 
 /**
  * The band edge of a half under `rule`, as a width in from the wall: the first place, walking
- * in from the apex, where the rule's angle has come down to its figure. `null` when it never
- * does within the share of the half a band may take.
+ * in from the apex, where the rule's angle has come down to its figure. Where it never does
+ * within the share of the half a band may take, or the walk runs out of panel to read the
+ * inboard direction from, the band edge is where the walk stopped: the widest band the half
+ * allows, so a section a little rounder than one that has a band edge gets a band a little
+ * wider, never a hard edge.
  */
-function bandEdge(h: Half, rule: BandRule): number | null {
+function bandEdge(h: Half, rule: BandRule): number {
   const n = h.n;
   const yA = h.y[n - 1]!;
   const widest = TRIM.fitWidest * yA;
@@ -241,12 +296,12 @@ function bandEdge(h: Half, rule: BandRule): number | null {
     return Math.max(turn, here - TRIM.panelSteepest + rule.degrees);
   };
   let outer = angle(h.arc[n - 1]!);
-  if (outer === null) return null;
+  if (outer === null) return widest;
   if (outer <= rule.degrees) return 0;
   for (let i = n - 2; i >= 1; i--) {
-    if (yA - h.y[i]! > widest) return null;
+    if (yA - h.y[i]! > widest) return widest;
     const here = angle(h.arc[i]!);
-    if (here === null) return null;
+    if (here === null) return yA - h.y[i]!;
     if (here <= rule.degrees) {
       // the crossing lies between this sample and the one outboard of it
       const f = outer > here ? (rule.degrees - here) / (outer - here) : 0;
@@ -255,7 +310,7 @@ function bandEdge(h: Half, rule: BandRule): number | null {
     }
     outer = here;
   }
-  return null;
+  return Math.min(widest, yA - h.y[0]!);
 }
 
 /** A polyline as two arrays. */
@@ -416,14 +471,15 @@ function fillBlend(
   }
 }
 
-/** The best blend from a band edge `width` in from the wall, or `null` when none can be built there. */
+/**
+ * The best blend from a band edge `width` in from the wall, or `null` when the panel's own
+ * tangent meets the wall too close to the apex, or above it, for a blend to stand on.
+ */
 function fitAt(h: Half, width: number): HalfRail | null {
   const yA = h.y[h.n - 1]!;
   const zA = h.z[h.n - 1]!;
   const band = bandOn(h, width);
   const { panel, wall } = band;
-  // a panel that has turned further than this is rail, not panel
-  if (Math.abs(Math.atan(panel.slope)) * DEG > TRIM.panelSteepest) return null;
   const rise = zA - wall;
   // the panel's own tangent has to meet the wall below the apex, or there is no wall to blend on
   if (rise <= TRIM.fitRiseMin) return null;
@@ -441,7 +497,7 @@ function fitAt(h: Half, width: number): HalfRail | null {
       1 - TRIM.rhoInset,
       TRIM.fitRhoSteps,
     );
-    return { width, rho: r.x, wall, shoulder, panel, gap: r.value };
+    return { width, rho: r.x, wall, shoulder, panel, apex: zA, gap: r.value };
   };
   const tangent = at(0);
   // an edge needs a crease
@@ -465,11 +521,15 @@ function fitAt(h: Half, width: number): HalfRail | null {
   return tangent.gap - best.gap < TRIM.fitEdgeGain ? tangent : best;
 }
 
-/** A hard edge: the panel carried to the wall, with no blend. */
-function hardEdge(h: Half): HalfRail {
+/**
+ * A hard edge: the panel carried to the wall, with no blend. Its panel is ended for the
+ * narrowest blend the kernel builds, `narrowest` cm in the section's plane, so the kernel reads
+ * its slope on the same straight stretch.
+ */
+function hardEdge(h: Half, narrowest: number): HalfRail {
   const yA = h.y[h.n - 1]!;
   const zA = h.z[h.n - 1]!;
-  const panel = panelEnd(h, 0);
+  const panel = panelEnd(h, narrowest);
   const wall = panel.z + panel.slope * (yA - panel.y);
   const made: Curve = {
     n: 3,
@@ -482,43 +542,75 @@ function hardEdge(h: Half): HalfRail {
     wall,
     shoulder: wall,
     panel,
+    apex: zA,
     gap: gapBetween(sectionFrom(h, panel.y), made),
   };
 }
 
-function fitMirrored(h: Half, rule: BandRule): HalfRail {
-  if (h.n < 3) return hardEdge(h);
+function fitMirrored(h: Half, rule: BandRule, narrowest: number): HalfRail {
+  if (h.n < 3) return hardEdge(h, narrowest);
   const width = bandEdge(h, rule);
-  // no band edge, or one at the apex itself: the panel runs to the wall
-  if (width === null || width < TRIM.fitNoBlend) return hardEdge(h);
-  return fitAt(h, width) ?? hardEdge(h);
+  // a band edge at the apex itself: the panel runs to the wall
+  if (width < TRIM.fitNoBlend) return hardEdge(h, narrowest);
+  return fitAt(h, Math.max(width, narrowest)) ?? hardEdge(h, narrowest);
 }
 
 /**
  * The rail of one half of a section. `pts` is `[y0, z0, y1, z1, …]` in the section's plane,
  * from the stringer out to the apex; `up` is 1 on a bottom, where the apex is above the
- * panel, and -1 on a deck.
+ * panel, and -1 on a deck. `narrowest` is the narrowest blend the kernel builds, in the
+ * section's plane (`builtWidth(0, cosPhi)`): a band edge closer to the apex is fitted at that
+ * width, and a hard edge's panel is ended for it.
  */
-export function fitHalf(pts: ArrayLike<number>, up: 1 | -1, rule: BandRule): HalfRail {
-  const f = fitMirrored(makeHalf(pts, up), rule);
+export function fitHalf(
+  pts: ArrayLike<number>,
+  up: 1 | -1,
+  rule: BandRule,
+  narrowest: number = TRIM.bandMin,
+): HalfRail {
+  const h = makeHalf(pts, up);
+  const fit = fitMirrored(h, rule, narrowest);
+  const f = { ...fit, gap: Math.max(fit.gap, h.dropped) };
   if (up === 1) return f;
   return {
     ...f,
     wall: -f.wall,
     shoulder: -f.shoulder,
+    apex: -f.apex,
     panel: { ...f.panel, z: -f.panel.z, slope: -f.panel.slope },
   };
 }
 
 /**
  * The panel of one half as a height over the distance from the stringer, given the width of
- * its blend: the section itself as far as the panel's end, its own tangent from there on.
+ * its blend in the section's plane (`builtWidth`): the section itself as far as the panel's
+ * end, its own tangent from there on. `up` is as `fitHalf` takes it; the panel is ended on the
+ * half as `fitHalf` reads it, and the heights are true ones.
  */
-export function panelCurve(pts: ArrayLike<number>, width: number): (y: number) => number {
-  const h = makeHalf(pts, 1);
+export function panelCurve(
+  pts: ArrayLike<number>,
+  up: 1 | -1,
+  width: number,
+): (y: number) => number {
+  const h = makeHalf(pts, up);
   const end = panelEnd(h, Math.max(0, width));
-  return (y) => (y <= end.y ? heightAt(h, y) : end.z + end.slope * (y - end.y));
+  return (y) => up * (y <= end.y ? heightAt(h, y) : end.z + end.slope * (y - end.y));
 }
+
+/**
+ * The cosine of the angle between the outline and the stringer, as a section is read at it.
+ * A section nearly tangent to the outline sees a band many times wider than it is; it is read
+ * as one at `skewMin`.
+ */
+const skewOf = (cosPhi: number): number => Math.max(TRIM.skewMin, cosPhi);
+
+/**
+ * The width, in a section's plane, of the blend the kernel builds for a band `width` cm wide
+ * square to the outline: never narrower than `bandMin`, and seen wider by a section that cuts
+ * the outline at an angle with cosine `cosPhi`.
+ */
+export const builtWidth = (width: number, cosPhi: number): number =>
+  Math.max(TRIM.bandMin, width) / skewOf(cosPhi);
 
 /**
  * The rules a conversion uses. A bottom's band reaches in to where the bottom stops turning,
@@ -548,11 +640,13 @@ export function sectionRail(
   cosPhi: number,
   rules: { readonly bottom: BandRule; readonly deck: BandRule } = BAND_RULES,
 ): SectionRail {
-  const b = fitHalf(bottom, 1, rules.bottom);
-  const d = fitHalf(deck, -1, rules.deck);
-  const zA = bottom[bottom.length - 1]!;
-  const tuck = b.width * cosPhi;
-  const band = d.width * cosPhi;
+  const cos = skewOf(cosPhi);
+  const narrowest = builtWidth(0, cos);
+  const b = fitHalf(bottom, 1, rules.bottom, narrowest);
+  const d = fitHalf(deck, -1, rules.deck, narrowest);
+  const zA = b.apex;
+  const tuck = b.width * cos;
+  const band = d.width * cos;
   const edge = (rise: number, run: number): number =>
     run > 0 ? Math.max(0, Math.atan2(rise, run) * DEG) : 0;
   const span = d.wall - b.wall;
@@ -590,11 +684,11 @@ export function recipeGap(
 ): number {
   const b = makeHalf(bottom, 1);
   const d = makeHalf(deck, -1);
-  // widths as the kernel builds them, square to the outline
+  // widths as the kernel builds them, square to the outline, and in the section's plane
   const tuck = Math.max(TRIM.bandMin, recipe.tuck);
   const band = Math.max(TRIM.bandMin, recipe.band);
-  const bb = bandOn(b, tuck / cosPhi);
-  const db = bandOn(d, band / cosPhi);
+  const bb = bandOn(b, builtWidth(recipe.tuck, cosPhi));
+  const db = bandOn(d, builtWidth(recipe.band, cosPhi));
   // the apex in true heights; the deck half's are mirrored
   const apex = clamp(recipe.apex, TRIM.apexInset, 1 - TRIM.apexInset);
   const za = bb.wall + apex * (-db.wall - bb.wall);
@@ -616,5 +710,6 @@ export function recipeGap(
   upper.made.z.forEach((z, i) => (upper.made.z[i] = -z));
   // measured across both halves: where the kernel's apex is not the section's, the wall between
   // the two is the other half's blend
-  return gapAcross([lower.section, upper.section], [lower.made, upper.made]);
+  const gap = gapAcross([lower.section, upper.section], [lower.made, upper.made]);
+  return Math.max(gap, b.dropped, d.dropped);
 }
