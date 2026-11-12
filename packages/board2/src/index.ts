@@ -37,6 +37,12 @@ export type {
   SurfaceEvaluator,
 } from './surface';
 export { resolveTail, validateBoard } from './validate';
+export { convertSections } from './trim/convert';
+export type { ConvertReport } from './trim/convert';
+export type { RailsBoard } from './trim/board';
+export { buildRails, meshRails } from './trim/native';
+export type { BuiltRails, MeshRailsOptions, RailsMesh } from './trim/native';
+export { apexRails, halfWidthRails, probeRails } from './trim/probe';
 export type {
   Board2Issue,
   Board2IssueCode,

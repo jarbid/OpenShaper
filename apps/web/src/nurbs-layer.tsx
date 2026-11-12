@@ -22,7 +22,7 @@ import { boardStore } from './store';
 import { surfaceOf } from './nurbs-surface';
 import { localizeLengths, refusalHint, statusText } from './nurbs-text';
 import { createNurbsViewer, type NurbsViewer, type ViewerState } from './nurbs-viewer';
-import { TEST_BOARDS, type TestBoardName } from './workers/nurbs-protocol';
+import { TEST_BOARDS, type NurbsEngine, type TestBoardName } from './workers/nurbs-protocol';
 
 /** One viewer for the session, so its cache outlives the pane being remounted. */
 let shared: NurbsViewer | null = null;
@@ -142,6 +142,12 @@ function InfoPanel({ state, units }: { state: ViewerState; units: LengthUnit }) 
           <dl className="mt-1 grid grid-cols-[1fr_auto] gap-x-2 tabular-nums">
             <dt>Volume</dt>
             <dd>{fmtVol(summary.volume)}</dd>
+            {summary.engine === 'rails' && (
+              <>
+                <dt>Engine</dt>
+                <dd>Rails (experimental)</dd>
+              </>
+            )}
             {conversion && (
               <>
                 <dt>Stations</dt>
@@ -198,6 +204,8 @@ export interface NurbsLayerProps {
    */
   analysis: NonNullable<Board3DViewProps['analysis']>;
   units: LengthUnit;
+  /** The engine that builds the surface; 'sections' when absent. */
+  engine?: NurbsEngine;
   /** Receives the surface to draw (null: draw the classic hull). */
   onSurface: (surface: ExternalSurface | null) => void;
   /** Tests inject their own; the app uses the session's shared viewer. */
@@ -208,6 +216,7 @@ export default function NurbsLayer({
   store,
   analysis,
   units,
+  engine = 'sections',
   onSurface,
   viewer: injected,
 }: NurbsLayerProps) {
@@ -257,6 +266,7 @@ export default function NurbsLayer({
         wantDeviation,
         testBoard,
         probes: doc ? probes : [],
+        ...(engine === 'rails' ? { engine } : {}),
       });
     };
     push();
@@ -265,7 +275,7 @@ export default function NurbsLayer({
       unsubscribe();
       viewer.pause();
     };
-  }, [store, viewer, wantCurvature, wantDeviation, testBoard, probes]);
+  }, [store, viewer, wantCurvature, wantDeviation, testBoard, probes, engine]);
 
   // Hand the answers to the section pane.
   const answered = state.probes?.items;
@@ -311,6 +321,7 @@ export default function NurbsLayer({
           data-deviation-ms={model ? model.timings.deviationMs.toFixed(1) : undefined}
           data-ladders-reused={model ? String(model.mesh.laddersReused) : undefined}
           data-source={model?.summary.source}
+          data-engine={model?.summary.engine}
           data-test-board={shownTest ?? undefined}
           data-vertices={model ? model.mesh.positions.length / 3 : undefined}
           className="rounded-md border border-amber-500/60 bg-card/90 px-2 py-1 font-medium text-amber-300 shadow-lg"

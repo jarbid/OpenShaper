@@ -66,12 +66,12 @@ ctx.onmessage = (e) => {
     return;
   }
   if (req.kind === 'measure') {
-    const out = measureDocument(req.doc);
+    const out = measureDocument(req.doc, req.engine);
     ctx.postMessage({ kind: 'measured', id: req.id, ...out });
     return;
   }
   if (req.kind === 'probe') {
-    const out = probeDocument(req.doc, req.probes);
+    const out = probeDocument(req.doc, req.probes, req.engine);
     ctx.postMessage(
       out.ok
         ? { kind: 'probed', id: req.id, ok: true, probes: out.probes }

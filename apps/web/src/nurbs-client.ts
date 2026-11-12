@@ -27,6 +27,7 @@ import type {
   ConvertedDoc,
   JobOptions,
   MeshMeasure,
+  NurbsEngine,
   NurbsIssue,
   NurbsMeshData,
   NurbsRequest,
@@ -129,11 +130,11 @@ export interface NurbsClient {
     probes?: readonly number[],
   ): Promise<NurbsAnswer>;
   /** The as-built sections of an unchanged document at `probes` (no mesh): the scrub preview. */
-  probe(doc: BoardDoc, probes: readonly number[]): Promise<ProbeAnswer>;
+  probe(doc: BoardDoc, probes: readonly number[], engine?: NurbsEngine): Promise<ProbeAnswer>;
   /** Convert a classic board to a section document. A refusal is an answer, not an exception. */
   convert(board: BezierBoard): Promise<ConvertAnswer>;
   /** Volume, areas and the centroid of a document's mesh (the sidebar's specs). No surface comes back. */
-  measure(doc: BoardDoc): Promise<MeasureAnswer>;
+  measure(doc: BoardDoc, engine?: NurbsEngine): Promise<MeasureAnswer>;
   /** Drop the job in flight (its promise rejects with {@link SupersededError}). */
   cancel(): void;
   /** Cancel and release the worker. */
@@ -322,9 +323,17 @@ export function createNurbsClient(
       submit<NurbsAnswer>((id) => ({ kind: 'test', id, name, options }), onStage),
     doc: (doc, reference, options, onStage, probes = []) =>
       submit<NurbsAnswer>((id) => ({ kind: 'doc', id, doc, reference, options, probes }), onStage),
-    probe: (doc, probes) => submit<ProbeAnswer>((id) => ({ kind: 'probe', id, doc, probes })),
+    probe: (doc, probes, engine) =>
+      submit<ProbeAnswer>((id) => ({
+        kind: 'probe',
+        id,
+        doc,
+        probes,
+        ...(engine ? { engine } : {}),
+      })),
     convert: (board) => submit<ConvertAnswer>((id) => ({ kind: 'convert', id, board })),
-    measure: (doc) => submit<MeasureAnswer>((id) => ({ kind: 'measure', id, doc })),
+    measure: (doc, engine) =>
+      submit<MeasureAnswer>((id) => ({ kind: 'measure', id, doc, ...(engine ? { engine } : {}) })),
     cancel() {
       const p = pending;
       pending = null;

@@ -252,6 +252,16 @@ export function SettingsDialog({ settings, onSave, onClose }: SettingsDialogProp
               off to return to the classic board you opened. You can also open the editor with{' '}
               <code>?engine=nurbs</code> to turn it on for one session.
             </p>
+            <CheckboxRow
+              id="setting-rails-engine"
+              label="Rails engine (experimental)"
+              value={draft.surfaceEngine === 'rails'}
+              onChange={(v) => set('surfaceEngine', v ? 'rails' : 'sections')}
+            />
+            <p className="text-xs text-muted-foreground">
+              Builds the 3D model with the new trim-and-blend engine. STEP export still uses the
+              current engine.
+            </p>
           </SettingsGroup>
 
           {/* --- Help --- */}

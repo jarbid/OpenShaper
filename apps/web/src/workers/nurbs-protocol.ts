@@ -69,10 +69,15 @@ export interface NurbsConversion {
   readonly addedKnots: number;
 }
 
+/** The engine that builds the 3D model: today's sections engine, or the trim-and-blend rails engine. */
+export type NurbsEngine = 'sections' | 'rails';
+
 /** What the popover tells about the surface on screen (all lengths cm, areas cm², volume cm³). */
 export interface NurbsSummary {
   /** A converted classic board, an edited section document, or one of board2's test boards. */
   readonly source: 'classic' | 'doc' | 'test';
+  /** The engine that built this surface; the worker always sets it (a rails request that fell back says 'sections'). */
+  readonly engine?: NurbsEngine;
   readonly conversion: NurbsConversion | null;
   /** Largest distance (cm) of a fitted station section from the stored one. */
   readonly stationFitError: number;
@@ -130,6 +135,8 @@ export interface JobOptions {
    * False once the edit settles, which derives them afresh.
    */
   readonly reuseLadders: boolean;
+  /** The engine to build the surface with; 'sections' when absent. */
+  readonly engine?: NurbsEngine;
 }
 
 /** main → worker. `id` rises monotonically; the answer echoes it. */
@@ -172,6 +179,8 @@ export type NurbsRequest =
       readonly id: number;
       readonly doc: BoardDoc;
       readonly probes: readonly number[];
+      /** The engine the sections are probed on; 'sections' when absent. */
+      readonly engine?: NurbsEngine;
     }
   | {
       /** Convert a classic board to a section document (the engine switch, a file opened with it on). */
@@ -187,6 +196,8 @@ export type NurbsRequest =
       readonly kind: 'measure';
       readonly id: number;
       readonly doc: BoardDoc;
+      /** The engine whose mesh is measured; 'sections' when absent. */
+      readonly engine?: NurbsEngine;
     };
 
 /** What the mesh of a document measures (cm, cm², cm³; `centreX` is the volume's centroid along x). */
@@ -277,7 +288,12 @@ export const DEFAULT_STL_FACE_SIZE = 1;
  * What an export job writes. The document crosses by structured clone, so the export is of the board as
  * it was when asked, whatever is edited meanwhile.
  */
-export type ExportJob =
+export type ExportJob = ExportJobFormat & {
+  /** The engine STL, DXF and PDF are made on; 'sections' when absent. STEP is always made on 'sections'. */
+  readonly engine?: NurbsEngine;
+};
+
+type ExportJobFormat =
   | {
       readonly format: 'stl';
       /** Longest edge of the mesh, cm. */

@@ -46,6 +46,7 @@ import type { BezierBoard } from '@openshaper/kernel';
 import { SupersededError, type NurbsClient } from './nurbs-client';
 import type {
   JobOptions,
+  NurbsEngine,
   NurbsIssue,
   NurbsMeshData,
   NurbsSummary,
@@ -153,6 +154,8 @@ export interface ViewerInput {
   readonly testBoard: TestBoardName | null;
   /** Station coordinates (cm) whose as-built sections are wanted (a document only). */
   readonly probes: readonly number[];
+  /** The engine that builds the surface; 'sections' when absent. */
+  readonly engine?: NurbsEngine;
 }
 
 export const VIEWER_INPUT_OFF: ViewerInput = {
@@ -202,6 +205,7 @@ interface Requested {
   readonly editing: boolean;
   /** A lone change's first frame: made with the last ladders, no curvature; fresh ones follow when input is quiet. */
   readonly quick: boolean;
+  readonly engine: NurbsEngine;
 }
 
 /** How long the input is quiet before a lone change gets its fresh ladders and curvature (ms). */
@@ -263,6 +267,7 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     if (i.testBoard !== null) return r.testBoard !== i.testBoard || (curvature && !r.curvature);
     if (r.testBoard !== null || !r.board || !i.board) return true;
     if (r.generation !== i.generation) return true;
+    if (r.engine !== (i.engine ?? 'sections')) return true;
     if ((r.doc === null) !== (i.doc === null)) return true;
     if (r.doc !== null && i.doc !== null) {
       if (!sameDocHull(r.doc, i.doc)) return true;
@@ -290,6 +295,7 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
       deviation: options.deviation,
       editing: i.editing,
       quick,
+      engine: i.engine ?? 'sections',
     };
     const t0 = now();
     clearBusy();
@@ -367,7 +373,7 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     probing = me;
     requestedProbes = i.probes;
     client
-      .probe(doc, i.probes)
+      .probe(doc, i.probes, i.engine)
       .then((answer) => {
         if (probing !== me) return;
         probing = null;
@@ -431,7 +437,12 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
     const reuseLadders = (i.editing || quick) && i.testBoard === null && state.model?.board != null;
     start(
       i,
-      { curvature: i.wantCurvature || (!i.editing && !quick), deviation, reuseLadders },
+      {
+        curvature: i.wantCurvature || (!i.editing && !quick),
+        deviation,
+        reuseLadders,
+        ...(i.engine === 'rails' ? { engine: i.engine } : {}),
+      },
       quick,
     );
   }

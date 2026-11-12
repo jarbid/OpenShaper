@@ -50,6 +50,11 @@ export interface EditorSettings {
    * changing this (see nurbs-flag.ts).
    */
   nurbsEngine: boolean;
+  /**
+   * "Rails engine (experimental)": with the NURBS engine on, build the 3D model with the trim-and-blend
+   * surface engine instead of the sections engine. STEP export always uses the sections engine.
+   */
+  surfaceEngine: 'sections' | 'rails';
 }
 
 /**
@@ -79,6 +84,8 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   showTips: true,
   // The experimental NURBS viewer is opt-in.
   nurbsEngine: false,
+  // The sections engine builds the model until the rails engine is chosen.
+  surfaceEngine: 'sections',
 };
 
 /**

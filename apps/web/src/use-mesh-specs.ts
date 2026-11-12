@@ -16,14 +16,14 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { captureError } from './analytics';
 import { sectionStore } from './store';
 import type { NurbsClient, SupersededError } from './nurbs-client';
-import type { MeshMeasure } from './workers/nurbs-protocol';
+import type { MeshMeasure, NurbsEngine } from './workers/nurbs-protocol';
 
 /** The measure of a document, with the load (`loadCount`) it was measured for. */
 export interface MeshSpecs extends MeshMeasure {
   readonly loadCount: number;
 }
 
-export function useMeshSpecs(active: boolean): MeshSpecs | null {
+export function useMeshSpecs(active: boolean, engine?: NurbsEngine): MeshSpecs | null {
   const doc = useSyncExternalStore(sectionStore.subscribe, () => sectionStore.getState().doc);
   const editing = useSyncExternalStore(
     sectionStore.subscribe,
@@ -64,7 +64,7 @@ export function useMeshSpecs(active: boolean): MeshSpecs | null {
     }));
     clientRef.current
       .then(({ client, SupersededError: Superseded }) =>
-        client.measure(target).then(
+        client.measure(target, engine).then(
           (answer) => {
             if (!cancelled) setResult(answer.ok ? { ...answer, loadCount } : null);
           },
@@ -82,7 +82,7 @@ export function useMeshSpecs(active: boolean): MeshSpecs | null {
     return () => {
       cancelled = true;
     };
-  }, [target, loadCount]);
+  }, [target, loadCount, engine]);
 
   return result && result.loadCount === loadCount ? result : null;
 }

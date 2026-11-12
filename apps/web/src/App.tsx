@@ -69,7 +69,7 @@ import {
 import { captureError, track } from './analytics';
 import { exportStageText, useNurbsExport } from './use-nurbs-export';
 import { engineQuickJob, stepUnitOf } from './engine-export-job';
-import type { ExportJob } from './workers/nurbs-protocol';
+import type { ExportJob, NurbsEngine } from './workers/nurbs-protocol';
 import {
   installSessionSummary,
   markExport,
@@ -203,8 +203,13 @@ const ANALYSIS_IDLE: AnalysisStatus = { state: 'off' };
 const ThreeDPane = memo(function ThreeDPane({
   units,
   nurbsEngine,
+  surfaceEngine,
   ...props
-}: Board3DViewProps & { units: LengthUnit; nurbsEngine: boolean }) {
+}: Board3DViewProps & {
+  units: LengthUnit;
+  nurbsEngine: boolean;
+  surfaceEngine: NurbsEngine;
+}) {
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>(ANALYSIS_IDLE);
   // The NURBS surface for the board on screen, from the (lazy) NURBS layer; always
   // null with the engine flag off.
@@ -234,6 +239,7 @@ const ThreeDPane = memo(function ThreeDPane({
               store={props.store}
               analysis={props.analysis ?? 'none'}
               units={units}
+              engine={surfaceEngine}
               onSurface={setSurface}
             />
           </Suspense>
@@ -741,7 +747,7 @@ function AppShell() {
   }, [refusal, units]);
   // The specs: the classic worker's readouts, and with the NURBS document open the volume, plan area and
   // centre of mass of its mesh instead (features and asymmetry show), computed in a worker as well.
-  const meshSpecs = useMeshSpecs(sectionEngine.ready);
+  const meshSpecs = useMeshSpecs(sectionEngine.ready, settings.surfaceEngine);
   const workerResult = useSpecsWorker(settledBoard, {
     wantDistribution: overlayToggles.dist,
     distributionIntervals: 40,
@@ -1135,7 +1141,11 @@ function AppShell() {
   const startEngineExport = (label: string, job: ExportJob): boolean => {
     const doc = sectionEngine.ready ? sectionStore.getState().doc : null;
     if (!doc) return false;
-    nurbsExport.start(label, doc, job);
+    nurbsExport.start(
+      label,
+      doc,
+      settings.surfaceEngine === 'rails' ? { ...job, engine: 'rails' } : job,
+    );
     return true;
   };
 
@@ -1908,6 +1918,7 @@ function AppShell() {
       deviationBand={view3d.deviationBand}
       units={units}
       nurbsEngine={nurbsEngine}
+      surfaceEngine={settings.surfaceEngine}
       targetFaceSize={faceSizeFor(view3d.meshQuality)}
       showStringer={view3d.showStringer}
       showSections={view3d.showSections}
