@@ -384,8 +384,8 @@ describe('the rail of a section', () => {
     const under = [...bottom];
     for (let j = 1; j <= 10; j++) under.push(yA - 0.01 * j, zA + 0.03 * j);
     const undercut = Float64Array.from(under);
-    // the farthest the undercut lies from the half the fit keeps, which ends at the apex
-    const miss = Math.hypot(0.1, 0.3);
+    // the undercut falls back 0.1 cm from the apex, the last sample kept (its 0.3 cm of climb is not counted)
+    const miss = 0.1;
     const f = fitHalf(undercut, 1, BAND_RULES.bottom);
     expect(f.gap).toBeGreaterThanOrEqual(miss - 1e-9);
     // the apex is the half's own, not the last sample of the section
@@ -393,6 +393,17 @@ describe('the rail of a section', () => {
     const rail = sectionRail(undercut, deck, 1);
     expect(rail.recipe.apex).toBeCloseTo(sectionRail(bottom, deck, 1).recipe.apex, 9);
     expect(recipeGap(undercut, deck, rail.recipe, 1)).toBeGreaterThanOrEqual(miss - 1e-9);
+  });
+
+  it('counts nothing for samples stacked above the apex, on the wall the half already has', () => {
+    const bottom = made(TUCKED);
+    const yA = bottom[bottom.length - 2]!;
+    const zA = bottom[bottom.length - 1]!;
+    // ten samples at the apex's y, climbing 2 mm
+    const flat = [...bottom];
+    for (let j = 1; j <= 10; j++) flat.push(yA, zA + 0.02 * j);
+    const stacked = Float64Array.from(flat);
+    expect(fitHalf(stacked, 1, BAND_RULES.bottom).gap).toBeLessThan(0.01);
   });
 
   it('reads a section nearly tangent to the outline as one at `skewMin`', () => {

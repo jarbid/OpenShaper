@@ -45,6 +45,12 @@ export interface ConvertHalf {
   readonly slope: number;
   /** The knot at the split is a corner: the section's own tangent there is not the panel's. */
   readonly corner: boolean;
+  /**
+   * The stored half, inboard of the cut, is not a function of u: a sample's u falls back, or a
+   * run at one u climbs (a vertical piece at the stringer, a fold). It is kept as drawn and the
+   * loft reads it with the samples that do not rise in u dropped.
+   */
+  readonly folds: boolean;
   /** The half's fit; `null` at a tip, which borrows its share. */
   readonly fit: {
     /** Width of the band (deck) or tuck (bottom) square to the outline, cm, as the rail key holds it. */
@@ -78,6 +84,8 @@ export interface ConvertReport {
   readonly stations: readonly ConvertStation[];
   /** The worst fit gap over the board's usable stations, cm. */
   readonly worstGap: number;
+  /** How many halves (over both sides, bottom and deck) have `folds`. */
+  readonly foldedHalves: number;
   /** The tip stations, per side. */
   readonly tips: readonly {
     readonly id: string;
@@ -186,6 +194,31 @@ function turnBetween(tangent: Pair, w: number, t: number, slope: number): number
   return Math.abs(Math.atan2(tangent[1] * t, tangent[0] * w) - Math.atan(slope)) * DEG;
 }
 
+/**
+ * Whether sampled half `pts` (`[y, z, …]`, physical) is not a function of u inboard of `cutY`:
+ * a sample whose u falls back from the largest before it by more than `convertFoldBack`, or a
+ * run of samples within that of one u that climbs more than `convertFoldClimb` in v.
+ */
+function foldsInboard(pts: Float64Array, w: number, t: number, cutY: number): boolean {
+  let top = -Infinity;
+  let runU = 0;
+  let runV = 0;
+  for (let i = 0; i < pts.length; i += 2) {
+    if (pts[i]! >= cutY) break;
+    const u = pts[i]! / w;
+    const v = pts[i + 1]! / t;
+    if (u < top - TRIM.convertFoldBack) return true;
+    if (i === 0 || u - runU > TRIM.convertFoldBack) {
+      runU = u;
+      runV = v;
+    } else if (Math.abs(v - runV) > TRIM.convertFoldClimb) {
+      return true;
+    }
+    top = Math.max(top, u);
+  }
+  return false;
+}
+
 interface HalfIn {
   readonly chain: Chain;
   readonly compiled: CompiledChain;
@@ -194,6 +227,7 @@ interface HalfIn {
 /** One half's curve and report from its fit (usable) or a borrowed share (tip). */
 function convertHalf(
   half: HalfIn,
+  pts: Float64Array,
   w: number,
   t: number,
   fit: HalfRail | null,
@@ -214,6 +248,7 @@ function convertHalf(
         share,
         slope,
         corner,
+        folds: foldsInboard(pts, w, t, fit.panel.y),
         fit: {
           width: fit.width * cos,
           hard: fit.width === 0,
@@ -231,7 +266,10 @@ function convertHalf(
   // a vertical tangent has no slope across: the end is level
   const slope = d[2]! > TRIM.tiny ? d[3]! / d[2]! : 0;
   const { curve } = cutCurve(half.chain, half.compiled, share, slope);
-  return { curve, report: { share, slope, corner: false, fit: null } };
+  return {
+    curve,
+    report: { share, slope, corner: false, folds: foldsInboard(pts, w, t, share * w), fit: null },
+  };
 }
 
 interface SideOut {
@@ -262,10 +300,10 @@ function convertSide(doc: BoardDoc, side: 'plus' | 'minus'): SideOut | Board2Iss
     const w = wOf(st.x);
     const tip = !(t >= TRIM.convertMinThickness) || !(w >= TRIM.convertMinChord);
     const cos = outlineCos(wOf, lo, hi, st.x);
-    const rail = tip
-      ? null
-      : sectionRail(physicalHalf(bottom.compiled, w, t), physicalHalf(top.compiled, w, t), cos);
-    return { st, bottom, top, t, w, cos, rail };
+    const bottomPts = physicalHalf(bottom.compiled, w, t);
+    const deckPts = physicalHalf(top.compiled, w, t);
+    const rail = tip ? null : sectionRail(bottomPts, deckPts, cos);
+    return { st, bottom, top, bottomPts, deckPts, t, w, cos, rail };
   });
 
   const usable = read.filter((s) => s.rail !== null);
@@ -290,13 +328,22 @@ function convertSide(doc: BoardDoc, side: 'plus' | 'minus'): SideOut | Board2Iss
       from === null || fit === undefined ? 0 : fit.panel.y / from.w;
     const b = convertHalf(
       s.bottom,
+      s.bottomPts,
       s.w,
       s.t,
       s.rail?.bottom ?? null,
       share(from?.rail?.bottom),
       s.cos,
     );
-    const d = convertHalf(s.top, s.w, s.t, s.rail?.deck ?? null, share(from?.rail?.deck), s.cos);
+    const d = convertHalf(
+      s.top,
+      s.deckPts,
+      s.w,
+      s.t,
+      s.rail?.deck ?? null,
+      share(from?.rail?.deck),
+      s.cos,
+    );
     curves.push({ bottom: b.curve, deck: d.curve });
     if (s.rail !== null) keys.push({ x: s.st.x, rail: s.rail.recipe });
     report.push({
@@ -364,6 +411,8 @@ export function convertSections(
     for (const h of [s.bottom, s.deck])
       if (h.fit !== null) worstGap = Math.max(worstGap, h.fit.gap);
   }
+  let foldedHalves = 0;
+  for (const s of all) foldedHalves += (s.bottom.folds ? 1 : 0) + (s.deck.folds ? 1 : 0);
   const tips = all.filter((s) => s.tip).map((s) => ({ id: s.id, x: s.x, side: s.side }));
-  return board2Ok({ board, report: { stations: all, worstGap, tips } });
+  return board2Ok({ board, report: { stations: all, worstGap, foldedHalves, tips } });
 }

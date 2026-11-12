@@ -149,7 +149,7 @@ export interface TrimMesh {
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 
 /** The relief's fade along the tuck: 1 at the band edge (t = 0), 0 at the apex (t = 1), C2 with no slope at either end. */
-const reliefFade = (t: number): number => 1 - t * t * t * (10 - 15 * t + 6 * t * t);
+export const reliefFade = (t: number): number => 1 - t * t * t * (10 - 15 * t + 6 * t * t);
 
 /** One side of the rail at one loop sample: where its blend leaves the panel and where it is going. */
 interface BandEdge {

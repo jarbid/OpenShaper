@@ -78,6 +78,32 @@ describe.each(Object.keys(BOARDS))('buildRails and meshRails: %s', (name) => {
     expect(m.volume).toBeCloseTo(checkClosed(trimMeshOf(built(board))).volume, 6);
   });
 
+  it('fills k1 and k2 with curvature on, one finite value a vertex, k1 >= k2, a convex deck', () => {
+    const b = built(board);
+    expect(meshRails(b).k2).toBeUndefined();
+    const m = meshRails(b, { curvature: true });
+    expect(m.k1).toBeDefined();
+    expect(m.k2).toBeDefined();
+    const { k1, k2 } = m;
+    expect(k1!.length).toBe(m.vertexCount);
+    expect(k2!.length).toBe(m.vertexCount);
+    for (let i = 0; i < m.vertexCount; i++) {
+      expect(Number.isFinite(k1![i]!) && Number.isFinite(k2![i]!)).toBe(true);
+      expect(k1![i]!).toBeGreaterThanOrEqual(k2![i]!);
+    }
+    // the deck's centre line at mid-length: the highest vertex within 5 mm of the stringer
+    const mid = (b.xiMin + b.xiMax) / 2;
+    let best = -1;
+    for (let i = 0; i < m.vertexCount; i++) {
+      const x = m.positions[3 * i]!;
+      const y = m.positions[3 * i + 1]!;
+      if (Math.abs(y) > 0.5 || Math.abs(x - mid) > 5) continue;
+      if (best < 0 || m.positions[3 * i + 2]! > m.positions[3 * best + 2]!) best = i;
+    }
+    expect(best).toBeGreaterThanOrEqual(0);
+    expect(Math.max(k1![best]!, k2![best]!)).toBeGreaterThan(0);
+  });
+
   it('reuses the loop when the outline is unchanged, and gives the same mesh', () => {
     const first = built(board);
     const edited: RailsBoard = { ...board, deck: { knots: [...board.deck.knots] } };

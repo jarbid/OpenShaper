@@ -239,6 +239,30 @@ describe('convertSections', () => {
     });
   }
 
+  it('flags a half that is not a function of u inboard of its cut, and no half of a clean board', () => {
+    for (const make of Object.values(BOARDS)) {
+      expect(converted(make()).report.foldedHalves).toBe(0);
+    }
+    const doc = analyticBoard();
+    const st = doc.stations[0]!;
+    const k = st.plus.chain.knots;
+    // a vertical first segment: the half rises 0.04 of the thickness at the stringer, then goes on
+    const knots: ChainKnot[] = [
+      { ...k[0]!, out: [0, 0.02] },
+      { p: [0, 0.04], in: [0, 0.03], out: [0.3, 0.04], smooth: false },
+      ...k.slice(1),
+    ];
+    const folded = {
+      ...doc,
+      stations: [{ ...st, plus: { chain: { knots }, apex: st.plus.apex + 1 } }],
+    };
+    const { report } = converted(folded);
+    const row = report.stations[0]!;
+    expect(row.bottom.folds).toBe(true);
+    expect(row.deck.folds).toBe(false);
+    expect(report.foldedHalves).toBe(1);
+  });
+
   it('reads a notched board with its notch filled, and keeps the notch in the outline', () => {
     const doc = swallowBoard();
     const { board, report } = converted(doc);

@@ -9,6 +9,7 @@ import { board2Err, board2Ok, makeIssue } from '../issues';
 import { TRIM } from '../params';
 import type { Board2Issue, Board2Result, Chain } from '../types';
 import type { RailsBoard, RailKey } from './board';
+import { vertexCurvature } from './curvature';
 import { lawsFromKeys, railsAlong } from './keys';
 import { buildLoft, loftPanels } from './loft';
 import type { CurveAt, PanelLoft } from './loft';
@@ -249,7 +250,7 @@ export interface RailsMesh {
   readonly planArea: number;
   /** The triangles' area, cm². */
   readonly surfaceArea: number;
-  /** Not computed by this engine: always undefined. */
+  /** Principal curvatures per vertex (1/cm, convex positive, k1 >= k2), only with `curvature`. */
   readonly k1?: Float32Array;
   readonly k2?: Float32Array;
 }
@@ -262,7 +263,7 @@ export interface MeshRailsOptions {
   readonly maxEdge?: number;
   /** The coarser quality used while dragging. */
   readonly draft?: boolean;
-  /** Accepted and not acted on: `k1` and `k2` are not computed. */
+  /** Fill `k1` and `k2` from the mesh's exact normals. */
   readonly curvature?: boolean;
 }
 
@@ -338,7 +339,10 @@ function measure(p: Float32Array, t: Uint32Array): { volume: number; area: numbe
 export function meshRails(built: BuiltRails, opts: MeshRailsOptions = {}): RailsMesh {
   const mesh = trimMeshOf(built, opts);
   const { volume, area } = measure(mesh.positions, mesh.indices);
-  // `curvature` is not acted on: k1 and k2 are left out
+  const k =
+    opts.curvature === true
+      ? vertexCurvature(mesh.positions, mesh.normals, mesh.indices)
+      : undefined;
   return {
     positions: mesh.positions,
     normals: mesh.normals,
@@ -347,5 +351,6 @@ export function meshRails(built: BuiltRails, opts: MeshRailsOptions = {}): Rails
     volume,
     planArea: loopArea(mesh.loop),
     surfaceArea: area,
+    ...(k === undefined ? {} : { k1: k.k1, k2: k.k2 }),
   };
 }

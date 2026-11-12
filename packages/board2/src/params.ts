@@ -488,4 +488,20 @@ export const TRIM = {
    * differences of the node values; the gradient through u = |y| / w(x) takes w' from it.
    */
   reliefStep: 0.1,
+  /**
+   * A stored half that is not a function of u inboard of its cut (`trim/convert.ts`): a sample
+   * whose u (normalised) falls back more than `convertFoldBack` from the largest u before it,
+   * or a run of samples within `convertFoldBack` of one u that climbs more than
+   * `convertFoldClimb` in v (normalised, a share of the thickness).
+   */
+  convertFoldBack: 1e-4,
+  convertFoldClimb: 0.01,
+  /**
+   * The rails engine's section probe (`trim/probe.ts`): the half width's slope is read over
+   * ±`probeSlopeStep` (cm), the panel is sampled every `probePanelStep` (cm) and each blend at
+   * `probeBlendSteps` even parameter steps, before the section is spread by arc length.
+   */
+  probeSlopeStep: 0.05,
+  probePanelStep: 0.05,
+  probeBlendSteps: 64,
 } as const;

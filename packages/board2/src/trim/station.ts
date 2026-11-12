@@ -61,7 +61,8 @@ export interface HalfRail {
   readonly apex: number;
   /**
    * Worst gap between the section and the panel and blend that replace it, cm, and never less
-   * than the farthest a sample the fit drops (one that doubles back) lies from what it keeps.
+   * than the farthest a sample the fit drops falls back from the last sample it keeps (an
+   * undercut; a vertical piece counts nothing).
    */
   readonly gap: number;
 }
@@ -91,8 +92,10 @@ interface Half {
   /** Distance along the half from the stringer. */
   readonly arc: Float64Array;
   /**
-   * The farthest a dropped sample lies from the last sample kept before it, cm: a bound on how
-   * far the half misses the section there, which no fit to the half can see.
+   * The farthest a dropped sample falls back from the last sample kept before it, cm (that
+   * sample's `y` minus the dropped one's, never negative): how far the half misses an undercut,
+   * which no fit to the half can see. A sample straight above or below the last kept one is on
+   * the wall the half already has, and counts nothing.
    */
   readonly dropped: number;
 }
@@ -108,7 +111,7 @@ function makeHalf(pts: ArrayLike<number>, up: 1 | -1): Half {
     const py = pts[2 * i]!;
     const pz = up * pts[2 * i + 1]!;
     if (n > 0 && py <= y[n - 1]!) {
-      dropped = Math.max(dropped, Math.hypot(py - y[n - 1]!, pz - z[n - 1]!));
+      dropped = Math.max(dropped, y[n - 1]! - py);
       continue;
     }
     y[n] = py;
