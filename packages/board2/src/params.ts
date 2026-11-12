@@ -437,4 +437,25 @@ export const TRIM = {
   loftTableStep: 0.1,
   /** A half width (cm) under which a point is on the stringer: u is 0 and the panel has no slope across. */
   loftTipWidth: 1e-6,
+  /**
+   * Where the least thickness `T` stops taking a root: a panel pair thicker than `tipFar * T`
+   * is thickened by the first term of the series of `(t^p + T^p)^(1/p)`, whose error is under
+   * 1e-8 of t at this ratio with `tipSharpness` 6.
+   */
+  tipFar: 4,
+  /**
+   * Converting a sections board (`trim/convert.ts`). A section is sampled at
+   * `convertSegmentSamples` even parameter steps per Bézier segment, at least as fine as the
+   * bridge's 600 a half. A station is a tip, with no rail key of its own, where the board is
+   * thinner than `convertMinThickness` (cm) or narrower than `convertMinChord` (cm, half
+   * width). The outline's angle at a station is read by a central difference of the half width
+   * over ±`convertSlopeStep` (cm). The knot where a curve leaves the section for its straight
+   * end is smooth when the section's own tangent there is within `convertSmoothAngle`
+   * (degrees, in physical units) of the panel's slope, and a corner otherwise.
+   */
+  convertSegmentSamples: 600,
+  convertMinThickness: 0.6,
+  convertMinChord: 2.5,
+  convertSlopeStep: 0.5,
+  convertSmoothAngle: 1,
 } as const;

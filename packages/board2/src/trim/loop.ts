@@ -251,7 +251,7 @@ function stitch(def: LoopDef): Dense {
 }
 
 /** The dense polyline resampled: fine where it turns tightly, and graded so no corner is stepped over. */
-function resample(d: Dense): Dense {
+function resample(d: Dense, spacingMax: number): Dense {
   const n = d.x.length;
   const acc = new Float64Array(n + 1);
   for (let i = 0; i < n; i++) {
@@ -273,7 +273,7 @@ function resample(d: Dense): Dense {
       turn < TRIM.straightTurn
         ? TRIM.straightRadius
         : (0.5 * (Math.hypot(ux, uy) + Math.hypot(vx, vy))) / turn;
-    h[i] = Math.min(TRIM.spacingMax, Math.max(TRIM.spacingMin, TRIM.spacingPerRadius * radius));
+    h[i] = Math.min(spacingMax, Math.max(TRIM.spacingMin, TRIM.spacingPerRadius * radius));
   }
   for (let pass = 0; pass < 2; pass++) {
     for (let i = 0; i < 2 * n; i++) {
@@ -290,7 +290,7 @@ function resample(d: Dense): Dense {
   const out: Dense = { x: [], y: [], kind: [], seg: [], corner: [] };
   let s = 0;
   let i = 0;
-  let last = TRIM.spacingMax;
+  let last = spacingMax;
   while (s < total - 0.5 * last) {
     while (acc[i + 1]! < s) i++;
     const k = (i + 1) % n;
@@ -306,9 +306,15 @@ function resample(d: Dense): Dense {
   return out;
 }
 
+/** What `buildLoop` can be asked for besides the outline. */
+export interface LoopOptions {
+  /** The widest sample spacing, cm, in place of `TRIM.spacingMax`: a smaller one gives a finer loop. */
+  readonly spacingMax?: number;
+}
+
 /** Builds the loop: corners rounded, resampled, with normals, arc length and local feature size. */
-export function buildLoop(def: LoopDef): Loop {
-  const d = resample(stitch(def));
+export function buildLoop(def: LoopDef, options: LoopOptions = {}): Loop {
+  const d = resample(stitch(def), options.spacingMax ?? TRIM.spacingMax);
   const n = d.x.length;
   const x = Float64Array.from(d.x);
   const y = Float64Array.from(d.y);

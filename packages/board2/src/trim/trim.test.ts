@@ -6,8 +6,11 @@
  */
 import { describe, expect, it } from 'vitest';
 import { TRIM } from '../params';
+import type { Chain, ChainKnot } from '../types';
+import { buildLoft, loftPanels } from './loft';
+import type { CurveAt } from './loft';
 import { buildLoop } from './loop';
-import type { Loop } from './loop';
+import type { Loop, LoopOptions } from './loop';
 import { railLaws } from './rails';
 import { buildTrimMesh, checkClosed, sliceX, withLeastThickness } from './solid';
 import type { Panels, TrimMesh, TrimMeshOptions } from './solid';
@@ -60,7 +63,7 @@ const SKETCH: Record<
 };
 
 /** A slab's outline, 120 by 16 cm, straight sides and ends, every corner 1.5 cm. */
-const slabLoop = (): Loop => {
+const slabLoop = (options?: LoopOptions): Loop => {
   const d = 8;
   const side = new Float64Array(2 * 201);
   const edge = new Float64Array(2 * 41);
@@ -78,15 +81,18 @@ const slabLoop = (): Loop => {
     nose[2 * i] = 120;
     nose[2 * i + 1] = -d + (2 * d * i) / 40;
   }
-  return buildLoop({
-    pieces: [
-      { pts: side, kind: 0 },
-      { pts: edge, kind: 1 },
-      { pts: back, kind: 0 },
-      { pts: nose, kind: 1 },
-    ],
-    corners: [1.5, 1.5, 1.5, 1.5],
-  });
+  return buildLoop(
+    {
+      pieces: [
+        { pts: side, kind: 0 },
+        { pts: edge, kind: 1 },
+        { pts: back, kind: 0 },
+        { pts: nose, kind: 1 },
+      ],
+      corners: [1.5, 1.5, 1.5, 1.5],
+    },
+    options,
+  );
 };
 
 const build = (tail: DemoTail, over: Partial<DemoOptions> = {}) => {
@@ -332,5 +338,249 @@ describe('trim kernel: a tip is never thinner than the floor', () => {
     expect(after(0, 1e200).t).toBe(1e200);
     const given = flat(0, 0);
     expect(withLeastThickness(given, 0)).toBe(given);
+  });
+});
+
+/** A chain through `n + 1` even points of f on [a, b], each span the cubic Hermite with slopes f′. */
+const fnChain = (
+  f: (x: number) => number,
+  df: (x: number) => number,
+  a: number,
+  b: number,
+  n: number,
+): Chain => {
+  const h = (b - a) / n;
+  const knots: ChainKnot[] = [];
+  for (let i = 0; i <= n; i++) {
+    const x = a + i * h;
+    const y = f(x);
+    const s = df(x);
+    knots.push({
+      p: [x, y],
+      in: [x - h / 3, y - (s * h) / 3],
+      out: [x + h / 3, y + (s * h) / 3],
+      smooth: true,
+    });
+  }
+  return { knots };
+};
+
+/** Lofted panels over the slab: a domed deck over a bellied bottom, 3 to 5 cm thick. */
+const slabPanels = () => {
+  const L = 120;
+  const rocker = fnChain(
+    (x) => 0.0004 * (x - 60) ** 2,
+    (x) => 0.0008 * (x - 60),
+    0,
+    L,
+    12,
+  );
+  const deck = fnChain(
+    (x) => 0.0004 * (x - 60) ** 2 + 3 + 2 * Math.sin((Math.PI * x) / L),
+    (x) => 0.0008 * (x - 60) + ((2 * Math.PI) / L) * Math.cos((Math.PI * x) / L),
+    0,
+    L,
+    12,
+  );
+  const xs = [10, 40, 80, 110];
+  const top = buildLoft(
+    xs.map(
+      (x, i): CurveAt => ({
+        x,
+        curve: fnChain(
+          (u) => 1 - (0.3 + 0.1 * i) * u * u,
+          (u) => -2 * (0.3 + 0.1 * i) * u,
+          0,
+          1,
+          6,
+        ),
+      }),
+    ),
+    600,
+  );
+  const bot = buildLoft(
+    xs.map(
+      (x, i): CurveAt => ({
+        x,
+        curve: fnChain(
+          (u) => (0.08 - 0.03 * i) * u * u + 0.04 * i * u ** 4,
+          (u) => 2 * (0.08 - 0.03 * i) * u + 0.16 * i * u ** 3,
+          0,
+          1,
+          6,
+        ),
+      }),
+    ),
+    600,
+  );
+  const w = (): number => 8;
+  return loftPanels({
+    rocker,
+    deck,
+    halfWidth: [w, w],
+    bottom: [bot, bot],
+    top: [top, top],
+    from: 0,
+    to: L,
+  });
+};
+
+const slabLaws = (loop: Loop) =>
+  railLaws(loop, () => ({
+    band: 2,
+    hardness: 0.5,
+    tuck: 1,
+    tuckShape: 0.5,
+    bottomEdge: 0,
+    deckEdge: 0,
+    apex: 0.4,
+  }));
+
+describe('trim kernel: panels that give their slopes', () => {
+  it('builds the same surface from `both` as from the heights alone', () => {
+    const loop = slabLoop();
+    const laws = slabLaws(loop);
+    const p = slabPanels();
+    const withBoth = buildTrimMesh(loop, laws, p, GRID);
+    const without = buildTrimMesh(loop, laws, { deck: p.deck, bottom: p.bottom }, GRID);
+    expect(withBoth.positions.length).toBe(without.positions.length);
+    expect(Array.from(withBoth.indices)).toEqual(Array.from(without.indices));
+    // the two differ by the finite differences of the one path: its slope at a band edge is a
+    // second-order one-sided difference, its normals central differences
+    let dPos = 0;
+    let dNrm = 0;
+    for (let i = 0; i < withBoth.positions.length; i++) {
+      dPos = Math.max(dPos, Math.abs(withBoth.positions[i]! - without.positions[i]!));
+      dNrm = Math.max(dNrm, Math.abs(withBoth.normals[i]! - without.normals[i]!));
+    }
+    expect(dPos).toBeLessThan(1e-6);
+    expect(dNrm).toBeLessThan(1e-4);
+    const a = checkClosed(withBoth);
+    const b = checkClosed(without);
+    expect(a.openEdges).toBe(0);
+    expect(b.openEdges).toBe(0);
+    expect(Math.abs(a.volume - b.volume) / b.volume).toBeLessThan(1e-6);
+  });
+
+  it('keeps `both` through a thickness floor, and without one', () => {
+    const p = slabPanels();
+    expect(withLeastThickness(p, 0)).toBe(p);
+    expect(withLeastThickness(p, 0.5).both).toBeTypeOf('function');
+    expect(withLeastThickness({ deck: p.deck, bottom: p.bottom }, 0.5).both).toBeUndefined();
+  });
+});
+
+describe('trim kernel: the thickness floor, cheaper', () => {
+  const T = TRIM.tipThickness;
+  const P = TRIM.tipSharpness;
+  const flat = (t: number): Panels => ({ deck: () => t / 2, bottom: () => -t / 2 });
+  const exact = (t: number): number => Math.pow(Math.pow(t, P) + Math.pow(T, P), 1 / P);
+  const thickened = (t: number): number => {
+    const q = withLeastThickness(flat(t), T);
+    return q.deck(0, 0) - q.bottom(0, 0);
+  };
+
+  it('agrees with the exact form where the series stands in for it', () => {
+    for (const [k, bound] of [
+      [4, 1e-8],
+      [6, 1e-9],
+      [20, 1e-12],
+    ] as const) {
+      const t = k * T;
+      expect(Math.abs(thickened(t) - exact(t)) / t, `t = ${k} T`).toBeLessThan(bound);
+    }
+  });
+
+  it('is continuous across where the series takes over', () => {
+    const t = TRIM.tipFar * T;
+    const eps = 1e-9;
+    // each height moves half the thickness, 5e-9 at most, plus the slope over the step
+    const lo = withLeastThickness(flat(t - eps), T);
+    const hi = withLeastThickness(flat(t + eps), T);
+    expect(Math.abs(lo.deck(0, 0) - hi.deck(0, 0))).toBeLessThan(1e-8);
+    expect(Math.abs(lo.bottom(0, 0) - hi.bottom(0, 0))).toBeLessThan(1e-8);
+    // the slopes, too: the series' derivative is off the exact one by 15 (r^p / p)^2, 2.5e-8.
+    // Panels whose thickness is v and whose thickness grows at unit rate along x give dt'/dt
+    const out = new Float64Array(6);
+    const slopes = [t - eps, t + eps].map((v) => {
+      const rising = withLeastThickness(
+        {
+          deck: () => v / 2,
+          bottom: () => -v / 2,
+          both: (_x, _y, g) => g.set([v / 2, 0.5, 0, -v / 2, -0.5, 0]),
+        },
+        T,
+      );
+      rising.both!(0, 0, out);
+      return out[1]! - out[4]!;
+    });
+    expect(Math.abs(slopes[0]! - slopes[1]!)).toBeLessThan(1e-7);
+  });
+
+  it('has gradients that are the derivatives of its own heights', () => {
+    // t runs from below 0 through the exact form into the series, and varies across y too
+    const deck = (x: number, y: number): number =>
+      0.45 * x + 0.2 * Math.sin(0.7 * y) + 0.01 * x * y;
+    const bottom = (x: number, y: number): number => 0.1 * Math.sin(0.3 * x) + 0.05 * y;
+    const q = withLeastThickness(
+      {
+        deck,
+        bottom,
+        both: (x, y, out) => {
+          out[0] = deck(x, y);
+          out[1] = 0.45 + 0.01 * y;
+          out[2] = 0.14 * Math.cos(0.7 * y) + 0.01 * x;
+          out[3] = bottom(x, y);
+          out[4] = 0.03 * Math.cos(0.3 * x);
+          out[5] = 0.05;
+        },
+      },
+      T,
+    );
+    const out = new Float64Array(6);
+    const e = 1e-5;
+    const far = TRIM.tipFar * T;
+    let thin = 0;
+    let thick = 0;
+    let worst = 0;
+    for (let i = 0; i < 400; i++) {
+      const x = ((i * 0.618034) % 1) * 12 - 0.2;
+      const y = (((i * 0.414214) % 1) - 0.5) * 6;
+      const t = deck(x, y) - bottom(x, y);
+      // a step across where the series takes over would be read as a slope
+      if (Math.abs(t - far) < 1e-3) continue;
+      if (t < far) thin++;
+      else thick++;
+      q.both!(x, y, out);
+      expect(out[0]).toBe(q.deck(x, y));
+      expect(out[3]).toBe(q.bottom(x, y));
+      for (const [k, f] of [
+        [0, q.deck],
+        [3, q.bottom],
+      ] as const) {
+        const dx = (f(x + e, y) - f(x - e, y)) / (2 * e);
+        const dy = (f(x, y + e) - f(x, y - e)) / (2 * e);
+        worst = Math.max(worst, Math.abs(dx - out[k + 1]!), Math.abs(dy - out[k + 2]!));
+      }
+    }
+    expect(thin).toBeGreaterThan(50);
+    expect(thick).toBeGreaterThan(50);
+    expect(worst).toBeLessThan(1e-6);
+  });
+});
+
+describe('trim kernel: the loop spacing', () => {
+  it('gives the default loop as before, and a finer one on request', () => {
+    const base = slabLoop();
+    expect(base.n).toBe(515);
+    expect(base.s[base.n]!).toBeCloseTo(269.4108, 3);
+    const same = slabLoop({ spacingMax: TRIM.spacingMax });
+    expect(same.n).toBe(base.n);
+    expect(Array.from(same.x)).toEqual(Array.from(base.x));
+    const fine = slabLoop({ spacingMax: 0.2 });
+    expect(fine.n).toBeGreaterThan(base.n);
+    // both loops are polylines through points of the same outline, so their lengths differ by
+    // the chord error of the coarser one: 3.7e-3 cm here
+    expect(Math.abs(fine.s[fine.n]! - base.s[base.n]!)).toBeLessThan(1e-2);
   });
 });

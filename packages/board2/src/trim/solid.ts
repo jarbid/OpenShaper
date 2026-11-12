@@ -22,14 +22,41 @@ import type { RailLaws } from './rails';
 export interface Panels {
   deck(x: number, y: number): number;
   bottom(x: number, y: number): number;
+  /**
+   * Both heights and their slopes in one call, into `out[0 … 6)`: deck z, dz/dx, dz/dy, then
+   * bottom z, dz/dx, dz/dy. A mesh built on panels that have it reads a normal or an edge's
+   * slope from one call, not from several heights.
+   */
+  both?(x: number, y: number, out: Float64Array): void;
 }
+
+/** `r` to the integer power `p` by squaring, so no `Math.pow`; any other `p` goes to `Math.pow`. */
+const power = (r: number, p: number): number => {
+  if (!Number.isInteger(p) || p < 1) return Math.pow(r, p);
+  let acc = 1;
+  let base = r;
+  for (let k = p; k > 0; k = Math.floor(k / 2)) {
+    if (k % 2 === 1) acc *= base;
+    base *= base;
+  }
+  return acc;
+};
 
 /**
  * Panels no thinner than `least` (cm). At each point the thickness `t = deck - bottom` becomes
- * `(t^p + least^p)^(1/p)`, or `least` where the panels touch or cross, spread evenly about
+ * `t' = (t^p + least^p)^(1/p)`, or `least` where the panels touch or cross, spread evenly about
  * their mean, which does not move. The change is smooth, so it puts no crease in a panel, and
  * it is negligible where the board is a few times `least` thick. A tip then ends in a ball in
  * thickness as the loop already makes it one in plan. `least <= 0` returns the panels as given.
+ *
+ * From `t >= TRIM.tipFar * least` the root is replaced by its series `t' = t (1 + r^p / p)`,
+ * `r = least / t`, which takes no power of a non-integer. Its error is the next term,
+ * `(p - 1) r^(2p) / (2 p^2)` of t: 4 parts in 10^9 of t at `r = 1/4` with `p = 6`, and falling
+ * as `r^12` beyond. Its slope `1 - (p - 1) r^p / p` is the series' own derivative. Thinner than
+ * that the exact form is kept, with slope `(t / t')^(p - 1)`.
+ *
+ * When the given panels have `both`, so do these: the heights are `m ± t' / 2` and their
+ * gradients `∇m ± (dt'/dt) ∇t / 2`, with `m` the mean height and `t` as above.
  */
 export function withLeastThickness(
   panels: Panels,
@@ -37,26 +64,52 @@ export function withLeastThickness(
   sharpness: number = TRIM.tipSharpness,
 ): Panels {
   if (!(least > 0)) return panels;
-  // the power is taken of a ratio no larger than 1, so it cannot overflow
+  const far = TRIM.tipFar * least;
+  // the exact form takes the power of a ratio no larger than 1, so it cannot overflow
   const thicken = (t: number): number => {
     if (!(t > 0)) return least;
+    if (t >= far) return t * (1 + power(least / t, sharpness) / sharpness);
     const big = Math.max(t, least);
     const small = Math.min(t, least);
     return big * Math.pow(1 + Math.pow(small / big, sharpness), 1 / sharpness);
   };
-  const at = (x: number, y: number): [number, number] => {
-    const d = panels.deck(x, y);
-    const b = panels.bottom(x, y);
-    return [0.5 * (d + b), 0.5 * thicken(d - b)];
+  /** dt'/dt, given t and its thickened value. */
+  const slope = (t: number, thick: number): number => {
+    if (!(t > 0)) return 0;
+    if (t >= far) return 1 - ((sharpness - 1) * power(least / t, sharpness)) / sharpness;
+    return Math.pow(t / thick, sharpness - 1);
   };
-  return {
+  const result: Panels = {
     deck: (x, y) => {
-      const [m, h] = at(x, y);
-      return m + h;
+      const d = panels.deck(x, y);
+      const b = panels.bottom(x, y);
+      return 0.5 * (d + b) + 0.5 * thicken(d - b);
     },
     bottom: (x, y) => {
-      const [m, h] = at(x, y);
-      return m - h;
+      const d = panels.deck(x, y);
+      const b = panels.bottom(x, y);
+      return 0.5 * (d + b) - 0.5 * thicken(d - b);
+    },
+  };
+  if (panels.both === undefined) return result;
+  const g = new Float64Array(6);
+  return {
+    ...result,
+    both: (x, y, out) => {
+      panels.both!(x, y, g);
+      const t = g[0]! - g[3]!;
+      const thick = thicken(t);
+      const k = 0.5 * slope(t, thick);
+      const h = 0.5 * thick;
+      const m = 0.5 * (g[0]! + g[3]!);
+      for (let c = 1; c <= 2; c++) {
+        const mean = 0.5 * (g[c]! + g[3 + c]!);
+        const spread = k * (g[c]! - g[3 + c]!);
+        out[c] = mean + spread;
+        out[3 + c] = mean - spread;
+      }
+      out[0] = m + h;
+      out[3] = m - h;
     },
   };
 }
@@ -171,53 +224,118 @@ export function buildTrimMesh(
   const n = loop.n;
   const nt = options.deckRows ?? TRIM.deckRows;
   const nb = options.tuckRows ?? TRIM.tuckRows;
-  const pos: number[] = [];
-  const nrm: number[] = [];
-  const vface: number[] = [];
-  const tri: number[] = [];
-  const tface: number[] = [];
-  const add = (x: number, y: number, z: number, f: number, a = 0, b = 0, c = 0): number => {
-    pos.push(x, y, z);
-    nrm.push(a, b, c);
-    vface.push(f);
-    return pos.length / 3 - 1;
+  const per = nt + nb + 1;
+  // Vertices and triangles go into typed arrays. The strips' sizes are known; the panels'
+  // are bounded when their grids are, and the stitch's are not, so each array grows by doubling.
+  let vCap = n * per;
+  let nv = 0;
+  let pos = new Float64Array(3 * vCap);
+  let nrm = new Float64Array(3 * vCap);
+  let vface = new Uint8Array(vCap);
+  const reserveVertices = (extra: number): void => {
+    if (nv + extra <= vCap) return;
+    vCap = Math.max(2 * vCap, nv + extra);
+    const p = new Float64Array(3 * vCap);
+    p.set(pos.subarray(0, 3 * nv));
+    pos = p;
+    const q = new Float64Array(3 * vCap);
+    q.set(nrm.subarray(0, 3 * nv));
+    nrm = q;
+    const f = new Uint8Array(vCap);
+    f.set(vface.subarray(0, nv));
+    vface = f;
   };
+  const add = (x: number, y: number, z: number, f: number, a = 0, b = 0, c = 0): number => {
+    pos[3 * nv] = x;
+    pos[3 * nv + 1] = y;
+    pos[3 * nv + 2] = z;
+    nrm[3 * nv] = a;
+    nrm[3 * nv + 1] = b;
+    nrm[3 * nv + 2] = c;
+    vface[nv] = f;
+    return nv++;
+  };
+  let tCap = 2 * n * (nt + nb);
+  let nTri = 0;
+  let tri = new Uint32Array(3 * tCap);
+  let tface = new Uint8Array(tCap);
+  const reserveTriangles = (extra: number): void => {
+    if (nTri + extra <= tCap) return;
+    tCap = Math.max(2 * tCap, nTri + extra);
+    const t = new Uint32Array(3 * tCap);
+    t.set(tri.subarray(0, 3 * nTri));
+    tri = t;
+    const f = new Uint8Array(tCap);
+    f.set(tface.subarray(0, nTri));
+    tface = f;
+  };
+  const addTriangle = (a: number, b: number, c: number, f: number): void => {
+    tri[3 * nTri] = a;
+    tri[3 * nTri + 1] = b;
+    tri[3 * nTri + 2] = c;
+    tface[nTri++] = f;
+  };
+  // 0 for the deck, 1 for the bottom: which of `both`'s two surfaces a read is for
+  const heights = new Float64Array(6);
+  const both = panels.both;
   const fieldNormal = (
     surf: (x: number, y: number) => number,
+    which: number,
     sign: number,
     x: number,
     y: number,
   ): [number, number, number] => {
-    const e = TRIM.normalStep;
-    const dx = (surf(x + e, y) - surf(x - e, y)) / (2 * e);
-    const dy = (surf(x, y + e) - surf(x, y - e)) / (2 * e);
+    let dx: number;
+    let dy: number;
+    if (both !== undefined) {
+      panels.both!(x, y, heights);
+      dx = heights[3 * which + 1]!;
+      dy = heights[3 * which + 2]!;
+    } else {
+      const e = TRIM.normalStep;
+      dx = (surf(x + e, y) - surf(x - e, y)) / (2 * e);
+      dy = (surf(x, y + e) - surf(x, y - e)) / (2 * e);
+    }
     const l = Math.hypot(dx, dy, 1);
     return [(-sign * dx) / l, (-sign * dy) / l, sign / l];
   };
 
   // ---- the two strips ----
-  const per = nt + nb + 1;
   const deckEdges: BandEdge[] = [];
   const tuckEdges: BandEdge[] = [];
   const wallTop = new Float64Array(n);
   const wallBottom = new Float64Array(n);
   const apex = new Float64Array(n);
-  const bandEdge = (surf: (x: number, y: number) => number, i: number, width: number): BandEdge => {
-    const e = TRIM.slopeStep;
+  const bandEdge = (
+    surf: (x: number, y: number) => number,
+    which: number,
+    i: number,
+    width: number,
+  ): BandEdge => {
     const qx = loop.x[i]! + width * loop.nx[i]!;
     const qy = loop.y[i]! + width * loop.ny[i]!;
-    const z = surf(qx, qy);
-    // the slope is read from the panel side only: past the band edge the panel has given way
-    // to the rail, and a panel need not exist there at all
-    const z1 = surf(qx + e * loop.nx[i]!, qy + e * loop.ny[i]!);
-    const z2 = surf(qx + 2 * e * loop.nx[i]!, qy + 2 * e * loop.ny[i]!);
-    const slope = (3 * z - 4 * z1 + z2) / (2 * e);
+    let z: number;
+    let slope: number;
+    if (both !== undefined) {
+      // the slope towards the outline: the loop's normal points inward, so it is minus the gradient along it
+      panels.both!(qx, qy, heights);
+      z = heights[3 * which]!;
+      slope = -(heights[3 * which + 1]! * loop.nx[i]! + heights[3 * which + 2]! * loop.ny[i]!);
+    } else {
+      const e = TRIM.slopeStep;
+      z = surf(qx, qy);
+      // the slope is read from the panel side only: past the band edge the panel has given way
+      // to the rail, and a panel need not exist there at all
+      const z1 = surf(qx + e * loop.nx[i]!, qy + e * loop.ny[i]!);
+      const z2 = surf(qx + 2 * e * loop.nx[i]!, qy + 2 * e * loop.ny[i]!);
+      slope = (3 * z - 4 * z1 + z2) / (2 * e);
+    }
     const tangent = z + width * slope;
     return { qx, qy, z, tangent, shoulder: tangent };
   };
   for (let i = 0; i < n; i++) {
-    let d = bandEdge(panels.deck, i, laws.deckWidth[i]!);
-    let b = bandEdge(panels.bottom, i, laws.tuckWidth[i]!);
+    let d = bandEdge(panels.deck, 0, i, laws.deckWidth[i]!);
+    let b = bandEdge(panels.bottom, 1, i, laws.tuckWidth[i]!);
     const a = laws.apex[i]!;
     const za = b.tangent + a * (d.tangent - b.tangent);
     // A wall shorter than `wallMin`, or a negative one where the tangents cross, is opened to
@@ -318,9 +436,13 @@ export function buildTrimMesh(
     }
   }
   const quad = (a: number, b: number, c: number, d: number, up: boolean, f: number): void => {
-    if (up) tri.push(a, c, b, b, c, d);
-    else tri.push(a, b, c, b, d, c);
-    tface.push(f, f);
+    if (up) {
+      addTriangle(a, c, b, f);
+      addTriangle(b, c, d, f);
+    } else {
+      addTriangle(a, b, c, f);
+      addTriangle(b, d, c, f);
+    }
   };
   for (let i = 0; i < n; i++) {
     const k = (i + 1) % n;
@@ -352,14 +474,16 @@ export function buildTrimMesh(
   const panel = (
     edges: readonly BandEdge[],
     surf: (x: number, y: number) => number,
+    which: number,
     face: number,
     down: boolean,
   ): void => {
     const sign = down ? -1 : 1;
     // the panel gets its own seam vertices, in the strip's places, with the panel's normals:
     // a rail that leaves at an edge then shades as a crease
+    reserveVertices(edges.length);
     const rim = edges.map((e) => {
-      const q = fieldNormal(surf, sign, e.qx, e.qy);
+      const q = fieldNormal(surf, which, sign, e.qx, e.qy);
       return add(e.qx, e.qy, e.z, face, q[0], q[1], q[2]);
     });
     const m = rim.length;
@@ -380,6 +504,8 @@ export function buildTrimMesh(
     const ny = Math.ceil((y1 - y0) / h) + 2;
     const gx = (i: number): number => x0 + (i - 0.5) * h;
     const gy = (j: number): number => y0 + (j - 0.5) * h;
+    // every node of the grid is a possible vertex
+    reserveVertices((nx + 1) * (ny + 1));
     const inside = new Uint8Array((nx + 1) * (ny + 1));
     const blocked = new Uint8Array(nx * ny);
     for (let j = 0; j <= ny; j++) {
@@ -465,12 +591,28 @@ export function buildTrimMesh(
       if (vid[a]! < 0) {
         const x = gx(i) + jitter(i, j, 1);
         const y = gy(j) + jitter(i, j, 2);
-        const q = fieldNormal(surf, sign, x, y);
-        vid[a] = add(x, y, surf(x, y), face, q[0], q[1], q[2]);
+        let z: number;
+        let q: [number, number, number];
+        if (both !== undefined) {
+          // one call gives the height and the gradient
+          panels.both!(x, y, heights);
+          const dx = heights[3 * which + 1]!;
+          const dy = heights[3 * which + 2]!;
+          const l = Math.hypot(dx, dy, 1);
+          z = heights[3 * which]!;
+          q = [(-sign * dx) / l, (-sign * dy) / l, sign / l];
+        } else {
+          q = fieldNormal(surf, which, sign, x, y);
+          z = surf(x, y);
+        }
+        vid[a] = add(x, y, z, face, q[0], q[1], q[2]);
       }
       return vid[a]!;
     };
     const next = new Map<number, number>();
+    let cells = 0;
+    for (let c = 0; c < nx * ny; c++) cells += keep[c]!;
+    reserveTriangles(2 * cells);
     for (let j = 0; j < ny; j++) {
       for (let i = 0; i < nx; i++) {
         if (!kept(i, j)) continue;
@@ -478,9 +620,13 @@ export function buildTrimMesh(
         const b = node(i + 1, j);
         const c = node(i, j + 1);
         const d = node(i + 1, j + 1);
-        if (down) tri.push(a, c, b, b, c, d);
-        else tri.push(a, b, c, b, d, c);
-        tface.push(face, face);
+        if (down) {
+          addTriangle(a, c, b, face);
+          addTriangle(b, c, d, face);
+        } else {
+          addTriangle(a, b, c, face);
+          addTriangle(b, d, c, face);
+        }
         if (!kept(i, j - 1)) next.set(a, b);
         if (!kept(i + 1, j)) next.set(b, d);
         if (!kept(i, j + 1)) next.set(d, c);
@@ -524,24 +670,24 @@ export function buildTrimMesh(
     }
     // the triangulator winds every triangle the same way, so the winding is decided once
     const asIs = area > 0 !== down;
+    reserveTriangles(t.length / 3);
     for (let q = 0; q < t.length; q += 3) {
       const a = ids[t[q]!]!;
       const b = ids[t[q + 1]!]!;
       const c = ids[t[q + 2]!]!;
-      if (asIs) tri.push(a, b, c);
-      else tri.push(a, c, b);
-      tface.push(face);
+      if (asIs) addTriangle(a, b, c, face);
+      else addTriangle(a, c, b, face);
     }
   };
-  panel(deckEdges, panels.deck, FACE.deck, false);
-  panel(tuckEdges, panels.bottom, FACE.bottom, true);
+  panel(deckEdges, panels.deck, 0, FACE.deck, false);
+  panel(tuckEdges, panels.bottom, 1, FACE.bottom, true);
 
   return {
-    positions: Float32Array.from(pos),
-    normals: Float32Array.from(nrm),
-    indices: Uint32Array.from(tri),
-    vertexFace: Uint8Array.from(vface),
-    triFace: Uint8Array.from(tface),
+    positions: Float32Array.from(pos.subarray(0, 3 * nv)),
+    normals: Float32Array.from(nrm.subarray(0, 3 * nv)),
+    indices: tri.slice(0, 3 * nTri),
+    vertexFace: vface.slice(0, nv),
+    triFace: tface.slice(0, nTri),
     loop,
     deckRows: nt,
     tuckRows: nb,
