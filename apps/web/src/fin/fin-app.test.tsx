@@ -751,6 +751,24 @@ describe('FinApp: export', () => {
     });
   }, 20_000);
 
+  it('exports the profile as one SVG, even for a pair, and while a rule is broken', async () => {
+    localStorage.setItem('bs.fin.pair', 'true');
+    act(() => {
+      const d = defaultFinDesign('side', 'left');
+      finStore.getState().load({ ...d, cant: 40 }); // past the allowed cant
+    });
+    const names = captureDownloads();
+    render(<FinApp />);
+    expect(exportItem('STL for 3D printing').disabled).toBe(true);
+    fireEvent.click(exportItem('Profile as SVG'));
+    const dialog = saveDialog('Export profile as SVG');
+    expect((dialog.getByLabelText('File name') as HTMLInputElement).value).toBe('fin-side-profile');
+    expect(dialog.getByText('.svg')).toBeTruthy();
+    confirm('Export profile as SVG', 'Export');
+    await waitFor(() => expect(names).toEqual(['fin-side-profile.svg']));
+    localStorage.removeItem('bs.fin.pair');
+  });
+
   it('exports a core for laminating, with the thickness and faces chosen', async () => {
     localStorage.removeItem('bs.fin.core');
     const names = captureDownloads();
@@ -886,6 +904,52 @@ describe('FinApp: importing drawings', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
     // Sized in the Profile view instead.
     expect(screen.getByRole('button', { name: 'Scale the fin' })).toBeTruthy();
+  });
+
+  it('imports another fin’s profile, keeping this fin’s tab, foils and side, one undo step', async () => {
+    render(<FinApp />);
+    const before = finStore.getState().design!;
+    const centre = defaultFinDesign('centre');
+    const file = new File([writeFinJson(centre)], 'centre.fin.json');
+    fireEvent.change(screen.getByLabelText('Import a profile from a fin file'), {
+      target: { files: [file] },
+    });
+    await waitFor(() => expect(finStore.getState().design!.outline).not.toBe(before.outline));
+    const after = finStore.getState().design!;
+    // The centre fin's shape, wherever the tab puts it.
+    const shape = (o: typeof after.outline) =>
+      o.knots.map((k) => [k.end.x - o.knots[0]!.end.x, k.end.y]);
+    const want = shape(centre.outline);
+    shape(after.outline).forEach(([x, y], i) => {
+      expect(x).toBeCloseTo(want[i]![0]!, 9);
+      expect(y).toBeCloseTo(want[i]![1]!, 9);
+    });
+    expect(after.position).toBe('side');
+    expect(after.hand).toBe('left');
+    expect(after.base).toBe(before.base);
+    expect(after.section).toBe(before.section);
+    expect(after.taper).toBe(before.taper);
+    act(() => finStore.getState().undo());
+    expect(finStore.getState().design!.outline).toBe(before.outline);
+  });
+
+  it('explains a profile it cannot take from a file', async () => {
+    render(<FinApp />);
+    const before = finStore.getState().design;
+    const file = new File(['not a fin'], 'notes.json');
+    fireEvent.change(screen.getByLabelText('Import a profile from a fin file'), {
+      target: { files: [file] },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole('alert').textContent).toMatch(/can't be opened as a fin/),
+    );
+    expect(finStore.getState().design).toBe(before);
+  });
+
+  it('offers Import profile from fin in the Open menu', () => {
+    render(<FinApp />);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open…' }));
+    expect(screen.getByRole('menuitem', { name: 'Import profile from fin…' })).toBeTruthy();
   });
 
   it('leaves the fin alone when the dialog is cancelled', async () => {

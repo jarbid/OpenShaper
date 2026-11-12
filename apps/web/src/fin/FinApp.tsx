@@ -955,9 +955,10 @@ type VectorPart = 'outline' | 'foil';
 
 /**
  * Open and Save: `.fin.json` files. Opening replaces the fin and starts a fresh history,
- * and re-fits every view to it (`onOpened`), as a new fin does. Open's menu also imports a
- * vector drawing as the profile or the base foil (vector-import.ts); an imported profile
- * comes in at the drawing's size, so the views re-fit to it (`onImported`).
+ * and re-fits every view to it (`onOpened`), as a new fin does. Open's menu also imports
+ * another fin's profile, or a vector drawing as the profile or the base foil
+ * (vector-import.ts); an imported profile comes in at its own size, so the views re-fit
+ * to it (`onImported`).
  */
 function FileButtons({
   onSave,
@@ -970,6 +971,7 @@ function FileButtons({
 }) {
   const input = useRef<HTMLInputElement>(null);
   const vectorInput = useRef<HTMLInputElement>(null);
+  const profileInput = useRef<HTMLInputElement>(null);
   // Which part the next vector file replaces, and the drawing waiting to be told its facing.
   const [importing, setImporting] = useState<VectorPart>('outline');
   const [pending, setPending] = useState<VectorPath[] | null>(null);
@@ -979,6 +981,22 @@ function FileButtons({
     try {
       finStore.getState().load(await readFinFile(file));
       onOpened();
+      setProblem(null);
+    } catch (e) {
+      setProblem((e as Error).message);
+    }
+  };
+  /** Another fin's profile onto this fin's tab; the rest of this fin stays. */
+  const importProfile = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const from = await readFinFile(file);
+      const wrong = finStore.getState().importOutline(from.outline);
+      if (wrong.length) {
+        setProblem(`Profile not imported: ${wrong.join(' ')}`);
+        return;
+      }
+      onImported();
       setProblem(null);
     } catch (e) {
       setProblem((e as Error).message);
@@ -1022,6 +1040,11 @@ function FileButtons({
             { kind: 'action', label: 'Open fin…', onSelect: () => input.current?.click() },
             {
               kind: 'action',
+              label: 'Import profile from fin…',
+              onSelect: () => profileInput.current?.click(),
+            },
+            {
+              kind: 'action',
               label: 'Import vector outline (SVG, EPS)…',
               onSelect: () => chooseVector('outline'),
             },
@@ -1063,6 +1086,17 @@ function FileButtons({
           e.target.value = ''; // the same file can be opened again
         }}
       />
+      <input
+        ref={profileInput}
+        type="file"
+        accept=".json,application/json"
+        className="hidden"
+        aria-label="Import a profile from a fin file"
+        onChange={(e) => {
+          void importProfile(e.target.files?.[0]);
+          e.target.value = '';
+        }}
+      />
       <Tooltip label="Save to a .fin.json file" shortcut={shortcutKeys('save')}>
         <Button variant="ghost" size="sm" onClick={onSave}>
           Save
@@ -1077,13 +1111,12 @@ function FileButtons({
   );
 }
 
-/** Export for manufacture: STEP for CNC, STL for printing. Off while a rule is broken. */
 /** Remembered per device: whether Save and Export write a left and a right fin. */
 const PAIR_KEY = 'bs.fin.pair';
 
 /**
- * Export, the header's one primary action: a menu of STEP (CNC), STL (3D printing) and
- * the core, with the left-and-right option beside what it changes (owner review: the
+ * Export, the header's one primary action: a menu of STEP (CNC), STL (3D printing), the
+ * core (each off while a rule is broken) and the profile as SVG, with the left-and-right option beside what it changes (owner review: the
  * header had eleven controls in five styles). The option changes Save too.
  */
 function ExportMenu({
@@ -1127,6 +1160,13 @@ function ExportMenu({
       disabled: blocked,
       title: why,
       onSelect: () => setCoreOpen(true),
+    },
+    { kind: 'separator' },
+    {
+      kind: 'action',
+      label: 'Profile as SVG',
+      title: 'The profile drawn at full size, to import into another fin or a drawing program',
+      onSelect: () => onExport({ format: 'svg' }),
     },
     ...(design?.hand
       ? ([
@@ -1176,6 +1216,7 @@ const SAVE_TITLES: Record<FinFormat, string> = {
   fin: 'Save fin',
   step: 'Export STEP for CNC',
   stl: 'Export STL for 3D printing',
+  svg: 'Export profile as SVG',
 };
 
 /**
@@ -1195,8 +1236,8 @@ function FinSaveDialog({
 }) {
   const [design] = useState(() => finStore.getState().design!);
   const { format, laminate } = request;
-  const fins = finsToWrite(design, pair);
-  const stems = defaultStems(design, pair, !!laminate);
+  const fins = finsToWrite(design, pair, format);
+  const stems = defaultStems(design, pair, !!laminate, format);
   const items = fins.map((f, i) => ({
     label: fins.length > 1 ? (f.hand === 'left' ? 'Left fin' : 'Right fin') : 'File name',
     stem: stems[i]!,
@@ -1209,7 +1250,13 @@ function FinSaveDialog({
       busyLabel={exporting ? 'Exporting…' : 'Saving…'}
       items={items}
       ext={FIN_EXT[format]}
-      note={laminate ? 'The core to laminate over, from the core settings you chose.' : undefined}
+      note={
+        laminate
+          ? 'The core to laminate over, from the core settings you chose.'
+          : format === 'svg'
+            ? 'The profile at full size, front on the left. A left and a right fin share it.'
+            : undefined
+      }
       onSave={async (names, folder) =>
         writeFiles(await finFiles(design, format, names, pair, { laminate, minThickness }), folder)
       }

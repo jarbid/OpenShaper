@@ -33,4 +33,13 @@ describe('finFiles', () => {
     expect(files.map((f) => f.name)).toEqual(['keel-l.fin.json', 'keel-r.fin.json']);
     expect(readFinJson(files[1]!.data as string).design.hand).toBe('right');
   });
+
+  it('writes the profile as one SVG, which a left and a right fin share', async () => {
+    const d = defaultFinDesign('side', 'left');
+    expect(finsToWrite(d, true, 'svg')).toEqual([d]);
+    expect(defaultStems(d, true, false, 'svg')).toEqual(['fin-side-profile']);
+    const files = await finFiles(d, 'svg', ['quad-profile'], true);
+    expect(files.map((f) => [f.name, f.type])).toEqual([['quad-profile.svg', 'image/svg+xml']]);
+    expect(files[0]!.data as string).toMatch(/^<\?xml[\s\S]*<path d="M/);
+  });
 });

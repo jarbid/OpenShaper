@@ -881,3 +881,23 @@ and is left alone, a fin's thickness being set by its material rather than its s
 `importOutline` now lets through the rules a wrongly sized profile breaks (front overhang, tab
 rear, US box head length, FCS tab cover, rear clearance): the fin comes in flagged in the status
 bar, export waits, and Scale puts it right. Anything else wrong with it is still refused.
+
+## Sharing a profile between fins (owner request, 2026-11)
+
+The owner builds sets of fins with one shape: a thruster whose side fins take the centre fin's
+profile, bigger. **Open → Import profile from fin…** reads another `.fin.json` and puts only its
+outline on this fin through the store's `importOutline`, the same edit Import vector outline
+uses: placed on this fin's tab by `placeOnBase`, the size rules flagged rather than refused (so
+**Scale** can put them right), one undo step. The foils, thickness and side are this fin's: a
+side fin's foil is rarely a centre fin's.
+
+The owner first suggested Save profile in a Save menu with Import profile in Open. A fin file
+already holds its profile, so a profile file of its own would be a second copy to keep in step,
+and Save is one button, not a menu. Reading the profile out of any saved fin needs neither.
+
+**Export → Profile as SVG** (owner request, alongside) writes the profile for drawing programs
+and other shapers (`profile-svg.ts`): full size in mm, front on the left as the Profile view
+shows it, the base closing the shape. Every knot and handle is written as a cubic, so Import
+vector outline, facing left, reads back the same profile (to 1e-4 mm; a test round-trips the
+defaults). One file even with R & L ticked, named `fin-<position>-profile.svg`, and offered
+while a rule is broken, since a drawing isn't for manufacture.

@@ -594,6 +594,16 @@ export default function DocsFinDesigner() {
           edit, and Undo takes it back. If a file holds several shapes, the largest is used.
         </p>
         <Terms>
+          <Term name="Profile from a fin">
+            <strong>Import profile from fin…</strong> takes the profile from another fin&apos;s{' '}
+            <code>.fin.json</code> file, exactly as drawn, for a set of fins that share a shape: a
+            centre fin&apos;s profile for the side fins, say. Only the profile changes. This
+            fin&apos;s tab, foils, thickness and side stay as they are, and the profile is placed on
+            this fin&apos;s tab, the views re-fitting to it. Then size it with{' '}
+            <a href="#outline">Scale</a>: the side fins of a thruster are usually bigger than the
+            centre. If it is too big or small for this tab, the status bar says so until Scale puts
+            it right. Undo takes it back.
+          </Term>
           <Term name="Outline">
             Replaces the profile, placed on the current tab, at the drawing&apos;s own size, and the
             views re-fit to it. Then size it with <a href="#outline">Scale</a> in the profile view,
@@ -655,7 +665,7 @@ export default function DocsFinDesigner() {
       <Section id="export" title="Exporting for CNC and printing">
         <p>
           <strong>Export</strong>, at the right of the top bar, opens a menu: STEP for CNC, STL for
-          3D printing, or a core to laminate over.
+          3D printing, a core to laminate over, or the profile as an SVG drawing.
         </p>
         <Terms>
           <Term name="Export min">
@@ -697,8 +707,18 @@ export default function DocsFinDesigner() {
             face, which runs straight on into the tab; the outside usually meets the tab at too
             sharp a step for laminate to follow.
           </Term>
+          <Term name="Profile as SVG">
+            The profile alone, as a drawing at full size in millimetres, the front on the left and
+            the base closing the shape along the bottom, for a drawing program or another shaper.
+            One file, which a left and a right fin share. Every point and handle is kept, so{' '}
+            <a href="#import">Import vector outline</a> (facing left) brings back the same profile;
+            for your own fins, Import profile from fin is quicker.
+          </Term>
         </Terms>
-        <p>Export is unavailable while the fin has a problem; the status bar lists it.</p>
+        <p>
+          STEP, STL and core exports are unavailable while the fin has a problem; the status bar
+          lists it. The profile can always be exported.
+        </p>
         <p>
           Exported files are made on your device; nothing is uploaded. Each names OpenFinShaper as
           the program that made it, in the STEP file&apos;s header and the STL file&apos;s 80-byte

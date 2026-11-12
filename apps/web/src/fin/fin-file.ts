@@ -3,30 +3,49 @@
 import type { FinDesign, FinLaminate } from '@openshaper/kernel';
 import { FinJsonError, readFinJson, writeFinJson } from '@openshaper/io';
 import type { OutFile } from '../save-files';
+import { profileSvg } from './profile-svg';
 
 /** A file name stem for the design: `fin-side-left`, `fin-centre`. */
 export const finFileStem = (d: FinDesign): string =>
   `fin-${d.position}${d.hand ? `-${d.hand}` : ''}`;
 
-/** What the fin designer writes: the design, or the fin for manufacture. */
-export type FinFormat = 'fin' | 'step' | 'stl';
+/** What the fin designer writes: the design, the fin for manufacture, or its profile drawn. */
+export type FinFormat = 'fin' | 'step' | 'stl' | 'svg';
 
 /** Each format's extension, which the save dialog shows after the name. */
-export const FIN_EXT: Record<FinFormat, string> = { fin: '.fin.json', step: '.step', stl: '.stl' };
+export const FIN_EXT: Record<FinFormat, string> = {
+  fin: '.fin.json',
+  step: '.step',
+  stl: '.stl',
+  svg: '.svg',
+};
 
 /** A file name for the design: `fin-side-left.fin.json`, `fin-centre.fin.json`. */
 export const finFileName = (d: FinDesign): string => `${finFileStem(d)}${FIN_EXT.fin}`;
 
 /**
  * The fins to write: the design, and with `pair` its mirror for the other side, for
- * fins that have one (side, quad-rear, canard). A centre fin is always one file.
+ * fins that have one (side, quad-rear, canard). A centre fin is always one file, and so
+ * is a profile: a left and a right fin have the same one.
  */
-export const finsToWrite = (d: FinDesign, pair: boolean): FinDesign[] =>
-  pair && d.hand ? [d, { ...d, hand: d.hand === 'left' ? 'right' : 'left' }] : [d];
+export const finsToWrite = (d: FinDesign, pair: boolean, format: FinFormat = 'fin'): FinDesign[] =>
+  pair && d.hand && format !== 'svg'
+    ? [d, { ...d, hand: d.hand === 'left' ? 'right' : 'left' }]
+    : [d];
 
-/** The name each file is offered under: `fin-side-left`, or `fin-side-left-core` for a core. */
-export const defaultStems = (d: FinDesign, pair: boolean, core = false): string[] =>
-  finsToWrite(d, pair).map((f) => `${finFileStem(f)}${core ? '-core' : ''}`);
+/**
+ * The name each file is offered under: `fin-side-left`, `fin-side-left-core` for a core,
+ * `fin-side-profile` for the profile (either hand's).
+ */
+export const defaultStems = (
+  d: FinDesign,
+  pair: boolean,
+  core = false,
+  format: FinFormat = 'fin',
+): string[] =>
+  format === 'svg'
+    ? [`fin-${d.position}-profile`]
+    : finsToWrite(d, pair).map((f) => `${finFileStem(f)}${core ? '-core' : ''}`);
 
 /** Options for the manufacturing formats. */
 export interface FinExportOptions {
@@ -38,7 +57,7 @@ export interface FinExportOptions {
 
 /**
  * The files for `d` in `format`, one per fin of {@link finsToWrite}, named `stems` (in
- * the same order) plus the format's extension. STEP (CNC) and STL (printing) are in mm;
+ * the same order) plus the format's extension. SVG is the profile alone, one file. STEP (CNC) and STL (printing) are in mm;
  * their exporters are loaded on first use, so the page doesn't carry them. STEP fits its
  * surfaces on the main thread (about a second a fin), as the board's does.
  */
@@ -49,8 +68,11 @@ export async function finFiles(
   pair = false,
   { laminate, minThickness }: FinExportOptions = {},
 ): Promise<OutFile[]> {
-  const fins = finsToWrite(d, pair);
+  const fins = finsToWrite(d, pair, format);
   const name = (i: number) => `${stems[i] ?? finFileStem(fins[i]!)}${FIN_EXT[format]}`;
+  if (format === 'svg') {
+    return [{ name: name(0), data: profileSvg(d.outline), type: 'image/svg+xml' }];
+  }
   if (format === 'fin') {
     return fins.map((f, i) => ({ name: name(i), data: writeFinJson(f), type: 'application/json' }));
   }
