@@ -28,6 +28,13 @@ export interface Panels {
    * slope from one call, not from several heights.
    */
   both?(x: number, y: number, out: Float64Array): void;
+  /**
+   * Bottom features, into `out[0 … 3)`: the height added to the bottom at (x, y) and its
+   * slopes. `deck`, `bottom` and `both` are the base panels without it. The mesh adds it at
+   * full value on the bottom panel and fades it out along the tuck; the rail's band edge is
+   * read from the base bottom.
+   */
+  relief?(x: number, y: number, out: Float64Array): void;
 }
 
 /** `r` to the integer power `p` by squaring, so no `Math.pow`; any other `p` goes to `Math.pow`. */
@@ -56,7 +63,8 @@ const power = (r: number, p: number): number => {
  * that the exact form is kept, with slope `(t / t')^(p - 1)`.
  *
  * When the given panels have `both`, so do these: the heights are `m ± t' / 2` and their
- * gradients `∇m ± (dt'/dt) ∇t / 2`, with `m` the mean height and `t` as above.
+ * gradients `∇m ± (dt'/dt) ∇t / 2`, with `m` the mean height and `t` as above. A relief is
+ * passed through untouched: the least thickness holds the base panels only.
  */
 export function withLeastThickness(
   panels: Panels,
@@ -64,6 +72,7 @@ export function withLeastThickness(
   sharpness: number = TRIM.tipSharpness,
 ): Panels {
   if (!(least > 0)) return panels;
+  const relief = panels.relief === undefined ? {} : { relief: panels.relief };
   const far = TRIM.tipFar * least;
   // the exact form takes the power of a ratio no larger than 1, so it cannot overflow
   const thicken = (t: number): number => {
@@ -91,10 +100,11 @@ export function withLeastThickness(
       return 0.5 * (d + b) - 0.5 * thicken(d - b);
     },
   };
-  if (panels.both === undefined) return result;
+  if (panels.both === undefined) return { ...result, ...relief };
   const g = new Float64Array(6);
   return {
     ...result,
+    ...relief,
     both: (x, y, out) => {
       panels.both!(x, y, g);
       const t = g[0]! - g[3]!;
@@ -137,6 +147,9 @@ export interface TrimMesh {
 }
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+
+/** The relief's fade along the tuck: 1 at the band edge (t = 0), 0 at the apex (t = 1), C2 with no slope at either end. */
+const reliefFade = (t: number): number => 1 - t * t * t * (10 - 15 * t + 6 * t * t);
 
 /** One side of the rail at one loop sample: where its blend leaves the panel and where it is going. */
 interface BandEdge {
@@ -278,6 +291,9 @@ export function buildTrimMesh(
   // 0 for the deck, 1 for the bottom: which of `both`'s two surfaces a read is for
   const heights = new Float64Array(6);
   const both = panels.both;
+  // the bottom's relief: added at full value on the bottom panel, faded along the tuck
+  const relief = panels.relief;
+  const lift = new Float64Array(3);
   const fieldNormal = (
     surf: (x: number, y: number) => number,
     which: number,
@@ -295,6 +311,11 @@ export function buildTrimMesh(
       const e = TRIM.normalStep;
       dx = (surf(x + e, y) - surf(x - e, y)) / (2 * e);
       dy = (surf(x, y + e) - surf(x, y - e)) / (2 * e);
+    }
+    if (which === 1 && relief !== undefined) {
+      relief(x, y, lift);
+      dx += lift[1]!;
+      dy += lift[2]!;
     }
     const l = Math.hypot(dx, dy, 1);
     return [(-sign * dx) / l, (-sign * dy) / l, sign / l];
@@ -363,7 +384,7 @@ export function buildTrimMesh(
     wallBottom[i] = b.tangent;
     apex[i] = za;
     const f = loop.corner[i] !== 0 ? FACE.corner : loop.kind[i] === 1 ? FACE.tail : FACE.rail;
-    const strip = (h: BandEdge, rho: number, rows: number, face: number): void => {
+    const strip = (h: BandEdge, rho: number, rows: number, face: number, lifted: boolean): void => {
       const w = rho / (1 - rho);
       for (let j = 0; j < rows; j++) {
         const t = j / rows;
@@ -372,16 +393,18 @@ export function buildTrimMesh(
         const k0 = (s * s) / den;
         const k1 = (2 * w * s * t) / den;
         const k2 = (t * t) / den;
-        add(
-          k0 * h.qx + (k1 + k2) * loop.x[i]!,
-          k0 * h.qy + (k1 + k2) * loop.y[i]!,
-          k0 * h.z + k1 * h.shoulder + k2 * za,
-          face,
-        );
+        const x = k0 * h.qx + (k1 + k2) * loop.x[i]!;
+        const y = k0 * h.qy + (k1 + k2) * loop.y[i]!;
+        let z = k0 * h.z + k1 * h.shoulder + k2 * za;
+        if (lifted) {
+          relief!(x, y, lift);
+          z += lift[0]! * reliefFade(t);
+        }
+        add(x, y, z, face);
       }
     };
-    strip(d, laws.deckRho[i]!, nt, f);
-    strip(b, laws.tuckRho[i]!, nb, f + FACE.tuck);
+    strip(d, laws.deckRho[i]!, nt, f, false);
+    strip(b, laws.tuckRho[i]!, nb, f + FACE.tuck, relief !== undefined);
     add(loop.x[i]!, loop.y[i]!, za, f);
   }
   const deckAt = (i: number, j: number): number => per * i + j;
@@ -419,6 +442,11 @@ export function buildTrimMesh(
           bx = loop.x[i]! - h.qx;
           by = loop.y[i]! - h.qy;
           bz = h.shoulder - h.z;
+          // the relief is at full value with no fade slope here, so the strip starts along its gradient too
+          if (side === 1 && relief !== undefined) {
+            relief(h.qx, h.qy, lift);
+            bz += lift[1]! * bx + lift[2]! * by;
+          }
         } else {
           const c = j + 1 < rows ? at(i, j + 1) : apexAt(i);
           const d = at(i, j - 1);
@@ -482,9 +510,15 @@ export function buildTrimMesh(
     // the panel gets its own seam vertices, in the strip's places, with the panel's normals:
     // a rail that leaves at an edge then shades as a crease
     reserveVertices(edges.length);
+    const lifted = which === 1 && relief !== undefined;
     const rim = edges.map((e) => {
       const q = fieldNormal(surf, which, sign, e.qx, e.qy);
-      return add(e.qx, e.qy, e.z, face, q[0], q[1], q[2]);
+      let z = e.z;
+      if (lifted) {
+        relief!(e.qx, e.qy, lift);
+        z += lift[0]!;
+      }
+      return add(e.qx, e.qy, z, face, q[0], q[1], q[2]);
     });
     const m = rim.length;
     const X = (i: number): number => pos[3 * rim[i]!]!;
@@ -596,14 +630,24 @@ export function buildTrimMesh(
         if (both !== undefined) {
           // one call gives the height and the gradient
           panels.both!(x, y, heights);
-          const dx = heights[3 * which + 1]!;
-          const dy = heights[3 * which + 2]!;
-          const l = Math.hypot(dx, dy, 1);
+          let dx = heights[3 * which + 1]!;
+          let dy = heights[3 * which + 2]!;
           z = heights[3 * which]!;
+          if (lifted) {
+            relief!(x, y, lift);
+            z += lift[0]!;
+            dx += lift[1]!;
+            dy += lift[2]!;
+          }
+          const l = Math.hypot(dx, dy, 1);
           q = [(-sign * dx) / l, (-sign * dy) / l, sign / l];
         } else {
           q = fieldNormal(surf, which, sign, x, y);
           z = surf(x, y);
+          if (lifted) {
+            relief!(x, y, lift);
+            z += lift[0]!;
+          }
         }
         vid[a] = add(x, y, z, face, q[0], q[1], q[2]);
       }
@@ -750,7 +794,7 @@ export function checkClosed(mesh: TrimMesh): { openEdges: number; volume: number
  * The cross-section at `x = x0` as unordered segments, five numbers each:
  * `y1, z1, y2, z2, face`. The strips are cut from the mesh. The panels are read straight
  * from their height fields between the band edges, so the section is exact where the panel
- * mesh is coarse.
+ * mesh is coarse; the bottom with its relief.
  */
 export function sliceX(mesh: TrimMesh, panels: Panels, x0: number): Float64Array {
   const t = mesh.indices;
@@ -774,9 +818,18 @@ export function sliceX(mesh: TrimMesh, panels: Panels, x0: number): Float64Array
   }
   const per = mesh.deckRows + mesh.tuckRows + 1;
   const n = mesh.loop.n;
+  const relief = panels.relief;
+  const lift = new Float64Array(3);
+  const bottom =
+    relief === undefined
+      ? panels.bottom
+      : (x: number, y: number): number => {
+          relief(x, y, lift);
+          return panels.bottom(x, y) + lift[0]!;
+        };
   const sides: readonly [number, (x: number, y: number) => number, number][] = [
     [0, panels.deck, FACE.deck],
-    [mesh.deckRows, panels.bottom, FACE.bottom],
+    [mesh.deckRows, bottom, FACE.bottom],
   ];
   for (const [row, surf, f] of sides) {
     const ys: number[] = [];

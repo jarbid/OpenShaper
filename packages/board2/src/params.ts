@@ -458,4 +458,34 @@ export const TRIM = {
   convertMinChord: 2.5,
   convertSlopeStep: 0.5,
   convertSmoothAngle: 1,
+  /** A triangle whose area is below this fraction of its longest edge squared is a sliver and adds no curvature. */
+  curvatureSliverArea: 1e-9,
+  /** A face tensor is rejected when its normal-equation determinant is below this fraction of the cube of the squared edge-length sum. */
+  curvatureSolveDet: 1e-12,
+  /** A vertex frame is not rotated onto a face whose normal is within this of opposite (1 + cosine below it): the face folds back on the vertex. */
+  curvatureFoldCos: 1e-6,
+  /**
+   * The rails engine (`trim/native.ts`, docs/design/trim-blend-engine.md, "Cost"). Station
+   * curves are lofted on an even u grid whose spacing at the widest half width is
+   * `loftSpacing` (cm) or finer. The mesh is cut on a panel grid of `viewGrid` (cm) with the
+   * strip rows `deckRows` and `tuckRows` at view quality, and of `draftGrid` with
+   * `draftDeckRows` and `draftTuckRows` while dragging. For an STL face size f (cm) the grid
+   * is min(`viewGrid`, f), the loop is sampled no coarser than f, and the rows are at least
+   * `stlDeckRows` and `stlTuckRows`, scaled up by `stlFace / f` where f is finer than
+   * `stlFace` (cm).
+   */
+  loftSpacing: 0.05,
+  viewGrid: 0.7,
+  draftGrid: 1,
+  draftDeckRows: 8,
+  draftTuckRows: 6,
+  stlDeckRows: 28,
+  stlTuckRows: 20,
+  stlFace: 0.5,
+  /**
+   * Bottom features as a relief (`trim/relief.ts`): the half width is read from a table along
+   * x with nodes `reliefStep` (cm) apart, as cubic Hermites whose node slopes are central
+   * differences of the node values; the gradient through u = |y| / w(x) takes w' from it.
+   */
+  reliefStep: 0.1,
 } as const;
