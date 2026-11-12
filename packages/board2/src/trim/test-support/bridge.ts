@@ -7,15 +7,16 @@
  * as a rounded loop, a rail fitted at chosen stations (`station.ts`) and interpolated between
  * them, and panels that end where their rail begins.
  *
- * Standard tails only. A notched board's sections are not plane in the current engine, so
- * its surface cannot be read as a height over each station.
+ * A notched board's sections are not plane inside its notch zone, so its surface cannot be read
+ * as a height over each station there. Its panels and rail keys are read off its notch-free twin
+ * (`notchFreeTwin`) instead, and the notch is cut by the loop of the notched outline.
  */
 import { chainEval, compileChain, funcEval } from '../../chain';
 import { createChordFn } from '../../probe';
 import { MIN_CHORD, MIN_THICKNESS } from '../../railproto/rail-params';
 import { createEvaluator } from '../../surface';
 import type { BuiltBoard, SurfaceEvaluator } from '../../surface';
-import type { Chain } from '../../types';
+import type { BoardDoc, Chain, ChainKnot } from '../../types';
 import { buildLoop } from '../loop';
 import type { Loop, LoopPiece } from '../loop';
 import { railLaws } from '../rails';
@@ -35,6 +36,31 @@ const FIELD_ROW = 700;
 const KEY_ROW = 600;
 /** Half the length (cm) the outline's angle at a key is read over. */
 const KEY_SLOPE_STEP = 0.5;
+
+/** A notched outline chain with the notch filled: a straight tail end from (0, 0) to the tip. */
+function filledChain(chain: Chain): Chain {
+  const [, tip, ...rest] = chain.knots;
+  if (tip === undefined) return chain;
+  const end: ChainKnot = { p: [0, 0], in: [0, 0], out: [0, 0], smooth: false };
+  return { knots: [end, { ...tip, in: tip.p }, ...rest] };
+}
+
+/**
+ * The same board with its notch filled in: a standard tail whose outline runs straight from
+ * (0, 0) to each tip. Its sections are plane everywhere, so the bridge can read it.
+ */
+export function notchFreeTwin(doc: BoardDoc): BoardDoc {
+  if (doc.tail.kind !== 'notched') return doc;
+  const minus = doc.outline.minus;
+  return {
+    ...doc,
+    tail: { kind: 'standard' },
+    outline: {
+      plus: filledChain(doc.outline.plus),
+      ...(minus === undefined ? {} : { minus: filledChain(minus) }),
+    },
+  };
+}
 
 /** One side of the outline as smooth pieces, tail to nose, split at its corner knots. */
 function sidePieces(chain: Chain, sign: 1 | -1): Float64Array[] {

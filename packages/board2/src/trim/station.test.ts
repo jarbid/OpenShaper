@@ -7,8 +7,10 @@
 import { describe, expect, it } from 'vitest';
 import { buildLoop } from './loop';
 import { railLaws } from './rails';
+import type { RailRecipe } from './rails';
 import { buildTrimMesh, checkClosed, sliceX } from './solid';
-import { BAND_RULES, fitHalf, panelCurve, sectionRail } from './station';
+import { TRIM } from '../params';
+import { BAND_RULES, fitHalf, panelCurve, recipeGap, sectionRail } from './station';
 
 const RAD = Math.PI / 180;
 /** Spacing of a made section's panel samples, and samples along its blend. */
@@ -256,7 +258,8 @@ describe('a section through the kernel and back', () => {
     ],
   ];
 
-  it.each(cases)('rebuilds %s', (_, bottomShape, deckShape, allowed) => {
+  /** A section of the slab: the bottom from `bottomShape`, the deck from `deckShape` with their apexes met. */
+  const sectionOf = (bottomShape: Shape, deckShape: Shape) => {
     const top = 6;
     // wide enough that the limit which keeps bands from crossing is far from these bands
     const half = 24;
@@ -266,9 +269,19 @@ describe('a section through the kernel and back', () => {
       made({ ...deckShape, half, rise: top - apex - deckShape.slope * half }),
       top,
     );
-    const rail = sectionRail(bottom, deck, 1);
-    const panelB = panelCurve(bottom, rail.bottom.width);
-    const panelD = panelCurve(deck, rail.deck.width);
+    return { half, bottom, deck };
+  };
+
+  /** The slab the kernel builds from `recipe` on the two halves' panels for blends that wide, and its section. */
+  const rebuilt = (
+    half: number,
+    bottom: Float64Array,
+    deck: Float64Array,
+    recipe: RailRecipe,
+    widths: { readonly bottom: number; readonly deck: number },
+  ) => {
+    const panelB = panelCurve(bottom, widths.bottom);
+    const panelD = panelCurve(deck, widths.deck);
     const panels = {
       deck: (_x: number, y: number) => panelD(Math.abs(y)),
       bottom: (_x: number, y: number) => panelB(Math.abs(y)),
@@ -277,16 +290,62 @@ describe('a section through the kernel and back', () => {
     // rows enough that the mesh's own facets are well under what is being measured
     const mesh = buildTrimMesh(
       loop,
-      railLaws(loop, () => rail.recipe),
+      railLaws(loop, () => recipe),
       panels,
       0.7,
       { deckRows: 64, tuckRows: 48 },
     );
+    return { mesh, slice: sliceX(mesh, panels, 80) };
+  };
+
+  it.each(cases)('rebuilds %s', (_, bottomShape, deckShape, allowed) => {
+    const { half, bottom, deck } = sectionOf(bottomShape, deckShape);
+    const rail = sectionRail(bottom, deck, 1);
+    const { mesh, slice } = rebuilt(half, bottom, deck, rail.recipe, {
+      bottom: rail.bottom.width,
+      deck: rail.deck.width,
+    });
     expect(checkClosed(mesh).openEdges).toBe(0);
     // the solid's own section is the section it was fitted to, to the fit's own gap and two
     // hundredths of a millimetre
     const fit = Math.max(rail.bottom.gap, rail.deck.gap);
     expect(fit).toBeLessThan(0.01);
-    expect(gap(sliceX(mesh, panels, 80), [bottom, deck])).toBeLessThan(fit + allowed + 0.002);
+    expect(gap(slice, [bottom, deck])).toBeLessThan(fit + allowed + 0.002);
+  });
+
+  describe('how far a recipe stands off a section', () => {
+    it.each(cases)("is the fit's own gap for %s", (_, bottomShape, deckShape, allowed) => {
+      const { bottom, deck } = sectionOf(bottomShape, deckShape);
+      const rail = sectionRail(bottom, deck, 1);
+      const fit = Math.max(rail.bottom.gap, rail.deck.gap);
+      const g = recipeGap(bottom, deck, rail.recipe, 1);
+      expect(Math.abs(g - fit)).toBeLessThan(0.002 + allowed);
+    });
+
+    it('predicts the kernel, not only the fit', () => {
+      const { half, bottom, deck } = sectionOf(TUCKED, SOFT);
+      const fitted = sectionRail(bottom, deck, 1).recipe;
+      const recipe: RailRecipe = { ...fitted, tuck: fitted.tuck * 1.4, apex: fitted.apex + 0.08 };
+      const { slice } = rebuilt(half, bottom, deck, recipe, {
+        bottom: Math.max(TRIM.bandMin, recipe.tuck),
+        deck: Math.max(TRIM.bandMin, recipe.band),
+      });
+      const sliced = gap(slice, [bottom, deck]);
+      const predicted = recipeGap(bottom, deck, recipe, 1);
+      const before = recipeGap(bottom, deck, fitted, 1);
+      expect(Math.abs(predicted - sliced)).toBeLessThan(0.004);
+      expect(predicted).toBeGreaterThan(5 * before);
+      expect(sliced).toBeGreaterThan(5 * before);
+    });
+
+    // not a hard edge: the kernel's narrowest blend is `bandMin` square to the outline, which a
+    // skewed section sees wider, so there the rail it builds is not the same
+    const blended = cases.filter(([, , , allowed]) => allowed === 0);
+    it.each(blended)('reads %s the same through a skewed section', (_, bottomShape, deckShape) => {
+      const { bottom, deck } = sectionOf(bottomShape, deckShape);
+      const square = recipeGap(bottom, deck, sectionRail(bottom, deck, 1).recipe, 1);
+      const skew = recipeGap(bottom, deck, sectionRail(bottom, deck, 0.8).recipe, 0.8);
+      expect(Math.abs(skew - square)).toBeLessThan(0.001);
+    });
   });
 });

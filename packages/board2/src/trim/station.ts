@@ -310,6 +310,22 @@ function gapBetween(a: Curve, b: Curve): number {
   return Math.sqrt(worst);
 }
 
+/** The worst gap between two sets of polylines, each point measured against the nearest of the other set. */
+function gapAcross(a: readonly Curve[], b: readonly Curve[]): number {
+  const nearest = (py: number, pz: number, cs: readonly Curve[]): number =>
+    Math.min(...cs.map((c) => toCurve(py, pz, c)));
+  let worst = 0;
+  for (const [from, to] of [
+    [a, b],
+    [b, a],
+  ] as const) {
+    for (const c of from) {
+      for (let i = 0; i < c.n; i++) worst = Math.max(worst, nearest(c.y[i]!, c.z[i]!, to));
+    }
+  }
+  return Math.sqrt(worst);
+}
+
 /** Minimum of `f` on `[a, b]` by golden section. */
 function golden(
   f: (x: number) => number,
@@ -340,21 +356,30 @@ function golden(
   return fc < fd ? { x: c, value: fc } : { x: d, value: fd };
 }
 
-/** The best blend from a band edge `width` in from the wall, or `null` when none can be built there. */
-function fitAt(h: Half, width: number): HalfRail | null {
+/** A half's panel ended for a blend `width` cm wide, and where its straight end meets the band edge and the wall. */
+interface Band {
+  readonly panel: PanelEnd;
+  /** The band edge, on the panel's straight end. */
+  readonly ye: number;
+  readonly ze: number;
+  /** Height at which the panel's own tangent meets the wall. */
+  readonly wall: number;
+}
+
+function bandOn(h: Half, width: number): Band {
   const yA = h.y[h.n - 1]!;
-  const zA = h.z[h.n - 1]!;
   const panel = panelEnd(h, width);
-  // a panel that has turned further than this is rail, not panel
-  if (Math.abs(Math.atan(panel.slope)) * DEG > TRIM.panelSteepest) return null;
   const ye = yA - width;
-  const ze = panel.z + panel.slope * (ye - panel.y);
-  const wall = panel.z + panel.slope * (yA - panel.y);
-  const rise = zA - wall;
-  // the panel's own tangent has to meet the wall below the apex, or there is no wall to blend on
-  if (rise <= TRIM.fitRiseMin) return null;
-  const section = sectionFrom(h, panel.y);
-  const steps = TRIM.fitBlendSteps;
+  return {
+    panel,
+    ye,
+    ze: panel.z + panel.slope * (ye - panel.y),
+    wall: panel.z + panel.slope * (yA - panel.y),
+  };
+}
+
+/** A polyline for a blend of `steps` segments that starts at the panel's end. */
+function blendFrom(panel: PanelEnd, steps: number): Curve {
   const blend: Curve = {
     n: steps + 2,
     y: new Float64Array(steps + 2),
@@ -362,18 +387,50 @@ function fitAt(h: Half, width: number): HalfRail | null {
   };
   blend.y[0] = panel.y;
   blend.z[0] = panel.z;
+  return blend;
+}
+
+/**
+ * Fills `blend` after its first point with the conic from the band edge, via `shoulder` on the
+ * wall at `yA`, to `apex` on the wall, as `solid.ts` builds a strip.
+ */
+function fillBlend(
+  blend: Curve,
+  band: Band,
+  yA: number,
+  shoulder: number,
+  apex: number,
+  rho: number,
+): void {
+  const steps = blend.n - 2;
+  const w = rho / (1 - rho);
+  for (let j = 0; j <= steps; j++) {
+    const t = j / steps;
+    const s = 1 - t;
+    const den = s * s + 2 * w * s * t + t * t;
+    const k0 = (s * s) / den;
+    const k1 = (2 * w * s * t) / den;
+    const k2 = (t * t) / den;
+    blend.y[j + 1] = k0 * band.ye + (k1 + k2) * yA;
+    blend.z[j + 1] = k0 * band.ze + k1 * shoulder + k2 * apex;
+  }
+}
+
+/** The best blend from a band edge `width` in from the wall, or `null` when none can be built there. */
+function fitAt(h: Half, width: number): HalfRail | null {
+  const yA = h.y[h.n - 1]!;
+  const zA = h.z[h.n - 1]!;
+  const band = bandOn(h, width);
+  const { panel, wall } = band;
+  // a panel that has turned further than this is rail, not panel
+  if (Math.abs(Math.atan(panel.slope)) * DEG > TRIM.panelSteepest) return null;
+  const rise = zA - wall;
+  // the panel's own tangent has to meet the wall below the apex, or there is no wall to blend on
+  if (rise <= TRIM.fitRiseMin) return null;
+  const section = sectionFrom(h, panel.y);
+  const blend = blendFrom(panel, TRIM.fitBlendSteps);
   const gapOf = (shoulder: number, rho: number): number => {
-    const w = rho / (1 - rho);
-    for (let j = 0; j <= steps; j++) {
-      const t = j / steps;
-      const s = 1 - t;
-      const den = s * s + 2 * w * s * t + t * t;
-      const k0 = (s * s) / den;
-      const k1 = (2 * w * s * t) / den;
-      const k2 = (t * t) / den;
-      blend.y[j + 1] = k0 * ye + (k1 + k2) * yA;
-      blend.z[j + 1] = k0 * ze + k1 * shoulder + k2 * zA;
-    }
+    fillBlend(blend, band, yA, shoulder, zA, rho);
     return gapBetween(section, blend);
   };
   const at = (frac: number): HalfRail => {
@@ -512,4 +569,52 @@ export function sectionRail(
     bottom: b,
     deck: d,
   };
+}
+
+const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v));
+
+/**
+ * How far the rail the kernel builds from `recipe` stands off a section, cm. `bottom`, `deck`
+ * and `cosPhi` are as `sectionRail` takes them. It is the worst gap, over both halves, between
+ * the section from the panel's end out to the apex and what replaces it: the panel's straight
+ * end to the band edge, then the blend to the kernel's apex. Each half's panel is the one
+ * `panelCurve` gives for that half's width, and the blends, shoulders and apex are built and
+ * limited as `solid.ts` and `railLaws` do at one loop sample, in the section's plane, leaving
+ * out the limit the local feature size sets on a band.
+ */
+export function recipeGap(
+  bottom: ArrayLike<number>,
+  deck: ArrayLike<number>,
+  recipe: RailRecipe,
+  cosPhi: number,
+): number {
+  const b = makeHalf(bottom, 1);
+  const d = makeHalf(deck, -1);
+  // widths as the kernel builds them, square to the outline
+  const tuck = Math.max(TRIM.bandMin, recipe.tuck);
+  const band = Math.max(TRIM.bandMin, recipe.band);
+  const bb = bandOn(b, tuck / cosPhi);
+  const db = bandOn(d, band / cosPhi);
+  // the apex in true heights; the deck half's are mirrored
+  const apex = clamp(recipe.apex, TRIM.apexInset, 1 - TRIM.apexInset);
+  const za = bb.wall + apex * (-db.wall - bb.wall);
+  /** One half's section past its panel's end, and the panel end and blend that replace it, in that half's heights. */
+  const halfOf = (h: Half, hb: Band, width: number, edge: number, rho: number, top: number) => {
+    // an edge's shoulder slides along the wall towards the apex, never past it
+    const shoulder = Math.min(
+      hb.wall + width * Math.tan(edge / DEG),
+      top - TRIM.edgeShort * (top - hb.wall),
+    );
+    const made = blendFrom(hb.panel, TRIM.fitBlendSteps);
+    fillBlend(made, hb, h.y[h.n - 1]!, shoulder, top, clamp(rho, TRIM.rhoInset, 1 - TRIM.rhoInset));
+    return { section: sectionFrom(h, hb.panel.y), made };
+  };
+  const lower = halfOf(b, bb, tuck, recipe.bottomEdge, recipe.tuckShape, za);
+  const upper = halfOf(d, db, band, recipe.deckEdge, recipe.hardness, -za);
+  // the deck back to true heights
+  upper.section.z.forEach((z, i) => (upper.section.z[i] = -z));
+  upper.made.z.forEach((z, i) => (upper.made.z[i] = -z));
+  // measured across both halves: where the kernel's apex is not the section's, the wall between
+  // the two is the other half's blend
+  return gapAcross([lower.section, upper.section], [lower.made, upper.made]);
 }
