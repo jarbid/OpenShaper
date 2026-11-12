@@ -420,4 +420,21 @@ export const TRIM = {
   fitEdgeGain: 0.005,
   /** A section is read as cutting the outline at an angle whose cosine is at least this: one nearly tangent to it would see the narrowest band many centimetres wide. */
   skewMin: 0.2,
+  /** Default corner radii of a rails board's outline, cm: the ball on a nose, on a tail tip or corner, and in a notch's crotch. */
+  radiusNose: 0.8,
+  radiusTail: 0.6,
+  radiusCrotch: 0.2,
+  /** Samples of one outline piece per Bézier segment in it, gathered towards the piece's ends. */
+  pieceSamples: 160,
+  /**
+   * The lofted panels (`trim/loft.ts`). A station curve is sampled at `loftOversample` points
+   * per cell of the u grid across its extent in u, and at least `loftSegmentSamples` per Bézier
+   * segment, then read on the grid by straight lines between those samples.
+   */
+  loftOversample: 8,
+  loftSegmentSamples: 16,
+  /** Node spacing (cm) of the tables of rocker, thickness and half width along x, read as cubic Hermites. */
+  loftTableStep: 0.1,
+  /** A half width (cm) under which a point is on the stringer: u is 0 and the panel has no slope across. */
+  loftTipWidth: 1e-6,
 } as const;

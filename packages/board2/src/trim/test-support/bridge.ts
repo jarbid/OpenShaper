@@ -11,23 +11,20 @@
  * as a height over each station there. Its panels and rail keys are read off its notch-free twin
  * (`notchFreeTwin`) instead, and the notch is cut by the loop of the notched outline.
  */
-import { chainEval, compileChain, funcEval } from '../../chain';
+import { funcEval } from '../../chain';
 import { createChordFn } from '../../probe';
 import { MIN_CHORD, MIN_THICKNESS } from '../../railproto/rail-params';
 import { createEvaluator } from '../../surface';
 import type { BuiltBoard, SurfaceEvaluator } from '../../surface';
-import type { BoardDoc, Chain, ChainKnot } from '../../types';
-import { buildLoop } from '../loop';
-import type { Loop, LoopPiece } from '../loop';
-import { railLaws } from '../rails';
-import type { RailLaws, RailRecipe } from '../rails';
+import type { BoardDoc } from '../../types';
+import { lawsFromKeys, railsAlong as engineRailsAlong } from '../keys';
+import type { RailLawsAlong } from '../keys';
+import type { Loop } from '../loop';
+import { defaultCorners, filledOutline, loopOf } from '../outline';
+import type { RailRecipe } from '../rails';
 import type { Panels } from '../solid';
 import { builtWidth, panelCurve, recipeGap, sectionRail } from '../station';
 
-/** Default radii, cm: the ball on a nose, on a tail tip or corner, and in a notch's crotch. */
-export const BRIDGE_RADII = { nose: 0.8, tail: 0.6, crotch: 0.2 } as const;
-/** Samples of one outline piece per Bézier segment in it, gathered towards the piece's ends. */
-const PIECE_SAMPLES = 160;
 /** Spacing of the panel grid read off the current surface, cm: along the board and across it. */
 const FIELD_DX = 0.5;
 const FIELD_DY = 0.05;
@@ -37,87 +34,19 @@ const KEY_ROW = 600;
 /** Half the length (cm) the outline's angle at a key is read over. */
 const KEY_SLOPE_STEP = 0.5;
 
-/** A notched outline chain with the notch filled: a straight tail end from (0, 0) to the tip. */
-function filledChain(chain: Chain): Chain {
-  const [, tip, ...rest] = chain.knots;
-  if (tip === undefined) return chain;
-  const end: ChainKnot = { p: [0, 0], in: [0, 0], out: [0, 0], smooth: false };
-  return { knots: [end, { ...tip, in: tip.p }, ...rest] };
-}
-
 /**
  * The same board with its notch filled in: a standard tail whose outline runs straight from
  * (0, 0) to each tip. Its sections are plane everywhere, so the bridge can read it.
  */
 export function notchFreeTwin(doc: BoardDoc): BoardDoc {
   if (doc.tail.kind !== 'notched') return doc;
-  const minus = doc.outline.minus;
-  return {
-    ...doc,
-    tail: { kind: 'standard' },
-    outline: {
-      plus: filledChain(doc.outline.plus),
-      ...(minus === undefined ? {} : { minus: filledChain(minus) }),
-    },
-  };
-}
-
-/** One side of the outline as smooth pieces, tail to nose, split at its corner knots. */
-function sidePieces(chain: Chain, sign: 1 | -1): Float64Array[] {
-  const ch = compileChain(chain);
-  const cuts = [0];
-  for (let k = 1; k < chain.knots.length - 1; k++) if (!chain.knots[k]!.smooth) cuts.push(k);
-  cuts.push(ch.segments);
-  const out: Float64Array[] = [];
-  const tmp = new Float64Array(2);
-  for (let c = 0; c + 1 < cuts.length; c++) {
-    const s0 = cuts[c]!;
-    const s1 = cuts[c + 1]!;
-    const n = PIECE_SAMPLES * (s1 - s0);
-    const pts = new Float64Array(2 * (n + 1));
-    for (let i = 0; i <= n; i++) {
-      const u = 0.5 - 0.5 * Math.cos((Math.PI * i) / n);
-      chainEval(ch, s0 + u * (s1 - s0), 0, tmp, 0);
-      pts[2 * i] = tmp[0]!;
-      pts[2 * i + 1] = sign * tmp[1]!;
-    }
-    out.push(pts);
-  }
-  return out;
-}
-
-function reversed(p: Float64Array): Float64Array {
-  const n = p.length / 2;
-  const out = new Float64Array(p.length);
-  for (let i = 0; i < n; i++) {
-    out[2 * i] = p[2 * (n - 1 - i)]!;
-    out[2 * i + 1] = p[2 * (n - 1 - i) + 1]!;
-  }
-  return out;
+  return { ...doc, tail: { kind: 'standard' }, outline: filledOutline(doc.outline) };
 }
 
 /** The board's outline as a loop: nose, down the plus side to the tail, back up the minus side. */
 export function boardLoop(built: BuiltBoard): Loop {
-  const doc = built.doc;
-  const plus = sidePieces(doc.outline.plus, 1);
-  const minus = sidePieces(doc.outline.minus ?? doc.outline.plus, -1);
-  const pieces: LoopPiece[] = [];
-  const corners: number[] = [];
-  for (let i = plus.length - 1; i >= 0; i--) {
-    pieces.push({ pts: reversed(plus[i]!), kind: 0 });
-    corners.push(
-      i > 0
-        ? BRIDGE_RADII.tail
-        : doc.tail.kind === 'notched'
-          ? BRIDGE_RADII.crotch
-          : BRIDGE_RADII.tail,
-    );
-  }
-  for (let i = 0; i < minus.length; i++) {
-    pieces.push({ pts: minus[i]!, kind: 0 });
-    corners.push(i + 1 < minus.length ? BRIDGE_RADII.tail : BRIDGE_RADII.nose);
-  }
-  return buildLoop({ pieces, corners });
+  const outline = built.doc.outline;
+  return loopOf(outline, defaultCorners(outline, built.doc.tail.kind === 'notched'));
 }
 
 /** The two halves of the current surface's section at `xi`, each `[y, z, …]` from the stringer out to the apex. */
@@ -191,19 +120,6 @@ class Field {
   }
 }
 
-const RECIPE_KEYS = [
-  'band',
-  'hardness',
-  'tuck',
-  'tuckShape',
-  'bottomEdge',
-  'deckEdge',
-  'apex',
-] as const;
-
-/** How the rail's numbers run along one side of the board. */
-export type RailLawsAlong = Record<(typeof RECIPE_KEYS)[number], (x: number) => number>;
-
 /**
  * The deck and bottom panels of one side: at every row the current section inboard of that
  * row's band edge, and the panel's own tangent beyond it (`panelCurve`). Past the band edge
@@ -258,6 +174,8 @@ export function boardPanels(built: BuiltBoard, plus: RailLawsAlong, minus: RailL
   };
 }
 
+export type { RailLawsAlong };
+
 /** A rail key: the rail fitted to the current surface at one station. */
 export interface RailKey extends RailRecipe {
   readonly x: number;
@@ -311,76 +229,13 @@ export function railKeysAt(
   });
 }
 
-/** Monotone cubic through `(xs, ys)`, held flat outside. */
-function monotone(xs: readonly number[], ys: readonly number[]): (x: number) => number {
-  const n = xs.length;
-  if (n === 1) return () => ys[0]!;
-  const d: number[] = [];
-  for (let i = 0; i + 1 < n; i++) d.push((ys[i + 1]! - ys[i]!) / (xs[i + 1]! - xs[i]!));
-  const m: number[] = [d[0]!];
-  for (let i = 1; i + 1 < n; i++) m.push(d[i - 1]! * d[i]! <= 0 ? 0 : (d[i - 1]! + d[i]!) / 2);
-  m.push(d[n - 2]!);
-  for (let i = 0; i + 1 < n; i++) {
-    if (d[i] === 0) {
-      m[i] = 0;
-      m[i + 1] = 0;
-      continue;
-    }
-    const a = m[i]! / d[i]!;
-    const b = m[i + 1]! / d[i]!;
-    const h = Math.hypot(a, b);
-    if (h > 3) {
-      m[i] = (3 * a * d[i]!) / h;
-      m[i + 1] = (3 * b * d[i]!) / h;
-    }
-  }
-  return (x) => {
-    if (x <= xs[0]!) return ys[0]!;
-    if (x >= xs[n - 1]!) return ys[n - 1]!;
-    let i = 0;
-    while (i + 2 < n && xs[i + 1]! < x) i++;
-    const h = xs[i + 1]! - xs[i]!;
-    const t = (x - xs[i]!) / h;
-    const t2 = t * t;
-    const t3 = t2 * t;
-    return (
-      (2 * t3 - 3 * t2 + 1) * ys[i]! +
-      (t3 - 2 * t2 + t) * h * m[i]! +
-      (-2 * t3 + 3 * t2) * ys[i + 1]! +
-      (t3 - t2) * h * m[i + 1]!
-    );
-  };
-}
-
 /** Each of a rail's numbers interpolated along the board between the keys. */
 export function railsAlong(keys: readonly RailKey[]): RailLawsAlong {
-  const xs = keys.map((k) => k.x);
-  const out = {} as RailLawsAlong;
-  for (const name of RECIPE_KEYS) {
-    out[name] = monotone(
-      xs,
-      keys.map((k) => k[name]),
-    );
-  }
-  return out;
+  return engineRailsAlong(keys.map((k) => ({ x: k.x, rail: k })));
 }
 
 /** The rail at every sample of the loop. */
-export function boardRails(loop: Loop, plus: RailLawsAlong, minus: RailLawsAlong): RailLaws {
-  return railLaws(loop, (i) => {
-    const l = loop.y[i]! >= 0 ? plus : minus;
-    const x = loop.x[i]!;
-    return {
-      band: l.band(x),
-      hardness: l.hardness(x),
-      tuck: l.tuck(x),
-      tuckShape: l.tuckShape(x),
-      bottomEdge: l.bottomEdge(x),
-      deckEdge: l.deckEdge(x),
-      apex: l.apex(x),
-    };
-  });
-}
+export const boardRails = lawsFromKeys;
 
 /**
  * Where one side of a board needs rail keys, decided without building a mesh. Starting from the
