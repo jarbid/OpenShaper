@@ -14,8 +14,15 @@
  * crease: its last half millimetre wobbles. So a panel ends a hair short of its band edge
  * where the section is smooth there, and a millimetre short of a crease where it is not; its
  * direction is read over a length of clean panel before that; and from there on the panel is
- * that straight line. The fit and the kernel then read the same tangent, because the panel
- * they are both given has exactly one.
+ * that straight line.
+ *
+ * The kernel reads the same tangent as the fit where three things hold. The panel it is
+ * handed (`panelCurve`) is ended on the same half as the fit ends it, mirrored the same way
+ * for a deck. It is ended for the blend the kernel builds, measured in the section's plane
+ * (`builtWidth`). And the kernel's one-sided slope at the band edge reaches less far inboard
+ * than `panelLead`, so it lies on the straight end. They do not hold where `railLaws` narrows a
+ * band to the local feature size, nor between the rows of a sampled panel field, which is
+ * interpolated.
  *
  * Where the band edge goes is decided by the shape of the section alone, so that it moves
  * smoothly along a board whose sections change smoothly: a band line that jumps from one
@@ -50,7 +57,7 @@ export interface HalfRail {
   /** Height of the blend's shoulder on the wall. At `wall` the blend leaves the panel tangent. */
   readonly shoulder: number;
   readonly panel: PanelEnd;
-  /** Height of the half's apex: its last sample that the fit keeps. */
+  /** Height of the half's apex, the last sample the fit keeps, in true heights on a deck too. */
   readonly apex: number;
   /**
    * Worst gap between the section and the panel and blend that replace it, cm, and never less
@@ -64,7 +71,9 @@ export interface HalfRail {
  * down to this many degrees above level. `turn`: where it has come back to within this many
  * degrees of the direction of the panel just inboard, which is where it stops turning; a
  * panel's own slope (a vee, a roll, a concave) does not move that, and a crease is found by
- * itself, because the turn drops to nothing across it.
+ * itself, because the turn drops to nothing across it. Under `turn` the figure is never more
+ * than `TRIM.turnShare` of the turn at the apex, and a half steeper than `TRIM.panelSteepest`
+ * is still turning.
  */
 export interface BandRule {
   readonly by: 'slope' | 'turn';
@@ -181,7 +190,8 @@ function creaseBetween(h: Half, from: number, to: number, nearest = false): numb
   let found = -1;
   for (let a = arcAt(h, Math.max(0, yA - to)) - TRIM.creaseBase; a <= end; a += TRIM.creaseStep) {
     const wide = turnAcross(h, a, TRIM.creaseBase);
-    const hit = wide >= TRIM.edgeJump && turnAcross(h, a, TRIM.creaseTight) >= TRIM.creaseShare * wide;
+    const hit =
+      wide >= TRIM.edgeJump && turnAcross(h, a, TRIM.creaseTight) >= TRIM.creaseShare * wide;
     if (hit) {
       if (start < 0) start = a;
       if (a + TRIM.creaseStep <= end) continue;
@@ -210,9 +220,10 @@ function creaseBetween(h: Half, from: number, to: number, nearest = false): numb
  *
  * Over a full `panelBase` the direction is the end slope of a least-squares parabola, so a
  * panel that is curving (a deck rolling into its rail) is read as truly as a flat one. Over a
- * shorter stretch, a parabola's end slope follows the kinks of the sampled section, so it is
- * the slope of a least-squares line: exact on a flat facet, and on a curving one off by the
- * turn over half the stretch.
+ * short stretch a parabola's end slope follows the kinks of the sampled section, and the slope
+ * of a least-squares line does not: the direction is the line's, moved towards the parabola's
+ * in proportion to the stretch's share of `panelBase`. On a flat facet both are exact; on a
+ * curving one the line reads the direction at the middle of the stretch.
  */
 function panelEnd(h: Half, width: number): PanelEnd {
   let reach = width + TRIM.panelLead;
@@ -242,8 +253,10 @@ function panelEnd(h: Half, width: number): PanelEnd {
   const y = Math.max(0, h.y[h.n - 1]! - reach);
   const z = heightAt(h, y);
   if (y < base) base = y;
+  // a panel that ends at the stringer has no stretch to read
   if (base <= TRIM.tiny) return { y, z, slope: 0, crease };
-  // least squares of z = a + b t (+ c t^2) over even samples of the base, t measured from the end
+  // least squares of z = a + b u (+ c u^2) over even samples u in [-1, 0] of the stretch, the
+  // stretch scaled to unit length so the normal equations are the same whatever its length
   const k = TRIM.panelSamples;
   let s1 = 0;
   let s2 = 0;
@@ -253,23 +266,25 @@ function panelEnd(h: Half, width: number): PanelEnd {
   let r1 = 0;
   let r2 = 0;
   for (let i = 0; i < k; i++) {
-    const tt = (-base * (k - 1 - i)) / (k - 1);
-    const zz = heightAt(h, y + tt) - z;
-    s1 += tt;
-    s2 += tt * tt;
-    s3 += tt * tt * tt;
-    s4 += tt * tt * tt * tt;
+    const u = -(k - 1 - i) / (k - 1);
+    const zz = heightAt(h, y + base * u) - z;
+    s1 += u;
+    s2 += u * u;
+    s3 += u * u * u;
+    s4 += u * u * u * u;
     r0 += zz;
-    r1 += zz * tt;
-    r2 += zz * tt * tt;
+    r1 += zz * u;
+    r2 += zz * u * u;
   }
-  if (base < TRIM.panelBase) return { y, z, slope: (k * r1 - s1 * r0) / (k * s2 - s1 * s1), crease };
-  // Cramer's rule on the normal equations [[k s1 s2] [s1 s2 s3] [s2 s3 s4]] (a b c) = (r0 r1 r2);
-  // over a full base of `panelSamples` even samples their determinant is a fixed positive number
+  // both determinants are fixed positive numbers: `panelSamples` is at least 3
+  const line = (k * r1 - s1 * r0) / (k * s2 - s1 * s1);
   const det = k * (s2 * s4 - s3 * s3) - s1 * (s1 * s4 - s3 * s2) + s2 * (s1 * s3 - s2 * s2);
-  const slope =
+  const parabola =
     (k * (r1 * s4 - s3 * r2) - r0 * (s1 * s4 - s3 * s2) + s2 * (s1 * r2 - r1 * s2)) / det;
-  return { y, z, slope, crease };
+  // the parabola's share grows with the stretch, so the slope does not jump as a crease moves
+  // into or out of the stretch
+  const share = base / TRIM.panelBase;
+  return { y, z, slope: (line + share * (parabola - line)) / base, crease };
 }
 
 /**
@@ -279,12 +294,19 @@ function panelEnd(h: Half, width: number): PanelEnd {
  * inboard direction from, the band edge is where the walk stopped: the widest band the half
  * allows, so a section a little rounder than one that has a band edge gets a band a little
  * wider, never a hard edge.
+ *
+ * Under the 'slope' rule a half whose apex is already no steeper than the figure is a hard
+ * edge. Under the 'turn' rule the figure is never more than `turnShare` of the turn at the
+ * apex, so a half that turns up only a little still gets a band over where it turns, and that
+ * band changes little as the turn grows or shrinks; only a turn under `turnFloor` is a hard
+ * edge, and there a band and a hard edge differ by little: under a hundredth of a millimetre
+ * on a curl a centimetre long.
  */
 function bandEdge(h: Half, rule: BandRule): number {
   const n = h.n;
   const yA = h.y[n - 1]!;
   const widest = TRIM.fitWidest * yA;
-  const angle = (a: number): number | null => {
+  const angle = (a: number, figure: number): number | null => {
     const here = directionAt(h, a, TRIM.turnBase, TRIM.turnBase);
     if (rule.by === 'slope') return here;
     if (a - TRIM.turnRefNear <= 0) return null;
@@ -293,18 +315,25 @@ function bandEdge(h: Half, rule: BandRule): number {
     const turn = here - Math.atan2(Q[1]! - P[1]!, Q[0]! - P[0]!) * DEG;
     // on a tall rail the stretch just inboard is rail too, and straight: the turn is nothing
     // there, and it is not panel. Only where the half is no steeper than a panel may be.
-    return Math.max(turn, here - TRIM.panelSteepest + rule.degrees);
+    return Math.max(turn, here - TRIM.panelSteepest + figure);
   };
-  let outer = angle(h.arc[n - 1]!);
-  if (outer === null) return widest;
-  if (outer <= rule.degrees) return 0;
+  const first = angle(h.arc[n - 1]!, rule.degrees);
+  if (first === null) return widest;
+  let figure: number = rule.degrees;
+  if (rule.by === 'slope') {
+    if (first <= figure) return 0;
+  } else {
+    if (first < TRIM.turnFloor) return 0;
+    figure = Math.min(rule.degrees, TRIM.turnShare * first);
+  }
+  let outer = angle(h.arc[n - 1]!, figure)!;
   for (let i = n - 2; i >= 1; i--) {
     if (yA - h.y[i]! > widest) return widest;
-    const here = angle(h.arc[i]!);
+    const here = angle(h.arc[i]!, figure);
     if (here === null) return yA - h.y[i]!;
-    if (here <= rule.degrees) {
+    if (here <= figure) {
       // the crossing lies between this sample and the one outboard of it
-      const f = outer > here ? (rule.degrees - here) / (outer - here) : 0;
+      const f = outer > here ? (figure - here) / (outer - here) : 0;
       pointAt(h, h.arc, h.arc[i]! + f * (h.arc[i + 1]! - h.arc[i]!), P);
       return yA - P[0]!;
     }
@@ -552,6 +581,7 @@ function fitMirrored(h: Half, rule: BandRule, narrowest: number): HalfRail {
   const width = bandEdge(h, rule);
   // a band edge at the apex itself: the panel runs to the wall
   if (width < TRIM.fitNoBlend) return hardEdge(h, narrowest);
+  // no blend stands on a panel whose tangent meets the wall at or above the apex
   return fitAt(h, Math.max(width, narrowest)) ?? hardEdge(h, narrowest);
 }
 
@@ -671,10 +701,12 @@ const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.m
  * How far the rail the kernel builds from `recipe` stands off a section, cm. `bottom`, `deck`
  * and `cosPhi` are as `sectionRail` takes them. It is the worst gap, over both halves, between
  * the section from the panel's end out to the apex and what replaces it: the panel's straight
- * end to the band edge, then the blend to the kernel's apex. Each half's panel is the one
- * `panelCurve` gives for that half's width, and the blends, shoulders and apex are built and
- * limited as `solid.ts` and `railLaws` do at one loop sample, in the section's plane, leaving
- * out the limit the local feature size sets on a band.
+ * end to the band edge, then the blend to the kernel's apex; and never less than the farthest
+ * a sample that doubles back lies from the half kept. Each half's panel is the one
+ * `panelCurve` gives for its blend's `builtWidth`, and the blends, shoulders and apex are built
+ * and limited as `solid.ts` and `railLaws` do at one loop sample, in the section's plane. Left
+ * out: the limit the local feature size sets on a band, and the opening of a wall shorter
+ * than `TRIM.wallMin`.
  */
 export function recipeGap(
   bottom: ArrayLike<number>,

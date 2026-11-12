@@ -9,6 +9,7 @@ import { buildLoop } from './loop';
 import { railLaws } from './rails';
 import type { RailRecipe } from './rails';
 import { buildTrimMesh, checkClosed, sliceX } from './solid';
+import { TRIM } from '../params';
 import { BAND_RULES, builtWidth, fitHalf, panelCurve, recipeGap, sectionRail } from './station';
 
 const RAD = Math.PI / 180;
@@ -99,9 +100,66 @@ function bevelled(s: Shape, degrees: number, facet: number): Float64Array {
   return Float64Array.from(withBlend(pts, s, rise * facet, rise));
 }
 
+/** The height of a half at `y`, between its samples. */
+function heightOf(pts: Float64Array, y: number): number {
+  for (let i = 2; i < pts.length; i += 2) {
+    if (pts[i]! >= y) {
+      const f = (y - pts[i - 2]!) / (pts[i]! - pts[i - 2]!);
+      return pts[i - 1]! + f * (pts[i + 1]! - pts[i - 1]!);
+    }
+  }
+  return pts[pts.length - 1]!;
+}
+
 /** The same half as a deck under a top at height `top`: the apex below the panel. */
 const flipped = (pts: Float64Array, top: number): Float64Array =>
   pts.map((v, i) => (i % 2 === 1 ? top - v : v));
+
+/**
+ * A half with a curving facet: a level panel to a crease, then a facet `facet` cm wide whose
+ * direction turns evenly with distance from `from` to `to` degrees, a second crease, and the
+ * blend of `s` from the facet's last direction.
+ */
+function curvedBevel(s: Shape, from: number, to: number, facet: number): Float64Array {
+  const yb = s.half - s.width;
+  const ya = yb - facet;
+  const pts: number[] = [];
+  const steps = Math.ceil(ya / PANEL_STEP);
+  for (let i = 0; i < steps; i++) pts.push((ya * i) / steps, 0);
+  // the height integrated finely, sampled at the panel's spacing
+  const fine = 50;
+  const across = Math.ceil(facet / PANEL_STEP) * fine;
+  let z = 0;
+  for (let i = 0; i < across; i++) {
+    const y = ya + (facet * i) / across;
+    if (i % fine === 0) pts.push(y, z);
+    z += Math.tan((from + ((to - from) * (y - ya)) / facet) * RAD) * (facet / across);
+  }
+  return Float64Array.from(withBlend(pts, s, z, Math.tan(to * RAD)));
+}
+
+/** A half from the stringer out: level, then turning up evenly by `degrees` over its last `length` cm. */
+function curled(half: number, degrees: number, length: number): Float64Array {
+  const pts: number[] = [];
+  const steps = Math.ceil((half - length) / PANEL_STEP);
+  for (let i = 0; i < steps; i++) pts.push(((half - length) * i) / steps, 0);
+  const r = length / (degrees * RAD);
+  for (let j = 0; j <= BLEND_SAMPLES; j++) {
+    const a = (degrees * RAD * j) / BLEND_SAMPLES;
+    pts.push(half - length + r * Math.sin(a), r * (1 - Math.cos(a)));
+  }
+  return Float64Array.from(pts);
+}
+
+/** A quarter ellipse from the stringer to a vertical apex, `half` wide and `ratio` times that tall, as a deck under `top`. */
+function ellipticDeck(half: number, ratio: number, top: number): Float64Array {
+  const pts: number[] = [];
+  for (let i = 0; i <= 600; i++) {
+    const t = (Math.PI / 2) * (i / 600);
+    pts.push(half * Math.sin(t), top - ratio * half * (1 - Math.cos(t)));
+  }
+  return Float64Array.from(pts);
+}
 
 const TUCKED: Shape = { half: 24, width: 1.2, slope: -0.03, rise: 1.5, edge: 14, rho: 0.45 };
 const SOFT: Shape = { half: 24, width: 2.4, slope: 0.02, rise: 2.2, edge: 0, rho: 0.5 };
@@ -164,12 +222,25 @@ describe('the rail of a section', () => {
 
   it('carries a panel on along its own tangent past the cut', () => {
     const pts = made(TUCKED);
-    const panel = panelCurve(pts, 1, TUCKED.width);
+    const panel = panelCurve(pts, 1, builtWidth(TUCKED.width, 1));
     // inboard, the section itself
     expect(panel(10)).toBeCloseTo(TUCKED.slope * 10, 9);
     // at the wall, where the panel's tangent meets it, not where the rail went
     expect(panel(TUCKED.half)).toBeCloseTo(truth(TUCKED).wall, 4);
     expect(panel(TUCKED.half)).toBeLessThan(truth(TUCKED).apex - 1);
+  });
+
+  it('hands the kernel a deck panel whose tangent is the one the fit read', () => {
+    // a creased deck with the wobble of a sampled section before its crease
+    const top = 6;
+    const deck = flipped(made({ ...SOFT, width: 1.6, edge: 28, rho: 0.45 }, 0.03), top);
+    for (const cos of [1, 0.6]) {
+      const fit = fitHalf(deck, -1, BAND_RULES.deck, builtWidth(0, cos));
+      expect(fit.panel.crease).toBe(true);
+      const panel = panelCurve(deck, -1, builtWidth(fit.width * cos, cos));
+      expect(panel(SOFT.half)).toBeCloseTo(fit.wall, 9);
+      expect(panel(fit.panel.y - 1)).toBeCloseTo(heightOf(deck, fit.panel.y - 1), 9);
+    }
   });
 
   it('turns two halves into the seven numbers of a rail', () => {
@@ -194,6 +265,150 @@ describe('the rail of a section', () => {
     expect(skew.tuck).toBeCloseTo(0.8 * r.tuck, 9);
     expect(Math.tan(skew.bottomEdge * RAD)).toBeCloseTo(Math.tan(r.bottomEdge * RAD) / 0.8, 6);
     expect(skew.apex).toBeCloseTo(r.apex, 9);
+  });
+
+  /** A deck blend that leaves its facet at an edge, so the deck's band edge is the crease at the facet's outer end. */
+  const BEVEL: Shape = { half: 24, width: 2.4, slope: 0, rise: 2.2, edge: 15, rho: 0.45 };
+  const degreesOf = (slope: number): number => Math.atan(slope) / RAD;
+
+  it('reads a bevel inboard of the band edge as a facet, not as the panel before it', () => {
+    for (const width of [1.5, 2.4]) {
+      for (const facet of [0.3, 0.45]) {
+        for (const degrees of [12, 15, 18]) {
+          const at = `${facet * 10} mm at ${degrees} degrees, blend ${width} cm`;
+          const s = { ...BEVEL, width };
+          const f = fitHalf(flipped(bevelled(s, degrees, facet), 6), -1, BAND_RULES.deck);
+          // the band edge is the facet's outer crease, and the panel ends on the facet
+          expect(Math.abs(f.width - width), at).toBeLessThan(0.05);
+          expect(f.panel.crease, at).toBe(true);
+          expect(Math.abs(degreesOf(-f.panel.slope) - degrees), at).toBeLessThan(1);
+          // 0.07 mm at most, from a band edge read a fraction of a millimetre past the crease
+          expect(f.gap, at).toBeLessThan(0.015);
+        }
+      }
+    }
+  });
+
+  it('gives up a facet too short to read a direction off', () => {
+    // a millimetre and a half: the panel ends inboard of it, level, and misses it by its rise
+    const f = fitHalf(flipped(bevelled(BEVEL, 15, 0.15), 6), -1, BAND_RULES.deck);
+    expect(Math.abs(degreesOf(f.panel.slope))).toBeLessThan(0.1);
+    expect(f.gap).toBeLessThan(0.04);
+  });
+
+  it('reads a curving facet without a jump as its crease leaves the stretch the direction is read over', () => {
+    // the facet turns from 10 to 20 degrees; as it widens, the stretch clear of its inner crease
+    // grows through the full `panelBase`
+    let last: ReturnType<typeof fitHalf> | null = null;
+    for (let i = 0; i <= 20; i++) {
+      const facet = 0.5 + i * 0.01;
+      const f = fitHalf(flipped(curvedBevel(BEVEL, 10, 20, facet), 6), -1, BAND_RULES.deck);
+      const degrees = degreesOf(-f.panel.slope);
+      // between the facet's direction at the middle of what is read and at its end
+      expect(degrees, `facet ${facet}`).toBeGreaterThan(14.5);
+      expect(degrees, `facet ${facet}`).toBeLessThan(20);
+      expect(f.gap, `facet ${facet}`).toBeLessThan(0.015);
+      if (last) {
+        // a tenth of a millimetre more facet moves the wall point by 0.08 to 0.14 mm, as the
+        // facet's own direction changes; a switch from a line to a parabola moved it by 1.6 mm
+        expect(Math.abs(f.wall - last.wall), `facet ${facet}`).toBeLessThan(0.02);
+        expect(Math.abs(degrees - degreesOf(-last.panel.slope)), `facet ${facet}`).toBeLessThan(
+          0.3,
+        );
+      }
+      last = f;
+    }
+  });
+
+  it('gives a rounder section a wider band, never a hard edge', () => {
+    // a quarter ellipse 5 cm wide: the deck comes down to `deckSlope` further in the rounder it
+    // is, until that is past the widest band a half allows, and from there the band is that wide
+    let last = -1;
+    for (const ratio of [0.78, 0.8, 0.82, 0.83, 0.84, 0.85, 0.88, 0.9, 1, 1.2]) {
+      const f = fitHalf(ellipticDeck(5, ratio, 6), -1, BAND_RULES.deck);
+      expect(f.width, `ratio ${ratio}`).toBeGreaterThan(2.8);
+      expect(f.width, `ratio ${ratio}`).toBeLessThanOrEqual(TRIM.fitWidest * 5 + 1e-9);
+      // under 0.03 mm: a conic is an ellipse
+      expect(f.gap, `ratio ${ratio}`).toBeLessThan(0.005);
+      if (last >= 0) expect(Math.abs(f.width - last), `ratio ${ratio}`).toBeLessThan(0.1);
+      last = f.width;
+    }
+  });
+
+  it('gives a bottom that curls up a little a band that changes little', () => {
+    // a level bottom turning up over its last centimetre: the band edge is where half the turn
+    // is done, so the band hardly changes with the curl, and its shape changes with it
+    let last = -1;
+    for (const degrees of [2, 4, 6, 8, 10, 12]) {
+      const f = fitHalf(curled(24, degrees, 1), 1, BAND_RULES.bottom);
+      expect(f.width, `${degrees} degrees`).toBeGreaterThan(0.3);
+      expect(f.gap, `${degrees} degrees`).toBeLessThan(0.005);
+      if (last >= 0) expect(Math.abs(f.width - last), `${degrees} degrees`).toBeLessThan(0.2);
+      last = f.width;
+    }
+    // under `turnFloor` it is a hard edge
+    expect(fitHalf(curled(24, 0.5, 1), 1, BAND_RULES.bottom).width).toBe(0);
+  });
+
+  it('ends a hard edge, and a band narrower than the kernel builds, for the narrowest blend', () => {
+    const narrowest = builtWidth(0, 0.5);
+    const hard = fitHalf(made({ ...TUCKED, width: 0, rise: 0 }), 1, BAND_RULES.bottom, narrowest);
+    expect(hard.width).toBe(0);
+    expect(hard.panel.y).toBeCloseTo(TUCKED.half - narrowest - TRIM.panelLead, 9);
+    // a blend 0.4 mm wide is read at the narrowest blend the kernel builds
+    const narrow = fitHalf(
+      made({ ...TUCKED, width: 0.04, edge: 0 }),
+      1,
+      BAND_RULES.bottom,
+      narrowest,
+    );
+    expect(narrow.width).toBe(narrowest);
+  });
+
+  it('reads a half that ends at the stringer as level there', () => {
+    // narrower than the narrowest blend: no panel is left to read a direction off
+    const f = fitHalf(Float64Array.of(0, 0, 0.03, 0.001, 0.06, 0.04), 1, BAND_RULES.bottom);
+    expect(f.panel.y).toBe(0);
+    expect(f.panel.slope).toBe(0);
+    expect(Number.isFinite(f.wall) && Number.isFinite(f.gap)).toBe(true);
+  });
+
+  it('shows in the gap a section that doubles back past its widest point', () => {
+    const top = 6;
+    const bottom = made(TUCKED);
+    const deckShape: Shape = { ...SOFT, rise: top - truth(TUCKED).apex - truth(SOFT).wall };
+    const deck = flipped(made(deckShape), top);
+    // the bottom curls back under the apex by a millimetre as it rises 3 mm more
+    const yA = bottom[bottom.length - 2]!;
+    const zA = bottom[bottom.length - 1]!;
+    const under = [...bottom];
+    for (let j = 1; j <= 10; j++) under.push(yA - 0.01 * j, zA + 0.03 * j);
+    const undercut = Float64Array.from(under);
+    // the farthest the undercut lies from the half the fit keeps, which ends at the apex
+    const miss = Math.hypot(0.1, 0.3);
+    const f = fitHalf(undercut, 1, BAND_RULES.bottom);
+    expect(f.gap).toBeGreaterThanOrEqual(miss - 1e-9);
+    // the apex is the half's own, not the last sample of the section
+    expect(f.apex).toBeCloseTo(zA, 9);
+    const rail = sectionRail(undercut, deck, 1);
+    expect(rail.recipe.apex).toBeCloseTo(sectionRail(bottom, deck, 1).recipe.apex, 9);
+    expect(recipeGap(undercut, deck, rail.recipe, 1)).toBeGreaterThanOrEqual(miss - 1e-9);
+  });
+
+  it('reads a section nearly tangent to the outline as one at `skewMin`', () => {
+    const top = 6;
+    const bottom = made(TUCKED);
+    const deckShape: Shape = { ...SOFT, rise: top - truth(TUCKED).apex - truth(SOFT).wall };
+    const deck = flipped(made(deckShape), top);
+    const recipe = sectionRail(bottom, deck, 1).recipe;
+    const at = recipeGap(bottom, deck, recipe, TRIM.skewMin);
+    expect(Number.isFinite(at)).toBe(true);
+    for (const cos of [0, 0.01]) {
+      expect(recipeGap(bottom, deck, recipe, cos)).toBe(at);
+      expect(sectionRail(bottom, deck, cos).recipe).toEqual(
+        sectionRail(bottom, deck, TRIM.skewMin).recipe,
+      );
+    }
   });
 });
 
@@ -271,11 +486,14 @@ describe('a section through the kernel and back', () => {
 
   /**
    * How far a hard edge stands off the sharp corner it replaces, cm: the kernel never leaves
-   * a blend out, so it builds one half a millimetre wide to an apex a fiftieth of the way up
-   * the wall.
+   * a blend out, so it builds the narrowest one, `bandMin` wide, to an apex kept `apexInset`
+   * of the wall above the corner, 1.2 mm here. That stands 0.19 mm off the corner, in the
+   * kernel's slice and in `recipeGap` alike.
    */
-  const HARD_EDGE = 0.03;
-  const cases: [string, Shape, Shape, number][] = [
+  const HARD_EDGE = 0.02;
+  /** A deck that leaves its panel at an edge, with the wobble of a sampled section before the crease. */
+  const CREASED_DECK: Shape = { ...SOFT, width: 1.6, edge: 28, rho: 0.45 };
+  const cases: [string, Shape, Shape, number, number?][] = [
     ['a tucked-under edge under a soft deck', TUCKED, SOFT, 0],
     ['a soft rail top and bottom', { ...SOFT, width: 1.6, rise: 1.4 }, { ...SOFT, width: 3.2 }, 0],
     ['a boxy rail', { ...SOFT, width: 0.8, rho: 0.75 }, { ...SOFT, width: 1.2, rho: 0.7 }, 0],
@@ -286,17 +504,21 @@ describe('a section through the kernel and back', () => {
       { ...SOFT, width: 2, rho: 0.62 },
       HARD_EDGE,
     ],
+    ['a creased deck with wobble before its crease', TUCKED, CREASED_DECK, 0, 0.03],
   ];
 
-  /** A section of the slab: the bottom from `bottomShape`, the deck from `deckShape` with their apexes met. */
-  const sectionOf = (bottomShape: Shape, deckShape: Shape) => {
+  /**
+   * A section of the slab: the bottom from `bottomShape`, the deck from `deckShape` with their
+   * apexes met, and `deckWobble` on the deck before its band edge.
+   */
+  const sectionOf = (bottomShape: Shape, deckShape: Shape, deckWobble = 0) => {
     const top = 6;
     // wide enough that the limit which keeps bands from crossing is far from these bands
     const half = 24;
     const bottom = made({ ...bottomShape, half });
     const apex = bottom[bottom.length - 1]!;
     const deck = flipped(
-      made({ ...deckShape, half, rise: top - apex - deckShape.slope * half }),
+      made({ ...deckShape, half, rise: top - apex - deckShape.slope * half }, deckWobble),
       top,
     );
     return { half, bottom, deck };
@@ -328,8 +550,8 @@ describe('a section through the kernel and back', () => {
     return { mesh, slice: sliceX(mesh, panels, 80) };
   };
 
-  it.each(cases)('rebuilds %s', (_, bottomShape, deckShape, allowed) => {
-    const { half, bottom, deck } = sectionOf(bottomShape, deckShape);
+  it.each(cases)('rebuilds %s', (_, bottomShape, deckShape, allowed, deckWobble) => {
+    const { half, bottom, deck } = sectionOf(bottomShape, deckShape, deckWobble);
     const rail = sectionRail(bottom, deck, 1);
     const { mesh, slice } = rebuilt(half, bottom, deck, rail.recipe, {
       bottom: builtWidth(rail.recipe.tuck, 1),
@@ -344,13 +566,16 @@ describe('a section through the kernel and back', () => {
   });
 
   describe('how far a recipe stands off a section', () => {
-    it.each(cases)("is the fit's own gap for %s", (_, bottomShape, deckShape, allowed) => {
-      const { bottom, deck } = sectionOf(bottomShape, deckShape);
-      const rail = sectionRail(bottom, deck, 1);
-      const fit = Math.max(rail.bottom.gap, rail.deck.gap);
-      const g = recipeGap(bottom, deck, rail.recipe, 1);
-      expect(Math.abs(g - fit)).toBeLessThan(0.002 + allowed);
-    });
+    it.each(cases)(
+      "is the fit's own gap for %s",
+      (_, bottomShape, deckShape, allowed, deckWobble) => {
+        const { bottom, deck } = sectionOf(bottomShape, deckShape, deckWobble);
+        const rail = sectionRail(bottom, deck, 1);
+        const fit = Math.max(rail.bottom.gap, rail.deck.gap);
+        const g = recipeGap(bottom, deck, rail.recipe, 1);
+        expect(Math.abs(g - fit)).toBeLessThan(0.002 + allowed);
+      },
+    );
 
     it('predicts the kernel, not only the fit', () => {
       const { half, bottom, deck } = sectionOf(TUCKED, SOFT);
@@ -371,11 +596,14 @@ describe('a section through the kernel and back', () => {
     // not a hard edge: the kernel's narrowest blend is `bandMin` square to the outline, which a
     // skewed section sees wider, so there the rail it builds is not the same
     const blended = cases.filter(([, , , allowed]) => allowed === 0);
-    it.each(blended)('reads %s the same through a skewed section', (_, bottomShape, deckShape) => {
-      const { bottom, deck } = sectionOf(bottomShape, deckShape);
-      const square = recipeGap(bottom, deck, sectionRail(bottom, deck, 1).recipe, 1);
-      const skew = recipeGap(bottom, deck, sectionRail(bottom, deck, 0.8).recipe, 0.8);
-      expect(Math.abs(skew - square)).toBeLessThan(0.001);
-    });
+    it.each(blended)(
+      'reads %s the same through a skewed section',
+      (_, bottomShape, deckShape, _a, deckWobble) => {
+        const { bottom, deck } = sectionOf(bottomShape, deckShape, deckWobble);
+        const square = recipeGap(bottom, deck, sectionRail(bottom, deck, 1).recipe, 1);
+        const skew = recipeGap(bottom, deck, sectionRail(bottom, deck, 0.8).recipe, 0.8);
+        expect(Math.abs(skew - square)).toBeLessThan(0.001);
+      },
+    );
   });
 });

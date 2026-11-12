@@ -366,6 +366,11 @@ export const TRIM = {
   panelBase: 0.4,
   panelSamples: 9,
   panelClear: 0.1,
+  /**
+   * A facet of `2 * panelClear + panelBaseMin` is read: 2.5 mm. At `panelBaseMin` 0.1 a 3 mm
+   * facet would sit on the threshold, and the creases' placement, a fraction of a millimetre,
+   * would give it up on half of the sections that have one.
+   */
   panelBaseMin: 0.05,
   /** A crease: where a half turns towards its apex by this many degrees or more across this much arc (cm) either side, and by this share of that across the smaller arc (cm). It is looked for every `creaseStep` cm. */
   edgeJump: 8,
@@ -380,6 +385,13 @@ export const TRIM = {
   deckSlope: 20,
   /** A bottom's band starts where the bottom has come back to within this many degrees of the direction of the panel just inboard: read from this far to this far inboard (cm of arc). */
   bottomTurn: 6,
+  /**
+   * Under the 'turn' rule the figure is at most this share of the turn at the apex, so a half
+   * that turns up by less than twice `bottomTurn` still gets a band, half as far round; a turn
+   * at the apex under `turnFloor` (degrees) is no rail, and the half is a hard edge.
+   */
+  turnShare: 0.5,
+  turnFloor: 1,
   turnRefNear: 0.5,
   turnRefFar: 2,
   /** Arc (cm) either side of a sample that its direction is read across when a band edge is looked for. */
@@ -390,8 +402,12 @@ export const TRIM = {
   fitWidest: 0.6,
   /** A band edge this close (cm) to the apex leaves no blend: the panel runs to the wall. */
   fitNoBlend: 0.03,
-  /** A panel's own tangent has to meet the wall at least this far (cm) short of the apex for a blend to stand on it. */
-  fitRiseMin: 0.01,
+  /**
+   * A panel's own tangent has to meet the wall at least this far (cm) short of the apex for a
+   * blend to stand on it. Under it a blend and a hard edge differ by less than this; over it a
+   * half that curls up a degree or two gets its blend, so it does not jump to a hard edge.
+   */
+  fitRiseMin: 0.001,
   /** Shoulder heights tried besides the tangent one, as fractions of the way up the wall from the panel's tangent to the apex. */
   fitShoulders: [0.15, 0.3, 0.5, 0.7, 0.95],
   /** Golden-section steps on a blend's rho, and on its shoulder between two of those heights. */
