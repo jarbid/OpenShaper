@@ -1,6 +1,7 @@
 # Trim and blend: the rails engine
 
-Status: **built** (step 3 of `trim-blend-plan.md`). Nothing in the app uses it yet.
+Status: **built** (step 3 of `trim-blend-plan.md`). The app can build its 3D model with it,
+behind a switch. What the editor becomes, and the order from here, is `rails-editor-plan.md`.
 
 This document says what the native engine is, what it gives the app, and how it was measured.
 
