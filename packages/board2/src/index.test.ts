@@ -20,6 +20,7 @@ describe('@openshaper/board2 public API', () => {
         'boardStep',
         'buildBoard',
         'buildRails',
+        'convertCache',
         'convertSections',
         'createChordFn',
         'createEvaluator',

@@ -144,6 +144,11 @@ export interface TrimMesh {
   readonly apex: Float64Array;
   /** The panels the mesh was built on: the caller's, held to the least thickness. Slice with these. */
   readonly panels: Panels;
+  /**
+   * cm³: the volume between the panel triangles and the panels over them, deck added and
+   * bottom taken away. The triangles' own volume plus this is the solid's, whatever the grid.
+   */
+  readonly panelGap: number;
 }
 
 const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
@@ -498,6 +503,50 @@ export function buildTrimMesh(
     }
   }
 
+  /**
+   * A long stitch triangle's gap, cm³. The triangulator makes many stitch triangles long
+   * slivers, some tens of cm, too long for one midpoint rule: the triangle is halved across its
+   * longest edge and the rule summed over the two halves, which reuse the triangle's two other
+   * edge gaps and read the panel at three new midpoints.
+   */
+  const stitchGap = (
+    a: number,
+    b: number,
+    c: number,
+    gab: number,
+    gbc: number,
+    gca: number,
+    z: (x: number, y: number) => number,
+  ): number => {
+    const d2 = (u: number, v: number): number =>
+      (pos[3 * v]! - pos[3 * u]!) ** 2 + (pos[3 * v + 1]! - pos[3 * u + 1]!) ** 2;
+    const ab = d2(a, b);
+    const bc = d2(b, c);
+    const ca = d2(c, a);
+    // turn the triangle, keeping its winding, so its longest edge is a-b
+    if (bc > ab && bc >= ca) return stitchGap(b, c, a, gbc, gca, gab, z);
+    if (ca > ab && ca > bc) return stitchGap(c, a, b, gca, gab, gbc, z);
+    const ax = pos[3 * a]!;
+    const ay = pos[3 * a + 1]!;
+    const az = pos[3 * a + 2]!;
+    const bx = pos[3 * b]!;
+    const by = pos[3 * b + 1]!;
+    const bz = pos[3 * b + 2]!;
+    const cx = pos[3 * c]!;
+    const cy = pos[3 * c + 1]!;
+    const cz = pos[3 * c + 2]!;
+    const mx = 0.5 * (ax + bx);
+    const my = 0.5 * (ay + by);
+    const mz = 0.5 * (az + bz);
+    const gam = z(0.5 * (ax + mx), 0.5 * (ay + my)) - 0.5 * (az + mz);
+    const gmb = z(0.5 * (mx + bx), 0.5 * (my + by)) - 0.5 * (mz + bz);
+    const gmc = z(0.5 * (mx + cx), 0.5 * (my + cy)) - 0.5 * (mz + cz);
+    // each half has half the plan area
+    const half = 0.25 * ((bx - ax) * (cy - ay) - (by - ay) * (cx - ax));
+    return (half * (gam + gmc + gca + gmb + gbc + gmc)) / 3;
+  };
+  let panelGap = 0;
+
   // ---- the two panels: a grid inside the band edge, stitched to the band edge's own places ----
   const panel = (
     edges: readonly BandEdge[],
@@ -511,6 +560,54 @@ export function buildTrimMesh(
     // a rail that leaves at an edge then shades as a crease
     reserveVertices(edges.length);
     const lifted = which === 1 && relief !== undefined;
+    /** The panel's height at (x, y), with the relief on the bottom. */
+    const trueZ = (x: number, y: number): number => {
+      let z: number;
+      if (both !== undefined) {
+        panels.both!(x, y, heights);
+        z = heights[3 * which]!;
+      } else {
+        z = surf(x, y);
+      }
+      if (lifted) {
+        relief!(x, y, lift);
+        z += lift[0]!;
+      }
+      return z;
+    };
+    /** The triangle a-b-c's plan area, signed by its winding: positive where it faces up. */
+    const planOf = (a: number, b: number, c: number): number =>
+      0.5 *
+      ((pos[3 * b]! - pos[3 * a]!) * (pos[3 * c + 1]! - pos[3 * a + 1]!) -
+        (pos[3 * b + 1]! - pos[3 * a + 1]!) * (pos[3 * c]! - pos[3 * a]!));
+    /**
+     * The panel's height less the edge a-b's at the edge's midpoint. On an edge no longer than
+     * `TRIM.gapHermiteEdge` it is read from the ends' exact heights and slopes (the slopes from
+     * their normals), as the cubic through them, with no panel call: (∇a − ∇b)·(b − a) / 8.
+     * A longer edge reads the panel there.
+     */
+    const edgeGap = (a: number, b: number): number => {
+      const dx = pos[3 * b]! - pos[3 * a]!;
+      const dy = pos[3 * b + 1]! - pos[3 * a + 1]!;
+      if (dx * dx + dy * dy <= TRIM.gapHermiteEdge * TRIM.gapHermiteEdge) {
+        const na = nrm[3 * a + 2]!;
+        const nb = nrm[3 * b + 2]!;
+        return (
+          ((nrm[3 * b]! / nb - nrm[3 * a]! / na) * dx +
+            (nrm[3 * b + 1]! / nb - nrm[3 * a + 1]! / na) * dy) /
+          8
+        );
+      }
+      return (
+        trueZ(0.5 * (pos[3 * a]! + pos[3 * b]!), 0.5 * (pos[3 * a + 1]! + pos[3 * b + 1]!)) -
+        0.5 * (pos[3 * a + 2]! + pos[3 * b + 2]!)
+      );
+    };
+    const longestOf = (a: number, b: number, c: number): number => {
+      const l = (u: number, v: number): number =>
+        Math.hypot(pos[3 * v]! - pos[3 * u]!, pos[3 * v + 1]! - pos[3 * u + 1]!);
+      return Math.max(l(a, b), l(b, c), l(c, a));
+    };
     const rim = edges.map((e) => {
       const q = fieldNormal(surf, which, sign, e.qx, e.qy);
       let z = e.z;
@@ -671,6 +768,11 @@ export function buildTrimMesh(
           addTriangle(a, b, c, face);
           addTriangle(b, d, c, face);
         }
+        // the three-edge-midpoint rule on both triangles, exact for a quadratic gap
+        const bc = edgeGap(b, c);
+        const s1 = planOf(a, b, c) * (edgeGap(a, b) + bc + edgeGap(a, c));
+        const s2 = planOf(b, d, c) * (edgeGap(b, d) + edgeGap(c, d) + bc);
+        panelGap += ((down ? -1 : 1) * (s1 + s2)) / 3;
         if (!kept(i, j - 1)) next.set(a, b);
         if (!kept(i + 1, j)) next.set(b, d);
         if (!kept(i, j + 1)) next.set(d, c);
@@ -717,10 +819,16 @@ export function buildTrimMesh(
     reserveTriangles(t.length / 3);
     for (let q = 0; q < t.length; q += 3) {
       const a = ids[t[q]!]!;
-      const b = ids[t[q + 1]!]!;
-      const c = ids[t[q + 2]!]!;
-      if (asIs) addTriangle(a, b, c, face);
-      else addTriangle(a, c, b, face);
+      const b = asIs ? ids[t[q + 1]!]! : ids[t[q + 2]!]!;
+      const c = asIs ? ids[t[q + 2]!]! : ids[t[q + 1]!]!;
+      addTriangle(a, b, c, face);
+      const gab = edgeGap(a, b);
+      const gbc = edgeGap(b, c);
+      const gca = edgeGap(c, a);
+      panelGap +=
+        longestOf(a, b, c) <= TRIM.gapHermiteEdge
+          ? (planOf(a, b, c) * (gab + gbc + gca)) / 3
+          : stitchGap(a, b, c, gab, gbc, gca, trueZ);
     }
   };
   panel(deckEdges, panels.deck, 0, FACE.deck, false);
@@ -739,6 +847,7 @@ export function buildTrimMesh(
     wallBottom,
     apex,
     panels,
+    panelGap,
   };
 }
 

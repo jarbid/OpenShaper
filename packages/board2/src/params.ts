@@ -350,6 +350,16 @@ export const TRIM = {
   gridJitter: 0.16,
   /** The loop is walked at this fraction of the grid spacing to find the cells it touches. */
   blockStep: 1 / 3,
+  /**
+   * The panel gap (`trim/solid.ts`, `panelGap`): the volume between the flat panel triangles
+   * and the panels, by the three-edge-midpoint rule. An edge no longer than `gapHermiteEdge`
+   * (cm) takes its midpoint height from the cubic through its ends' heights and slopes, with no
+   * panel call; a longer one reads the panel, and a stitch triangle with such an edge is halved
+   * once across it. 5 cm takes every grid edge up to a 3.5 cm grid; at a 2 cm grid the volume is
+   * then within 0.02% of a 0.25 cm grid's on the study boards, and reading the panel at every
+   * midpoint instead costs three panel calls a cell for no gain there.
+   */
+  gapHermiteEdge: 5,
   /** Passes of diagonal-pinch removal on the kept cells. */
   pinchPasses: 30,
   /** A panel is sampled every this many cm in a slice, and at least this many times per span. */
@@ -462,6 +472,12 @@ export const TRIM = {
   convertMinChord: 2.5,
   convertSlopeStep: 0.5,
   convertSmoothAngle: 1,
+  /**
+   * A converter cache (`trim/convert.ts`, `ConvertCache`) keeps the fits of its last conversion
+   * and this many older ones, so an edit undone or toggled back finds its stations and the
+   * cache stays a few dozen fits whatever the history.
+   */
+  convertCacheSpare: 16,
   /** A triangle whose area is below this fraction of its longest edge squared is a sliver and adds no curvature. */
   curvatureSliverArea: 1e-9,
   /** A face tensor is rejected when its normal-equation determinant is below this fraction of the cube of the squared edge-length sum. */
@@ -476,7 +492,8 @@ export const TRIM = {
    * `draftDeckRows` and `draftTuckRows` while dragging. For an STL face size f (cm) the grid
    * is min(`viewGrid`, f), the loop is sampled no coarser than f, and the rows are at least
    * `stlDeckRows` and `stlTuckRows`, scaled up by `stlFace / f` where f is finer than
-   * `stlFace` (cm).
+   * `stlFace` (cm). The volume does not depend on the grid (`gapHermiteEdge`); the grid sets how
+   * closely the flat panel triangles follow the panels.
    */
   loftSpacing: 0.05,
   viewGrid: 0.7,

@@ -138,7 +138,7 @@ study('the rails engine on real boards', () => {
         );
         allEven.push(...evenGaps);
 
-        const volume = ((closed.volume - realVolume(p)) / realVolume(p)) * 100;
+        const volume = ((closed.volume + mesh.panelGap - realVolume(p)) / realVolume(p)) * 100;
 
         // times
         const msConvert = time(() => convertSections(doc), 3, true);

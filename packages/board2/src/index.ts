@@ -37,8 +37,8 @@ export type {
   SurfaceEvaluator,
 } from './surface';
 export { resolveTail, validateBoard } from './validate';
-export { convertSections } from './trim/convert';
-export type { ConvertReport } from './trim/convert';
+export { convertCache, convertSections } from './trim/convert';
+export type { ConvertCache, ConvertReport } from './trim/convert';
 export type { RailsBoard } from './trim/board';
 export { docModel, railsToJson, reviveRails } from './trim/doc';
 export { buildRails, meshRails } from './trim/native';

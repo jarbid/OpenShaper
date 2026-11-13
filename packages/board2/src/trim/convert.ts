@@ -32,8 +32,9 @@ import type {
 } from '../types';
 import type { RailKey, RailsBoard, RailsStation, StationCurves } from './board';
 import { defaultCorners, filledOutline, halfWidthOf } from './outline';
+import { sameShape } from './same';
 import { sectionRail } from './station';
-import type { HalfRail } from './station';
+import type { HalfRail, SectionRail } from './station';
 
 const DEG = 180 / Math.PI;
 
@@ -224,6 +225,43 @@ interface HalfIn {
   readonly compiled: CompiledChain;
 }
 
+/** What a station side's fit read and made: everything of it that depends on the section's shape, the half width, the thickness and the outline's angle. */
+interface Fitted {
+  /** The side's section (its shape and apex are the key). */
+  readonly section: Section;
+  readonly w: number;
+  readonly t: number;
+  readonly cos: number;
+  readonly bottom: CompiledChain;
+  readonly top: CompiledChain;
+  readonly bottomPts: Float64Array;
+  readonly deckPts: Float64Array;
+  /** `null` at a tip. */
+  readonly rail: SectionRail | null;
+}
+
+/**
+ * Fits kept between conversions of one document, which the caller holds. A station side is
+ * refitted only when what its fit reads has changed by value: the shape of its section (each
+ * knot's place and handles) and its apex, the half width and thickness there, and the cosine of
+ * the outline's angle there. Nothing else reaches the fit: the rail rules and sample counts are
+ * fixed (`TRIM`), and the curves cut from it are remade from the current section every time.
+ * It keeps the fits of the last conversion and up to `TRIM.convertCacheSpare` older ones.
+ */
+export interface ConvertCache {
+  /** Station sides fitted through this cache, and served from it. */
+  fits: number;
+  reused: number;
+  /** Newest first. */
+  entries: Fitted[];
+}
+
+/** An empty converter cache. */
+export const convertCache = (): ConvertCache => ({ fits: 0, reused: 0, entries: [] });
+
+const sameSection = (a: Section, b: Section): boolean =>
+  a === b || (a.apex === b.apex && sameShape(a.chain, b.chain));
+
 /** One half's curve and report from its fit (usable) or a borrowed share (tip). */
 function convertHalf(
   half: HalfIn,
@@ -279,7 +317,12 @@ interface SideOut {
 }
 
 /** One side of the board: every station's two curves, its rail keys and its report. */
-function convertSide(doc: BoardDoc, side: 'plus' | 'minus'): SideOut | Board2Issue {
+function convertSide(
+  doc: BoardDoc,
+  side: 'plus' | 'minus',
+  cache: ConvertCache | undefined,
+  used: Fitted[],
+): SideOut | Board2Issue {
   const filled = filledOutline(doc.outline);
   const wOf = halfWidthOf(doc.outline, side === 'minus' ? 'minus' : undefined);
   const outlineChain = side === 'minus' ? (filled.minus ?? filled.plus) : filled.plus;
@@ -292,17 +335,30 @@ function convertSide(doc: BoardDoc, side: 'plus' | 'minus'): SideOut | Board2Iss
   const read = doc.stations.map((st) => {
     const section = side === 'minus' ? (st.minus ?? st.plus) : st.plus;
     const halves = sectionHalves(section);
-    const bottom: HalfIn = { chain: halves.bottom, compiled: compileChain(halves.bottom) };
-    const top: HalfIn = { chain: halves.deck, compiled: compileChain(halves.deck) };
     funcEval(rocker, st.x, r, 0);
     funcEval(deck, st.x, z, 0);
     const t = z[0]! - r[0]!;
     const w = wOf(st.x);
-    const tip = !(t >= TRIM.convertMinThickness) || !(w >= TRIM.convertMinChord);
     const cos = outlineCos(wOf, lo, hi, st.x);
-    const bottomPts = physicalHalf(bottom.compiled, w, t);
-    const deckPts = physicalHalf(top.compiled, w, t);
-    const rail = tip ? null : sectionRail(bottomPts, deckPts, cos);
+    let f = cache?.entries.find(
+      (e) => e.w === w && e.t === t && e.cos === cos && sameSection(e.section, section),
+    );
+    if (f !== undefined) {
+      cache!.reused++;
+    } else {
+      const bottom = compileChain(halves.bottom);
+      const top = compileChain(halves.deck);
+      const bottomPts = physicalHalf(bottom, w, t);
+      const deckPts = physicalHalf(top, w, t);
+      const tip = !(t >= TRIM.convertMinThickness) || !(w >= TRIM.convertMinChord);
+      const rail = tip ? null : sectionRail(bottomPts, deckPts, cos);
+      f = { section, w, t, cos, bottom, top, bottomPts, deckPts, rail };
+      if (cache !== undefined) cache.fits++;
+    }
+    if (!used.includes(f)) used.push(f);
+    const bottom: HalfIn = { chain: halves.bottom, compiled: f.bottom };
+    const top: HalfIn = { chain: halves.deck, compiled: f.top };
+    const { bottomPts, deckPts, rail } = f;
     return { st, bottom, top, bottomPts, deckPts, t, w, cos, rail };
   });
 
@@ -361,13 +417,21 @@ function convertSide(doc: BoardDoc, side: 'plus' | 'minus'): SideOut | Board2Iss
   return { curves, keys, report };
 }
 
+/** What `convertSections` is given besides the document. */
+export interface ConvertOptions {
+  /** Fits kept from the caller's earlier conversions of the same document (`convertCache`). */
+  readonly cache?: ConvertCache;
+}
+
 /**
  * A sections document to a rails board, with a report of what each station became. Refused
  * when the document is not a sections board, has no station, or has a side with no station
- * that can carry a rail.
+ * that can carry a rail. With a `cache` the result is the same, and only station sides whose
+ * fit inputs changed are refitted.
  */
 export function convertSections(
   doc: BoardDoc,
+  opts: ConvertOptions = {},
 ): Board2Result<{ board: RailsBoard; report: ConvertReport }> {
   if ((doc.model as string) !== 'sections') {
     return board2Err([
@@ -378,8 +442,14 @@ export function convertSections(
     return board2Err([makeIssue('too-few-sections', 'the board has no station to convert')]);
   }
   const asym = doc.symmetry === 'asymmetric';
-  const plus = convertSide(doc, 'plus');
-  const minus = asym ? convertSide(doc, 'minus') : null;
+  const cache = opts.cache;
+  const used: Fitted[] = [];
+  const plus = convertSide(doc, 'plus', cache, used);
+  const minus = asym ? convertSide(doc, 'minus', cache, used) : null;
+  if (cache !== undefined) {
+    const older = cache.entries.filter((e) => !used.includes(e));
+    cache.entries = [...used, ...older.slice(0, TRIM.convertCacheSpare)];
+  }
   const failed = [plus, minus].filter((s): s is Board2Issue => s !== null && !('curves' in s));
   if (failed.length > 0) return board2Err(failed);
   const p = plus as SideOut;

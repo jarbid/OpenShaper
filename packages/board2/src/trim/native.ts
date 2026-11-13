@@ -18,6 +18,7 @@ import type { Loop } from './loop';
 import { filledOutline, halfWidthOf, loopDefOf } from './outline';
 import type { RailLaws } from './rails';
 import { compileRelief } from './relief';
+import { sameChain, sameNumbers } from './same';
 import { buildTrimMesh } from './solid';
 import type { Panels, TrimMesh } from './solid';
 
@@ -55,7 +56,10 @@ export interface BuiltRails {
 export interface BuildRailsOptions {
   /** Refuse a board that cannot be built (default true). */
   readonly check?: boolean;
-  /** The last build of the same board: its loop is reused when the outline and its corners are the same objects. */
+  /**
+   * The last build of the same board: its loop and half widths are reused when the outline and
+   * its corners are equal by value, and its rail laws when the rail keys and the symmetry are too.
+   */
   readonly previous?: BuiltRails;
 }
 
@@ -127,6 +131,43 @@ function checkBoard(board: RailsBoard): Board2Issue[] {
   return issues;
 }
 
+/** Whether two boards have the same outline and corner radii by value: what the loop and the half widths depend on. */
+function sameOutline(a: RailsBoard, b: RailsBoard): boolean {
+  if (a.outline === b.outline && a.corners === b.corners) return true;
+  const c = a.corners;
+  const d = b.corners;
+  return (
+    sameChain(a.outline.plus, b.outline.plus) &&
+    sameChain(a.outline.minus, b.outline.minus) &&
+    c.nose === d.nose &&
+    c.tail === d.tail &&
+    sameNumbers(c.plus, d.plus) &&
+    sameNumbers(c.minus, d.minus)
+  );
+}
+
+function sameKeys(a: readonly RailKey[] | undefined, b: readonly RailKey[] | undefined): boolean {
+  if (a === b) return true;
+  if (a === undefined || b === undefined || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const p = a[i]!;
+    const q = b[i]!;
+    if (p.x !== q.x) return false;
+    const r = p.rail;
+    const t = q.rail;
+    if (r.band !== t.band || r.hardness !== t.hardness || r.tuck !== t.tuck) return false;
+    if (r.tuckShape !== t.tuckShape || r.bottomEdge !== t.bottomEdge) return false;
+    if (r.deckEdge !== t.deckEdge || r.apex !== t.apex) return false;
+  }
+  return true;
+}
+
+/** Whether two boards have the same rail laws on the same loop: the same keys by value and the same symmetry. */
+const sameLaws = (a: RailsBoard, b: RailsBoard): boolean =>
+  a.symmetry === b.symmetry &&
+  sameKeys(a.rails.plus, b.rails.plus) &&
+  (a.symmetry !== 'asymmetric' || sameKeys(a.rails.minus, b.rails.minus));
+
 /** The loop of an outline, or null where it cannot be built. */
 function tryLoop(board: RailsBoard, spacingMax?: number): Loop | null {
   let loop: Loop;
@@ -169,10 +210,7 @@ export function buildRails(
     if (issues.length > 0) return board2Err(issues);
   }
   const prev = opts.previous;
-  const reuse =
-    prev !== undefined &&
-    prev.board.outline === board.outline &&
-    prev.board.corners === board.corners;
+  const reuse = prev !== undefined && sameOutline(prev.board, board);
   let loop: Loop;
   if (reuse) {
     loop = prev.loop;
@@ -183,11 +221,13 @@ export function buildRails(
     }
     loop = built;
   }
-  const laws = reuse && prev.board.rails === board.rails ? prev.laws : lawsOf(board, loop);
+  const laws = reuse && sameLaws(prev.board, board) ? prev.laws : lawsOf(board, loop);
 
   const asym = board.symmetry === 'asymmetric';
-  const plusWidth = reuse ? prev.halfWidth[0] : halfWidthOf(board.outline);
-  const minusWidth = reuse
+  // the minus half width is the plus one on a mirror board
+  const widths = reuse && prev.board.symmetry === board.symmetry;
+  const plusWidth = widths ? prev.halfWidth[0] : halfWidthOf(board.outline);
+  const minusWidth = widths
     ? prev.halfWidth[1]
     : asym && board.outline.minus !== undefined
       ? halfWidthOf(board.outline, 'minus')
@@ -244,7 +284,7 @@ export interface RailsMesh {
   readonly normals: Float32Array;
   readonly indices: Uint32Array;
   readonly vertexCount: number;
-  /** cm³, from the closed mesh's signed tetrahedra. */
+  /** cm³: the closed mesh's signed tetrahedra plus the panels' gap to their flat triangles (`TrimMesh.panelGap`), so it does not fall with a coarser grid. */
   readonly volume: number;
   /** The loop's area, cm². */
   readonly planArea: number;
@@ -338,7 +378,9 @@ function measure(p: Float32Array, t: Uint32Array): { volume: number; area: numbe
 /** Meshes a built rails board, with its volume, plan area and surface area. */
 export function meshRails(built: BuiltRails, opts: MeshRailsOptions = {}): RailsMesh {
   const mesh = trimMeshOf(built, opts);
-  const { volume, area } = measure(mesh.positions, mesh.indices);
+  const facets = measure(mesh.positions, mesh.indices);
+  const area = facets.area;
+  const volume = facets.volume + mesh.panelGap;
   const k =
     opts.curvature === true
       ? vertexCurvature(mesh.positions, mesh.normals, mesh.indices)

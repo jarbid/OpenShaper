@@ -54,6 +54,7 @@ import {
   buildRails,
   boardStep,
   StepFitError,
+  convertCache,
   convertSections,
   createChordFn,
   createEvaluator,
@@ -261,36 +262,26 @@ export const resetCore = (): void => {
   lastLadders = null;
   lastSpan = undefined;
   lastRails = null;
+  convertFits = convertCache();
   splines.clear();
   sections.clear();
 };
 
 // --- The rails engine ----------------------------------------------------------
 
-/** The last rails build: `buildRails` reuses its outline loop for the next one. */
+/** The last rails build: `buildRails` reuses its loop and laws for the next one when they are equal by value. */
 let lastRails: BuiltRails | null = null;
 
-const sameShape = (a: unknown, b: unknown): boolean =>
-  a === b || JSON.stringify(a) === JSON.stringify(b);
+/** The converter's fits, kept between requests: a station whose section, width, thickness and angle are unchanged is not refitted. */
+let convertFits = convertCache();
 
-/**
- * The document as a built rails board, or why it could not be. `buildRails` reuses the previous loop only
- * when the outline and corners are the same objects; the document crossed the worker boundary and the
- * converter makes fresh corners, so an unchanged outline and corners are given the previous objects here.
- */
+/** The document as a built rails board, or why it could not be. */
 const railsOf = (doc: BoardDoc): { built: BuiltRails } | { reason: string } => {
   try {
-    const c = convertSections(doc);
+    const c = convertSections(doc, { cache: convertFits });
     if (!c.ok) return { reason: c.issues.find((i) => i.severity === 'error')?.message ?? 'conversion refused' }; // prettier-ignore
-    let board = c.value.board;
+    const board = c.value.board;
     const previous = lastRails ?? undefined;
-    if (
-      previous &&
-      sameShape(previous.board.outline, board.outline) &&
-      sameShape(previous.board.corners, board.corners)
-    ) {
-      board = { ...board, outline: previous.board.outline, corners: previous.board.corners };
-    }
     const r = buildRails(board, { ...(previous ? { previous } : {}) });
     if (!r.ok) return { reason: r.issues.find((i) => i.severity === 'error')?.message ?? 'build refused' }; // prettier-ignore
     lastRails = r.value;

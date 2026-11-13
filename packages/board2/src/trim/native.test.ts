@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { meshBoard } from '../mesh';
+import { TRIM } from '../params';
 import { buildBoard } from '../surface';
 import { analyticBoard, asymmetricBoard, fishBoard, swallowBoard } from '../testing';
 import type { BoardDoc } from '../types';
@@ -15,7 +16,7 @@ import type { RailsBoard } from './board';
 import { convertSections } from './convert';
 import { buildRails, meshRails, trimMeshOf } from './native';
 import type { BuiltRails } from './native';
-import { FACE, checkClosed, sliceX } from './solid';
+import { FACE, buildTrimMesh, checkClosed, sliceX } from './solid';
 import type { TrimMesh } from './solid';
 
 const BOARDS: { readonly [name: string]: () => BoardDoc } = {
@@ -27,6 +28,8 @@ const BOARDS: { readonly [name: string]: () => BoardDoc } = {
 
 /** Volume against the sections engine's, as a fraction. */
 const VOLUME_TOL = 0.015;
+/** Volume at a coarse panel grid against a 0.25 cm grid's, as a fraction: the aim of docs/design/trim-blend-engine.md, "Cost". */
+const GRID_VOLUME_TOL = 2e-4;
 
 function railsOf(doc: BoardDoc): RailsBoard {
   const r = convertSections(doc);
@@ -74,8 +77,23 @@ describe.each(Object.keys(BOARDS))('buildRails and meshRails: %s', (name) => {
     if (!old.ok) throw new Error('the sections engine did not build');
     const ref = meshBoard(old.value).volume;
     expect(Math.abs(m.volume / ref - 1)).toBeLessThan(VOLUME_TOL);
-    // the volume read here is the closed mesh's own
-    expect(m.volume).toBeCloseTo(checkClosed(trimMeshOf(built(board))).volume, 6);
+    // the volume read here is the closed mesh's own plus the panels' gap to their triangles
+    const mesh = trimMeshOf(built(board));
+    expect(m.volume).toBeCloseTo(checkClosed(mesh).volume + mesh.panelGap, 6);
+  });
+
+  it('has a volume that does not depend on the panel grid', () => {
+    // against a 0.25 cm grid, the reference of the grid study
+    const b = built(board);
+    const rows = { deckRows: TRIM.deckRows, tuckRows: TRIM.tuckRows };
+    const solid = (grid: number): number => {
+      const mesh = buildTrimMesh(b.loop, b.laws, b.panels, grid, rows);
+      return checkClosed(mesh).volume + mesh.panelGap;
+    };
+    const ref = solid(0.25);
+    for (const grid of [0.7, TRIM.viewGrid]) {
+      expect(Math.abs(solid(grid) / ref - 1), `grid ${grid}`).toBeLessThan(GRID_VOLUME_TOL);
+    }
   });
 
   it('fills k1 and k2 with curvature on, one finite value a vertex, k1 >= k2, a convex deck', () => {
@@ -91,13 +109,13 @@ describe.each(Object.keys(BOARDS))('buildRails and meshRails: %s', (name) => {
       expect(Number.isFinite(k1![i]!) && Number.isFinite(k2![i]!)).toBe(true);
       expect(k1![i]!).toBeGreaterThanOrEqual(k2![i]!);
     }
-    // the deck's centre line at mid-length: the highest vertex within 5 mm of the stringer
+    // the deck's centre line at mid-length: the highest vertex within one panel grid cell of the stringer
     const mid = (b.xiMin + b.xiMax) / 2;
     let best = -1;
     for (let i = 0; i < m.vertexCount; i++) {
       const x = m.positions[3 * i]!;
       const y = m.positions[3 * i + 1]!;
-      if (Math.abs(y) > 0.5 || Math.abs(x - mid) > 5) continue;
+      if (Math.abs(y) > TRIM.viewGrid || Math.abs(x - mid) > 5) continue;
       if (best < 0 || m.positions[3 * i + 2]! > m.positions[3 * best + 2]!) best = i;
     }
     expect(best).toBeGreaterThanOrEqual(0);
@@ -116,6 +134,38 @@ describe.each(Object.keys(BOARDS))('buildRails and meshRails: %s', (name) => {
     expect(a.positions).toEqual(b.positions);
     expect(a.indices).toEqual(b.indices);
     expect(a.normals).toEqual(b.normals);
+  });
+
+  it('reuses the loop and the laws for a board equal by value, as a fresh copy is', () => {
+    const first = built(board);
+    const copy = structuredClone(board);
+    const again = built(copy, first);
+    expect(again.loop).toBe(first.loop);
+    expect(again.laws).toBe(first.laws);
+    expect(again.halfWidth).toEqual(first.halfWidth);
+    // reused in sequence: each build reuses the last
+    const third = built(structuredClone(board), again);
+    expect(third.loop).toBe(first.loop);
+  });
+
+  it('builds a new loop for a moved outline knot or a changed radius, new laws for a changed key', () => {
+    const first = built(board);
+    const knots = board.outline.plus.knots.map((k, i) =>
+      i === 1 ? { ...k, p: [k.p[0], k.p[1] + 0.1] as const } : k,
+    );
+    const moved = built({ ...board, outline: { ...board.outline, plus: { knots } } }, first);
+    expect(moved.loop).not.toBe(first.loop);
+    const radius = built(
+      { ...board, corners: { ...board.corners, nose: board.corners.nose + 0.1 } },
+      first,
+    );
+    expect(radius.loop).not.toBe(first.loop);
+    const keys = board.rails.plus.map((k, i) =>
+      i === 0 ? { ...k, rail: { ...k.rail, band: k.rail.band + 0.1 } } : k,
+    );
+    const keyed = built({ ...board, rails: { ...board.rails, plus: keys } }, first);
+    expect(keyed.loop).toBe(first.loop);
+    expect(keyed.laws).not.toBe(first.laws);
   });
 
   it('an STL face size of 0.3 gives a finer closed mesh', () => {
@@ -205,6 +255,15 @@ describe.each([
 
   it('is closed', () => {
     expect(checkClosed(a).openEdges).toBe(0);
+  });
+
+  it('has a volume, relief included, that does not depend on the panel grid', () => {
+    const rows = { deckRows: TRIM.deckRows, tuckRows: TRIM.tuckRows };
+    const solid = (grid: number): number => {
+      const mesh = buildTrimMesh(withF.loop, withF.laws, withF.panels, grid, rows);
+      return checkClosed(mesh).volume + mesh.panelGap;
+    };
+    expect(Math.abs(solid(TRIM.viewGrid) / solid(0.25) - 1)).toBeLessThan(GRID_VOLUME_TOL);
   });
 
   it('lowers or raises the bottom panel by the relief at full value', () => {

@@ -6,11 +6,12 @@
  * stored section, with the rail the kernel builds from its key standing off it by the fit's gap.
  */
 import { describe, expect, it } from 'vitest';
-import { chainEval, chainParamAtX, compileChain, funcEval } from '../chain';
+import { chainEval, chainParamAtX, chainXRange, compileChain, funcEval } from '../chain';
+import { TRIM } from '../params';
 import type { BoardDoc, Chain, ChainKnot } from '../types';
 import { analyticBoard, asymmetricBoard, fishBoard, swallowBoard } from '../testing';
-import { convertSections, outlineCos, physicalHalf, sectionHalves } from './convert';
-import type { ConvertReport } from './convert';
+import { convertCache, convertSections, outlineCos, physicalHalf, sectionHalves } from './convert';
+import type { ConvertCache, ConvertReport } from './convert';
 import type { RailsBoard } from './board';
 import { buildLoft, loftAt } from './loft';
 import { filledOutline, halfWidthOf } from './outline';
@@ -297,5 +298,84 @@ describe('convertSections', () => {
     // read by the reviewer from the file below; the bounds are the tests above
     expect(worst.height).toBeLessThan(HEIGHT_TOL);
     expect(worst.gap).toBeLessThan(GAP_TOL);
+  });
+});
+
+describe.each(Object.keys(BOARDS))('convertSections with a cache: %s', (name) => {
+  const doc = BOARDS[name]!();
+  const sides = doc.symmetry === 'asymmetric' ? 2 : 1;
+  const all = sides * doc.stations.length;
+  const plain = (d: BoardDoc) => converted(d);
+  const cached = (d: BoardDoc, cache: ConvertCache) => {
+    const r = convertSections(d, { cache });
+    if (!r.ok) throw new Error(r.issues.map((i) => i.message).join('; '));
+    return r.value;
+  };
+
+  it('gives the result it gives without one, and refits nothing the second time', () => {
+    const cache = convertCache();
+    expect(cached(structuredClone(doc), cache)).toEqual(plain(doc));
+    expect(cache.fits).toBe(all);
+    expect(cached(structuredClone(doc), cache)).toEqual(plain(doc));
+    expect(cache.fits).toBe(all);
+    expect(cache.reused).toBe(all);
+  });
+
+  it("refits one station side when one station's section changes", () => {
+    const cache = convertCache();
+    cached(doc, cache);
+    const i = doc.stations.length >> 1;
+    const st = doc.stations[i]!;
+    const knots = st.plus.chain.knots.map((k, j) =>
+      j === 1 ? { ...k, p: [k.p[0], k.p[1] + 0.01] as const } : k,
+    );
+    const edited: BoardDoc = {
+      ...doc,
+      stations: doc.stations.map((s, j) =>
+        j === i ? { ...s, plus: { ...s.plus, chain: { knots } } } : s,
+      ),
+    };
+    expect(cached(structuredClone(edited), cache)).toEqual(plain(edited));
+    expect(cache.fits).toBe(all + 1);
+    expect(cache.reused).toBe(all - 1);
+  });
+
+  it('refits the station sides whose half width or outline angle changed when the outline does', () => {
+    const cache = convertCache();
+    cached(doc, cache);
+    const knots = doc.outline.plus.knots.map((k, j) =>
+      j === 1 ? { ...k, p: [k.p[0], k.p[1] + 0.2] as const } : k,
+    );
+    const edited: BoardDoc = { ...doc, outline: { ...doc.outline, plus: { knots } } };
+    // which station sides read a different half width or angle: plus only, the minus side has its own chain or mirrors plus
+    const reads = (d: BoardDoc, side: 'plus' | 'minus') => {
+      const w = halfWidthOf(d.outline, side === 'minus' ? 'minus' : undefined);
+      const f = filledOutline(d.outline);
+      const ch = side === 'minus' ? (f.minus ?? f.plus) : f.plus;
+      const [lo, hi] = chainXRange(compileChain(ch));
+      return d.stations.map((s) => [w(s.x), outlineCos(w, lo, hi, s.x)]);
+    };
+    let changed = 0;
+    for (const side of sides === 2 ? (['plus', 'minus'] as const) : (['plus'] as const)) {
+      const a = reads(doc, side);
+      const b = reads(edited, side);
+      a.forEach((v, j) => {
+        if (v[0] !== b[j]![0] || v[1] !== b[j]![1]) changed++;
+      });
+    }
+    expect(changed).toBeGreaterThan(0);
+    expect(cached(structuredClone(edited), cache)).toEqual(plain(edited));
+    expect(cache.fits).toBe(all + changed);
+  });
+
+  it('stays bounded', () => {
+    const cache = convertCache();
+    for (let k = 0; k < 30; k++) {
+      const deck = {
+        knots: doc.deck.knots.map((kn) => ({ ...kn, p: [kn.p[0], kn.p[1] + 0.01 * k] as const })),
+      };
+      cached({ ...doc, deck }, cache);
+    }
+    expect(cache.entries.length).toBeLessThanOrEqual(all + TRIM.convertCacheSpare);
   });
 });
