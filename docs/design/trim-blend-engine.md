@@ -155,6 +155,7 @@ All under `packages/board2/src/trim/`.
 | `curvature.ts`                 | Principal curvatures at the mesh's vertices, from its exact normals                                                                                                   |
 | `probe.ts`                     | `probeRails`, `apexRails`, `halfWidthRails`: the lofted panels to the band edge, then the rail built in the section's plane                                           |
 | `convert.ts`                   | `convertSections(doc)`: a sections document to a rails board, from the document alone                                                                                 |
+| `test-support/panel-fit.ts`    | Test only: how far a mesh's flat panel triangles are off the panels, and their longest plan edge                                                                      |
 | `test-support/measure.ts`      | Test only: the two-sided gap between a mesh slice and a section polyline, the distance from a point to a segment, the thickness of a closed mesh through a plan point |
 | `test-support/native-study.ts` | Test only: a study board put through the rails engine and held against today's engine                                                                                 |
 | `native.measure.test.ts`       | The gate of this step, run on demand: `TRIM_STUDY=1 TRIM_OUT=<dir> pnpm --filter @openshaper/board2 exec vitest run src/trim/native.measure.test.ts`                  |
@@ -251,20 +252,20 @@ them inside its notch zone; its volume is compared with the real notched board's
 
 | Board                               | Own stations measured | Worst gap (mm) | Median gap (mm) | Even stations measured | Worst gap (mm) | Median gap (mm) | Volume difference (%) | Open edges |
 | ----------------------------------- | --------------------- | -------------- | --------------- | ---------------------- | -------------- | --------------- | --------------------- | ---------- |
-| 5.10 × 19.8 × 2.6 MLC               | 5                     | 0.39           | 0.13            | 41                     | 3.49           | 0.29            | 0.08                  | 0          |
-| 5.8 × 20 × 2.6 Trusther White Tiger | 2                     | 0.10           | 0.10            | 39                     | 2.05           | 1.09            | 0                     | 0          |
-| 6.0 × 22 × 2.75 Master Trusther 3   | 5                     | 0.19           | 0.10            | 41                     | 0.84           | 0.23            | 0.07                  | 0          |
-| 6.11 × 21.3 × 2.8 Diamond Twin      | 2                     | 0.19           | 0.19            | 38                     | 2.63           | 1.51            | 0.16                  | 0          |
-| Go fish                             | 5                     | 0.26           | 0.09            | 40                     | 1.70           | 0.50            | -0.04                 | 0          |
-| gremilin56                          | 3                     | 0.09           | 0.05            | 39                     | 0.74           | 0.53            | 0.03                  | 0          |
-| hyptocrypto                         | 3                     | 0.22           | 0.04            | 41                     | 1.17           | 0.30            | 0.02                  | 0          |
-| long classico 9'6"                  | 3                     | 0.11           | 0.07            | 39                     | 1.82           | 0.40            | 0.17                  | 0          |
-| shortboard                          | 3                     | 0.19           | 0.14            | 40                     | 0.77           | 0.22            | 0.05                  | 0          |
-| funboard                            | 3                     | 0.10           | 0.10            | 39                     | 0.72           | 0.22            | 0.07                  | 0          |
-| longboard                           | 3                     | 0.07           | 0.07            | 39                     | 0.88           | 0.24            | 0.09                  | 0          |
-| swallow                             | 6                     | 0.17           | 0.16            | 40                     | 1.02           | 0.17            | 0.26                  | 0          |
-| fish                                | 6                     | 0.83           | 0.16            | 40                     | 1.61           | 0.17            | 0.16                  | 0          |
-| asymmetric                          | 10                    | 0.25           | 0.12            | 41                     | 0.25           | 0.17            | -0.03                 | 0          |
+| 5.10 × 19.8 × 2.6 MLC               | 5                     | 0.39           | 0.13            | 41                     | 3.49           | 0.29            | 0.22                  | 0          |
+| 5.8 × 20 × 2.6 Trusther White Tiger | 2                     | 0.10           | 0.10            | 39                     | 2.05           | 1.09            | 0.12                  | 0          |
+| 6.0 × 22 × 2.75 Master Trusther 3   | 5                     | 0.19           | 0.10            | 41                     | 0.84           | 0.23            | 0.19                  | 0          |
+| 6.11 × 21.3 × 2.8 Diamond Twin      | 2                     | 0.19           | 0.19            | 38                     | 2.63           | 1.51            | 0.30                  | 0          |
+| Go fish                             | 5                     | 0.26           | 0.09            | 40                     | 1.70           | 0.50            | 0.13                  | 0          |
+| gremilin56                          | 3                     | 0.09           | 0.05            | 39                     | 0.74           | 0.53            | 0.17                  | 0          |
+| hyptocrypto                         | 3                     | 0.22           | 0.04            | 41                     | 1.17           | 0.30            | 0.15                  | 0          |
+| long classico 9'6"                  | 3                     | 0.11           | 0.07            | 39                     | 1.82           | 0.40            | 0.27                  | 0          |
+| shortboard                          | 3                     | 0.19           | 0.14            | 40                     | 0.77           | 0.22            | 0.20                  | 0          |
+| funboard                            | 3                     | 0.10           | 0.10            | 39                     | 0.72           | 0.22            | 0.18                  | 0          |
+| longboard                           | 3                     | 0.07           | 0.07            | 39                     | 0.88           | 0.24            | 0.20                  | 0          |
+| swallow                             | 6                     | 0.17           | 0.16            | 40                     | 1.02           | 0.17            | 0.44                  | 0          |
+| fish                                | 6                     | 0.83           | 0.16            | 40                     | 1.61           | 0.17            | 0.35                  | 0          |
+| asymmetric                          | 10                    | 0.25           | 0.12            | 41                     | 0.25           | 0.17            | 0.20                  | 0          |
 
 At the boards' own stations: 59 stations, worst 0.83 mm, median 0.10 mm; 98.3% are within
 0.5 mm and 100.0% within 1 mm. At the 41 even stations: 557 stations, worst 3.49 mm, median
@@ -290,30 +291,74 @@ engine's own by decision, so the second figure is a description, not a miss.
 | fish                                | 45119           | 9.5          | 21.8       | 4.1              | 20.9            | 12.1             |
 | asymmetric                          | 44046           | 13.1         | 21.3       | 5.7              | 20.5            | 11.8             |
 
-The budget is 30 ms to build again and mesh at view quality, and 20 ms in draft. Build again
+These times were taken before the stitch was flipped; meshing with and without the flips, alternated in one process, differs by less than this machine's noise ("Time" below). The budget is 30 ms to build again and mesh at view quality, and 20 ms in draft. Build again
 plus mesh at view quality is over 30 ms on 5 boards: 5.10 × 19.8 × 2.6 MLC (41.4 ms), 6.11 × 21.3 × 2.8 Diamond Twin (31.5 ms), long classico 9'6" (52.3 ms), funboard (31.5 ms), longboard (40.0 ms). Build again plus mesh in draft is over 20 ms on 2 boards: long classico 9'6" (26.6 ms), longboard (23.3 ms).
 
-**Why the long boards are over, and why the grid is not simply made coarser.** The mesh is 44
-to 86 thousand vertices because the two panels are cut on a 0.7 cm grid.
+**The panel mesh.** Each panel (the deck, and the bottom with its relief) is a height field
+cut on a square grid of `grid` cm, with nodes nudged by `gridJitter` so that no three stitch
+vertices are in line. A cell is kept when its four corners are inside the band edge and it is
+not within one cell of a cell the band edge passes through, so the kept cells stop one to two
+and a half cells short of the band edge. The gap between the kept cells' boundary rings and the
+band edge's own vertices (the strip's first row, in the same places) is the **stitch**:
+`earcut` triangulates it with the rings as holes, `restoreRim` puts back any band edge vertex
+it dropped as in line with its neighbours, and `flipToDelaunay` then flips the stitch to
+Delaunay in plan (Lawson's algorithm). An edge is flipped only when two stitch triangles share
+it, the corners opposite it see it at more than π together (by `stitchFlipSine` in the sine)
+and the quad is strictly convex; the band edge's and the rings' own edges are never flipped, so
+the mesh stays closed and every band edge vertex stays used. No vertex is moved or added. The
+flips number 2.4 to 4.7 a stitch triangle; `stitchFlipCap` (50 a triangle) is a guard only.
 
-| Board                 | Grid (cm) | Vertices | Mesh (ms) | Volume against the 0.7 cm grid (%) |
-| --------------------- | --------- | -------- | --------- | ---------------------------------- |
-| 5.10 × 19.8 × 2.6 MLC | 0.7       | 44409    | 29        | 0.000                              |
-| 5.10 × 19.8 × 2.6 MLC | 1.0       | 31459    | 11        | -0.199                             |
-| 5.10 × 19.8 × 2.6 MLC | 1.4       | 25445    | 12        | -0.416                             |
-| 5.10 × 19.8 × 2.6 MLC | 2.0       | 22294    | 6         | -0.908                             |
-| long classico 9'6"    | 0.7       | 85811    | 35        | 0.000                              |
-| long classico 9'6"    | 1.0       | 57834    | 21        | -0.228                             |
-| long classico 9'6"    | 1.4       | 44784    | 15        | -0.282                             |
-| long classico 9'6"    | 2.0       | 37968    | 12        | -0.920                             |
-| shortboard            | 0.7       | 44510    | 17        | 0.000                              |
-| shortboard            | 1.0       | 31846    | 10        | -0.173                             |
-| shortboard            | 1.4       | 25936    | 7         | -0.407                             |
-| shortboard            | 2.0       | 22867    | 6         | -0.961                             |
+Without the flips the triangulator joins far apart band edge vertices wherever the chord fits
+in the gap: 1,300 to 3,600 triangles a board at view quality had a plan edge over twice the
+grid, up to 28 to 80 cm long, and their interiors were 4 to 13 mm off the panel (2.4 to 9.7 mm
+in an STL at face 0.5). Their corners were on the panel, so it showed as a faint dotted
+speckle along the band edge: 800 to 2,000 stitch triangles a board had an angle under 1°, and
+up to ten a face normal more than 90° from its corners' normals. With the flips none has an
+angle under 2°, none a face more than 30° from its corners' normals (the channel walls
+aside), and the longest panel edge is 1.6 to 2.2 cm at view quality.
 
-A coarser grid meshes faster but the reported volume falls with it, because the volume is
-summed over the mesh's flat triangles; so the grid stays at 0.7 cm until the volume is taken
-from the panels themselves.
+The distance off the panel (`test-support/panel-fit.ts`: |panel − flat triangle| at each panel
+triangle's centroid and edge midpoints) on the made boards without features, 99th percentile
+and worst, with the vertices and the median time to mesh of a shortboard (view rows):
+
+| Grid (cm) | 99th percentile (mm) | Worst (mm)   | Longest panel edge (cm) | Shortboard vertices | Shortboard mesh (ms) |
+| --------- | -------------------- | ------------ | ----------------------- | ------------------- | -------------------- |
+| 0.4       | 0.04 to 0.07         | 0.30 to 0.46 |                         | 96383               | 72                   |
+| 0.5       | 0.07 to 0.10         | 0.36 to 0.63 |                         | 68607               | 66                   |
+| 0.7       | 0.14 to 0.19         | 0.46 to 0.74 | 1.6 to 2.2              | 44510               | 30                   |
+| 1.0       | 0.29 to 0.35         | 0.57 to 1.06 | 2.3 to 2.95             | 31846               | 18                   |
+| 1.4       | 0.52 to 0.60         | 0.72 to 1.44 | 3.2 to 4.0              | 25936               | 12                   |
+| 2.0       | 0.86 to 1.06         | 1.02 to 2.16 | 4.5 to 5.7              | 22867               | 10                   |
+
+The grid's own cells are within 0.05 mm at 0.7 cm; both the 99th percentile and the worst are
+set by the stitch, whose triangles span the gap where the panel rolls fastest. So the grids
+stay at 0.7 cm for view quality (the finest of those, 0.14 to 0.19 mm at the 99th
+percentile, under 0.75 mm at worst) and 1 cm while dragging (the coarsest within 0.5 mm at the
+99th percentile). The 14 sample boards are closed at view, draft and STL faces 0.5 and 0.3,
+within 0.22 mm at the 99th percentile at view quality; the Diamond Twin's worst is 5.8 mm at
+every grid, so a feature of its panel is narrower than any of them.
+
+**The volume** is the closed mesh's own plus `panelGap`: the volume between the flat panel
+triangles and the panels over them, by the three-edge-midpoint rule on each triangle (exact for
+a quadratic gap). On a grid cell the midpoint's gap is read from the cubic through the edge's
+ends, their heights and their slopes from their exact normals, with no panel call. A stitch
+triangle reads the panel at its edges' midpoints: its edges cross the band edge's strip, where
+the panel rolls fastest and a channel can reach, and there the cubic moved the volume by up to
+4 parts in 10^4 at a 1 cm grid. Against a 0.25 cm grid the volume is then within 0.37 parts in
+10^4 up to a 1.4 cm grid and 0.93 at 2 cm on the made boards without features, and within 0.82
+on the channel board up to 1.4 cm (4.5 at 2 cm, where the channel walls are narrower than the
+cells).
+
+**Time.** The flips take 0.7 to 2.5 ms a mesh at view, draft or STL face 0.5 quality, timed
+inside the mesh. Meshing with and without them, alternated in one process (median of 9, summed
+over nine boards), was within the noise of this machine: −3% at view, −7% in draft, −2% at
+STL face 0.5, 0% at STL face 0.2. The panel calls of the stitch's volume are a few thousand a
+mesh.
+
+**Channels.** The asymmetric board's channel walls are narrower than any of the grids, and its
+grid cells over them are off the panel by 1.3 mm at the 99th percentile and 3.0 mm at worst at
+view quality, 0.91 and 2.4 mm at STL face 0.5, 0.20 and 0.57 mm at 0.2. The stitch does not
+change this.
 
 **The section probe is first order.** `probeRails` builds a station's rail in the plane of the
 station; the kernel sweeps it square to the outline. They agree within 0.1 mm where the
@@ -335,13 +380,40 @@ measurement files, are skipped unless `TRIM_STUDY=1`. The main ones pin:
 - `outline.test.ts`: the loop keeps the samples of the study boards' loops; the half width equals the chord function.
 - `convert.test.ts`: one rail key at each usable station and none at a tip; each curve is the stored section to the panel's end, then straight to the wall; the converted station lofts back to the stored section; a fold is flagged and a clean board has none; a notched board is read with its notch filled.
 - `relief.test.ts`: the relief equals `features.ts`'s depth and its gradient matches finite differences.
-- `native.test.ts`: the board builds, is closed at view and draft quality and has a volume within 1.5% of the sections engine's; the loop is reused; a board that cannot be built is refused; a channel reaching the band edge leaves the rail and the deck where they were.
+- `native.test.ts`: the board builds, is closed at view and draft quality and has a volume within 1.5% of the sections engine's, and within 2 parts in 10^4 of a 0.25 cm grid's at the view and draft grids; on the made boards no panel triangle's plan edge is over 4 times the grid or the loop's spacing, and without features the flat panel triangles are within 0.3 mm at the 99th percentile and 1 mm at worst at view quality (0.15 and 0.8 mm at STL face 0.5); the loop is reused; a board that cannot be built is refused; a channel reaching the band edge leaves the rail and the deck where they were.
 - `curvature.test.ts`: principal curvatures on a sphere, cylinder, plane, saddle and torus.
 - `probe.test.ts`: the probe returns the points asked for, has the outline half width, and stands within the bound of the kernel mesh away from the tips.
 
 **Open.**
 
-- The rebuild budget is missed on the long boards, for the reason above.
+- The rebuild budget is missed on the long boards: the grid cannot be coarsened without the
+  stitch moving further off the panel (table above).
+- **A narrower stitch.** The stitch is one to two and a half cells wide because a cell is
+  dropped within one cell of any cell the band edge passes through. A rule that keeps a cell
+  whose corners are at least about half a cell inside the band edge would make the gap half a
+  cell to one and a half cells wide, which by the table should take the 99th percentile at a
+  0.7 cm grid to about that of a 0.4 to 0.5 cm grid with a few percent more vertices, or let
+  the grid coarsen at the same distance. It adds and moves vertices, and the closedness rests
+  on it: with no margin at all (only the cells the band edge passes through dropped) the mesh
+  opened, with 20 to 650 open edges a board, and the slivers came back. A ring that comes too
+  close to the band edge, or touches it at a concave turn, has to be kept off it.
+- **Channels within 0.1 mm** need cells finer over the walls only: from 0.57 mm at a 0.2 cm
+  grid, about 0.08 cm there, three halvings of a 0.7 cm cell. The cubic midpoint gap already
+  computed on each cell edge cannot find a wall that falls between two nodes (both ends are
+  flat); reading the relief at the midpoints, or the walls' places from the feature, can.
+- **A squash tail's bottom near its edge.** On the shortboard the bottom's slope along x is
+  −0.151 everywhere at x = 0 and at x = 0.3 cm, but at x = 0.05 cm it runs from −0.15 at the
+  stringer to +1.07 at y = ±3 cm, and at 0.1 cm to +0.05: the loft reads the panel at u = y /
+  w(x) with the half width from its 0.1 cm table, and w is steep at the tail's edge. The tuck's
+  first-row normals along the tail edge then swing between neighbouring samples (x
+  component −0.13, +0.08, +0.20, +0.05, −0.13 across y = ±2.8 cm), which shades as a bright
+  line along the tail edge near its corners. It is in the loft and its table, not the mesh.
+- **Tight rows on a near-hard edge.** Where a band is a fraction of a millimetre (0.67 mm on
+  the fish's inner tail lobe, the 0.5 mm `bandMin` on the shortboard's tail tuck), the rows at
+  even conic parameter put most of the turn in the first row: the normal turns about 40° from
+  row 0 to row 1 across 0.03 mm, and 88 strip triangles on the fish (12 on the shortboard) have
+  a face normal 25 to 37° from their corners'. It renders as a narrow bright edge; spacing the
+  rows by turn would even it.
 - The section probe is first order. An exact probe slices the blends near the station.
 - A rails build has no issue codes of its own: a side with no rail key reports `too-few-sections`, rail keys out of order `station-order`, an outline no loop can be built from `geom`.
 - `meshRails` accepts `tolerance` and it changes nothing.

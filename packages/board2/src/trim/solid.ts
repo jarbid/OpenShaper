@@ -221,6 +221,122 @@ function restoreRim(t: number[], m: number): number[] {
   return out;
 }
 
+/**
+ * Makes a stitch triangulation Delaunay in plan by edge flips (Lawson's algorithm), and returns
+ * the number of flips made.
+ *
+ * `t` holds triangles as corner triples into `xy` (x, y pairs), all wound the same way; it is
+ * changed in place, and every triangle keeps that winding. `next[v]` is the vertex after `v`
+ * along the boundary it lies on: the band edge or a ring of kept cells. An edge between a
+ * vertex and its `next` borders the stitch and is never flipped; nor is any edge that only one
+ * triangle uses. An edge two triangles share is flipped when the corners opposite it see it at
+ * angles that sum to more than π (the far corner lies inside the near triangle's circumcircle),
+ * by more than `TRIM.stitchFlipSine` in the sine of the sum, and the quad the two triangles make
+ * is strictly convex by the same margin, so a flip never folds a triangle over or makes one
+ * with no area. No vertex is moved or added. At most `TRIM.stitchFlipCap` flips a triangle are
+ * made; Lawson's algorithm stops long before.
+ */
+function flipToDelaunay(t: number[], xy: readonly number[], next: Int32Array): number {
+  const nv = next.length;
+  const tris = t.length / 3;
+  if (tris < 2) return 0;
+  // which way round the triangles run: +1 counter-clockwise
+  let area = 0;
+  for (let q = 0; q < t.length; q += 3) {
+    const a = 2 * t[q]!;
+    const b = 2 * t[q + 1]!;
+    const c = 2 * t[q + 2]!;
+    area +=
+      (xy[b]! - xy[a]!) * (xy[c + 1]! - xy[a + 1]!) - (xy[b + 1]! - xy[a + 1]!) * (xy[c]! - xy[a]!);
+  }
+  const s = area >= 0 ? 1 : -1;
+  // Slot 3q + k is triangle q's edge from corner k to corner k + 1; `twin` is the slot that
+  // runs the same edge the other way, or -1 where no triangle does. The slots leaving each
+  // vertex are listed together so that a twin is found among its far vertex's few.
+  const first = new Int32Array(nv + 1);
+  for (let e = 0; e < t.length; e++) first[t[e]! + 1]!++;
+  for (let v = 0; v < nv; v++) first[v + 1]! += first[v]!;
+  const fill = first.slice(0, nv);
+  const out = new Int32Array(t.length);
+  for (let e = 0; e < t.length; e++) out[fill[t[e]!]!++] = e;
+  const head = (e: number): number => t[e - (e % 3) + ((e + 1) % 3)]!;
+  const twin = new Int32Array(t.length).fill(-1);
+  for (let e = 0; e < t.length; e++) {
+    const u = t[e]!;
+    const v = head(e);
+    for (let k = first[v]!; k < first[v + 1]!; k++) {
+      if (head(out[k]!) === u) {
+        twin[e] = out[k]!;
+        break;
+      }
+    }
+  }
+  const stack: number[] = [];
+  for (let e = 0; e < t.length; e++) if (twin[e]! > e) stack.push(e);
+  const link = (e: number, f: number): void => {
+    twin[e] = f;
+    if (f >= 0) twin[f] = e;
+  };
+  const tol = TRIM.stitchFlipSine;
+  const cap = TRIM.stitchFlipCap * tris;
+  let flips = 0;
+  while (stack.length > 0 && flips < cap) {
+    const e1 = stack.pop()!;
+    const e2 = twin[e1]!;
+    if (e2 < 0) continue;
+    const q1 = e1 - (e1 % 3);
+    const q2 = e2 - (e2 % 3);
+    // u-v-c is one triangle and v-u-d the other, both wound as all are
+    const u = t[e1]!;
+    const v = t[e2]!;
+    if (next[u] === v || next[v] === u) continue;
+    const c = t[q1 + ((e1 + 2) % 3)]!;
+    const d = t[q2 + ((e2 + 2) % 3)]!;
+    const ux = xy[2 * u]!;
+    const uy = xy[2 * u + 1]!;
+    const vx = xy[2 * v]!;
+    const vy = xy[2 * v + 1]!;
+    const cx = xy[2 * c]!;
+    const cy = xy[2 * c + 1]!;
+    const dx = xy[2 * d]!;
+    const dy = xy[2 * d + 1]!;
+    const cu = (ux - cx) ** 2 + (uy - cy) ** 2;
+    const cv = (vx - cx) ** 2 + (vy - cy) ** 2;
+    const du = (ux - dx) ** 2 + (uy - dy) ** 2;
+    const dv = (vx - dx) ** 2 + (vy - dy) ** 2;
+    // the angles at c and d: their sines and cosines times the lengths of the edges about them
+    const crossC = s * ((ux - cx) * (vy - cy) - (uy - cy) * (vx - cx));
+    const dotC = (ux - cx) * (vx - cx) + (uy - cy) * (vy - cy);
+    const crossD = s * ((vx - dx) * (uy - dy) - (vy - dy) * (ux - dx));
+    const dotD = (vx - dx) * (ux - dx) + (vy - dy) * (uy - dy);
+    if (!(crossC * dotD + dotC * crossD < -tol * Math.sqrt(cu * cv * du * dv))) continue;
+    // the new triangles u-d-c and d-v-c, read at u and at v, where the quad could be reflex
+    const atU = s * ((dx - ux) * (cy - uy) - (dy - uy) * (cx - ux));
+    const atV = s * ((cx - vx) * (dy - vy) - (cy - vy) * (dx - vx));
+    if (!(atU > tol * Math.sqrt(du * cu) && atV > tol * Math.sqrt(dv * cv))) continue;
+    // the slots across the quad's four sides: v-c and c-u of the first triangle, u-d and d-v of
+    // the second; the new triangles take them over and share c-d
+    const outVC = twin[q1 + ((e1 + 1) % 3)]!;
+    const outCU = twin[q1 + ((e1 + 2) % 3)]!;
+    const outUD = twin[q2 + ((e2 + 1) % 3)]!;
+    const outDV = twin[q2 + ((e2 + 2) % 3)]!;
+    t[q1] = u;
+    t[q1 + 1] = d;
+    t[q1 + 2] = c;
+    t[q2] = d;
+    t[q2 + 1] = v;
+    t[q2 + 2] = c;
+    link(q1, outUD);
+    link(q1 + 1, q2 + 2);
+    link(q1 + 2, outCU);
+    link(q2, outDV);
+    link(q2 + 1, outVC);
+    flips++;
+    stack.push(q1, q1 + 2, q2, q2 + 1);
+  }
+  return flips;
+}
+
 /** How finely the mesh is cut. */
 export interface TrimMeshOptions {
   /** Rows across the deck blend and across the tuck. More rows follow a blend's curve more closely. */
@@ -503,48 +619,6 @@ export function buildTrimMesh(
     }
   }
 
-  /**
-   * A long stitch triangle's gap, cm³. The triangulator makes many stitch triangles long
-   * slivers, some tens of cm, too long for one midpoint rule: the triangle is halved across its
-   * longest edge and the rule summed over the two halves, which reuse the triangle's two other
-   * edge gaps and read the panel at three new midpoints.
-   */
-  const stitchGap = (
-    a: number,
-    b: number,
-    c: number,
-    gab: number,
-    gbc: number,
-    gca: number,
-    z: (x: number, y: number) => number,
-  ): number => {
-    const d2 = (u: number, v: number): number =>
-      (pos[3 * v]! - pos[3 * u]!) ** 2 + (pos[3 * v + 1]! - pos[3 * u + 1]!) ** 2;
-    const ab = d2(a, b);
-    const bc = d2(b, c);
-    const ca = d2(c, a);
-    // turn the triangle, keeping its winding, so its longest edge is a-b
-    if (bc > ab && bc >= ca) return stitchGap(b, c, a, gbc, gca, gab, z);
-    if (ca > ab && ca > bc) return stitchGap(c, a, b, gca, gab, gbc, z);
-    const ax = pos[3 * a]!;
-    const ay = pos[3 * a + 1]!;
-    const az = pos[3 * a + 2]!;
-    const bx = pos[3 * b]!;
-    const by = pos[3 * b + 1]!;
-    const bz = pos[3 * b + 2]!;
-    const cx = pos[3 * c]!;
-    const cy = pos[3 * c + 1]!;
-    const cz = pos[3 * c + 2]!;
-    const mx = 0.5 * (ax + bx);
-    const my = 0.5 * (ay + by);
-    const mz = 0.5 * (az + bz);
-    const gam = z(0.5 * (ax + mx), 0.5 * (ay + my)) - 0.5 * (az + mz);
-    const gmb = z(0.5 * (mx + bx), 0.5 * (my + by)) - 0.5 * (mz + bz);
-    const gmc = z(0.5 * (mx + cx), 0.5 * (my + cy)) - 0.5 * (mz + cz);
-    // each half has half the plan area
-    const half = 0.25 * ((bx - ax) * (cy - ay) - (by - ay) * (cx - ax));
-    return (half * (gam + gmc + gca + gmb + gbc + gmc)) / 3;
-  };
   let panelGap = 0;
 
   // ---- the two panels: a grid inside the band edge, stitched to the band edge's own places ----
@@ -560,8 +634,37 @@ export function buildTrimMesh(
     // a rail that leaves at an edge then shades as a crease
     reserveVertices(edges.length);
     const lifted = which === 1 && relief !== undefined;
-    /** The panel's height at (x, y), with the relief on the bottom. */
-    const trueZ = (x: number, y: number): number => {
+    /** The triangle a-b-c's plan area, signed by its winding: positive where it faces up. */
+    const planOf = (a: number, b: number, c: number): number =>
+      0.5 *
+      ((pos[3 * b]! - pos[3 * a]!) * (pos[3 * c + 1]! - pos[3 * a + 1]!) -
+        (pos[3 * b + 1]! - pos[3 * a + 1]!) * (pos[3 * c]! - pos[3 * a]!));
+    /**
+     * The panel's height less the edge a-b's at the edge's midpoint, read from the ends' exact
+     * heights and slopes (the slopes from their normals) as the cubic through them, with no
+     * panel call: (∇a − ∇b)·(b − a) / 8.
+     */
+    const edgeGap = (a: number, b: number): number => {
+      const dx = pos[3 * b]! - pos[3 * a]!;
+      const dy = pos[3 * b + 1]! - pos[3 * a + 1]!;
+      const na = nrm[3 * a + 2]!;
+      const nb = nrm[3 * b + 2]!;
+      return (
+        ((nrm[3 * b]! / nb - nrm[3 * a]! / na) * dx +
+          (nrm[3 * b + 1]! / nb - nrm[3 * a + 1]! / na) * dy) /
+        8
+      );
+    };
+    /**
+     * The same gap read from the panel at the edge's midpoint: one panel call. The stitch takes
+     * this one. Its edges run across the band edge's strip, up to two and a half cells, where
+     * the panel rolls fastest and a channel can reach; there the cubic from the ends' slopes
+     * misses enough to move the volume by a few parts in 10^4 at a 1 cm grid. The stitch is a few
+     * percent of a panel's triangles, so the calls cost little.
+     */
+    const readGap = (a: number, b: number): number => {
+      const x = 0.5 * (pos[3 * a]! + pos[3 * b]!);
+      const y = 0.5 * (pos[3 * a + 1]! + pos[3 * b + 1]!);
       let z: number;
       if (both !== undefined) {
         panels.both!(x, y, heights);
@@ -573,40 +676,7 @@ export function buildTrimMesh(
         relief!(x, y, lift);
         z += lift[0]!;
       }
-      return z;
-    };
-    /** The triangle a-b-c's plan area, signed by its winding: positive where it faces up. */
-    const planOf = (a: number, b: number, c: number): number =>
-      0.5 *
-      ((pos[3 * b]! - pos[3 * a]!) * (pos[3 * c + 1]! - pos[3 * a + 1]!) -
-        (pos[3 * b + 1]! - pos[3 * a + 1]!) * (pos[3 * c]! - pos[3 * a]!));
-    /**
-     * The panel's height less the edge a-b's at the edge's midpoint. On an edge no longer than
-     * `TRIM.gapHermiteEdge` it is read from the ends' exact heights and slopes (the slopes from
-     * their normals), as the cubic through them, with no panel call: (∇a − ∇b)·(b − a) / 8.
-     * A longer edge reads the panel there.
-     */
-    const edgeGap = (a: number, b: number): number => {
-      const dx = pos[3 * b]! - pos[3 * a]!;
-      const dy = pos[3 * b + 1]! - pos[3 * a + 1]!;
-      if (dx * dx + dy * dy <= TRIM.gapHermiteEdge * TRIM.gapHermiteEdge) {
-        const na = nrm[3 * a + 2]!;
-        const nb = nrm[3 * b + 2]!;
-        return (
-          ((nrm[3 * b]! / nb - nrm[3 * a]! / na) * dx +
-            (nrm[3 * b + 1]! / nb - nrm[3 * a + 1]! / na) * dy) /
-          8
-        );
-      }
-      return (
-        trueZ(0.5 * (pos[3 * a]! + pos[3 * b]!), 0.5 * (pos[3 * a + 1]! + pos[3 * b + 1]!)) -
-        0.5 * (pos[3 * a + 2]! + pos[3 * b + 2]!)
-      );
-    };
-    const longestOf = (a: number, b: number, c: number): number => {
-      const l = (u: number, v: number): number =>
-        Math.hypot(pos[3 * v]! - pos[3 * u]!, pos[3 * v + 1]! - pos[3 * u + 1]!);
-      return Math.max(l(a, b), l(b, c), l(c, a));
+      return z - 0.5 * (pos[3 * a + 2]! + pos[3 * b + 2]!);
     };
     const rim = edges.map((e) => {
       const q = fieldNormal(surf, which, sign, e.qx, e.qy);
@@ -805,6 +875,17 @@ export function buildTrimMesh(
       }
     }
     const t = restoreRim(earcut(flat, holes, 2), m);
+    // The triangulator makes long slivers wherever a chord between two far rim vertices fits
+    // in the gap, and a sliver's interior is far off the panel; flipping to Delaunay in plan
+    // ties each rim vertex to its nearest ring instead.
+    const along = new Int32Array(ids.length);
+    for (let i = 0; i < m; i++) along[i] = (i + 1) % m;
+    for (let r = 0; r < holes.length; r++) {
+      const from = holes[r]!;
+      const to = r + 1 < holes.length ? holes[r + 1]! : ids.length;
+      for (let v = from; v < to; v++) along[v] = v + 1 < to ? v + 1 : from;
+    }
+    flipToDelaunay(t, flat, along);
     let area = 0;
     for (let q = 0; q < t.length; q += 3) {
       const a = ids[t[q]!]!;
@@ -814,7 +895,8 @@ export function buildTrimMesh(
         (pos[3 * b]! - pos[3 * a]!) * (pos[3 * c + 1]! - pos[3 * a + 1]!) -
         (pos[3 * b + 1]! - pos[3 * a + 1]!) * (pos[3 * c]! - pos[3 * a]!);
     }
-    // the triangulator winds every triangle the same way, so the winding is decided once
+    // the triangulator winds every triangle the same way, and a flip keeps it, so the winding
+    // is decided once
     const asIs = area > 0 !== down;
     reserveTriangles(t.length / 3);
     for (let q = 0; q < t.length; q += 3) {
@@ -822,13 +904,7 @@ export function buildTrimMesh(
       const b = asIs ? ids[t[q + 1]!]! : ids[t[q + 2]!]!;
       const c = asIs ? ids[t[q + 2]!]! : ids[t[q + 1]!]!;
       addTriangle(a, b, c, face);
-      const gab = edgeGap(a, b);
-      const gbc = edgeGap(b, c);
-      const gca = edgeGap(c, a);
-      panelGap +=
-        longestOf(a, b, c) <= TRIM.gapHermiteEdge
-          ? (planOf(a, b, c) * (gab + gbc + gca)) / 3
-          : stitchGap(a, b, c, gab, gbc, gca, trueZ);
+      panelGap += (planOf(a, b, c) * (readGap(a, b) + readGap(b, c) + readGap(c, a))) / 3;
     }
   };
   panel(deckEdges, panels.deck, 0, FACE.deck, false);

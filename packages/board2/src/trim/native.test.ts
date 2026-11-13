@@ -3,13 +3,14 @@
  * The rails engine's build and mesh (`native.ts`) on the made boards, converted from their
  * sections: built without issues, closed at view and draft quality, volume within 1.5% of
  * the sections engine's, the loop reused across an edit that leaves the outline alone, an STL
- * face size giving a finer closed mesh, the refusals, the bottom features as a relief that
+ * face size giving a finer closed mesh, the panel triangles' shape and fit to the panels, the refusals, the bottom features as a relief that
  * leaves the rail and the deck where they were, and the time budget.
  */
 import { describe, expect, it } from 'vitest';
 import { meshBoard } from '../mesh';
 import { TRIM } from '../params';
 import { buildBoard } from '../surface';
+import { boardSet } from '../test-support/board-set';
 import { analyticBoard, asymmetricBoard, fishBoard, swallowBoard } from '../testing';
 import type { BoardDoc } from '../types';
 import type { RailsBoard } from './board';
@@ -18,6 +19,7 @@ import { buildRails, meshRails, trimMeshOf } from './native';
 import type { BuiltRails } from './native';
 import { FACE, buildTrimMesh, checkClosed, sliceX } from './solid';
 import type { TrimMesh } from './solid';
+import { panelFit } from './test-support/panel-fit';
 
 const BOARDS: { readonly [name: string]: () => BoardDoc } = {
   analytic: analyticBoard,
@@ -28,7 +30,13 @@ const BOARDS: { readonly [name: string]: () => BoardDoc } = {
 
 /** Volume against the sections engine's, as a fraction. */
 const VOLUME_TOL = 0.015;
-/** Volume at a coarse panel grid against a 0.25 cm grid's, as a fraction: the aim of docs/design/trim-blend-engine.md, "Cost". */
+/**
+ * Volume at the view and draft grids against a 0.25 cm grid's, as a fraction: the aim of
+ * docs/design/trim-blend-engine.md, "Cost". Measured: within 0.17e-4 at 0.7 and 1 cm on the made
+ * boards without features; with the channels the asymmetric board is -0.72e-4 at 0.7 cm,
+ * 0.34e-4 at 1 cm, -0.82e-4 at 1.4 cm and -4.5e-4 at 2 cm, the channels moved to the rail
+ * 0.65e-4, 1.1e-4, 0.52e-4 and -0.56e-4: a coarser grid than the draft one would miss it.
+ */
 const GRID_VOLUME_TOL = 2e-4;
 
 function railsOf(doc: BoardDoc): RailsBoard {
@@ -91,7 +99,7 @@ describe.each(Object.keys(BOARDS))('buildRails and meshRails: %s', (name) => {
       return checkClosed(mesh).volume + mesh.panelGap;
     };
     const ref = solid(0.25);
-    for (const grid of [0.7, TRIM.viewGrid]) {
+    for (const grid of [TRIM.viewGrid, TRIM.draftGrid]) {
       expect(Math.abs(solid(grid) / ref - 1), `grid ${grid}`).toBeLessThan(GRID_VOLUME_TOL);
     }
   });
@@ -175,6 +183,70 @@ describe.each(Object.keys(BOARDS))('buildRails and meshRails: %s', (name) => {
     expect(stl.positions.length / 3).toBeGreaterThan(view.vertexCount);
     expect(checkClosed(stl).openEdges).toBe(0);
   });
+});
+
+/**
+ * The panel mesh's shape, on the made boards: no panel triangle's plan edge is longer than
+ * `EDGE_FACTOR` times the larger of the panel grid and the loop's widest sample spacing, and on
+ * the boards without bottom features the flat triangles are within `FIT` of the panels. The
+ * largest seen are 3.1 times (view) and 3.3 times (STL face 0.5) for the edge; for the fit at
+ * view quality 0.22 mm at the 99th percentile and 0.74 mm at worst, at STL face 0.5 0.11 mm and
+ * 0.63 mm. Each bound has about a third of margin. The 99th percentile and the worst are set by
+ * the stitch along the band edge; a triangulation that left a sliver across it, tens of cm long,
+ * is 4 to 13 mm off at view quality.
+ */
+const EDGE_FACTOR = 4;
+/** Each of these tests meshes one board and reads the panel four times a triangle: about a second alone, so a margin for a loaded machine. */
+const FIT_TIMEOUT = 20_000;
+const FIT = {
+  view: { p99: 0.03, worst: 0.1 },
+  stl: { p99: 0.015, worst: 0.08 },
+} as const;
+
+describe.each([
+  { name: 'analytic', doc: analyticBoard },
+  ...boardSet().map((b) => ({ name: b.name, doc: () => b.doc })),
+])('the panel mesh follows the panels: $name', ({ doc }) => {
+  const made = built(railsOf(doc()));
+  const plain = doc().features.length === 0 ? made : built(railsOf({ ...doc(), features: [] }));
+  const widest = (m: TrimMesh): number => {
+    let w = 0;
+    const l = m.loop;
+    for (let i = 0; i < l.n; i++) {
+      const k = (i + 1) % l.n;
+      w = Math.max(w, Math.hypot(l.x[k]! - l.x[i]!, l.y[k]! - l.y[i]!));
+    }
+    return w;
+  };
+  const qualities = [
+    { quality: 'view', grid: TRIM.viewGrid, opts: {}, fit: FIT.view },
+    {
+      quality: 'STL face 0.5',
+      grid: Math.min(TRIM.viewGrid, 0.5),
+      opts: { maxEdge: 0.5 },
+      fit: FIT.stl,
+    },
+  ] as const;
+
+  it.each(qualities)(
+    'has no long panel triangle at $quality quality',
+    ({ grid, opts }) => {
+      const m = trimMeshOf(made, opts);
+      const f = panelFit(m, grid);
+      expect(f.all.longestEdge).toBeLessThan(EDGE_FACTOR * Math.max(grid, widest(m)));
+    },
+    FIT_TIMEOUT,
+  );
+
+  it.each(qualities)(
+    'has its flat panel triangles near the panels at $quality quality, features off',
+    ({ grid, opts, fit }) => {
+      const f = panelFit(trimMeshOf(plain, opts), grid);
+      expect(f.all.p99).toBeLessThan(fit.p99);
+      expect(f.all.worst).toBeLessThan(fit.worst);
+    },
+    FIT_TIMEOUT,
+  );
 });
 
 describe('buildRails refuses a board it cannot build', () => {
@@ -263,7 +335,10 @@ describe.each([
       const mesh = buildTrimMesh(withF.loop, withF.laws, withF.panels, grid, rows);
       return checkClosed(mesh).volume + mesh.panelGap;
     };
-    expect(Math.abs(solid(TRIM.viewGrid) / solid(0.25) - 1)).toBeLessThan(GRID_VOLUME_TOL);
+    const ref = solid(0.25);
+    for (const grid of [TRIM.viewGrid, TRIM.draftGrid]) {
+      expect(Math.abs(solid(grid) / ref - 1), `grid ${grid}`).toBeLessThan(GRID_VOLUME_TOL);
+    }
   });
 
   it('lowers or raises the bottom panel by the relief at full value', () => {

@@ -352,15 +352,17 @@ export const TRIM = {
   /** The loop is walked at this fraction of the grid spacing to find the cells it touches. */
   blockStep: 1 / 3,
   /**
-   * The panel gap (`trim/solid.ts`, `panelGap`): the volume between the flat panel triangles
-   * and the panels, by the three-edge-midpoint rule. An edge no longer than `gapHermiteEdge`
-   * (cm) takes its midpoint height from the cubic through its ends' heights and slopes, with no
-   * panel call; a longer one reads the panel, and a stitch triangle with such an edge is halved
-   * once across it. 5 cm takes every grid edge up to a 3.5 cm grid; at a 2 cm grid the volume is
-   * then within 0.02% of a 0.25 cm grid's on the study boards, and reading the panel at every
-   * midpoint instead costs three panel calls a cell for no gain there.
+   * The stitch between a panel's kept cells and its band edge is flipped to Delaunay in plan
+   * (`trim/solid.ts`, `flipToDelaunay`). An edge is flipped only when the sine of the sum of
+   * the angles opposite it is below `-stitchFlipSine`, and when each new triangle's corner on
+   * the old edge has a sine above `stitchFlipSine`: a margin far above rounding, so cocircular
+   * corners or a straight run of rim never flip back and forth, and far below any angle that
+   * matters to a triangle's shape. At most `stitchFlipCap` flips a stitch triangle are made:
+   * on the made boards the flips number 2.4 to 4.7 a stitch triangle, and at most 5.3 on any
+   * one panel, so the cap is never reached unless the loop would not end.
    */
-  gapHermiteEdge: 5,
+  stitchFlipSine: 1e-9,
+  stitchFlipCap: 50,
   /** Passes of diagonal-pinch removal on the kept cells. */
   pinchPasses: 30,
   /** A panel is sampled every this many cm in a slice, and at least this many times per span. */
@@ -493,8 +495,17 @@ export const TRIM = {
    * `draftDeckRows` and `draftTuckRows` while dragging. For an STL face size f (cm) the grid
    * is min(`viewGrid`, f), the loop is sampled no coarser than f, and the rows are at least
    * `stlDeckRows` and `stlTuckRows`, scaled up by `stlFace / f` where f is finer than
-   * `stlFace` (cm). The volume does not depend on the grid (`gapHermiteEdge`); the grid sets how
-   * closely the flat panel triangles follow the panels.
+   * `stlFace` (cm). The volume does not depend on the grid (`trim/solid.ts`, `panelGap`); the
+   * grid sets how closely the flat panel triangles follow the panels.
+   *
+   * How closely, on the made boards without features, as the 99th percentile and the worst of
+   * the panel triangles' distance off the panel: 0.14 to 0.19 mm and 0.46 to 0.74 mm at a 0.7 cm
+   * grid, 0.29 to 0.35 mm and 0.57 to 1.06 mm at 1 cm, 0.52 to 0.60 mm at 1.4 cm, 0.86 to
+   * 1.06 mm at 2 cm. Both the 99th percentile and the worst are set by the stitch along the
+   * band edge, one to two and a half cells wide, where the panel rolls fastest, not by the
+   * grid's own cells, which are within 0.05 mm at 0.7 cm. View quality takes the finest of those grids, 0.7 cm: none is within 0.1 mm at
+   * the 99th percentile, which would take about 0.4 cm and twice the vertices and time. A drag
+   * takes the coarsest within 0.5 mm at the 99th percentile, 1 cm (1.4 cm is 0.52 to 0.78 mm).
    */
   loftSpacing: 0.05,
   viewGrid: 0.7,

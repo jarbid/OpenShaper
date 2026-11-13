@@ -19,12 +19,12 @@ import type { DemoOptions, DemoTail } from './test-support/demo';
 
 const GRID = 0.7;
 /**
- * How closely two meshes of the same board agree on volume, litres. The sketch and this
- * kernel put every vertex in the same place but stitch the panels to the rail with different
- * triangulators, and the stitch triangles cut the curved panel differently: up to 0.006 L in
- * 30, most on a strongly domed deck.
+ * How much more this kernel's flat mesh holds than the sketch's, litres, least and most. Both
+ * put every vertex in the same place. The sketch stitched the panels to the rail with long
+ * triangles that cut straight across a domed deck; this kernel's stitch follows the panel
+ * (`solid.ts`, `flipToDelaunay`). On these boards the difference is 0.017 to 0.024 L in 30.
  */
-const VOLUME_AGREES = 0.015;
+const SKETCH_READS_LOW = [0.01, 0.035] as const;
 const TAILS: readonly DemoTail[] = ['fish', 'wings', 'asym'];
 const HARSH: Pick<DemoOptions, 'cuts' | 'rails'> = {
   cuts: [0.3, 0.32, 0.6, 0.62],
@@ -111,10 +111,13 @@ describe('trim kernel: the port matches the sketch', () => {
       expect(b.loop.s[b.loop.n]!).toBeCloseTo(ref.perimeter, 3);
       expect(Math.min(...b.laws.deckWidth)).toBeCloseTo(ref.minBand, 4);
       expect(b.check.openEdges).toBe(0);
-      expect(Math.abs(b.check.volume / 1000 - ref.litres)).toBeLessThan(VOLUME_AGREES);
-      expect(Math.abs(build(tail, HARSH).check.volume / 1000 - ref.harsh)).toBeLessThan(
-        VOLUME_AGREES,
-      );
+      for (const more of [
+        b.check.volume / 1000 - ref.litres,
+        build(tail, HARSH).check.volume / 1000 - ref.harsh,
+      ]) {
+        expect(more).toBeGreaterThan(SKETCH_READS_LOW[0]);
+        expect(more).toBeLessThan(SKETCH_READS_LOW[1]);
+      }
     });
   }
 
