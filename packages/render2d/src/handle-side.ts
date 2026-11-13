@@ -1,5 +1,5 @@
 import type { Knot } from '@openshaper/kernel';
-import type { SplineTarget } from '@openshaper/store';
+import { isStationTarget, type SplineTarget } from '@openshaper/store';
 
 export type TangentKind = 'prev' | 'next';
 export type HandleSide = 'left' | 'right';
@@ -44,7 +44,8 @@ export const visualSideForHandleKind = (
  * horizontal positions by {@link handleKindForVisualSide}.
  */
 export const handleSideName = (target: SplineTarget, side: HandleSide): string =>
-  target.kind === 'crossSection'
+  // a rails board's station curve lies in the section's plane too
+  target.kind === 'crossSection' || isStationTarget(target)
     ? side === 'left'
       ? 'Left'
       : 'Right'

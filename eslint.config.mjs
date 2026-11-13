@@ -12,7 +12,8 @@ const UI = ['react', 'react-dom', 'react/*', 'react-dom/*', 'three', 'three/*', 
  * Each entry lists the workspace packages a package's *source* may not import.
  * Tests and benches are exempt: they may load fixtures through other packages.
  * An entry may name its own `files` and extra `ignores` when one package has two
- * layers (board2's core and its classic converter).
+ * layers (board2's core and its classic converter). `typeOnly` packages may be
+ * imported for their types only, except the subpaths `runtime` lists.
  */
 const LAYERS = {
   kernel: {
@@ -34,14 +35,26 @@ const LAYERS = {
   store: {
     pkgs: ['io', 'units', 'render2d', 'render3d', 'export', 'ui', 'geom', 'board2'],
     ui: true,
-    ignores: ['packages/store/src/sections/**'],
+    ignores: ['packages/store/src/sections/**', 'packages/store/src/rails/**'],
   },
-  // The section store (docs/design/m2-editor.md §1) edits board2's document, so it may name board2's
-  // *types*; a runtime import would put board2 and geom into the main chunk.
+  // The section store (docs/design/m2-editor.md §1) and the rails store edit board2's documents, so
+  // they may name board2's *types*; a runtime import would put board2 and geom into the main chunk.
+  // The one exception is `@openshaper/board2/defaults`: a module with no imports at all (a board2
+  // test fails if it gains one), holding the engine defaults the store writes into a document, so
+  // importing it brings those few constants into the chunk and nothing else.
   'store/sections': {
     files: ['packages/store/src/sections/**/*.{ts,tsx}'],
     pkgs: ['io', 'units', 'render2d', 'render3d', 'export', 'ui', 'geom'],
     typeOnly: ['board2'],
+    runtime: ['@openshaper/board2/defaults'],
+    ui: true,
+    ignores: ['**/test-support/**'],
+  },
+  'store/rails': {
+    files: ['packages/store/src/rails/**/*.{ts,tsx}'],
+    pkgs: ['io', 'units', 'render2d', 'render3d', 'export', 'ui', 'geom'],
+    typeOnly: ['board2'],
+    runtime: ['@openshaper/board2/defaults'],
     ui: true,
     ignores: ['**/test-support/**'],
   },
@@ -152,7 +165,10 @@ const LAYERS = {
 };
 
 const layerConfigs = Object.entries(LAYERS).map(
-  ([name, { pkgs, typeOnly = [], ui, node = false, extra = [], files, ignores = [] }]) => ({
+  ([
+    name,
+    { pkgs, typeOnly = [], runtime = [], ui, node = false, extra = [], files, ignores = [] },
+  ]) => ({
     files: files ?? [`packages/${name}/src/**/*.{ts,tsx}`],
     ignores: ['**/*.test.{ts,tsx}', '**/*.bench.ts', ...ignores],
     rules: {
@@ -165,7 +181,12 @@ const layerConfigs = Object.entries(LAYERS).map(
               message: `@openshaper/${name} may not depend on this package (see the layering in .claude/CLAUDE.md).`,
             },
             ...typeOnly.map((p) => ({
-              group: [`@openshaper/${p}`, `@openshaper/${p}/*`],
+              // the package and every subpath, except those `runtime` names (a regex: a gitignore
+              // group cannot re-include a subpath of a package it excludes)
+              regex: `^@openshaper/${p}${runtime
+                .filter((r) => r.startsWith(`@openshaper/${p}/`))
+                .map((r) => `(?!${r.slice(`@openshaper/${p}`.length)}$)`)
+                .join('')}(/.*)?$`,
               allowTypeImports: true,
               message: `@openshaper/${name} may import the types of this package only (see the layering in .claude/CLAUDE.md).`,
             })),

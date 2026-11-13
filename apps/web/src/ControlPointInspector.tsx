@@ -11,6 +11,7 @@ import {
   canLockKnot,
   constrainSectionToBlank,
   getTargetSpline,
+  isStationTarget,
   sameTarget,
   type BoardState,
   type LockedAxes,
@@ -81,6 +82,11 @@ const targetLabel = (t: SplineTarget): string => {
       return 'Bottom';
     case 'crossSection':
       return `Cross-section ${t.index}`;
+    // a rails board's station curves, numbered as their station's cross-section
+    case 'stationBottom':
+      return `Cross-section ${t.index + 1} bottom`;
+    case 'stationDeck':
+      return `Cross-section ${t.index + 1} deck`;
   }
 };
 
@@ -93,7 +99,9 @@ const targetLabel = (t: SplineTarget): string => {
  * spline's x is the axis running *up* the screen there (see `turnFitsLarger`).
  */
 const coordinateLabels = (target: SplineTarget): readonly [string, string] =>
-  target.kind === 'crossSection' ? ['Y', 'Z'] : ['X', target.kind === 'outline' ? 'Y' : 'Z'];
+  target.kind === 'crossSection' || isStationTarget(target)
+    ? ['Y', 'Z']
+    : ['X', target.kind === 'outline' ? 'Y' : 'Z'];
 
 /** A slice point the blank holds, as the editors name and explain it. */
 interface BlankHold {
@@ -118,6 +126,8 @@ const APEX_HINT =
  * for a free point, and for every point of the outline, deck and bottom.
  */
 const blankHold = (target: SplineTarget, spline: Spline, index: number): BlankHold | null => {
+  // a rails station curve's held points (stringer, wall) have no words here yet: shown free
+  if (isStationTarget(target)) return null;
   const locked = blankLocks(target, spline)?.[index];
   if (!locked || (!locked.x && !locked.y)) return null;
   if (!locked.y) return { locked, name: 'Apex', note: 'width from the outline', hint: APEX_HINT };

@@ -41,18 +41,31 @@ import {
  * Identifies which spline on the board an edit targets. `side: 'minus'` names the minus half of an
  * asymmetric NURBS board (its outline, or a station's minus section); classic boards never set it, and
  * absent means the plus half.
+ *
+ * `stationBottom` and `stationDeck` name a rails board's station curves ({@link RailsProjection}):
+ * `index` is the station's place in the document (station `index` is classic slice `index + 1`).
+ * A board without station curves (every classic and section board) has no such spline.
  */
 export type SplineTarget =
   | { kind: 'outline'; side?: 'minus' }
   | { kind: 'deck' }
   | { kind: 'bottom' }
-  | { kind: 'crossSection'; index: number; side?: 'minus' };
+  | { kind: 'crossSection'; index: number; side?: 'minus' }
+  | { kind: 'stationBottom'; index: number; side?: 'minus' }
+  | { kind: 'stationDeck'; index: number; side?: 'minus' };
+
+/** A target that names one of a station's two curves. */
+export type StationTarget = Extract<SplineTarget, { kind: 'stationBottom' | 'stationDeck' }>;
+
+/** Whether a target names one of a rails board's station curves. */
+export const isStationTarget = (t: SplineTarget): t is StationTarget =>
+  t.kind === 'stationBottom' || t.kind === 'stationDeck';
 
 /** Whether two targets name the same spline (same kind, same side, and same station for sections). */
 export const sameTarget = (a: SplineTarget, b: SplineTarget): boolean =>
   a.kind === b.kind &&
   (a.kind === 'deck' || a.kind === 'bottom' || a.side === (b as typeof a).side) &&
-  (a.kind !== 'crossSection' || (b.kind === 'crossSection' && b.index === a.index));
+  (!('index' in a) || ('index' in b && b.index === a.index));
 
 /**
  * A board with the minus half of an asymmetric NURBS board attached: a second classic board over the same
@@ -66,11 +79,47 @@ export interface SidedBoard extends BezierBoard {
 /** The minus half of a board, when it has one. */
 export const minusHalf = (b: BezierBoard): BezierBoard | undefined => (b as SidedBoard).minus;
 
+/**
+ * The two curves of one side of a rails board's station, in cm in the section's own frame: x from
+ * the stringer (0) to the half width `w` at the station, y above the rocker there (the deck curve
+ * starts at the thickness `T`). `w` and `T` are what the stored (u, v) curves were scaled by: an
+ * edit is divided by the same numbers to be stored again, and the half-curve rules read their
+ * frame from them.
+ */
+export interface StationSplines {
+  readonly bottom: Spline;
+  readonly deck: Spline;
+  readonly w: number;
+  readonly T: number;
+}
+
+/** One half of a rails board's projection: a classic board with its stations' curves, tail to nose. */
+export interface StationHalf extends BezierBoard {
+  /** One entry per station of the document (station `i` is the classic slice `i + 1`). */
+  readonly stationCurves: readonly StationSplines[];
+}
+
+/**
+ * The classic projection of a rails board (`rails/project.ts`): the plus half with its station
+ * curves, and on an asymmetric board the minus half with its own. Only the rails store makes one.
+ */
+export interface RailsProjection extends StationHalf {
+  readonly minus?: StationHalf;
+}
+
+/** A board's station curves, or undefined for a board that has none (every classic and section board). */
+export const stationCurvesOf = (b: BezierBoard): readonly StationSplines[] | undefined =>
+  (b as Partial<StationHalf>).stationCurves;
+
 /** The board a target's spline is in: the minus half for a minus target of a board that has one. */
 const halfFor = (b: BezierBoard, t: SplineTarget): BezierBoard | null =>
-  (t.kind === 'outline' || t.kind === 'crossSection') && t.side === 'minus'
-    ? (minusHalf(b) ?? null)
-    : b;
+  t.kind !== 'deck' && t.kind !== 'bottom' && t.side === 'minus' ? (minusHalf(b) ?? null) : b;
+
+/** A station target's curve on the board `half`, or null when the board has no such station curve. */
+const stationSpline = (half: BezierBoard, t: StationTarget): Spline | null => {
+  const entry = stationCurvesOf(half)?.[t.index];
+  return entry === undefined ? null : t.kind === 'stationBottom' ? entry.bottom : entry.deck;
+};
 
 /** A target's spline, or null for a minus target of a board without a minus half. */
 export const findTargetSpline = (b: BezierBoard, t: SplineTarget): Spline | null => {
@@ -85,9 +134,16 @@ export const findTargetSpline = (b: BezierBoard, t: SplineTarget): Spline | null
       return half.bottom;
     case 'crossSection':
       return half.crossSections[t.index]?.spline ?? null;
+    case 'stationBottom':
+    case 'stationDeck':
+      return stationSpline(half, t);
   }
 };
 
+/**
+ * A target's spline, for a target the board has (a station target on a board without station
+ * curves throws: callers check with {@link findTargetSpline} first).
+ */
 export const getTargetSpline = (b: BezierBoard, t: SplineTarget): Spline => {
   switch (t.kind) {
     case 'outline':
@@ -98,10 +154,20 @@ export const getTargetSpline = (b: BezierBoard, t: SplineTarget): Spline => {
       return b.bottom;
     case 'crossSection':
       return (halfFor(b, t) ?? b).crossSections[t.index]!.spline;
+    case 'stationBottom':
+    case 'stationDeck': {
+      const s = stationSpline(halfFor(b, t) ?? b, t);
+      if (s === null) throw new Error(`no ${t.kind} ${t.index} on this board`);
+      return s;
+    }
   }
 };
 
-/** Return a new board with the target spline replaced. */
+/**
+ * Return a new board with the target spline replaced. A station curve is replaced in the board's
+ * own station curves (the board keeps every other field); a board without that station curve is
+ * returned unchanged.
+ */
 export const withSpline = (b: BezierBoard, t: SplineTarget, spline: Spline): BezierBoard => {
   switch (t.kind) {
     case 'outline':
@@ -115,6 +181,16 @@ export const withSpline = (b: BezierBoard, t: SplineTarget, spline: Spline): Bez
         i === t.index ? { position: c.position, spline } : c,
       );
       return board(b.outline, b.bottom, b.deck, cs, b.interpolationType, b.fins);
+    }
+    case 'stationBottom':
+    case 'stationDeck': {
+      const list = stationCurvesOf(b);
+      const entry = list?.[t.index];
+      if (list === undefined || entry === undefined) return b;
+      const next: StationSplines =
+        t.kind === 'stationBottom' ? { ...entry, bottom: spline } : { ...entry, deck: spline };
+      const stationCurves = list.map((e, i) => (i === t.index ? next : e));
+      return { ...b, stationCurves } as StationHalf;
     }
   }
 };
@@ -619,9 +695,16 @@ const HEIGHT_ONLY: LockedAxes = { x: true, y: false };
  * {@link constrainSectionToBlank}): a slice's two centre points are fixed, and its apex
  * keeps its distance from the stringer, so only its height is free. Points tied for
  * widest are each free, as any one of them may move in while another holds the width.
+ * A rails board's station curve keeps its first point on the stringer and its last on the wall,
+ * whose height is free (`rails/half-curve.ts`).
  * Null for the outline, deck and bottom, which define the blank rather than sit inside it.
  */
 export const blankLocks = (target: SplineTarget, s: Spline): readonly LockedAxes[] | null => {
+  if (isStationTarget(target)) {
+    // a station curve's first point sits on the stringer, its last on the wall (height free)
+    const last = s.knots.length - 1;
+    return s.knots.map((_, i) => (i === 0 ? FIXED : i === last ? HEIGHT_ONLY : FREE));
+  }
   if (target.kind !== 'crossSection') return null;
   const last = s.knots.length - 1;
   const apex = soleApex(s);
@@ -720,7 +803,7 @@ const clampHandle = (
  * deleted: points pair up from the front while their positions agree, then from the back
  * the same way, and whatever is left over in between is new.
  */
-const matchKnots = (pk: readonly Knot[], nk: readonly Knot[]): number[] => {
+export const matchKnots = (pk: readonly Knot[], nk: readonly Knot[]): number[] => {
   if (pk.length === nk.length) return nk.map((_, i) => i);
   const n = Math.min(pk.length, nk.length);
   let head = 0;
@@ -1259,7 +1342,10 @@ export const enforceJunctions = (b: BezierBoard, changed?: SplineTarget): Bezier
     outline = clampHandleFloor(outline, noseIdx, 'prev', 'y');
   }
 
-  return board(outline, bottom, deck, crossSections, b.interpolationType, b.fins);
+  const out = board(outline, bottom, deck, crossSections, b.interpolationType, b.fins);
+  // a rails projection's station curves are not junctions: they ride through unchanged
+  const stationCurves = stationCurvesOf(b);
+  return stationCurves === undefined ? out : ({ ...out, stationCurves } as StationHalf);
 };
 
 /**

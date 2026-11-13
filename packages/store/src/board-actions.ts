@@ -3,8 +3,9 @@
  * The board edits both document stores share: the spline actions (move, tangents, locks, insert,
  * delete, ...), the whole-board resize and the fin edits. Each one reads the board the store shows,
  * applies the pure edit from `edits.ts`, and hands the result to the store's own `commit`. The classic
- * store commits a board; the section store (sections/section-store.ts) writes the changed curves back
- * into its document. One body of edit rules for both engines (docs/design/m2-editor.md §1).
+ * store commits a board; the section store (sections/section-store.ts) and the rails store
+ * (rails/rails-store.ts) write the changed curves back into their documents. One body of edit rules
+ * for every engine (docs/design/m2-editor.md §1).
  */
 import type { BezierBoard, Spline, Vec2 } from '@openshaper/kernel';
 import { applyRailProfile, railPresetById } from '@openshaper/kernel';
@@ -19,6 +20,7 @@ import {
   enforceJunctions,
   extendKnotTangent,
   fairKnot,
+  findTargetSpline,
   fitSectionToBlank,
   getTargetSpline,
   insertKnotAt,
@@ -34,12 +36,15 @@ import {
   setKnotContinuous,
   setKnotLock,
   setKnotTangentLength,
+  stationCurvesOf,
   stepKnotTangentLength,
   updateFinSpec,
   withSpline,
   zeroKnotTangent,
+  isStationTarget,
   type SplineTarget,
 } from './edits';
+import { constrainHalfCurve, halfCurveFrame } from './rails/half-curve';
 
 /** What the shared actions need of the store that owns them. */
 export interface ActionContext {
@@ -89,11 +94,18 @@ export function createSplineActions(ctx: ActionContext): SplineActions {
   /**
    * `target`'s spline in `board` edited from `before` to `after`, as it will be stored. A
    * slice is held inside the blank first: the outline, rocker and deck define the blank,
-   * and a slice edit refines it without ever moving them (`constrainSectionToBlank`).
+   * and a slice edit refines it without ever moving them (`constrainSectionToBlank`). A
+   * rails board's station curve is held to the half-curve rules (`rails/half-curve.ts`).
    * Then the shared junctions are re-pinned, so curves can't be pulled apart.
    */
   const settle = (board: BezierBoard, target: SplineTarget, before: Spline, after: Spline) => {
-    const held = target.kind === 'crossSection' ? constrainSectionToBlank(before, after) : after;
+    let held = after;
+    if (target.kind === 'crossSection') held = constrainSectionToBlank(before, after);
+    else if (isStationTarget(target)) {
+      const entry = stationCurvesOf(board)?.[target.index];
+      const curve = target.kind === 'stationBottom' ? 'bottom' : 'deck';
+      if (entry) held = constrainHalfCurve(before, after, halfCurveFrame(entry, curve));
+    }
     return { held, board: enforceJunctions(withSpline(board, target, held), target) };
   };
 
@@ -175,7 +187,7 @@ export function createSplineActions(ctx: ActionContext): SplineActions {
     commit(settled.board, label);
   };
 
-  return {
+  const actions: SplineActions = {
     moveControlPoint: (target, index, end) =>
       editSpline(target, 'Move control point', (s) => moveKnotEnd(s, index, end)),
 
@@ -256,6 +268,21 @@ export function createSplineActions(ctx: ActionContext): SplineActions {
 
     alignTangentsVertical: (target, index) => editAlign(target, index, alignTangentsVertical),
   };
+
+  // A station curve exists only on a rails board's projection: on any other board (and for a
+  // station it does not have) every action on one does nothing.
+  return Object.fromEntries(
+    Object.entries(actions).map(([name, fn]) => [
+      name,
+      (target: SplineTarget, ...rest: unknown[]) => {
+        if (isStationTarget(target)) {
+          const { board } = get();
+          if (!board || findTargetSpline(board, target) === null) return;
+        }
+        (fn as (target: SplineTarget, ...rest: unknown[]) => void)(target, ...rest);
+      },
+    ]),
+  ) as unknown as SplineActions;
 }
 
 /** The actions of {@link BoardState} that reshape a whole cross-section: paste and the rail presets. */

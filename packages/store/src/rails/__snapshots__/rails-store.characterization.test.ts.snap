@@ -1,0 +1,6086 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`characterization: rails-store actions on the asymmetric board > add then delete a station-curve point 1`] = `
+{
+  "corners": {
+    "minus": [],
+    "nose": 0.8,
+    "plus": [],
+    "tail": 0.6,
+  },
+  "docHash": "da4f65f186336ba9",
+  "editing": false,
+  "features": [
+    "channels",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": 5,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Add control point",
+    "Delete control point",
+  ],
+  "railKeys": [
+    5,
+    5,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s0",
+      0,
+    ],
+    [
+      "s20",
+      20,
+    ],
+    [
+      "s45",
+      45,
+    ],
+    [
+      "s80",
+      80,
+    ],
+    [
+      "s115",
+      115,
+    ],
+    [
+      "s165",
+      165,
+    ],
+    [
+      "s180",
+      180,
+    ],
+  ],
+  "symmetry": "asymmetric",
+}
+`;
+
+exports[`characterization: rails-store actions on the asymmetric board > add, move and delete a station 1`] = `
+{
+  "corners": {
+    "minus": [],
+    "nose": 0.8,
+    "plus": [],
+    "tail": 0.6,
+  },
+  "docHash": "bc492e2542acc526",
+  "editing": false,
+  "features": [
+    "channels",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": 5,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Add cross-section",
+    "Move cross-section",
+    "Add cross-section",
+    "Delete cross-section",
+  ],
+  "railKeys": [
+    5,
+    5,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s0",
+      0,
+    ],
+    [
+      "s20",
+      20,
+    ],
+    [
+      "s45",
+      45,
+    ],
+    [
+      "s9",
+      62.5,
+    ],
+    [
+      "s80",
+      80,
+    ],
+    [
+      "s115",
+      115,
+    ],
+    [
+      "s165",
+      165,
+    ],
+    [
+      "s180",
+      180,
+    ],
+  ],
+  "symmetry": "asymmetric",
+}
+`;
+
+exports[`characterization: rails-store actions on the asymmetric board > asymmetric: edit the minus side, then mirror keeping it 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [],
+    "tail": 0.6,
+  },
+  "docHash": "b5899d89d79ce9c3",
+  "editing": false,
+  "features": [
+    "channels",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move control point",
+    "Move control point",
+    "Make symmetric",
+  ],
+  "railKeys": [
+    5,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s0",
+      0,
+    ],
+    [
+      "s20",
+      20,
+    ],
+    [
+      "s45",
+      45,
+    ],
+    [
+      "s80",
+      80,
+    ],
+    [
+      "s115",
+      115,
+    ],
+    [
+      "s165",
+      165,
+    ],
+    [
+      "s180",
+      180,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the asymmetric board > bottom features 1`] = `
+{
+  "corners": {
+    "minus": [],
+    "nose": 0.8,
+    "plus": [],
+    "tail": 0.6,
+  },
+  "docHash": "ae9ec776de9244f1",
+  "editing": false,
+  "features": [
+    "channels",
+    "channels-2",
+    "single-concave",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": 5,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Add Channels",
+    "Add Single concave",
+    "Set channels",
+    "Set depth of single concave",
+    "Add a key to single concave",
+    "Disable channels",
+  ],
+  "railKeys": [
+    5,
+    5,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s0",
+      0,
+    ],
+    [
+      "s20",
+      20,
+    ],
+    [
+      "s45",
+      45,
+    ],
+    [
+      "s80",
+      80,
+    ],
+    [
+      "s115",
+      115,
+    ],
+    [
+      "s165",
+      165,
+    ],
+    [
+      "s180",
+      180,
+    ],
+  ],
+  "symmetry": "asymmetric",
+}
+`;
+
+exports[`characterization: rails-store actions on the asymmetric board > corner and smooth an outline point 1`] = `
+{
+  "corners": {
+    "minus": [],
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.6,
+  },
+  "docHash": "3855fb0bbcedd844",
+  "editing": false,
+  "features": [
+    "channels",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": 5,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Corner control point",
+    "Smooth control point",
+    "Corner control point",
+  ],
+  "railKeys": [
+    5,
+    5,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s0",
+      0,
+    ],
+    [
+      "s20",
+      20,
+    ],
+    [
+      "s45",
+      45,
+    ],
+    [
+      "s80",
+      80,
+    ],
+    [
+      "s115",
+      115,
+    ],
+    [
+      "s165",
+      165,
+    ],
+    [
+      "s180",
+      180,
+    ],
+  ],
+  "symmetry": "asymmetric",
+}
+`;
+
+exports[`characterization: rails-store actions on the asymmetric board > drag a rocker tangent as one grouped edit 1`] = `
+{
+  "corners": {
+    "minus": [],
+    "nose": 0.8,
+    "plus": [],
+    "tail": 0.6,
+  },
+  "docHash": "69a07dd9d5bf025f",
+  "editing": false,
+  "features": [
+    "channels",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": 5,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move tangent",
+  ],
+  "railKeys": [
+    5,
+    5,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s0",
+      0,
+    ],
+    [
+      "s20",
+      20,
+    ],
+    [
+      "s45",
+      45,
+    ],
+    [
+      "s80",
+      80,
+    ],
+    [
+      "s115",
+      115,
+    ],
+    [
+      "s165",
+      165,
+    ],
+    [
+      "s180",
+      180,
+    ],
+  ],
+  "symmetry": "asymmetric",
+}
+`;
+
+exports[`characterization: rails-store actions on the asymmetric board > drag a station bottom point 1`] = `
+{
+  "corners": {
+    "minus": [],
+    "nose": 0.8,
+    "plus": [],
+    "tail": 0.6,
+  },
+  "docHash": "3abe27f08b4e317a",
+  "editing": false,
+  "features": [
+    "channels",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": 5,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move control point",
+  ],
+  "railKeys": [
+    5,
+    5,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s0",
+      0,
+    ],
+    [
+      "s20",
+      20,
+    ],
+    [
+      "s45",
+      45,
+    ],
+    [
+      "s80",
+      80,
+    ],
+    [
+      "s115",
+      115,
+    ],
+    [
+      "s165",
+      165,
+    ],
+    [
+      "s180",
+      180,
+    ],
+  ],
+  "symmetry": "asymmetric",
+}
+`;
+
+exports[`characterization: rails-store actions on the asymmetric board > drag a station deck handle and round it off 1`] = `
+{
+  "corners": {
+    "minus": [],
+    "nose": 0.8,
+    "plus": [],
+    "tail": 0.6,
+  },
+  "docHash": "916150936bb33a3c",
+  "editing": false,
+  "features": [
+    "channels",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": 5,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move tangent",
+    "Move control point",
+    "Fair curve",
+  ],
+  "railKeys": [
+    5,
+    5,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s0",
+      0,
+    ],
+    [
+      "s20",
+      20,
+    ],
+    [
+      "s45",
+      45,
+    ],
+    [
+      "s80",
+      80,
+    ],
+    [
+      "s115",
+      115,
+    ],
+    [
+      "s165",
+      165,
+    ],
+    [
+      "s180",
+      180,
+    ],
+  ],
+  "symmetry": "asymmetric",
+}
+`;
+
+exports[`characterization: rails-store actions on the asymmetric board > drag the notch bottom 1`] = `
+{
+  "corners": {
+    "minus": [
+      0.6,
+    ],
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "eb439bec564b8fe7",
+  "editing": false,
+  "features": [
+    "channels",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": 6,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Swallow tail",
+    "Move notch depth",
+  ],
+  "railKeys": [
+    5,
+    5,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s20",
+      20,
+    ],
+    [
+      "s45",
+      45,
+    ],
+    [
+      "s80",
+      80,
+    ],
+    [
+      "s115",
+      115,
+    ],
+    [
+      "s165",
+      165,
+    ],
+    [
+      "s180",
+      180,
+    ],
+  ],
+  "symmetry": "asymmetric",
+}
+`;
+
+exports[`characterization: rails-store actions on the asymmetric board > fin edits 1`] = `
+{
+  "corners": {
+    "minus": [],
+    "nose": 0.8,
+    "plus": [],
+    "tail": 0.6,
+  },
+  "docHash": "c5bba7173fd8af3a",
+  "editing": false,
+  "features": [
+    "channels",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": 5,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Change fin setup",
+    "Change fin system",
+    "Edit fin",
+    "Move fin",
+  ],
+  "railKeys": [
+    5,
+    5,
+  ],
+  "selectedFin": 1,
+  "selection": null,
+  "stations": [
+    [
+      "s0",
+      0,
+    ],
+    [
+      "s20",
+      20,
+    ],
+    [
+      "s45",
+      45,
+    ],
+    [
+      "s80",
+      80,
+    ],
+    [
+      "s115",
+      115,
+    ],
+    [
+      "s165",
+      165,
+    ],
+    [
+      "s180",
+      180,
+    ],
+  ],
+  "symmetry": "asymmetric",
+}
+`;
+
+exports[`characterization: rails-store actions on the asymmetric board > load only 1`] = `
+{
+  "corners": {
+    "minus": [],
+    "nose": 0.8,
+    "plus": [],
+    "tail": 0.6,
+  },
+  "docHash": "eea4c95c30eff0ba",
+  "editing": false,
+  "features": [
+    "channels",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": 5,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [],
+  "railKeys": [
+    5,
+    5,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s0",
+      0,
+    ],
+    [
+      "s20",
+      20,
+    ],
+    [
+      "s45",
+      45,
+    ],
+    [
+      "s80",
+      80,
+    ],
+    [
+      "s115",
+      115,
+    ],
+    [
+      "s165",
+      165,
+    ],
+    [
+      "s180",
+      180,
+    ],
+  ],
+  "symmetry": "asymmetric",
+}
+`;
+
+exports[`characterization: rails-store actions on the asymmetric board > move a deck control point 1`] = `
+{
+  "corners": {
+    "minus": [],
+    "nose": 0.8,
+    "plus": [],
+    "tail": 0.6,
+  },
+  "docHash": "a9c6e55679286a8b",
+  "editing": false,
+  "features": [
+    "channels",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": 5,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move control point",
+  ],
+  "railKeys": [
+    5,
+    5,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s0",
+      0,
+    ],
+    [
+      "s20",
+      20,
+    ],
+    [
+      "s45",
+      45,
+    ],
+    [
+      "s80",
+      80,
+    ],
+    [
+      "s115",
+      115,
+    ],
+    [
+      "s165",
+      165,
+    ],
+    [
+      "s180",
+      180,
+    ],
+  ],
+  "symmetry": "asymmetric",
+}
+`;
+
+exports[`characterization: rails-store actions on the asymmetric board > move an outline control point 1`] = `
+{
+  "corners": {
+    "minus": [],
+    "nose": 0.8,
+    "plus": [],
+    "tail": 0.6,
+  },
+  "docHash": "70293b4e4119836c",
+  "editing": false,
+  "features": [
+    "channels",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": 5,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move control point",
+  ],
+  "railKeys": [
+    5,
+    5,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s0",
+      0,
+    ],
+    [
+      "s20",
+      20,
+    ],
+    [
+      "s45",
+      45,
+    ],
+    [
+      "s80",
+      80,
+    ],
+    [
+      "s115",
+      115,
+    ],
+    [
+      "s165",
+      165,
+    ],
+    [
+      "s180",
+      180,
+    ],
+  ],
+  "symmetry": "asymmetric",
+}
+`;
+
+exports[`characterization: rails-store actions on the asymmetric board > scale the board 1`] = `
+{
+  "corners": {
+    "minus": [],
+    "nose": 0.8,
+    "plus": [],
+    "tail": 0.6,
+  },
+  "docHash": "7d8ce0869e821770",
+  "editing": false,
+  "features": [
+    "channels",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": 5,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Resize board",
+  ],
+  "railKeys": [
+    5,
+    5,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s0",
+      0,
+    ],
+    [
+      "s20",
+      21,
+    ],
+    [
+      "s45",
+      47.25,
+    ],
+    [
+      "s80",
+      84,
+    ],
+    [
+      "s115",
+      120.75,
+    ],
+    [
+      "s165",
+      173.25,
+    ],
+    [
+      "s180",
+      189,
+    ],
+  ],
+  "symmetry": "asymmetric",
+}
+`;
+
+exports[`characterization: rails-store actions on the asymmetric board > tails: swallow, a deeper notch, fish, standard 1`] = `
+{
+  "corners": {
+    "minus": [],
+    "nose": 0.8,
+    "plus": [],
+    "tail": 0.6,
+  },
+  "docHash": "c480e4e7cb22264d",
+  "editing": false,
+  "features": [
+    "channels",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": 5,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Swallow tail",
+    "Set notch depth",
+    "Fish tail",
+    "Standard tail",
+  ],
+  "railKeys": [
+    5,
+    5,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s20",
+      20,
+    ],
+    [
+      "s45",
+      45,
+    ],
+    [
+      "s80",
+      80,
+    ],
+    [
+      "s115",
+      115,
+    ],
+    [
+      "s165",
+      165,
+    ],
+    [
+      "s180",
+      180,
+    ],
+  ],
+  "symmetry": "asymmetric",
+}
+`;
+
+exports[`characterization: rails-store actions on the asymmetric board > undo, redo and jump through history 1`] = `
+{
+  "corners": {
+    "minus": [],
+    "nose": 0.8,
+    "plus": [],
+    "tail": 0.6,
+  },
+  "docHash": "eea4c95c30eff0ba",
+  "editing": false,
+  "features": [
+    "channels",
+  ],
+  "future": [
+    "Resize board",
+    "Change fin setup",
+  ],
+  "knots": {
+    "deck": 3,
+    "minusOutline": 5,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [],
+  "railKeys": [
+    5,
+    5,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s0",
+      0,
+    ],
+    [
+      "s20",
+      20,
+    ],
+    [
+      "s45",
+      45,
+    ],
+    [
+      "s80",
+      80,
+    ],
+    [
+      "s115",
+      115,
+    ],
+    [
+      "s165",
+      165,
+    ],
+    [
+      "s180",
+      180,
+    ],
+  ],
+  "symmetry": "asymmetric",
+}
+`;
+
+exports[`characterization: rails-store actions on the fish board > add then delete a station-curve point 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "f774e0b7023b1050",
+  "editing": false,
+  "features": [
+    "single",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Add control point",
+    "Delete control point",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s6",
+      6,
+    ],
+    [
+      "s16",
+      16,
+    ],
+    [
+      "s32",
+      32,
+    ],
+    [
+      "s64",
+      64,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s120",
+      120,
+    ],
+    [
+      "s150",
+      150,
+    ],
+    [
+      "s170",
+      170,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the fish board > add, move and delete a station 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "d1837ef864b71751",
+  "editing": false,
+  "features": [
+    "single",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Add cross-section",
+    "Move cross-section",
+    "Add cross-section",
+    "Delete cross-section",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s6",
+      6,
+    ],
+    [
+      "s16",
+      16,
+    ],
+    [
+      "s32",
+      32,
+    ],
+    [
+      "s10",
+      48,
+    ],
+    [
+      "s64",
+      64,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s120",
+      120,
+    ],
+    [
+      "s150",
+      150,
+    ],
+    [
+      "s170",
+      170,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the fish board > asymmetric: edit the minus side, then mirror keeping it 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "70664c383dfa5298",
+  "editing": false,
+  "features": [
+    "single",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Make asymmetric",
+    "Move control point",
+    "Move control point",
+    "Make symmetric",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s6",
+      6,
+    ],
+    [
+      "s16",
+      16,
+    ],
+    [
+      "s32",
+      32,
+    ],
+    [
+      "s64",
+      64,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s120",
+      120,
+    ],
+    [
+      "s150",
+      150,
+    ],
+    [
+      "s170",
+      170,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the fish board > bottom features 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "6b61747b8cb06ad8",
+  "editing": false,
+  "features": [
+    "single",
+    "channels",
+    "single-concave",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Add Channels",
+    "Add Single concave",
+    "Set channels",
+    "Set depth of single concave",
+    "Add a key to single concave",
+    "Disable channels",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s6",
+      6,
+    ],
+    [
+      "s16",
+      16,
+    ],
+    [
+      "s32",
+      32,
+    ],
+    [
+      "s64",
+      64,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s120",
+      120,
+    ],
+    [
+      "s150",
+      150,
+    ],
+    [
+      "s170",
+      170,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the fish board > corner and smooth an outline point 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "c259ebb576aaa064",
+  "editing": false,
+  "features": [
+    "single",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Corner control point",
+    "Smooth control point",
+    "Corner control point",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s6",
+      6,
+    ],
+    [
+      "s16",
+      16,
+    ],
+    [
+      "s32",
+      32,
+    ],
+    [
+      "s64",
+      64,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s120",
+      120,
+    ],
+    [
+      "s150",
+      150,
+    ],
+    [
+      "s170",
+      170,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the fish board > drag a rocker tangent as one grouped edit 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "89e1d0030eae4229",
+  "editing": false,
+  "features": [
+    "single",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move tangent",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s6",
+      6,
+    ],
+    [
+      "s16",
+      16,
+    ],
+    [
+      "s32",
+      32,
+    ],
+    [
+      "s64",
+      64,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s120",
+      120,
+    ],
+    [
+      "s150",
+      150,
+    ],
+    [
+      "s170",
+      170,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the fish board > drag a station bottom point 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "b9313a297c121a7d",
+  "editing": false,
+  "features": [
+    "single",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move control point",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s6",
+      6,
+    ],
+    [
+      "s16",
+      16,
+    ],
+    [
+      "s32",
+      32,
+    ],
+    [
+      "s64",
+      64,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s120",
+      120,
+    ],
+    [
+      "s150",
+      150,
+    ],
+    [
+      "s170",
+      170,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the fish board > drag a station deck handle and round it off 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "4cec07f9de6a19f6",
+  "editing": false,
+  "features": [
+    "single",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move tangent",
+    "Move control point",
+    "Fair curve",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s6",
+      6,
+    ],
+    [
+      "s16",
+      16,
+    ],
+    [
+      "s32",
+      32,
+    ],
+    [
+      "s64",
+      64,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s120",
+      120,
+    ],
+    [
+      "s150",
+      150,
+    ],
+    [
+      "s170",
+      170,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the fish board > drag the notch bottom 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "82152c1f39afb1ec",
+  "editing": false,
+  "features": [
+    "single",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move notch depth",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s6",
+      9,
+    ],
+    [
+      "s16",
+      16,
+    ],
+    [
+      "s32",
+      32,
+    ],
+    [
+      "s64",
+      64,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s120",
+      120,
+    ],
+    [
+      "s150",
+      150,
+    ],
+    [
+      "s170",
+      170,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the fish board > fin edits 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "2995fab85e305e90",
+  "editing": false,
+  "features": [
+    "single",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Change fin setup",
+    "Change fin system",
+    "Edit fin",
+    "Move fin",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": 1,
+  "selection": null,
+  "stations": [
+    [
+      "s6",
+      6,
+    ],
+    [
+      "s16",
+      16,
+    ],
+    [
+      "s32",
+      32,
+    ],
+    [
+      "s64",
+      64,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s120",
+      120,
+    ],
+    [
+      "s150",
+      150,
+    ],
+    [
+      "s170",
+      170,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the fish board > load only 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "5341c619f21e68f1",
+  "editing": false,
+  "features": [
+    "single",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s6",
+      6,
+    ],
+    [
+      "s16",
+      16,
+    ],
+    [
+      "s32",
+      32,
+    ],
+    [
+      "s64",
+      64,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s120",
+      120,
+    ],
+    [
+      "s150",
+      150,
+    ],
+    [
+      "s170",
+      170,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the fish board > move a deck control point 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "56e0032ea7744661",
+  "editing": false,
+  "features": [
+    "single",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move control point",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s6",
+      6,
+    ],
+    [
+      "s16",
+      16,
+    ],
+    [
+      "s32",
+      32,
+    ],
+    [
+      "s64",
+      64,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s120",
+      120,
+    ],
+    [
+      "s150",
+      150,
+    ],
+    [
+      "s170",
+      170,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the fish board > move an outline control point 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "2a26fb179fddfc04",
+  "editing": false,
+  "features": [
+    "single",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move control point",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s6",
+      6,
+    ],
+    [
+      "s16",
+      16,
+    ],
+    [
+      "s32",
+      32,
+    ],
+    [
+      "s64",
+      64,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s120",
+      120,
+    ],
+    [
+      "s150",
+      150,
+    ],
+    [
+      "s170",
+      170,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the fish board > scale the board 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "b4842ced1dfc478e",
+  "editing": false,
+  "features": [
+    "single",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Resize board",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s6",
+      6.3,
+    ],
+    [
+      "s16",
+      16.8,
+    ],
+    [
+      "s32",
+      33.6,
+    ],
+    [
+      "s64",
+      67.2,
+    ],
+    [
+      "s100",
+      105,
+    ],
+    [
+      "s120",
+      126,
+    ],
+    [
+      "s150",
+      157.5,
+    ],
+    [
+      "s170",
+      178.5,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the fish board > tails: swallow, a deeper notch, fish, standard 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [],
+    "tail": 0.6,
+  },
+  "docHash": "2361f46374d8429b",
+  "editing": false,
+  "features": [
+    "single",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Set notch depth",
+    "Fish tail",
+    "Standard tail",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s6",
+      8,
+    ],
+    [
+      "s16",
+      16,
+    ],
+    [
+      "s32",
+      32,
+    ],
+    [
+      "s64",
+      64,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s120",
+      120,
+    ],
+    [
+      "s150",
+      150,
+    ],
+    [
+      "s170",
+      170,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the fish board > undo, redo and jump through history 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "5341c619f21e68f1",
+  "editing": false,
+  "features": [
+    "single",
+  ],
+  "future": [
+    "Resize board",
+    "Change fin setup",
+    "Move control point",
+  ],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s6",
+      6,
+    ],
+    [
+      "s16",
+      16,
+    ],
+    [
+      "s32",
+      32,
+    ],
+    [
+      "s64",
+      64,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s120",
+      120,
+    ],
+    [
+      "s150",
+      150,
+    ],
+    [
+      "s170",
+      170,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the mirror board > add then delete a station-curve point 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.6,
+  },
+  "docHash": "806ebc230b4bf524",
+  "editing": false,
+  "features": [],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        3,
+        3,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        3,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Add control point",
+    "Delete control point",
+  ],
+  "railKeys": [
+    4,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s1",
+      0.9525,
+    ],
+    [
+      "s2",
+      30.48,
+    ],
+    [
+      "s3",
+      92.71,
+    ],
+    [
+      "s4",
+      157.48,
+    ],
+    [
+      "s5",
+      185.35,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the mirror board > add, move and delete a station 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.6,
+  },
+  "docHash": "57b3b55f29a13459",
+  "editing": false,
+  "features": [],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        3,
+        3,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        3,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Add cross-section",
+    "Move cross-section",
+    "Add cross-section",
+    "Delete cross-section",
+  ],
+  "railKeys": [
+    4,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s1",
+      0.9525,
+    ],
+    [
+      "s2",
+      30.48,
+    ],
+    [
+      "s3",
+      92.71,
+    ],
+    [
+      "s7",
+      125.095,
+    ],
+    [
+      "s4",
+      157.48,
+    ],
+    [
+      "s5",
+      185.35,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the mirror board > asymmetric: edit the minus side, then mirror keeping it 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.6,
+  },
+  "docHash": "d688c6f1c8d94f0b",
+  "editing": false,
+  "features": [],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        3,
+        3,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        3,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Make asymmetric",
+    "Move control point",
+    "Move control point",
+    "Make symmetric",
+  ],
+  "railKeys": [
+    4,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s1",
+      0.9525,
+    ],
+    [
+      "s2",
+      30.48,
+    ],
+    [
+      "s3",
+      92.71,
+    ],
+    [
+      "s4",
+      157.48,
+    ],
+    [
+      "s5",
+      185.35,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the mirror board > bottom features 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.6,
+  },
+  "docHash": "ab1b9c8c3aaf3641",
+  "editing": false,
+  "features": [
+    "channels",
+    "single-concave",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        3,
+        3,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        3,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Add Channels",
+    "Add Single concave",
+    "Set channels",
+    "Set depth of single concave",
+    "Add a key to single concave",
+    "Disable channels",
+  ],
+  "railKeys": [
+    4,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s1",
+      0.9525,
+    ],
+    [
+      "s2",
+      30.48,
+    ],
+    [
+      "s3",
+      92.71,
+    ],
+    [
+      "s4",
+      157.48,
+    ],
+    [
+      "s5",
+      185.35,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the mirror board > corner and smooth an outline point 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+      0.6,
+    ],
+    "tail": 0.6,
+  },
+  "docHash": "bff5ac2c4918712b",
+  "editing": false,
+  "features": [],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        3,
+        3,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        3,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Corner control point",
+    "Smooth control point",
+    "Corner control point",
+  ],
+  "railKeys": [
+    4,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s1",
+      0.9525,
+    ],
+    [
+      "s2",
+      30.48,
+    ],
+    [
+      "s3",
+      92.71,
+    ],
+    [
+      "s4",
+      157.48,
+    ],
+    [
+      "s5",
+      185.35,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the mirror board > drag a rocker tangent as one grouped edit 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.6,
+  },
+  "docHash": "5473613c6dfe2b86",
+  "editing": false,
+  "features": [],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        3,
+        3,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        3,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move tangent",
+  ],
+  "railKeys": [
+    4,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s1",
+      0.9525,
+    ],
+    [
+      "s2",
+      30.48,
+    ],
+    [
+      "s3",
+      92.71,
+    ],
+    [
+      "s4",
+      157.48,
+    ],
+    [
+      "s5",
+      185.35,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the mirror board > drag a station bottom point 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.6,
+  },
+  "docHash": "f46a1fa68d57218b",
+  "editing": false,
+  "features": [],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        3,
+        3,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        3,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move control point",
+  ],
+  "railKeys": [
+    4,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s1",
+      0.9525,
+    ],
+    [
+      "s2",
+      30.48,
+    ],
+    [
+      "s3",
+      92.71,
+    ],
+    [
+      "s4",
+      157.48,
+    ],
+    [
+      "s5",
+      185.35,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the mirror board > drag a station deck handle and round it off 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.6,
+  },
+  "docHash": "2f71532ace92290b",
+  "editing": false,
+  "features": [],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        3,
+        3,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        3,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move tangent",
+    "Move control point",
+    "Fair curve",
+  ],
+  "railKeys": [
+    4,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s1",
+      0.9525,
+    ],
+    [
+      "s2",
+      30.48,
+    ],
+    [
+      "s3",
+      92.71,
+    ],
+    [
+      "s4",
+      157.48,
+    ],
+    [
+      "s5",
+      185.35,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the mirror board > drag the notch bottom 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "53b1f96f17bebb2a",
+  "editing": false,
+  "features": [],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        3,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Swallow tail",
+    "Move notch depth",
+  ],
+  "railKeys": [
+    4,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s2",
+      30.48,
+    ],
+    [
+      "s3",
+      92.71,
+    ],
+    [
+      "s4",
+      157.48,
+    ],
+    [
+      "s5",
+      185.35,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the mirror board > fin edits 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.6,
+  },
+  "docHash": "1a9f98d733acda6c",
+  "editing": false,
+  "features": [],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        3,
+        3,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        3,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Change fin setup",
+    "Change fin system",
+    "Edit fin",
+    "Move fin",
+  ],
+  "railKeys": [
+    4,
+    null,
+  ],
+  "selectedFin": 1,
+  "selection": null,
+  "stations": [
+    [
+      "s1",
+      0.9525,
+    ],
+    [
+      "s2",
+      30.48,
+    ],
+    [
+      "s3",
+      92.71,
+    ],
+    [
+      "s4",
+      157.48,
+    ],
+    [
+      "s5",
+      185.35,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the mirror board > load only 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.6,
+  },
+  "docHash": "8c1d4ac17d3a4112",
+  "editing": false,
+  "features": [],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        3,
+        3,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        3,
+        4,
+      ],
+    ],
+  },
+  "past": [],
+  "railKeys": [
+    4,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s1",
+      0.9525,
+    ],
+    [
+      "s2",
+      30.48,
+    ],
+    [
+      "s3",
+      92.71,
+    ],
+    [
+      "s4",
+      157.48,
+    ],
+    [
+      "s5",
+      185.35,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the mirror board > move a deck control point 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.6,
+  },
+  "docHash": "748b6c30e8b8f9de",
+  "editing": false,
+  "features": [],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        3,
+        3,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        3,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move control point",
+  ],
+  "railKeys": [
+    4,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s1",
+      0.9525,
+    ],
+    [
+      "s2",
+      30.48,
+    ],
+    [
+      "s3",
+      92.71,
+    ],
+    [
+      "s4",
+      157.48,
+    ],
+    [
+      "s5",
+      185.35,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the mirror board > move an outline control point 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.6,
+  },
+  "docHash": "9c5cde0cf7ead96b",
+  "editing": false,
+  "features": [],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        3,
+        3,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        3,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move control point",
+  ],
+  "railKeys": [
+    4,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s1",
+      0.9525,
+    ],
+    [
+      "s2",
+      30.48,
+    ],
+    [
+      "s3",
+      92.71,
+    ],
+    [
+      "s4",
+      157.48,
+    ],
+    [
+      "s5",
+      185.35,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the mirror board > scale the board 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.6,
+  },
+  "docHash": "aedaefe7262706ac",
+  "editing": false,
+  "features": [],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        3,
+        3,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        3,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Resize board",
+  ],
+  "railKeys": [
+    4,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s1",
+      1.000125,
+    ],
+    [
+      "s2",
+      32.004,
+    ],
+    [
+      "s3",
+      97.3455,
+    ],
+    [
+      "s4",
+      165.354,
+    ],
+    [
+      "s5",
+      194.6175,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the mirror board > tails: swallow, a deeper notch, fish, standard 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.6,
+  },
+  "docHash": "9dea0bfca2e58995",
+  "editing": false,
+  "features": [],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 4,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        3,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Swallow tail",
+    "Set notch depth",
+    "Fish tail",
+    "Standard tail",
+  ],
+  "railKeys": [
+    4,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s2",
+      30.48,
+    ],
+    [
+      "s3",
+      92.71,
+    ],
+    [
+      "s4",
+      157.48,
+    ],
+    [
+      "s5",
+      185.35,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the mirror board > undo, redo and jump through history 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.6,
+  },
+  "docHash": "8c1d4ac17d3a4112",
+  "editing": false,
+  "features": [],
+  "future": [
+    "Resize board",
+    "Change fin setup",
+    "Move control point",
+  ],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        3,
+        3,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        3,
+        4,
+      ],
+    ],
+  },
+  "past": [],
+  "railKeys": [
+    4,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s1",
+      0.9525,
+    ],
+    [
+      "s2",
+      30.48,
+    ],
+    [
+      "s3",
+      92.71,
+    ],
+    [
+      "s4",
+      157.48,
+    ],
+    [
+      "s5",
+      185.35,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the swallow board > add then delete a station-curve point 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "98d791279dd796ca",
+  "editing": false,
+  "features": [
+    "vee",
+    "double",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Add control point",
+    "Delete control point",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s11",
+      11,
+    ],
+    [
+      "s24",
+      24,
+    ],
+    [
+      "s40",
+      40,
+    ],
+    [
+      "s70",
+      70,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s130",
+      130,
+    ],
+    [
+      "s160",
+      160,
+    ],
+    [
+      "s185",
+      185,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the swallow board > add, move and delete a station 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "ebe4890c1beabd06",
+  "editing": false,
+  "features": [
+    "vee",
+    "double",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Add cross-section",
+    "Move cross-section",
+    "Add cross-section",
+    "Delete cross-section",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s11",
+      11,
+    ],
+    [
+      "s24",
+      24,
+    ],
+    [
+      "s40",
+      40,
+    ],
+    [
+      "s10",
+      55,
+    ],
+    [
+      "s70",
+      70,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s130",
+      130,
+    ],
+    [
+      "s160",
+      160,
+    ],
+    [
+      "s185",
+      185,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the swallow board > asymmetric: edit the minus side, then mirror keeping it 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "301f4a4f31d9cb42",
+  "editing": false,
+  "features": [
+    "vee",
+    "double",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Make asymmetric",
+    "Move control point",
+    "Move control point",
+    "Make symmetric",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s11",
+      11,
+    ],
+    [
+      "s24",
+      24,
+    ],
+    [
+      "s40",
+      40,
+    ],
+    [
+      "s70",
+      70,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s130",
+      130,
+    ],
+    [
+      "s160",
+      160,
+    ],
+    [
+      "s185",
+      185,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the swallow board > bottom features 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "25f324d78a37c416",
+  "editing": false,
+  "features": [
+    "vee",
+    "double",
+    "channels",
+    "single-concave",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Add Channels",
+    "Add Single concave",
+    "Set channels",
+    "Set depth of single concave",
+    "Add a key to single concave",
+    "Disable channels",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s11",
+      11,
+    ],
+    [
+      "s24",
+      24,
+    ],
+    [
+      "s40",
+      40,
+    ],
+    [
+      "s70",
+      70,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s130",
+      130,
+    ],
+    [
+      "s160",
+      160,
+    ],
+    [
+      "s185",
+      185,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the swallow board > corner and smooth an outline point 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "2888b18d7911dcdd",
+  "editing": false,
+  "features": [
+    "vee",
+    "double",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Corner control point",
+    "Smooth control point",
+    "Corner control point",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s11",
+      11,
+    ],
+    [
+      "s24",
+      24,
+    ],
+    [
+      "s40",
+      40,
+    ],
+    [
+      "s70",
+      70,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s130",
+      130,
+    ],
+    [
+      "s160",
+      160,
+    ],
+    [
+      "s185",
+      185,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the swallow board > drag a rocker tangent as one grouped edit 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "2f935020c43aac1a",
+  "editing": false,
+  "features": [
+    "vee",
+    "double",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move tangent",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s11",
+      11,
+    ],
+    [
+      "s24",
+      24,
+    ],
+    [
+      "s40",
+      40,
+    ],
+    [
+      "s70",
+      70,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s130",
+      130,
+    ],
+    [
+      "s160",
+      160,
+    ],
+    [
+      "s185",
+      185,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the swallow board > drag a station bottom point 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "5aecc602154ce334",
+  "editing": false,
+  "features": [
+    "vee",
+    "double",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move control point",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s11",
+      11,
+    ],
+    [
+      "s24",
+      24,
+    ],
+    [
+      "s40",
+      40,
+    ],
+    [
+      "s70",
+      70,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s130",
+      130,
+    ],
+    [
+      "s160",
+      160,
+    ],
+    [
+      "s185",
+      185,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the swallow board > drag a station deck handle and round it off 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "515a383e1eb7e79b",
+  "editing": false,
+  "features": [
+    "vee",
+    "double",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move tangent",
+    "Move control point",
+    "Fair curve",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s11",
+      11,
+    ],
+    [
+      "s24",
+      24,
+    ],
+    [
+      "s40",
+      40,
+    ],
+    [
+      "s70",
+      70,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s130",
+      130,
+    ],
+    [
+      "s160",
+      160,
+    ],
+    [
+      "s185",
+      185,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the swallow board > drag the notch bottom 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "efb30c4ba7ec3754",
+  "editing": false,
+  "features": [
+    "vee",
+    "double",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move notch depth",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s11",
+      14,
+    ],
+    [
+      "s24",
+      24,
+    ],
+    [
+      "s40",
+      40,
+    ],
+    [
+      "s70",
+      70,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s130",
+      130,
+    ],
+    [
+      "s160",
+      160,
+    ],
+    [
+      "s185",
+      185,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the swallow board > fin edits 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "67d60a3f0942636a",
+  "editing": false,
+  "features": [
+    "vee",
+    "double",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Change fin setup",
+    "Change fin system",
+    "Edit fin",
+    "Move fin",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": 1,
+  "selection": null,
+  "stations": [
+    [
+      "s11",
+      11,
+    ],
+    [
+      "s24",
+      24,
+    ],
+    [
+      "s40",
+      40,
+    ],
+    [
+      "s70",
+      70,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s130",
+      130,
+    ],
+    [
+      "s160",
+      160,
+    ],
+    [
+      "s185",
+      185,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the swallow board > load only 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "17f42ef746c5e8e0",
+  "editing": false,
+  "features": [
+    "vee",
+    "double",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s11",
+      11,
+    ],
+    [
+      "s24",
+      24,
+    ],
+    [
+      "s40",
+      40,
+    ],
+    [
+      "s70",
+      70,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s130",
+      130,
+    ],
+    [
+      "s160",
+      160,
+    ],
+    [
+      "s185",
+      185,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the swallow board > move a deck control point 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "1f04eb845217c307",
+  "editing": false,
+  "features": [
+    "vee",
+    "double",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move control point",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s11",
+      11,
+    ],
+    [
+      "s24",
+      24,
+    ],
+    [
+      "s40",
+      40,
+    ],
+    [
+      "s70",
+      70,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s130",
+      130,
+    ],
+    [
+      "s160",
+      160,
+    ],
+    [
+      "s185",
+      185,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the swallow board > move an outline control point 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "b2083ebcb2f3c9de",
+  "editing": false,
+  "features": [
+    "vee",
+    "double",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Move control point",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s11",
+      11,
+    ],
+    [
+      "s24",
+      24,
+    ],
+    [
+      "s40",
+      40,
+    ],
+    [
+      "s70",
+      70,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s130",
+      130,
+    ],
+    [
+      "s160",
+      160,
+    ],
+    [
+      "s185",
+      185,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the swallow board > scale the board 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "149b7103d2f6079c",
+  "editing": false,
+  "features": [
+    "vee",
+    "double",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Resize board",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s11",
+      11.55,
+    ],
+    [
+      "s24",
+      25.2,
+    ],
+    [
+      "s40",
+      42,
+    ],
+    [
+      "s70",
+      73.5,
+    ],
+    [
+      "s100",
+      105,
+    ],
+    [
+      "s130",
+      136.5,
+    ],
+    [
+      "s160",
+      168,
+    ],
+    [
+      "s185",
+      194.25,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the swallow board > tails: swallow, a deeper notch, fish, standard 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [],
+    "tail": 0.6,
+  },
+  "docHash": "9431441568bc2bb8",
+  "editing": false,
+  "features": [
+    "vee",
+    "double",
+  ],
+  "future": [],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 5,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [
+    "Swallow tail",
+    "Set notch depth",
+    "Fish tail",
+    "Standard tail",
+  ],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s11",
+      13,
+    ],
+    [
+      "s24",
+      24,
+    ],
+    [
+      "s40",
+      40,
+    ],
+    [
+      "s70",
+      70,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s130",
+      130,
+    ],
+    [
+      "s160",
+      160,
+    ],
+    [
+      "s185",
+      185,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;
+
+exports[`characterization: rails-store actions on the swallow board > undo, redo and jump through history 1`] = `
+{
+  "corners": {
+    "nose": 0.8,
+    "plus": [
+      0.6,
+    ],
+    "tail": 0.2,
+  },
+  "docHash": "17f42ef746c5e8e0",
+  "editing": false,
+  "features": [
+    "vee",
+    "double",
+  ],
+  "future": [
+    "Resize board",
+    "Change fin setup",
+    "Move control point",
+  ],
+  "knots": {
+    "deck": 3,
+    "minusOutline": null,
+    "outline": 6,
+    "rocker": 3,
+    "stations": [
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+      [
+        4,
+        4,
+      ],
+    ],
+  },
+  "past": [],
+  "railKeys": [
+    7,
+    null,
+  ],
+  "selectedFin": null,
+  "selection": null,
+  "stations": [
+    [
+      "s11",
+      11,
+    ],
+    [
+      "s24",
+      24,
+    ],
+    [
+      "s40",
+      40,
+    ],
+    [
+      "s70",
+      70,
+    ],
+    [
+      "s100",
+      100,
+    ],
+    [
+      "s130",
+      130,
+    ],
+    [
+      "s160",
+      160,
+    ],
+    [
+      "s185",
+      185,
+    ],
+  ],
+  "symmetry": "mirror",
+}
+`;

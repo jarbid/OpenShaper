@@ -54,7 +54,7 @@ const corner = (p: Pair, inn?: Pair, out?: Pair): ChainKnot => ({
 });
 
 /** Index of the rearmost knot: the tail tip of a notched outline (its first knot is the notch bottom). */
-const tipIndex = (c: Chain): number => {
+export const tipIndex = (c: Chain): number => {
   let tip = 0;
   c.knots.forEach((k, i) => {
     if (k.p[0] < c.knots[tip]!.p[0]) tip = i;
@@ -114,10 +114,17 @@ export function setSymmetry(
 // ---------------------------------------------------------------------------
 
 /** The tail type of a document: standard, or the swallow or fish its notch wall is. */
-export function tailTypeOf(doc: BoardDoc): TailType {
-  if (doc.tail.kind === 'standard') return 'standard';
-  const knots = doc.outline.plus.knots;
-  const tip = tipIndex(doc.outline.plus);
+export const tailTypeOf = (doc: BoardDoc): TailType =>
+  tailTypeOfChain(doc.outline.plus, doc.tail.kind === 'notched');
+
+/**
+ * The tail type of an outline chain that is `notched` or not: standard, or the swallow or fish its
+ * notch wall is (shared with the rails store, whose document stores no tail).
+ */
+export function tailTypeOfChain(chain: Chain, notched: boolean): TailType {
+  if (!notched) return 'standard';
+  const knots = chain.knots;
+  const tip = tipIndex(chain);
   // a wall of several segments is not one of ours: call it a fish (a rounded wall)
   if (tip !== 1) return 'fish';
   const d = knots[0]!.p[0];
@@ -141,7 +148,7 @@ function wall(type: 'swallow' | 'fish', d: number, w: number): { out: Pair; tipI
 }
 
 /** The outline chain of a notched tail of `type`, depth `d`, built on the rest of `chain`'s outline. */
-function notchedOutline(
+export function notchedOutline(
   chain: Chain,
   type: 'swallow' | 'fish',
   d: number,
@@ -176,7 +183,7 @@ function notchedOutline(
 }
 
 /** The outline chain of a standard tail built on the rest of the notched `chain`'s outline. */
-function standardOutline(chain: Chain): Chain {
+export function standardOutline(chain: Chain): Chain {
   const tip = tipIndex(chain);
   const t = chain.knots[tip]!;
   const rest = chain.knots.slice(tip + 1);
@@ -189,12 +196,12 @@ function standardOutline(chain: Chain): Chain {
  * The stations a board keeps when its station range starts at `xi0`: those behind it are dropped, and the
  * one sitting on the old notch bottom `follows` it there. Null when fewer than two stations would remain.
  */
-function stationsFrom(
-  stations: readonly Station[],
+export function stationsFrom<S extends { readonly x: number }>(
+  stations: readonly S[],
   xi0: number,
   follows?: number,
-): Station[] | null {
-  const next: Station[] = [];
+): S[] | null {
+  const next: S[] = [];
   for (const s of stations) {
     const moved = follows !== undefined && Math.abs(s.x - follows) < STATION_GAP;
     const x = moved ? xi0 : s.x;
@@ -260,13 +267,13 @@ export const notchDepthRange = (L: number): { readonly min: number; readonly max
   max: MAX_DEPTH_SHARE * L,
 });
 
-const clampDepth = (d: number, L: number): number => {
+export const clampDepth = (d: number, L: number): number => {
   const { min, max } = notchDepthRange(L);
   return Math.min(max, Math.max(min, d));
 };
 
 /** The wall of `chain` with its x scaled by `r` about the tail tip (x = 0), and the notch bottom put at `d`. */
-function movedNotch(chain: Chain, d: number): Chain {
+export function movedNotch(chain: Chain, d: number): Chain {
   const was = firstX(chain);
   const r = d / was;
   const [first, tip, ...rest] = chain.knots;

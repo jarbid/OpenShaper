@@ -5,6 +5,7 @@
  * `src` lives here (`no-magic-tolerances.test.ts` exempts this file only).
  * Lengths are cm, angles radians.
  */
+import { RADIUS_CROTCH, RADIUS_NOSE, RADIUS_TAIL } from './defaults';
 import type { BuildSettings } from './types';
 
 /** The document's format tag, version and model (the plan's "v2"; classic `.board.json` is already v2). */
@@ -435,9 +436,9 @@ export const TRIM = {
   /** A section is read as cutting the outline at an angle whose cosine is at least this: one nearly tangent to it would see the narrowest band many centimetres wide. */
   skewMin: 0.2,
   /** Default corner radii of a rails board's outline, cm: the ball on a nose, on a tail tip or corner, and in a notch's crotch. */
-  radiusNose: 0.8,
-  radiusTail: 0.6,
-  radiusCrotch: 0.2,
+  radiusNose: RADIUS_NOSE,
+  radiusTail: RADIUS_TAIL,
+  radiusCrotch: RADIUS_CROTCH,
   /** Samples of one outline piece per Bézier segment in it, gathered towards the piece's ends. */
   pieceSamples: 160,
   /**

@@ -33,7 +33,8 @@ import {
 /**
  * `doc` with the chain `target` names replaced. The outline, rocker and deck, and a station's section
  * (`index` is the classic slice index, so station `index - 1`; `side: 'minus'` on an asymmetric board
- * edits the minus half). A target the document has no such chain for returns the document itself.
+ * edits the minus half). A target the document has no such chain for (a station curve, which only a
+ * rails board has) returns the document itself.
  */
 export function withChain(doc: BoardDoc, target: SplineTarget, chain: Chain): BoardDoc {
   switch (target.kind) {
@@ -59,6 +60,10 @@ export function withChain(doc: BoardDoc, target: SplineTarget, chain: Chain): Bo
       );
       return { ...doc, stations };
     }
+    // a section document has no station curves (those are a rails board's)
+    case 'stationBottom':
+    case 'stationDeck':
+      return doc;
   }
 }
 
@@ -90,8 +95,8 @@ export function scalePlan(chain: Chain, fL: number, fW: number): Chain {
 
 const lengthOf = (c: Chain): number => c.knots[c.knots.length - 1]!.p[0];
 
-/** Whether two slices have the same knots, handles and flags (exact). */
-const sameSlice = (a: Spline, b: Spline): boolean =>
+/** Whether two splines have the same knots, handles and flags (exact). */
+export const sameSlice = (a: Spline, b: Spline): boolean =>
   a === b ||
   (a.knots.length === b.knots.length &&
     a.knots.every((k, i) => {

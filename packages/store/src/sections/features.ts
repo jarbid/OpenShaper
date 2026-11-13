@@ -2,7 +2,8 @@
 /**
  * The bottom-feature edits of a section document (docs/design/m2-editor.md §2, step 4): add, remove, enable
  * and disable, set a parameter or a depth key of a vee, a single or double concave and channels. Pure
- * functions of a `BoardDoc`. A feature edit changes `features` and nothing else, so every `Chain`,
+ * functions of a document, a section document (`BoardDoc`) or a rails board alike: each reads only
+ * the fields of {@link FeatureDoc}. A feature edit changes `features` and nothing else, so every `Chain`,
  * `Section` and `Station` is passed through by reference and `buildBoard`'s fit cache stays warm.
  *
  * **Bounds.** Every parameter has a range ({@link featureLimits}) that the edits clamp to and the sidebar
@@ -16,17 +17,40 @@
  * squeezed into the room that is left rather than refused.
  */
 import type {
-  BoardDoc,
   BottomFeature,
   Chain,
   ChannelsFeature,
   ConcaveFeature,
   KeyedCurve,
   LawKey,
+  Outline,
+  TailSpec,
   VeeFeature,
 } from '@openshaper/board2';
 import { valueAt } from '@openshaper/kernel';
-import { chainToSpline, type NotchChords } from './project';
+import { chainToSpline } from './project';
+
+/**
+ * What the feature edits read of a document: its features, outline, rocker and deck, and its tail
+ * where it stores one. A document without a `tail` (a rails board) is notched when its outline's
+ * first knot lies past x = 0, the tail being at x = 0.
+ */
+export interface FeatureDoc {
+  readonly features: readonly BottomFeature[];
+  readonly outline: Outline;
+  readonly rocker: Chain;
+  readonly deck: Chain;
+  readonly tail?: TailSpec;
+}
+
+/**
+ * The half width (chord) of one side of a document at x, where the outline alone cannot give it (a
+ * notched tail): the section store's `NotchChords`, or the rails store's half width.
+ */
+export type ChordProvider<D> = (doc: D, side?: 'minus') => (x: number) => number;
+
+const isNotched = (doc: FeatureDoc): boolean =>
+  doc.tail !== undefined ? doc.tail.kind === 'notched' : doc.outline.plus.knots[0]!.p[0] > 0;
 
 /** What the sidebar offers to add. A concave's layout is part of the kind. */
 export type FeatureKind = 'vee' | 'single-concave' | 'double-concave' | 'channels';
@@ -89,7 +113,7 @@ const lengthOf = (c: Chain): number => c.knots[c.knots.length - 1]!.p[0];
 const firstX = (c: Chain): number => c.knots[0]!.p[0];
 
 /** The station range the keys lie inside: `(xi0, L)` shrunk by the margin. */
-export function featureRange(doc: BoardDoc): Range {
+export function featureRange<D extends FeatureDoc>(doc: D): Range {
   const L = lengthOf(doc.outline.plus);
   return { min: firstX(doc.outline.plus) + KEY_MARGIN, max: L - KEY_MARGIN };
 }
@@ -201,9 +225,14 @@ const withSpan = (c: KeyedCurve, from: number, to: number): KeyedCurve =>
  * measure it; without them the floor of a notched board is zero (no channel fits), which the app avoids by
  * loading the provider before it opens a notched board.
  */
-function chordFloor(doc: BoardDoc, a: number, b: number, chords?: NotchChords): number {
+function chordFloor<D extends FeatureDoc>(
+  doc: D,
+  a: number,
+  b: number,
+  chords?: ChordProvider<D>,
+): number {
   let m = Infinity;
-  const notched = doc.tail.kind === 'notched';
+  const notched = isNotched(doc);
   if (notched && chords === undefined) return 0;
   const sides = doc.outline.minus === undefined ? [undefined] : [undefined, 'minus' as const];
   for (const side of sides) {
@@ -219,7 +248,7 @@ function chordFloor(doc: BoardDoc, a: number, b: number, chords?: NotchChords): 
 }
 
 /** The thinnest stringer thickness (cm) over `[a, b]`. */
-function thicknessFloor(doc: BoardDoc, a: number, b: number): number {
+function thicknessFloor<D extends FeatureDoc>(doc: D, a: number, b: number): number {
   const deck = chainToSpline(doc.deck);
   const rocker = chainToSpline(doc.rocker);
   let m = Infinity;
@@ -234,13 +263,17 @@ function thicknessFloor(doc: BoardDoc, a: number, b: number): number {
 const reachOf = (f: ChannelsFeature): number => f.railInset + f.width + (f.count - 1) * f.pitch;
 
 /** The most a feature's channels may reach from the outline (cm). */
-const reachLimit = (doc: BoardDoc, f: BottomFeature, chords?: NotchChords): number => {
+const reachLimit = <D extends FeatureDoc>(
+  doc: D,
+  f: BottomFeature,
+  chords?: ChordProvider<D>,
+): number => {
   const keys = f.depth.keys;
   return CHORD_SHARE * chordFloor(doc, keys[0]!.s, keys[keys.length - 1]!.s, chords);
 };
 
 /** The range of the depth (cm) of a feature on this board. */
-function depthRange(doc: BoardDoc, f: BottomFeature): Range {
+function depthRange<D extends FeatureDoc>(doc: D, f: BottomFeature): Range {
   const keys = f.depth.keys;
   const t = thicknessFloor(doc, keys[0]!.s, keys[keys.length - 1]!.s);
   return { min: 0, max: Math.max(0.05, Math.min(DEPTH_CAP, DEPTH_SHARE * t)) };
@@ -250,10 +283,10 @@ function depthRange(doc: BoardDoc, f: BottomFeature): Range {
  * The range of every parameter of a feature given the others (what the sidebar's fields clamp to), plus
  * `depth` (the greatest depth) and `from` and `to` (the first and last key's x).
  */
-export function featureLimits(
-  doc: BoardDoc,
+export function featureLimits<D extends FeatureDoc>(
+  doc: D,
   f: BottomFeature,
-  chords?: NotchChords,
+  chords?: ChordProvider<D>,
 ): Partial<Record<FeatureParamName | 'from' | 'to', Range>> {
   const room = featureRange(doc);
   const keys = f.depth.keys;
@@ -356,7 +389,7 @@ const plateau = (from: number, to: number, depth: number): KeyedCurve => ({
   ],
 });
 
-const freshId = (doc: BoardDoc, kind: FeatureKind): string => {
+const freshId = <D extends FeatureDoc>(doc: D, kind: FeatureKind): string => {
   const used = new Set(doc.features.map((f) => f.id));
   if (!used.has(kind)) return kind;
   let n = 2;
@@ -365,7 +398,11 @@ const freshId = (doc: BoardDoc, kind: FeatureKind): string => {
 };
 
 /** A new feature of `kind`, enabled, with its defaults fitted to this board. */
-function newFeature(doc: BoardDoc, kind: FeatureKind, chords?: NotchChords): BottomFeature {
+function newFeature<D extends FeatureDoc>(
+  doc: D,
+  kind: FeatureKind,
+  chords?: ChordProvider<D>,
+): BottomFeature {
   const d = DEFAULTS[kind];
   const xi0 = firstX(doc.outline.plus);
   const R = lengthOf(doc.outline.plus) - xi0;
@@ -407,7 +444,11 @@ function newFeature(doc: BoardDoc, kind: FeatureKind, chords?: NotchChords): Bot
 }
 
 /** `f` with its depth within this board's range and its channels inside the chord. */
-function fitFeature(doc: BoardDoc, f: BottomFeature, chords?: NotchChords): BottomFeature {
+function fitFeature<D extends FeatureDoc>(
+  doc: D,
+  f: BottomFeature,
+  chords?: ChordProvider<D>,
+): BottomFeature {
   const range = depthRange(doc, f);
   const peak = peakOf(f.depth);
   let g: BottomFeature = f;
@@ -441,7 +482,11 @@ function scaleDepth(c: KeyedCurve, peak: number): KeyedCurve {
 // The edits
 // ---------------------------------------------------------------------------
 
-const replace = (doc: BoardDoc, id: string, to: (f: BottomFeature) => BottomFeature): BoardDoc => {
+const replace = <D extends FeatureDoc>(
+  doc: D,
+  id: string,
+  to: (f: BottomFeature) => BottomFeature,
+): D => {
   const i = doc.features.findIndex((f) => f.id === id);
   if (i < 0) return doc;
   const was = doc.features[i]!;
@@ -451,24 +496,28 @@ const replace = (doc: BoardDoc, id: string, to: (f: BottomFeature) => BottomFeat
 };
 
 /** The document with a new feature of `kind` appended. Its id is `kind`, or `kind-2`, `kind-3`, … */
-export function addFeature(doc: BoardDoc, kind: FeatureKind, chords?: NotchChords): BoardDoc {
+export function addFeature<D extends FeatureDoc>(
+  doc: D,
+  kind: FeatureKind,
+  chords?: ChordProvider<D>,
+): D {
   return { ...doc, features: [...doc.features, newFeature(doc, kind, chords)] };
 }
 
 /** The document without the feature. */
-export function removeFeature(doc: BoardDoc, id: string): BoardDoc {
+export function removeFeature<D extends FeatureDoc>(doc: D, id: string): D {
   return doc.features.some((f) => f.id === id)
     ? { ...doc, features: doc.features.filter((f) => f.id !== id) }
     : doc;
 }
 
 /** The feature switched on or off (a disabled one is kept, with its settings, and not built). */
-export const setFeatureEnabled = (
-  doc: BoardDoc,
+export const setFeatureEnabled = <D extends FeatureDoc>(
+  doc: D,
   id: string,
   enabled: boolean,
-  chords?: NotchChords,
-): BoardDoc =>
+  chords?: ChordProvider<D>,
+): D =>
   replace(doc, id, (f) => (f.enabled === enabled ? f : fitFeature(doc, { ...f, enabled }, chords)));
 
 /**
@@ -476,12 +525,12 @@ export const setFeatureEnabled = (
  * width (it stays between the width and one minus the width); channels give way to fit inside the chord,
  * the one being edited last.
  */
-export function setFeatureParams(
-  doc: BoardDoc,
+export function setFeatureParams<D extends FeatureDoc>(
+  doc: D,
   id: string,
   patch: FeatureParams,
-  chords?: NotchChords,
-): BoardDoc {
+  chords?: ChordProvider<D>,
+): D {
   return replace(doc, id, (f) => {
     const num = (x: number | undefined): x is number => x !== undefined && Number.isFinite(x);
     switch (f.kind) {
@@ -533,7 +582,7 @@ export function setFeatureParams(
 }
 
 /** The greatest depth (cm) of the feature: the keys between the ends scale to it, held to the board's range. */
-export function setFeatureDepth(doc: BoardDoc, id: string, depth: number): BoardDoc {
+export function setFeatureDepth<D extends FeatureDoc>(doc: D, id: string, depth: number): D {
   if (!Number.isFinite(depth)) return doc;
   return replace(doc, id, (f) => {
     const peak = clamp(depth, 0, depthRange(doc, f).max);
@@ -546,13 +595,13 @@ export function setFeatureDepth(doc: BoardDoc, id: string, depth: number): Board
  * the room for {@link MIN_SPAN}; an inner key moves between its neighbours, and its depth is held between
  * zero and the board's range.
  */
-export function setFeatureKey(
-  doc: BoardDoc,
+export function setFeatureKey<D extends FeatureDoc>(
+  doc: D,
   id: string,
   index: number,
   patch: { s?: number; value?: number },
-  chords?: NotchChords,
-): BoardDoc {
+  chords?: ChordProvider<D>,
+): D {
   return replace(doc, id, (f) => {
     const keys = f.depth.keys;
     const k = keys[index];
@@ -596,7 +645,7 @@ export function setFeatureKey(
 }
 
 /** A key added in the middle of the widest gap (or at `s`, between the ends), on the curve as it is. */
-export function addFeatureKey(doc: BoardDoc, id: string, s?: number): BoardDoc {
+export function addFeatureKey<D extends FeatureDoc>(doc: D, id: string, s?: number): D {
   return replace(doc, id, (f) => {
     const keys = f.depth.keys;
     let at = s;
@@ -616,7 +665,7 @@ export function addFeatureKey(doc: BoardDoc, id: string, s?: number): BoardDoc {
 }
 
 /** An inner key removed; a curve keeps its two ends and at least one key between. */
-export function removeFeatureKey(doc: BoardDoc, id: string, index: number): BoardDoc {
+export function removeFeatureKey<D extends FeatureDoc>(doc: D, id: string, index: number): D {
   return replace(doc, id, (f) => {
     const keys = f.depth.keys;
     if (keys.length <= 3 || index <= 0 || index >= keys.length - 1) return f;
@@ -633,7 +682,10 @@ export function removeFeatureKey(doc: BoardDoc, id: string, index: number): Boar
  * a curve that starts behind the notch bottom (or ends past the nose) is squeezed into the room that is
  * left, and channels are brought inside the chord. Returns `doc.features` itself when nothing moved.
  */
-export function refitFeatures(doc: BoardDoc, chords?: NotchChords): readonly BottomFeature[] {
+export function refitFeatures<D extends FeatureDoc>(
+  doc: D,
+  chords?: ChordProvider<D>,
+): readonly BottomFeature[] {
   const room = featureRange(doc);
   let changed = false;
   const features = doc.features.map((f): BottomFeature => {

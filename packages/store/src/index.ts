@@ -23,6 +23,7 @@ export {
   insertCrossSection,
   minusHalf,
   insertKnotAt,
+  isStationTarget,
   moveKnotEnd,
   moveKnotTangent,
   moveCrossSectionPosition,
@@ -31,6 +32,7 @@ export {
   sameTarget,
   scaleBoard,
   sectionApexIndex,
+  stationCurvesOf,
   setKnotContinuous,
   setKnotLock,
   setKnotTangentLength,
@@ -41,7 +43,11 @@ export {
   withSpline,
   type KnotHandles,
   type LockedAxes,
+  type RailsProjection,
   type SidedBoard,
   type SplineTarget,
+  type StationHalf,
+  type StationSplines,
+  type StationTarget,
 } from './edits';
 export { selectSpecs, type BoardSpecs } from './selectors';

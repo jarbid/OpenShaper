@@ -8,7 +8,8 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./sections": "./src/sections/index.ts"
+    "./sections": "./src/sections/index.ts",
+    "./rails": "./src/rails/index.ts"
   },
   "dependencies": {
     "@openshaper/board2": "workspace:*",

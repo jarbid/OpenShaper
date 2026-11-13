@@ -22,9 +22,9 @@ export const splitAxis = (
   mirrorY: boolean,
 ): ReflectAxis | null => (!splitSides ? null : mirrorY ? 'y' : mirrorX ? 'x' : null);
 
-/** Whether the target is a minus half. */
+/** Whether the target is a minus half (a minus outline, section or station curve). */
 export const isMinus = (t: SplineTarget): boolean =>
-  (t.kind === 'outline' || t.kind === 'crossSection') && t.side === 'minus';
+  t.kind !== 'deck' && t.kind !== 'bottom' && t.side === 'minus';
 
 /** A point reflected across the axis. */
 export const reflectPoint = (p: Vec2, axis: ReflectAxis): Vec2 =>
