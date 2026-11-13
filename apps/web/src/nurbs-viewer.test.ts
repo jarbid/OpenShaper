@@ -6,7 +6,7 @@
  * replaces the classic one. A fake client stands in for the worker, so a job finishes
  * when the test says so.
  */
-import type { BoardDoc } from '@openshaper/board2';
+import type { BoardDoc, RailsBoard } from '@openshaper/board2';
 import type { BezierBoard } from '@openshaper/kernel';
 import { describe, expect, it } from 'vitest';
 import {
@@ -60,7 +60,7 @@ const refusal: NurbsAnswer = {
 interface Call {
   kind: 'classic' | 'test' | 'doc';
   board?: BezierBoard;
-  doc?: BoardDoc;
+  doc?: BoardDoc | RailsBoard;
   reference?: BezierBoard | null;
   name?: TestBoardName;
   options: JobOptions;
@@ -81,8 +81,11 @@ const deferred = <T>(): Deferred<T> => {
 
 const harness = () => {
   const calls: Call[] = [];
-  const probeCalls: { doc: BoardDoc; probes: readonly number[]; answer: Deferred<ProbeAnswer> }[] =
-    [];
+  const probeCalls: {
+    doc: BoardDoc | RailsBoard;
+    probes: readonly number[];
+    answer: Deferred<ProbeAnswer>;
+  }[] = [];
   let disposed = false;
   let cancels = 0;
   // Like the real client: a newer request rejects the one before it.
@@ -113,6 +116,7 @@ const harness = () => {
       return answer.promise;
     },
     convert: () => new Promise(() => {}),
+    toRails: () => new Promise(() => {}),
     measure: () => new Promise(() => {}),
     cancel() {
       cancels++;

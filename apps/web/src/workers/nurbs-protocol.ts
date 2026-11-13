@@ -4,11 +4,12 @@
  * docs/design/m1-model.md §3, docs/design/m2-editor.md §4). Type-only: the main chunk
  * imports this module, and `import type` of board2 costs it nothing at run time.
  *
- * A classic board or a section document crosses by structured clone (plain immutable
- * data). The result comes back as typed arrays, listed for transfer by
+ * A classic board, a section document or a rails board crosses by structured clone (plain
+ * immutable data). A request that carries a document takes either document kind and tells them
+ * apart by `doc.model` (`'sections'` or `'rails'`). The result comes back as typed arrays, listed for transfer by
  * {@link meshTransferables}, so a 20,000-vertex surface costs no copy.
  */
-import type { BoardDoc } from '@openshaper/board2';
+import type { BoardDoc, RailsBoard } from '@openshaper/board2';
 import type { BoardPdf1to1Options, DxfCurveMode } from '@openshaper/export';
 import type { BezierBoard, ResolvedFin } from '@openshaper/kernel';
 
@@ -69,7 +70,10 @@ export interface NurbsConversion {
   readonly addedKnots: number;
 }
 
-/** The engine that builds the 3D model: today's sections engine, or the trim-and-blend rails engine. */
+/**
+ * The engine that builds the 3D model: today's sections engine, or the trim-and-blend rails engine.
+ * Only a sections document has the choice: a rails board is always built by the rails engine.
+ */
 export type NurbsEngine = 'sections' | 'rails';
 
 /** What the popover tells about the surface on screen (all lengths cm, areas cm², volume cm³). */
@@ -135,7 +139,7 @@ export interface JobOptions {
    * False once the edit settles, which derives them afresh.
    */
   readonly reuseLadders: boolean;
-  /** The engine to build the surface with; 'sections' when absent. */
+  /** The engine to build a sections document's surface with; 'sections' when absent. A rails board ignores it. */
   readonly engine?: NurbsEngine;
 }
 
@@ -162,7 +166,11 @@ export type NurbsRequest =
        */
       readonly kind: 'doc';
       readonly id: number;
-      readonly doc: BoardDoc;
+      /**
+       * A rails board is built directly by the rails engine (no converter, no sections build), reusing
+       * the last rails build's outline loop and rail laws where they are unchanged.
+       */
+      readonly doc: BoardDoc | RailsBoard;
       /** The classic board "Deviation from classic" measures against (only when that mode is shown). */
       readonly reference: BezierBoard | null;
       readonly options: JobOptions;
@@ -177,9 +185,9 @@ export type NurbsRequest =
        */
       readonly kind: 'probe';
       readonly id: number;
-      readonly doc: BoardDoc;
+      readonly doc: BoardDoc | RailsBoard;
       readonly probes: readonly number[];
-      /** The engine the sections are probed on; 'sections' when absent. */
+      /** The engine a sections document is probed on; 'sections' when absent. A rails board ignores it. */
       readonly engine?: NurbsEngine;
     }
   | {
@@ -195,9 +203,24 @@ export type NurbsRequest =
        */
       readonly kind: 'measure';
       readonly id: number;
-      readonly doc: BoardDoc;
-      /** The engine whose mesh is measured; 'sections' when absent. */
+      readonly doc: BoardDoc | RailsBoard;
+      /** The engine whose mesh is measured; 'sections' when absent. A rails board ignores it. */
       readonly engine?: NurbsEngine;
+    }
+  | {
+      /**
+       * A classic board to a rails board: the classic conversion to a section document, then the
+       * sections-to-rails conversion, once (a file opened). Refused when either step refuses.
+       */
+      readonly kind: 'to-rails';
+      readonly id: number;
+      readonly classic: BezierBoard;
+    }
+  | {
+      /** A section document to a rails board (a file of the sections kind opened). */
+      readonly kind: 'to-rails';
+      readonly id: number;
+      readonly doc: BoardDoc;
     };
 
 /** What the mesh of a document measures (cm, cm², cm³; `centreX` is the volume's centroid along x). */
@@ -237,6 +260,24 @@ export type NurbsResponse =
       readonly mesh: NurbsMeshData;
       /** The as-built sections asked for (a `doc` job; empty for the others). */
       readonly probes: readonly SectionProbe[];
+    }
+  | {
+      /** The rails board a `to-rails` request made. */
+      readonly kind: 'to-rails';
+      readonly id: number;
+      readonly ok: true;
+      readonly board: RailsBoard;
+      /** The classic-to-sections report, when the source was a classic board. */
+      readonly conversion: NurbsConversion | null;
+      /** Warnings of the conversions (an adjusted handle, a reshaped notch, a fitted station). */
+      readonly issues: readonly NurbsIssue[];
+    }
+  | {
+      readonly kind: 'to-rails';
+      readonly id: number;
+      readonly ok: false;
+      readonly error: string;
+      readonly issues: readonly NurbsIssue[];
     }
   | {
       readonly kind: 'probed';
@@ -289,7 +330,11 @@ export const DEFAULT_STL_FACE_SIZE = 1;
  * it was when asked, whatever is edited meanwhile.
  */
 export type ExportJob = ExportJobFormat & {
-  /** The engine STL, DXF and PDF are made on; 'sections' when absent. STEP is always made on 'sections'. */
+  /**
+   * The engine a sections document's STL, DXF and PDF are made on; 'sections' when absent. STEP of a
+   * sections document is always made on 'sections'. A rails board is always made on the rails engine,
+   * and has no STEP export yet.
+   */
   readonly engine?: NurbsEngine;
 };
 
@@ -333,7 +378,7 @@ export type ExportStage = 'building' | 'meshing' | 'sampling' | 'fitting' | 'dra
 export interface ExportRequest {
   readonly kind: 'export';
   readonly id: number;
-  readonly doc: BoardDoc;
+  readonly doc: BoardDoc | RailsBoard;
   readonly job: ExportJob;
 }
 

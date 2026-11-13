@@ -41,6 +41,13 @@
  * meshed. A board the rails engine cannot convert, build or mesh falls back to the sections engine for
  * that request, with a warning, and the result says which engine built it. STEP is always sections.
  *
+ * ## Rails boards
+ *
+ * A rails board (`model: 'rails'`) is accepted wherever a document is: it is the rails engine's whatever
+ * `engine` says, built directly by `buildRails` (given the last rails build, so an unchanged outline keeps
+ * its loop and unchanged rail keys their laws) with no converter, no sections build, no ladders, no
+ * canonicalising and no notch chords. `toRails` makes one from a classic board or a section document, once.
+ *
  * ## Ladders
  *
  * Deriving the row and column ladders is about 60 % of a fresh mesh. While an edit is
@@ -58,11 +65,14 @@ import {
   convertSections,
   createChordFn,
   createEvaluator,
+  docModel,
   meshBoard,
   meshRails,
   probeRails,
   probeSection,
+  railsToJson,
   reviveBoardDoc,
+  reviveRails,
   type Board2Issue,
   type BoardDoc,
   type BuiltBoard,
@@ -70,6 +80,7 @@ import {
   type Chain,
   type ChordFn,
   type Ladders,
+  type RailsBoard,
   type RailsMesh,
   type Section,
 } from '@openshaper/board2';
@@ -275,17 +286,29 @@ let lastRails: BuiltRails | null = null;
 /** The converter's fits, kept between requests: a station whose section, width, thickness and angle are unchanged is not refitted. */
 let convertFits = convertCache();
 
-/** The document as a built rails board, or why it could not be. */
+/**
+ * A rails board built, given the last rails build so an unchanged outline keeps its loop and unchanged
+ * rail keys their laws. It may throw; the caller decides what a failure means.
+ */
+const buildRailsBoard = (
+  board: RailsBoard,
+):
+  | { built: BuiltRails; issues: readonly Board2Issue[] }
+  | { reason: string; issues: readonly Board2Issue[] } => {
+  // prettier-ignore
+  const previous = lastRails ?? undefined;
+  const r = buildRails(board, { ...(previous ? { previous } : {}) });
+  if (!r.ok) return { reason: r.issues.find((i) => i.severity === 'error')?.message ?? 'build refused', issues: r.issues }; // prettier-ignore
+  lastRails = r.value;
+  return { built: r.value, issues: r.issues };
+};
+
+/** The sections document as a built rails board (converted, then built), or why it could not be. */
 const railsOf = (doc: BoardDoc): { built: BuiltRails } | { reason: string } => {
   try {
     const c = convertSections(doc, { cache: convertFits });
     if (!c.ok) return { reason: c.issues.find((i) => i.severity === 'error')?.message ?? 'conversion refused' }; // prettier-ignore
-    const board = c.value.board;
-    const previous = lastRails ?? undefined;
-    const r = buildRails(board, { ...(previous ? { previous } : {}) });
-    if (!r.ok) return { reason: r.issues.find((i) => i.severity === 'error')?.message ?? 'build refused' }; // prettier-ignore
-    lastRails = r.value;
-    return { built: r.value };
+    return buildRailsBoard(c.value.board);
   } catch (err) {
     return { reason: err instanceof Error ? err.message : String(err) };
   }
@@ -303,24 +326,42 @@ const fallbackIssue = (reason: string): NurbsIssue => ({
 /** Points per probed section half: the section is a smooth cubic spline, 64 is a polyline to a few microns. */
 const PROBE_SAMPLES = 64;
 
-/** The as-built sections of `built` at the station coordinates `xis` (both sides on an asymmetric board). */
+/**
+ * The sections of `rails` at the station coordinates `xis` (both sides on an asymmetric board). The
+ * coordinates are clamped to `[xiMin, xiMax]`, the board's ends in x.
+ */
+const railsProbes = (
+  rails: BuiltRails,
+  xis: readonly number[],
+  xiMin: number = rails.xiMin,
+  xiMax: number = rails.xiMax,
+): SectionProbe[] => {
+  const asymmetric = rails.board.symmetry === 'asymmetric';
+  return xis.map((xi) => {
+    const x = Math.min(xiMax, Math.max(xiMin, xi));
+    return {
+      xi,
+      plus: probeRails(rails, 0, x, PROBE_SAMPLES),
+      minus: asymmetric ? probeRails(rails, 1, x, PROBE_SAMPLES) : null,
+    };
+  });
+};
+
+/**
+ * The as-built sections of `built` at the station coordinates `xis` (both sides on an asymmetric board),
+ * taken on the rails build of the same document when one is given.
+ */
 const probesOf = (
   built: BuiltBoard,
   xis: readonly number[],
   rails: BuiltRails | null = null,
 ): SectionProbe[] => {
   if (xis.length === 0) return [];
+  if (rails) return railsProbes(rails, xis, built.xiMin, built.xiMax);
   const ev = createEvaluator(built);
   const asymmetric = built.doc.symmetry === 'asymmetric';
   return xis.map((xi) => {
     const x = Math.min(built.xiMax, Math.max(built.xiMin, xi));
-    if (rails) {
-      return {
-        xi,
-        plus: probeRails(rails, 0, x, PROBE_SAMPLES),
-        minus: asymmetric ? probeRails(rails, 1, x, PROBE_SAMPLES) : null,
-      };
-    }
     return {
       xi,
       plus: probeSection(built, ev, 0, x, PROBE_SAMPLES),
@@ -389,6 +430,101 @@ interface Built {
   readonly buildMs: number;
 }
 
+/** What the shared end of a mesh job needs besides the mesh. */
+interface MeshedJob {
+  readonly issues: readonly NurbsIssue[];
+  readonly source: NurbsSummary['source'];
+  readonly engine: NurbsEngine;
+  readonly conversion: NurbsConversion | null;
+  readonly report: Pick<BuiltBoard['report'], 'stationFitError' | 'clampedControls' | 'blendOvershoot'>; // prettier-ignore
+  readonly convertMs: number;
+  /** Every build of the job, ms. */
+  readonly buildMs: number;
+  readonly meshMs: number;
+  readonly laddersReused: boolean;
+  /** The as-built sections asked for; a function so they are taken after the job's own timings. */
+  readonly probes: () => SectionProbe[];
+}
+
+/**
+ * Everything the view draws from a mesh, whichever engine made it: the curvature quantities, the deviation
+ * from the classic board (when asked and given), the summary, the timings and the probes.
+ */
+const finishMesh = (
+  m: RailsMesh,
+  job: MeshedJob,
+  classic: BezierBoard | null,
+  options: JobOptions,
+  t0: number,
+  progress?: Progress,
+): NurbsOutcome => {
+  const t2 = now();
+  let curvature: NurbsMeshData['curvature'] = null;
+  if (m.k1 && m.k2) {
+    const c = curvatureArrays(m.k1, m.k2);
+    const area = excludeUndefined(
+      vertexAreas(m.positions, m.indices, m.vertexCount),
+      c.undefinedAt,
+    );
+    curvature = {
+      mean: c.mean,
+      gaussian: c.gaussian,
+      minRadius: c.minRadius,
+      scale: curvatureScale(c.mean, c.gaussian, c.minRadius, area),
+    };
+  }
+  const curvatureMs = now() - t2;
+
+  let deviation: Float32Array | null = null;
+  let deviationRange: readonly [number, number] | null = null;
+  let deviationNoData = 0;
+  let deviationMs = 0;
+  if (classic && options.deviation) {
+    progress?.('deviation');
+    const t3 = now();
+    const d = classicDeviation(classic, m.positions, m.normals);
+    deviation = d.deviation;
+    deviationRange = d.range;
+    deviationNoData = d.noData;
+    deviationMs = now() - t3;
+  }
+
+  return {
+    ok: true,
+    issues: job.issues,
+    summary: {
+      source: job.source,
+      engine: job.engine,
+      conversion: job.conversion,
+      stationFitError: job.report.stationFitError,
+      clampedControls: job.report.clampedControls,
+      blendOvershoot: job.report.blendOvershoot,
+      volume: m.volume,
+      planArea: m.planArea,
+      surfaceArea: m.surfaceArea,
+    },
+    timings: {
+      convertMs: job.convertMs,
+      buildMs: job.buildMs,
+      meshMs: job.meshMs,
+      curvatureMs,
+      deviationMs,
+      totalMs: now() - t0,
+    },
+    mesh: {
+      positions: m.positions,
+      normals: m.normals,
+      indices: m.indices,
+      curvature,
+      deviation,
+      deviationRange,
+      deviationNoData,
+      laddersReused: job.laddersReused,
+    },
+    probes: job.probes(),
+  };
+};
+
 /** Mesh a built board and assemble everything the view draws. */
 const meshBuilt = (
   b: Built,
@@ -432,73 +568,25 @@ const meshBuilt = (
     m = sm;
   }
   const meshMs = now() - t1 - railsBuildMs;
-
-  const t2 = now();
-  let curvature: NurbsMeshData['curvature'] = null;
-  if (m.k1 && m.k2) {
-    const c = curvatureArrays(m.k1, m.k2);
-    const area = excludeUndefined(
-      vertexAreas(m.positions, m.indices, m.vertexCount),
-      c.undefinedAt,
-    );
-    curvature = {
-      mean: c.mean,
-      gaussian: c.gaussian,
-      minRadius: c.minRadius,
-      scale: curvatureScale(c.mean, c.gaussian, c.minRadius, area),
-    };
-  }
-  const curvatureMs = now() - t2;
-
-  let deviation: Float32Array | null = null;
-  let deviationRange: readonly [number, number] | null = null;
-  let deviationNoData = 0;
-  let deviationMs = 0;
-  if (classic && options.deviation) {
-    progress?.('deviation');
-    const t3 = now();
-    const d = classicDeviation(classic, m.positions, m.normals);
-    deviation = d.deviation;
-    deviationRange = d.range;
-    deviationNoData = d.noData;
-    deviationMs = now() - t3;
-  }
-
-  const r = b.built.report;
-  return {
-    ok: true,
-    issues: [...b.issues.map(issueOf), ...(fallback === null ? [] : [fallbackIssue(fallback)])],
-    summary: {
+  return finishMesh(
+    m,
+    {
+      issues: [...b.issues.map(issueOf), ...(fallback === null ? [] : [fallbackIssue(fallback)])],
       source,
       engine: rails ? 'rails' : 'sections',
       conversion: b.conversion,
-      stationFitError: r.stationFitError,
-      clampedControls: r.clampedControls,
-      blendOvershoot: r.blendOvershoot,
-      volume: m.volume,
-      planArea: m.planArea,
-      surfaceArea: m.surfaceArea,
-    },
-    timings: {
+      report: b.built.report,
       convertMs: b.convertMs,
       buildMs: b.buildMs + railsBuildMs,
       meshMs,
-      curvatureMs,
-      deviationMs,
-      totalMs: now() - t0,
-    },
-    mesh: {
-      positions: m.positions,
-      normals: m.normals,
-      indices: m.indices,
-      curvature,
-      deviation,
-      deviationRange,
-      deviationNoData,
       laddersReused: reused,
+      probes: () => probesOf(b.built, probes, rails),
     },
-    probes: probesOf(b.built, probes, rails),
-  };
+    classic,
+    options,
+    t0,
+    progress,
+  );
 };
 
 /** Build a document: the built board and its issues, or the refusal outcome. */
@@ -599,13 +687,58 @@ export const meshTestBoard = (
 };
 
 /**
- * Build and mesh the section store's document: no converter in the loop. The document is validated
+ * Build and mesh a rails board directly: the structural check of `buildRails` (a board it refuses is an
+ * outcome, and the viewer keeps the last good surface), then `meshRails` at the draft quality where a drag
+ * reuses ladders and the view quality otherwise. There is no converter, no sections build and no ladder
+ * memory: the loop and laws of the last rails build are reused where this board's are equal by value.
+ * A mesh that throws is an error outcome (there is no other engine to fall back to).
+ */
+const meshRailsDocument = (
+  board: RailsBoard,
+  reference: BezierBoard | null,
+  options: JobOptions,
+  progress: Progress | undefined,
+  probes: readonly number[],
+): NurbsOutcome => {
+  const t0 = now();
+  progress?.('building');
+  const r = buildRailsBoard(board);
+  const buildMs = now() - t0;
+  if (!('built' in r)) return refusal(r.issues, 'The rails board could not be built.');
+  progress?.('meshing');
+  const t1 = now();
+  const m = meshRails(r.built, { draft: options.reuseLadders, curvature: options.curvature });
+  const meshMs = now() - t1;
+  return finishMesh(
+    m,
+    {
+      issues: r.issues.map(issueOf),
+      source: 'doc',
+      engine: 'rails',
+      conversion: null,
+      report: r.built.report,
+      convertMs: 0,
+      buildMs,
+      meshMs,
+      laddersReused: false,
+      probes: () => railsProbes(r.built, probes),
+    },
+    reference ? canonical(reference) : null,
+    options,
+    t0,
+    progress,
+  );
+};
+
+/**
+ * Build and mesh the section store's document: no converter in the loop. A rails board is built by the
+ * rails engine directly (`meshRailsDocument`) whatever `options.engine` says. The document is validated
  * (a plan an edit made impossible is a refusal, and the viewer keeps the last good surface) and then
  * built, with its sections matched to the earlier jobs' by content so their fits are reused.
  * `reference` is the classic board "Deviation from classic" measures against, when that mode is shown.
  */
 export const meshDocument = (
-  docIn: BoardDoc,
+  docIn: BoardDoc | RailsBoard,
   reference: BezierBoard | null,
   options: JobOptions,
   progress?: Progress,
@@ -613,6 +746,8 @@ export const meshDocument = (
 ): NurbsOutcome => {
   const t0 = now();
   try {
+    if (docIn.model === 'rails')
+      return meshRailsDocument(docIn, reference, options, progress, probes);
     progress?.('building');
     const doc = canonicalDoc(docIn);
     const b = build(doc, true, [], options.reuseLadders ? lastSpan : undefined);
@@ -638,14 +773,21 @@ export type ProbeOutcome =
 
 /**
  * The as-built sections of a document at `probes`, with no validation and no mesh: the scrub preview.
- * The build is warm (the sections are matched by content), about a millisecond.
+ * The build is warm (the sections are matched by content), about a millisecond. A rails board is probed
+ * on its rails build, whatever `engine` says; it is checked as `buildRails` checks (a sections document's
+ * probe build is not).
  */
 export const probeDocument = (
-  docIn: BoardDoc,
+  docIn: BoardDoc | RailsBoard,
   probes: readonly number[],
   engine: NurbsEngine = 'sections',
 ): ProbeOutcome => {
   try {
+    if (docIn.model === 'rails') {
+      const r = buildRailsBoard(docIn);
+      if (!('built' in r)) return { ok: false, error: r.reason };
+      return { ok: true, probes: railsProbes(r.built, probes) };
+    }
     const r = buildBoard(canonicalDoc(docIn), { check: false });
     if (!r.ok) {
       return {
@@ -709,6 +851,55 @@ export const convertToDoc = (board: BezierBoard): ConvertOutcome => {
   }
 };
 
+/** What a rails conversion answers with: the board, or the reasons it was refused. */
+export type ToRailsOutcome =
+  | {
+      readonly ok: true;
+      readonly board: RailsBoard;
+      /** The classic-to-sections report, when the source was a classic board. */
+      readonly conversion: NurbsConversion | null;
+      /** The warnings of both conversions, the classic one's first. */
+      readonly issues: readonly NurbsIssue[];
+    }
+  | { readonly ok: false; readonly error: string; readonly issues: readonly NurbsIssue[] };
+
+/**
+ * Make a rails board, once (a file opened): from a classic board through the classic conversion to a
+ * section document and then `convertSections`, or from a section document through `convertSections`.
+ * Never throws; a refusal at either step is the outcome, with that step's reasons (and the warnings of
+ * the step before it).
+ */
+export const toRails = (
+  source: { readonly classic: BezierBoard } | { readonly doc: BoardDoc },
+): ToRailsOutcome => {
+  try {
+    let doc: BoardDoc;
+    let conversion: NurbsConversion | null = null;
+    let issues: readonly NurbsIssue[] = [];
+    if ('classic' in source) {
+      const c = convertToDoc(source.classic);
+      if (!c.ok) return c;
+      doc = c.doc;
+      conversion = c.conversion;
+      issues = c.issues;
+    } else {
+      doc = source.doc;
+    }
+    const r = convertSections(doc);
+    const found = r.issues.map(issueOf);
+    if (!r.ok) {
+      return {
+        ok: false,
+        error: r.issues.find((i) => i.severity === 'error')?.message ?? 'The board could not be converted.', // prettier-ignore
+        issues: [...issues, ...found],
+      };
+    }
+    return { ok: true, board: r.value.board, conversion, issues: [...issues, ...found] };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err), issues: [] };
+  }
+};
+
 // --- The mesh's specs --------------------------------------------------------
 
 /**
@@ -757,6 +948,14 @@ export const meshCentreX = (positions: Float32Array, indices: Uint32Array): numb
   return vol === 0 ? cx : cx + moment / vol;
 };
 
+const measureOf = (m: RailsMesh): MeasureOutcome => ({
+  ok: true,
+  volume: m.volume,
+  planArea: m.planArea,
+  surfaceArea: m.surfaceArea,
+  centreX: meshCentreX(m.positions, m.indices),
+});
+
 /** What a measure job answers with: the mesh's numbers, or the reason the document would not build. */
 export type MeasureOutcome =
   | ({ readonly ok: true } & MeshMeasure)
@@ -768,27 +967,26 @@ export type MeasureOutcome =
  * surface is not sent back. A document the model refuses is an outcome, not an exception.
  */
 export const measureDocument = (
-  docIn: BoardDoc,
+  docIn: BoardDoc | RailsBoard,
   engine: NurbsEngine = 'sections',
 ): MeasureOutcome => {
   try {
+    if (docIn.model === 'rails') {
+      const r = buildRailsBoard(docIn);
+      if (!('built' in r)) return { ok: false, error: r.reason };
+      return measureOf(meshRails(r.built, { curvature: false }));
+    }
     const b = build(canonicalDoc(docIn), true, []);
     if ('refused' in b) {
       const r = b.refused;
       return { ok: false, error: r.ok ? 'The NURBS surface could not be built.' : r.error };
     }
     const rails = engine === 'rails' ? railsOf(b.built.doc) : null;
-    const m =
+    return measureOf(
       rails && 'built' in rails
         ? meshRails(rails.built, { curvature: false })
-        : meshBoard(b.built, { curvature: false });
-    return {
-      ok: true,
-      volume: m.volume,
-      planArea: m.planArea,
-      surfaceArea: m.surfaceArea,
-      centreX: meshCentreX(m.positions, m.indices),
-    };
+        : meshBoard(b.built, { curvature: false }),
+    );
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -798,6 +996,37 @@ export const measureDocument = (
 
 /** The canonical text of a document: what a `.board` file of the NURBS engine holds, and a share link carries. */
 export const docToText = (doc: BoardDoc): string => boardDocToJson(doc);
+
+/** The canonical text of a rails board: what a `.board` file of the rails kind holds. */
+export const railsToText = (board: RailsBoard): string => railsToJson(board);
+
+/** What reading a saved document of either kind answers with: which kind it was and the document, or why not. */
+export type ReviveAnyOutcome =
+  | { readonly ok: true; readonly model: 'sections'; readonly doc: BoardDoc }
+  | { readonly ok: true; readonly model: 'rails'; readonly board: RailsBoard }
+  | { readonly ok: false; readonly error: string; readonly issues: readonly NurbsIssue[] };
+
+/**
+ * Revive a parsed document of either kind, told apart by `docModel`: a rails board through `reviveRails`,
+ * anything else through {@link docFromJson} (so a value that is neither fails as that does). Never throws.
+ */
+export const docFromAnyJson = (json: unknown): ReviveAnyOutcome => {
+  if (docModel(json) !== 'rails') {
+    const r = docFromJson(json);
+    return r.ok ? { ok: true, model: 'sections', doc: r.doc } : r;
+  }
+  try {
+    const r = reviveRails(json);
+    if (r.ok) return { ok: true, model: 'rails', board: r.value };
+    return {
+      ok: false,
+      error: r.issues.find((i) => i.severity === 'error')?.message ?? 'Not a rails board document.',
+      issues: r.issues.map(issueOf),
+    };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err), issues: [] };
+  }
+};
 
 /** What reading a saved document answers with: the document, or the reasons it is not one. */
 export type ReviveOutcome =
@@ -883,51 +1112,45 @@ const thin = (pts: readonly Pt[], tol: number): Pt[] => {
 /** The apex line is sampled at this many steps along the stringer. */
 const EXPORT_APEX_STEPS = 200;
 
-/**
- * Everything the DXF and 1:1 PDF drawings read from a built board ({@link BoardCurves}): the
- * document's chains, and the as-built section at each of `count` stations (`probeSection`, bottom
- * features included). Plain data; the drawing code in `@openshaper/export` imports no board model.
- */
-export const curvesOfBuilt = (
-  built: BuiltBoard,
+/** What the DXF and 1:1 PDF drawings need of a board, whichever engine built it. */
+interface CurveSource {
+  readonly doc: Pick<BoardDoc, 'symmetry' | 'outline' | 'rocker' | 'deck'>;
+  readonly xiMin: number;
+  readonly xiMax: number;
+  /** Stations below this x are in a notch zone (-Infinity for none). */
+  readonly notch: number;
+  /** The as-built section half at `xi`, `[x0, y0, x1, y1, …]`. */
+  readonly probe: (side: 0 | 1, xi: number) => readonly number[];
+  /** Where the station's chord ends on the outline, plan view. */
+  readonly chordEnd: (side: 0 | 1, xi: number) => Pt;
+  /** The apex line at `xi`: its x (the stringer coordinate) and its height. */
+  readonly apexAt: (xi: number) => Pt;
+}
+
+/** Everything the drawings read ({@link BoardCurves}), from `src`, at `count` stations. */
+const curvesOf = (
+  src: CurveSource,
   count: number,
   fins: BoardCurves['fins'],
   progress?: (done: number) => void,
-  rails: BuiltRails | null = null,
 ): BoardCurves => {
-  const doc = built.doc;
+  const doc = src.doc;
   const asymmetric = doc.symmetry === 'asymmetric';
-  const ev = createEvaluator(built);
-  const { xiMin, xiMax } = built;
-  const notch = doc.tail.kind === 'notched' ? xiMin + doc.tail.zone : -Infinity;
-  const out = new Float64Array(3);
+  const { xiMin, xiMax, notch } = src;
   const pairs = (flat: readonly number[]): Pt[] => {
     const pts: Pt[] = [];
     for (let i = 0; i + 1 < flat.length; i += 2) pts.push({ x: flat[i]!, y: flat[i + 1]! });
     return thin(pts, EXPORT_SECTION_TOL);
-  };
-  /** The outline end of the station's chord (the section's apex), plan view. */
-  const chordEnd = (side: 0 | 1, xi: number): Pt => {
-    ev.row(side, xi, 0);
-    ev.eval(0.5, 0, out);
-    return { x: out[0]!, y: out[1]! };
   };
 
   const sections: CurveSection[] = [];
   const n = Math.max(0, Math.floor(count));
   for (let i = 0; i < n; i++) {
     const xi = xiMin + ((xiMax - xiMin) * (i + 0.5)) / n;
-    const probe = (side: 0 | 1): Pt[] =>
-      pairs(
-        rails
-          ? probeRails(rails, side, xi, EXPORT_SECTION_SAMPLES)
-          : probeSection(built, ev, side, xi, EXPORT_SECTION_SAMPLES),
-      );
-    const plus = probe(0);
-    const minus = asymmetric ? probe(1) : null;
-    const end = (side: 0 | 1): Pt => (rails ? { x: xi, y: apexRails(rails, side, xi).y } : chordEnd(side, xi)); // prettier-ignore
-    const cp = end(0);
-    const cm = asymmetric ? end(1) : { x: cp.x, y: -cp.y };
+    const plus = pairs(src.probe(0, xi));
+    const minus = asymmetric ? pairs(src.probe(1, xi)) : null;
+    const cp = src.chordEnd(0, xi);
+    const cm = asymmetric ? src.chordEnd(1, xi) : { x: cp.x, y: -cp.y };
     sections.push({ pos: xi, plus, minus, chordPlus: cp, chordMinus: cm, rail: xi < notch });
     progress?.((i + 1) / n);
   }
@@ -935,13 +1158,7 @@ export const curvesOfBuilt = (
   const apex: Pt[] = [];
   for (let k = 0; k <= EXPORT_APEX_STEPS; k++) {
     const xi = xiMin + ((xiMax - xiMin) * k) / EXPORT_APEX_STEPS;
-    if (rails) {
-      apex.push({ x: xi, y: apexRails(rails, 0, xi).z });
-      continue;
-    }
-    ev.row(0, xi, 0);
-    ev.eval(0.5, 0, out);
-    apex.push({ x: out[0]!, y: out[2]! });
+    apex.push(src.apexAt(xi));
   }
 
   const plusSegs = chainSegments(doc.outline.plus);
@@ -958,6 +1175,67 @@ export const curvesOfBuilt = (
   };
 };
 
+/** The drawings' source on the rails engine: sections, plan points and apex line from `rails`. */
+const railsCurveSource = (
+  rails: BuiltRails,
+  xiMin: number,
+  xiMax: number,
+  notch: number,
+  doc: CurveSource['doc'],
+): CurveSource => ({
+  doc,
+  xiMin,
+  xiMax,
+  notch,
+  probe: (side, xi) => probeRails(rails, side, xi, EXPORT_SECTION_SAMPLES),
+  chordEnd: (side, xi) => ({ x: xi, y: apexRails(rails, side, xi).y }),
+  apexAt: (xi) => ({ x: xi, y: apexRails(rails, 0, xi).z }),
+});
+
+/**
+ * Everything the DXF and 1:1 PDF drawings read from a built board ({@link BoardCurves}): the
+ * document's chains, and the as-built section at each of `count` stations (`probeSection`, bottom
+ * features included). Plain data; the drawing code in `@openshaper/export` imports no board model.
+ * With `rails`, the sections, plan points and apex line come from that rails build of the document.
+ */
+export const curvesOfBuilt = (
+  built: BuiltBoard,
+  count: number,
+  fins: BoardCurves['fins'],
+  progress?: (done: number) => void,
+  rails: BuiltRails | null = null,
+): BoardCurves => {
+  const doc = built.doc;
+  const notch = doc.tail.kind === 'notched' ? built.xiMin + doc.tail.zone : -Infinity;
+  if (rails) {
+    return curvesOf(railsCurveSource(rails, built.xiMin, built.xiMax, notch, doc), count, fins, progress); // prettier-ignore
+  }
+  const ev = createEvaluator(built);
+  const out = new Float64Array(3);
+  return curvesOf(
+    {
+      doc,
+      xiMin: built.xiMin,
+      xiMax: built.xiMax,
+      notch,
+      probe: (side, xi) => probeSection(built, ev, side, xi, EXPORT_SECTION_SAMPLES),
+      chordEnd: (side, xi) => {
+        ev.row(side, xi, 0);
+        ev.eval(0.5, 0, out);
+        return { x: out[0]!, y: out[1]! };
+      },
+      apexAt: (xi) => {
+        ev.row(0, xi, 0);
+        ev.eval(0.5, 0, out);
+        return { x: out[0]!, y: out[2]! };
+      },
+    },
+    count,
+    fins,
+    progress,
+  );
+};
+
 /** What an export job answers with: the files, or the reason it could not be made. */
 export type ExportOutcome =
   | { readonly ok: true; readonly files: readonly ExportedFile[]; readonly ms: number }
@@ -965,87 +1243,137 @@ export type ExportOutcome =
 
 const utf8 = (text: string): Uint8Array => new TextEncoder().encode(text);
 
+/** What the files of an export are made from, whichever engine built the board. */
+interface ExportSource {
+  /** The surface mesh at the export face size. */
+  readonly mesh: (maxEdge: number) => Parameters<typeof stlFromMesh>[0];
+  readonly curves: (count: number, fins: BoardCurves['fins']) => BoardCurves;
+  /** The sections build STEP is written from; null on the rails engine, which has no STEP yet. */
+  readonly step: BuiltBoard | null;
+}
+
+/** The export's files from `src`, as `job` asks for them. */
+const exportFiles = (
+  src: ExportSource,
+  job: ExportJob,
+  progress?: (stage: ExportStage, pass?: number) => void,
+): ExportedFile[] => {
+  if (job.format === 'stl') {
+    progress?.('meshing');
+    const m = src.mesh(job.faceSize);
+    progress?.('writing');
+    return [
+      {
+        name: `${job.slug}.stl`,
+        type: 'model/stl',
+        bytes: stlFromMesh(m, { name: job.slug }),
+      },
+    ];
+  }
+  if (job.format === 'dxf') {
+    progress?.('sampling');
+    const curves = src.curves(job.crossSectionCount, job.fins);
+    progress?.('drawing');
+    const text = exportDxfCurves(curves, {
+      curveMode: job.curveMode,
+      ...(job.ghost ? { ghostBoard: job.ghost } : {}),
+    });
+    progress?.('writing');
+    return [
+      {
+        name: job.curveMode === 'spline' ? `${job.slug}-spline.dxf` : `${job.slug}.dxf`,
+        type: 'application/dxf',
+        bytes: utf8(text),
+      },
+    ];
+  }
+  if (job.format === 'step') {
+    if (src.step === null) throw new Error(STEP_UNAVAILABLE);
+    progress?.('fitting');
+    const out = boardStep(src.step, {
+      name: job.slug,
+      unit: job.unit,
+      timestamp: new Date().toISOString().slice(0, 19),
+      onPass: (pass) => progress?.('fitting', pass),
+      onWrite: () => progress?.('writing'),
+    });
+    return [{ name: `${job.slug}.step`, type: 'model/step', bytes: utf8(out.text) }];
+  }
+  progress?.('sampling');
+  const curves = src.curves(job.options.crossSectionCount ?? 7, job.fins);
+  progress?.('drawing');
+  const res = exportBoardPdf1to1FilesFromCurves(curves, job.options);
+  progress?.('writing');
+  return res.files.map((f) => ({
+    name: f.name.replace(/^board/, job.slug),
+    type: 'application/pdf',
+    bytes: f.bytes,
+  }));
+};
+
+/** The error of a STEP export of a rails board. */
+const STEP_UNAVAILABLE = 'STEP export is not available for this board yet.';
+
 /**
  * One export of a document, from the document itself (docs/design/m3-exports.md): STL from the grid mesh at
  * the export face size, welded; DXF and PDF 1:1 from the document's chains and the as-built sections.
  * Validates and builds first, so a document the model refuses is an outcome, not an exception. Runs for
  * as long as it takes (the one place a multi-second wait is accepted); `progress` names the stage.
+ *
+ * A rails board is built by the rails engine alone, and is exported from that build: no STEP yet (a failed
+ * export says so, before anything is built). The drawings' stations start where the outline does (the
+ * notch bottom on a notched tail, as for a sections document). A rails board does not record a notch
+ * zone, so none of its stations is drawn as a notch-zone "rail section" on fan chords: a notched board's
+ * DXF and PDF therefore differ from its sections document's in those stations' plan markers and labels.
  */
 export const exportDocument = (
-  docIn: BoardDoc,
+  docIn: BoardDoc | RailsBoard,
   job: ExportJob,
   progress?: (stage: ExportStage, pass?: number) => void,
 ): ExportOutcome => {
   const t0 = now();
   try {
-    progress?.('building');
-    const doc = canonicalDoc(docIn);
-    const b = build(doc, true, []);
-    if ('refused' in b) {
-      return { ok: false, error: b.refused.ok ? 'The NURBS surface could not be built.' : b.refused.error }; // prettier-ignore
-    }
-    const built = b.built;
-    // STEP stays on the sections engine; the others follow the job's engine, falling back to it.
-    const r = job.engine === 'rails' && job.format !== 'step' ? railsOf(doc) : null;
-    const rails = r && 'built' in r ? r.built : null;
-    let files: ExportedFile[];
-    if (job.format === 'stl') {
-      progress?.('meshing');
-      const m = rails
-        ? meshRails(rails, { maxEdge: job.faceSize })
-        : meshBoard(built, { maxEdge: job.faceSize });
-      progress?.('writing');
-      files = [
-        {
-          name: `${job.slug}.stl`,
-          type: 'model/stl',
-          bytes: stlFromMesh(m, { name: job.slug }),
-        },
-      ];
-    } else if (job.format === 'dxf') {
-      progress?.('sampling');
-      const curves = curvesOfBuilt(built, job.crossSectionCount, job.fins, undefined, rails);
-      progress?.('drawing');
-      const text = exportDxfCurves(curves, {
-        curveMode: job.curveMode,
-        ...(job.ghost ? { ghostBoard: job.ghost } : {}),
-      });
-      progress?.('writing');
-      files = [
-        {
-          name: job.curveMode === 'spline' ? `${job.slug}-spline.dxf` : `${job.slug}.dxf`,
-          type: 'application/dxf',
-          bytes: utf8(text),
-        },
-      ];
-    } else if (job.format === 'step') {
-      progress?.('fitting');
-      const out = boardStep(built, {
-        name: job.slug,
-        unit: job.unit,
-        timestamp: new Date().toISOString().slice(0, 19),
-        onPass: (pass) => progress?.('fitting', pass),
-        onWrite: () => progress?.('writing'),
-      });
-      files = [{ name: `${job.slug}.step`, type: 'model/step', bytes: utf8(out.text) }];
+    let src: ExportSource;
+    if (docIn.model === 'rails') {
+      if (job.format === 'step') return { ok: false, error: STEP_UNAVAILABLE };
+      progress?.('building');
+      const r = buildRailsBoard(docIn);
+      if (!('built' in r)) return { ok: false, error: r.reason };
+      const rails = r.built;
+      src = {
+        mesh: (maxEdge) => meshRails(rails, { maxEdge }),
+        curves: (count, fins) =>
+          curvesOf(
+            railsCurveSource(
+              rails,
+              docIn.outline.plus.knots[0]!.p[0],
+              rails.xiMax,
+              -Infinity,
+              docIn,
+            ),
+            count,
+            fins,
+          ),
+        step: null,
+      };
     } else {
-      progress?.('sampling');
-      const curves = curvesOfBuilt(
-        built,
-        job.options.crossSectionCount ?? 7,
-        job.fins,
-        undefined,
-        rails,
-      );
-      progress?.('drawing');
-      const res = exportBoardPdf1to1FilesFromCurves(curves, job.options);
-      progress?.('writing');
-      files = res.files.map((f) => ({
-        name: f.name.replace(/^board/, job.slug),
-        type: 'application/pdf',
-        bytes: f.bytes,
-      }));
+      progress?.('building');
+      const doc = canonicalDoc(docIn);
+      const b = build(doc, true, []);
+      if ('refused' in b) {
+        return { ok: false, error: b.refused.ok ? 'The NURBS surface could not be built.' : b.refused.error }; // prettier-ignore
+      }
+      const built = b.built;
+      // STEP stays on the sections engine; the others follow the job's engine, falling back to it.
+      const r = job.engine === 'rails' && job.format !== 'step' ? railsOf(doc) : null;
+      const rails = r && 'built' in r ? r.built : null;
+      src = {
+        mesh: (maxEdge) => (rails ? meshRails(rails, { maxEdge }) : meshBoard(built, { maxEdge })),
+        curves: (count, fins) => curvesOfBuilt(built, count, fins, undefined, rails),
+        step: built,
+      };
     }
+    const files = exportFiles(src, job, progress);
     return { ok: true, files, ms: now() - t0 };
   } catch (err) {
     if (err instanceof StepFitError && job.format === 'step') {

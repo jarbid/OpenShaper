@@ -21,12 +21,13 @@
  * Nothing here imports board2 or geom: the worker (and the fallback's dynamic import)
  * is what carries them, so this module stays small.
  */
-import type { BoardDoc } from '@openshaper/board2';
+import type { BoardDoc, RailsBoard } from '@openshaper/board2';
 import type { BezierBoard } from '@openshaper/kernel';
 import type {
   ConvertedDoc,
   JobOptions,
   MeshMeasure,
+  NurbsConversion,
   NurbsEngine,
   NurbsIssue,
   NurbsMeshData,
@@ -70,12 +71,23 @@ export type ConvertAnswer =
   | ({ readonly ok: true } & ConvertedDoc)
   | { readonly ok: false; readonly error: string; readonly issues: readonly NurbsIssue[] };
 
+/** The answer to a rails conversion: the board, or the reasons the source was refused. */
+export type ToRailsAnswer =
+  | {
+      readonly ok: true;
+      readonly board: RailsBoard;
+      /** The classic-to-sections report, when the source was a classic board. */
+      readonly conversion: NurbsConversion | null;
+      readonly issues: readonly NurbsIssue[];
+    }
+  | { readonly ok: false; readonly error: string; readonly issues: readonly NurbsIssue[] };
+
 /** The answer to a measure job: the mesh's numbers, or why the document would not build. */
 export type MeasureAnswer =
   | ({ readonly ok: true } & MeshMeasure)
   | { readonly ok: false; readonly error: string };
 
-type Answer = NurbsAnswer | ConvertAnswer | ProbeAnswer | MeasureAnswer;
+type Answer = NurbsAnswer | ConvertAnswer | ToRailsAnswer | ProbeAnswer | MeasureAnswer;
 
 /** What a worker looks like to the client; tests supply a fake. */
 export interface NurbsTransport {
@@ -123,18 +135,27 @@ export interface NurbsClient {
    * board "Deviation from classic" measures against (null when that mode is not shown).
    */
   doc(
-    doc: BoardDoc,
+    doc: BoardDoc | RailsBoard,
     reference: BezierBoard | null,
     options: JobOptions,
     onStage?: (s: NurbsStage) => void,
     probes?: readonly number[],
   ): Promise<NurbsAnswer>;
   /** The as-built sections of an unchanged document at `probes` (no mesh): the scrub preview. */
-  probe(doc: BoardDoc, probes: readonly number[], engine?: NurbsEngine): Promise<ProbeAnswer>;
+  probe(
+    doc: BoardDoc | RailsBoard,
+    probes: readonly number[],
+    engine?: NurbsEngine,
+  ): Promise<ProbeAnswer>;
   /** Convert a classic board to a section document. A refusal is an answer, not an exception. */
   convert(board: BezierBoard): Promise<ConvertAnswer>;
+  /**
+   * Make a rails board from a classic board (through the classic conversion) or from a section document,
+   * once. A refusal at either step is an answer, not an exception.
+   */
+  toRails(source: BezierBoard | BoardDoc): Promise<ToRailsAnswer>;
   /** Volume, areas and the centroid of a document's mesh (the sidebar's specs). No surface comes back. */
-  measure(doc: BoardDoc, engine?: NurbsEngine): Promise<MeasureAnswer>;
+  measure(doc: BoardDoc | RailsBoard, engine?: NurbsEngine): Promise<MeasureAnswer>;
   /** Drop the job in flight (its promise rejects with {@link SupersededError}). */
   cancel(): void;
   /** Cancel and release the worker. */
@@ -158,6 +179,7 @@ export type CoreLoader = () => Promise<
     | 'meshDocument'
     | 'meshTestBoard'
     | 'probeDocument'
+    | 'toRails'
   >
 >;
 
@@ -227,6 +249,12 @@ export function createNurbsClient(
           p.resolve(answer);
         } else if (res.kind === 'probed') {
           p.resolve(res.ok ? { ok: true, probes: res.probes } : { ok: false, error: res.error });
+        } else if (res.kind === 'to-rails') {
+          p.resolve(
+            res.ok
+              ? { ok: true, board: res.board, conversion: res.conversion, issues: res.issues }
+              : { ok: false, error: res.error, issues: res.issues },
+          );
         } else if (res.kind === 'converted') {
           p.resolve(
             res.ok
@@ -275,9 +303,11 @@ export function createNurbsClient(
             ? compute.probeDocument(req.doc, req.probes)
             : req.kind === 'convert'
               ? compute.convertToDoc(req.board)
-              : req.kind === 'measure'
-                ? compute.measureDocument(req.doc)
-                : compute.meshTestBoard(req.name, req.options, progress);
+              : req.kind === 'to-rails'
+                ? compute.toRails(req)
+                : req.kind === 'measure'
+                  ? compute.measureDocument(req.doc)
+                  : compute.meshTestBoard(req.name, req.options, progress);
     if (pending !== p) return; // superseded during the (blocking) compute: drop
     pending = null;
     p.resolve(out);
@@ -332,6 +362,12 @@ export function createNurbsClient(
         ...(engine ? { engine } : {}),
       })),
     convert: (board) => submit<ConvertAnswer>((id) => ({ kind: 'convert', id, board })),
+    toRails: (source) =>
+      submit<ToRailsAnswer>((id) =>
+        'model' in source
+          ? { kind: 'to-rails', id, doc: source }
+          : { kind: 'to-rails', id, classic: source },
+      ),
     measure: (doc, engine) =>
       submit<MeasureAnswer>((id) => ({ kind: 'measure', id, doc, ...(engine ? { engine } : {}) })),
     cancel() {

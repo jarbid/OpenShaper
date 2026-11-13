@@ -72,6 +72,7 @@ describe('the engine reaches the worker with each request', () => {
       doc: never,
       probe: never,
       convert: never,
+      toRails: never,
       measure: never,
       cancel: () => {},
       dispose: () => {},

@@ -232,6 +232,7 @@ describe('without a Worker', () => {
         calls.push('measure');
         return { ok: true as const, volume: 1, planArea: 2, surfaceArea: 3, centreX: 4 };
       },
+      toRails: () => ({ ok: false as const, error: 'unused', issues: [] }),
       convertToDoc: () => {
         calls.push('convert');
         return {

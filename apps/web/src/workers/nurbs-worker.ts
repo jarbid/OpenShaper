@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * The NURBS engine's worker: builds and meshes the section store's document (no converter in the
- * loop), converts a classic board to a document (once, when the engine switches on or a file is
- * opened with it on), and meshes a classic board or a test board for the viewer, off the main
+ * loop; a rails board is built directly), converts a classic board to a document (once, when the
+ * engine switches on or a file is opened with it on) and a classic board or a document to a rails
+ * board (once, when a file is opened), and meshes a classic board or a test board for the viewer, off the main
  * thread (milliseconds per job, one job per edit).
  * Requests are processed in arrival order, and the client posts one at a time;
  * "cancellation" is supersession: the main thread drops stale answers by id
@@ -19,6 +20,7 @@ import {
   measureDocument,
   meshTestBoard,
   probeDocument,
+  toRails,
 } from './nurbs-core';
 import {
   exportTransferables,
@@ -63,6 +65,22 @@ ctx.onmessage = (e) => {
   if (req.kind === 'convert') {
     const out = convertToDoc(req.board);
     ctx.postMessage({ kind: 'converted', id: req.id, ...out });
+    return;
+  }
+  if (req.kind === 'to-rails') {
+    const out = toRails(req);
+    ctx.postMessage(
+      out.ok
+        ? {
+            kind: 'to-rails',
+            id: req.id,
+            ok: true,
+            board: out.board,
+            conversion: out.conversion,
+            issues: out.issues,
+          }
+        : { kind: 'to-rails', id: req.id, ok: false, error: out.error, issues: out.issues },
+    );
     return;
   }
   if (req.kind === 'measure') {
