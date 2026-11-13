@@ -11,6 +11,10 @@ import type { BuildSettings } from './types';
 export const BOARD_FORMAT = 'openshaper';
 export const BOARD_VERSION = 3;
 export const BOARD_MODEL = 'sections';
+/** The model tag of a rails board's document. */
+export const RAILS_MODEL = 'rails';
+/** The rails document's version; a version counts per model, so `('sections', 3)` and `('rails', 1)` are each a schema. */
+export const RAILS_VERSION = 1;
 
 /** Defaults of {@link BuildSettings}: the mesh tolerance (0.5 mm) and the share of the bottom half over which features fade. */
 export const DEFAULT_BUILD: BuildSettings = Object.freeze({ tolerance: 0.05, railFade: 0.2 });

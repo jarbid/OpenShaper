@@ -40,6 +40,7 @@ export { resolveTail, validateBoard } from './validate';
 export { convertSections } from './trim/convert';
 export type { ConvertReport } from './trim/convert';
 export type { RailsBoard } from './trim/board';
+export { docModel, railsToJson, reviveRails } from './trim/doc';
 export { buildRails, meshRails } from './trim/native';
 export type { BuiltRails, MeshRailsOptions, RailsMesh } from './trim/native';
 export { apexRails, halfWidthRails, probeRails } from './trim/probe';
