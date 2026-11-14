@@ -143,8 +143,12 @@ export function useRailsEngine(
     if (!on || !hasBoard || upToDate || refused || waiting) return;
     let cancelled = false;
     const cleanups = new Set<() => void>();
-    const refuse = (error: string, issues: readonly NurbsIssue[] = []) =>
-      setSync({ ...sync, refused: { loadCount, error, issues } });
+    /** The load this conversion is for is no longer the open one, or already has its rails board. */
+    const stale = (): boolean =>
+      boardStore.getState().loadCount !== loadCount || sync.from === loadCount;
+    const refuse = (error: string, issues: readonly NurbsIssue[] = []) => {
+      if (!stale()) setSync({ ...sync, refused: { loadCount, error, issues } });
+    };
 
     /** The document the conversion is made from: the section store's when it holds this document. */
     const source = () =>
@@ -190,7 +194,11 @@ export function useRailsEngine(
           refuse(err instanceof Error ? err.message : String(err));
           return;
         }
-        if (cancelled) return;
+        // Another document was loaded (or a rails board attached to this one) while it converted: the
+        // answer is not wanted. Checked on the stores themselves, because a load made in the same task as
+        // the answer arrives has not yet re-rendered this hook, and a rails board opened whole leaves the
+        // section store's document, the source here, as it was.
+        if (cancelled || stale()) return;
         // The source was edited while it converted: the answer is for an older one. Convert again, so
         // the edit is in the board that lands rather than lost to it.
         const now = source();
