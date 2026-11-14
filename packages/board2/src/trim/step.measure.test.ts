@@ -2,14 +2,15 @@
 /**
  * The rails board's STEP export (`trim/step.ts`) on the study's sample boards, run on demand:
  *
- *   TRIM_STUDY=1 TRIM_OUT=<dir> [TRIM_ONLY=<part of a board's name>] [STEP_OCCT=1] \
+ *   TRIM_STUDY=1 TRIM_OUT=<dir> [TRIM_ONLY=<part of a board's name>] \
  *     pnpm --filter @openshaper/board2 exec vitest run src/trim/step.measure.test.ts
  *
  * Each board, with its features, through `convertSections`, `buildRails` and `railsStep`: the deviation
  * (panels, strips), the passes, faces, splits and control points, the band edges' gap, the file's size
- * and the time, `checkBrep`, and with `STEP_OCCT=1` OCCT's verdict (one valid solid with the B-rep's
- * counts and no tolerance growth). Beside it, today's exporter (`boardStep` on the sections board): its
+ * and the time, and `checkBrep`. Beside it, today's exporter (`boardStep` on the sections board): its
  * size and time. One table goes to `TRIM_OUT`. Nothing is gated: a board that fails says why in the table.
+ * OpenCascade's verdict on the made boards is `step.occt.test.ts`'s: the OpenCascade kernel may be
+ * imported by `*.occt.test.ts` files only (`packages/geom/src/occt-isolation.test.ts`).
  *
  * The sample boards are third-party designs: nothing here is committed or printed beyond these numbers.
  */
@@ -29,35 +30,12 @@ const mm = (cm: number): string => (cm * 10).toFixed(2);
 const kb = (text: string): string => (text.length / 1024).toFixed(0);
 const s1 = (ms: number): string => (ms / 1000).toFixed(1);
 
-/** OCCT's verdict on a file: valid, one solid, the counts, and no tolerance growth past twice the uncertainty. */
-type Verdict = (text: string, counts: readonly [number, number, number], uncertainty: number) => string; // prettier-ignore
-
-async function occtVerdict(): Promise<Verdict | null> {
-  if (process.env.STEP_OCCT !== '1') return null;
-  const occt = await import('@openshaper/geom/testing/occt');
-  const kernel = await occt.OcctKernel.init();
-  return (text, [f, e, v], unc) =>
-    occt.withCheckpoint(kernel, () => {
-      const shape = kernel.importStep(text);
-      const ok =
-        kernel.isValid(shape) &&
-        kernel.subShapeCount(shape, 'solid') === 1 &&
-        kernel.subShapeCount(shape, 'shell') === 1 &&
-        kernel.subShapeCount(shape, 'face') === f &&
-        kernel.subShapeCount(shape, 'edge') === e &&
-        kernel.subShapeCount(shape, 'vertex') === v;
-      const grown = occt.maxShapeTolerance(kernel.toBREP(shape));
-      return `${ok && grown <= 2 * unc ? 'valid' : 'FAIL'} (grown ${grown.toExponential(1)} mm)`;
-    });
-}
-
 study('the rails STEP export on the sample boards', () => {
   it('writes the table', { timeout: 7_200_000 }, async () => {
     const only = process.env.TRIM_ONLY ?? '';
-    const verdict = await occtVerdict();
     const lines: string[] = [
-      'board | deviation mm (panels / strips) | passes (panels, strips) | faces | splits | controls | edge gap µm | file KB | time s | checkBrep | OCCT | today: file KB, time s',
-      '--- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---',
+      'board | deviation mm (panels / strips) | passes (panels, strips) | faces | splits | controls | edge gap µm | file KB | time s | checkBrep | today: file KB, time s',
+      '--- | --- | --- | --- | --- | --- | --- | --- | --- | --- | ---',
     ];
     for (const b of allBoards()) {
       if (only !== '' && !b.name.includes(only)) continue;
@@ -82,12 +60,9 @@ study('the rails STEP export on the sample boards', () => {
           kb(out.text),
           s1(ms),
           check.ok ? 'ok' : `FAIL: ${check.issues[0]?.message ?? ''}`,
-          verdict === null
-            ? 'not run'
-            : verdict(out.text, [out.stats.faces, out.stats.edges, out.stats.vertices], out.stats.uncertainty), // prettier-ignore
         );
       } catch (e) {
-        row.push(`FAIL: ${(e as Error).message}`, '', '', '', '', '', '', '', '', '', '');
+        row.push(`FAIL: ${(e as Error).message}`, '', '', '', '', '', '', '', '', '');
       }
       try {
         const built = buildBoard(b.doc, { check: false });

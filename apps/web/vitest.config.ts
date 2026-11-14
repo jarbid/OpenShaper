@@ -21,5 +21,9 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['src/test/setup.ts'],
     exclude: ['**/node_modules/**', '**/dist/**', 'e2e/**', 'e2e-offline/**'],
+    // The same budget as the engine packages, and more: `pnpm test` runs every package's suite at once, and
+    // many of this package's tests build and mesh a board (or mount the whole app on the engine) with no
+    // GPU and no worker, in a slower environment than a developer's machine.
+    testTimeout: 30_000,
   },
 });
