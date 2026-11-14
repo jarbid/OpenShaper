@@ -224,22 +224,114 @@ on purpose.
 ## The slices
 
 In the order each depends on the one before. Each leaves the branch working and is usable
-when it lands.
+when it lands. Status is as of 2026-11-14.
 
-|     | Slice                             | What a shaper gets                                                                                                                                                                                                    | Gate                                                                                                                   |
-| --- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| 0   | Engine speed (in progress)        | The new engine keeps up with a drag                                                                                                                                                                                   | The budget above on the sample boards                                                                                  |
-| 1   | **STEP for a rails board**        | Nothing visible. It has to exist before the old engine stops being the one that exports                                                                                                                               | OCCT reads one valid closed solid for every sample board                                                               |
-| 2   | **Rails boards are the document** | Every board opens in the new format and is built by the new engine alone. In today's layout: outline and rocker as now; the cross-section tab shows a station's deck and bottom curves, editable, and its rail, drawn | Round trip and undo; every export; old files convert; the engine switches are gone                                     |
-| 3   | **The new layout and the looks**  | The design list, the board always in view, the drawing, the panel. Look with Patches and everything the app has. Tap a patch to choose. Today's tools in their new places                                             | Every step reachable by list, key and tap; tablet layout; no step slower than before                                   |
-| 4   | **Rail zones**                    | The rail map; zones and blends, dragged on the map and on the board; the rail panel with its three dials, live slice and More; my rails; Tidy rails                                                                   | Any zone edit keeps a closed board; one side or both; a board's rails survive a save, a share link and another machine |
-| 5   | **Deck and bottom shapes**        | Named deck shapes with a crown dial; bottom contours in the Bottom step; Edit curve; the station strip                                                                                                                | A shape applied and then edited as a curve stays the shaper's                                                          |
-| 6   | **Tail and corners**              | The tail picker; a radius handle on every corner, in the plan and on the board                                                                                                                                        | Every tail in the picker gives a closed board at every size in the gallery                                             |
-| 7   | **A new board**                   | The gallery of types, then a size                                                                                                                                                                                     | Each type opens at the smallest and largest size it allows                                                             |
-| 8   | **The old engine goes**           | Nothing visible                                                                                                                                                                                                       | Nothing imports the chord frame, the notch zone, the caps or the section editor                                        |
+|     | Slice                             | What a shaper gets                                                                                                                                                                                                    | Gate                                                                                                                   | Status                                                                                                                                                                                                                                 |
+| --- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0   | Engine speed                      | The new engine keeps up with a drag                                                                                                                                                                                   | The budget above on the sample boards                                                                                  | Mostly done. Volume no longer depends on the grid, unchanged parts are reused, the panels have no long triangles. Draft meshing is over 20 ms on three boards, and the section probe costs 8 to 15 ms a request outside the timed part |
+| 1   | **STEP for a rails board**        | Nothing visible. It has to exist before the old engine stops being the one that exports                                                                                                                               | OCCT reads one valid closed solid for every sample board                                                               | Built. 12 of 14 sample boards fit; the made boards are valid in OCCT. Two boards pass the control budget                                                                                                                               |
+| 2   | **Rails boards are the document** | Every board opens in the new format and is built by the new engine alone. In today's layout: outline and rocker as now; the cross-section tab shows a station's deck and bottom curves, editable, and its rail, drawn | Round trip and undo; every export; old files convert; the engine switches are gone                                     | Built behind the two experimental switches, with the old layout. The switches are still there and the classic engine is still the default                                                                                              |
+| 3   | **The new layout and the looks**  | The design list, the board always in view, the drawing, the panel. Look with Patches and everything the app has. Tap a patch to choose. Today's tools in their new places                                             | Every step reachable by list, key and tap; tablet layout; no step slower than before                                   | Started. The Patches look and the tap are in the 3D view. Next: the workspace, then the Look control, then a tap that chooses a step                                                                                                   |
+| 4   | **Rail zones**                    | The rail map; zones and blends, dragged on the map and on the board; the rail panel with its three dials, live slice and More; my rails; Tidy rails                                                                   | Any zone edit keeps a closed board; one side or both; a board's rails survive a save, a share link and another machine | Not started. Its pure part (zone edits, the dials, the built-in rails) is built beside the workspace                                                                                                                                   |
+| 5   | **Deck and bottom shapes**        | Named deck shapes with a crown dial; bottom contours in the Bottom step; Edit curve; the station strip                                                                                                                | A shape applied and then edited as a curve stays the shaper's                                                          | Not started                                                                                                                                                                                                                            |
+| 6   | **Tail and corners**              | The tail picker; a radius handle on every corner, in the plan and on the board                                                                                                                                        | Every tail in the picker gives a closed board at every size in the gallery                                             | Not started                                                                                                                                                                                                                            |
+| 7   | **A new board**                   | The gallery of types, then a size                                                                                                                                                                                     | Each type opens at the smallest and largest size it allows                                                             | Not started                                                                                                                                                                                                                            |
+| 8   | **The old engine goes**           | Nothing visible                                                                                                                                                                                                       | Nothing imports the chord frame, the notch zone, the caps or the section editor                                        | Not started. The switches go and the rails engine becomes the default here                                                                                                                                                             |
 
-Slices 1 and 2 touch different code and are built side by side. Slice 3 comes before the
+Slices 1 and 2 touched different code and were built side by side. Slice 3 comes before the
 rails so that the rail map and panel are built once, in their final place.
+
+## How the order changed
+
+- **The workspace is built beside the old layout, not in place of it.** It is a new
+  component, shown instead of the main area only while a rails board is the document and the
+  screen is not a phone. `AppShell`, `View` and the old views stay until the old path is
+  deleted, because the classic engine is still the default and `View` is held by the
+  shortcuts, the phone tier, the docs coverage test, the end-to-end specs and the pixel
+  scripts. Decision 14's "replaces" therefore takes effect with slice 8, and `AppShell` is
+  decomposed then. To see the workspace: Settings, turn on the NURBS engine and the rails
+  engine.
+- **Slice 3 is built in three parts**: (a) the workspace, over today's editors and sidebar;
+  (b) the one Look control; (c) a tap on the board chooses a step.
+- **The pure side of rail zones is built beside (a)**, since it needs no layout.
+
+## Decisions taken while building
+
+- **A zone is two or more consecutive rail keys that hold the same rail; a blend is the gap
+  between two zones.** A zone of no length is one key. The engine already holds a rail flat
+  between equal keys and eases into and out of the neighbours (a monotone cubic with zero
+  slope at a flat run's ends), so zones need no change to the file or the engine. A converted
+  board arrives as zones of no length with a blend between each.
+- **Left and right rails do not depend on the outline's symmetry.** The minus side's rail
+  keys are read whenever they are present, on a mirror board too; choosing L or R in the rail
+  panel creates them from the other side, and Both sides removes them. The engine tied them
+  to a fully asymmetric board in three places (`native.ts`, `probe.ts`, `step.ts`).
+- **A rail's name is not stored.** It is the built-in or saved rail whose numbers it equals,
+  and Custom when it matches none. My rails are kept in the browser and in the document's
+  `meta.extra`, so they travel with the board.
+- **Per-number lanes, and the travel of a blend, are not in the first rail map.** They need
+  keys with their own places along the board for each number, which is a change to the file.
+- **What a tap can tell apart.** The engine marks an outline piece that runs across the
+  board (a squash tail's straight edge, a notch wall) as a tail edge, as the loop always
+  allowed and the outline never used; a corner is identified as the corner knot nearest the
+  tap; the tail and the nose are told apart by position. A round tail is rail.
+
+## Open items
+
+From the engine and the mesh:
+
+- The stitch between a panel's grid and its band edge is one to two and a half cells wide
+  where the panel rolls fastest: at view quality the distance off the panel is 0.14 to
+  0.22 mm at the 99th percentile and up to 0.74 mm at worst. A cell rule that keeps cells
+  half a cell from the band edge would narrow it; it adds vertices and closedness depends on
+  the rule, so it needs its own measurement (a probe that dropped the margin entirely opened
+  20 to 650 edges a board).
+- Channel walls are narrower than the grid: the channel board is 1.3 mm off at the 99th
+  percentile and 3 mm at worst. Cells of about 0.08 cm over the walls only would bring it to
+  0.1 mm; the midpoint gap already computed cannot find a wall that falls between two nodes,
+  so the walls' places must come from the relief's own definition.
+- The bottom panel's slope within 3 mm of a squash tail's edge is wrong (the loft reads
+  `u = y / w(x)` through a 0.1 cm table where `w` is steep): it shades as a bright line along
+  the tail edge. Near-hard edges with a band of 0.7 mm or less turn their normal 40° in 0.03 mm
+  between the first two strip rows (88 strip triangles on the fish).
+- The Diamond Twin's panel has a feature narrower than any grid (5.8 mm off at every grid).
+
+From STEP:
+
+- The Diamond Twin and the funboard sample boards pass the 60,000-control budget. Files are 1
+  to 5 times the old exporter's size and take 0.8 to 4 s on standard boards; the faces are
+  not rational and the band edges are refined to a quarter of a micron. Options: a rational
+  or degree-elevated band edge, patches instead of one net per panel, or a looser tolerance by
+  decision.
+- OCCT's volume property is 10.8% over ours on the channel board (its own fine mesh agrees
+  within 0.24%); that board's sanity bound is 12%, the others' 5%.
+- The asymmetric nose and tail are one transition face where the kernel's laws jump between
+  the sides; the deck is smooth across the stringer to the fit, with no tangency constraint;
+  only OCCT has read the files.
+
+From the store and the app:
+
+- A station added between two whose curves have the same knot count moves the surface by 0.1
+  to 0.9 mm; where the counts differ the nearer curves are copied and it can move by 4 mm. An
+  exact insert samples the engine's loft at the place and fits the new curves; it goes through
+  `commitDoc`.
+- Rail keys behind a new notch bottom are kept. An asymmetric board's station of no width
+  skips its curve edits when they are written back.
+- The engine info popover still describes the sections engine's blending for a rails board;
+  feeding the engine's sections to the store through the 3D layer has no test of its own.
+
+From the Patches look:
+
+- The rail is thin from above, so a chosen zone is hard to see; the unchosen rest is dimmed by
+  half, which is too dark; the deck is a plain grey. The look wants tuning against the
+  artifact it comes from once it is the working look. Raycasting is linear over about 90,000
+  triangles and untimed; touch is untested; a tail edge has not appeared on a real mesh.
+
+From the tests:
+
+- Many tests build and mesh a board; on CI they take 5 to 60 s, and the rails worker
+  comparisons take 200 s together. The app package had no test timeout (the others use 20 s);
+  it now has 30 s. The comparisons should be trimmed.
 
 ## Not decided
 
