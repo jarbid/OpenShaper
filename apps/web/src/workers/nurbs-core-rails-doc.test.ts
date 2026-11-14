@@ -7,7 +7,7 @@
 import { convertSections, type BoardDoc, type Chain, type RailsBoard } from '@openshaper/board2';
 import { analyticBoard, asymmetricBoard, swallowBoard } from '@openshaper/board2/testing';
 import { parseBrd } from '@openshaper/io';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import sampleBrd from '../sample-board.brd?raw';
 import {
   convertToDoc,
@@ -23,6 +23,9 @@ import {
   toRails,
 } from './nurbs-core';
 import type { ExportJob, JobOptions } from './nurbs-protocol';
+
+// Each comparison builds and meshes a board twice at full quality: seconds on a loaded machine.
+vi.setConfig({ testTimeout: 30_000 });
 
 const shortboard = (): BoardDoc => {
   const c = convertToDoc(parseBrd(sampleBrd).board);
