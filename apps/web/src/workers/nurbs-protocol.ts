@@ -333,7 +333,7 @@ export type ExportJob = ExportJobFormat & {
   /**
    * The engine a sections document's STL, DXF and PDF are made on; 'sections' when absent. STEP of a
    * sections document is always made on 'sections'. A rails board is always made on the rails engine,
-   * and has no STEP export yet.
+   * STEP included.
    */
   readonly engine?: NurbsEngine;
 };

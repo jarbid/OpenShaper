@@ -275,6 +275,53 @@ export const STEP_WARP_TABLE = 1024;
 /** Check samples per span along the boundary rows (the stringer, the apex and the ends), which `snap` moves. */
 export const STEP_EDGE_SAMPLES = 24;
 
+// ---------------------------------------------------------------------------
+// STEP solid of a rails board (`trim/step.ts`, docs/design/trim-blend-plan.md, "STEP")
+// ---------------------------------------------------------------------------
+
+/** The first knot spacing (cm) of a panel's height field, along x and across y. */
+export const STEP_RAILS_PANEL_START_X = 12;
+export const STEP_RAILS_PANEL_START_Y = 4;
+/** How far (cm) a panel's surface reaches past its band edge's bounding box on every side. */
+export const STEP_RAILS_PANEL_MARGIN = 0.5;
+/** The first knot spacing (cm of loop) along a strip face, and the first spans across a deck blend and a tuck. */
+export const STEP_RAILS_STRIP_START = 10;
+export const STEP_RAILS_ACROSS_START = 2;
+/**
+ * A band edge's 3D curve lies on its panel within this (cm) along the whole trim: a quarter of geom's
+ * `Tolerances.fit` (1 µm), the largest same-parameter gap `checkBrep` and the STEP writer accept.
+ */
+export const STEP_RAILS_EDGE_GAP = 2.5e-5;
+/** Samples per span of a band edge where its height is fitted to the panel under it, and where the gap is checked (offset from those). */
+export const STEP_RAILS_EDGE_FIT = 8;
+export const STEP_RAILS_EDGE_CHECK = 16;
+/** Samples across a blend, per span, where a cross curve at a split is fitted to the kernel's section. */
+export const STEP_RAILS_CROSS_SAMPLES = 8;
+/**
+ * Weight of the smoothing term of every least-squares fit (second differences of the control points),
+ * relative to the largest diagonal entry of the data's normal matrix: it only decides control points the
+ * data leave free (a panel's corners outside the outline, a span with no loop sample in it), and moves a
+ * fitted one by about this share of its curvature.
+ */
+export const STEP_RAILS_SMOOTH = 1e-9;
+/**
+ * A miss on a strip is put down to its spans across the rail when the best fit of that one section in
+ * the across basis alone misses by more than this share of the limit; otherwise to its span along the loop.
+ */
+export const STEP_RAILS_ACROSS_SHARE = 0.5;
+/** Splits closer than this many loop samples to a split already made (a crossing of the stringer, a corner's end) are not made. */
+export const STEP_RAILS_SPLIT_GAP = 2;
+/**
+ * Where a strip misses at the same parameter, the distance is measured to its nearest point: Gauss-Newton
+ * steps from that parameter, the derivatives by central differences of this half step (parameter units).
+ */
+export const STEP_RAILS_NEWTON_STEPS = 8;
+export const STEP_RAILS_NEWTON_STEP = 1e-6;
+/** A span along a strip is bisected only while it holds at least this many of the places the fit reads. */
+export const STEP_RAILS_SPAN_DATA = 2;
+/** Control points of the whole solid the fit may grow to before it gives up. */
+export const STEP_RAILS_MAX_CONTROLS = 60000;
+
 /**
  * The trim-and-blend kernel (`trim/`, docs/design/trim-blend-plan.md): the outline as a
  * closed loop, the rail blends swept along it and the trimmed panels between them.

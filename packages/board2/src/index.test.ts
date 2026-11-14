@@ -35,6 +35,8 @@ describe('@openshaper/board2 public API', () => {
         'meshVertex',
         'probeRails',
         'probeSection',
+        'railsSolid',
+        'railsStep',
         'railsToJson',
         'resolveTail',
         'reviveRails',

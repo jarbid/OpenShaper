@@ -60,6 +60,7 @@ import {
   buildBoard,
   buildRails,
   boardStep,
+  railsStep,
   StepFitError,
   convertCache,
   convertSections,
@@ -1248,8 +1249,17 @@ interface ExportSource {
   /** The surface mesh at the export face size. */
   readonly mesh: (maxEdge: number) => Parameters<typeof stlFromMesh>[0];
   readonly curves: (count: number, fins: BoardCurves['fins']) => BoardCurves;
-  /** The sections build STEP is written from; null on the rails engine, which has no STEP yet. */
-  readonly step: BuiltBoard | null;
+  /** The STEP text of the solid, fitted by the engine the source was built on. */
+  readonly step: (opts: StepOptions) => { readonly text: string };
+}
+
+/** What a STEP export passes to either engine's writer. */
+interface StepOptions {
+  readonly name: string;
+  readonly unit: 'mm' | 'cm' | 'in';
+  readonly timestamp: string;
+  readonly onPass: (pass: number) => void;
+  readonly onWrite: () => void;
 }
 
 /** The export's files from `src`, as `job` asks for them. */
@@ -1288,9 +1298,8 @@ const exportFiles = (
     ];
   }
   if (job.format === 'step') {
-    if (src.step === null) throw new Error(STEP_UNAVAILABLE);
     progress?.('fitting');
-    const out = boardStep(src.step, {
+    const out = src.step({
       name: job.slug,
       unit: job.unit,
       timestamp: new Date().toISOString().slice(0, 19),
@@ -1311,17 +1320,14 @@ const exportFiles = (
   }));
 };
 
-/** The error of a STEP export of a rails board. */
-const STEP_UNAVAILABLE = 'STEP export is not available for this board yet.';
-
 /**
  * One export of a document, from the document itself (docs/design/m3-exports.md): STL from the grid mesh at
  * the export face size, welded; DXF and PDF 1:1 from the document's chains and the as-built sections.
  * Validates and builds first, so a document the model refuses is an outcome, not an exception. Runs for
  * as long as it takes (the one place a multi-second wait is accepted); `progress` names the stage.
  *
- * A rails board is built by the rails engine alone, and is exported from that build: no STEP yet (a failed
- * export says so, before anything is built). The drawings' stations start where the outline does (the
+ * A rails board is built by the rails engine alone, and every export is made from that build, STEP
+ * included (`railsStep`). The drawings' stations start where the outline does (the
  * notch bottom on a notched tail, as for a sections document). A rails board does not record a notch
  * zone, so none of its stations is drawn as a notch-zone "rail section" on fan chords: a notched board's
  * DXF and PDF therefore differ from its sections document's in those stations' plan markers and labels.
@@ -1335,7 +1341,6 @@ export const exportDocument = (
   try {
     let src: ExportSource;
     if (docIn.model === 'rails') {
-      if (job.format === 'step') return { ok: false, error: STEP_UNAVAILABLE };
       progress?.('building');
       const r = buildRailsBoard(docIn);
       if (!('built' in r)) return { ok: false, error: r.reason };
@@ -1354,7 +1359,7 @@ export const exportDocument = (
             count,
             fins,
           ),
-        step: null,
+        step: (opts) => railsStep(rails, opts),
       };
     } else {
       progress?.('building');
@@ -1370,7 +1375,7 @@ export const exportDocument = (
       src = {
         mesh: (maxEdge) => (rails ? meshRails(rails, { maxEdge }) : meshBoard(built, { maxEdge })),
         curves: (count, fins) => curvesOfBuilt(built, count, fins, undefined, rails),
-        step: built,
+        step: (opts) => boardStep(built, opts),
       };
     }
     const files = exportFiles(src, job, progress);

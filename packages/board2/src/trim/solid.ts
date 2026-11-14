@@ -157,7 +157,7 @@ const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
 export const reliefFade = (t: number): number => 1 - t * t * t * (10 - 15 * t + 6 * t * t);
 
 /** One side of the rail at one loop sample: where its blend leaves the panel and where it is going. */
-interface BandEdge {
+export interface BandEdge {
   readonly qx: number;
   readonly qy: number;
   readonly z: number;
@@ -165,6 +165,139 @@ interface BandEdge {
   shoulder: number;
   /** Height where the panel's own tangent meets the wall. */
   readonly tangent: number;
+}
+
+/** A place on the loop and the rail there: the loop point, its inward normal and the rail's numbers. */
+export interface RailPlace {
+  readonly x: number;
+  readonly y: number;
+  readonly nx: number;
+  readonly ny: number;
+  readonly deckWidth: number;
+  readonly tuckWidth: number;
+  readonly deckRho: number;
+  readonly tuckRho: number;
+  readonly apex: number;
+  readonly deckEdge: number;
+  readonly bottomEdge: number;
+}
+
+/** The loop's sample `i` and the rail laws there. */
+export function railPlace(loop: Loop, laws: RailLaws, i: number): RailPlace {
+  return {
+    x: loop.x[i]!,
+    y: loop.y[i]!,
+    nx: loop.nx[i]!,
+    ny: loop.ny[i]!,
+    deckWidth: laws.deckWidth[i]!,
+    tuckWidth: laws.tuckWidth[i]!,
+    deckRho: laws.deckRho[i]!,
+    tuckRho: laws.tuckRho[i]!,
+    apex: laws.apex[i]!,
+    deckEdge: laws.deckEdge[i]!,
+    bottomEdge: laws.bottomEdge[i]!,
+  };
+}
+
+/** The rail across one place on the loop: its two band edges and the apex height on the wall. */
+export interface RailSection {
+  readonly deck: BandEdge;
+  readonly tuck: BandEdge;
+  readonly apex: number;
+}
+
+/**
+ * The rail's two strips as the mesh places them, at any place on the loop. `section` reads the
+ * band edges off the panels and settles the shoulders and the apex; `point` is the point at `t`
+ * across the deck blend (side 0) or the tuck (side 1), from the band edge (0) to the apex (1),
+ * with the relief faded along the tuck. The mesh is built from exactly these.
+ */
+export interface RailStrips {
+  section(at: RailPlace): RailSection;
+  point(at: RailPlace, section: RailSection, side: 0 | 1, t: number, out: Float64Array): void;
+}
+
+/** The strips of a rail on `panels` (the panels as the mesh holds them: `TrimMesh.panels`). */
+export function railStrips(panels: Panels): RailStrips {
+  const both = panels.both;
+  const relief = panels.relief;
+  const heights = new Float64Array(6);
+  const lift = new Float64Array(3);
+  const bandEdge = (
+    surf: (x: number, y: number) => number,
+    which: number,
+    at: RailPlace,
+    width: number,
+  ): BandEdge => {
+    const qx = at.x + width * at.nx;
+    const qy = at.y + width * at.ny;
+    let z: number;
+    let slope: number;
+    if (both !== undefined) {
+      // the slope towards the outline: the loop's normal points inward, so it is minus the gradient along it
+      panels.both!(qx, qy, heights);
+      z = heights[3 * which]!;
+      slope = -(heights[3 * which + 1]! * at.nx + heights[3 * which + 2]! * at.ny);
+    } else {
+      const e = TRIM.slopeStep;
+      z = surf(qx, qy);
+      // the slope is read from the panel side only: past the band edge the panel has given way
+      // to the rail, and a panel need not exist there at all
+      const z1 = surf(qx + e * at.nx, qy + e * at.ny);
+      const z2 = surf(qx + 2 * e * at.nx, qy + 2 * e * at.ny);
+      slope = (3 * z - 4 * z1 + z2) / (2 * e);
+    }
+    const tangent = z + width * slope;
+    return { qx, qy, z, tangent, shoulder: tangent };
+  };
+  return {
+    section: (at) => {
+      let d = bandEdge(panels.deck, 0, at, at.deckWidth);
+      let b = bandEdge(panels.bottom, 1, at, at.tuckWidth);
+      const a = at.apex;
+      const za = b.tangent + a * (d.tangent - b.tangent);
+      // A wall shorter than `wallMin`, or a negative one where the tangents cross, is opened to
+      // `wallMin` about the apex. The blends then no longer leave their panels tangent here.
+      // That is accepted: it happens only where the board is a knife edge, and there a blend
+      // that cannot stand on a wall would fold the rail through itself.
+      if (d.tangent - b.tangent < TRIM.wallMin) {
+        const top = za + (1 - a) * TRIM.wallMin;
+        const bottom = za - a * TRIM.wallMin;
+        d = { ...d, tangent: top, shoulder: top };
+        b = { ...b, tangent: bottom, shoulder: bottom };
+      }
+      // an edge leaves its panel at an angle, so its shoulder slides along the wall towards the apex, never past it
+      d.shoulder = Math.max(
+        d.tangent - at.deckWidth * at.deckEdge,
+        za + TRIM.edgeShort * (d.tangent - za),
+      );
+      b.shoulder = Math.min(
+        b.tangent + at.tuckWidth * at.bottomEdge,
+        za - TRIM.edgeShort * (za - b.tangent),
+      );
+      return { deck: d, tuck: b, apex: za };
+    },
+    point: (at, section, side, t, out) => {
+      const h = side === 0 ? section.deck : section.tuck;
+      const rho = side === 0 ? at.deckRho : at.tuckRho;
+      const w = rho / (1 - rho);
+      const s = 1 - t;
+      const den = s * s + 2 * w * s * t + t * t;
+      const k0 = (s * s) / den;
+      const k1 = (2 * w * s * t) / den;
+      const k2 = (t * t) / den;
+      const x = k0 * h.qx + (k1 + k2) * at.x;
+      const y = k0 * h.qy + (k1 + k2) * at.y;
+      let z = k0 * h.z + k1 * h.shoulder + k2 * section.apex;
+      if (side === 1 && relief !== undefined) {
+        relief(x, y, lift);
+        z += lift[0]! * reliefFade(t);
+      }
+      out[0] = x;
+      out[1] = y;
+      out[2] = z;
+    },
+  };
 }
 
 /**
@@ -448,84 +581,27 @@ export function buildTrimMesh(
   const wallTop = new Float64Array(n);
   const wallBottom = new Float64Array(n);
   const apex = new Float64Array(n);
-  const bandEdge = (
-    surf: (x: number, y: number) => number,
-    which: number,
-    i: number,
-    width: number,
-  ): BandEdge => {
-    const qx = loop.x[i]! + width * loop.nx[i]!;
-    const qy = loop.y[i]! + width * loop.ny[i]!;
-    let z: number;
-    let slope: number;
-    if (both !== undefined) {
-      // the slope towards the outline: the loop's normal points inward, so it is minus the gradient along it
-      panels.both!(qx, qy, heights);
-      z = heights[3 * which]!;
-      slope = -(heights[3 * which + 1]! * loop.nx[i]! + heights[3 * which + 2]! * loop.ny[i]!);
-    } else {
-      const e = TRIM.slopeStep;
-      z = surf(qx, qy);
-      // the slope is read from the panel side only: past the band edge the panel has given way
-      // to the rail, and a panel need not exist there at all
-      const z1 = surf(qx + e * loop.nx[i]!, qy + e * loop.ny[i]!);
-      const z2 = surf(qx + 2 * e * loop.nx[i]!, qy + 2 * e * loop.ny[i]!);
-      slope = (3 * z - 4 * z1 + z2) / (2 * e);
-    }
-    const tangent = z + width * slope;
-    return { qx, qy, z, tangent, shoulder: tangent };
-  };
+  const strips = railStrips(panels);
+  const point = new Float64Array(3);
   for (let i = 0; i < n; i++) {
-    let d = bandEdge(panels.deck, 0, i, laws.deckWidth[i]!);
-    let b = bandEdge(panels.bottom, 1, i, laws.tuckWidth[i]!);
-    const a = laws.apex[i]!;
-    const za = b.tangent + a * (d.tangent - b.tangent);
-    // A wall shorter than `wallMin`, or a negative one where the tangents cross, is opened to
-    // `wallMin` about the apex. The blends then no longer leave their panels tangent here.
-    // That is accepted: it happens only where the board is a knife edge, and there a blend
-    // that cannot stand on a wall would fold the rail through itself.
-    if (d.tangent - b.tangent < TRIM.wallMin) {
-      const top = za + (1 - a) * TRIM.wallMin;
-      const bottom = za - a * TRIM.wallMin;
-      d = { ...d, tangent: top, shoulder: top };
-      b = { ...b, tangent: bottom, shoulder: bottom };
-    }
-    // an edge leaves its panel at an angle, so its shoulder slides along the wall towards the apex, never past it
-    d.shoulder = Math.max(
-      d.tangent - laws.deckWidth[i]! * laws.deckEdge[i]!,
-      za + TRIM.edgeShort * (d.tangent - za),
-    );
-    b.shoulder = Math.min(
-      b.tangent + laws.tuckWidth[i]! * laws.bottomEdge[i]!,
-      za - TRIM.edgeShort * (za - b.tangent),
-    );
-    deckEdges.push(d);
-    tuckEdges.push(b);
-    wallTop[i] = d.tangent;
-    wallBottom[i] = b.tangent;
+    const at = railPlace(loop, laws, i);
+    const section = strips.section(at);
+    const za = section.apex;
+    deckEdges.push(section.deck);
+    tuckEdges.push(section.tuck);
+    wallTop[i] = section.deck.tangent;
+    wallBottom[i] = section.tuck.tangent;
     apex[i] = za;
     const f = loop.corner[i] !== 0 ? FACE.corner : loop.kind[i] === 1 ? FACE.tail : FACE.rail;
-    const strip = (h: BandEdge, rho: number, rows: number, face: number, lifted: boolean): void => {
-      const w = rho / (1 - rho);
+    for (const [side, rows, face] of [
+      [0, nt, f],
+      [1, nb, f + FACE.tuck],
+    ] as const) {
       for (let j = 0; j < rows; j++) {
-        const t = j / rows;
-        const s = 1 - t;
-        const den = s * s + 2 * w * s * t + t * t;
-        const k0 = (s * s) / den;
-        const k1 = (2 * w * s * t) / den;
-        const k2 = (t * t) / den;
-        const x = k0 * h.qx + (k1 + k2) * loop.x[i]!;
-        const y = k0 * h.qy + (k1 + k2) * loop.y[i]!;
-        let z = k0 * h.z + k1 * h.shoulder + k2 * za;
-        if (lifted) {
-          relief!(x, y, lift);
-          z += lift[0]! * reliefFade(t);
-        }
-        add(x, y, z, face);
+        strips.point(at, section, side, j / rows, point);
+        add(point[0]!, point[1]!, point[2]!, face);
       }
-    };
-    strip(d, laws.deckRho[i]!, nt, f, false);
-    strip(b, laws.tuckRho[i]!, nb, f + FACE.tuck, relief !== undefined);
+    }
     add(loop.x[i]!, loop.y[i]!, za, f);
   }
   const deckAt = (i: number, j: number): number => per * i + j;

@@ -63,6 +63,7 @@ describe('a rails board is built directly', () => {
     ['STL', () => exportDocument(board, { format: 'stl', faceSize: 1, slug: 'b' })],
     ['DXF', () => exportDocument(board, { format: 'dxf', curveMode: 'polyline', crossSectionCount: 3, ghost: null, fins: [], slug: 'b' })], // prettier-ignore
     ['PDF 1:1', () => exportDocument(board, { format: 'pdf-1to1', options: {}, fins: [], slug: 'b' })], // prettier-ignore
+    ['STEP', () => exportDocument(board, { format: 'step', unit: 'mm', slug: 'b' })],
   ])('by the %s request: no conversion, no sections build', (_name, request) => {
     calls();
     const out = request();
@@ -70,13 +71,6 @@ describe('a rails board is built directly', () => {
     expect(board2.convertSections).not.toHaveBeenCalled();
     expect(board2.buildBoard).not.toHaveBeenCalled();
     expect(board2.buildRails).toHaveBeenCalledTimes(1);
-  });
-
-  it('by a STEP request: nothing at all is built', () => {
-    const out = exportDocument(board, { format: 'step', unit: 'mm', slug: 'b' });
-    expect(out.ok).toBe(false);
-    expect(board2.buildRails).not.toHaveBeenCalled();
-    expect(board2.buildBoard).not.toHaveBeenCalled();
   });
 });
 

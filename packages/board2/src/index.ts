@@ -44,6 +44,14 @@ export { docModel, railsToJson, reviveRails } from './trim/doc';
 export { buildRails, meshRails } from './trim/native';
 export type { BuiltRails, MeshRailsOptions, RailsMesh } from './trim/native';
 export { apexRails, halfWidthRails, probeRails } from './trim/probe';
+export { railsSolid, railsStep } from './trim/step';
+export type {
+  RailsSolid,
+  RailsSolidOptions,
+  RailsSolidReport,
+  RailsStep,
+  RailsStepOptions,
+} from './trim/step';
 export type {
   Board2Issue,
   Board2IssueCode,

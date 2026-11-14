@@ -190,13 +190,17 @@ describe.each(BOARDS)(
       120_000,
     );
 
-    it('STEP is a failed export that says it is not available', () => {
+    it('STEP is one file holding a solid', () => {
       const out = exportDocument(railsOfDoc(make()), {
         format: 'step',
         unit: 'mm',
         slug: 'b',
       });
-      expect(out).toEqual({ ok: false, error: 'STEP export is not available for this board yet.' });
+      if (!out.ok) throw new Error(out.error);
+      expect(out.files.map((f) => [f.name, f.type])).toEqual([['b.step', 'model/step']]);
+      const text = new TextDecoder().decode(out.files[0]!.bytes);
+      expect(text.startsWith('ISO-10303-21;')).toBe(true);
+      expect(text).toContain('MANIFOLD_SOLID_BREP');
     });
   },
 );
