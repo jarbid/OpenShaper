@@ -61,10 +61,7 @@ function buildAt(built: BuiltRails, side: 0 | 1, x: number): Built {
   const board = built.board;
   const sign: 1 | -1 = side === 0 ? 1 : -1;
   const w = built.halfWidth[side](x);
-  const keys =
-    side === 1 && board.symmetry === 'asymmetric' && board.rails.minus !== undefined
-      ? board.rails.minus
-      : board.rails.plus;
+  const keys = side === 1 && board.rails.minus !== undefined ? board.rails.minus : board.rails.plus;
   const rail = railsAlong(keys);
   const e = TRIM.probeSlopeStep;
   const a = Math.max(built.xiMin, x - e);

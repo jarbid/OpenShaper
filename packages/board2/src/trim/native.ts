@@ -114,7 +114,8 @@ function checkBoard(board: RailsBoard): Board2Issue[] {
     }
   }
   const sides: ['plus' | 'minus', readonly RailKey[] | undefined][] = [['plus', board.rails.plus]];
-  if (asym) sides.push(['minus', board.rails.minus]);
+  // an asymmetric board needs the minus keys; any board may have them
+  if (asym || board.rails.minus !== undefined) sides.push(['minus', board.rails.minus]);
   for (const [side, keys] of sides) {
     if (keys === undefined || keys.length === 0) {
       issues.push(
@@ -162,11 +163,9 @@ function sameKeys(a: readonly RailKey[] | undefined, b: readonly RailKey[] | und
   return true;
 }
 
-/** Whether two boards have the same rail laws on the same loop: the same keys by value and the same symmetry. */
+/** Whether two boards have the same rail laws on the same loop: the same keys by value on each side. */
 const sameLaws = (a: RailsBoard, b: RailsBoard): boolean =>
-  a.symmetry === b.symmetry &&
-  sameKeys(a.rails.plus, b.rails.plus) &&
-  (a.symmetry !== 'asymmetric' || sameKeys(a.rails.minus, b.rails.minus));
+  sameKeys(a.rails.plus, b.rails.plus) && sameKeys(a.rails.minus, b.rails.minus);
 
 /** The loop of an outline, or null where it cannot be built. */
 function tryLoop(board: RailsBoard, spacingMax?: number): Loop | null {
@@ -185,13 +184,14 @@ function tryLoop(board: RailsBoard, spacingMax?: number): Loop | null {
   return loop;
 }
 
-/** The rail laws of a board on a loop: each side's keys along x; a mirror board's minus side has the plus keys. */
+/**
+ * The rail laws of a board on a loop: each side's keys along x. A side's rail does not depend on
+ * the outline's symmetry: the minus side has its own keys wherever the board gives it any, and the
+ * plus keys otherwise.
+ */
 function lawsOf(board: RailsBoard, loop: Loop): RailLaws {
   const plus = railsAlong(board.rails.plus);
-  const minus =
-    board.symmetry === 'asymmetric' && board.rails.minus !== undefined
-      ? railsAlong(board.rails.minus)
-      : plus;
+  const minus = board.rails.minus !== undefined ? railsAlong(board.rails.minus) : plus;
   return lawsFromKeys(loop, plus, minus);
 }
 

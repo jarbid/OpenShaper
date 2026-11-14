@@ -10,7 +10,7 @@ import { TRIM } from '../params';
 import type { Chain, ChainKnot, Outline } from '../types';
 import type { RailsCorners } from './board';
 import { buildLoop } from './loop';
-import type { Loop, LoopDef, LoopPiece } from './loop';
+import type { Loop, LoopDef, LoopPiece, PieceKind } from './loop';
 
 /** Indices of a chain's corner knots: the interior knots that are not smooth, tail to nose. */
 function cornerKnots(chain: Chain): number[] {
@@ -52,6 +52,20 @@ function reversed(p: Float64Array): Float64Array {
 }
 
 /**
+ * Whether a piece of an outline is a stretch that carries its own rail rather than an outer rail:
+ * a notch wall (`wall`), or a piece that runs across the board, such as a squash tail's straight
+ * end. The kind marks the mesh's faces (`FACE.tail`), so a tap can tell an end from the rail; it
+ * does not change the shape.
+ */
+function pieceKind(pts: Float64Array, wall: boolean): PieceKind {
+  if (wall) return 1;
+  const n = pts.length / 2;
+  const across = Math.abs(pts[2 * n - 1]! - pts[1]!);
+  const along = Math.abs(pts[2 * n - 2]! - pts[0]!);
+  return across >= along ? 1 : 0;
+}
+
+/**
  * The default radii of an outline: the nose and tail from the defaults, the crotch in place of
  * the tail where the tail is notched, and the tail radius at every corner knot of each side.
  * `minus` is set only when the outline has its own minus side.
@@ -76,15 +90,18 @@ export function defaultCorners(outline: Outline, notched: boolean): RailsCorners
 export function loopDefOf(outline: Outline, corners: RailsCorners): LoopDef {
   const plus = sidePieces(outline.plus, 1);
   const minus = sidePieces(outline.minus ?? outline.plus, -1);
+  // a notched outline starts at the notch bottom, so its first piece on each side is a notch wall
+  const wallPlus = outline.plus.knots[0]!.p[0] > 0;
+  const wallMinus = (outline.minus ?? outline.plus).knots[0]!.p[0] > 0;
   const minusRadii = corners.minus ?? corners.plus;
   const pieces: LoopPiece[] = [];
   const radii: number[] = [];
   for (let i = plus.length - 1; i >= 0; i--) {
-    pieces.push({ pts: reversed(plus[i]!), kind: 0 });
+    pieces.push({ pts: reversed(plus[i]!), kind: pieceKind(plus[i]!, wallPlus && i === 0) });
     radii.push(i > 0 ? (corners.plus[i - 1] ?? TRIM.radiusTail) : corners.tail);
   }
   for (let i = 0; i < minus.length; i++) {
-    pieces.push({ pts: minus[i]!, kind: 0 });
+    pieces.push({ pts: minus[i]!, kind: pieceKind(minus[i]!, wallMinus && i === 0) });
     radii.push(i + 1 < minus.length ? (minusRadii[i] ?? TRIM.radiusTail) : corners.nose);
   }
   return { pieces, corners: radii };

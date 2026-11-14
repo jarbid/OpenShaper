@@ -1397,7 +1397,8 @@ export function railsSolid(built: BuiltRails, opts: RailsSolidOptions = {}): Rai
   const tolerance = opts.tolerance ?? STEP_TOLERANCE;
   const limit = STEP_ACCEPT_SHARE * tolerance;
   const maxControls = opts.maxControls ?? STEP_RAILS_MAX_CONTROLS;
-  const mirror = built.board.symmetry !== 'asymmetric';
+  // the minus half is the plus half's mirror only if the board is symmetric and its sides share one rail
+  const mirror = built.board.symmetry !== 'asymmetric' && built.board.rails.minus === undefined;
   const mesh = trimMeshOf(built);
   const panels = mesh.panels;
   const strips = railStrips(panels);
