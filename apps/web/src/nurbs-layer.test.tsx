@@ -72,6 +72,8 @@ const model = (): NurbsModel => ({
     deviation: null,
     deviationRange: null,
     deviationNoData: 0,
+    patch: null,
+    railKeys: null,
     laddersReused: true,
   } satisfies NurbsMeshData,
 });

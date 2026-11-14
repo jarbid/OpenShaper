@@ -12,6 +12,7 @@
 import type { BezierBoard } from '@openshaper/kernel';
 import type { CurvatureMesh } from './curvature-mesh';
 import type { DeviationMesh } from './deviation-mesh';
+import type { RailKeyPlaces } from './patches';
 
 export interface ExternalSurface {
   /**
@@ -44,6 +45,13 @@ export interface ExternalSurface {
    * positive = this surface has more foam), or null when none was computed.
    */
   readonly deviation: DeviationMesh | null;
+  /**
+   * The patch of every vertex (`patches.ts`: one id of `PATCH`), or null/absent when the surface has
+   * none. Only a surface that has them can be drawn in the Patches look.
+   */
+  readonly patch?: Uint8Array | null;
+  /** The document's rail keys, from which the Patches look draws its rail zones for now. */
+  readonly railKeys?: RailKeyPlaces | null;
 }
 
 /**

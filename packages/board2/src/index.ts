@@ -41,6 +41,7 @@ export { convertCache, convertSections } from './trim/convert';
 export type { ConvertCache, ConvertReport } from './trim/convert';
 export type { RailsBoard } from './trim/board';
 export { docModel, railsToJson, reviveRails } from './trim/doc';
+export { FACE } from './trim/solid';
 export { buildRails, meshRails } from './trim/native';
 export type { BuiltRails, MeshRailsOptions, RailsMesh } from './trim/native';
 export { apexRails, halfWidthRails, probeRails } from './trim/probe';

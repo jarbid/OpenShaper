@@ -90,6 +90,36 @@ describe.each(Object.keys(BOARDS))('buildRails and meshRails: %s', (name) => {
     expect(m.volume).toBeCloseTo(checkClosed(mesh).volume + mesh.panelGap, 6);
   });
 
+  it("carries each vertex's face: the board's parts, a tuck being its blend's face plus FACE.tuck", () => {
+    for (const draft of [false, true]) {
+      const m = meshRails(built(board), { draft });
+      expect(m.face).toHaveLength(m.vertexCount);
+      const seen = new Set<number>(m.face);
+      for (const f of [FACE.deck, FACE.bottom, FACE.rail, FACE.rail + FACE.tuck, FACE.corner]) {
+        expect(seen.has(f), `face ${f}`).toBe(true);
+      }
+      for (const f of seen) expect(f).toBeLessThanOrEqual(FACE.corner + FACE.tuck);
+    }
+  });
+
+  it('gives a triangle one part of the board, but for the few on the seam between a side or a tail edge and a corner', () => {
+    // A strip's blend and tuck share the apex vertex, and a quad between two samples takes the
+    // first one's face, so a triangle may hold a blend face and its tuck's (one part, the rail) or
+    // the faces of two neighbouring samples. Both neighbours are then of different kinds.
+    const part = (f: number): number => (f >= FACE.rail + FACE.tuck ? f - FACE.tuck : f);
+    const m = meshRails(built(board));
+    let mixed = 0;
+    for (let t = 0; t < m.indices.length; t += 3) {
+      const parts = new Set<number>();
+      for (let k = 0; k < 3; k++) parts.add(part(m.face[m.indices[t + k]!]!));
+      if (parts.size === 1) continue;
+      mixed++;
+      expect(parts.has(FACE.corner), `triangle ${t / 3}`).toBe(true);
+      for (const p of parts) expect(p).toBeGreaterThanOrEqual(FACE.rail);
+    }
+    expect(mixed / (m.indices.length / 3)).toBeLessThan(0.01);
+  });
+
   it('has a volume that does not depend on the panel grid', () => {
     // against a 0.25 cm grid, the reference of the grid study
     const b = built(board);

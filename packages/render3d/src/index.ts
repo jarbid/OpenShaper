@@ -32,3 +32,20 @@ export { sameHull, surfaceApplies, type ExternalSurface } from './external-surfa
 export { Guides3D } from './Guides3D';
 export { apexGuideLine, guideLines, type GuideLine, type GuideLines } from './guide-lines';
 export { useBoardOffset, type BoardPlacement } from './use-board-offset';
+export {
+  MAX_ZONES,
+  PATCH,
+  PATCH_COLORS,
+  PATCH_NAMES,
+  RAIL_ZONE_COLORS,
+  locateZone,
+  railZoneColor,
+  zonesFromRailKeys,
+  type PatchName,
+  type PatchPick,
+  type PatchSelection,
+  type RailKeyPlaces,
+  type RailZone,
+  type RailZones,
+  type Side,
+} from './patches';

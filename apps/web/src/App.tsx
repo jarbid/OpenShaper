@@ -113,6 +113,7 @@ import { clearSharedPayload, peekSharedPayload } from './share-bootstrap';
 import { shareLinkMessage } from './share-url';
 import { loadSettings, saveSettings, type EditorSettings } from './settings';
 import { NurbsBoundary } from './nurbs-boundary';
+import { usePatchLook } from './patch-look';
 import { useEngineParam } from './nurbs-flag';
 import { useReleaseNurbsWhenOff } from './nurbs-session';
 import { CrossSectionControls, RailsCurveToggle } from './CrossSectionControls';
@@ -218,6 +219,8 @@ const ThreeDPane = memo(function ThreeDPane({
   // null with the engine flag off.
   const [surface, setSurface] = useState<ExternalSurface | null>(null);
   const dropSurface = useCallback(() => setSurface(null), []);
+  // The Patches look's zones, selection and tap callback (nothing with another look).
+  const patchLook = usePatchLook(props.analysis, nurbsEngine ? surface : null);
   return (
     <div className="relative h-full w-full">
       <Suspense
@@ -229,6 +232,7 @@ const ThreeDPane = memo(function ThreeDPane({
       >
         <Board3DView
           {...props}
+          {...patchLook}
           surface={nurbsEngine ? surface : null}
           onAnalysisStatus={setAnalysisStatus}
         />
@@ -1983,9 +1987,14 @@ function AppShell() {
   // deviation map likewise needs a ghost to measure against.
   // A saved "Deviation from classic" means nothing without the NURBS engine: it is
   // ignored (not erased) until the engine is on again.
+  // The Patches look needs the patches the rails engine's mesh carries.
+  const patchesOffered = nurbsEngine && settings.surfaceEngine === 'rails';
   const view3dShown = useMemo(
-    () => ({ ...view3d, analysis: effectiveAnalysis(view3d.analysis, nurbsEngine) }),
-    [view3d, nurbsEngine],
+    () => ({
+      ...view3d,
+      analysis: effectiveAnalysis(view3d.analysis, nurbsEngine, patchesOffered),
+    }),
+    [view3d, nurbsEngine, patchesOffered],
   );
   const exactUnavailable = exactAnalysisUnavailable(board);
   const ghostUnavailable = ghostDeviationUnavailable(ghost);
@@ -2074,6 +2083,7 @@ function AppShell() {
               exactUnavailable={exactUnavailable}
               ghostUnavailable={ghostUnavailable}
               nurbsEngine={nurbsEngine}
+              patches={patchesOffered}
               compact
             />
           </ViewPaneHeader>
@@ -2368,6 +2378,7 @@ function AppShell() {
                   exactUnavailable={exactUnavailable}
                   ghostUnavailable={ghostUnavailable}
                   nurbsEngine={nurbsEngine}
+                  patches={patchesOffered}
                 />
               </ViewPaneHeader>
               <PanelBody className="min-h-0 flex-1 p-0">{threeDPane}</PanelBody>

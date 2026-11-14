@@ -20,6 +20,7 @@ import { getWantedProbes, publishProbes, subscribeWantedProbes } from './nurbs-p
 import { registerNurbsRelease } from './nurbs-session';
 import { feedRailsSlices, railsProbePlaces } from './rails-slices';
 import { boardStore, railsStore } from './store';
+import { PatchReadout } from './PatchReadout';
 import { surfaceOf } from './nurbs-surface';
 import { localizeLengths, refusalHint, statusText } from './nurbs-text';
 import { createNurbsViewer, type NurbsViewer, type ViewerState } from './nurbs-viewer';
@@ -424,6 +425,7 @@ export default function NurbsLayer({
           {statusText(state, surface ? 'nurbs' : 'classic', elapsed, shownTest)}
         </div>
       )}
+      {analysis === 'patches' && surface?.patch && <PatchReadout units={units} />}
       {infoOpen && hasDetails && <InfoPanel state={state} units={units} />}
     </div>
   );

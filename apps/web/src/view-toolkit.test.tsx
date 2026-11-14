@@ -129,6 +129,23 @@ describe('ThreeDControls surface analysis', () => {
     expect(options().every((o) => !o.disabled)).toBe(true);
   });
 
+  it('offers Patches only for a surface that has them', () => {
+    const { rerender } = render(
+      <ThreeDControls units={MM} settings={DEFAULT_VIEW_3D} onChange={vi.fn()} nurbsEngine />,
+    );
+    expect(options().map((o) => o.value)).not.toContain('patches');
+    rerender(
+      <ThreeDControls
+        units={MM}
+        settings={DEFAULT_VIEW_3D}
+        onChange={vi.fn()}
+        nurbsEngine
+        patches
+      />,
+    );
+    expect(options().map((o) => [o.value, o.textContent])).toContainEqual(['patches', 'Patches']);
+  });
+
   it('patches the analysis when a mode is picked', () => {
     const onChange = vi.fn();
     render(<ThreeDControls units={MM} settings={DEFAULT_VIEW_3D} onChange={onChange} />);

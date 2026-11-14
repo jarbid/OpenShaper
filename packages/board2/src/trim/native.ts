@@ -283,6 +283,13 @@ export interface RailsMesh {
   /** Unit outward normals, exact from the surfaces. */
   readonly normals: Float32Array;
   readonly indices: Uint32Array;
+  /**
+   * The part of the board each vertex belongs to, one value of `FACE` (the deck panel, the bottom
+   * panel, a deck blend or a tuck, each along a side, a tail's straight edge or round a corner).
+   * The panels and the strips have their own vertices along the band edge, so a triangle's three
+   * vertices share one value.
+   */
+  readonly face: Uint8Array;
   readonly vertexCount: number;
   /** cm³: the closed mesh's signed tetrahedra plus the panels' gap to their flat triangles (`TrimMesh.panelGap`), so it does not fall with a coarser grid. */
   readonly volume: number;
@@ -389,6 +396,7 @@ export function meshRails(built: BuiltRails, opts: MeshRailsOptions = {}): Rails
     positions: mesh.positions,
     normals: mesh.normals,
     indices: mesh.indices,
+    face: mesh.vertexFace,
     vertexCount: mesh.positions.length / 3,
     volume,
     planArea: loopArea(mesh.loop),

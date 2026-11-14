@@ -12,6 +12,7 @@
 import type { BoardDoc, RailsBoard } from '@openshaper/board2';
 import type { BoardPdf1to1Options, DxfCurveMode } from '@openshaper/export';
 import type { BezierBoard, ResolvedFin } from '@openshaper/kernel';
+import type { RailKeyPlaces } from '@openshaper/render3d/patches';
 
 /** One finding of a conversion or build, as the popover lists it. */
 export interface NurbsIssue {
@@ -52,6 +53,16 @@ export interface NurbsMeshData {
   readonly deviation: Float32Array | null;
   readonly deviationRange: readonly [number, number] | null;
   readonly deviationNoData: number;
+  /**
+   * The patch of every vertex, one id of render3d's `PATCH` (deck, bottom, rail, tail edge, corner), for
+   * the Patches look. The rails engine fills it; the sections engine leaves it null.
+   */
+  readonly patch: Uint8Array | null;
+  /**
+   * Where the rails board's rail keys are, per side, cm from the tail: the zones the Patches look draws
+   * on the rail until the document has zones of its own. Null with `patch`.
+   */
+  readonly railKeys: RailKeyPlaces | null;
   /** The row and column ladders were reused from the previous mesh (a drag), not derived. */
   readonly laddersReused: boolean;
 }
@@ -316,6 +327,7 @@ export const meshTransferables = (m: NurbsMeshData): ArrayBuffer[] =>
     m.curvature?.gaussian,
     m.curvature?.minRadius,
     m.deviation,
+    m.patch,
   ]
     .filter((a): a is NonNullable<typeof a> => a != null)
     .map((a) => a.buffer as ArrayBuffer);

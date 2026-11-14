@@ -38,8 +38,18 @@ export type DeviationAnalysisMode = 'ghost-deviation' | 'nurbs-deviation';
 /** The modes computed in a worker, which report where they stand (`AnalysisStatus`). */
 export type ComputedAnalysisMode = ExactAnalysisMode | DeviationAnalysisMode;
 
-/** Surface-analysis overlay (replaces the shaded material). */
-export type AnalysisMode = 'none' | 'zebra' | 'curvature' | 'slope' | ComputedAnalysisMode;
+/**
+ * Surface-analysis overlay (replaces the shaded material). `patches` colours the board by its
+ * parts (`patches.ts`); it is a lit look, not an analysis, and needs a surface that has patches
+ * (the rails engine's): on any other it draws as `none`.
+ */
+export type AnalysisMode =
+  | 'none'
+  | 'zebra'
+  | 'curvature'
+  | 'slope'
+  | 'patches'
+  | ComputedAnalysisMode;
 
 export const isExactAnalysis = (mode: AnalysisMode): mode is ExactAnalysisMode =>
   mode === 'mean-curvature' || mode === 'gaussian-curvature' || mode === 'rail-radius';

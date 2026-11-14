@@ -108,6 +108,8 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
   ...entries('analysis-mode', '/docs/specs', ['ghost-deviation']),
   // Only offered with the experimental NURBS engine on; documented in its section.
   ...entries('analysis-mode', '/docs/editing', ['nurbs-deviation']),
+  // Only offered with the rails engine; documented in the analysis section.
+  ...entries('analysis-mode', '/docs/editing', ['patches']),
   // The Board shape section's tail types (NURBS engine only); documented in its section.
   ...entries('tail-type', '/docs/editing', ['standard', 'swallow', 'fish']),
   // The Bottom features section's kinds (NURBS engine only); documented in its section.

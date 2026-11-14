@@ -52,8 +52,11 @@ export const ANALYSIS_3D: {
   ghost?: true;
   /** Only offered while the experimental NURBS engine is on. */
   nurbs?: true;
+  /** Only offered for a surface that has patches (the rails engine's). */
+  patches?: true;
 }[] = [
   { value: 'none', label: 'No analysis' },
+  { value: 'patches', label: 'Patches', patches: true },
   { value: 'zebra', label: 'Zebra' },
   { value: 'mean-curvature', label: 'Mean curvature', exact: true },
   { value: 'gaussian-curvature', label: 'Gaussian curvature', exact: true },
@@ -154,14 +157,17 @@ export const NURBS_DEVIATION_NO_SURFACE =
 
 /**
  * The analysis mode actually in force: "Deviation from classic" exists only with the
- * experimental NURBS engine on, so a saved choice of it is ignored (not erased) while
- * the engine is off.
+ * experimental NURBS engine on, and "Patches" only for a surface that has them (`patches`, the
+ * rails engine), so a saved choice of either is ignored (not erased) while it is not offered.
  */
 export const effectiveAnalysis = (
   analysis: View3DSettings['analysis'],
   nurbsEngine: boolean,
+  patches = false,
 ): View3DSettings['analysis'] =>
-  analysis === 'nurbs-deviation' && !nurbsEngine ? 'none' : analysis;
+  (analysis === 'nurbs-deviation' && !nurbsEngine) || (analysis === 'patches' && !patches)
+    ? 'none'
+    : analysis;
 
 /** Why the deviation map is unavailable — there is no ghost to measure against — or null. */
 export const ghostDeviationUnavailable = (ghost: BezierBoard | null): AnalysisBlock | null =>

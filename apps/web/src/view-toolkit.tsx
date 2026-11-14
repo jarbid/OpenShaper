@@ -365,6 +365,7 @@ export function ThreeDControls({
   exactUnavailable = null,
   ghostUnavailable = null,
   nurbsEngine = false,
+  patches = false,
 }: {
   settings: View3DSettings;
   onChange: (patch: Partial<View3DSettings>) => void;
@@ -383,10 +384,14 @@ export function ThreeDControls({
   ghostUnavailable?: AnalysisBlock | null;
   /** The experimental NURBS engine is on: also offer "Deviation from classic". */
   nurbsEngine?: boolean;
+  /** The surface has patches (the rails engine): also offer the Patches look. */
+  patches?: boolean;
 }) {
   const set = onChange;
   // Spelled out in the entry itself, not only in a tooltip: a phone has no hover.
-  const analysisOptions = ANALYSIS_3D.filter((o) => !o.nurbs || nurbsEngine).map((o) => {
+  const analysisOptions = ANALYSIS_3D.filter(
+    (o) => (!o.nurbs || nurbsEngine) && (!o.patches || patches),
+  ).map((o) => {
     const block = o.exact ? exactUnavailable : o.ghost ? ghostUnavailable : null;
     return block
       ? { ...o, label: `${o.label} (${block.short})`, disabled: true, title: block.reason }

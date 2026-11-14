@@ -57,6 +57,8 @@ import { BoardViewcube } from './BoardViewcube';
 import { orthographicZoomFor, upForViewDirection } from './view-framing';
 import { Fins3D } from './Fins3D';
 import { Guides3D } from './Guides3D';
+import { PatchSurface } from './PatchSurface';
+import type { PatchPick, PatchSelection, RailZones } from './patches';
 import {
   objectCenteredRotation,
   rotateViewAboutOrigin,
@@ -118,6 +120,18 @@ export interface Board3DViewProps {
    * classic view.
    */
   surface?: ExternalSurface | null;
+  /**
+   * The rail's zones along the board for the Patches look (`analysis` 'patches' on a surface that
+   * has patches). Without them the rail is one neutral colour.
+   */
+  railZones?: RailZones;
+  /** The patch drawn brighter in the Patches look, the rest quieter. */
+  patchSelection?: PatchSelection | null;
+  /**
+   * With the Patches look on: a tap (a click that is not a drag) on the board reports the patch
+   * under it, and a tap on nothing reports null.
+   */
+  onPatchPick?: (pick: PatchPick | null) => void;
   /** Target tessellation face size in cm (smaller = finer mesh). Defaults to ~0.9 cm. */
   targetFaceSize?: number;
   /** Draw the stringer plane's silhouette on the hull (defaults to false). */
@@ -143,6 +157,9 @@ export interface Board3DViewProps {
 const DEFAULT_FACE_SIZE = 0.9;
 
 const BOARD_COLOR = '#E8EEF5';
+
+/** The Patches look's zones when the app gives none: one stable object, so it never re-triggers an effect. */
+const NO_ZONES: RailZones = { plus: [], minus: [] };
 
 /** Gizmo placement, shared by the view cube and the flip button stacked above it. */
 const GIZMO_MARGIN = 56;
@@ -571,6 +588,9 @@ function BoardMesh({
   curvature,
   deviation,
   surface,
+  railZones,
+  patchSelection,
+  onPatchPick,
   targetFaceSize,
 }: {
   board: BezierBoard;
@@ -583,6 +603,9 @@ function BoardMesh({
   deviation: DeviationResult | null;
   /** The external surface to draw in place of the hull, already checked against `board`. */
   surface: ExternalSurface | null;
+  railZones: RailZones;
+  patchSelection: PatchSelection | null;
+  onPatchPick: ((pick: PatchPick | null) => void) | undefined;
   targetFaceSize: number;
 }) {
   // Tessellation runs in a worker; while a new mesh computes we keep showing the
@@ -622,7 +645,7 @@ function BoardMesh({
   // The external surface's own geometry, uncentred: it is placed by the classic hull's
   // centre (below), so fins and guides, which are, stay registered with it.
   const surfaceGeo = useMemo(
-    () => (surface ? surfaceGeometry(surface.curvature) : null),
+    () => (surface ? surfaceGeometry(surface.curvature, surface.patch) : null),
     [surface],
   );
   useEffect(() => () => surfaceGeo?.dispose(), [surfaceGeo]);
@@ -637,6 +660,7 @@ function BoardMesh({
       : isExactAnalysis(analysis) ||
           analysis === 'ghost-deviation' ||
           analysis === 'nurbs-deviation' ||
+          analysis === 'patches' ||
           analysis === 'none'
         ? null
         : analysis;
@@ -731,7 +755,19 @@ function BoardMesh({
   if (!shown) return null;
 
   let body: ReactNode;
-  if (analysisMaterial) {
+  if (analysis === 'patches' && surface?.patch && surfaceGeo) {
+    // Lit, coloured by part; not a wireframe or normals view.
+    body = (
+      <PatchSurface
+        geometry={surfaceGeo}
+        patch={surface.patch}
+        zones={railZones}
+        selection={patchSelection}
+        onPick={onPatchPick}
+        ignoreCorner={VIEWCUBE_HIT_EXTENT}
+      />
+    );
+  } else if (analysisMaterial) {
     // Analysis overlay replaces the lit surface entirely.
     body = <mesh geometry={shown} material={analysisMaterial} />;
   } else if (mode === 'normals') {
@@ -788,6 +824,9 @@ export function Board3DView({
   ghost = null,
   deviationBand = DEFAULT_DEVIATION_BAND,
   surface: surfaceProp = null,
+  railZones = NO_ZONES,
+  patchSelection = null,
+  onPatchPick,
   targetFaceSize = DEFAULT_FACE_SIZE,
   showStringer = false,
   showSections = false,
@@ -865,6 +904,9 @@ export function Board3DView({
             curvature={curvature}
             deviation={deviation}
             surface={surface}
+            railZones={railZones}
+            patchSelection={patchSelection}
+            onPatchPick={onPatchPick}
             targetFaceSize={targetFaceSize}
           />
         )}

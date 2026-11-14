@@ -60,6 +60,8 @@ export function surfaceOf(model: NurbsModel, live = true): ExternalSurface {
     tracking: model.board ? (live ? 'live' : 'hull') : 'standalone',
     curvature,
     deviation,
+    patch: mesh.patch,
+    railKeys: mesh.railKeys,
   };
   surfaces.set(mesh, { ...cached, [kind]: surface });
   return surface;

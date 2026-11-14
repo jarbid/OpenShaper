@@ -327,12 +327,15 @@ export function curvatureGeometry(mesh: CurvatureMesh): BufferGeometry {
  * A plain shaded BufferGeometry of an external surface (`ExternalSurface.curvature`),
  * in board coordinates and NOT centred: the caller places it with the hull's offset,
  * as for the curvature and deviation surfaces. The arrays are the result's own, read
- * and never written. Normals are the exact ones the surface came with.
+ * and never written. Normals are the exact ones the surface came with. `patch`, when the
+ * surface has it, is carried as the `aPatch` vertex attribute.
  */
-export function surfaceGeometry(mesh: BoardMesh): BufferGeometry {
+export function surfaceGeometry(mesh: BoardMesh, patch?: Uint8Array | null): BufferGeometry {
   const g = new BufferGeometry();
   g.setAttribute('position', new BufferAttribute(mesh.positions, 3));
   g.setAttribute('normal', new BufferAttribute(mesh.normals, 3));
+  // Which part of the board each vertex is (the Patches look reads it as a float).
+  if (patch) g.setAttribute('aPatch', new BufferAttribute(patch, 1));
   g.setIndex(new BufferAttribute(mesh.indices, 1));
   g.computeBoundingSphere();
   return g;

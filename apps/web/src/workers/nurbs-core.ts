@@ -55,6 +55,7 @@
  * request that follows the edit derives them afresh.
  */
 import {
+  FACE,
   boardDocToJson,
   apexRails,
   buildBoard,
@@ -102,8 +103,12 @@ import {
   type Pt,
 } from '@openshaper/export';
 import type { BezierBoard, Spline } from '@openshaper/kernel';
+import type { RailKeyPlaces } from '@openshaper/render3d/patches';
 import { curvatureArrays, curvatureScale, excludeUndefined, vertexAreas } from './nurbs-curvature';
 import { classicDeviation } from './nurbs-deviation';
+import { patchesOfFaces, patchTable, railKeyPlaces } from './patch-map';
+
+const PATCH_TABLE = patchTable(FACE);
 import type {
   ConvertedDoc,
   ExportedFile,
@@ -443,16 +448,21 @@ interface MeshedJob {
   readonly buildMs: number;
   readonly meshMs: number;
   readonly laddersReused: boolean;
+  /** The rails board's rail keys, per side (the rails engine only). */
+  readonly railKeys?: RailKeyPlaces;
   /** The as-built sections asked for; a function so they are taken after the job's own timings. */
   readonly probes: () => SectionProbe[];
 }
+
+/** A mesh of either engine: the rails engine's also says which part of the board each vertex is. */
+type MeshedSurface = Omit<RailsMesh, 'face'> & { readonly face?: Uint8Array };
 
 /**
  * Everything the view draws from a mesh, whichever engine made it: the curvature quantities, the deviation
  * from the classic board (when asked and given), the summary, the timings and the probes.
  */
 const finishMesh = (
-  m: RailsMesh,
+  m: MeshedSurface,
   job: MeshedJob,
   classic: BezierBoard | null,
   options: JobOptions,
@@ -520,6 +530,8 @@ const finishMesh = (
       deviation,
       deviationRange,
       deviationNoData,
+      patch: m.face ? patchesOfFaces(m.face, PATCH_TABLE) : null,
+      railKeys: m.face && job.railKeys ? job.railKeys : null,
       laddersReused: job.laddersReused,
     },
     probes: job.probes(),
@@ -542,7 +554,7 @@ const meshBuilt = (
   let rails: BuiltRails | null = null;
   let fallback: string | null = null;
   let railsBuildMs = 0;
-  let m: RailsMesh | null = null;
+  let m: MeshedSurface | null = null;
   if (options.engine === 'rails') {
     const r = railsOf(b.doc);
     railsBuildMs = now() - t1;
@@ -581,6 +593,7 @@ const meshBuilt = (
       buildMs: b.buildMs + railsBuildMs,
       meshMs,
       laddersReused: reused,
+      ...(rails ? { railKeys: railKeyPlaces(rails.board.rails) } : {}),
       probes: () => probesOf(b.built, probes, rails),
     },
     classic,
@@ -722,6 +735,7 @@ const meshRailsDocument = (
       buildMs,
       meshMs,
       laddersReused: false,
+      railKeys: railKeyPlaces(r.built.board.rails),
       probes: () => railsProbes(r.built, probes),
     },
     reference ? canonical(reference) : null,
@@ -949,7 +963,7 @@ export const meshCentreX = (positions: Float32Array, indices: Uint32Array): numb
   return vol === 0 ? cx : cx + moment / vol;
 };
 
-const measureOf = (m: RailsMesh): MeasureOutcome => ({
+const measureOf = (m: MeshedSurface): MeasureOutcome => ({
   ok: true,
   volume: m.volume,
   planArea: m.planArea,

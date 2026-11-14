@@ -140,6 +140,15 @@ export default function DocsEditing() {
           effects on the viewport mesh.
         </p>
         <Terms>
+          <Term name="Patches">
+            With the rails engine (Settings &rsaquo; Experimental), the board painted by its parts,
+            still lit so it reads as a solid: the deck and the bottom each in a quiet grey, the
+            tail&rsquo;s straight edge and the corners in their own colours, and the rail in a
+            colour for each rail key along the board, blending from one to the next. Tap the board
+            to choose the patch under the pointer: it is lit, the rest goes quieter, and the 3D view
+            says what it is, in your display unit. Dragging to orbit does not choose; Escape, or a
+            tap on the background, clears the choice.
+          </Term>
           <Term name="Zebra">
             Stripes, as if a striped room were reflected in a glossed board. Stripes that run on
             smoothly mean a smooth surface; a kink in them is a crease.
