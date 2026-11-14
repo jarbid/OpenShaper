@@ -228,6 +228,11 @@ describe('readBoardText', () => {
     expect(file).toEqual({ kind: 'sections', json: JSON.parse(text) });
   });
 
+  it('sniffs a rails board (model rails, whatever its version) the same way', () => {
+    const text = JSON.stringify({ format: 'openshaper', version: 1, model: 'rails', x: [1] });
+    expect(readBoardText(text)).toEqual({ kind: 'sections', json: JSON.parse(text) });
+  });
+
   it('still refuses what it cannot read', () => {
     expect(() => readBoardText('nope')).toThrow(BoardJsonError);
     expect(() => readBoardText(JSON.stringify({ format: 'other', version: 3 }))).toThrow(

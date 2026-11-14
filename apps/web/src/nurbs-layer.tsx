@@ -8,9 +8,9 @@
  * Loaded lazily (`ThreeDPane` in App.tsx) and only with the engine flag on, so none
  * of this, nor the worker it starts, is downloaded otherwise.
  */
-import type { BoardDoc } from '@openshaper/board2';
+import type { BoardDoc, RailsBoard } from '@openshaper/board2';
 import { isExactAnalysis, type Board3DViewProps, type ExternalSurface } from '@openshaper/render3d';
-import type { BoardState } from '@openshaper/store';
+import { isStationTarget, type BoardState } from '@openshaper/store';
 import { Info, LoaderCircle } from 'lucide-react';
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
@@ -18,7 +18,8 @@ import { fmtSmallLen, fmtVol, type LengthUnit } from './format';
 import { createNurbsClient } from './nurbs-client';
 import { getWantedProbes, publishProbes, subscribeWantedProbes } from './nurbs-probes';
 import { registerNurbsRelease } from './nurbs-session';
-import { boardStore } from './store';
+import { feedRailsSlices, railsProbePlaces } from './rails-slices';
+import { boardStore, railsStore } from './store';
 import { surfaceOf } from './nurbs-surface';
 import { localizeLengths, refusalHint, statusText } from './nurbs-text';
 import { createNurbsViewer, type NurbsViewer, type ViewerState } from './nurbs-viewer';
@@ -192,8 +193,17 @@ function InfoPanel({ state, units }: { state: ViewerState; units: LengthUnit }) 
   );
 }
 
-/** A board store, and the section store's document when it is one (docs/design/m2-editor.md §1). */
-export type LayerStore = StoreApi<BoardState & { doc?: BoardDoc | null }>;
+/** A board store, and the section or rails store's document when it is one (docs/design/m2-editor.md §1). */
+export type LayerStore = StoreApi<BoardState & { doc?: BoardDoc | RailsBoard | null }>;
+
+/** The place along the board of the station whose curve is selected (the one a drag edits), if any. */
+function editedStationX(
+  s: BoardState & { doc?: BoardDoc | RailsBoard | null },
+  doc: RailsBoard,
+): number | null {
+  const target = s.selection?.target;
+  return target && isStationTarget(target) ? (doc.stations[target.index]?.x ?? null) : null;
+}
 
 export interface NurbsLayerProps {
   /** The store the editors edit: the classic store, or the section store (then jobs carry its document). */
@@ -254,6 +264,12 @@ export default function NurbsLayer({
     const push = () => {
       const s = store.getState();
       const doc = s.doc ?? null;
+      // A rails board's closed sections come from the engine too: every station's when settled, the one
+      // being edited when dragging (`rails-slices.ts`).
+      const places =
+        doc && doc.model === 'rails'
+          ? railsProbePlaces(doc, s.editing, editedStationX(s, doc), probes)
+          : probes;
       viewer.setInput({
         enabled: true,
         board: s.board,
@@ -265,7 +281,7 @@ export default function NurbsLayer({
         wantCurvature,
         wantDeviation,
         testBoard,
-        probes: doc ? probes : [],
+        probes: doc ? places : [],
         ...(engine === 'rails' ? { engine } : {}),
       });
     };
@@ -277,10 +293,11 @@ export default function NurbsLayer({
     };
   }, [store, viewer, wantCurvature, wantDeviation, testBoard, probes, engine]);
 
-  // Hand the answers to the section pane.
-  const answered = state.probes?.items;
+  // Hand the answers to the section pane, and a rails board's to its store.
+  const answered = state.probes;
   useEffect(() => {
-    publishProbes(answered ?? []);
+    publishProbes(answered?.items ?? []);
+    feedRailsSlices(railsStore, answered ?? null);
   }, [answered]);
   useEffect(() => () => publishProbes([]), []);
 

@@ -4,7 +4,7 @@
  * what the Export menu and the progress chip show, and the way to cancel it. The compute is in
  * `nurbs-export-client.ts` (a worker per export).
  */
-import type { BoardDoc } from '@openshaper/board2';
+import type { BoardDoc, RailsBoard } from '@openshaper/board2';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ExportCancelledError, startNurbsExport, type ExportRun } from './nurbs-export-client';
 import type { ExportedFile, ExportJob, ExportStage } from './workers/nurbs-protocol';
@@ -37,7 +37,7 @@ export interface NurbsExportControl {
   /** The running export, or null. */
   readonly active: ActiveExport | null;
   /** Start an export of `doc` as it is now. Ignored while one runs. */
-  start(label: string, doc: BoardDoc, job: ExportJob): void;
+  start(label: string, doc: BoardDoc | RailsBoard, job: ExportJob): void;
   /** Stop the running export; nothing is downloaded. */
   cancel(): void;
 }
@@ -54,7 +54,7 @@ export function useNurbsExport(handlers: {
   const gone = useRef(false);
   on.current = handlers;
 
-  const start = useCallback((name: string, doc: BoardDoc, job: ExportJob) => {
+  const start = useCallback((name: string, doc: BoardDoc | RailsBoard, job: ExportJob) => {
     if (run.current) return;
     label.current = name;
     setActive({ label: name, stage: 'building' });

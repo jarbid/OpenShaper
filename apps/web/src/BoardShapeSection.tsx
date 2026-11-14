@@ -5,6 +5,7 @@
  * (`apps/web/CLAUDE.md`).
  */
 import { Button, Input } from '@openshaper/ui';
+import { isNotched, tailTypeOf as railsTailTypeOf } from '@openshaper/store/rails';
 import { notchDepthRange, tailTypeOf, type TailType } from '@openshaper/store/sections';
 import { useState, useSyncExternalStore } from 'react';
 import { TAIL_TYPES } from './board-shape';
@@ -17,15 +18,16 @@ import {
   unitSuffix,
   type LengthUnit,
 } from './format';
-import { sectionStore } from './store';
+import { docStore } from './store';
 import { loadNotchChords } from './use-section-engine';
 import { useSyncedText } from './use-numeric-field';
 
 /** What the section's header shows when it is shut: the tail and, if it is, the asymmetry. */
 export function boardShapeSummary(): string | undefined {
-  const doc = sectionStore.getState().doc;
+  const doc = docStore.getState().doc;
   if (!doc) return undefined;
-  const tail = TAIL_TYPES.find((t) => t.value === tailTypeOf(doc))?.label ?? '';
+  const type = doc.model === 'rails' ? railsTailTypeOf(doc) : tailTypeOf(doc);
+  const tail = TAIL_TYPES.find((t) => t.value === type)?.label ?? '';
   return doc.symmetry === 'asymmetric' ? `${tail}, asymmetric` : tail;
 }
 
@@ -37,13 +39,14 @@ export function BoardShapeSection({
   /** Classes of one button of a segmented choice (`SIZING.segment` in `Sidebar.tsx`). */
   segmentClass: string;
 }) {
-  const doc = useSyncExternalStore(sectionStore.subscribe, () => sectionStore.getState().doc);
+  // The document store being edited: the section store, or the rails store with the rails engine on.
+  const doc = useSyncExternalStore(docStore.subscribe, () => docStore.getState().doc);
   const [asking, setAsking] = useState(false);
   if (!doc) return null;
 
   const asymmetric = doc.symmetry === 'asymmetric';
-  const tail = tailTypeOf(doc);
-  const notched = doc.tail.kind === 'notched';
+  const tail = doc.model === 'rails' ? railsTailTypeOf(doc) : tailTypeOf(doc);
+  const notched = doc.model === 'rails' ? isNotched(doc.outline) : doc.tail.kind === 'notched';
   const length = doc.outline.plus.knots.at(-1)!.p[0];
   const depth = doc.outline.plus.knots[0]!.p[0];
   const range = notchDepthRange(length);
@@ -51,8 +54,8 @@ export function BoardShapeSection({
   const setTail = async (type: TailType) => {
     if (type === tail) return;
     // the notch-zone chords of the projection come from board2's frame, loaded on first need
-    if (type !== 'standard') await loadNotchChords();
-    sectionStore.getState().setTail(type);
+    if (type !== 'standard' && doc.model !== 'rails') await loadNotchChords();
+    docStore.getState().setTail(type);
   };
 
   return (
@@ -74,7 +77,7 @@ export function BoardShapeSection({
             variant={asymmetric ? 'secondary' : 'ghost'}
             aria-pressed={asymmetric}
             className={segmentClass}
-            onClick={() => !asymmetric && sectionStore.getState().setSymmetry('asymmetric')}
+            onClick={() => !asymmetric && docStore.getState().setSymmetry('asymmetric')}
           >
             Asymmetric
           </Button>
@@ -112,7 +115,7 @@ export function BoardShapeSection({
           min={range.min}
           max={range.max}
           units={units}
-          onCommit={(cm) => sectionStore.getState().setNotchDepth(cm)}
+          onCommit={(cm) => docStore.getState().setNotchDepth(cm)}
         />
       )}
 
@@ -121,7 +124,7 @@ export function BoardShapeSection({
           onCancel={() => setAsking(false)}
           onKeep={(side) => {
             setAsking(false);
-            sectionStore.getState().setSymmetry('mirror', side);
+            docStore.getState().setSymmetry('mirror', side);
           }}
         />
       )}

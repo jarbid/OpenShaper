@@ -21,13 +21,13 @@
  *
  * Modeled on ExportStepDialog (backdrop + Panel card, Escape-to-close).
  */
-import type { BoardDoc } from '@openshaper/board2';
+import type { BoardDoc, RailsBoard } from '@openshaper/board2';
 import { encodeShareFragment, encodeShareText, shareCodecSupported } from '@openshaper/io';
 import type { BezierBoard } from '@openshaper/kernel';
 import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { BoardMeta } from './file-io';
-import { sectionsText } from './section-files';
+import { docText } from './rails-files';
 import { buildShareUrl, copyToClipboard, shareSize, shareSizeLabel } from './share-url';
 import { Modal } from './components/modal';
 
@@ -63,7 +63,7 @@ export interface ShareDialogProps {
    * The NURBS document being edited, when the engine is on: the link then carries it (the same `v1`
    * envelope, the document's text as the payload), not the classic projection `board`.
    */
-  sections?: BoardDoc | null;
+  sections?: BoardDoc | RailsBoard | null;
   meta: BoardMeta;
   /** The same setter the sidebar's Board info panel uses. */
   setMeta: Dispatch<SetStateAction<BoardMeta>>;
@@ -105,7 +105,7 @@ export function ShareDialog({
     let cancelled = false;
     setState({ kind: 'encoding' });
     const fragment = sections
-      ? sectionsText(sections, meta).then(encodeShareText)
+      ? docText(sections, meta).then(encodeShareText)
       : encodeShareFragment(board, metadata);
     void fragment.then(
       (fragment) => {

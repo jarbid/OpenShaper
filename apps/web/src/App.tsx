@@ -1,5 +1,5 @@
 import { stepExportSupport } from '@openshaper/export';
-import type { BoardDoc } from '@openshaper/board2';
+import type { BoardDoc, RailsBoard } from '@openshaper/board2';
 import {
   decodeShareFile,
   parseBrd,
@@ -18,6 +18,7 @@ import {
 import { reflectSpline, type EditorOverlays, type SimilarityParams } from '@openshaper/render2d';
 import type { AnalysisStatus, Board3DViewProps, ExternalSurface } from '@openshaper/render3d';
 import { minusHalf, selectSpecs } from '@openshaper/store';
+import { projectRails } from '@openshaper/store/rails';
 import { projectDoc } from '@openshaper/store/sections';
 import {
   BottomSheet,
@@ -41,7 +42,6 @@ import {
   Suspense,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -115,7 +115,7 @@ import { loadSettings, saveSettings, type EditorSettings } from './settings';
 import { NurbsBoundary } from './nurbs-boundary';
 import { useEngineParam } from './nurbs-flag';
 import { useReleaseNurbsWhenOff } from './nurbs-session';
-import { CrossSectionControls } from './CrossSectionControls';
+import { CrossSectionControls, RailsCurveToggle } from './CrossSectionControls';
 import { LandscapeHint } from './LandscapeHint';
 import { CoffeeIcon } from './components/Support';
 import { Sidebar, type OverlayToggles, type ResizeFields } from './Sidebar';
@@ -127,16 +127,19 @@ import {
 } from './sidebar-sections';
 import sampleBrd from './sample-board.brd?raw';
 import { depthSeries } from './bottom-features';
-import { activeStore, boardStore, sectionStore } from './store';
+import { activeNurbsDoc, activeStore, boardStore, docOf, railsStore, sectionStore } from './store';
 import { probeAt, probeSpline, setWantedProbes, useProbes } from './nurbs-probes';
-import { metaOfDoc, sectionsName, sectionsText, sectionsTextNow } from './section-files';
+import { metaOfDoc, sectionsName } from './section-files';
+import { docText, docTextNow, isRailsJson, isRailsText, readRails } from './rails-files';
+import { attachRailsBoard, currentRails, openRailsBoard } from './rails-engine';
+import { railsSectionGuides, railsSectionTargets, type RailsCurve } from './rails-section-pane';
+import { useDocumentEngines } from './use-document-engines';
 import {
   attachSectionDoc,
   currentSections,
   holdSectionsText,
   openSectionDoc,
   prepareSectionDoc,
-  useSectionEngine,
 } from './use-section-engine';
 import { localizeLengths, refusalHint } from './nurbs-text';
 import { SUPPORT_URL } from './support';
@@ -336,10 +339,19 @@ function AppShell() {
             }
           }
           let sections: BoardDoc | null = null;
-          if (session.sectionsJson && nurbsOnRef.current) {
+          let rails: RailsBoard | null = null;
+          // A rails board is restored whatever the engine setting is (it turns the engines on).
+          const railsText = session.sectionsJson ? isRailsText(session.sectionsJson) : false;
+          if (session.sectionsJson && (nurbsOnRef.current || railsText)) {
             try {
-              const r = await prepareSectionDoc(JSON.parse(session.sectionsJson) as unknown);
-              if (r.ok) sections = r.doc;
+              const json = JSON.parse(session.sectionsJson) as unknown;
+              if (railsText) {
+                const r = await readRails(json);
+                if (r.ok) rails = r.board;
+              } else {
+                const r = await prepareSectionDoc(json);
+                if (r.ok) sections = r.doc;
+              }
             } catch {
               // A document that will not read: held below, and tried again by the engine.
             }
@@ -347,7 +359,11 @@ function AppShell() {
           }
           hydrated.current = true;
           boardStore.getState().load(sBoard);
-          if (sections) {
+          if (rails) {
+            attachRailsBoard(rails);
+            setMeta(metaOfDoc(rails.meta));
+            railsArrivedRef.current();
+          } else if (sections) {
             attachSectionDoc(sections);
             setMeta(metaOfDoc(sections.meta));
           } else {
@@ -632,6 +648,14 @@ function AppShell() {
     liveViewState.current = { ...liveViewState.current, view3d };
     scheduleViewSave();
   }, [view3d, scheduleViewSave]);
+  // Which curve of a rails board's station the cross-section tab edits, remembered with the view state.
+  const [railsCurve, setRailsCurve] = useState<RailsCurve>(
+    bootViewState.current.railsCurve ?? 'deck',
+  );
+  useEffect(() => {
+    liveViewState.current = { ...liveViewState.current, railsCurve };
+    scheduleViewSave();
+  }, [railsCurve, scheduleViewSave]);
   const [csClipboard, setCsClipboard] = useState<Spline | null>(null);
   const [ghost, setGhost] = useState<BezierBoard | null>(null);
   const trace = useTrace();
@@ -663,14 +687,15 @@ function AppShell() {
         ...(sectionsJson !== undefined ? { sectionsJson } : {}),
       });
     };
-    const sections = currentSections();
+    const rails = currentRails();
+    const sections = rails ? { doc: rails } : currentSections();
     if (!sections) return write();
     if ('text' in sections) return write(sections.text);
     // The file code is started loading when a document is attached; at pagehide there is no time to wait
     // for it, but a snapshot taken after that (the debounced one) has it.
-    const now = sectionsTextNow(sections.doc, m);
+    const now = docTextNow(sections.doc, m);
     if (now !== null) return write(now);
-    void sectionsText(sections.doc, m).then(write, () => write());
+    void docText(sections.doc, m).then(write, () => write());
   }, []);
   const sessionSaveTimer = useRef<number | undefined>(undefined);
   useEffect(() => {
@@ -722,14 +747,20 @@ function AppShell() {
   // The engine picks the store the editors edit (docs/design/m2-editor.md §1): the section store with
   // the engine on and the open board converted into it, the classic store otherwise. A board the NURBS
   // model cannot hold stays classic, with the reasons in the 3D view's popover.
-  const sectionEngine = useSectionEngine(nurbsEngine);
-  useLayoutEffect(() => {
-    activeStore.use(sectionEngine.ready ? sectionStore : boardStore);
-  }, [sectionEngine.ready]);
+  // With the rails switch on as well the rails board is the document (`use-document-engines.ts`).
+  const engines = useDocumentEngines(nurbsEngine, settings.surfaceEngine === 'rails');
+  /** A NURBS document, of either kind, is the one being edited (what `sectionEngine.ready` meant). */
+  const docOpen = engines.ready;
+  // Read from the switch itself, not from the engines: the switch is pointed in a layout effect, and
+  // the cross-section tab's station targets must only exist once the rails store is the one it reads.
+  const railsActive = useSyncExternalStore(
+    activeStore.subscribe,
+    () => activeStore.target === railsStore,
+  );
   // A board the NURBS model cannot hold stays classic; say why, as an import notice (the 3D popover has the
   // converter's own words too). Lengths in the message follow the display unit.
   const [engineNotice, setEngineNotice] = useState<string[] | null>(null);
-  const refusal = sectionEngine.refusal;
+  const refusal = engines.refusal;
   useEffect(() => {
     if (!refusal) {
       setEngineNotice(null);
@@ -747,7 +778,7 @@ function AppShell() {
   }, [refusal, units]);
   // The specs: the classic worker's readouts, and with the NURBS document open the volume, plan area and
   // centre of mass of its mesh instead (features and asymmetry show), computed in a worker as well.
-  const meshSpecs = useMeshSpecs(sectionEngine.ready, settings.surfaceEngine);
+  const meshSpecs = useMeshSpecs(docOpen, settings.surfaceEngine);
   const workerResult = useSpecsWorker(settledBoard, {
     wantDistribution: overlayToggles.dist,
     distributionIntervals: 40,
@@ -825,13 +856,23 @@ function AppShell() {
 
   // The sections the NURBS surface has at the selected station and under the scrub are drawn dashed in the
   // cross-section pane; the layer over the 3D view asks the worker for them (nurbs-probes.ts).
-  const nurbsSections = sectionEngine.ready;
+  const nurbsSections = engines.kind === 'sections';
   useEffect(() => {
     const xs: number[] = [];
-    if (nurbsSections && activeSectionX != null) xs.push(activeSectionX);
+    if ((nurbsSections || railsActive) && activeSectionX != null) xs.push(activeSectionX);
     if (nurbsSections && scrubX != null && scrubX !== activeSectionX) xs.push(scrubX);
     setWantedProbes(xs);
-  }, [nurbsSections, activeSectionX, scrubX]);
+  }, [nurbsSections, railsActive, activeSectionX, scrubX]);
+
+  // With the rails store the cross-section tab edits a station's deck or bottom curve and draws the closed
+  // section and the other curve as guides (rails-section-pane.ts). Memoised: the editor re-fits on a change.
+  const railsTargets = useMemo(
+    () =>
+      railsActive
+        ? railsSectionTargets(clampedCs, sectionCount - 2, railsCurve, asymmetric)
+        : undefined,
+    [railsActive, clampedCs, sectionCount, railsCurve, asymmetric],
+  );
 
   // Real cross-sections (skip the nose/tail dummies) as pickable outline markers.
   const sectionMarkers = board
@@ -982,8 +1023,8 @@ function AppShell() {
   );
 
   // The depth of the NURBS board's bottom features, drawn as a strip across the rocker view.
-  const features = useSyncExternalStore(sectionStore.subscribe, () =>
-    nurbsSections ? sectionStore.getState().doc?.features : undefined,
+  const features = useSyncExternalStore(activeStore.subscribe, () =>
+    docOpen ? docOf(activeStore.getState())?.features : undefined,
   );
   const depthStrip = useMemo(
     () => (features ? depthSeries(features, units) : undefined),
@@ -1045,7 +1086,7 @@ function AppShell() {
         out.push(probeSpline(p.plus));
         if (asymmetric && p.minus) out.push(reflectSpline(probeSpline(p.minus), 'x'));
       };
-      if (sectionEngine.ready) {
+      if (nurbsSections) {
         // The NURBS board: the sections the built surface really has (blend and all), from the
         // worker, at the selected station and under the scrub. While a scrub answer is on its way
         // the previous one stays (any probe that is not the station's), so the dashed line does not
@@ -1060,6 +1101,7 @@ function AppShell() {
         const preview = loftCrossSection(board, scrubX);
         if (preview) out.push(preview.spline);
       }
+      if (railsActive) out.push(...railsSectionGuides(board, clampedCs, railsCurve, asymmetric));
       // Adjacent real stations (skip the nose/tail dummies at 0 / last).
       const last = board.crossSections.length - 1;
       const prev = clampedCs - 1;
@@ -1139,7 +1181,7 @@ function AppShell() {
   };
   /** Start an export of the NURBS document as it is now; false when the engine is off (the classic path runs). */
   const startEngineExport = (label: string, job: ExportJob): boolean => {
-    const doc = sectionEngine.ready ? sectionStore.getState().doc : null;
+    const doc = activeNurbsDoc();
     if (!doc) return false;
     nurbsExport.start(
       label,
@@ -1157,7 +1199,7 @@ function AppShell() {
     if (!board) return;
     // With the NURBS document open the file is the document (asymmetric halves, tail settings, bottom
     // features and all), not its classic projection; opening it tells the two kinds apart by version.
-    const doc = sectionEngine.ready ? sectionStore.getState().doc : null;
+    const doc = activeNurbsDoc();
     if (doc) {
       const done = (text: string) => {
         downloadBoardText(text, meta);
@@ -1167,10 +1209,10 @@ function AppShell() {
       };
       // At once when the file code is loaded (it starts loading with the document), so the download
       // stays inside the click; otherwise after the chunk arrives.
-      const now = sectionsTextNow(doc, meta);
+      const now = docTextNow(doc, meta);
       if (now !== null) done(now);
       else
-        void sectionsText(doc, meta).then(done, () =>
+        void docText(doc, meta).then(done, () =>
           showToast('Could not save the board: the NURBS engine could not be loaded.'),
         );
       return;
@@ -1224,7 +1266,7 @@ function AppShell() {
     hydrated.current = true;
     const m = metaOfDoc(o.doc.meta);
     setMeta(m);
-    void sectionsText(o.doc, m).then(
+    void docText(o.doc, m).then(
       (text) => {
         recordRecentBoard(o.recentName, text);
         setRecentBoards(getRecentBoards());
@@ -1246,8 +1288,45 @@ function AppShell() {
     if (nurbsEngine) commitSections(o);
     else setPendingSections(o);
   };
+  /**
+   * A rails board arrived (a file, a share link, a recent board, a session): both engines go on if they
+   * were not, and one line says so. There is no way back to a sections document, so nothing is held.
+   */
+  const railsArrived = () => {
+    if (nurbsEngine && settings.surfaceEngine === 'rails') return;
+    handleSaveSettings({ ...settings, nurbsEngine: true, surfaceEngine: 'rails' });
+    showToast('This is a rails board, so the NURBS and rails engines are now on.');
+  };
+  const railsArrivedRef = useRef(railsArrived);
+  railsArrivedRef.current = railsArrived;
+  /** Open a rails board as the document: the rails store takes it whole, no conversion. */
+  const openRails = (board: RailsBoard, o: Omit<SectionsOpen, 'doc'>) => {
+    openRailsBoard(board);
+    hydrated.current = true;
+    const m = metaOfDoc(board.meta);
+    setMeta(m);
+    void docText(board, m).then(
+      (text) => {
+        recordRecentBoard(o.recentName, text);
+        setRecentBoards(getRecentBoards());
+      },
+      () => {},
+    );
+    railsArrived();
+    o.onOpened?.();
+  };
   /** Revive a parsed NURBS document and open it; the reasons are a toast when it is not one. */
   const openSectionsJson = async (json: unknown, o: Omit<SectionsOpen, 'doc'>, label: string) => {
+    if (isRailsJson(json)) {
+      const rr = await readRails(json);
+      if (!rr.ok) {
+        showToast(`Could not open ${label}: ${rr.error}`);
+        if (!boardStore.getState().board) loadSample();
+        return false;
+      }
+      openRails(rr.board, o);
+      return true;
+    }
     const r = await prepareSectionDoc(json);
     if (!r.ok) {
       showToast(`Could not open ${label}: ${r.error}`);
@@ -1325,6 +1404,12 @@ function AppShell() {
     } catch (err) {
       if (err instanceof SectionsFileError) {
         // A NURBS board as the comparison: its classic projection (the lines and the stations).
+        if (isRailsJson(err.json)) {
+          const rr = await readRails(err.json);
+          if (rr.ok) setGhost(projectRails(rr.board, null));
+          else showToast(`Could not open ${file.name}: ${rr.error}`);
+          return;
+        }
         const r = await prepareSectionDoc(err.json);
         if (r.ok) setGhost(projectDoc(r.doc));
         else showToast(`Could not open ${file.name}: ${r.error}`);
@@ -1532,7 +1617,7 @@ function AppShell() {
 
   // A station inside a swallow or fish notch is cut across the rail (a chord from the stringer to the
   // outline), not across the board: say so, so the shape is not mistaken for a plain section.
-  const csDoc = sectionEngine.ready ? sectionStore.getState().doc : null;
+  const csDoc = nurbsSections ? sectionStore.getState().doc : null;
   const inNotch =
     csDoc !== null &&
     csDoc.tail.kind === 'notched' &&
@@ -1551,6 +1636,9 @@ function AppShell() {
       onCopy={copySection}
       onPaste={pasteSection}
       canPaste={!!csClipboard}
+      curve={railsActive ? railsCurve : undefined}
+      onCurve={railsActive ? setRailsCurve : undefined}
+      hideCurveToggle
       positionCm={
         board?.crossSections[clampedCs]
           ? longitudinal.toDisplay(board.crossSections[clampedCs]!.position)
@@ -1622,17 +1710,17 @@ function AppShell() {
   // With the NURBS document open, STL, DXF, PDF 1:1 and STEP are made from it (M3). Rail bands and the
   // legacy .brd are still its classic projection: say so on those items, and on the first export of each
   // document name what this board's export misses (review R2).
-  const projSuffix = sectionEngine.ready ? ' (classic projection)' : '';
+  const projSuffix = docOpen ? ' (classic projection)' : '';
   const exporting = nurbsExport.active;
   const notedDoc = useRef<unknown>(null);
   const noteProjection = () => {
-    const doc = sectionEngine.ready ? sectionStore.getState().doc : null;
+    const doc = activeNurbsDoc();
     if (!doc || notedDoc.current === doc) return;
     notedDoc.current = doc;
     const missing = [
       ...(doc.features.length > 0 ? ['the bottom features'] : []),
       ...(doc.outline.minus !== undefined ? ['the second half of the asymmetric board'] : []),
-      'the smooth blend between stations',
+      doc.model === 'rails' ? 'the rails' : 'the smooth blend between stations',
     ];
     showToast(
       `This export is the classic projection of the NURBS board. It leaves out ${missing.join(', ')}.`,
@@ -1672,8 +1760,8 @@ function AppShell() {
       kind: 'action',
       label: 'STEP (surfaces)…',
       // The NURBS board models a swallow or fish tail; only the classic projection cannot.
-      disabled: !board || exporting !== null || (!sectionEngine.ready && stepSupport?.ok === false),
-      title: !sectionEngine.ready && stepSupport?.ok === false ? stepSupport.reason : undefined,
+      disabled: !board || exporting !== null || (!docOpen && stepSupport?.ok === false),
+      title: !docOpen && stepSupport?.ok === false ? stepSupport.reason : undefined,
       onSelect: () => {
         setStepDialogOpen(true);
       },
@@ -1834,7 +1922,7 @@ function AppShell() {
       ? { kind: 'action', label: 'Clear ghost', onSelect: () => setGhost(null) }
       : { kind: 'action', label: 'Open ghost…', onSelect: () => ghostInput.current?.click() },
     // The interpolation model is a classic-engine setting: NURBS sections always blend smoothly.
-    ...(sectionEngine.ready
+    ...(docOpen
       ? []
       : ([
           { kind: 'separator' },
@@ -1957,6 +2045,13 @@ function AppShell() {
     viewCommand: viewCmd,
     initialView: pendingViews2d.current[kind],
     onViewChange: reportPaneView(kind),
+    ...(kind === 'crossSection' && railsTargets
+      ? {
+          railsTargets,
+          railsCurve,
+          curveControl: <RailsCurveToggle curve={railsCurve} onCurve={setRailsCurve} />,
+        }
+      : {}),
   });
 
   /**
@@ -2011,7 +2106,7 @@ function AppShell() {
   const sidebarFor = (collapsible: boolean) => (
     <Sidebar
       collapsible={collapsible}
-      nurbsEngine={sectionEngine.ready}
+      nurbsEngine={docOpen}
       specs={specs}
       units={units}
       resize={resize}
@@ -2425,7 +2520,7 @@ function AppShell() {
       {shareOpen && board && (
         <ShareDialog
           board={board}
-          sections={sectionEngine.ready ? sectionStore.getState().doc : null}
+          sections={activeNurbsDoc()}
           meta={meta}
           setMeta={setMeta}
           onCopied={() => {
@@ -2443,7 +2538,7 @@ function AppShell() {
       {stepDialogOpen && board && (
         <ExportStepDialog
           units={units}
-          engine={sectionEngine.ready}
+          engine={docOpen}
           settings={stepSettings}
           onExport={(s) => {
             saveStep(s);

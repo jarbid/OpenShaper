@@ -14,7 +14,7 @@
  */
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { captureError } from './analytics';
-import { sectionStore } from './store';
+import { activeStore, docOf } from './store';
 import type { NurbsClient, SupersededError } from './nurbs-client';
 import type { MeshMeasure, NurbsEngine } from './workers/nurbs-protocol';
 
@@ -24,14 +24,12 @@ export interface MeshSpecs extends MeshMeasure {
 }
 
 export function useMeshSpecs(active: boolean, engine?: NurbsEngine): MeshSpecs | null {
-  const doc = useSyncExternalStore(sectionStore.subscribe, () => sectionStore.getState().doc);
-  const editing = useSyncExternalStore(
-    sectionStore.subscribe,
-    () => sectionStore.getState().editing,
-  );
+  // The document being edited (a sections or a rails board; none with the classic store shown).
+  const doc = useSyncExternalStore(activeStore.subscribe, () => docOf(activeStore.getState()));
+  const editing = useSyncExternalStore(activeStore.subscribe, () => activeStore.getState().editing);
   const loadCount = useSyncExternalStore(
-    sectionStore.subscribe,
-    () => sectionStore.getState().loadCount,
+    activeStore.subscribe,
+    () => activeStore.getState().loadCount,
   );
   // the document as of the last moment it was not being dragged
   const settled = useRef(doc);

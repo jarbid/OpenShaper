@@ -11,6 +11,7 @@ import {
 import { useState } from 'react';
 import { SectionPositionEditor } from './SectionPositionEditor';
 import type { LengthUnit } from './format';
+import { RAILS_CURVES, type RailsCurve } from './rails-section-pane';
 import { shortcutKeys } from './shortcuts';
 import { useIsCoarsePointer } from './useMediaQuery';
 
@@ -30,6 +31,14 @@ export interface CrossSectionControlsProps {
   positionMark?: string;
   units: LengthUnit;
   onMoveTo: (cm: number) => void;
+  /**
+   * The curve the tab edits, with a rails board: a two-way Deck | Bottom control is shown, and Copy and
+   * Paste (which a rails board does not have) are left out. Absent for every other board.
+   */
+  curve?: RailsCurve;
+  onCurve?: (curve: RailsCurve) => void;
+  /** Leave the Deck | Bottom control out (the pane header shows it itself). */
+  hideCurveToggle?: boolean;
 }
 
 /**
@@ -54,6 +63,36 @@ export interface CrossSectionControlsProps {
  * that stop the row fitting — and a tablet in quad view has both the coarse pointer
  * and a narrow pane.
  */
+/**
+ * The two-way Deck | Bottom control of a rails board's cross-section tab: which curve of the station the
+ * tab edits. It sits in the pane header whether or not a point is selected (the pane's header shows the
+ * point editor in place of the controls then), and in the controls.
+ */
+export function RailsCurveToggle({
+  curve,
+  onCurve,
+}: {
+  curve: RailsCurve;
+  onCurve: (curve: RailsCurve) => void;
+}) {
+  return (
+    <div role="group" aria-label="Curve to edit" className="flex gap-0.5">
+      {RAILS_CURVES.map((c) => (
+        <Button
+          key={c.value}
+          size="sm"
+          variant={curve === c.value ? 'secondary' : 'ghost'}
+          aria-pressed={curve === c.value}
+          className="h-7 px-2 text-xs pointer-coarse:h-11"
+          onClick={() => onCurve(c.value)}
+        >
+          {c.label}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
 export function CrossSectionControls({
   index,
   total,
@@ -68,16 +107,25 @@ export function CrossSectionControls({
   positionMark,
   units,
   onMoveTo,
+  curve,
+  onCurve,
+  hideCurveToggle = false,
 }: CrossSectionControlsProps) {
   const coarse = useIsCoarsePointer();
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   const icon = 'h-7 w-7 p-0';
 
+  // A rails board has no closed section to copy or paste: its station is two curves.
+  const copyPaste = curve === undefined;
   const editActions: { label: string; onSelect: () => void; disabled?: boolean }[] = [
     { label: 'Add cross-section here', onSelect: onAdd },
     { label: 'Delete this cross-section', onSelect: onDelete, disabled: total <= 1 },
-    { label: 'Copy this cross-section', onSelect: onCopy },
-    { label: 'Paste the copied shape here', onSelect: onPaste, disabled: !canPaste },
+    ...(copyPaste
+      ? [
+          { label: 'Copy this cross-section', onSelect: onCopy },
+          { label: 'Paste the copied shape here', onSelect: onPaste, disabled: !canPaste },
+        ]
+      : []),
   ];
 
   const menuItems: MenuItem[] = editActions.map((a) => ({
@@ -123,6 +171,12 @@ export function CrossSectionControls({
         </Button>
       </Tooltip>
       <span className="mx-0.5 h-5 w-px bg-border" />
+      {curve !== undefined && onCurve && !hideCurveToggle && (
+        <>
+          <RailsCurveToggle curve={curve} onCurve={onCurve} />
+          <span className="mx-0.5 h-5 w-px bg-border" />
+        </>
+      )}
       {positionCm !== null && (
         <>
           <SectionPositionEditor
@@ -186,29 +240,33 @@ export function CrossSectionControls({
               <Trash2 />
             </Button>
           </Tooltip>
-          <Tooltip label="Copy this cross-section">
-            <Button
-              size="sm"
-              variant="ghost"
-              className={icon}
-              onClick={onCopy}
-              aria-label="Copy cross-section"
-            >
-              <Copy />
-            </Button>
-          </Tooltip>
-          <Tooltip label="Paste the copied cross-section shape here">
-            <Button
-              size="sm"
-              variant="ghost"
-              className={icon}
-              disabled={!canPaste}
-              onClick={onPaste}
-              aria-label="Paste cross-section"
-            >
-              <ClipboardPaste />
-            </Button>
-          </Tooltip>
+          {copyPaste && (
+            <>
+              <Tooltip label="Copy this cross-section">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className={icon}
+                  onClick={onCopy}
+                  aria-label="Copy cross-section"
+                >
+                  <Copy />
+                </Button>
+              </Tooltip>
+              <Tooltip label="Paste the copied cross-section shape here">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className={icon}
+                  disabled={!canPaste}
+                  onClick={onPaste}
+                  aria-label="Paste cross-section"
+                >
+                  <ClipboardPaste />
+                </Button>
+              </Tooltip>
+            </>
+          )}
         </>
       )}
     </div>

@@ -33,6 +33,7 @@ import { useMemo } from 'react';
 import { fmtLen, fmtSmallLen, LENGTH_UNITS, type LengthUnit } from './format';
 import type { Longitudinal, MeasurementAxis } from './longitudinal';
 import { SelectedPointEditor } from './ControlPointInspector';
+import type { RailsCurve } from './rails-section-pane';
 import { activeStore } from './store';
 import type { EditorSettings } from './settings';
 import { useIsCoarsePointer } from './useMediaQuery';
@@ -543,21 +544,26 @@ function paneProps(
   csIndex: number,
   settings?: EditorSettings,
   asymmetric = false,
+  railsTargets?: SplineTarget[],
+  railsCurve?: RailsCurve,
 ) {
   // An asymmetric board has a spline for each half: the pane shows both, the minus half reflected.
+  // With the rails store the cross-section pane edits a station's deck or bottom curve (`railsTargets`).
   const targets: SplineTarget[] =
-    kind === 'outline'
-      ? asymmetric
-        ? [{ kind: 'outline' }, { kind: 'outline', side: 'minus' }]
-        : [{ kind: 'outline' }]
-      : kind === 'rocker'
-        ? [{ kind: 'deck' }, { kind: 'bottom' }]
-        : asymmetric
-          ? [
-              { kind: 'crossSection', index: csIndex },
-              { kind: 'crossSection', index: csIndex, side: 'minus' },
-            ]
-          : [{ kind: 'crossSection', index: csIndex }];
+    kind === 'crossSection' && railsTargets
+      ? railsTargets
+      : kind === 'outline'
+        ? asymmetric
+          ? [{ kind: 'outline' }, { kind: 'outline', side: 'minus' }]
+          : [{ kind: 'outline' }]
+        : kind === 'rocker'
+          ? [{ kind: 'deck' }, { kind: 'bottom' }]
+          : asymmetric
+            ? [
+                { kind: 'crossSection', index: csIndex },
+                { kind: 'crossSection', index: csIndex, side: 'minus' },
+              ]
+            : [{ kind: 'crossSection', index: csIndex }];
   // Resolve per-pane curve colors from settings when provided, falling back to
   // the hardcoded theme defaults so callers that pass nothing are unchanged.
   let colors: string[] | undefined;
@@ -577,7 +583,7 @@ function paneProps(
     mirrorY: kind === 'outline',
     mirrorX: kind === 'crossSection',
     splitSides: asymmetric && kind !== 'rocker',
-    key: kind === 'crossSection' ? `cs-${csIndex}` : kind,
+    key: kind === 'crossSection' ? `cs-${csIndex}${railsCurve ? `-${railsCurve}` : ''}` : kind,
   };
 }
 
@@ -611,6 +617,9 @@ export function EditorPane({
   headerActions,
   onTitleDoubleClick,
   settings,
+  railsTargets,
+  railsCurve,
+  curveControl,
 }: {
   title: string;
   /** Replaces the pane heading — the split layout puts its pane picker here. */
@@ -645,12 +654,20 @@ export function EditorPane({
   onTitleDoubleClick?: React.MouseEventHandler<HTMLHeadingElement>;
   /** Optional visual settings (colors, sizes). When absent the draw defaults apply. */
   settings?: EditorSettings;
+  /**
+   * With the rails store active: the cross-section pane's targets (a station's deck or bottom curve,
+   * `rails-section-pane.ts`) and which curve they are. Must be stable between renders.
+   */
+  railsTargets?: SplineTarget[];
+  railsCurve?: RailsCurve;
+  /** The Deck | Bottom control, kept in the header beside the point editor. */
+  curveControl?: React.ReactNode;
 }) {
   // Stable across re-renders so the editor's target set (and the SplineEditor
   // re-fit/draw effects keyed on it) only changes when the pane actually changes.
   const p = useMemo(
-    () => paneProps(kind, csIndex, settings, asymmetric),
-    [kind, csIndex, settings, asymmetric],
+    () => paneProps(kind, csIndex, settings, asymmetric, railsTargets, railsCurve),
+    [kind, csIndex, settings, asymmetric, railsTargets, railsCurve],
   );
   // Only the length-wise views have anything to gain from turning the board — a
   // cross-section is already the shape of the pane it sits in. Gated on the pointer
@@ -678,6 +695,7 @@ export function EditorPane({
             {title}
           </ViewToggleTitle>
         )}
+        {curveControl && <div className="flex shrink-0 items-center">{curveControl}</div>}
         <SelectedPointEditor
           store={activeStore}
           units={units}

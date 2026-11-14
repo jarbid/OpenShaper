@@ -30,12 +30,12 @@ import {
   type FieldKind,
 } from './bottom-features';
 import { fmtLen, unitSuffix, type LengthUnit } from './format';
-import { sectionStore } from './store';
+import { docStore } from './store';
 import { useSyncedText } from './use-numeric-field';
 
 /** What the section's header shows when it is shut: how many features are on. */
 export function bottomFeaturesSummary(): string | undefined {
-  const features = sectionStore.getState().doc?.features;
+  const features = docStore.getState().doc?.features;
   if (!features || features.length === 0) return undefined;
   const on = features.filter((f) => f.enabled).length;
   return on === features.length ? `${on} on` : `${on} of ${features.length} on`;
@@ -55,7 +55,7 @@ export function BottomFeaturesSection({
   /** Classes of the extent bar (`SIZING.extentBar`). */
   extentClass: string;
 }) {
-  const doc = useSyncExternalStore(sectionStore.subscribe, () => sectionStore.getState().doc);
+  const doc = useSyncExternalStore(docStore.subscribe, () => docStore.getState().doc);
   if (!doc) return null;
   const outline = doc.outline.plus.knots;
   const length = outline[outline.length - 1]!.p[0];
@@ -72,7 +72,7 @@ export function BottomFeaturesSection({
               variant="ghost"
               title={k.hint}
               className={segmentClass}
-              onClick={() => sectionStore.getState().addFeature(k.value)}
+              onClick={() => docStore.getState().addFeature(k.value)}
             >
               {k.label}
             </Button>
@@ -115,10 +115,10 @@ function FeatureCard({
   length: number;
 }) {
   const kind = featureKindOf(f);
-  const limits = sectionStore.getState().featureLimits(f.id);
+  const limits = docStore.getState().featureLimits(f.id);
   const color = BOTTOM_FEATURES.find((k) => k.value === kind)!.color;
   const keys = f.depth.keys;
-  const st = () => sectionStore.getState();
+  const st = () => docStore.getState();
   return (
     <fieldset
       className={`space-y-2 rounded-md border border-border p-2 ${f.enabled ? '' : 'opacity-60'}`}
@@ -170,7 +170,7 @@ function FeatureCard({
               units={units}
               sliderClass={sliderClass}
               length={length}
-              roomMin={featureRange(sectionStore.getState().doc!).min}
+              roomMin={featureRange(docStore.getState().doc!).min}
             />
           );
         })}
@@ -247,7 +247,7 @@ function FeatureField({
   const boxRange = nose ? noseEndRange(range, length) : range;
   const last = f.depth.keys.length - 1;
   const apply = (v: number) => {
-    const st = sectionStore.getState();
+    const st = docStore.getState();
     if (def.key === 'depth') st.setFeatureDepth(f.id, v);
     else if (def.key === 'from') st.setFeatureKey(f.id, 0, { s: v });
     else if (def.key === 'to') st.setFeatureKey(f.id, last, { s: v });
@@ -348,8 +348,8 @@ function Slider({
   className: string;
   onChange: (v: number) => void;
 }) {
-  const begin = () => sectionStore.getState().beginEdit();
-  const end = () => sectionStore.getState().endEdit();
+  const begin = () => docStore.getState().beginEdit();
+  const end = () => docStore.getState().endEdit();
   // a slider unmounted mid-drag (the feature was removed, the tab changed) must not leave the edit open
   useEffect(() => end, []);
   return (

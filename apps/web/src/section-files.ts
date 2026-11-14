@@ -43,7 +43,7 @@ export function metaOfDoc(meta: DocMeta): BoardMeta {
  * `extra` keys this app owns; any other `extra` key stays. The document itself when nothing changes, so a
  * save of an unedited board does not make a new object.
  */
-export function withBoardMeta(doc: BoardDoc, meta: BoardMeta): BoardDoc {
+export function withBoardMeta<D extends { readonly meta: DocMeta }>(doc: D, meta: BoardMeta): D {
   const prev = doc.meta;
   // Keys keep the order the document had them in; a field the document did not have goes last.
   const extra: Record<string, unknown> = {};
@@ -96,6 +96,9 @@ export function loadNurbsCore(): Promise<Core> {
   );
   return corePromise;
 }
+
+/** The compute module once it has been loaded (null before): for a caller that cannot wait for the chunk. */
+export const loadedNurbsCore = (): Core | null => core;
 
 /** The canonical text of a document with `meta` as its Board info. */
 export async function sectionsText(doc: BoardDoc, meta: BoardMeta): Promise<string> {

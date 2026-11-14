@@ -18,6 +18,7 @@ import {
   specGroupIds,
   type SidebarState,
 } from './sidebar-sections';
+import { isRailsCurve, type RailsCurve } from './rails-section-pane';
 import { SPLIT_PANE_KINDS, type EditorKind, type SplitPaneKind, type View } from './view-toolkit';
 import {
   ANALYSIS_3D,
@@ -82,6 +83,11 @@ export interface ViewState {
    * blobs written before the sidebar grew tabs.
    */
   sidebar?: SidebarState;
+  /**
+   * Which of a rails board's two station curves the cross-section tab edits (Deck | Bottom). Absent
+   * means Deck.
+   */
+  railsCurve?: RailsCurve;
 }
 
 /**
@@ -238,6 +244,7 @@ export function loadViewState(): ViewState {
       ...(view3d ? { view3d } : {}),
       ...(split ? { split } : {}),
       sidebar: sanitizeSidebar(parsed.sidebar) ?? DEFAULT_SIDEBAR_STATE,
+      ...(isRailsCurve(parsed.railsCurve) ? { railsCurve: parsed.railsCurve } : {}),
     };
   } catch {
     return DEFAULT_VIEW_STATE;

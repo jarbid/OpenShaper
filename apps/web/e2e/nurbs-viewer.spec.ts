@@ -465,7 +465,9 @@ test.describe('NURBS viewer, flag off', () => {
     expect(options.join('|')).not.toContain('Deviation from classic');
     expect(
       requests.filter((u) =>
-        /nurbs-(layer|client|viewer|core|worker|surface)|packages\/(board2|geom)\//i.test(u),
+        /nurbs-(layer|client|viewer|core|worker|surface)|packages\/(board2\/src\/(?!defaults\.ts)|board2\/(?!src\/)|geom\/)/i.test(
+          u,
+        ),
       ),
     ).toEqual([]);
     expect(errors).toEqual([]);

@@ -150,9 +150,18 @@ export const writeBoardJson = (b: BezierBoard, metadata?: Record<string, unknown
  */
 export const SECTIONS_JSON_VERSION = 3;
 
+/**
+ * The `model` of a rails board document (`@openshaper/board2`'s `railsToJson`): a document of this model
+ * is also left as parsed JSON for board2 to revive, and told apart from a section document there.
+ */
+export const RAILS_JSON_MODEL = 'rails';
+
 export class BoardJsonError extends Error {}
 
-/** What a board file holds: a classic board, or a NURBS section document left for board2 to revive. */
+/**
+ * What a board file holds: a classic board, or a NURBS document (a section document or a rails board) left
+ * for board2 to revive.
+ */
 export type BoardFile =
   | { readonly kind: 'classic'; board: BezierBoard; metadata?: Record<string, unknown> }
   | { readonly kind: 'sections'; readonly json: unknown };
@@ -258,7 +267,7 @@ export const readBoardText = (text: string): BoardFile => {
   if (
     isObject(parsed) &&
     (parsed.format === 'openshaper' || parsed.format === 'board-studio') &&
-    parsed.version === SECTIONS_JSON_VERSION
+    (parsed.version === SECTIONS_JSON_VERSION || parsed.model === RAILS_JSON_MODEL)
   ) {
     return { kind: 'sections', json: parsed };
   }

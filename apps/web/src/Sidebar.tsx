@@ -78,7 +78,7 @@ import {
   type SpecGroupId,
   type TabId,
 } from './sidebar-sections';
-import { activeStore, sectionStore } from './store';
+import { activeStore, docStore } from './store';
 import { MeasurementAxisSelect, OverlayToggle, Sel, SpecRow, UnitSelect } from './view-toolkit';
 import type { Longitudinal, MeasurementAxis } from './longitudinal';
 import { sectionHelp, type ToolbarHelpId } from './help-text';
@@ -264,10 +264,10 @@ export const Sidebar = memo(function Sidebar({
   );
 
   // A string, so a drag (which replaces the document many times a second) re-renders nothing here.
-  const shapeSummary = useSyncExternalStore(sectionStore.subscribe, () =>
+  const shapeSummary = useSyncExternalStore(docStore.subscribe, () =>
     nurbsEngine ? boardShapeSummary() : undefined,
   );
-  const featuresSummary = useSyncExternalStore(sectionStore.subscribe, () =>
+  const featuresSummary = useSyncExternalStore(docStore.subscribe, () =>
     nurbsEngine ? bottomFeaturesSummary() : undefined,
   );
   const overlaysOn = Object.values(overlayToggles).filter(Boolean).length;

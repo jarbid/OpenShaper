@@ -12,7 +12,7 @@
  *
  * Nothing here imports board2: the worker (and the fallback's dynamic import) carries it.
  */
-import type { BoardDoc } from '@openshaper/board2';
+import type { BoardDoc, RailsBoard } from '@openshaper/board2';
 import type {
   ExportedFile,
   ExportJob,
@@ -76,7 +76,7 @@ export type ExportCoreLoader = () => Promise<
 const loadCore: ExportCoreLoader = () => import('./workers/nurbs-core');
 
 export function startNurbsExport(
-  doc: BoardDoc,
+  doc: BoardDoc | RailsBoard,
   job: ExportJob,
   onStage?: (s: ExportStage, pass?: number) => void,
   spawn: ExportTransportFactory = spawnExportWorker,

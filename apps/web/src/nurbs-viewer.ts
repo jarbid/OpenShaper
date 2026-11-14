@@ -40,10 +40,11 @@
  *   arrives while a job runs waits for its answer.
  * - **Read-only.** Nothing here writes to the board or the store.
  */
-import type { BoardDoc } from '@openshaper/board2';
+import type { BoardDoc, RailsBoard } from '@openshaper/board2';
 import { sameHull } from '@openshaper/render3d';
 import type { BezierBoard } from '@openshaper/kernel';
 import { SupersededError, type NurbsClient } from './nurbs-client';
+import { sameRailsHull } from './rails-hull';
 import type {
   JobOptions,
   NurbsEngine,
@@ -59,16 +60,21 @@ import type {
 export const BUSY_AFTER_MS = 250;
 
 /** Whether two documents have the same hull: the same lines, stations, features, tail and settings. */
-export const sameDocHull = (a: BoardDoc, b: BoardDoc): boolean =>
+export const sameDocHull = (a: BoardDoc | RailsBoard, b: BoardDoc | RailsBoard): boolean =>
   a === b ||
-  (a.outline === b.outline &&
-    a.rocker === b.rocker &&
-    a.deck === b.deck &&
-    a.stations === b.stations &&
-    a.features === b.features &&
-    a.tail === b.tail &&
-    a.symmetry === b.symmetry &&
-    a.build === b.build);
+  (a.model === 'rails' || b.model === 'rails'
+    ? a.model === 'rails' && b.model === 'rails' && sameRailsHull(a, b)
+    : sameSectionsHull(a, b));
+
+const sameSectionsHull = (a: BoardDoc, b: BoardDoc): boolean =>
+  a.outline === b.outline &&
+  a.rocker === b.rocker &&
+  a.deck === b.deck &&
+  a.stations === b.stations &&
+  a.features === b.features &&
+  a.tail === b.tail &&
+  a.symmetry === b.symmetry &&
+  a.build === b.build;
 
 /** The surface on screen. */
 export interface NurbsModel {
@@ -94,6 +100,10 @@ export type ViewerPhase = 'idle' | 'converting' | 'ready' | 'failed';
 /** The as-built sections of the latest answer, by the station coordinate they were asked at. */
 export interface ViewerProbes {
   readonly items: readonly SectionProbe[];
+  /** The document generation ({@link ViewerInput.generation}) the sections were asked for. */
+  readonly generation: number;
+  /** They are the sections of a rails board (a rails store's slices), not of a section document. */
+  readonly rails: boolean;
 }
 
 export interface ViewerJob {
@@ -138,8 +148,8 @@ export interface ViewerInput {
   readonly enabled: boolean;
   /** The classic board shown: the classic store's, or the projection of {@link doc}. */
   readonly board: BezierBoard | null;
-  /** The section store's document; null when the classic store is shown. */
-  readonly doc: BoardDoc | null;
+  /** The section or rails store's document; null when the classic store is shown. */
+  readonly doc: BoardDoc | RailsBoard | null;
   /** The classic board "Deviation from classic" measures a document against. */
   readonly reference: BezierBoard | null;
   /** The store's `loadCount`: changes when another document replaces the board. */
@@ -197,7 +207,7 @@ export interface NurbsViewer {
 /** What the last job was asked for, to tell a repeated input from a new one. */
 interface Requested {
   readonly board: BezierBoard | null;
-  readonly doc: BoardDoc | null;
+  readonly doc: BoardDoc | RailsBoard | null;
   readonly testBoard: TestBoardName | null;
   readonly generation: number;
   readonly curvature: boolean;
@@ -350,7 +360,9 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
             error: null,
             issues: answer.issues,
             stale: false,
-            ...(doc ? { probes: { items: answer.probes } } : {}),
+            ...(doc
+              ? { probes: { items: answer.probes, generation, rails: doc.model === 'rails' } }
+              : {}),
           });
           // probes asked for while this job ran
           reconcile();
@@ -377,7 +389,15 @@ export function createNurbsViewer(deps: ViewerDeps): NurbsViewer {
       .then((answer) => {
         if (probing !== me) return;
         probing = null;
-        if (answer.ok) set({ probes: { items: answer.probes } });
+        if (answer.ok) {
+          set({
+            probes: {
+              items: answer.probes,
+              generation: i.generation,
+              rails: doc.model === 'rails',
+            },
+          });
+        }
       })
       .catch((err: unknown) => {
         if (err instanceof SupersededError || probing !== me) return;
