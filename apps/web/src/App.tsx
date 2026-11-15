@@ -1,8 +1,15 @@
 import { stepExportSupport } from '@openshaper/export';
-import { decodeShareFragment, parseBrd, readBoardJson, writeBoardJson } from '@openshaper/io';
+import {
+  decodeShareFragment,
+  parseBrd,
+  readBoardJson,
+  writeBoardJson,
+  type ReadBoardJsonResult,
+} from '@openshaper/io';
 import {
   loftCrossSection,
   getLength,
+  REF_SECTION_TOLERANCE,
   resolveFins,
   type BezierBoard,
   type Spline,
@@ -96,6 +103,7 @@ import { Sidebar, type OverlayToggles, type ResizeFields } from './Sidebar';
 import { applyViewChange, DEFAULT_SIDEBAR_STATE, type SidebarState } from './sidebar-sections';
 import sampleBrd from './sample-board.brd?raw';
 import { boardStore } from './store';
+import { loadRefTolerance, saveRefTolerance } from './ref-tolerance';
 import { SUPPORT_URL } from './support';
 import { BOARD_TEMPLATES } from './templates';
 import { clampSectionIndex, nearestMidpointSection } from './section-index';
@@ -175,10 +183,7 @@ function AppShell() {
    * makes *Keep current* a true no-op and lets autosave keep running
    * underneath without blurring the two choices.
    */
-  const [pendingShare, setPendingShare] = useState<{
-    board: BezierBoard;
-    metadata?: Record<string, unknown>;
-  } | null>(null);
+  const [pendingShare, setPendingShare] = useState<ReadBoardJsonResult | null>(null);
 
   useEffect(() => {
     if (boardStore.getState().board) {
@@ -191,7 +196,11 @@ function AppShell() {
     const restoreOrSample = (session: Awaited<ReturnType<typeof loadSession>>): boolean => {
       if (session) {
         try {
-          const { board: sBoard, metadata } = readBoardJson(session.boardJson);
+          const {
+            board: sBoard,
+            metadata,
+            referencePoints: sRefs,
+          } = readBoardJson(session.boardJson);
           let sGhost: BezierBoard | null = null;
           if (session.ghostJson) {
             try {
@@ -201,7 +210,7 @@ function AppShell() {
             }
           }
           hydrated.current = true;
-          boardStore.getState().load(sBoard);
+          boardStore.getState().load(sBoard, sRefs);
           setMeta(toBoardMeta(metadata));
           if (sGhost) setGhost(sGhost);
           return true;
@@ -213,6 +222,8 @@ function AppShell() {
         }
       }
       try {
+        // The sample's own BoardCAD guide points are left out: they measure someone
+        // else's board, and a first visit should open on a clean shape.
         const { board } = parseBrd(sampleBrd);
         hydrated.current = true;
         boardStore.getState().load(board);
@@ -232,7 +243,7 @@ function AppShell() {
       const session = await loadSession();
       if (cancelled) return;
 
-      let shared: { board: BezierBoard; metadata?: Record<string, unknown> } | null = null;
+      let shared: ReadBoardJsonResult | null = null;
       if (payload) {
         try {
           shared = await decodeShareFragment(payload);
@@ -248,13 +259,13 @@ function AppShell() {
       // A valid link into an empty browser opens straight away: there is
       // nothing to replace, so there is nothing to ask about.
       if (shared && !session) {
-        adoptRef.current(shared.board, shared.metadata);
+        adoptRef.current(shared);
         return;
       }
 
       const hadSession = restoreOrSample(session);
       if (shared && hadSession) setPendingShare(shared);
-      else if (shared) adoptRef.current(shared.board, shared.metadata);
+      else if (shared) adoptRef.current(shared);
     })();
     return () => {
       cancelled = true;
@@ -284,6 +295,31 @@ function AppShell() {
   }, []);
   const toggleOverlay = (key: keyof OverlayToggles) => setOverlay(key, !overlayToggles[key]);
   const setTunniOverlay = useCallback((on: boolean) => setOverlay('tunni', on), [setOverlay]);
+  // Reference points: shown by default, so a file that has some shows them; locked by
+  // default, because each one records a measurement and must not move by accident.
+  const [refPointsShown, setRefPointsShown] = useState(true);
+  const [refPointsUnlocked, setRefPointsUnlocked] = useState(false);
+  // The gap each point is judged against (green within, red beyond); a remembered preference.
+  const [refTolerance, setRefToleranceState] = useState(loadRefTolerance);
+  const setRefTolerance = useCallback((cm: number) => {
+    setRefToleranceState(cm);
+    saveRefTolerance(cm);
+  }, []);
+  const refPoints = useSyncExternalStore(
+    boardStore.subscribe,
+    () => boardStore.getState().refPoints,
+  );
+  // Stations where section points were measured, ticked on the length-wise panes.
+  const measuredStations = useMemo(() => {
+    const out: number[] = [];
+    for (const p of refPoints)
+      if (
+        p.plane === 'section' &&
+        !out.some((x) => Math.abs(x - p.station) <= REF_SECTION_TOLERANCE)
+      )
+        out.push(p.station);
+    return out;
+  }, [refPoints]);
 
   // Specs (and the distribution overlay) read the settled board so they don't
   // re-integrate on every drag move — see useSettledBoard. The integrals run in
@@ -510,7 +546,7 @@ function AppShell() {
     const metadata = Object.values(m).some(Boolean) ? (m as Record<string, unknown>) : undefined;
     const g = ghostRef.current;
     void saveSession({
-      boardJson: writeBoardJson(b, metadata),
+      boardJson: writeBoardJson(b, metadata, boardStore.getState().refPoints),
       ...(g ? { ghostJson: writeBoardJson(g) } : {}),
     });
   }, []);
@@ -519,7 +555,7 @@ function AppShell() {
     if (!board || !hydrated.current) return;
     window.clearTimeout(sessionSaveTimer.current);
     sessionSaveTimer.current = window.setTimeout(persistSession, 800);
-  }, [board, meta, ghost, persistSession]);
+  }, [board, refPoints, meta, ghost, persistSession]);
   // A pending save must not outlive the editor. `boardStore` is a module
   // singleton, so a timer left running after unmount would write whatever board
   // the *next* mount holds into the session — the tests unmount between cases,
@@ -717,6 +753,9 @@ function AppShell() {
       fins:
         (kind === 'outline' || kind === 'rocker') && resolvedFins.length ? resolvedFins : undefined,
       finView: kind === 'rocker' ? 'profile' : 'plan',
+      referencePoints: refPointsShown ? (refPointsUnlocked ? 'unlocked' : 'locked') : undefined,
+      refTolerance,
+      measuredStations: longitudinal && measuredStations.length ? measuredStations : undefined,
     };
   };
 
@@ -782,7 +821,7 @@ function AppShell() {
    */
   const saveBoardFile = () => {
     if (!board) return;
-    downloadBoard(board, meta);
+    downloadBoard(board, meta, refPoints);
     track('save_board', { format: 'board' });
     markSave();
     // downloadBoard records internally; refresh the menu's snapshot.
@@ -826,9 +865,9 @@ function AppShell() {
     e.target.value = ''; // allow re-opening the same file
     if (!file) return;
     try {
-      const { board, meta, warnings } = await openBoardFile(file);
+      const { board, meta, refPoints: fileRefs, warnings } = await openBoardFile(file);
       const commit = () => {
-        boardStore.getState().load(board);
+        boardStore.getState().load(board, fileRefs);
         setMeta(meta);
         // Record in the recent list. Use the file's base name (strip extension) as
         // the display name; re-serialise to canonical .board.json so the snapshot
@@ -836,7 +875,7 @@ function AppShell() {
         const baseName = file.name.replace(/\.(board\.json|json|brd|s3dx|s3d|srf)$/i, '');
         const metadata =
           meta && Object.values(meta).some(Boolean) ? (meta as Record<string, unknown>) : undefined;
-        recordRecentBoard(baseName, writeBoardJson(board, metadata));
+        recordRecentBoard(baseName, writeBoardJson(board, metadata, fileRefs));
         setRecentBoards(getRecentBoards());
       };
       // Import is the on-ramp from legacy BoardCAD and was previously
@@ -903,8 +942,8 @@ function AppShell() {
   /** Load a board that was previously recorded in the recent list. */
   const loadFromRecent = (entry: { name: string; boardJson: string }, position: number) => {
     try {
-      const { board: rBoard, metadata } = readBoardJson(entry.boardJson);
-      boardStore.getState().load(rBoard);
+      const { board: rBoard, metadata, referencePoints } = readBoardJson(entry.boardJson);
+      boardStore.getState().load(rBoard, referencePoints);
       setMeta(toBoardMeta(metadata));
       setGhost(null);
       // Refresh the recent list so this entry bubbles to top (re-record updates savedAt).
@@ -933,11 +972,15 @@ function AppShell() {
    * the board. The recipient's own units and 3D appearance settings are left
    * alone — those are preferences, not state belonging to this board.
    */
-  const adoptSharedBoard = (sBoard: BezierBoard, metadata?: Record<string, unknown>) => {
+  const adoptSharedBoard = ({
+    board: sBoard,
+    metadata,
+    referencePoints: sRefs,
+  }: ReadBoardJsonResult) => {
     const sMeta = toBoardMeta(metadata);
     // load() resets past/future, so undo cannot reach back past a board that
     // was never edited here.
-    boardStore.getState().load(sBoard);
+    boardStore.getState().load(sBoard, sRefs);
     setMeta(sMeta);
     // Clearing the state is not enough on its own — the autosave that follows
     // rewrites the session record without ghostJson, so a reload cannot
@@ -950,7 +993,7 @@ function AppShell() {
     // replaces the older — the same de-duplication every other entry gets.
     recordRecentBoard(
       model ? `${model} (shared)` : 'Shared board',
-      writeBoardJson(sBoard, metadata),
+      writeBoardJson(sBoard, metadata, sRefs),
     );
     setRecentBoards(getRecentBoards());
 
@@ -1158,7 +1201,15 @@ function AppShell() {
       disabled: !board,
       onSelect: () => {
         if (!board) return;
-        downloadBrd(board, meta);
+        const left = downloadBrd(board, meta, refPoints);
+        // .brd keeps a section's points inside that section, so one with no section
+        // at its station has nowhere to go: say so rather than drop it silently.
+        if (left > 0)
+          showToast(
+            `${left} reference point${left === 1 ? ' has' : 's have'} no cross-section at ` +
+              `${left === 1 ? 'its' : 'their'} station and ${left === 1 ? 'was' : 'were'} ` +
+              'not saved in the .brd file.',
+          );
         track('save_board', { format: 'brd' });
         markSave();
       },
@@ -1220,6 +1271,23 @@ function AppShell() {
       checked: overlayToggles.tunni,
       onSelect: () => toggleOverlay('tunni'),
     },
+    {
+      kind: 'checkbox',
+      label: 'Reference points',
+      checked: refPointsShown,
+      onSelect: () => setRefPointsShown((on) => !on),
+    },
+    // Only meaningful while they are shown, so only offered then.
+    ...(refPointsShown
+      ? [
+          {
+            kind: 'checkbox' as const,
+            label: 'Unlock reference points',
+            checked: refPointsUnlocked,
+            onSelect: () => setRefPointsUnlocked((on) => !on),
+          },
+        ]
+      : []),
     { kind: 'separator' },
     { kind: 'label', label: 'Zoom' },
     {
@@ -1323,6 +1391,8 @@ function AppShell() {
       showStringer={view3d.showStringer}
       showSections={view3d.showSections}
       activeSectionX={activeSectionX}
+      showRefPoints={refPointsShown}
+      refTolerance={refTolerance}
       key={cameraEpoch}
       initialCamera={liveViewState.current.camera3d}
       onCameraChange={onCameraChange}
@@ -1421,6 +1491,9 @@ function AppShell() {
       onSidebarChange={setSidebar}
       onUnitChange={isPhone ? setUnitKey : undefined}
       longitudinal={longitudinal}
+      activeSection={clampedCs}
+      refTolerance={refTolerance}
+      onRefToleranceChange={setRefTolerance}
       onMeasurementAxisChange={isPhone ? setMeasurementAxis : undefined}
     />
   );
@@ -1724,13 +1797,14 @@ function AppShell() {
             clearSharedPayload();
             setPendingShare(null);
           }}
-          onOpenShared={() => adoptSharedBoard(pendingShare.board, pendingShare.metadata)}
+          onOpenShared={() => adoptSharedBoard(pendingShare)}
         />
       )}
 
       {shareOpen && board && (
         <ShareDialog
           board={board}
+          refPoints={refPoints}
           meta={meta}
           setMeta={setMeta}
           onCopied={() => {
@@ -1780,10 +1854,11 @@ function AppShell() {
         <ExportPdf1to1Dialog
           units={units}
           settings={pdf1to1}
+          hasReferencePoints={refPoints.length > 0}
           onExport={(s) => {
             savePdf1to1(s);
             setPdf1to1(s);
-            downloadPdf1to1(board, s, meta, units);
+            downloadPdf1to1(board, s, meta, units, refPoints);
             track('export_board', { format: 'pdf-1to1-custom' });
             markExport();
           }}

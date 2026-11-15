@@ -26,8 +26,8 @@
  * running byte cap so a small compressed payload cannot expand into a large
  * allocation.
  */
-import type { BezierBoard } from '@openshaper/kernel';
-import { readBoardJson, writeBoardJson } from './board-json';
+import type { BezierBoard, RefPoints } from '@openshaper/kernel';
+import { readBoardJson, writeBoardJson, type ReadBoardJsonResult } from './board-json';
 
 /** Envelope version this module writes. Readers accept only this one. */
 export const SHARE_ENVELOPE_VERSION = 'v1';
@@ -193,9 +193,10 @@ async function pump(
 export async function encodeShareFragment(
   b: BezierBoard,
   metadata?: Record<string, unknown>,
+  referencePoints?: RefPoints,
 ): Promise<string> {
   requireCodec();
-  const bytes = new TextEncoder().encode(writeBoardJson(b, metadata));
+  const bytes = new TextEncoder().encode(writeBoardJson(b, metadata, referencePoints));
   const gzipped = await pump(bytes, new CompressionStream('gzip'));
   return `${SHARE_ENVELOPE_VERSION}.${toBase64Url(gzipped)}`;
 }
@@ -209,9 +210,7 @@ export async function encodeShareFragment(
  *
  * @throws ShareLinkError — and nothing else.
  */
-export async function decodeShareFragment(
-  fragment: string,
-): Promise<{ board: BezierBoard; metadata?: Record<string, unknown> }> {
+export async function decodeShareFragment(fragment: string): Promise<ReadBoardJsonResult> {
   requireCodec();
 
   const dot = fragment.indexOf('.');

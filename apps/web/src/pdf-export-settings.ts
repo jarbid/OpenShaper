@@ -23,6 +23,8 @@ export interface Pdf1to1Settings {
   halfSections: boolean;
   fins: boolean;
   calibration: boolean;
+  /** Mark the board's reference points on the templates (offered only when it has some). */
+  referencePoints: boolean;
   crossSectionCount: number;
   // --- Output packaging ---
   packaging: 'combined' | 'per-part';
@@ -51,6 +53,7 @@ export const DEFAULT_PDF1TO1: Pdf1to1Settings = {
   halfSections: true,
   fins: true,
   calibration: true,
+  referencePoints: true,
   crossSectionCount: 7,
   packaging: 'combined',
   slice: true,

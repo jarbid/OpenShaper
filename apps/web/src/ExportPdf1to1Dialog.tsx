@@ -22,6 +22,8 @@ export interface ExportPdf1to1DialogProps {
   /** Called with the chosen settings to persist + run the export. */
   onExport: (settings: Pdf1to1Settings) => void;
   onClose: () => void;
+  /** The board has reference points, so offer to print them. */
+  hasReferencePoints?: boolean;
 }
 
 export function ExportPdf1to1Dialog({
@@ -29,6 +31,7 @@ export function ExportPdf1to1Dialog({
   settings,
   onExport,
   onClose,
+  hasReferencePoints = false,
 }: ExportPdf1to1DialogProps) {
   const [draft, setDraft] = useState<Pdf1to1Settings>({ ...settings });
 
@@ -121,6 +124,14 @@ export function ExportPdf1to1Dialog({
               value={draft.calibration}
               onChange={(v) => set('calibration', v)}
             />
+            {hasReferencePoints && (
+              <CheckRow
+                label="Reference points"
+                hint="Your measurements, marked on each template; measured sections get a page each."
+                value={draft.referencePoints}
+                onChange={(v) => set('referencePoints', v)}
+              />
+            )}
           </Group>
 
           {/* --- Output --- */}

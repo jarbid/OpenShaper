@@ -14,7 +14,16 @@
  * Output is packaged as a single combined PDF or one PDF per part. Curves are
  * sampled with the shared `board-curves` helpers, so they match the DXF exactly.
  */
-import { getLength, resolveFins, valueAt, type BezierBoard, type ResolvedFin } from '@openshaper/kernel'; // prettier-ignore
+import {
+  getLength,
+  REF_SECTION_TOLERANCE,
+  resolveFins,
+  valueAt,
+  type BezierBoard,
+  type RefPoint,
+  type RefPoints,
+  type ResolvedFin,
+} from '@openshaper/kernel';
 import {
   bbox,
   crossSectionBeziers,
@@ -85,6 +94,13 @@ export interface BoardPdf1to1Options {
   tiling?: PdfTiling | null;
   /** Combine all parts into one PDF, or emit one PDF per part. Default 'combined'. */
   packaging?: 'combined' | 'per-part';
+  /**
+   * Reference points (measurements) to mark on the templates: outline points on the
+   * outline page, rocker points on the rocker page, and each measured section station on a
+   * section page of its own, so a printed template can be checked against the real board.
+   * Omitted or empty: the templates are exactly as without the option.
+   */
+  referencePoints?: RefPoints;
 }
 
 /** One downloadable file produced by the export. */
@@ -168,6 +184,25 @@ const drawFins = (ctx: DrawCtx, fins: readonly ResolvedFin[]): void => {
   }
 };
 
+/** Printed arm of a reference-point crosshair, cm (it prints at 1:1). */
+const REF_ARM_CM = 0.6;
+
+/** A reference point as a crosshair with a label beside it, in the page's cm coordinates. */
+const drawRefMark = (ctx: DrawCtx, at: Pt, text: string): void => {
+  ctx.seg({ x: at.x - REF_ARM_CM, y: at.y }, { x: at.x + REF_ARM_CM, y: at.y }, { width: 0.5 });
+  ctx.seg({ x: at.x, y: at.y - REF_ARM_CM }, { x: at.x, y: at.y + REF_ARM_CM }, { width: 0.5 });
+  ctx.label({ x: at.x + REF_ARM_CM + 0.2, y: at.y + 0.3 }, text, 7);
+};
+
+/** Measured stations of section points, nearest-within-tolerance merged, in board order. */
+const sectionStations = (points: RefPoints): number[] => {
+  const out: number[] = [];
+  for (const p of points)
+    if (p.plane === 'section' && !out.some((x) => Math.abs(x - p.station) <= REF_SECTION_TOLERANCE))
+      out.push(p.station);
+  return out.sort((a, b) => a - b);
+};
+
 /** Assemble the selected full-size part drawings for `board`. */
 const buildParts = (board: BezierBoard, opts: BoardPdf1to1Options): TaggedPart[] => {
   const lengthSteps = Math.max(2, opts.lengthSteps ?? DEFAULT_LENGTH_STEPS);
@@ -185,6 +220,9 @@ const buildParts = (board: BezierBoard, opts: BoardPdf1to1Options): TaggedPart[]
     inches ? `${(cm / 2.54).toFixed(2)} in` : `${cm.toFixed(1)} cm`;
   const note = `${name} · 1:1 — print at 100% scale · units ${inches ? 'in' : 'cm'} · openshaper.com`;
   const stationPos = (i: number): number => eps + ((length - 2 * eps) * (i + 0.5)) / csCount;
+
+  const refs = opts.referencePoints ?? [];
+  const tag = (p: RefPoint): string => (p.label ? `${p.label} · ` : '');
 
   const parts: TaggedPart[] = [];
 
@@ -225,6 +263,12 @@ const buildParts = (board: BezierBoard, opts: BoardPdf1to1Options): TaggedPart[]
             const fins = resolveFins(board);
             drawFins(ctx, halfTpl ? fins.filter((f) => f.side >= 0) : fins);
           }
+          for (const p of refs) {
+            if (p.plane !== 'outline') continue;
+            // A half template is the +y rail: a point taped on either rail belongs on it.
+            const at = { x: p.x, y: halfTpl ? Math.abs(p.y) : p.y };
+            drawRefMark(ctx, at, `${tag(p)}${L(p.x)} · w ${L(2 * Math.abs(p.y))}`);
+          }
         },
         calibration,
         inches,
@@ -251,6 +295,10 @@ const buildParts = (board: BezierBoard, opts: BoardPdf1to1Options): TaggedPart[]
             const d = valueAt(board.deck, pos);
             ctx.seg({ x: pos, y: b }, { x: pos, y: d }, { width: 0.3, dashed: true, gray: 0.55 });
             ctx.label({ x: pos + 0.4, y: Math.max(b, d) + 0.4 }, `t ${L(Math.abs(d - b))}`, 7);
+          }
+          for (const p of refs) {
+            if (p.plane !== 'rocker') continue;
+            drawRefMark(ctx, p, `${tag(p)}${L(p.x)} · ${p.curve} ${L(p.y)}`);
           }
         },
         calibration,
@@ -290,6 +338,47 @@ const buildParts = (board: BezierBoard, opts: BoardPdf1to1Options): TaggedPart[]
               { x: 0, y: sy.hi },
               halfSec ? { width: 0.6, gray: 0 } : { width: 0.3, dashed: true, gray: 0.55 },
             );
+          },
+          calibration,
+          inches,
+        ),
+      );
+    }
+  }
+
+  // --- One page per measured section station, with its points on the template. ---
+  if (want('crossSections')) {
+    const halfSec = opts.halfSections ?? true;
+    for (const station of sectionStations(refs)) {
+      const ring = halfSec
+        ? crossSectionHalfRing(board, station, ringSteps)
+        : crossSectionRing(board, station, ringSteps);
+      if (!ring) continue;
+      const here = refs.filter(
+        (p): p is Extract<RefPoint, { plane: 'section' }> =>
+          p.plane === 'section' && Math.abs(p.station - station) <= REF_SECTION_TOLERANCE,
+      );
+      const marks = here.map((p) => ({ p, at: { x: halfSec ? Math.abs(p.x) : p.x, y: p.y } }));
+      const bb = bbox([...ring, ...marks.map((m) => m.at)]);
+      parts.push(
+        buildPart(
+          'sections',
+          `${name} · Section${halfSec ? ' half' : ''} @ ${L(station)} measured (1:1)`,
+          halfSec ? `${note} · half template — flip about the stringer` : note,
+          halfSec ? { ...bb, minX: Math.min(0, bb.minX) } : bb,
+          (ctx) => {
+            const segs = halfSec
+              ? crossSectionHalfBeziers(board, station)
+              : crossSectionBeziers(board, station);
+            ctx.bezier(segs ?? [], { closed: !halfSec, width: 0.8 });
+            const sy = ySpan(ring);
+            ctx.seg(
+              { x: 0, y: sy.lo },
+              { x: 0, y: sy.hi },
+              halfSec ? { width: 0.6, gray: 0 } : { width: 0.3, dashed: true, gray: 0.55 },
+            );
+            for (const { p, at } of marks)
+              drawRefMark(ctx, at, `${tag(p)}y ${L(p.x)} · z ${L(p.y)}`);
           },
           calibration,
           inches,

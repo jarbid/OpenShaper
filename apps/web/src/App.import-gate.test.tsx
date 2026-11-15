@@ -127,6 +127,6 @@ describe('App import gate (dropped warning)', () => {
     // Dialog must be gone and load called exactly once.
     expect(screen.queryByText(/Import will change/)).toBeNull();
     expect(loadSpy).toHaveBeenCalledTimes(1);
-    expect(loadSpy).toHaveBeenCalledWith(sampleBoard);
+    expect(loadSpy).toHaveBeenCalledWith(sampleBoard, undefined); // no reference points in this file
   });
 });

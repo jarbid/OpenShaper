@@ -6,6 +6,8 @@ import {
   knot,
   knotLock,
   noFins,
+  refPointsToJson,
+  reviveRefPoints,
   splineFromKnots,
   vec2,
   type BezierBoard,
@@ -13,9 +15,11 @@ import {
   type FinSetup,
   type Knot,
   type KnotLock,
+  type RefPoints,
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
+import type { ImportWarning } from './import-warning';
 
 /**
  * Native OpenShaper document format (`.board.json`) — a clean, versioned,
@@ -32,6 +36,10 @@ import {
  *       Later, still 2: a locked knot carries an optional `l` (its fixed handle
  *       directions). The field is written only for locked knots, so a board without
  *       locks serializes exactly as before, and a reader that predates it ignores it.
+ *       Later, still 2: an optional top-level `referencePoints` array (measurements
+ *       beside the board, see `kernel/src/reference-points.ts`). Written only when
+ *       there are some; a reader that predates it ignores it, and a damaged point is
+ *       dropped with a warning rather than failing the document.
  */
 export const BOARD_JSON_VERSION = 2;
 
@@ -62,6 +70,8 @@ export interface BoardJson {
   crossSections: CrossSectionJson[];
   /** Parametric fin configuration (v2+). Omitted when there are no fins. */
   fins?: FinConfig;
+  /** Reference points (still v2). Omitted when there are none. */
+  referencePoints?: unknown[];
   metadata?: Record<string, unknown>;
 }
 
@@ -124,8 +134,12 @@ const finConfigFromDoc = (doc: BoardJson): FinConfig => {
   return noFins();
 };
 
-/** Serialize a board to a `.board.json` string. */
-export const writeBoardJson = (b: BezierBoard, metadata?: Record<string, unknown>): string => {
+/** Serialize a board, and the reference points beside it, to a `.board.json` string. */
+export const writeBoardJson = (
+  b: BezierBoard,
+  metadata?: Record<string, unknown>,
+  referencePoints?: RefPoints,
+): string => {
   const doc: BoardJson = {
     format: 'openshaper',
     version: BOARD_JSON_VERSION,
@@ -138,6 +152,7 @@ export const writeBoardJson = (b: BezierBoard, metadata?: Record<string, unknown
       knots: splineToJson(cs.spline),
     })),
     ...(b.fins.setup !== 'none' ? { fins: b.fins } : {}),
+    ...(referencePoints?.length ? { referencePoints: refPointsToJson(referencePoints) } : {}),
     ...(metadata ? { metadata } : {}),
   };
   return JSON.stringify(doc, null, 2);
@@ -197,10 +212,17 @@ const assertStructure = (doc: Record<string, unknown>): void => {
   });
 };
 
-/** Parse a `.board.json` string back into a board (+ any metadata). */
-export const readBoardJson = (
-  text: string,
-): { board: BezierBoard; metadata?: Record<string, unknown> } => {
+export interface ReadBoardJsonResult {
+  board: BezierBoard;
+  metadata?: Record<string, unknown>;
+  /** Present when the document has any valid reference points. */
+  referencePoints?: RefPoints;
+  /** Present when something was dropped on read (only damaged reference points today). */
+  warnings?: ImportWarning[];
+}
+
+/** Parse a `.board.json` string back into a board (+ any metadata and reference points). */
+export const readBoardJson = (text: string): ReadBoardJsonResult => {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -228,5 +250,21 @@ export const readBoardJson = (
     doc.interpolationType ?? 'controlPoint',
     finConfigFromDoc(doc),
   );
-  return doc.metadata ? { board: b, metadata: doc.metadata } : { board: b };
+  const { points, dropped } = reviveRefPoints(doc.referencePoints);
+  const droppedNote = `${dropped} damaged reference point${dropped === 1 ? ' was' : 's were'}`;
+  return {
+    board: b,
+    ...(doc.metadata ? { metadata: doc.metadata } : {}),
+    ...(points.length ? { referencePoints: points } : {}),
+    ...(dropped
+      ? {
+          warnings: [
+            {
+              severity: 'dropped',
+              message: `${droppedNote} skipped`,
+            },
+          ],
+        }
+      : {}),
+  };
 };

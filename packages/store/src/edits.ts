@@ -13,9 +13,13 @@ import {
   knotLock,
   mirrorFinIndex,
   maxX,
+  REF_SECTION_TOLERANCE,
+  refIdAllocator,
+  refPointSectionIndex,
   scaleSpline,
   splineFromKnots,
   splitCurve,
+  value as pointOnCurve,
   valueAt,
   vec2,
   widthBoundsAt,
@@ -29,6 +33,8 @@ import {
   type InterpolationType,
   type Knot,
   type KnotLock,
+  type RefPoint,
+  type RefPoints,
   type Spline,
   type Vec2,
 } from '@openshaper/kernel';
@@ -950,4 +956,131 @@ export const deleteKnot = (s: Spline, index: number): Spline => {
   const newNext = withHandles(next, nTanPrev, next.tangentToNext);
   const knots = [...s.knots.slice(0, index - 1), newPrev, newNext, ...s.knots.slice(index + 2)];
   return splineFromKnots(knots);
+};
+
+// --- reference points -------------------------------------------------------
+//
+// Measurements beside the board (`kernel/src/reference-points.ts`). Board edits never
+// touch them; these edits never touch the board.
+
+/** Fields a new reference point is made from; its id is allocated on add. */
+type WithoutId<T> = T extends RefPoint ? Omit<T, 'id'> : never;
+export type RefPointDraft = WithoutId<RefPoint>;
+
+/** Whether a reference point is drawn in a pane editing `targets` (and on which section). */
+export const refPointInPane = (
+  b: BezierBoard,
+  p: RefPoint,
+  targets: readonly SplineTarget[],
+): boolean => {
+  switch (p.plane) {
+    case 'outline':
+      return targets.some((t) => t.kind === 'outline');
+    case 'rocker':
+      return targets.some((t) => t.kind === 'bottom' || t.kind === 'deck');
+    case 'section': {
+      const index = refPointSectionIndex(b, p);
+      return index >= 0 && targets.some((t) => t.kind === 'crossSection' && t.index === index);
+    }
+  }
+};
+
+/**
+ * The reference point a pane would add at world point `at`, kept exactly where it was
+ * placed (a measurement is never reflected into the half the splines are defined on).
+ * In the rocker pane it measures whichever of the pane's curves (bottom or deck) is
+ * nearer; a section pane records its station.
+ */
+export const refPointDraftAt = (
+  b: BezierBoard,
+  targets: readonly SplineTarget[],
+  at: Vec2,
+): RefPointDraft | null => {
+  if (!Number.isFinite(at.x) || !Number.isFinite(at.y)) return null;
+  const point = { x: at.x, y: at.y };
+  const section = targets.find((t) => t.kind === 'crossSection');
+  if (section) {
+    const cs = b.crossSections[section.index];
+    return cs ? { plane: 'section', station: cs.position, ...point } : null;
+  }
+  if (targets.some((t) => t.kind === 'outline')) return { plane: 'outline', ...point };
+  const curves = targets.filter((t) => t.kind === 'bottom' || t.kind === 'deck');
+  if (curves.length === 0) return null;
+  const distance = (t: SplineTarget): number => {
+    const spline = getTargetSpline(b, t);
+    const hit = closestPointOnSpline(spline, at);
+    if (!hit) return Infinity;
+    const q = pointOnCurve(spline.coeffs[hit.index]!, hit.t);
+    return Math.hypot(q.x - at.x, q.y - at.y);
+  };
+  const nearest = curves.reduce((a, t) => (distance(t) < distance(a) ? t : a));
+  return { plane: 'rocker', curve: nearest.kind === 'deck' ? 'deck' : 'bottom', ...point };
+};
+
+/** Append points with fresh ids, in order. */
+export const addRefPoints = (
+  points: RefPoints,
+  drafts: readonly RefPointDraft[],
+): { points: RefPoints; ids: string[] } => {
+  const nextId = refIdAllocator(points.map((p) => p.id));
+  const added = drafts.map((draft) => ({ ...draft, id: nextId() }) as RefPoint);
+  return { points: [...points, ...added], ids: added.map((p) => p.id) };
+};
+
+/** Append one point with a fresh id. */
+export const addRefPoint = (
+  points: RefPoints,
+  draft: RefPointDraft,
+): { points: RefPoints; id: string } => {
+  const { points: next, ids } = addRefPoints(points, [draft]);
+  return { points: next, id: ids[0]! };
+};
+
+/**
+ * Change a point's coordinates and/or label. Returns `points` itself when nothing
+ * changes (or the id is unknown), so callers can skip an empty undo step. An empty
+ * label removes it.
+ */
+export const updateRefPoint = (
+  points: RefPoints,
+  id: string,
+  patch: { x?: number; y?: number; label?: string },
+): RefPoints => {
+  const i = points.findIndex((p) => p.id === id);
+  const old = points[i];
+  if (!old) return points;
+  const x = patch.x ?? old.x;
+  const y = patch.y ?? old.y;
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return points;
+  const label = patch.label === undefined ? old.label : patch.label.trim() || undefined;
+  if (x === old.x && y === old.y && label === old.label) return points;
+  const { label: _old, ...rest } = old;
+  const next = { ...rest, x, y, ...(label ? { label } : {}) } as RefPoint;
+  return points.map((p, j) => (j === i ? next : p));
+};
+
+/** Remove a point; `points` itself when the id is unknown. */
+export const deleteRefPoint = (points: RefPoints, id: string): RefPoints =>
+  points.some((p) => p.id === id) ? points.filter((p) => p.id !== id) : points;
+
+/**
+ * The next point to select from `id`, stepping `direction` through the points drawn in
+ * the same pane (same plane, and for a section the same station), ordered along x then
+ * y, and wrapping at either end. Null when `id` is unknown.
+ */
+export const nextRefPointId = (points: RefPoints, id: string, direction: 1 | -1): string | null => {
+  const current = points.find((p) => p.id === id);
+  if (!current) return null;
+  const peers = points
+    .filter(
+      (p) =>
+        p.plane === current.plane &&
+        (p.plane !== 'section' ||
+          (current.plane === 'section' &&
+            Math.abs(p.station - current.station) <= REF_SECTION_TOLERANCE)),
+    )
+    .slice()
+    .sort((a, b) => a.x - b.x || a.y - b.y || points.indexOf(a) - points.indexOf(b));
+  const at = peers.indexOf(current);
+  return peers[(at + direction + peers.length) % peers.length]!.id;
 };

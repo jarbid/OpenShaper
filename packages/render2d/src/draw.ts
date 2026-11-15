@@ -348,6 +348,18 @@ export interface EditorOverlays {
   fins?: readonly ResolvedFin[];
   /** How to draw fins: `'plan'` (footprint + box, default) or `'profile'` (blade silhouette). */
   finView?: 'plan' | 'profile';
+  /**
+   * Show this pane's reference points. `'locked'` (the default when shown) selects them
+   * on click but never drags them; `'unlocked'` lets them be dragged. Omitted = hidden.
+   */
+  referencePoints?: 'locked' | 'unlocked';
+  /**
+   * Colour reference points by how far the board is from each (cm): green within this
+   * tolerance, red beyond it. Omitted: they are all drawn yellow.
+   */
+  refTolerance?: number;
+  /** Stations (board x) where cross-section reference points were measured; length-wise panes. */
+  measuredStations?: readonly number[];
 }
 
 /** A cross-section's longitudinal position, shown as a pickable line on the outline. */

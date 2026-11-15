@@ -32,9 +32,10 @@ import {
   readBoardJson,
   writeBoardJson,
   writeBrd,
+  brdUnwritableRefPoints,
 } from '@openshaper/io';
 import type { ImportWarning } from '@openshaper/io';
-import type { BezierBoard } from '@openshaper/kernel';
+import type { BezierBoard, RefPoints } from '@openshaper/kernel';
 import { recordRecentBoard } from './recent-boards';
 
 /**
@@ -124,24 +125,32 @@ export function toBoardMeta(raw: unknown): BoardMeta {
  * board's model — the same slug every other exporter uses, so repeat saves overwrite
  * `my-fish.board` instead of piling up as `board (1)`, `board (2)`, …
  */
-export function downloadBoard(board: BezierBoard, meta?: BoardMeta): void {
+export function downloadBoard(board: BezierBoard, meta?: BoardMeta, refPoints?: RefPoints): void {
   const metadata =
     meta && Object.values(meta).some(Boolean) ? (meta as Record<string, unknown>) : undefined;
-  const boardJson = writeBoardJson(board, metadata);
+  const boardJson = writeBoardJson(board, metadata, refPoints);
   const stem = slugifyName(meta?.model); // 'board' when the model name is missing
   download(boardJson, `${stem}.board`, 'application/json');
   recordRecentBoard(meta?.model?.trim() || stem, boardJson);
 }
 
-/** Trigger a download of the board in the legacy BoardCAD-LE `.brd` text format. */
-export function downloadBrd(board: BezierBoard, meta?: BoardMeta): void {
-  const text = writeBrd(board, {
-    model: meta?.model,
-    designer: meta?.designer,
-    surfer: meta?.surfer,
-    comments: meta?.comments,
-    finType: meta?.finType,
-  });
+/**
+ * Trigger a download of the board in the legacy BoardCAD-LE `.brd` text format, with
+ * its reference points as guide points. Returns how many reference points the format
+ * could not hold (section points with no cross-section at their station).
+ */
+export function downloadBrd(board: BezierBoard, meta?: BoardMeta, refPoints?: RefPoints): number {
+  const text = writeBrd(
+    board,
+    {
+      model: meta?.model,
+      designer: meta?.designer,
+      surfer: meta?.surfer,
+      comments: meta?.comments,
+      finType: meta?.finType,
+    },
+    refPoints,
+  );
   // Latin1 bytes, not UTF-8: that is what legacy BoardCAD and parseBrd read, so a
   // "Café" model comes back as itself instead of "CafÃ©".
   download(
@@ -149,11 +158,19 @@ export function downloadBrd(board: BezierBoard, meta?: BoardMeta): void {
     `${slugifyName(meta?.model)}.brd`,
     'application/octet-stream',
   );
+  return refPoints ? brdUnwritableRefPoints(board, refPoints).length : 0;
 }
 
-type BoardFileReader = (
-  file: File,
-) => Promise<{ board: BezierBoard; meta: BoardMeta; warnings: readonly ImportWarning[] }>;
+/** A board opened from a file, with what came with it. */
+export interface OpenedBoard {
+  board: BezierBoard;
+  meta: BoardMeta;
+  /** Reference points (`.board` files, and `.brd` guide points); absent when none. */
+  refPoints?: RefPoints;
+  warnings: readonly ImportWarning[];
+}
+
+type BoardFileReader = (file: File) => Promise<OpenedBoard>;
 
 // Extension → importer. Each reader controls its own decoding (text vs
 // arrayBuffer), so binary formats fit the same table.
@@ -161,10 +178,12 @@ const BOARD_FILE_READERS: Record<string, BoardFileReader> = {
   // .brd may be plain text or encrypted (%BRD-1.0x) — read bytes and let
   // parseBrdFile sniff the magic and decrypt as needed.
   '.brd': async (file) => {
-    const { board, metadata, warnings } = parseBrdFile(new Uint8Array(await file.arrayBuffer()));
+    const { board, metadata, referencePoints, warnings } = parseBrdFile(
+      new Uint8Array(await file.arrayBuffer()),
+    );
     // Model, designer, surfer, comments and fin type come back as the strings the
     // writer stored; the numeric fields (length, thickness…) are derived, not metadata.
-    return { board, meta: toBoardMeta(metadata), warnings };
+    return { board, meta: toBoardMeta(metadata), refPoints: referencePoints, warnings };
   },
   '.s3d': async (file) => {
     const {
@@ -201,14 +220,17 @@ const BOARD_FILE_READERS: Record<string, BoardFileReader> = {
 };
 
 const readBoardJsonFile: BoardFileReader = async (file) => {
-  const { board, metadata } = readBoardJson(await file.text());
-  return { board, meta: toBoardMeta(metadata), warnings: [] };
+  const { board, metadata, referencePoints, warnings } = readBoardJson(await file.text());
+  return {
+    board,
+    meta: toBoardMeta(metadata),
+    refPoints: referencePoints,
+    warnings: warnings ?? [],
+  };
 };
 
 /** Read a user-picked file: a format importer by extension, else native .board.json. */
-export async function openBoardFile(
-  file: File,
-): Promise<{ board: BezierBoard; meta: BoardMeta; warnings: readonly ImportWarning[] }> {
+export async function openBoardFile(file: File): Promise<OpenedBoard> {
   const name = file.name.toLowerCase();
   const ext = Object.keys(BOARD_FILE_READERS).find((e) => name.endsWith(e));
   return ext ? BOARD_FILE_READERS[ext]!(file) : readBoardJsonFile(file);
@@ -429,6 +451,7 @@ export function downloadPdf1to1(
   settings: Pdf1to1Settings,
   meta?: BoardMeta,
   units?: LengthUnit,
+  refPoints?: RefPoints,
 ): void {
   const pdfUnit: 'cm' | 'in' = units?.unit === Unit.INCHES ? 'in' : 'cm';
   const pdfMeta = {
@@ -464,6 +487,7 @@ export function downloadPdf1to1(
     },
     tiling,
     packaging: settings.packaging,
+    ...(settings.referencePoints && refPoints?.length ? { referencePoints: refPoints } : {}),
   });
   // The export package names files 'board-1to1[-part].pdf'; swap in the model slug.
   const slug = slugifyName(meta?.model);

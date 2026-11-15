@@ -171,3 +171,53 @@ describe('exportBoardPdf1to1', () => {
     });
   });
 });
+
+describe('exportBoardPdf1to1: reference points', () => {
+  const board = makeTestBoard();
+  const decodeAll = (opts: Parameters<typeof exportBoardPdf1to1>[1]) =>
+    decode(exportBoardPdf1to1(board, opts));
+
+  it('changes nothing when there are none', () => {
+    expect(exportBoardPdf1to1(board, { referencePoints: [] })).toEqual(exportBoardPdf1to1(board));
+  });
+
+  it('labels outline and rocker points on their pages', () => {
+    const text = decodeAll({
+      crossSectionCount: 0,
+      referencePoints: [
+        { id: 'a', plane: 'outline', x: 30, y: -20, label: 'tail 1ft' },
+        { id: 'b', plane: 'rocker', curve: 'bottom', x: 10, y: 4 },
+      ],
+    });
+    expect(text).toContain('tail 1ft · 30.0 cm · w 40.0 cm');
+    expect(text).toContain('10.0 cm · bottom 4.0 cm');
+  });
+
+  it('adds one page per measured section station, with its points', () => {
+    const base = Number(decodeAll({ crossSectionCount: 2 }).match(/\/Count (\d+)/)![1]);
+    const text = decodeAll({
+      crossSectionCount: 2,
+      referencePoints: [
+        { id: 's1', plane: 'section', station: 60, x: 10, y: 3 },
+        { id: 's2', plane: 'section', station: 60.02, x: 5, y: 6 },
+        { id: 's3', plane: 'section', station: 80, x: 10, y: 3 },
+        // Off the end of this 100 cm board: no section there to print.
+        { id: 's4', plane: 'section', station: 120, x: 10, y: 3 },
+      ],
+    });
+    expect(Number(text.match(/\/Count (\d+)/)![1])).toBe(base + 2);
+    expect(text).toContain('@ 60.0 cm measured \\(1:1\\)');
+    expect(text).toContain('@ 80.0 cm measured \\(1:1\\)');
+    expect(text).not.toContain('@ 120.0 cm');
+    expect(text).toContain('y 5.0 cm · z 6.0 cm');
+  });
+
+  it('adds no section pages when sections are not printed', () => {
+    const text = decodeAll({
+      crossSectionCount: 0,
+      parts: { crossSections: false },
+      referencePoints: [{ id: 's1', plane: 'section', station: 60, x: 10, y: 3 }],
+    });
+    expect(text).not.toContain('measured');
+  });
+});

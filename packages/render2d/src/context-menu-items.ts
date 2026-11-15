@@ -10,6 +10,8 @@ import {
 import {
   canLockKnot,
   getTargetSpline,
+  refPointDraftAt,
+  refPointInPane,
   sameTarget,
   type BoardState,
   type SplineTarget,
@@ -18,6 +20,7 @@ import type { MenuItem } from '@openshaper/ui';
 import type { StoreApi } from 'zustand/vanilla';
 import { handleKindForVisualSide, handleSideName } from './handle-side';
 import { hitTest } from './hit';
+import { hitRefPoint } from './ref-points';
 import type { SectionMarker } from './draw';
 import { screenToWorld, type ScreenPoint, type Viewport } from './viewport';
 
@@ -80,6 +83,11 @@ export interface ContextMenuRequest {
   sectionMarker?: SectionMarker;
   /** Remove the indicated real cross-section. */
   onDeleteSection?: (index: number) => void;
+  /**
+   * The pane shows reference points: offer "Add reference point" at the cursor, and
+   * "Delete reference point" when the menu opens on one.
+   */
+  refPointsShown?: boolean;
 }
 
 /**
@@ -91,6 +99,7 @@ export interface ContextMenuRequest {
  *    either handle, or delete;
  *  - on a tangent handle → collapse it, or extend it when already collapsed, and
  *    lock/unlock the point's handle angles;
+ *  - on a reference point → delete it;
  *  - on a curve (but not a handle) → Add point here;
  *  - empty space → just the view group.
  *
@@ -252,6 +261,23 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
     return [...items, ...tail];
   }
 
+  // 1b. A reference point (after control points, which win where they overlap).
+  if (req.refPointsShown) {
+    const shown = store.getState().refPoints.filter((p) => refPointInPane(board, p, targets));
+    const ref = hitRefPoint(shown, vp, screen, req.tolPx ?? 8);
+    if (ref) {
+      return [
+        {
+          kind: 'action',
+          label: 'Delete reference point',
+          shortcut: 'Del',
+          onSelect: () => store.getState().deleteRefPoint(ref.id),
+        },
+        ...tail,
+      ];
+    }
+  }
+
   // 2. Otherwise, are we close enough to a curve to insert a point there?
   // Reflect into the canonical half the splines live on (the other half is a drawn mirror).
   let world = screenToWorld(vp, screen);
@@ -270,6 +296,18 @@ export function buildContextMenuItems(req: ContextMenuRequest): MenuItem[] {
       kind: 'action',
       label: 'Add point here',
       onSelect: () => store.getState().addControlPoint(addTarget, world),
+    });
+  }
+  // A measurement can sit anywhere, on a curve or off it, and it stays where it was
+  // placed: unlike a control point it is never reflected into the drawn half.
+  const draft = req.refPointsShown
+    ? refPointDraftAt(board, targets, screenToWorld(vp, screen))
+    : null;
+  if (draft) {
+    items.push({
+      kind: 'action',
+      label: 'Add reference point',
+      onSelect: () => store.getState().addRefPoint(draft),
     });
   }
   if ((!best || best.dist > tolWorld) && req.onSetReferenceCurve) {
