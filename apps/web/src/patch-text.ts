@@ -60,7 +60,7 @@ export interface PatchKeyEntry {
  * The key to the Patches look, in the order a person reads the board: the deck and the bottom, the
  * rail's zones along it from the tail, the tail's straight edge and the corners. The colours are
  * the look's own, taken from the palette module and the zones the 3D view paints from, so the key
- * cannot say what the board does not. A zone is "Rail 1", "Rail 2", … until zones have names (the
+ * cannot say what the board does not. A zone is "Rail zone 1", "Rail zone 2", … until zones have names (the
  * colour belongs to the zone's place along its side, so the two sides of a board whose rails have
  * different zones share the longer side's list); a board with no zones has one "Rail".
  */
@@ -71,7 +71,7 @@ export function patchKeyEntries(zones: RailZones): PatchKeyEntry[] {
       ? [{ id: 'rail', label: 'Rail', color: RAIL_NO_ZONES_COLOR }]
       : Array.from({ length: count }, (_, i) => ({
           id: `rail-${i}`,
-          label: `Rail ${i + 1}`,
+          label: `Rail zone ${i + 1}`,
           color: (zones.plus[i] ?? zones.minus[i])!.color,
         }));
   return [

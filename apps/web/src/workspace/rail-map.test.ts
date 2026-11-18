@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { zoneColorAt, railZoneColor } from '@openshaper/render3d/patches';
+import { RAIL_ZONE_COLORS, zoneColorAt, railZoneColor } from '@openshaper/render3d/patches';
 import type { RailKey } from '@openshaper/store/rails';
 import { describe, expect, it } from 'vitest';
 import { lengthUnitByKey } from '../format';
@@ -231,11 +231,36 @@ describe('the gradient of a blend', () => {
 });
 
 describe('the text on a block', () => {
-  it('is dark on the light zone colours and light on the dark ones', () => {
-    expect(readableOn(railZoneColor(0))).toBe('#111111'); // orange
-    expect(readableOn(railZoneColor(4))).toBe('#111111'); // yellow
-    expect(readableOn(railZoneColor(5))).toBe('#ffffff'); // blue
-    expect(readableOn(railZoneColor(3))).toBe('#111111'); // vermillion: black still has the better contrast
+  // WCAG 2 contrast, computed here independently of the function under test
+  const lin = (v: number): number => {
+    const c = v / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = (hex: string): number => {
+    const n = parseInt(hex.slice(1), 16);
+    return 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+  };
+  const ratio = (a: string, b: string): number => {
+    const [hi, lo] = [lum(a), lum(b)].sort((p, q) => q - p) as [number, number];
+    return (hi + 0.05) / (lo + 0.05);
+  };
+
+  it('is dark on light colours and light on dark ones', () => {
+    expect(readableOn('#ffffff')).toBe('#111111');
+    expect(readableOn('#000000')).toBe('#ffffff');
+  });
+
+  it('is whichever of the two reads better, on every colour a zone can take', () => {
+    for (let i = 0; i < RAIL_ZONE_COLORS.length; i++) {
+      const color = railZoneColor(i);
+      const ink = readableOn(color);
+      const other = ink === '#111111' ? '#ffffff' : '#111111';
+      expect(ratio(color, ink), `zone colour ${i} ${color}`).toBeGreaterThanOrEqual(
+        ratio(color, other),
+      );
+      // and readable: the better of the two is at least the large-text threshold
+      expect(ratio(color, ink), `zone colour ${i} ${color}`).toBeGreaterThanOrEqual(3);
+    }
   });
 });
 

@@ -438,12 +438,12 @@ export default function DocsEditing() {
             edges of the rail, along its apex, and across it where the outline passes from one
             stretch to the next, at a corner or a tail&rsquo;s straight edge. The half of the rail
             below the apex, the tuck, is a little darker than the half above it. A key along the
-            bottom of the 3D view names each colour, the rail&rsquo;s zones as Rail 1, Rail 2 and so
-            on from the tail; its Key button folds it, and the choice is remembered. Tap the board
-            to choose the patch under the pointer: it is lit, the rest goes a little quieter, a part
-            of the rail also turns its two edge lines white, and the 3D view says what it is, in
-            your display unit. Dragging to orbit does not choose; Escape, or a tap on the
-            background, clears the choice.
+            bottom of the 3D view names each colour, the rail&rsquo;s zones as Rail zone 1, Rail
+            zone 2 and so on from the tail; its Key button folds it, and the choice is remembered.
+            Tap the board to choose the patch under the pointer: it is lit, the rest goes a little
+            quieter, a part of the rail also turns its two edge lines white, and the 3D view says
+            what it is, in your display unit. Dragging to orbit does not choose; Escape, or a tap on
+            the background, clears the choice.
           </Term>
           <Term name="Zebra">
             Stripes, as if a striped room were reflected in a glossed board. Stripes that run on

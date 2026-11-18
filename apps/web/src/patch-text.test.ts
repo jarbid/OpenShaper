@@ -59,9 +59,9 @@ describe('the key to the Patches look', () => {
     expect(labels({ plus: [10, 50, 90] })).toEqual([
       'Deck',
       'Bottom',
-      'Rail 1',
-      'Rail 2',
-      'Rail 3',
+      'Rail zone 1',
+      'Rail zone 2',
+      'Rail zone 3',
       'Tail edge',
       'Corner',
     ]);
@@ -85,12 +85,12 @@ describe('the key to the Patches look', () => {
     expect(entries.find((e) => e.id === 'rail')?.color).toBe(RAIL_NO_ZONES_COLOR);
   });
 
-  it('says "Rail 1" for a single zone, and takes the longer side of an asymmetric board', () => {
-    expect(labels({ plus: [20] })).toContain('Rail 1');
+  it('says "Rail zone 1" for a single zone, and takes the longer side of an asymmetric board', () => {
+    expect(labels({ plus: [20] })).toContain('Rail zone 1');
     expect(labels({ plus: [20] })).not.toContain('Rail');
     expect(
       labels({ plus: [10, 50], minus: [10, 50, 90] }).filter((l) => l.startsWith('Rail')),
-    ).toEqual(['Rail 1', 'Rail 2', 'Rail 3']);
+    ).toEqual(['Rail zone 1', 'Rail zone 2', 'Rail zone 3']);
   });
 
   it('lists no more zones than the view paints', () => {

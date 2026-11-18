@@ -25,9 +25,9 @@ describe('the key to the Patches look', () => {
     expect(items().map((li) => li.textContent)).toEqual([
       'Deck',
       'Bottom',
-      'Rail 1',
-      'Rail 2',
-      'Rail 3',
+      'Rail zone 1',
+      'Rail zone 2',
+      'Rail zone 3',
       'Tail edge',
       'Corner',
     ]);
