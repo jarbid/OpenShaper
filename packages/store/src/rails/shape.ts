@@ -39,8 +39,9 @@ const firstX = (c: Chain): number => c.knots[0]!.p[0];
 // ---------------------------------------------------------------------------
 
 /**
- * The board made asymmetric: the minus outline, corner radii, station curves and rail keys start
- * as the plus side's, **sharing the objects**. The board itself when it already is.
+ * The board made asymmetric: the minus outline, corner radii and station curves start as the plus
+ * side's, **sharing the objects**. The rail keys do too, unless the minus side already has its own
+ * (a mirror board's sides can differ in rail alone): those stay. The board itself when it already is.
  */
 export function toAsymmetric(doc: RailsBoard): RailsBoard {
   if (doc.symmetry === 'asymmetric') return doc;
@@ -50,7 +51,7 @@ export function toAsymmetric(doc: RailsBoard): RailsBoard {
     outline: { plus: doc.outline.plus, minus: doc.outline.plus },
     corners: { ...doc.corners, minus: doc.corners.plus },
     stations: doc.stations.map((s): RailsStation => ({ ...s, minus: s.plus })),
-    rails: { plus: doc.rails.plus, minus: doc.rails.plus },
+    rails: { plus: doc.rails.plus, minus: doc.rails.minus ?? doc.rails.plus },
   };
 }
 

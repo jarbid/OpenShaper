@@ -70,7 +70,10 @@ export interface RailsBoard {
   readonly rocker: Chain;
   readonly deck: Chain;
   readonly stations: readonly RailsStation[];
-  /** The rail keys of each side, sorted by x; `minus` on an asymmetric board only. */
+  /**
+   * The rail keys of each side, sorted by x. `minus` is required on an asymmetric board; any board may
+   * have it, and without it the minus side has the plus keys.
+   */
   readonly rails: { readonly plus: readonly RailKey[]; readonly minus?: readonly RailKey[] };
   readonly features: readonly BottomFeature[];
   /** Classic fin configuration, opaque here. */

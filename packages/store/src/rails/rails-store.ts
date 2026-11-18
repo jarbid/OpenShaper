@@ -20,6 +20,11 @@
  *
  * **Edits computed elsewhere.** `commitDoc` records a document the app made (the engine, in a
  * worker) as one undo step, or as part of the open drag.
+ *
+ * **Rail zones.** The rail keys of each side are read as zones and blends and edited by the pure
+ * functions of `zones.ts` (`setZoneRail`, `moveZoneEnd`, `splitZoneAt`, …), each one undo step. A
+ * zone is named by its index on a side; an edit on `'both'` sides reaches the zone of that index on
+ * each side that has one. The board's length is the outline's.
  */
 import type { RailsBoard } from '@openshaper/board2';
 import type { BezierBoard } from '@openshaper/kernel';
@@ -64,7 +69,22 @@ import {
 import { halfWidthFn, isNotched } from './measure';
 import { projectRails } from './project';
 import { setNotchDepth, setSymmetry, setTail } from './shape';
-import type { RailsSlices } from './types';
+import type { RailRecipe, RailsSlices } from './types';
+import {
+  TIDY_TOLERANCE,
+  editSides,
+  linkSides,
+  moveZone,
+  moveZoneEnd,
+  removeZone,
+  sameRailSides,
+  setZoneNumber,
+  setZoneRail,
+  splitZoneAt,
+  tidyRails,
+  unlockSide,
+} from './zones';
+import type { RailNumber, RailSide } from './zones';
 
 /** An undo step of the rails store: the classic projection, and the document that restores it. */
 export interface RailsHistoryEntry extends HistoryEntry {
@@ -120,6 +140,31 @@ export interface RailsState extends BoardState {
   setFeatureKey: (id: string, index: number, patch: { s?: number; value?: number }) => void;
   addFeatureKey: (id: string, s?: number) => void;
   removeFeatureKey: (id: string, index: number) => void;
+  /**
+   * Rail zones (`zones.ts`). Every action is one undo step, part of the open drag inside `beginEdit`
+   * … `endEdit`, and does nothing, recording no step, when it changes nothing. `side` is the plus
+   * side, the minus side (which starts as a copy of the plus keys on a board that has no minus
+   * keys), or both; `zone` is an index in `railZones` of that side, and with `'both'` on a board
+   * whose sides differ it names the zone on each side that has one.
+   *
+   * **In a drag**, repeating an action on the same target (the same action, side, zone and end) is
+   * computed from the document the drag began with, so an action is a function of the pointer: `x` is
+   * a place on the board, and `dx` is how far the zone has slid since the drag began, not since the
+   * last call. A different action or target inside the drag carries on from the document as it is.
+   */
+  setZoneRail: (side: RailSide, zone: number, rail: RailRecipe) => void;
+  setZoneNumber: (side: RailSide, zone: number, name: RailNumber, value: number) => void;
+  moveZoneEnd: (side: RailSide, zone: number, end: 'from' | 'to', x: number) => void;
+  moveZone: (side: RailSide, zone: number, dx: number) => void;
+  /** A zone added at `x`: with `rail`, the part of the zone after `x` (or the new zone) holds it. */
+  splitZoneAt: (side: RailSide, x: number, rail?: RailRecipe) => void;
+  removeZone: (side: RailSide, zone: number) => void;
+  /** Join neighbouring keys within `tolerance` (`TIDY_TOLERANCE` by default; see `tidyRails`). */
+  tidyRails: (side: RailSide, tolerance?: number) => void;
+  /** Give the minus side its own rail keys, starting as the plus keys. */
+  unlockRailSide: () => void;
+  /** Make the two sides one again, keeping the side `keep` names. */
+  linkRailSides: (keep: 'plus' | 'minus') => void;
 }
 
 /** The half width a feature edit measures channels against: the engine's, with a notch filled in. */
@@ -200,6 +245,14 @@ function pruneSlices(slices: RailsSlices | null, doc: RailsBoard): RailsSlices |
   return Object.fromEntries(keys.filter((k) => ids.has(k)).map((k) => [k, slices[k]!]));
 }
 
+/** The board's length (cm): where its outline ends, the tail being at 0. */
+const lengthOf = (doc: RailsBoard): number =>
+  doc.outline.plus.knots[doc.outline.plus.knots.length - 1]!.p[0];
+
+/** Whether two documents differ in nothing but their rails: every other part is the same object. */
+const onlyRailsDiffer = (a: RailsBoard, b: RailsBoard): boolean =>
+  (Object.keys(b) as (keyof RailsBoard)[]).every((k) => k === 'rails' || a[k] === b[k]);
+
 export const createRailsStore = (): StoreApi<RailsState> =>
   createStore<RailsState>((set, get) => {
     /** The state patch that shows `doc`: its projection with the slices of the stations it has. */
@@ -232,6 +285,41 @@ export const createRailsStore = (): StoreApi<RailsState> =>
       const f = doc?.features.find((q) => q.id === id);
       if (!doc || !f) return;
       commitDoc(edit(doc), `${verb} ${FEATURE_LABELS[featureKindOf(f)].toLowerCase()}`);
+    };
+
+    /**
+     * The open drag of a rail edit: the document it began from, and what was being edited (the
+     * action and its target). A rail edit of the same kind and target inside the drag is computed
+     * from that document, so it is a function of the pointer alone: a dial that passes through a
+     * neighbour's numbers cannot join two zones for good, and a slide that hits a limit and comes back
+     * follows the pointer. Cleared when the drag ends, and replaced by an edit of another kind.
+     */
+    let railDrag: { readonly origin: RailsBoard; readonly key: string } | null = null;
+
+    /**
+     * A rail edit as one step named `label`. `edit` maps the document's rails (given the document and
+     * the board's length) to the rails after; nothing is recorded when they are what is there.
+     */
+    const railEdit = (
+      key: string,
+      label: string,
+      edit: (rails: RailsBoard['rails'], doc: RailsBoard, length: number) => RailsBoard['rails'],
+    ) => {
+      const { doc, editing } = get();
+      if (!doc) return;
+      if (!editing) railDrag = null;
+      else if (
+        railDrag === null ||
+        railDrag.key !== key ||
+        !onlyRailsDiffer(railDrag.origin, doc)
+      ) {
+        railDrag = { origin: doc, key };
+      }
+      const base = railDrag === null ? doc : railDrag.origin;
+      const rails = edit(base.rails, base, lengthOf(base));
+      const next = rails === base.rails ? base : { ...base, rails };
+      if (next === doc || (base !== doc && sameRailSides(next.rails, doc.rails))) return;
+      commitDoc(next, label);
     };
 
     /**
@@ -347,6 +435,7 @@ export const createRailsStore = (): StoreApi<RailsState> =>
 
       loadDoc: (doc) => {
         dragOrigin = null;
+        railDrag = null;
         set({
           doc,
           slices: null,
@@ -377,11 +466,15 @@ export const createRailsStore = (): StoreApi<RailsState> =>
       selectFin: (index) => set({ selectedFin: index, selection: null }),
 
       beginEdit: () => {
-        if (!get().editing) dragOrigin = get().doc;
+        if (!get().editing) {
+          dragOrigin = get().doc;
+          railDrag = null;
+        }
         history.beginEdit();
       },
       endEdit: () => {
         dragOrigin = null;
+        railDrag = null;
         history.endEdit();
       },
 
@@ -452,6 +545,40 @@ export const createRailsStore = (): StoreApi<RailsState> =>
       addFeatureKey: (id, s) => featureEdit(id, (d) => addFeatureKey(d, id, s), 'Add a key to'),
       removeFeatureKey: (id, index) =>
         featureEdit(id, (d) => removeFeatureKey(d, id, index), 'Remove a key from'),
+
+      setZoneRail: (side, zone, rail) =>
+        railEdit(`setZoneRail:${side}:${zone}`, 'Edit rail', (rails) =>
+          editSides(rails, side, (keys) => setZoneRail(keys, zone, rail)),
+        ),
+      setZoneNumber: (side, zone, name, value) =>
+        railEdit(`setZoneNumber:${side}:${zone}:${name}`, 'Edit rail', (rails) =>
+          editSides(rails, side, (keys) => setZoneNumber(keys, zone, name, value)),
+        ),
+      moveZoneEnd: (side, zone, end, x) =>
+        railEdit(`moveZoneEnd:${side}:${zone}:${end}`, 'Move rail zone', (rails, _doc, length) =>
+          editSides(rails, side, (keys) => moveZoneEnd(keys, zone, end, x, length)),
+        ),
+      moveZone: (side, zone, dx) =>
+        railEdit(`moveZone:${side}:${zone}`, 'Move rail zone', (rails, _doc, length) =>
+          editSides(rails, side, (keys) => moveZone(keys, zone, dx, length)),
+        ),
+      splitZoneAt: (side, x, rail) =>
+        railEdit(`splitZoneAt:${side}`, 'Add rail zone', (rails, _doc, length) =>
+          editSides(rails, side, (keys) => splitZoneAt(keys, x, length, rail)),
+        ),
+      removeZone: (side, zone) =>
+        railEdit(`removeZone:${side}:${zone}`, 'Remove rail zone', (rails) =>
+          editSides(rails, side, (keys) => removeZone(keys, zone)),
+        ),
+      tidyRails: (side, tolerance = TIDY_TOLERANCE) =>
+        railEdit(`tidyRails:${side}`, 'Tidy rails', (rails, _doc, length) =>
+          editSides(rails, side, (keys) => tidyRails(keys, tolerance, length)),
+        ),
+      unlockRailSide: () => railEdit('unlockRailSide', 'Unlock rail sides', unlockSide),
+      linkRailSides: (keep) =>
+        railEdit('linkRailSides', 'Link rail sides', (rails, doc) =>
+          linkSides(rails, keep, doc.symmetry === 'asymmetric'),
+        ),
 
       addCrossSection: (position) => {
         const { doc } = get();
