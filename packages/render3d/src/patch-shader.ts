@@ -4,23 +4,32 @@
  * zone. The material is a `MeshStandardMaterial` (so the scene's lights and the board's form
  * read as in any lit look) whose diffuse colour the fragment shader replaces.
  *
- * Each vertex carries `aPatch`, the patch id (`patches.ts`). It is passed on as a `flat`
- * varying, so a triangle is one patch even where its vertices are of two (on the seam between a
- * side and a corner), and the colour varies only by the rail's zone, read from the fragment's
- * own place along the board: the geometry is in board coordinates, so `position.x` is cm from
- * the tail and the sign of `position.y` is the side. The zones and the selection are uniforms,
- * so a new list or a new choice recolours the board and builds no mesh.
+ * Each vertex carries `aPatch`, the patch id (`patches.ts`), plus `TUCK` on the half of a rail
+ * (or tail edge, or corner) below its apex. The part is passed on as a `flat` varying, so a
+ * triangle is one patch even where its vertices are of two (on the seam between a side and a
+ * corner), and the colour varies only by the rail's zone, read from the fragment's own place
+ * along the board: the geometry is in board coordinates, so `position.x` is cm from the tail and
+ * the sign of `position.y` is the side. The tuck is a smooth varying instead: 1 on the tuck's
+ * rows and 0 on the apex, so the shade of the tuck fades in across the strip's last band rather
+ * than stopping a row short of the apex, as a flat value read from one vertex of each triangle
+ * would. The zones and the selection are uniforms, so a new list or a new choice recolours the
+ * board and builds no mesh.
  *
- * `zoneColorAt` and `selectionSpan` in `patches.ts` are the same rules in plain code.
+ * `patchColorAt`, `zoneColorAt`, `selectionTint`, `spanLit` and `tuckFactor` in `patches.ts` are
+ * the same rules in plain code.
  */
-import { MeshStandardMaterial, Vector2 } from 'three';
+import { LineBasicMaterial, MeshStandardMaterial, Vector2 } from 'three';
 import {
   MAX_ZONES,
   NO_SELECTION,
   PATCH,
   PATCH_COLORS,
   RAIL_NO_ZONES_COLOR,
+  SEAM_LOOK,
   SELECTION_LOOK,
+  SPAN_FEATHER,
+  TUCK,
+  TUCK_SHADE,
   hexToLinear,
   packZones,
   selectionUniforms,
@@ -31,31 +40,48 @@ import {
 /** The share of a part's colour added as light that needs no lamp. */
 export const FILL = 0.3;
 
-/** The half width, in cm along the board, over which the edge of a lit rail span fades. */
-export const SPAN_FEATHER = 0.4;
+/**
+ * The chosen rail span in GLSL, shared by the surface and its seam lines so the two light the
+ * same stretch: the selection's uniforms, and how far the span lights a place on one side.
+ */
+const SELECTION_GLSL = /* glsl */ `
+  uniform int uSelPatch;
+  uniform int uSelSide;
+  uniform vec2 uSelSpan;
+
+  // 1 inside the chosen span on the chosen side and 0 elsewhere, fading across the feather at its ends.
+  float spanLit(float x, int side) {
+    if (side != uSelSide) return 0.0;
+    return smoothstep(uSelSpan.x - ${SPAN_FEATHER.toFixed(2)}, uSelSpan.x + ${SPAN_FEATHER.toFixed(2)}, x)
+      * (1.0 - smoothstep(uSelSpan.y - ${SPAN_FEATHER.toFixed(2)}, uSelSpan.y + ${SPAN_FEATHER.toFixed(2)}, x));
+  }
+`;
 
 const VERT_DECLARE = /* glsl */ `
   attribute float aPatch;
   flat varying float vPatch;
+  varying float vTuck;
   varying vec2 vBoard;
 `;
 
+// aPatch is the part's id, plus TUCK on the tuck: split the two.
 const VERT_SET = /* glsl */ `
-  vPatch = aPatch;
+  float onTuck = aPatch >= ${TUCK.toFixed(1)} - 0.5 ? 1.0 : 0.0;
+  vPatch = aPatch - ${TUCK.toFixed(1)} * onTuck;
+  vTuck = onTuck;
   vBoard = position.xy;
 `;
 
 const FRAG_DECLARE = /* glsl */ `
   flat varying float vPatch;
+  varying float vTuck;
   varying vec2 vBoard;
   uniform vec3 uPatchColor[5];
   uniform ivec2 uZoneCount;
   uniform vec2 uZoneSpan[${2 * MAX_ZONES}];
   uniform vec3 uZoneColor[${2 * MAX_ZONES}];
-  uniform int uSelPatch;
-  uniform int uSelSide;
-  uniform vec2 uSelSpan;
   uniform vec4 uSelLook;
+  ${SELECTION_GLSL}
   vec3 patchBase;
 
   // The rail's colour at x on one side: the zone it is in, the smooth mix across the gap between
@@ -82,14 +108,11 @@ const FRAG_DECLARE = /* glsl */ `
     int part = int(vPatch + 0.5);
     int side = vBoard.y >= 0.0 ? 0 : 1;
     vec3 c = part == ${PATCH.rail} ? railZoneColor(vBoard.x, side) : uPatchColor[part];
+    // the tuck keeps a share of its blend's colour, so the rail's two halves read apart
+    c *= mix(1.0, ${TUCK_SHADE.toFixed(2)}, vTuck);
     if (uSelPatch < 0) return c;
     float lit = part == uSelPatch ? 1.0 : 0.0;
-    if (lit > 0.0 && part == ${PATCH.rail}) {
-      lit = side == uSelSide
-        ? smoothstep(uSelSpan.x - ${SPAN_FEATHER.toFixed(2)}, uSelSpan.x + ${SPAN_FEATHER.toFixed(2)}, vBoard.x)
-          * (1.0 - smoothstep(uSelSpan.y - ${SPAN_FEATHER.toFixed(2)}, uSelSpan.y + ${SPAN_FEATHER.toFixed(2)}, vBoard.x))
-        : 0.0;
-    }
+    if (lit > 0.0 && part == ${PATCH.rail}) lit = spanLit(vBoard.x, side);
     // uSelLook: lift, add, dim, grey
     vec3 on = c * uSelLook.x + uSelLook.y;
     float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
@@ -157,11 +180,19 @@ export function setPatchUniforms(
 
 /**
  * The Patches material and its uniforms. Lit like the other shaded looks, a little matte so the
- * colours stay true under the gloss preset's highlights, double sided as they are.
+ * colours stay true under the gloss preset's highlights, double sided as they are. It sits a
+ * little behind its true depth, so the seam lines drawn on its edges are not lost in it (a
+ * polygon offset moves triangles only, not lines).
  */
 export function createPatchMaterial(): { material: MeshStandardMaterial; uniforms: PatchUniforms } {
   const uniforms = patchUniforms();
-  const material = new MeshStandardMaterial({ roughness: 0.55, metalness: 0 });
+  const material = new MeshStandardMaterial({
+    roughness: 0.55,
+    metalness: 0,
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
+  });
   material.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, uniforms);
     shader.vertexShader = shader.vertexShader
@@ -182,4 +213,54 @@ export function createPatchMaterial(): { material: MeshStandardMaterial; uniform
   };
   material.customProgramCacheKey = () => 'openshaper-patches';
   return { material, uniforms };
+}
+
+/** A `#rrggbb` colour as a GLSL `vec3` of linear light. */
+const glslColor = (hex: string): string =>
+  `vec3(${hexToLinear(hex)
+    .map((c) => c.toFixed(5))
+    .join(', ')})`;
+
+/**
+ * The material of the seam lines: a dark neutral at partial opacity over the surface, and on the
+ * band edges of the chosen rail span (the vertices that carry `aEdge`) white and nearly opaque. It
+ * reads the selection from the Patches material's own `uniforms`, so one {@link setPatchUniforms}
+ * moves the surface's light and the lines' together.
+ */
+export function createSeamMaterial(uniforms: PatchUniforms): LineBasicMaterial {
+  const material = new LineBasicMaterial({
+    color: SEAM_LOOK.color,
+    opacity: SEAM_LOOK.opacity,
+    transparent: true,
+    depthWrite: false,
+  });
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uSelPatch = uniforms.uSelPatch;
+    shader.uniforms.uSelSide = uniforms.uSelSide;
+    shader.uniforms.uSelSpan = uniforms.uSelSpan;
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>\n  attribute float aEdge;\n  varying float vEdge;\n  varying vec2 vBoard;`,
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>\n  vEdge = aEdge;\n  vBoard = position.xy;`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>\n  varying float vEdge;\n  varying vec2 vBoard;\n  ${SELECTION_GLSL}`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+  float seamLit = vEdge > 0.5 && uSelPatch == ${PATCH.rail}
+    ? spanLit(vBoard.x, vBoard.y >= 0.0 ? 0 : 1)
+    : 0.0;
+  diffuseColor = mix(diffuseColor, vec4(${glslColor(SEAM_LOOK.litColor)}, ${SEAM_LOOK.litOpacity.toFixed(2)}), seamLit);`,
+      );
+  };
+  material.customProgramCacheKey = () => 'openshaper-seams';
+  return material;
 }

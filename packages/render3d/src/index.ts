@@ -43,6 +43,7 @@ export {
   zonesFromRailKeys,
   type PatchName,
   type PatchPick,
+  type PatchSeams,
   type PatchSelection,
   type RailKeyPlaces,
   type RailZone,

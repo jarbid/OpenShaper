@@ -761,6 +761,7 @@ function BoardMesh({
       <PatchSurface
         geometry={surfaceGeo}
         patch={surface.patch}
+        seams={surface.seams}
         zones={railZones}
         selection={patchSelection}
         onPick={onPatchPick}

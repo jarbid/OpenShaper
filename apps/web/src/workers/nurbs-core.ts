@@ -454,8 +454,11 @@ interface MeshedJob {
   readonly probes: () => SectionProbe[];
 }
 
-/** A mesh of either engine: the rails engine's also says which part of the board each vertex is. */
-type MeshedSurface = Omit<RailsMesh, 'face'> & { readonly face?: Uint8Array };
+/** A mesh of either engine: the rails engine's also says which part of the board each vertex is, and where its seams run. */
+type MeshedSurface = Omit<RailsMesh, 'face' | 'seams'> & {
+  readonly face?: Uint8Array;
+  readonly seams?: RailsMesh['seams'];
+};
 
 /**
  * Everything the view draws from a mesh, whichever engine made it: the curvature quantities, the deviation
@@ -531,6 +534,7 @@ const finishMesh = (
       deviationRange,
       deviationNoData,
       patch: m.face ? patchesOfFaces(m.face, PATCH_TABLE) : null,
+      seams: m.seams ?? null,
       railKeys: m.face && job.railKeys ? job.railKeys : null,
       laddersReused: job.laddersReused,
     },

@@ -19,6 +19,8 @@ import { filledOutline, halfWidthOf, loopDefOf } from './outline';
 import type { RailLaws } from './rails';
 import { compileRelief } from './relief';
 import { sameChain, sameNumbers } from './same';
+import { trimSeams } from './seams';
+import type { Seams } from './seams';
 import { buildTrimMesh } from './solid';
 import type { Panels, TrimMesh } from './solid';
 
@@ -290,6 +292,8 @@ export interface RailsMesh {
    * vertices share one value.
    */
   readonly face: Uint8Array;
+  /** The lines that mark where one patch ends and the next begins, on this mesh's own vertices. */
+  readonly seams: Seams;
   readonly vertexCount: number;
   /** cm³: the closed mesh's signed tetrahedra plus the panels' gap to their flat triangles (`TrimMesh.panelGap`), so it does not fall with a coarser grid. */
   readonly volume: number;
@@ -397,6 +401,7 @@ export function meshRails(built: BuiltRails, opts: MeshRailsOptions = {}): Rails
     normals: mesh.normals,
     indices: mesh.indices,
     face: mesh.vertexFace,
+    seams: trimSeams(mesh),
     vertexCount: mesh.positions.length / 3,
     volume,
     planArea: loopArea(mesh.loop),

@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { fmtLen, lengthUnitByKey } from './format';
-import { patchPhrase, sideWord } from './patch-text';
+import {
+  MAX_ZONES,
+  PATCH_COLORS,
+  RAIL_NO_ZONES_COLOR,
+  RAIL_ZONE_COLORS,
+  zonesFromRailKeys,
+} from '@openshaper/render3d/patches';
+import { patchKeyEntries, patchPhrase, sideWord } from './patch-text';
 
 const L = (cm: number): string => fmtLen(cm, lengthUnitByKey('cm'));
 
@@ -41,5 +48,62 @@ describe('what a tap chose, in words', () => {
   it('calls the plus side the left, seen from the tail looking to the nose', () => {
     expect(sideWord('plus')).toBe('left');
     expect(sideWord('minus')).toBe('right');
+  });
+});
+
+describe('the key to the Patches look', () => {
+  const labels = (keys: Parameters<typeof zonesFromRailKeys>[0]) =>
+    patchKeyEntries(zonesFromRailKeys(keys)).map((e) => e.label);
+
+  it('lists the deck, the bottom, a rail per zone from the tail, the tail edge and the corner', () => {
+    expect(labels({ plus: [10, 50, 90] })).toEqual([
+      'Deck',
+      'Bottom',
+      'Rail 1',
+      'Rail 2',
+      'Rail 3',
+      'Tail edge',
+      'Corner',
+    ]);
+  });
+
+  it('colours each line as the 3D view does: from the palette module and the zones it is given', () => {
+    const zones = zonesFromRailKeys({ plus: [10, 50, 90, 120] });
+    const entries = patchKeyEntries(zones);
+    const color = (id: string) => entries.find((e) => e.id === id)?.color;
+    expect(color('deck')).toBe(PATCH_COLORS.deck);
+    expect(color('bottom')).toBe(PATCH_COLORS.bottom);
+    expect(color('tailEdge')).toBe(PATCH_COLORS.tailEdge);
+    expect(color('corner')).toBe(PATCH_COLORS.corner);
+    zones.plus.forEach((zone, i) => expect(color(`rail-${i}`)).toBe(zone.color));
+    expect(color('rail-0')).toBe(RAIL_ZONE_COLORS[0]);
+  });
+
+  it('has one plain "Rail", in the no-zones colour, for a board with no zones', () => {
+    const entries = patchKeyEntries(zonesFromRailKeys(null));
+    expect(entries.map((e) => e.label)).toEqual(['Deck', 'Bottom', 'Rail', 'Tail edge', 'Corner']);
+    expect(entries.find((e) => e.id === 'rail')?.color).toBe(RAIL_NO_ZONES_COLOR);
+  });
+
+  it('says "Rail 1" for a single zone, and takes the longer side of an asymmetric board', () => {
+    expect(labels({ plus: [20] })).toContain('Rail 1');
+    expect(labels({ plus: [20] })).not.toContain('Rail');
+    expect(
+      labels({ plus: [10, 50], minus: [10, 50, 90] }).filter((l) => l.startsWith('Rail')),
+    ).toEqual(['Rail 1', 'Rail 2', 'Rail 3']);
+  });
+
+  it('lists no more zones than the view paints', () => {
+    const keys = { plus: Array.from({ length: MAX_ZONES + 5 }, (_, i) => i * 4) };
+    expect(
+      patchKeyEntries(zonesFromRailKeys(keys)).filter((e) => e.id.startsWith('rail-')),
+    ).toHaveLength(MAX_ZONES);
+  });
+
+  it('gives every line an id of its own', () => {
+    const ids = patchKeyEntries(zonesFromRailKeys({ plus: [1, 2, 3, 4, 5, 6, 7, 8, 9] })).map(
+      (e) => e.id,
+    );
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });

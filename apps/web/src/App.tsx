@@ -114,6 +114,7 @@ import { shareLinkMessage } from './share-url';
 import { loadSettings, saveSettings, type EditorSettings } from './settings';
 import { NurbsBoundary } from './nurbs-boundary';
 import { usePatchLook } from './patch-look';
+import { PatchKey } from './PatchKey';
 import { useEngineParam } from './nurbs-flag';
 import { useReleaseNurbsWhenOff } from './nurbs-session';
 import { CrossSectionControls, RailsCurveToggle } from './CrossSectionControls';
@@ -260,6 +261,7 @@ const ThreeDPane = memo(function ThreeDPane({
       {props.analysis && props.analysis !== 'none' && (
         <AnalysisLegend status={analysisStatus} units={units} />
       )}
+      {patchLook.railZones && <PatchKey zones={patchLook.railZones} />}
     </div>
   );
 });

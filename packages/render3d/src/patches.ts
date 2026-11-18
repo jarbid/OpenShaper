@@ -10,6 +10,9 @@
  *
  * To a shaper the board has five parts: the deck, the bottom, the rail along each side, the
  * tail's straight edge and the corners (nose, tail, wings). A mesh vertex carries one patch id.
+ * A rail, a tail edge or a corner is two surfaces, the blend above its apex and the tuck below
+ * it; a vertex on the tuck carries its patch id plus {@link TUCK}, and the look shades it a
+ * little darker.
  *
  * ## Zones
  *
@@ -36,8 +39,21 @@ export type PatchName = (typeof PATCH_NAMES)[number];
 /** The id a vertex carries for each patch. */
 export const PATCH = { deck: 0, bottom: 1, rail: 2, tailEdge: 3, corner: 4 } as const;
 
-/** The patch of an id, or null for an id no patch has. */
-export const patchNamed = (id: number): PatchName | null => PATCH_NAMES[id] ?? null;
+/**
+ * Added to the id of a rail, tail-edge or corner vertex that is on the tuck, below the apex. Ids
+ * are small, so the tuck rides in the same byte; whatever reads an id for its patch goes through
+ * {@link patchNamed} or {@link patchOfId}.
+ */
+export const TUCK = 8;
+
+/** The id with the tuck taken off: the part a vertex belongs to. */
+export const patchOfId = (id: number): number => id & (TUCK - 1);
+
+/** Whether an id is of a vertex on the tuck. */
+export const isTuckId = (id: number): boolean => (id & TUCK) !== 0;
+
+/** The patch of an id (tuck or not), or null for an id no patch has. */
+export const patchNamed = (id: number): PatchName | null => PATCH_NAMES[patchOfId(id)] ?? null;
 
 /** The side of the board a place is on: the plus side is y >= 0. */
 export type Side = 'plus' | 'minus';
@@ -46,35 +62,37 @@ export const sideAt = (y: number): Side => (y >= 0 ? 'plus' : 'minus');
 // --- colours --------------------------------------------------------------------------------
 
 /**
- * The fixed colours, sRGB. The 3D canvas is dark in both themes of the app (its background is
- * part of the lighting preset), so these are read against that: two neutrals a clear step apart
- * in lightness for the broad faces, a pale warm white for the tail's edge and a pink, a hue the
- * rail's zones never take, for the corners.
+ * The fixed colours, sRGB. The two panels are light, quiet neutrals a small step apart, the deck
+ * the lighter, so the rail's saturated colours carry the picture; the tail's straight edge is a
+ * dark slate; the corners are a pink, a hue the rail's zones never take.
  */
 export const PATCH_COLORS: Readonly<Record<Exclude<PatchName, 'rail'>, string>> = {
-  deck: '#BDB8AC',
-  bottom: '#6A7280',
-  tailEdge: '#F6F1E4',
-  corner: '#CC79A7',
+  deck: '#E7ECE9',
+  bottom: '#CDD5D1',
+  tailEdge: '#474D59',
+  corner: '#E49BDB',
 };
 
 /**
- * The rail's zone colours, in the order a list of zones takes them, then round again. They are
- * Okabe and Ito's colour-blind safe set without its pink (the corners') and black, ordered so
- * that two neighbours differ in hue and in lightness: orange, sky blue, bluish green,
- * vermillion, yellow, blue. The last-to-first pair (blue, orange) differs as much as the rest.
+ * The rail's zone colours, in the order a list of zones takes them, then round again: a teal, a
+ * blue and an orange, then an indigo, a green, a brown, a lavender and a red. Each stays clear
+ * of every other colour of the look, and each neighbour (the last and the first included) clear
+ * of the next, for normal sight and for deuteranopia, protanopia and tritanopia
+ * (`patches.palette.test.ts` measures it).
  */
 export const RAIL_ZONE_COLORS: readonly string[] = [
-  '#E69F00',
-  '#56B4E9',
-  '#009E73',
-  '#D55E00',
-  '#F0E442',
-  '#0072B2',
+  '#2F9C97',
+  '#5681C4',
+  '#DF8448',
+  '#4B55BC',
+  '#7AD877',
+  '#9C4700',
+  '#A88BFB',
+  '#CF5254',
 ];
 
 /** The rail's colour on a board that has no zones. */
-export const RAIL_NO_ZONES_COLOR = '#9AA3B0';
+export const RAIL_NO_ZONES_COLOR = '#877E77';
 
 /** The colour of zone `index` (counted from the tail along a side). */
 export const railZoneColor = (index: number): string => {
@@ -82,8 +100,37 @@ export const railZoneColor = (index: number): string => {
   return RAIL_ZONE_COLORS[((index % n) + n) % n]!;
 };
 
-/** How a chosen patch is drawn: brighter by `lift` and a little added, the rest dimmed and greyed. */
-export const SELECTION_LOOK = { lift: 1.25, add: 0.08, dim: 0.5, grey: 0.35 } as const;
+/**
+ * How a chosen patch is drawn: brighter by `lift` and a little added; the rest dimmed to `dim` of
+ * their light and `grey` of the way to grey, which keeps them readable beside the one chosen.
+ */
+export const SELECTION_LOOK = { lift: 1.25, add: 0.08, dim: 0.8, grey: 0.2 } as const;
+
+/** What the tuck, the half of a rail below its apex, keeps of its blend's colour. */
+export const TUCK_SHADE = 0.8;
+
+/**
+ * The seam lines: a dark neutral at partial opacity, so they read on the light panels and on a
+ * rail colour alike; and, on the band edges of a chosen rail zone or blend, white and nearly
+ * opaque.
+ */
+export const SEAM_LOOK = {
+  color: '#0E141C',
+  opacity: 0.55,
+  litColor: '#FFFFFF',
+  litOpacity: 0.95,
+} as const;
+
+/**
+ * The lines that mark where one patch ends and the next begins, in board coordinates (cm): the
+ * engine's `Seams`, which this package does not import. Segment endpoints, the band edges first.
+ */
+export interface PatchSeams {
+  /** `[x0, y0, z0, x1, y1, z1, …]`. */
+  readonly positions: Float32Array;
+  /** How many leading segments are band edges (the deck's, then the tuck's). */
+  readonly bandEdges: number;
+}
 
 /** One component of an sRGB colour (0..1) in linear light. */
 const toLinear = (c: number): number =>
@@ -243,8 +290,11 @@ export interface PatchPick extends PatchSelection {
   readonly y: number;
 }
 
-/** A span no place is outside of. */
-const EVERYWHERE = 1e9;
+/**
+ * A span no place on a board is outside of (cm). Finite and modest, not 1e9: the shader smoothsteps across
+ * the span's ends, and in float32 two ends that far out would be equal, which GLSL leaves undefined.
+ */
+const EVERYWHERE = 1e4;
 
 /**
  * The stretch of the rail a chosen zone or blend lights, in cm from the tail, or null when the
@@ -309,6 +359,90 @@ export function isLit(sel: SelectionUniforms, patch: number, x: number, y: numbe
   return (y >= 0 ? 0 : 1) === sel.side && x >= sel.lo && x <= sel.hi;
 }
 
+// --- the colour of a place --------------------------------------------------------------------
+
+/** The half width, in cm along the board, over which the edge of a lit rail span fades. */
+export const SPAN_FEATHER = 0.4;
+
+/** GLSL's `smoothstep`. */
+const smoothstep = (edge0: number, edge1: number, x: number): number => {
+  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+};
+
+/**
+ * How far the chosen span lights the rail at `(x, y)`: 1 inside it on the chosen side, 0 elsewhere,
+ * fading across {@link SPAN_FEATHER} at the span's two ends. The shader's `spanLit`, in plain code.
+ */
+export function spanLit(sel: SelectionUniforms, x: number, y: number): number {
+  if ((y >= 0 ? 0 : 1) !== sel.side) return 0;
+  return (
+    smoothstep(sel.lo - SPAN_FEATHER, sel.lo + SPAN_FEATHER, x) *
+    (1 - smoothstep(sel.hi - SPAN_FEATHER, sel.hi + SPAN_FEATHER, x))
+  );
+}
+
+/** What the tuck keeps of its colour at a place whose tuck weight is `tuck` (0 above the apex, 1 on the tuck). */
+export const tuckFactor = (tuck: number): number => 1 - (1 - TUCK_SHADE) * tuck;
+
+type Rgb = [number, number, number];
+
+/** The luminance of a linear colour (Rec. 709). */
+export const luminance = (c: readonly number[]): number =>
+  0.2126 * c[0]! + 0.7152 * c[1]! + 0.0722 * c[2]!;
+
+/**
+ * A colour drawn with a choice made, `lit` being how far the place is the one chosen (0..1): the
+ * chosen part brighter, the rest dimmer and a little greyer, mixed by `lit`. The shader's rule.
+ */
+export function selectionTint(c: readonly number[], lit: number): Rgb {
+  const { lift, add, dim, grey } = SELECTION_LOOK;
+  const l = luminance(c);
+  const tint = (v: number): number => {
+    const on = v * lift + add;
+    const off = (v + (l - v) * grey) * dim;
+    return off + (on - off) * lit;
+  };
+  return [tint(c[0]!), tint(c[1]!), tint(c[2]!)];
+}
+
+/** A place on the board's surface: its patch, how far it is on the tuck, and where. */
+export interface PatchPlace {
+  /** The patch id, without the tuck (`PATCH`). */
+  readonly patch: number;
+  /** 0 above the apex, 1 on the tuck; between across the strip's last band. */
+  readonly tuck: number;
+  /** cm from the tail, and from the stringer (the sign of `y` is the side). */
+  readonly x: number;
+  readonly y: number;
+}
+
+/**
+ * The colour the Patches look gives a place, in linear light, before the scene's lights: the
+ * part's colour (the rail's by zone), darker on the tuck, then lifted or dimmed by the choice.
+ * `zones` are each side's as {@link packZones} leaves them sorted. The shader's `patchColor`, in
+ * plain code.
+ */
+export function patchColorAt(
+  place: PatchPlace,
+  zones: RailZones,
+  sel: SelectionUniforms = NO_SELECTION,
+): Rgb {
+  const name = patchNamed(place.patch);
+  let base: readonly number[];
+  if (name === 'rail') {
+    base = zoneColorAt(sortedZones(sideAt(place.y) === 'plus' ? zones.plus : zones.minus), place.x);
+  } else {
+    base = hexToLinear(name === null ? RAIL_NO_ZONES_COLOR : PATCH_COLORS[name]);
+  }
+  const k = tuckFactor(place.tuck);
+  const c: Rgb = [base[0]! * k, base[1]! * k, base[2]! * k];
+  if (sel.patch < 0) return c;
+  let lit = place.patch === sel.patch ? 1 : 0;
+  if (lit > 0 && name === 'rail') lit = spanLit(sel, place.x, place.y);
+  return selectionTint(c, lit);
+}
+
 // --- a tap ----------------------------------------------------------------------------------
 
 /** What a ray's hit gives: the triangle, the weights of its three vertices, and the place. */
@@ -336,8 +470,8 @@ export function pickPatch(
   const [w0, w1, w2] = hit.bary;
   const k = w0 >= w1 && w0 >= w2 ? 0 : w1 >= w2 ? 1 : 2;
   const vertex = indices[3 * hit.triangle + k];
-  if (vertex === undefined) return null;
-  const name = patchNamed(patch[vertex] ?? -1);
+  const id = vertex === undefined ? undefined : patch[vertex];
+  const name = id === undefined ? null : patchNamed(id);
   if (name === null) return null;
   const side = sideAt(hit.y);
   const base = { patch: name, side, x: hit.x, y: hit.y } as const;

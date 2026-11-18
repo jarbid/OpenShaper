@@ -10,13 +10,25 @@ import {
   type BufferGeometry,
   type Mesh,
 } from 'three';
-import { createPatchMaterial, setPatchUniforms } from './patch-shader';
-import { pickPatch, type PatchPick, type PatchSelection, type RailZones } from './patches';
+import { createPatchMaterial, createSeamMaterial, setPatchUniforms } from './patch-shader';
+import {
+  pickPatch,
+  type PatchPick,
+  type PatchSeams,
+  type PatchSelection,
+  type RailZones,
+} from './patches';
+import { seamGeometry } from './seam-lines';
 import { createTapTracker } from './tap';
+
+/** The seam lines are not there to be tapped: they take no ray. */
+const noRaycast = (): void => undefined;
 
 /**
  * The board painted by its patches (`patch-shader.ts`), in board coordinates; the caller places
  * it on the centred hull as it does the other looks. `geometry` carries the `aPatch` attribute.
+ * The seam lines (`seams`, when the surface has them) are drawn over it, in the same place, and
+ * light with the same selection.
  *
  * It also answers a tap: a click that is not a drag, on the board, becomes the patch under it
  * through `onPick`, and a tap on nothing is `onPick(null)`. A tap in the `ignoreCorner` square
@@ -25,6 +37,7 @@ import { createTapTracker } from './tap';
 export function PatchSurface({
   geometry,
   patch,
+  seams,
   zones,
   selection,
   onPick,
@@ -33,6 +46,8 @@ export function PatchSurface({
   geometry: BufferGeometry;
   /** The per-vertex patch ids `geometry` was built with, for the tap. */
   patch: Uint8Array;
+  /** The lines that mark where one patch ends and the next begins; none for a surface without them. */
+  seams?: PatchSeams | null | undefined;
   zones: RailZones;
   selection: PatchSelection | null;
   onPick?: ((pick: PatchPick | null) => void) | undefined;
@@ -46,6 +61,16 @@ export function PatchSurface({
     return b;
   }, []);
   useEffect(() => () => built.material.dispose(), [built]);
+
+  // The seam lines: one geometry per mesh, freed with it, and a material that shares the
+  // Patches material's uniforms, so the effect below moves both.
+  const seamMaterial = useMemo(() => createSeamMaterial(built.uniforms), [built]);
+  useEffect(() => () => seamMaterial.dispose(), [seamMaterial]);
+  const seamLines = useMemo(
+    () => (seams && seams.positions.length > 0 ? seamGeometry(seams) : null),
+    [seams],
+  );
+  useEffect(() => () => seamLines?.dispose(), [seamLines]);
 
   // New zones or a new choice: change the uniforms and ask for a frame (the canvas draws on demand).
   useEffect(() => {
@@ -123,5 +148,18 @@ export function PatchSurface({
     };
   }, [camera, gl]);
 
-  return <mesh ref={meshRef} geometry={geometry} material={built.material} />;
+  return (
+    <>
+      <mesh ref={meshRef} geometry={geometry} material={built.material} />
+      {seamLines && (
+        <lineSegments
+          geometry={seamLines}
+          material={seamMaterial}
+          renderOrder={1}
+          frustumCulled={false}
+          raycast={noRaycast}
+        />
+      )}
+    </>
+  );
 }

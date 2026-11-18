@@ -6,18 +6,30 @@ import {
   PATCH,
   PATCH_COLORS,
   PATCH_NAMES,
+  RAIL_NO_ZONES_COLOR,
   RAIL_ZONE_COLORS,
+  SELECTION_LOOK,
+  SPAN_FEATHER,
+  TUCK,
+  TUCK_SHADE,
   hexToLinear,
   isLit,
+  isTuckId,
   locateZone,
+  luminance,
   packZones,
+  patchColorAt,
   patchNamed,
+  patchOfId,
   pickPatch,
   railZoneColor,
   selectionSpan,
+  selectionTint,
   selectionUniforms,
   smooth,
   sortedZones,
+  spanLit,
+  tuckFactor,
   zoneColorAt,
   zonesFromRailKeys,
   type RailZone,
@@ -110,7 +122,7 @@ describe('zone colour', () => {
   });
 
   it('is a neutral rail colour with no zones', () => {
-    expect(zoneColorAt([], 5)).toEqual(hexToLinear('#9AA3B0'));
+    expect(zoneColorAt([], 5)).toEqual(hexToLinear(RAIL_NO_ZONES_COLOR));
   });
 
   it('converts sRGB to linear light', () => {
@@ -200,15 +212,15 @@ describe('the chosen zone or blend', () => {
     expect(selectionSpan(zones, { zone: 1 })).toEqual([30, 50]);
     const [lo0] = selectionSpan(zones, { zone: 0 })!;
     const [, hi2] = selectionSpan(zones, { zone: 2 })!;
-    expect(lo0).toBeLessThan(-1e6);
-    expect(hi2).toBeGreaterThan(1e6);
+    expect(lo0).toBeLessThan(-1e3);
+    expect(hi2).toBeGreaterThan(1e3);
     expect(selectionSpan(zones, { zone: 0 })![1]).toBe(30);
   });
 
   it('lights the whole side when neither is named', () => {
     const [lo, hi] = selectionSpan(zones, {})!;
-    expect(lo).toBeLessThan(-1e6);
-    expect(hi).toBeGreaterThan(1e6);
+    expect(lo).toBeLessThan(-1e3);
+    expect(hi).toBeGreaterThan(1e3);
   });
 
   it('names nothing when the zone or blend is not on the list', () => {
@@ -264,7 +276,22 @@ describe('patch ids and palette', () => {
       expect(PATCH[name]).toBe(i);
       expect(patchNamed(i)).toBe(name);
     });
-    expect(patchNamed(9)).toBeNull();
+    // an id no patch has, and the ids between the patches and their tuck variants
+    expect(patchNamed(5)).toBeNull();
+    expect(patchNamed(7)).toBeNull();
+    expect(patchNamed(255)).toBeNull();
+  });
+
+  it('carries the tuck in a bit of the id, and every reader takes it off', () => {
+    expect(TUCK).toBe(8);
+    expect(PATCH_NAMES.length).toBeLessThanOrEqual(TUCK);
+    for (const name of PATCH_NAMES) {
+      const id = PATCH[name];
+      expect(isTuckId(id)).toBe(false);
+      expect(isTuckId(id + TUCK)).toBe(true);
+      expect(patchOfId(id + TUCK)).toBe(id);
+      expect(patchNamed(id + TUCK)).toBe(name);
+    }
   });
 
   it('keeps the fixed colours apart from each other and from every zone colour', () => {
@@ -272,12 +299,130 @@ describe('patch ids and palette', () => {
     expect(new Set(all.map((c) => c.toLowerCase())).size).toBe(all.length);
   });
 
-  it('sets the deck and the bottom well apart in lightness', () => {
-    const lum = (hex: string) => {
-      const [r, g, b] = hexToLinear(hex);
-      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    };
-    expect(lum(PATCH_COLORS.deck) / lum(PATCH_COLORS.bottom)).toBeGreaterThan(2);
+  it('makes the deck lighter than the bottom by a small step, both light and quiet', () => {
+    const lum = (hex: string) => luminance(hexToLinear(hex));
+    const ratio = lum(PATCH_COLORS.deck) / lum(PATCH_COLORS.bottom);
+    expect(ratio).toBeGreaterThan(1.1);
+    expect(ratio).toBeLessThan(1.6);
+    // both read as light panels, lighter than any rail colour
+    for (const panel of [PATCH_COLORS.deck, PATCH_COLORS.bottom]) {
+      for (const zone of RAIL_ZONE_COLORS) expect(lum(panel)).toBeGreaterThan(lum(zone));
+    }
+  });
+
+  it('starts the rail zones with the teal, blue and orange of the reference', () => {
+    expect(RAIL_ZONE_COLORS.slice(0, 3).map((c) => c.toLowerCase())).toEqual([
+      '#2f9c97',
+      '#5681c4',
+      '#df8448',
+    ]);
+    expect(PATCH_COLORS.deck.toLowerCase()).toBe('#e7ece9');
+    expect(PATCH_COLORS.bottom.toLowerCase()).toBe('#cdd5d1');
+  });
+});
+
+describe('the tuck', () => {
+  it('keeps 0.8 of its blend, fading in across the strip band', () => {
+    expect(TUCK_SHADE).toBe(0.8);
+    expect(tuckFactor(0)).toBe(1);
+    expect(tuckFactor(1)).toBe(TUCK_SHADE);
+    expect(tuckFactor(0.5)).toBeCloseTo(0.9, 12);
+  });
+
+  const zones: RailZones = { plus: [z(10, 10, red), z(50, 50, green)], minus: [z(10, 10, red)] };
+  const place = (patch: number, tuck: number, y = 3) => ({ patch, tuck, x: 10, y });
+
+  it('shades the rail, the tail edge and the corner, each to 0.8 of its blend', () => {
+    for (const patch of [PATCH.rail, PATCH.tailEdge, PATCH.corner]) {
+      const above = patchColorAt(place(patch, 0), zones);
+      const below = patchColorAt(place(patch, 1), zones);
+      for (let i = 0; i < 3; i++) expect(below[i]).toBeCloseTo(above[i]! * 0.8, 12);
+    }
+  });
+
+  it('leaves the panels as they are: they have no tuck', () => {
+    for (const patch of [PATCH.deck, PATCH.bottom]) {
+      expect(patchColorAt(place(patch, 0), zones)).toEqual(
+        hexToLinear(patch === PATCH.deck ? PATCH_COLORS.deck : PATCH_COLORS.bottom),
+      );
+    }
+  });
+
+  it('shades a rail zone colour as the colour it has at the place', () => {
+    const c = patchColorAt({ patch: PATCH.rail, tuck: 1, x: 30, y: 3 }, zones);
+    const zone = zoneColorAt(zones.plus, 30);
+    for (let i = 0; i < 3; i++) expect(c[i]).toBeCloseTo(zone[i]! * 0.8, 12);
+  });
+});
+
+describe('the look of a choice', () => {
+  const zones: RailZones = { plus: [z(10, 10, red), z(50, 50, green)], minus: [z(10, 10, red)] };
+  const deck = { patch: PATCH.deck, tuck: 0, x: 40, y: 0 };
+  const railAt = (x: number, y = 3) => ({ patch: PATCH.rail, tuck: 0, x, y });
+
+  it('is one place for its constants, the dimming gentle and the lift clear', () => {
+    expect(SELECTION_LOOK.dim).toBe(0.8);
+    expect(SELECTION_LOOK.grey).toBe(0.2);
+    expect(SELECTION_LOOK.lift).toBeGreaterThan(1);
+  });
+
+  it('changes nothing with no choice', () => {
+    const c = patchColorAt(deck, zones);
+    expect(c).toEqual(hexToLinear(PATCH_COLORS.deck));
+  });
+
+  it('dims what is not chosen to 0.8 of its light, a fifth of the way to grey', () => {
+    const sel = selectionUniforms({ patch: 'bottom' }, zones);
+    const base = hexToLinear(PATCH_COLORS.deck);
+    const off = patchColorAt(deck, zones, sel);
+    expect(luminance(off)).toBeCloseTo(0.8 * luminance(base), 12);
+    // a fifth of the way from its colour to the grey of equal luminance
+    const grey = luminance(base);
+    for (let i = 0; i < 3; i++) expect(off[i]).toBeCloseTo((base[i]! * 0.8 + grey * 0.2) * 0.8, 12);
+  });
+
+  it('lifts what is chosen, clearly above what is not, for every colour of the look', () => {
+    const colours = [
+      ...Object.values(PATCH_COLORS).map((c) => hexToLinear(c)),
+      ...RAIL_ZONE_COLORS.map((c) => hexToLinear(c)),
+    ];
+    for (const c of colours) {
+      const on = luminance(selectionTint(c, 1));
+      const off = luminance(selectionTint(c, 0));
+      expect(on / off, `${c}`).toBeGreaterThan(1.4);
+      expect(selectionTint(c, 0.5)[1]).toBeGreaterThan(selectionTint(c, 0)[1]);
+    }
+  });
+
+  it('lights a chosen rail span, and dims the rest of the rail like the other parts', () => {
+    const sel = selectionUniforms({ patch: 'rail', side: 'plus', zone: 1 }, zones);
+    // zone 1 (the 50 cm key) lights from halfway across the gap, 30 cm, to the end
+    const lit = patchColorAt(railAt(50), zones, sel);
+    const unlit = patchColorAt(railAt(10), zones, sel);
+    expect(luminance(lit)).toBeGreaterThan(luminance(zoneColorAt(zones.plus, 50)));
+    expect(luminance(unlit)).toBeLessThan(luminance(zoneColorAt(zones.plus, 10)));
+    // the other side of the board is not the chosen side's rail
+    const other = patchColorAt(railAt(50, -3), zones, sel);
+    expect(luminance(other)).toBeLessThan(luminance(zoneColorAt(zones.minus, 50)));
+  });
+
+  it('fades the span at its ends over the feather, and agrees with the unfeathered rule beyond it', () => {
+    const sel = selectionUniforms({ patch: 'rail', side: 'plus', blend: 0 }, zones);
+    expect(sel.lo).toBe(10);
+    expect(sel.hi).toBe(50);
+    expect(spanLit(sel, 10, 3)).toBeCloseTo(0.5, 12);
+    expect(spanLit(sel, 50, 3)).toBeCloseTo(0.5, 12);
+    expect(spanLit(sel, 10 - SPAN_FEATHER, 3)).toBe(0);
+    expect(spanLit(sel, 10 + SPAN_FEATHER, 3)).toBeCloseTo(1, 12);
+    for (const x of [-20, 5, 11, 30, 49, 51, 90]) {
+      const outside = x < 10 - SPAN_FEATHER || x > 50 + SPAN_FEATHER;
+      const inside = x > 10 + SPAN_FEATHER && x < 50 - SPAN_FEATHER;
+      if (outside) expect(spanLit(sel, x, 3)).toBe(0);
+      if (inside) expect(spanLit(sel, x, 3)).toBeCloseTo(1, 12);
+      if (inside || outside) expect(spanLit(sel, x, 3) === 1).toBe(isLit(sel, PATCH.rail, x, 3));
+    }
+    // the other side is never lit
+    expect(spanLit(sel, 30, -3)).toBe(0);
   });
 });
 
@@ -346,10 +491,29 @@ describe('the patch under a tap', () => {
     expect(p).toEqual({ patch: 'rail', side: 'plus', x: 30, y: 3 });
   });
 
+  it('reads a vertex on the tuck as its patch, whatever the heaviest vertex is', () => {
+    const onTuck = Uint8Array.from([
+      PATCH.rail + TUCK,
+      PATCH.rail + TUCK,
+      PATCH.corner + TUCK,
+      PATCH.tailEdge + TUCK,
+      PATCH.tailEdge,
+      PATCH.deck,
+    ]);
+    const tap = (triangle: number, bary: [number, number, number]) =>
+      pickPatch(onTuck, indices, { triangle, bary, x: 30, y: 4 }, zones);
+    expect(tap(0, [0.6, 0.3, 0.1])).toMatchObject({ patch: 'rail', blend: 0 });
+    expect(tap(0, [0.6, 0.3, 0.1])).not.toHaveProperty('zone');
+    expect(tap(0, [0.1, 0.1, 0.8])?.patch).toBe('corner');
+    expect(tap(1, [0.8, 0.1, 0.1])?.patch).toBe('tailEdge');
+    expect(tap(1, [0.1, 0.8, 0.1])?.patch).toBe('tailEdge');
+    expect(tap(1, [0.1, 0.1, 0.8])?.patch).toBe('deck');
+  });
+
   it('says nothing for an id no patch has or a triangle that is not there', () => {
     expect(
       pickPatch(
-        Uint8Array.from([9, 9, 9]),
+        Uint8Array.from([5, 6, 7]),
         indices,
         { triangle: 0, bary: [1, 0, 0], x: 0, y: 0 },
         zones,
