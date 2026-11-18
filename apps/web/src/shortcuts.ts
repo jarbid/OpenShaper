@@ -20,8 +20,21 @@
  * keys and steps live in {@link NUDGE}, which that handler reads too.
  */
 import type { View } from './view-toolkit';
+import { DESIGN_STEPS, type StepId } from './workspace/steps';
 
-export type ShortcutGroup = 'File' | 'Edit' | 'Nudging' | 'View' | 'Cross-sections';
+export type ShortcutGroup =
+  | 'File'
+  | 'Edit'
+  | 'Nudging'
+  | 'View'
+  | 'Design steps'
+  | 'Cross-sections';
+
+/**
+ * Where a chord is live, for a chord another layout reuses: the number keys choose a view in the
+ * tabbed layout and a design step in the workspace. A chord with no scope is live everywhere.
+ */
+export type ShortcutScope = 'views' | 'workspace';
 
 export interface ShortcutMatch {
   /** Lowercased `KeyboardEvent.key`, or one of several for an either/or binding. */
@@ -55,6 +68,8 @@ export interface Shortcut {
    * arrow-key nudges), which is listed only so the docs show it.
    */
   match?: ShortcutMatch;
+  /** Where it is live. Omitted: in both layouts. */
+  scope?: ShortcutScope;
 }
 
 /**
@@ -97,6 +112,15 @@ export const VIEW_KEYS: readonly { key: string; view: View; label: string; tabLa
   // suggests would renumber four bindings people already have in their hands.
   { key: '6', view: 'split', label: 'Split view', tabLabel: 'Split' },
 ];
+
+/**
+ * The workspace's design steps, with the key that chooses each, in list order — derived from the
+ * step table (`workspace/steps.ts`), which is the one place a step and its key are defined. The
+ * keys are live only while the workspace shows: its numbers are the view tabs' numbers.
+ */
+export const STEP_KEYS: readonly { key: string; step: StepId; label: string }[] = DESIGN_STEPS.map(
+  ({ key, id, label }) => ({ key, step: id, label: `${label} step` }),
+);
 
 export const SHORTCUTS: readonly Shortcut[] = [
   {
@@ -207,6 +231,17 @@ export const SHORTCUTS: readonly Shortcut[] = [
       keys: key,
       label,
       group: 'View',
+      scope: 'views',
+      match: { keys: [key], notInField: true },
+    }),
+  ),
+  ...STEP_KEYS.map(
+    ({ key, label }): Shortcut => ({
+      id: `step-${key}`,
+      keys: key,
+      label,
+      group: 'Design steps',
+      scope: 'workspace',
       match: { keys: [key], notInField: true },
     }),
   ),
@@ -219,14 +254,20 @@ export function shortcutKeys(id: string): string {
   return found.keys;
 }
 
-/** Whether a keyboard event matches this shortcut's chord. */
+/**
+ * Whether a keyboard event matches this shortcut's chord. `workspace` says which layout is on
+ * screen: a chord scoped to the other one never matches.
+ */
 export function matches(
   shortcut: Shortcut,
   e: KeyboardEvent,
   inField: boolean,
   inTextEntry = inField,
+  workspace = false,
 ): boolean {
   if (!shortcut.match) return false;
+  if (shortcut.scope === 'workspace' && !workspace) return false;
+  if (shortcut.scope === 'views' && workspace) return false;
   const {
     keys,
     mod = false,

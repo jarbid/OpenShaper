@@ -9,10 +9,31 @@ import { DocsPage, Section } from './DocsPage';
  * tooltips also read, so this page cannot describe a binding the app does not
  * have. Nothing here is transcribed by hand.
  */
-const GROUPS: ShortcutGroup[] = ['File', 'Edit', 'Nudging', 'View', 'Cross-sections'];
+const GROUPS: ShortcutGroup[] = [
+  'File',
+  'Edit',
+  'Nudging',
+  'View',
+  'Design steps',
+  'Cross-sections',
+];
 
 /** A line under a group's heading, for what its rows alone cannot say. */
 const NOTES: Partial<Record<ShortcutGroup, ReactNode>> = {
+  View: (
+    <>
+      These choose a view in the tabbed layout. With a rails board open the editor is the{' '}
+      <Link to="/docs/editing#workspace">workspace</Link>, which has no view tabs: there the same
+      number keys choose a design step, below, and these do nothing.
+    </>
+  ),
+  'Design steps': (
+    <>
+      Live only while the <Link to="/docs/editing#workspace">workspace</Link> is showing: a rails
+      board is open and the screen is not a phone. They choose the same steps as the design list on
+      the left of the editor.
+    </>
+  ),
   Nudging: (
     <>
       These act on the selected point or handle in whichever view holds it. Hold{' '}

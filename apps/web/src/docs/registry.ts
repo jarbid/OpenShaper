@@ -140,6 +140,14 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
     'view-4',
     'view-5',
     'view-6',
+    // The workspace's design-step keys (rails boards): the same numbers, live in that layout only.
+    'step-1',
+    'step-2',
+    'step-3',
+    'step-4',
+    'step-5',
+    'step-6',
+    'step-7',
   ]),
 ];
 

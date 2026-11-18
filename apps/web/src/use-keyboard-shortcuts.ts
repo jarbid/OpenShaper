@@ -1,8 +1,9 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
 import { getTargetSpline } from '@openshaper/store';
-import { isTextEntry, matches, SHORTCUTS, VIEW_KEYS } from './shortcuts';
+import { isTextEntry, matches, SHORTCUTS, STEP_KEYS, VIEW_KEYS } from './shortcuts';
 import { activeStore } from './store';
 import type { View } from './view-toolkit';
+import type { StepId } from './workspace/steps';
 
 /**
  * Global editor keyboard shortcuts.
@@ -13,9 +14,14 @@ import type { View } from './view-toolkit';
  *
  * Save goes through `onSave`, the same path as File > Save, so it records the
  * save and refreshes Open recent like the menu does.
+ *
+ * The number keys are the view tabs' while the tabbed layout shows and the workspace's design
+ * steps while `workspace` is on; only the table's rows for the layout on screen are live.
  */
 export function useKeyboardShortcuts({
   setView,
+  setStep,
+  workspace = false,
   setCsIndex,
   onSave,
   onCommandPalette,
@@ -23,6 +29,10 @@ export function useKeyboardShortcuts({
 }: {
   /** Switching is gated by layout tier, so this is the app's `selectView`, not a raw setter. */
   setView: (view: View) => void;
+  /** Choose a design step (the workspace's number keys). Pass a stable function. */
+  setStep?: (step: StepId) => void;
+  /** The workspace is showing: the number keys choose steps, not views. */
+  workspace?: boolean;
   setCsIndex: Dispatch<SetStateAction<number>>;
   /** Ctrl/Cmd+S. Pass a stable callback — the listener re-binds when it changes. */
   onSave: () => void;
@@ -90,6 +100,12 @@ export function useKeyboardShortcuts({
           return clearSectionFocus() || hadSplineSelection;
         }
         default: {
+          const step = STEP_KEYS.find((k) => `step-${k.key}` === id);
+          if (step) {
+            if (!setStep) return false;
+            setStep(step.step);
+            return true;
+          }
           const view = VIEW_KEYS.find((v) => `view-${v.key}` === id);
           if (!view) return false;
           setView(view.view);
@@ -105,7 +121,7 @@ export function useKeyboardShortcuts({
 
       // First match wins. `⇧⌘Z` is listed before `⌘Z`-without-shift can claim it,
       // and `matches` rejects a bare `⌘Z` when Shift is held, so the two can't collide.
-      const hit = SHORTCUTS.find((s) => matches(s, e, inField, isTextEntry(t)));
+      const hit = SHORTCUTS.find((s) => matches(s, e, inField, isTextEntry(t), workspace));
       if (!hit) return;
       // Behind an open dialog the board is not what the user is working on: only
       // Save, and the palette's own toggle (Ctrl/Cmd+K closes it), stay live.
@@ -122,5 +138,5 @@ export function useKeyboardShortcuts({
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [setView, setCsIndex, onSave, onCommandPalette, clearSectionFocus]);
+  }, [setView, setStep, workspace, setCsIndex, onSave, onCommandPalette, clearSectionFocus]);
 }

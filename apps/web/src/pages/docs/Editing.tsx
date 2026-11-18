@@ -1,8 +1,79 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { Link } from 'react-router-dom';
 import { RAIL_PRESETS } from '@openshaper/kernel';
+import type { ReactNode } from 'react';
 import { NUDGE, shortcutKeys } from '../../shortcuts';
+import { DESIGN_STEPS, PANEL_ENTRIES, type PanelId, type StepId } from '../../workspace/steps';
 import { DocsPage, Section, Term, Terms } from './DocsPage';
+
+/**
+ * What each workspace step shows and what it does to the sidebar. A `Record` over the step ids, so a
+ * step added to `workspace/steps.ts` does not type-check until it is described here.
+ */
+const STEP_DOCS: Record<StepId, ReactNode> = {
+  outline: (
+    <>
+      The plan shape, in the outline editor, with the fins drawn on it. The sidebar opens the tools
+      the Outline view opens: Control point, Board shape, Analysis and Trace image.
+    </>
+  ),
+  rocker: (
+    <>
+      The profile: the deck line and the bottom line, in the rocker editor. The sidebar opens
+      Control point, Analysis, Trace image and Bottom features.
+    </>
+  ),
+  deck: (
+    <>
+      One station across the board, in the cross-section editor, editing the station&rsquo;s deck
+      curve; the bottom curve and the closed section are drawn faint as guides. Step through the
+      stations with the arrows in the drawing&rsquo;s header or <code>[</code> and <code>]</code>,
+      and add a station or remove the one shown with the buttons beside them. The Deck | Bottom
+      control of the tabbed layout is not shown: the step decides which curve is edited, and the
+      choice that control remembers is left as it was.
+    </>
+  ),
+  bottom: (
+    <>
+      The same drawing, editing the station&rsquo;s bottom curve. The Shape tab opens with Bottom
+      features, which cut a vee, a concave or channels into the bottom.
+    </>
+  ),
+  rails: (
+    <>
+      The closed section at the chosen station, deck and rail and bottom together, for reading:
+      nothing on it is edited here. Under it a table lists the rail&rsquo;s keys, a table for each
+      side of an asymmetric board: where along the board each key is, and the rail&rsquo;s seven
+      numbers there (band, shoulder, tuck, tuck shape, bottom edge, deck edge and apex), with the
+      lengths in your display unit.
+    </>
+  ),
+  tail: (
+    <>
+      The outline again, for the tail. The Shape tab opens with Board shape, where the tail type
+      (standard, swallow or fish), the symmetry and the notch depth are set.
+    </>
+  ),
+  fins: (
+    <>
+      The outline with the fins drawn on it. The Build tab opens with Fins: the setup, the system
+      and each fin.
+    </>
+  ),
+};
+
+/** The three entries under the divider of the list, which are tabs of the sidebar and not steps. */
+const PANEL_DOCS: Record<PanelId, ReactNode> = {
+  specs: <>The Specs tab: length, width, thickness, volume, centre of mass and the rest.</>,
+  build: <>The Build tab: Board info, Fins and the weight estimate.</>,
+  compare: (
+    <>
+      The Reference tab, where the comparison with a ghost board is (see{' '}
+      <Link to="/docs/specs#ghost">comparing two boards</Link>); it has nothing to compare until a
+      ghost is loaded with <em>Board &rsaquo; Open ghost&hellip;</em>.
+    </>
+  ),
+};
 
 export default function DocsEditing() {
   return (
@@ -12,6 +83,7 @@ export default function DocsEditing() {
       lede="Control points, tangent handles, the views, and how cross-sections interpolate."
       toc={[
         { id: 'views', label: 'The views' },
+        { id: 'workspace', label: 'The workspace (rails boards)' },
         { id: 'guides', label: 'Guides in 3D' },
         { id: 'analysis', label: 'Surface analysis in 3D' },
         { id: 'nurbs', label: 'Experimental NURBS engine' },
@@ -94,6 +166,84 @@ export default function DocsEditing() {
           handle would cross its endpoint. The setting applies to every 2D view and stays on as you
           switch views and cross-sections; each drag is one undo step. Controls appear only on the
           editable half of mirrored views.
+        </p>
+      </Section>
+
+      <Section id="workspace" title="The workspace (rails boards)">
+        <p>
+          With a rails board open the editor is laid out as a <strong>workspace</strong> in place of
+          the row of view tabs. On the left is the <strong>design list</strong>, the steps of a
+          board in the order a shaper works. Beside it, the board in 3D is always on screen, with
+          its look controls; under the board is the drawing for the chosen step; and the sidebar
+          stays on the right. Everything it edits is the same board, in the same editors, as in the
+          tabbed layout: only the arrangement changes.
+        </p>
+        <p>
+          <strong>Turning it on.</strong> The workspace belongs to the experimental rails board. In{' '}
+          <em>Settings &rsaquo; Experimental</em> turn on both{' '}
+          <strong>Engine: NURBS (experimental)</strong> and{' '}
+          <strong>Rails engine (experimental)</strong>: the open board becomes a rails board and the
+          workspace opens. Opening a rails board file, or a share link to one, turns both on for
+          you. With the rails engine off nothing about the editor changes, and a phone always keeps
+          the view tabs: the workspace is for a tablet or larger.
+        </p>
+        <Terms>
+          {DESIGN_STEPS.map((step) => (
+            <Term
+              key={step.id}
+              name={
+                <>
+                  {step.label}{' '}
+                  <kbd className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-xs text-foreground">
+                    {step.key}
+                  </kbd>
+                </>
+              }
+            >
+              {STEP_DOCS[step.id]}
+            </Term>
+          ))}
+        </Terms>
+        <p>
+          Under a divider the list also has three entries that are not steps. Each shows a tab of
+          the sidebar and leaves the drawing as it is; the list marks the one whose tab is showing.
+        </p>
+        <Terms>
+          {PANEL_ENTRIES.map((panel) => (
+            <Term key={panel.id} name={panel.label}>
+              {PANEL_DOCS[panel.id]}
+            </Term>
+          ))}
+        </Terms>
+        <p>
+          <strong>Choosing a step.</strong> Click it in the list, or press its number key. The
+          number keys <kbd>1</kbd> to <kbd>7</kbd> choose the steps in the order above while the
+          workspace is showing; they are the view keys of the tabbed layout, which do nothing here
+          (see <Link to="/docs/shortcuts">shortcuts</Link>). In the list, the up and down arrows
+          move through the entries, Home and End go to the ends, and Enter chooses. Choosing a step
+          does not move the 3D camera. The sidebar follows the step through the same rules as the
+          view it is for: its sections open and shut for it, never against one you opened or shut
+          yourself.
+        </p>
+        <p>
+          <strong>Tapping the board.</strong> With the Patches look on, a tap on the board chooses
+          the step that edits what was tapped: the deck chooses Deck, the bottom Bottom, a rail
+          Rails, the straight edge of a tail Tail, and a corner chooses Tail when it is in the tail
+          half of the board and Outline when it is in the nose half. The tapped patch stays lit, and
+          a tap on nothing changes no step. The first time the workspace opens the board wears the
+          Patches look, if the 3D look was at No analysis; choose another look in the 3D controls
+          and it stays chosen.
+        </p>
+        <p>
+          <strong>The divider.</strong> Drag the bar between the board and the drawing, or focus it
+          and press the arrow keys to move it 2% at a time, or Home and End to take it to its
+          limits. It stays between a quarter and three quarters of the height. The step, the divider
+          and the first-open look are remembered between sessions.
+        </p>
+        <p>
+          <strong>On a tablet.</strong> Below 1024px wide the list is a column of icons, whose names
+          are their tooltips, and the sidebar is the bottom sheet; choosing Specs, Build or Compare
+          raises the sheet. The board and the drawing stack as they do on a desktop.
         </p>
       </Section>
 

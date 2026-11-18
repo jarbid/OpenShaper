@@ -154,6 +154,10 @@ import { specsFromMesh } from './nurbs-specs';
 import { useMeshSpecs } from './use-mesh-specs';
 import { useSpecsWorker } from './use-specs-worker';
 import { useTrace, type TraceView } from './use-trace';
+import { RailKeysTable } from './workspace/RailKeysTable';
+import { RailsWorkspace } from './workspace/RailsWorkspace';
+import { stepById, type StepCurve, type StepId } from './workspace/steps';
+import { claimPatchesDefault, setWorkspaceStep } from './workspace/use-step';
 import {
   EditorPane,
   faceSizeFor,
@@ -531,6 +535,15 @@ function AppShell() {
   // Narrower (or shorter) still is the phone tier, which drops quad entirely.
   const isDesktop = useIsDesktop();
   const isPhone = useIsPhone();
+  // Read from the switch itself, not from the engines: the switch is pointed in a layout effect, and
+  // the cross-section tab's station targets must only exist once the rails store is the one it reads.
+  const railsActive = useSyncExternalStore(
+    activeStore.subscribe,
+    () => activeStore.target === railsStore,
+  );
+  // With a rails board as the document the main area is the workspace (workspace/RailsWorkspace.tsx), not the
+  // view tabs and their panes. A phone keeps the tabs and the sheet.
+  const workspaceOn = railsActive && !isPhone;
   const isShort = useIsShortViewport();
   const tier = { isPhone, isDesktop };
   const view = isViewAvailable(pickedView, tier) ? pickedView : FALLBACK_VIEW;
@@ -545,9 +558,11 @@ function AppShell() {
   // render does not re-persist what it just restored.
   const sidebarViews: View | readonly View[] = view === 'split' ? [split.top, split.bottom] : view;
   useEffect(() => {
+    // In the workspace the step decides what the sidebar opens (workspace/sidebar-for-step.ts).
+    if (workspaceOn) return;
     setSidebar((s) => applyViewChange(s, sidebarViews));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, split.top, split.bottom]);
+  }, [view, split.top, split.bottom, workspaceOn]);
 
   // Which editors get used is invisible to autocapture — the panes are
   // canvases. Recorded once per session per view (markView dedupes) so the
@@ -584,6 +599,11 @@ function AppShell() {
   // "Showing panels" means more than the peek readout — at `peek` the button's
   // job is still to reveal them, so it opens rather than closes.
   const panelsShowing = sheetSnap === 'half' || sheetSnap === 'full';
+  // Below lg the workspace's Specs, Build and Compare are asks to see the sidebar, which is the sheet.
+  const showSheet = useCallback(
+    () => setSheetSnap((snap) => (snap === 'half' || snap === 'full' ? snap : 'half')),
+    [],
+  );
 
   // Publish the sheet's footprint so fixed elements outside this tree (the toast
   // stack, the consent banner) can sit clear of it — and reclaim the space when
@@ -652,6 +672,13 @@ function AppShell() {
     liveViewState.current = { ...liveViewState.current, view3d };
     scheduleViewSave();
   }, [view3d, scheduleViewSave]);
+  // The first time the workspace is entered the board wears the Patches look, unless a look was chosen already.
+  // Once, ever (it is recorded): a later choice of another look, or of none, is never overridden.
+  useEffect(() => {
+    if (workspaceOn && claimPatchesDefault()) {
+      setView3d((s) => (s.analysis === 'none' ? { ...s, analysis: 'patches' } : s));
+    }
+  }, [workspaceOn]);
   // Which curve of a rails board's station the cross-section tab edits, remembered with the view state.
   const [railsCurve, setRailsCurve] = useState<RailsCurve>(
     bootViewState.current.railsCurve ?? 'deck',
@@ -755,12 +782,6 @@ function AppShell() {
   const engines = useDocumentEngines(nurbsEngine, settings.surfaceEngine === 'rails');
   /** A NURBS document, of either kind, is the one being edited (what `sectionEngine.ready` meant). */
   const docOpen = engines.ready;
-  // Read from the switch itself, not from the engines: the switch is pointed in a layout effect, and
-  // the cross-section tab's station targets must only exist once the rails store is the one it reads.
-  const railsActive = useSyncExternalStore(
-    activeStore.subscribe,
-    () => activeStore.target === railsStore,
-  );
   // A board the NURBS model cannot hold stays classic; say why, as an import notice (the 3D popover has the
   // converter's own words too). Lengths in the message follow the display unit.
   const [engineNotice, setEngineNotice] = useState<string[] | null>(null);
@@ -842,6 +863,8 @@ function AppShell() {
   const saveFromShortcut = useCallback(() => saveBoardFileRef.current(), []);
   useKeyboardShortcuts({
     setView: selectView,
+    setStep: setWorkspaceStep,
+    workspace: workspaceOn,
     setCsIndex,
     onSave: saveFromShortcut,
     onCommandPalette: togglePalette,
@@ -876,6 +899,18 @@ function AppShell() {
         ? railsSectionTargets(clampedCs, sectionCount - 2, railsCurve, asymmetric)
         : undefined,
     [railsActive, clampedCs, sectionCount, railsCurve, asymmetric],
+  );
+  // The workspace's Deck and Bottom steps decide the curve the cross-section pane edits, in place of the saved
+  // Deck | Bottom choice, which they never write. Memoised like `railsTargets`: the editor re-fits on a change.
+  const stepTargets = useMemo(
+    () =>
+      workspaceOn
+        ? {
+            deck: railsSectionTargets(clampedCs, sectionCount - 2, 'deck', asymmetric),
+            bottom: railsSectionTargets(clampedCs, sectionCount - 2, 'bottom', asymmetric),
+          }
+        : undefined,
+    [workspaceOn, clampedCs, sectionCount, asymmetric],
   );
 
   // Real cross-sections (skip the nose/tail dummies) as pickable outline markers.
@@ -1064,7 +1099,11 @@ function AppShell() {
   // the cross-section pane — the live interpolated section at the scrub x and faint
   // neighbour stations (fairing context).
   const probes = useProbes();
-  const ghostSplinesFor = (kind: EditorKind): Spline[] | undefined => {
+  // `curve` is the one a workspace step forces (null: none, the closed section alone is drawn).
+  const ghostSplinesFor = (
+    kind: EditorKind,
+    curve: StepCurve = railsCurve,
+  ): Spline[] | undefined => {
     const out: Spline[] = [];
     // A pane that shows both halves of an asymmetric board does not mirror its ghosts, so a ghost of a
     // symmetric thing (the classic ghost board) is drawn on both sides, and one of a half gets its own.
@@ -1105,7 +1144,8 @@ function AppShell() {
         const preview = loftCrossSection(board, scrubX);
         if (preview) out.push(preview.spline);
       }
-      if (railsActive) out.push(...railsSectionGuides(board, clampedCs, railsCurve, asymmetric));
+      if (railsActive && curve !== null)
+        out.push(...railsSectionGuides(board, clampedCs, curve, asymmetric));
       // Adjacent real stations (skip the nose/tail dummies at 0 / last).
       const last = board.crossSections.length - 1;
       const prev = clampedCs - 1;
@@ -2027,8 +2067,12 @@ function AppShell() {
     />
   );
 
-  const editorPaneProps = (kind: EditorKind) => ({
-    title: kind === 'outline' ? 'Outline' : kind === 'rocker' ? 'Rocker (deck + bottom)' : csTitle,
+  // `override` is what a workspace step changes about a pane: its heading and, for the cross-section pane, the
+  // curve it edits (null: none, the closed section alone). Without one the pane is the tabbed layout's.
+  const editorPaneProps = (kind: EditorKind, override?: { title: string; curve?: StepCurve }) => ({
+    title:
+      override?.title ??
+      (kind === 'outline' ? 'Outline' : kind === 'rocker' ? 'Rocker (deck + bottom)' : csTitle),
     kind,
     csIndex: clampedCs,
     asymmetric,
@@ -2047,7 +2091,7 @@ function AppShell() {
     onScrub: scrubSection,
     overlays: overlaysFor(kind),
     onTunniChange: setTunniOverlay,
-    ghostSplines: ghostSplinesFor(kind),
+    ghostSplines: ghostSplinesFor(kind, override?.curve),
     ...(kind === 'crossSection' ? {} : traceProps(kind)),
     headerActions: kind === 'crossSection' ? csControls : undefined,
     settings,
@@ -2055,11 +2099,16 @@ function AppShell() {
     initialView: pendingViews2d.current[kind],
     onViewChange: reportPaneView(kind),
     ...(kind === 'crossSection' && railsTargets
-      ? {
-          railsTargets,
-          railsCurve,
-          curveControl: <RailsCurveToggle curve={railsCurve} onCurve={setRailsCurve} />,
-        }
+      ? override?.curve === undefined
+        ? {
+            railsTargets,
+            railsCurve,
+            curveControl: <RailsCurveToggle curve={railsCurve} onCurve={setRailsCurve} />,
+          }
+        : // a step decides the curve, so there is no Deck | Bottom control; none: the closed section alone
+          override.curve === null
+          ? {}
+          : { railsTargets: stepTargets?.[override.curve], railsCurve: override.curve }
       : {}),
   });
 
@@ -2101,6 +2150,32 @@ function AppShell() {
       />
     );
   };
+
+  // The workspace's drawing for a step: the editor the step names, with the curve it forces (workspace/steps.ts).
+  // Keyed by the editor, so Outline, Tail and Fins are one pane and keep their framing between them.
+  const drawingFor = (id: StepId) => {
+    const { drawing } = stepById(id);
+    return (
+      <EditorPane
+        key={drawing.editor}
+        {...editorPaneProps(drawing.editor, { title: drawing.title, curve: drawing.curve })}
+      />
+    );
+  };
+  const footerFor = (id: StepId) =>
+    stepById(id).drawing.footer === 'railKeys' ? <RailKeysTable units={units} /> : null;
+  // The workspace has no 3D tab, so its board panel carries all of the 3D tab's controls.
+  const workspaceLooks = (
+    <ThreeDControls
+      settings={view3dShown}
+      onChange={patchView3d}
+      units={units}
+      exactUnavailable={exactUnavailable}
+      ghostUnavailable={ghostUnavailable}
+      nurbsEngine={nurbsEngine}
+      patches={patchesOffered}
+    />
+  );
 
   // The four quad panes, arranged either as a 2×2 grid (desktop) or a vertical
   // scrolling stack (compact) — the panes themselves are identical in both. Only
@@ -2250,15 +2325,20 @@ function AppShell() {
             isShort ? 'border-l border-border' : 'border-t border-border',
           )}
         >
-          <div
-            role="group"
-            aria-label="Views"
-            className="no-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
-          >
-            {views.map((v) => (
-              <Fragment key={v.view}>{tab(v.view, v.tabLabel)}</Fragment>
-            ))}
-          </div>
+          {workspaceOn ? (
+            // the design list replaces the tabs; the spacer keeps the unit pickers at the right
+            <div className="min-w-0 flex-1" />
+          ) : (
+            <div
+              role="group"
+              aria-label="Views"
+              className="no-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+            >
+              {views.map((v) => (
+                <Fragment key={v.view}>{tab(v.view, v.tabLabel)}</Fragment>
+              ))}
+            </div>
+          )}
           {/* On a phone this row has no room for it — it moves into the sheet,
               where the current unit stays visible next to the dimensions it
               formats. See `UnitSelect`. */}
@@ -2322,7 +2402,19 @@ function AppShell() {
           view needs it, and a maximized pane was running 99px underneath. */}
       <div className={cn('flex min-h-0 flex-1 gap-3 p-3', sheetOpen && 'pb-28')}>
         <div className="min-h-0 min-w-0 flex-1">
-          {view === 'quad' ? (
+          {workspaceOn ? (
+            <RailsWorkspace
+              board={threeDPane}
+              looks={workspaceLooks}
+              drawingFor={drawingFor}
+              footerFor={footerFor}
+              sidebar={isDesktop ? sidebarFor(true) : undefined}
+              compact={!isDesktop}
+              onSidebar={setSidebar}
+              sidebarTab={sidebar.collapsed ? null : sidebar.activeTab}
+              onShowSidebar={isDesktop ? undefined : showSheet}
+            />
+          ) : view === 'quad' ? (
             isDesktop ? (
               <div className="grid h-full grid-cols-2 grid-rows-2 gap-3">{quadPanes}</div>
             ) : (
@@ -2389,7 +2481,7 @@ function AppShell() {
         </div>
 
         {/* Desktop: sidebar beside the viewport. Compact: it moves into a bottom sheet. */}
-        {isDesktop && sidebarFor(true)}
+        {isDesktop && !workspaceOn && sidebarFor(true)}
       </div>
 
       {!isDesktop && (
