@@ -1,5 +1,6 @@
 /** @openshaper/render3d — Three.js board mesh + 3D scene. */
 export {
+  boardBox,
   boardCenter,
   boardGeometry,
   boardSpan,
@@ -16,6 +17,7 @@ export {
   type MaterialPreset,
   type CameraPose,
 } from './Board3DView';
+export { defaultCameraPosition, type DefaultView } from './view-framing';
 export {
   DEFAULT_DEVIATION_BAND,
   isDeviationAnalysis,

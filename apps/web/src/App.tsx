@@ -2066,6 +2066,7 @@ function AppShell() {
       activeSectionX={activeSectionX}
       key={cameraEpoch}
       initialCamera={liveViewState.current.camera3d}
+      defaultView={workspaceOn ? 'threeQuarter' : 'side'}
       onCameraChange={onCameraChange}
     />
   );

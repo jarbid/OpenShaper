@@ -11,6 +11,10 @@
 import {
   board,
   crossSection,
+  getLength,
+  getMaxRocker,
+  getMaxThickness,
+  getMaxWidth,
   knot,
   splineFromKnots,
   tessellateBoard,
@@ -21,6 +25,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import {
   apexGuideAsync,
+  boardBox,
   boardCenter,
   boardGeometry,
   boardSpan,
@@ -152,6 +157,34 @@ describe('boardSpan', () => {
     ]);
     const b = board(dot, dot, dot, []);
     expect(boardSpan(b)).toBe(200);
+  });
+});
+
+describe('boardBox', () => {
+  it('is the length, the width, and the thickness plus rocker, and its greatest side is the span', () => {
+    const b = swallowBoard();
+    const box = boardBox(b);
+    expect(box.x).toBe(getLength(b));
+    expect(box.y).toBe(getMaxWidth(b));
+    expect(box.z).toBe(getMaxThickness(b) + getMaxRocker(b));
+    expect(Math.max(box.x, box.y, box.z)).toBe(boardSpan(b));
+  });
+
+  it('gives a side the board has no number for the span, so the box still frames something', () => {
+    // makeBoard() has no cross-sections: no thickness. Its length and width stand, and the missing
+    // height is the span.
+    const b = makeBoard();
+    const box = boardBox(b);
+    expect(box.x).toBe(getLength(b));
+    expect(box.z).toBe(boardSpan(b));
+  });
+
+  it('gives every side the span fallback when the board has no usable dimensions', () => {
+    const dot = splineFromKnots([
+      knot(vec2(0, 0), vec2(0, 0), vec2(0, 0)),
+      knot(vec2(0, 0), vec2(0, 0), vec2(0, 0)),
+    ]);
+    expect(boardBox(board(dot, dot, dot, []))).toEqual({ x: 200, y: 200, z: 200 });
   });
 });
 

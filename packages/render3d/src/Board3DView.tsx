@@ -45,6 +45,7 @@ import { CurvatureSurface } from './CurvatureSurface';
 import { DeviationSurface } from './DeviationSurface';
 import { surfaceApplies, type ExternalSurface } from './external-surface';
 import {
+  boardBox,
   boardCenter,
   boardSpan,
   curvatureAsync,
@@ -54,7 +55,15 @@ import {
   tessellateAsync,
 } from './geometry';
 import { BoardViewcube } from './BoardViewcube';
-import { orthographicZoomFor, upForViewDirection } from './view-framing';
+import {
+  defaultCameraPosition,
+  orthographicZoomFor,
+  orthographicZoomForBox,
+  projectedExtent,
+  upForViewDirection,
+  type BoxSize,
+  type DefaultView,
+} from './view-framing';
 import { Fins3D } from './Fins3D';
 import { Guides3D } from './Guides3D';
 import { PatchSurface } from './PatchSurface';
@@ -148,6 +157,8 @@ export interface Board3DViewProps {
    * object — it is read as the Canvas's initial camera state.
    */
   initialCamera?: CameraPose;
+  /** The pose the camera starts at when there is no restored one (defaults to `side`). */
+  defaultView?: DefaultView;
   /** Report the orbit pose whenever the user moves the camera (for persistence). */
   onCameraChange?: (pose: CameraPose) => void;
   className?: string;
@@ -188,20 +199,38 @@ const FLIP_ABOUT_LENGTH = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0)
  * down permanently once it isn't — that difference *is* the user having zoomed.
  * `initialCamera` gets a fit like any other mount; a restored `CameraPose`
  * carries position and target but no zoom, so there is nothing of theirs to keep.
+ *
+ * The fit is by length across the width, which is right for a view from the side and says nothing
+ * of the height. A board seen obliquely in a wide, short pane needs it: given `framing` (the board's
+ * box and where the camera sits), the fit is by the silhouette, in both directions.
  */
-function OrthographicFit({ span }: { span: number }) {
+function OrthographicFit({ span, framing }: { span: number; framing?: ObliqueFraming }) {
   const { camera, size, invalidate } = useThree();
   const applied = useRef<number | null>(null);
+  // The height decides nothing in a fit by length, so it must not refit one.
+  const height = framing ? size.height : 0;
   useEffect(() => {
     if (!(camera instanceof OrthographicCamera) || size.width <= 0) return;
+    if (framing && height <= 0) return;
     if (applied.current !== null && Math.abs(camera.zoom - applied.current) > 1e-6) return;
-    const zoom = orthographicZoomFor(size.width, span);
+    const zoom = framing
+      ? orthographicZoomForBox(
+          { width: size.width, height },
+          projectedExtent(framing.box, framing.from),
+        )
+      : orthographicZoomFor(size.width, span);
     applied.current = zoom;
     camera.zoom = zoom;
     camera.updateProjectionMatrix();
     invalidate();
-  }, [camera, size.width, span, invalidate]);
+  }, [camera, size.width, height, span, framing, invalidate]);
   return null;
+}
+
+/** A board's box and the position it is seen from, for `OrthographicFit`. */
+interface ObliqueFraming {
+  box: BoxSize;
+  from: readonly [number, number, number];
 }
 
 function ObjectCenteredNavigation({
@@ -834,12 +863,24 @@ export function Board3DView({
   showApex = false,
   activeSectionX = null,
   initialCamera,
+  defaultView,
   onCameraChange,
   className,
 }: Board3DViewProps) {
   const board = useSyncExternalStore(store.subscribe, () => store.getState().board);
   const span = board ? boardSpan(board) : 200;
   const d = span * 1.1;
+  // A board that opens in three quarters is fitted by its silhouette, not by its length (see
+  // `OrthographicFit`). A restored pose has its own direction, which the fit does not know.
+  const box = board && defaultView === 'threeQuarter' && !initialCamera ? boardBox(board) : null;
+  const [boxX, boxY, boxZ] = [box?.x ?? 0, box?.y ?? 0, box?.z ?? 0];
+  const framing = useMemo<ObliqueFraming | undefined>(
+    () =>
+      boxX > 0
+        ? { box: { x: boxX, y: boxY, z: boxZ }, from: defaultCameraPosition(1, 'threeQuarter') }
+        : undefined,
+    [boxX, boxY, boxZ],
+  );
   const resolved: Board3DMode = mode ?? 'shaded';
   const [flipViewSequence, setFlipViewSequence] = useState(0);
   const [flipHovered, setFlipHovered] = useState(false);
@@ -885,13 +926,13 @@ export function Board3DView({
         dpr={[1, 2]}
         orthographic
         camera={{
-          position: initialCamera?.position ?? [0, -d, d * 0.45],
+          position: initialCamera?.position ?? defaultCameraPosition(d, defaultView),
           up: [0, 0, 1],
           near: 1,
           far: span * 50,
         }}
       >
-        <OrthographicFit span={span} />
+        <OrthographicFit span={span} framing={framing} />
         <color attach="background" args={[BACKGROUND[lighting]]} />
         <Lights preset={lighting} span={span} />
         {board && (

@@ -12,6 +12,7 @@ import { boardCurvatureMesh, type CurvatureMesh } from './curvature-mesh';
 import { boardDeviationMesh, type DeviationMesh } from './deviation-mesh';
 import { apexGuideLine, type GuideLine } from './guide-lines';
 import { createMeshQueue, type MeshQueue, type WorkerReply } from './mesh-queue';
+import type { BoxSize } from './view-framing';
 import type { WorkerRequest } from './worker-protocol';
 
 // Tessellation walks many stations, each interpolating a cross-section — the
@@ -403,4 +404,21 @@ export function boardSpan(board: BezierBoard): number {
     getMaxThickness(board) + getMaxRocker(board),
   );
   return Number.isFinite(span) && span > 0 ? span : 200;
+}
+
+/**
+ * The board's bounding box (cm) for camera framing: length (X), width (Y), and thickness plus rocker
+ * (Z), the three numbers `boardSpan` takes the greatest of. A side the board gives no usable number
+ * for is the span's fallback, so the box still frames something.
+ */
+export function boardBox(board: BezierBoard): BoxSize {
+  const sides = {
+    x: getLength(board),
+    y: getMaxWidth(board),
+    z: getMaxThickness(board) + getMaxRocker(board),
+  };
+  const span = Math.max(sides.x, sides.y, sides.z);
+  const fallback = Number.isFinite(span) && span > 0 ? span : 200;
+  const usable = (side: number) => (Number.isFinite(side) && side > 0 ? side : fallback);
+  return { x: usable(sides.x), y: usable(sides.y), z: usable(sides.z) };
 }
