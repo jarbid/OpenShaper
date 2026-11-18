@@ -20,6 +20,7 @@
  */
 import { LineBasicMaterial, MeshStandardMaterial, Vector2 } from 'three';
 import {
+  BOTH_SIDES,
   MAX_ZONES,
   NO_SELECTION,
   PATCH,
@@ -49,9 +50,10 @@ const SELECTION_GLSL = /* glsl */ `
   uniform int uSelSide;
   uniform vec2 uSelSpan;
 
-  // 1 inside the chosen span on the chosen side and 0 elsewhere, fading across the feather at its ends.
+  // 1 inside the chosen span on the chosen side (either side, when the selection is on both) and 0
+  // elsewhere, fading across the feather at its ends.
   float spanLit(float x, int side) {
-    if (side != uSelSide) return 0.0;
+    if (uSelSide != ${BOTH_SIDES} && side != uSelSide) return 0.0;
     return smoothstep(uSelSpan.x - ${SPAN_FEATHER.toFixed(2)}, uSelSpan.x + ${SPAN_FEATHER.toFixed(2)}, x)
       * (1.0 - smoothstep(uSelSpan.y - ${SPAN_FEATHER.toFixed(2)}, uSelSpan.y + ${SPAN_FEATHER.toFixed(2)}, x));
   }

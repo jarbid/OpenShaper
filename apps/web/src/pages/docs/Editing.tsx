@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { Link } from 'react-router-dom';
 import { RAIL_PRESETS } from '@openshaper/kernel';
+import { BUILT_IN_RAILS } from '@openshaper/store/rails';
 import type { ReactNode } from 'react';
 import { NUDGE, shortcutKeys } from '../../shortcuts';
 import { DESIGN_STEPS, PANEL_ENTRIES, type PanelId, type StepId } from '../../workspace/steps';
@@ -41,11 +42,10 @@ const STEP_DOCS: Record<StepId, ReactNode> = {
   ),
   rails: (
     <>
-      The closed section at the chosen station, deck and rail and bottom together, for reading:
-      nothing on it is edited here. Under it a table lists the rail&rsquo;s keys, a table for each
-      side of an asymmetric board: where along the board each key is, and the rail&rsquo;s seven
-      numbers there (band, shoulder, tuck, tuck shape, bottom edge, deck edge and apex), with the
-      lengths in your display unit.
+      The <strong>rail map</strong>: the board&rsquo;s rail laid out straight, tail to nose, as
+      coloured zones with blends between them, and under it the board&rsquo;s section at the cursor,
+      to scale. The right-hand column opens with the <strong>rail panel</strong>, above the sidebar.
+      See <a href="#rails-step">The Rails step</a> below for all of it.
     </>
   ),
   tail: (
@@ -84,6 +84,7 @@ export default function DocsEditing() {
       toc={[
         { id: 'views', label: 'The views' },
         { id: 'workspace', label: 'The workspace (rails boards)' },
+        { id: 'rails-step', label: 'The Rails step: zones and blends' },
         { id: 'guides', label: 'Guides in 3D' },
         { id: 'analysis', label: 'Surface analysis in 3D' },
         { id: 'nurbs', label: 'Experimental NURBS engine' },
@@ -244,6 +245,144 @@ export default function DocsEditing() {
           <strong>On a tablet.</strong> Below 1024px wide the list is a column of icons, whose names
           are their tooltips, and the sidebar is the bottom sheet; choosing Specs, Build or Compare
           raises the sheet. The board and the drawing stack as they do on a desktop.
+        </p>
+      </Section>
+
+      <Section id="rails-step" title="The Rails step: zones and blends">
+        <p>
+          A board&rsquo;s rail is not one shape: it changes from the tail to the nose. The Rails
+          step draws that change as a strip, the <strong>rail map</strong>, and the panel beside it
+          sets the rail of the part you choose. Tap a rail on the 3D board, or click the strip, to
+          choose; what is chosen is lit on the board.
+        </p>
+        <Terms>
+          <Term name="Zone">
+            A stretch of the board where the rail is one design. It is drawn as a block in a colour,
+            named for its rail, and the board&rsquo;s rail is that colour in 3D: the first zone from
+            the tail is orange, the next sky blue, then green, vermillion, yellow and blue, and
+            round again. A zone of no length is one place along the board and is drawn as a thin
+            tick; a board opened from an older file arrives as a row of ticks, one for each of its
+            stations.
+          </Term>
+          <Term name="Blend">
+            The gap between two zones, where the rail eases from one design to the other. It is
+            drawn as a gradient between the two colours. A blend has no settings of its own: it is
+            where one zone ends and the next begins, so move those ends to change it.
+          </Term>
+          <Term name="Rail">
+            What a zone holds: a name and a few numbers. The panel shows three dials, Apex, Tuck and
+            Edge, and, under More, the rest.
+          </Term>
+        </Terms>
+        <h3 className="mt-4 text-base font-semibold">The rail map</h3>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <strong>Choose</strong> a zone or a blend by clicking it. Clicking the ruler above the
+            strip moves the cursor, which is where the slice below is taken, and chooses nothing.
+          </li>
+          <li>
+            <strong>Move a zone&rsquo;s end</strong> by dragging the handle at it. A zone cannot be
+            dragged closer than a centimetre to its neighbour. A tick has one handle, which moves
+            it; while the tick is chosen a grip beside it draws it out into a zone of length.
+            Dragging is one undo step.
+          </li>
+          <li>
+            <strong>Add a zone</strong> by pointing at the strip and clicking the + that follows the
+            pointer, or with a touch screen or a keyboard by moving the cursor and pressing{' '}
+            <em>Add zone</em> (or Enter on the ruler). In a zone the zone splits: the part toward
+            the nose is the new zone, and it starts as the same rail, so the board does not change
+            until you give it one. In a blend a zone of no length appears, holding the rail the
+            board has there. A tick cannot be split.
+          </li>
+          <li>
+            <strong>Remove a zone</strong> with Delete, or <em>Delete zone</em> in the panel; its
+            neighbours blend across the gap. The last zone is never removed.
+          </li>
+          <li>
+            <strong>Left and right.</strong> While the two sides have the same rail there is one
+            lane. When they differ, or you are editing one side alone, there are two, Left over
+            Right, each with its own zones.
+          </li>
+          <li>
+            <strong>Keyboard.</strong> The strip is one tab stop; the arrow keys move the choice
+            along the zones and blends, Up and Down change lane, Home and End go to the ends, and
+            Delete removes the chosen zone. A zone&rsquo;s end handles are sliders: the arrow keys
+            move one by 0.5 cm, with Shift by 5 cm. The ruler is a slider for the cursor with the
+            same keys.
+          </li>
+        </ul>
+        <h3 className="mt-4 text-base font-semibold">The slice</h3>
+        <p>
+          Under the map, the board&rsquo;s closed section at the cursor, drawn to the scale of the
+          board so the width and thickness are the real proportions, with the stringer, the half
+          width and the thickness in your display unit, and a marker at the rail&rsquo;s apex. When
+          the cursor is in a blend it says which zones it is between and how far across. In the
+          panel, a small slice shows the chosen zone&rsquo;s own rail at the zone&rsquo;s start,
+          with the section at its end dashed behind it.
+        </p>
+        <h3 className="mt-4 text-base font-semibold">The rail panel</h3>
+        <Terms>
+          <Term name="Rail">
+            The menu of the built-in rails (listed below), then your own, then Custom, which is
+            shown when the zone&rsquo;s numbers match no named rail and says which is nearest, as in
+            &ldquo;Custom (like Tucked)&rdquo;. Choosing one sets the zone&rsquo;s rail.
+          </Term>
+          <Term name="Sides">
+            <em>Both sides</em> edits the zone on both sides of the board. <em>Left</em> or{' '}
+            <em>Right</em> edits that side alone; on a board whose sides were one, that gives the
+            other side a rail of its own, starting as a copy. Choosing <em>Both sides</em> again
+            when the sides are the same makes them one again; when they differ the panel says so and
+            offers <em>Make both sides like Left</em> or <em>like Right</em>.
+          </Term>
+          <Term name="Apex">
+            Where the widest point of the rail sits between the bottom and the deck, from 40/60
+            (more of the rail above it) to 80/20 (a low, down rail). Type it as 60/40 or as a
+            percent up from the bottom.
+          </Term>
+          <Term name="Tuck">
+            How far in from the outline the bottom starts to turn under, from none to deep (4 cm).
+            It is typed in your display unit.
+          </Term>
+          <Term name="Edge">
+            The angle the rail leaves the bottom at, from none (0°) to hard (60°).
+          </Term>
+          <Term name="More">
+            Band width, hardness, tuck shape and the deck-side edge, and where the zone starts and
+            ends, so a zone can be placed by number. It stays open if you leave it open.
+          </Term>
+        </Terms>
+        <p>
+          Each dial is a slider with a number: drag it, press the arrow keys (a held key is one undo
+          step), or type a number and press Enter; Up and Down in the number step it. A rail from an
+          older file can be past the end of a dial: its number is shown and kept until you move the
+          dial. Every edit is one undo step with its own name in the history: <em>Edit rail</em>,{' '}
+          <em>Move rail zone</em>, <em>Add rail zone</em>, <em>Remove rail zone</em>,{' '}
+          <em>Tidy rails</em>, <em>Unlock rail sides</em> and <em>Link rail sides</em>.
+        </p>
+        <h3 className="mt-4 text-base font-semibold">The built-in rails</h3>
+        <Terms>
+          {BUILT_IN_RAILS.map((r) => (
+            <Term key={r.id} name={r.name}>
+              {r.summary}
+            </Term>
+          ))}
+        </Terms>
+        <h3 className="mt-4 text-base font-semibold">My rails</h3>
+        <p>
+          <em>Save as my rail</em> keeps the zone&rsquo;s rail under a name you give it. It is then
+          in the Rail menu on every board you open in this browser, and you can rename it or remove
+          it from under the menu. A board that uses one of your rails carries it in its file, so
+          opening that board on another machine brings the rail with it; if you already have a rail
+          of that name with other numbers, the one that came with the board is kept as, say,
+          &ldquo;Surf (2)&rdquo;. A board that uses none of them is saved exactly as before.
+        </p>
+        <h3 className="mt-4 text-base font-semibold">Tidy rails</h3>
+        <p>
+          <em>Tidy rails</em> joins neighbouring zones whose rails differ by less than 1 mm of band
+          or tuck, a tenth of a degree of edge and a tenth of a ratio (apex, hardness, tuck shape):
+          less than can be seen on a board, so a board from an older file, with a rail at each
+          station, comes down to the few zones it really has. It says how many zones it joined, and
+          is one undo step.
         </p>
       </Section>
 

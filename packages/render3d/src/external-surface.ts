@@ -12,7 +12,7 @@
 import type { BezierBoard } from '@openshaper/kernel';
 import type { CurvatureMesh } from './curvature-mesh';
 import type { DeviationMesh } from './deviation-mesh';
-import type { PatchSeams, RailKeyPlaces } from './patches';
+import type { PatchSeams } from './patches';
 
 export interface ExternalSurface {
   /**
@@ -52,8 +52,6 @@ export interface ExternalSurface {
   readonly patch?: Uint8Array | null;
   /** The seam lines the Patches look draws over the surface, or null/absent when it has none. */
   readonly seams?: PatchSeams | null;
-  /** The document's rail keys, from which the Patches look draws its rail zones for now. */
-  readonly railKeys?: RailKeyPlaces | null;
 }
 
 /**

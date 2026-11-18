@@ -35,8 +35,11 @@ export interface RailsWorkspaceProps {
   looks: ReactNode;
   /** The drawing for a design step. */
   drawingFor: (step: StepId) => ReactNode;
-  /** What a step shows under its drawing, read-only (the Rails step's key table), if anything. */
-  footerFor?: (step: StepId) => ReactNode;
+  /**
+   * The panel of the thing being edited (the rail panel), above the sidebar in the same column. It
+   * decides for itself whether to show; absent below `lg`, where the shell's bottom sheet holds it.
+   */
+  panel?: ReactNode;
   /** The sidebar, beside the drawing. Absent below `lg`, where the shell's bottom sheet holds it. */
   sidebar?: ReactNode;
   /** Below `lg`: the design list is a column of icons. */
@@ -53,7 +56,7 @@ export function RailsWorkspace({
   board,
   looks,
   drawingFor,
-  footerFor,
+  panel,
   sidebar,
   compact,
   onSidebar,
@@ -92,14 +95,16 @@ export function RailsWorkspace({
             <PanelBody className="min-h-0 flex-1 p-0">{board}</PanelBody>
           </Panel>
         }
-        bottom={
-          <div className="flex h-full min-h-0 flex-col gap-2">
-            <div className="min-h-0 flex-1">{drawingFor(step)}</div>
-            {footerFor?.(step)}
-          </div>
-        }
+        bottom={<div className="h-full min-h-0">{drawingFor(step)}</div>}
       />
-      {sidebar}
+      {sidebar ? (
+        // the panel (when a step has one) over the sidebar: the column scrolls, and the sidebar keeps a
+        // height it can be used at; with no panel it fills the column as it always has
+        <div className="flex min-h-0 shrink-0 flex-col gap-2 overflow-y-auto">
+          {panel}
+          <div className="flex min-h-[22rem] flex-1">{sidebar}</div>
+        </div>
+      ) : null}
     </div>
   );
 }

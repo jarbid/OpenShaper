@@ -12,7 +12,7 @@
 import type { BoardDoc, RailsBoard } from '@openshaper/board2';
 import type { BoardPdf1to1Options, DxfCurveMode } from '@openshaper/export';
 import type { BezierBoard, ResolvedFin } from '@openshaper/kernel';
-import type { PatchSeams, RailKeyPlaces } from '@openshaper/render3d/patches';
+import type { PatchSeams } from '@openshaper/render3d/patches';
 
 /** One finding of a conversion or build, as the popover lists it. */
 export interface NurbsIssue {
@@ -63,11 +63,6 @@ export interface NurbsMeshData {
    * board cm, the band edges first). The rails engine fills it; the sections engine leaves it null.
    */
   readonly seams: PatchSeams | null;
-  /**
-   * Where the rails board's rail keys are, per side, cm from the tail: the zones the Patches look draws
-   * on the rail until the document has zones of its own. Null with `patch`.
-   */
-  readonly railKeys: RailKeyPlaces | null;
   /** The row and column ladders were reused from the previous mesh (a drag), not derived. */
   readonly laddersReused: boolean;
 }

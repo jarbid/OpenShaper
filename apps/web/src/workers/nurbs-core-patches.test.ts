@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * The patch of every vertex, from the rails engine's faces to the mesh the 3D view gets: which
- * jobs carry it, what its ids are, that it travels with the other buffers, and that the rail
- * keys the Patches look draws its zones from, and the seam lines it draws over the surface,
- * come with it.
+ * jobs carry it, what its ids are, that it travels with the other buffers, and that the seam
+ * lines it draws over the surface come with it.
  */
-import { FACE, convertSections, type BoardDoc } from '@openshaper/board2';
+import { FACE, type BoardDoc } from '@openshaper/board2';
 import { analyticBoard, asymmetricBoard, swallowBoard } from '@openshaper/board2/testing';
 import { PATCH, TUCK, isTuckId, patchOfId } from '@openshaper/render3d/patches';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { meshDocument, resetCore } from './nurbs-core';
 import { meshTransferables, type JobOptions } from './nurbs-protocol';
-import { patchesOfFaces, patchTable, railKeyPlaces } from './patch-map';
+import { patchesOfFaces, patchTable } from './patch-map';
 
 vi.setConfig({ testTimeout: 30_000 });
 
@@ -47,16 +46,6 @@ describe('patchesOfFaces', () => {
       PATCH.corner,
       PATCH.corner + TUCK,
     ]);
-  });
-});
-
-describe('railKeyPlaces', () => {
-  it('lists the x of each key per side, the minus side only when there is one', () => {
-    expect(railKeyPlaces({ plus: [{ x: 1 }, { x: 5 }] })).toEqual({ plus: [1, 5] });
-    expect(railKeyPlaces({ plus: [{ x: 1 }], minus: [{ x: 2 }] })).toEqual({
-      plus: [1],
-      minus: [2],
-    });
   });
 });
 
@@ -119,19 +108,9 @@ describe.each([
     expect(zAt(PATCH.rail)).toBeGreaterThan(zAt(PATCH.bottom));
   });
 
-  it("gives the rail keys of the rails board, as the document's keys sit", () => {
-    const doc = make();
-    const m = meshOf(doc, 'rails');
-    const c = convertSections(doc);
-    if (!c.ok) throw new Error('not convertible');
-    expect(m.railKeys).toEqual(railKeyPlaces(c.value.board.rails));
-    expect(m.railKeys!.plus.length).toBeGreaterThan(0);
-  });
-
   it('has none from the sections engine', () => {
     const m = meshOf(make());
     expect(m.patch).toBeNull();
-    expect(m.railKeys).toBeNull();
   });
 
   it('transfers the patch with the other buffers', () => {

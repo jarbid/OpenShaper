@@ -6,6 +6,7 @@
  */
 import type { BoardDoc, RailsBoard } from '@openshaper/board2';
 import type { BoardMeta } from './file-io';
+import { myRailsToJson, myRailsToWrite } from './my-rails';
 import {
   loadedNurbsCore,
   loadNurbsCore,
@@ -13,6 +14,12 @@ import {
   sectionsTextNow,
   withBoardMeta,
 } from './section-files';
+
+/** The board with `meta` as its Board info and the saved rails it uses in `meta.extra.myRails`. */
+const withMeta = (board: RailsBoard, meta: BoardMeta): RailsBoard => {
+  const mine = myRailsToWrite(board);
+  return withBoardMeta(board, meta, mine && myRailsToJson(mine));
+};
 
 /** Whether parsed JSON is a rails board document (the sections reader would refuse it). */
 export const isRailsJson = (json: unknown): boolean =>
@@ -30,13 +37,13 @@ export const isRailsText = (text: string): boolean => {
 /** The canonical text of a rails board with `meta` as its Board info. */
 export async function railsText(board: RailsBoard, meta: BoardMeta): Promise<string> {
   const { railsToText } = await loadNurbsCore();
-  return railsToText(withBoardMeta(board, meta));
+  return railsToText(withMeta(board, meta));
 }
 
 /** The same at once when the code has been loaded (null before), for the flush at `pagehide`. */
 export function railsTextNow(board: RailsBoard, meta: BoardMeta): string | null {
   const core = loadedNurbsCore();
-  return core ? core.railsToText(withBoardMeta(board, meta)) : null;
+  return core ? core.railsToText(withMeta(board, meta)) : null;
 }
 
 /** The text of a document of either kind. */

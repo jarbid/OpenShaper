@@ -253,7 +253,13 @@ test.describe('the workspace', () => {
     await entry(page, 'Outline').click();
     await tapUntil('rail', grid(0.3, 0.7, 0.05, 0.35, 0.85, 0.008));
     expect(await currentStep(page)).toEqual(['Rails']);
-    await expect(page.getByRole('region', { name: 'Rail keys' })).toBeVisible();
+    // the Rails step shows the rail map, and the tap is its choice too: the panel names the zone or blend tapped
+    await expect(page.getByRole('toolbar', { name: 'Rail zones and blends' })).toBeVisible();
+    await expect(
+      page
+        .getByRole('region', { name: 'Rail panel' })
+        .getByRole('heading', { name: /(Zone|Blend) \d/ }),
+    ).toBeVisible();
 
     // the patch stays lit (the readout still names it), and a tap on nothing clears it and changes no step.
     // Empty canvas at the top left: the bottom left is the Patches key, and the right edge holds the chips.

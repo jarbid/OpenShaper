@@ -1,10 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import {
-  MAX_ZONES,
-  PATCH_COLORS,
-  RAIL_NO_ZONES_COLOR,
-  zonesFromRailKeys,
-} from '@openshaper/render3d/patches';
+import { MAX_ZONES, PATCH_COLORS, RAIL_NO_ZONES_COLOR } from '@openshaper/render3d/patches';
+import { zonesAt } from './test/zones-at';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PATCH_KEY_STORAGE, PatchKey } from './PatchKey';
@@ -15,7 +11,7 @@ const rgb = (hex: string): string => {
   return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
 };
 
-const zones = zonesFromRailKeys({ plus: [10, 50, 90] });
+const zones = zonesAt({ plus: [10, 50, 90] });
 
 const items = () => within(screen.getByRole('list')).getAllByRole('listitem');
 const swatch = (li: HTMLElement) => li.querySelector<HTMLElement>('[aria-hidden]')!;
@@ -50,7 +46,7 @@ describe('the key to the Patches look', () => {
   });
 
   it('names a board with no zones plainly, in the colour its rail has', () => {
-    render(<PatchKey zones={zonesFromRailKeys(null)} />);
+    render(<PatchKey zones={zonesAt(null)} />);
     expect(items().map((li) => li.textContent)).toEqual([
       'Deck',
       'Bottom',
@@ -62,7 +58,7 @@ describe('the key to the Patches look', () => {
   });
 
   it('lists no more zones than the view paints', () => {
-    const many = zonesFromRailKeys({
+    const many = zonesAt({
       plus: Array.from({ length: MAX_ZONES + 4 }, (_, i) => i * 3),
     });
     render(<PatchKey zones={many} />);

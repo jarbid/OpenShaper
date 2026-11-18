@@ -62,7 +62,6 @@ export function surfaceOf(model: NurbsModel, live = true): ExternalSurface {
     deviation,
     patch: mesh.patch,
     seams: mesh.seams,
-    railKeys: mesh.railKeys,
   };
   surfaces.set(mesh, { ...cached, [kind]: surface });
   return surface;

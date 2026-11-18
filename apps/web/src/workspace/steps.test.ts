@@ -16,7 +16,7 @@ import {
 } from './steps';
 
 const VIEWS = ['quad', 'split', 'outline', 'rocker', 'crossSection', '3d'];
-const EDITORS = ['outline', 'rocker', 'crossSection'];
+const EDITORS = ['outline', 'rocker', 'crossSection', 'railMap'];
 const tabIds = SIDEBAR_TABS.map((t) => t.id);
 const sectionTab = (id: string) => SIDEBAR_SECTIONS.find((s) => s.id === id)?.tab;
 
@@ -80,13 +80,7 @@ describe('a design step', () => {
     const curve = (id: Parameters<typeof stepById>[0]) => stepById(id).drawing.curve;
     expect(curve('deck')).toBe('deck');
     expect(curve('bottom')).toBe('bottom');
-    expect(curve('rails')).toBeNull();
-  });
-
-  it('shows the rail keys under the Rails drawing and nothing under any other', () => {
-    for (const s of DESIGN_STEPS) {
-      expect(s.drawing.footer, s.id).toBe(s.id === 'rails' ? 'railKeys' : undefined);
-    }
+    expect(curve('rails')).toBeUndefined();
   });
 
   it('draws what the brief says', () => {
@@ -97,7 +91,7 @@ describe('a design step', () => {
     expect(editor('fins')).toBe('outline');
     expect(editor('deck')).toBe('crossSection');
     expect(editor('bottom')).toBe('crossSection');
-    expect(editor('rails')).toBe('crossSection');
+    expect(editor('rails')).toBe('railMap');
   });
 
   it('maps to a sidebar view the app has', () => {

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import {
+  BOTH_SIDES,
   MAX_ZONES,
   NO_SELECTION,
   PATCH,
@@ -31,7 +32,6 @@ import {
   spanLit,
   tuckFactor,
   zoneColorAt,
-  zonesFromRailKeys,
   type RailZone,
   type RailZones,
 } from './patches';
@@ -132,29 +132,7 @@ describe('zone colour', () => {
   });
 });
 
-describe('zones from rail keys', () => {
-  it('makes a zone of no length at each key, coloured by its index', () => {
-    const zones = zonesFromRailKeys({ plus: [10, 50, 90] });
-    expect(zones.plus.map((q) => [q.from, q.to])).toEqual([
-      [10, 10],
-      [50, 50],
-      [90, 90],
-    ]);
-    expect(zones.plus.map((q) => q.color)).toEqual(RAIL_ZONE_COLORS.slice(0, 3));
-    // a mirror board's minus side is its plus side
-    expect(zones.minus).toBe(zones.plus);
-  });
-
-  it('gives an asymmetric board each side its own list', () => {
-    const zones = zonesFromRailKeys({ plus: [10, 50], minus: [20] });
-    expect(zones.minus).toHaveLength(1);
-    expect(zones.plus).toHaveLength(2);
-  });
-
-  it('has no zones without keys', () => {
-    expect(zonesFromRailKeys(null)).toEqual({ plus: [], minus: [] });
-  });
-
+describe('the zone colours', () => {
   it('takes the colours round again past the palette', () => {
     expect(railZoneColor(RAIL_ZONE_COLORS.length)).toBe(RAIL_ZONE_COLORS[0]);
     expect(railZoneColor(-1)).toBe(RAIL_ZONE_COLORS[RAIL_ZONE_COLORS.length - 1]);
@@ -267,6 +245,20 @@ describe('the chosen zone or blend', () => {
     const deck = selectionUniforms({ patch: 'deck' }, { plus: [], minus: [] });
     expect(isLit(deck, PATCH.deck, 1, -1)).toBe(true);
     expect(isLit(deck, PATCH.bottom, 1, -1)).toBe(false);
+  });
+
+  it('lights a span on both sides when the selection says both, reading the span from its own side', () => {
+    const own = { plus: zones, minus: zones };
+    const sel = selectionUniforms({ patch: 'rail', side: 'minus', blend: 1, both: true }, own);
+    expect(sel).toEqual({ patch: PATCH.rail, side: BOTH_SIDES, lo: 40, hi: 60 });
+    expect(isLit(sel, PATCH.rail, 50, 5)).toBe(true);
+    expect(isLit(sel, PATCH.rail, 50, -5)).toBe(true);
+    expect(isLit(sel, PATCH.rail, 70, 5)).toBe(false);
+    expect(isLit(sel, PATCH.rail, 70, -5)).toBe(false);
+    // without `both` the same selection stays on its side
+    const one = selectionUniforms({ patch: 'rail', side: 'minus', blend: 1 }, own);
+    expect(isLit(one, PATCH.rail, 50, 5)).toBe(false);
+    expect(isLit(one, PATCH.rail, 50, -5)).toBe(true);
   });
 });
 

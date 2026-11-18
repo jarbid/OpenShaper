@@ -18,8 +18,14 @@ import { fmtLen, type LengthUnit } from './format';
  */
 export const sideWord = (side: Side): string => (side === 'plus' ? 'left' : 'right');
 
-/** "Rail, left side, zone 2, 112 cm from the tail": what `pick` is, and where it was tapped. */
-export function patchPhrase(pick: PatchPick, units: LengthUnit): string {
+/**
+ * "Rail, left side, zone 2, 112 cm from the tail": what `pick` is, and where it was tapped (or, for a
+ * zone or blend the rail map chose, where its cursor is). The tap's y is not read.
+ */
+export function patchPhrase(
+  pick: Omit<PatchPick, 'y'> & { readonly y?: number },
+  units: LengthUnit,
+): string {
   const where = `${fmtLen(pick.x, units)} from the tail`;
   switch (pick.patch) {
     case 'deck':

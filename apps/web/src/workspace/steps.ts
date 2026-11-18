@@ -44,14 +44,15 @@ export type StepCurve = 'deck' | 'bottom' | null;
 
 /** What a step's drawing shows. */
 export interface StepDrawing {
-  /** The editor that draws it (`EditorPane`'s `kind`). */
-  readonly editor: EditorKind;
+  /**
+   * The editor that draws it (`EditorPane`'s `kind`), or the rail map (`RailsStep`), which is not an
+   * editor pane: it is the Rails step's own drawing.
+   */
+  readonly editor: EditorKind | 'railMap';
   /** The drawing's heading. */
   readonly title: string;
   /** Cross-section drawings only: the curve it edits, in place of the saved Deck | Bottom choice. */
   readonly curve?: StepCurve;
-  /** What is shown read-only under the drawing: the rail keys, as a table. */
-  readonly footer?: 'railKeys';
 }
 
 /** What a step does to the sidebar. */
@@ -135,12 +136,7 @@ export const DESIGN_STEPS: readonly DesignStep[] = [
     label: 'Rails',
     icon: Waypoints,
     key: '5',
-    drawing: {
-      editor: 'crossSection',
-      title: 'Cross-section: rails',
-      curve: null,
-      footer: 'railKeys',
-    },
+    drawing: { editor: 'railMap', title: 'Rail map' },
     sidebar: { view: 'crossSection' },
   },
   {

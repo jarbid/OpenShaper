@@ -39,6 +39,7 @@ export type FeatureKind =
   | 'analysis-mode'
   | 'tail-type'
   | 'bottom-feature'
+  | 'built-in-rail'
   | 'shortcut';
 
 export interface DocEntry {
@@ -118,6 +119,17 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
     'single-concave',
     'double-concave',
     'channels',
+  ]),
+  // The rails of the Rail menu (rail zones, `packages/store/src/rails/library.ts`); the Editing page lists each
+  // with its summary, read from the library.
+  ...entries('built-in-rail', '/docs/editing', [
+    'round',
+    'soft',
+    'down',
+    'tucked',
+    'boxy',
+    'hard',
+    'tip',
   ]),
   ...entries('shortcut', '/docs/shortcuts', [
     'undo',

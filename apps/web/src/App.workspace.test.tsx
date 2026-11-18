@@ -209,7 +209,7 @@ describe('the drawing', () => {
       fireEvent.click(entry(step));
       expect(screen.queryByRole('group', { name: 'Curve to edit' }), step).toBeNull();
     }
-    expect(heading('Cross-section: rails')).toBeTruthy();
+    expect(heading('Rail map')).toBeTruthy();
     fireEvent.click(entry('Deck'));
     expect(heading('Cross-section: deck')).toBeTruthy();
     fireEvent.click(entry('Bottom'));
@@ -228,15 +228,28 @@ describe('the drawing', () => {
     expect(screen.getByRole('button', { name: 'Delete cross-section' })).toBeTruthy();
   });
 
-  it('shows the rail keys read-only under the Rails drawing, and under no other', async () => {
+  it('shows the rail map and the rail panel under the Rails step, and under no other', async () => {
     await openRailsBoard();
-    expect(screen.queryByRole('region', { name: 'Rail keys' })).toBeNull();
+    expect(screen.queryByRole('toolbar', { name: 'Rail zones and blends' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Rail panel' })).toBeNull();
     fireEvent.click(entry('Rails'));
-    const keys = screen.getByRole('region', { name: 'Rail keys' });
-    expect(within(keys).getAllByRole('table').length).toBeGreaterThan(0);
-    expect(within(keys).getAllByRole('row').length).toBeGreaterThan(2);
-    fireEvent.click(entry('Deck'));
+    const map = screen.getByRole('toolbar', { name: 'Rail zones and blends' });
+    // one button for each zone and blend of the board, and a place along it
+    expect(within(map).getAllByRole('button', { name: /^(Zone|Blend) \d/ }).length).toBeGreaterThan(
+      2,
+    );
+    expect(screen.getByRole('slider', { name: 'Place along the board' })).toBeTruthy();
+    // the panel says how to choose; choosing a zone on the map shows that zone's rail in it
+    const panel = screen.getByRole('region', { name: 'Rail panel' });
+    expect(panel.textContent).toContain('Tap a rail zone on the board or the strip to choose it.');
+    fireEvent.click(within(map).getAllByRole('button', { name: /^Zone 2/ })[0]!, { detail: 0 });
+    expect(within(panel).getByRole('combobox', { name: 'Rail' })).toBeTruthy();
+    expect(within(panel).getByRole('slider', { name: 'Apex' })).toBeTruthy();
+    // the read-only table of keys is gone
     expect(screen.queryByRole('region', { name: 'Rail keys' })).toBeNull();
+    fireEvent.click(entry('Deck'));
+    expect(screen.queryByRole('toolbar', { name: 'Rail zones and blends' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Rail panel' })).toBeNull();
   });
 
   it('draws the outline for Outline, Tail and Fins and the rocker for Rocker and foil', async () => {

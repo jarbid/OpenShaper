@@ -155,7 +155,8 @@ import { specsFromMesh } from './nurbs-specs';
 import { useMeshSpecs } from './use-mesh-specs';
 import { useSpecsWorker } from './use-specs-worker';
 import { useTrace, type TraceView } from './use-trace';
-import { RailKeysTable } from './workspace/RailKeysTable';
+import { RailPanelSlot } from './workspace/RailPanel';
+import { RailsStep } from './workspace/RailsStep';
 import { RailsWorkspace } from './workspace/RailsWorkspace';
 import { stepById, type StepCurve, type StepId } from './workspace/steps';
 import { claimPatchesDefault, setWorkspaceStep } from './workspace/use-step';
@@ -2157,6 +2158,8 @@ function AppShell() {
   // Keyed by the editor, so Outline, Tail and Fins are one pane and keep their framing between them.
   const drawingFor = (id: StepId) => {
     const { drawing } = stepById(id);
+    // the Rails step's drawing is the rail map, not an editor pane
+    if (drawing.editor === 'railMap') return <RailsStep units={units} />;
     return (
       <EditorPane
         key={drawing.editor}
@@ -2164,8 +2167,6 @@ function AppShell() {
       />
     );
   };
-  const footerFor = (id: StepId) =>
-    stepById(id).drawing.footer === 'railKeys' ? <RailKeysTable units={units} /> : null;
   // The workspace has no 3D tab, so its board panel carries all of the 3D tab's controls.
   const workspaceLooks = (
     <ThreeDControls
@@ -2409,7 +2410,7 @@ function AppShell() {
               board={threeDPane}
               looks={workspaceLooks}
               drawingFor={drawingFor}
-              footerFor={footerFor}
+              panel={<RailPanelSlot units={units} />}
               sidebar={isDesktop ? sidebarFor(true) : undefined}
               compact={!isDesktop}
               onSidebar={setSidebar}
@@ -2493,6 +2494,7 @@ function AppShell() {
           peek={sheetPeek}
           canClose={isPhone}
         >
+          {workspaceOn && <RailPanelSlot units={units} fluid />}
           {sidebarFor(false)}
         </BottomSheet>
       )}

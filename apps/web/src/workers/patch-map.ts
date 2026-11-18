@@ -30,12 +30,3 @@ export function patchesOfFaces(face: Uint8Array, table: ReadonlyMap<number, numb
   for (let i = 0; i < face.length; i++) out[i] = table.get(face[i]!) ?? PATCH.rail;
   return out;
 }
-
-/** Where each side's rail keys are, cm from the tail (the minus side only on an asymmetric board). */
-export function railKeyPlaces(rails: {
-  readonly plus: readonly { readonly x: number }[];
-  readonly minus?: readonly { readonly x: number }[];
-}): { readonly plus: number[]; readonly minus?: number[] } {
-  const xs = (keys: readonly { readonly x: number }[]): number[] => keys.map((k) => k.x);
-  return rails.minus ? { plus: xs(rails.plus), minus: xs(rails.minus) } : { plus: xs(rails.plus) };
-}

@@ -103,10 +103,9 @@ import {
   type Pt,
 } from '@openshaper/export';
 import type { BezierBoard, Spline } from '@openshaper/kernel';
-import type { RailKeyPlaces } from '@openshaper/render3d/patches';
 import { curvatureArrays, curvatureScale, excludeUndefined, vertexAreas } from './nurbs-curvature';
 import { classicDeviation } from './nurbs-deviation';
-import { patchesOfFaces, patchTable, railKeyPlaces } from './patch-map';
+import { patchesOfFaces, patchTable } from './patch-map';
 
 const PATCH_TABLE = patchTable(FACE);
 import type {
@@ -333,8 +332,8 @@ const fallbackIssue = (reason: string): NurbsIssue => ({
 const PROBE_SAMPLES = 64;
 
 /**
- * The sections of `rails` at the station coordinates `xis` (both sides on an asymmetric board). The
- * coordinates are clamped to `[xiMin, xiMax]`, the board's ends in x.
+ * The sections of `rails` at the station coordinates `xis` (both sides on an asymmetric board, or one whose
+ * right side has rail keys of its own). The coordinates are clamped to `[xiMin, xiMax]`, the board's ends in x.
  */
 const railsProbes = (
   rails: BuiltRails,
@@ -342,13 +341,15 @@ const railsProbes = (
   xiMin: number = rails.xiMin,
   xiMax: number = rails.xiMax,
 ): SectionProbe[] => {
-  const asymmetric = rails.board.symmetry === 'asymmetric';
+  // the right side is a section of its own on an asymmetric board, and on a mirror board that has rail keys of
+  // its own for it (the rail panel's Right side): there the outline is the same and the rail is not
+  const twoSided = rails.board.symmetry === 'asymmetric' || rails.board.rails.minus !== undefined;
   return xis.map((xi) => {
     const x = Math.min(xiMax, Math.max(xiMin, xi));
     return {
       xi,
       plus: probeRails(rails, 0, x, PROBE_SAMPLES),
-      minus: asymmetric ? probeRails(rails, 1, x, PROBE_SAMPLES) : null,
+      minus: twoSided ? probeRails(rails, 1, x, PROBE_SAMPLES) : null,
     };
   });
 };
@@ -448,8 +449,6 @@ interface MeshedJob {
   readonly buildMs: number;
   readonly meshMs: number;
   readonly laddersReused: boolean;
-  /** The rails board's rail keys, per side (the rails engine only). */
-  readonly railKeys?: RailKeyPlaces;
   /** The as-built sections asked for; a function so they are taken after the job's own timings. */
   readonly probes: () => SectionProbe[];
 }
@@ -535,7 +534,6 @@ const finishMesh = (
       deviationNoData,
       patch: m.face ? patchesOfFaces(m.face, PATCH_TABLE) : null,
       seams: m.seams ?? null,
-      railKeys: m.face && job.railKeys ? job.railKeys : null,
       laddersReused: job.laddersReused,
     },
     probes: job.probes(),
@@ -597,7 +595,6 @@ const meshBuilt = (
       buildMs: b.buildMs + railsBuildMs,
       meshMs,
       laddersReused: reused,
-      ...(rails ? { railKeys: railKeyPlaces(rails.board.rails) } : {}),
       probes: () => probesOf(b.built, probes, rails),
     },
     classic,
@@ -739,7 +736,6 @@ const meshRailsDocument = (
       buildMs,
       meshMs,
       laddersReused: false,
-      railKeys: railKeyPlaces(r.built.board.rails),
       probes: () => railsProbes(r.built, probes),
     },
     reference ? canonical(reference) : null,

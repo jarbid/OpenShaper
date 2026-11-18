@@ -42,8 +42,17 @@ export function metaOfDoc(meta: DocMeta): BoardMeta {
  * The document with `meta` written into its `meta`: the three slots and, for the other four fields, the
  * `extra` keys this app owns; any other `extra` key stays. The document itself when nothing changes, so a
  * save of an unedited board does not make a new object.
+ *
+ * `myRails` is the one more key written here, for a rails board: the saved rails the board uses
+ * (`my-rails.ts`), under `extra.myRails`, where a board opened elsewhere finds them. Left out
+ * (`undefined`), the key stays as the document had it; an empty list takes it away. It keeps the place it
+ * had among the other keys, and goes last when it is new.
  */
-export function withBoardMeta<D extends { readonly meta: DocMeta }>(doc: D, meta: BoardMeta): D {
+export function withBoardMeta<D extends { readonly meta: DocMeta }>(
+  doc: D,
+  meta: BoardMeta,
+  myRails?: readonly unknown[],
+): D {
   const prev = doc.meta;
   // Keys keep the order the document had them in; a field the document did not have goes last.
   const extra: Record<string, unknown> = {};
@@ -57,6 +66,10 @@ export function withBoardMeta<D extends { readonly meta: DocMeta }>(doc: D, meta
   }
   for (const k of EXTRA_FIELDS) {
     if (meta[k] && !(k in extra)) extra[k] = meta[k];
+  }
+  if (myRails !== undefined) {
+    if (myRails.length === 0) delete extra.myRails;
+    else extra.myRails = myRails;
   }
 
   const next: { -readonly [K in keyof DocMeta]: DocMeta[K] } = { name: meta.model ?? '' };

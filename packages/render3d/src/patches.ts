@@ -164,25 +164,6 @@ export interface RailZones {
 /** The most zones a side takes. */
 export const MAX_ZONES = 16;
 
-/** Where the rail keys of a document are, cm from the tail, per side. */
-export interface RailKeyPlaces {
-  readonly plus: readonly number[];
-  /** Absent on a mirror board. */
-  readonly minus?: readonly number[];
-}
-
-/**
- * Zones from a document's rail keys: each key a zone of no length at its place, coloured by its
- * index along its side. A mirror board's minus side takes the plus side's zones.
- */
-export function zonesFromRailKeys(keys: RailKeyPlaces | null | undefined): RailZones {
-  if (!keys) return { plus: [], minus: [] };
-  const side = (xs: readonly number[]): RailZone[] =>
-    xs.map((x, i) => ({ from: x, to: x, color: railZoneColor(i) }));
-  const plus = side(keys.plus);
-  return { plus, minus: keys.minus ? side(keys.minus) : plus };
-}
-
 /** A place on a side's zones: in a zone, or between a zone and the next. */
 export type ZoneAt =
   | { readonly kind: 'zone'; readonly zone: number }
@@ -280,6 +261,11 @@ export interface PatchSelection {
   readonly side?: Side;
   readonly zone?: number;
   readonly blend?: number;
+  /**
+   * A rail selection that lights its span on the other side as well: a zone of a board whose two sides
+   * are one list is on both. The span is read from `side`'s zones.
+   */
+  readonly both?: boolean;
 }
 
 /** What a tap on the board found: the patch, where, and for a rail the zone or blend there. */
@@ -328,13 +314,16 @@ export function selectionSpan(
 /** The selection as the shader's uniforms. `patch` is -1 for no selection. */
 export interface SelectionUniforms {
   readonly patch: number;
-  /** 0 plus, 1 minus; -1 for a patch that is not one side's. */
+  /** 0 plus, 1 minus, 2 both sides; -1 for a patch that is not one side's. */
   readonly side: number;
   readonly lo: number;
   readonly hi: number;
 }
 
 export const NO_SELECTION: SelectionUniforms = { patch: -1, side: -1, lo: 0, hi: 0 };
+
+/** The side a selection that lights both sides carries; the shader reads it as "either side". */
+export const BOTH_SIDES = 2;
 
 /** The uniforms of `sel` on `zones` (as {@link packZones} sorts them); no selection when it names nothing. */
 export function selectionUniforms(
@@ -346,7 +335,12 @@ export function selectionUniforms(
   const side = sel.side ?? 'plus';
   const span = selectionSpan(sortedZones(side === 'plus' ? zones.plus : zones.minus), sel);
   if (span === null) return NO_SELECTION;
-  return { patch: PATCH.rail, side: side === 'plus' ? 0 : 1, lo: span[0], hi: span[1] };
+  return {
+    patch: PATCH.rail,
+    side: sel.both ? BOTH_SIDES : side === 'plus' ? 0 : 1,
+    lo: span[0],
+    hi: span[1],
+  };
 }
 
 /**
@@ -356,7 +350,7 @@ export function selectionUniforms(
 export function isLit(sel: SelectionUniforms, patch: number, x: number, y: number): boolean {
   if (sel.patch !== patch) return false;
   if (patch !== PATCH.rail) return true;
-  return (y >= 0 ? 0 : 1) === sel.side && x >= sel.lo && x <= sel.hi;
+  return (sel.side === BOTH_SIDES || (y >= 0 ? 0 : 1) === sel.side) && x >= sel.lo && x <= sel.hi;
 }
 
 // --- the colour of a place --------------------------------------------------------------------
@@ -371,11 +365,12 @@ const smoothstep = (edge0: number, edge1: number, x: number): number => {
 };
 
 /**
- * How far the chosen span lights the rail at `(x, y)`: 1 inside it on the chosen side, 0 elsewhere,
- * fading across {@link SPAN_FEATHER} at the span's two ends. The shader's `spanLit`, in plain code.
+ * How far the chosen span lights the rail at `(x, y)`: 1 inside it on the chosen side (either, when
+ * the selection is on both), 0 elsewhere, fading across {@link SPAN_FEATHER} at the span's two ends.
+ * The shader's `spanLit`, in plain code.
  */
 export function spanLit(sel: SelectionUniforms, x: number, y: number): number {
-  if ((y >= 0 ? 0 : 1) !== sel.side) return 0;
+  if (sel.side !== BOTH_SIDES && (y >= 0 ? 0 : 1) !== sel.side) return 0;
   return (
     smoothstep(sel.lo - SPAN_FEATHER, sel.lo + SPAN_FEATHER, x) *
     (1 - smoothstep(sel.hi - SPAN_FEATHER, sel.hi + SPAN_FEATHER, x))

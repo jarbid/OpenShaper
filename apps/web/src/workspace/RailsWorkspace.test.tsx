@@ -5,7 +5,7 @@
  * sidebar and not the board.
  */
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { setPatchPick } from '../patch-look';
 import { DEFAULT_SIDEBAR_STATE, type SidebarState } from '../sidebar-sections';
@@ -28,14 +28,10 @@ function setup(props: Partial<RailsWorkspaceProps> = {}) {
   const onSidebar = vi.fn();
   const onShowSidebar = vi.fn();
   const drawingFor = vi.fn((step: string) => <div data-testid="drawing">{step}</div>);
-  const footerFor = vi.fn(
-    (step: string): ReactNode => (step === 'rails' ? <div data-testid="footer">keys</div> : null),
-  );
   const all: RailsWorkspaceProps = {
     board,
     looks: <button type="button">Looks</button>,
     drawingFor,
-    footerFor,
     sidebar: <aside aria-label="Board panels">sidebar</aside>,
     compact: false,
     onSidebar,
@@ -47,7 +43,7 @@ function setup(props: Partial<RailsWorkspaceProps> = {}) {
   const nav = () => screen.getByRole('navigation', { name: 'Design steps' });
   const step = (name: string) => within(nav()).getByRole('button', { name });
   const drawing = () => screen.getByTestId('drawing').textContent;
-  return { ...view, all, onSidebar, onShowSidebar, drawingFor, footerFor, nav, step, drawing };
+  return { ...view, all, onSidebar, onShowSidebar, drawingFor, nav, step, drawing };
 }
 
 beforeEach(() => {
@@ -119,24 +115,6 @@ describe('the drawing', () => {
     act(() => setWorkspaceStep('rocker'));
     expect(drawing()).toBe('rocker');
     expect(step('Rocker and foil').getAttribute('aria-current')).toBe('step');
-  });
-
-  it('shows a step’s footer under its drawing, and only that step’s', () => {
-    const { step } = setup();
-    expect(screen.queryByTestId('footer')).toBeNull();
-    fireEvent.click(step('Rails'));
-    expect(screen.getByTestId('footer').textContent).toBe('keys');
-    expect(
-      screen.getByTestId('drawing').compareDocumentPosition(screen.getByTestId('footer')),
-    ).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    fireEvent.click(step('Tail'));
-    expect(screen.queryByTestId('footer')).toBeNull();
-  });
-
-  it('needs no footer function', () => {
-    const { step } = setup({ footerFor: undefined });
-    fireEvent.click(step('Rails'));
-    expect(screen.queryByTestId('footer')).toBeNull();
   });
 });
 

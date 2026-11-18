@@ -10,6 +10,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 import DocsEditing from '../pages/docs/Editing';
 import DocsShortcuts from '../pages/docs/Shortcuts';
+import { BUILT_IN_RAILS } from '@openshaper/store/rails';
 import { DESIGN_STEPS, PANEL_ENTRIES } from './steps';
 
 // the page head needs the static-site generator's provider
@@ -90,5 +91,51 @@ describe('the shortcuts page', () => {
     expect(within(view).getByText('Split view')).toBeTruthy();
     expect(view.textContent).toMatch(/workspace/);
     expect(screen.getAllByRole('link', { name: 'workspace' }).length).toBeGreaterThan(0);
+  });
+});
+
+describe('the Rails step on the editing page', () => {
+  it('has a section of its own, linked from the contents, that the Rails step points to', () => {
+    page(<DocsEditing />);
+    const section = document.getElementById('rails-step');
+    expect(section).not.toBeNull();
+    expect(
+      within(section!).getByRole('heading', { name: 'The Rails step: zones and blends' }),
+    ).toBeTruthy();
+    expect(document.querySelector('a[href="#rails-step"]')).not.toBeNull();
+    // the Rails entry of the workspace section points at it
+    expect(
+      document.getElementById('workspace')!.querySelector('a[href="#rails-step"]'),
+    ).not.toBeNull();
+  });
+
+  it('says what a zone and a blend are, and names the three dials, the sides, My rails and Tidy rails', () => {
+    page(<DocsEditing />);
+    const section = document.getElementById('rails-step')!;
+    const terms = Array.from(section.querySelectorAll('dt')).map((dt) => dt.textContent!.trim());
+    for (const name of ['Zone', 'Blend', 'Apex', 'Tuck', 'Edge', 'Sides', 'More']) {
+      expect(terms, name).toContain(name);
+    }
+    const text = section.textContent!;
+    expect(text).toContain('My rails');
+    expect(text).toContain('Tidy rails');
+    expect(text).toContain('Save as my rail');
+    expect(text).toContain('carries it in its file');
+  });
+
+  it('lists every built-in rail with its summary, from the library', () => {
+    page(<DocsEditing />);
+    const section = document.getElementById('rails-step')!;
+    const terms = Array.from(section.querySelectorAll('dt')).map((dt) => dt.textContent!.trim());
+    for (const r of BUILT_IN_RAILS) {
+      expect(terms, r.id).toContain(r.name);
+      expect(section.textContent, r.id).toContain(r.summary);
+    }
+  });
+
+  it('uses the words of the panel and none of the engine’s: no rail keys, no recipe', () => {
+    page(<DocsEditing />);
+    const text = document.getElementById('rails-step')!.textContent!;
+    expect(text).not.toMatch(/rail keys?\b|\brecipe\b/i);
   });
 });

@@ -16,6 +16,7 @@
  * actually happens.
  */
 import { FIN_PROFILES_LIST, FIN_SETUPS, FIN_SYSTEMS, RAIL_PRESETS } from '@openshaper/kernel';
+import { BUILT_IN_RAILS } from '@openshaper/store/rails';
 import { describe, expect, it } from 'vitest';
 import { EXPORT_FORMATS } from '../file-io';
 import { SHORTCUTS } from '../shortcuts';
@@ -96,6 +97,13 @@ describe('docs coverage', () => {
     expectDocumented(
       'bottom-feature',
       BOTTOM_FEATURES.map((f) => f.value),
+    );
+  });
+
+  it('documents every built-in rail of the rail panel', () => {
+    expectDocumented(
+      'built-in-rail',
+      BUILT_IN_RAILS.map((r) => r.id),
     );
   });
 
