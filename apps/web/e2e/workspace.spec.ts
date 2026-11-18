@@ -255,9 +255,10 @@ test.describe('the workspace', () => {
     expect(await currentStep(page)).toEqual(['Rails']);
     await expect(page.getByRole('region', { name: 'Rail keys' })).toBeVisible();
 
-    // the patch stays lit (the readout still names it), and a tap on nothing clears it and changes no step
+    // the patch stays lit (the readout still names it), and a tap on nothing clears it and changes no step.
+    // Empty canvas at the top left: the bottom left is the Patches key, and the right edge holds the chips.
     await entry(page, 'Fins').click();
-    await page.mouse.click(box.x + 40, box.y + box.height - 40);
+    await page.mouse.click(box.x + 40, box.y + 40);
     await expect(readout).not.toHaveAttribute('data-patch', /.+/);
     expect(await currentStep(page)).toEqual(['Fins']);
   });
