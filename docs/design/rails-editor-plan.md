@@ -224,14 +224,14 @@ on purpose.
 ## The slices
 
 In the order each depends on the one before. Each leaves the branch working and is usable
-when it lands. Status is as of 2026-11-14.
+when it lands. Status is as of 2026-11-18.
 
 |     | Slice                             | What a shaper gets                                                                                                                                                                                                    | Gate                                                                                                                   | Status                                                                                                                                                                                                                                 |
 | --- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0   | Engine speed                      | The new engine keeps up with a drag                                                                                                                                                                                   | The budget above on the sample boards                                                                                  | Mostly done. Volume no longer depends on the grid, unchanged parts are reused, the panels have no long triangles. Draft meshing is over 20 ms on three boards, and the section probe costs 8 to 15 ms a request outside the timed part |
-| 1   | **STEP for a rails board**        | Nothing visible. It has to exist before the old engine stops being the one that exports                                                                                                                               | OCCT reads one valid closed solid for every sample board                                                               | Built. 12 of 14 sample boards fit; the made boards are valid in OCCT. Two boards pass the control budget                                                                                                                               |
-| 2   | **Rails boards are the document** | Every board opens in the new format and is built by the new engine alone. In today's layout: outline and rocker as now; the cross-section tab shows a station's deck and bottom curves, editable, and its rail, drawn | Round trip and undo; every export; old files convert; the engine switches are gone                                     | Built behind the two experimental switches, with the old layout. The switches are still there and the classic engine is still the default                                                                                              |
-| 3   | **The new layout and the looks**  | The design list, the board always in view, the drawing, the panel. Look with Patches and everything the app has. Tap a patch to choose. Today's tools in their new places                                             | Every step reachable by list, key and tap; tablet layout; no step slower than before                                   | Started. The Patches look and the tap are in the 3D view. Next: the workspace, then the Look control, then a tap that chooses a step                                                                                                   |
+| 1   | **STEP for a rails board**        | Nothing visible. It has to exist before the old engine stops being the one that exports                                                                                                                               | OCCT reads one valid closed solid for every sample board                                                               | Built. 12 of 14 sample boards fit; the made boards are valid in OCCT. The funboard never converges (thirteen minutes, then it gives up): a stall guard and a lower budget first, then the cause                                        |
+| 2   | **Rails boards are the document** | Every board opens in the new format and is built by the new engine alone. In today's layout: outline and rocker as now; the cross-section tab shows a station's deck and bottom curves, editable, and its rail, drawn | Round trip and undo; every export; old files convert; the engine switches are gone                                     | Built behind the two experimental switches, with the old layout. The switches are still there and the classic engine is still the default. A review found defects in how a rails board arrives, is autosaved and is restored (below)   |
+| 3   | **The new layout and the looks**  | The design list, the board always in view, the drawing, the panel. Look with Patches and everything the app has. Tap a patch to choose. Today's tools in their new places                                             | Every step reachable by list, key and tap; tablet layout; no step slower than before                                   | The workspace, the Patches look as its working look (seams, a darker tuck, a key) and a tap that chooses a step are in, behind the two switches. Next: the one Look control                                                            |
 | 4   | **Rail zones**                    | The rail map; zones and blends, dragged on the map and on the board; the rail panel with its three dials, live slice and More; my rails; Tidy rails                                                                   | Any zone edit keeps a closed board; one side or both; a board's rails survive a save, a share link and another machine | Built behind the two experimental switches: the rail map, the slice and the rail panel, on the zone edits built beside the workspace                                                                                                   |
 | 5   | **Deck and bottom shapes**        | Named deck shapes with a crown dial; bottom contours in the Bottom step; Edit curve; the station strip                                                                                                                | A shape applied and then edited as a curve stays the shaper's                                                          | Not started                                                                                                                                                                                                                            |
 | 6   | **Tail and corners**              | The tail picker; a radius handle on every corner, in the plan and on the board                                                                                                                                        | Every tail in the picker gives a closed board at every size in the gallery                                             | Not started                                                                                                                                                                                                                            |
@@ -252,7 +252,8 @@ rails so that the rail map and panel are built once, in their final place.
   decomposed then. To see the workspace: Settings, turn on the NURBS engine and the rails
   engine.
 - **Slice 3 is built in three parts**: (a) the workspace, over today's editors and sidebar;
-  (b) the one Look control; (c) a tap on the board chooses a step.
+  (b) the one Look control; (c) a tap on the board chooses a step. (a) and (c) are in; (b)
+  is next.
 - **The pure side of rail zones is built beside (a)**, since it needs no layout.
 
 ## Decisions taken while building
@@ -266,6 +267,24 @@ rails so that the rail map and panel are built once, in their final place.
   keys are read whenever they are present, on a mirror board too; choosing L or R in the rail
   panel creates them from the other side, and Both sides removes them. The engine tied them
   to a fully asymmetric board in three places (`native.ts`, `probe.ts`, `step.ts`).
+- **The workspace's 3D view opens in three quarters, from behind the tail.** Seen from the
+  side, as the tabbed layout opens it, the deck is edge-on in the workspace's short, wide
+  pane. The workspace passes `defaultView: 'threeQuarter'` to the 3D view, and the board is
+  fitted by its silhouette in both directions (`orthographicZoomForBox`): a fit by length
+  across the width says nothing of the height, and the oblique board is the tall one. The
+  tabbed layout keeps its side view and its fit by length, pixel for pixel, until it goes.
+- **The Patches look is drawn from the engine's own strips.** The seams (the band edge on the
+  deck, the apex, the tuck's edge, and a cut across the rail where a stretch of the outline
+  ends) come from the trim mesh's strip rows in `board2`, never from the triangles, and
+  reach the view as line segments; the mesh itself is byte for byte what it was. The tuck
+  takes 0.8 of its blend's colour in the shader. The colours, and the key under the 3D view,
+  come from one palette module, and every pair of them is tested under normal vision and
+  three colour-vision deficiencies.
+- **A test budget belongs to the package.** Tests that build and mesh boards run 3 to 10
+  times slower on a CI runner, and vitest fails a synchronous test that overruns its timeout.
+  Web has 30 s, the store 20 s, the engine package 60 s and the others 20 s. Before a push,
+  run what CI runs (`pnpm exec turbo run test --concurrency=2`), not only the package
+  touched.
 - **A rail's name is not stored.** It is the built-in or saved rail whose numbers it equals,
   and Custom when it matches none. My rails are kept in the browser and in the document's
   `meta.extra`, so they travel with the board.
@@ -322,16 +341,45 @@ From the store and the app:
 
 From the Patches look:
 
-- The rail is thin from above, so a chosen zone is hard to see; the unchosen rest is dimmed by
-  half, which is too dark; the deck is a plain grey. The look wants tuning against the
-  artifact it comes from once it is the working look. Raycasting is linear over about 90,000
-  triangles and untimed; touch is untested; a tail edge has not appeared on a real mesh.
+- Against the page it was modelled on, the app's canvas is dark, so the light deck sits on
+  navy; the seams are one device pixel, which is faint on a dark canvas; and a tail edge or
+  a corner switches at a strip boundary instead of fading across it. Raycasting is linear
+  over about 90,000 triangles and untimed; touch is untested; a tail edge has not appeared
+  on a real mesh.
+
+From the workspace:
+
+- The 3D toolbar is crowded: two rows of controls, and the status chips stand on the board's
+  nose in a short pane. The one Look control (Shaping, Surface, Realistic; overlays under
+  Show) and a quieter status strip are the next slice-3 work.
+- Neither layout meets the 50 ms input-to-frame budget for the 3D board on the machine it was
+  measured on (software rendering, shared cores): 30 ms in the workspace against 27 in
+  Split. Re-measure on a machine with a GPU before flipping the default.
+
+From how a rails board arrives, is autosaved and is restored (an independent review, with
+the failing cases kept as skipped tests):
+
+- With the rails engine switched off after rails edits, the autosave holds the sections
+  document made from the board as it was opened, so closing the tab loses the edits; Save and
+  Export write that stale document without saying so.
+- A rails board that arrives with the switches off (a file, a share link, a restored session)
+  turns both on and saves that setting at once, so a shared link changes the next day's
+  behaviour. It should be for the session only.
+- A share link of a rails board shows two notices in the one toast slot; the second replaces
+  the rails one.
+- A rails text of a newer version, or one that is JSON but the wrong shape, is dropped when
+  the engines are on, and the next autosave overwrites it with a conversion of the classic
+  board: data loss, with no notice. The held text must stay held, and the person must be told.
+- Nothing bounds a rails board that is a valid file: one outline point at a half width of
+  10,000 cm does not finish in 95 s and blocks the worker for every later job; a rocker
+  point of 1e308 gives NaN and an STL is still written. Checks in `checkBoard`, a vertex
+  budget in the mesh and limits in the reader are written up and not yet in.
 
 From the tests:
 
 - Many tests build and mesh a board; on CI they take 5 to 60 s, and the rails worker
-  comparisons take 200 s together. The app package had no test timeout (the others use 20 s);
-  it now has 30 s. The comparisons should be trimmed.
+  comparisons take 200 s together. Budgets are per package (see above). The comparisons
+  should be trimmed.
 
 ## Not decided
 
