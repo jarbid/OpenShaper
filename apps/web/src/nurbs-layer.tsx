@@ -5,6 +5,12 @@
  * one, and draws the badge, the Classic / NURBS toggle, the test-board picker, the
  * status line and the "i" popover.
  *
+ * In the workspace (`workspace`) the engine is the only one, so the chips give way to one quiet
+ * line over the board: what a tap does, the build status when there is one, and the "i" button
+ * when the build has something to flag. The badge stays in the page, visually hidden, for the
+ * scripts that read its attributes; a Classic choice or a test board kept from the tabbed layout
+ * is ignored there, not erased.
+ *
  * Loaded lazily (`ThreeDPane` in App.tsx) and only with the engine flag on, so none
  * of this, nor the worker it starts, is downloaded otherwise.
  */
@@ -22,7 +28,7 @@ import { feedRailsSlices, railsProbePlaces } from './rails-slices';
 import { boardStore, railsStore } from './store';
 import { PatchReadout } from './PatchReadout';
 import { surfaceOf } from './nurbs-surface';
-import { localizeLengths, refusalHint, statusText } from './nurbs-text';
+import { localizeLengths, refusalHint, statusText, workspaceStatusText } from './nurbs-text';
 import { createNurbsViewer, type NurbsViewer, type ViewerState } from './nurbs-viewer';
 import { TEST_BOARDS, type NurbsEngine, type TestBoardName } from './workers/nurbs-protocol';
 
@@ -82,7 +88,16 @@ function useElapsed(since: number | null): number {
 
 const ms = (v: number): string => (v < 10 ? `${v.toFixed(1)} ms` : `${Math.round(v)} ms`);
 
-function InfoPanel({ state, units }: { state: ViewerState; units: LengthUnit }) {
+function InfoPanel({
+  state,
+  units,
+  workspace = false,
+}: {
+  state: ViewerState;
+  units: LengthUnit;
+  /** In the workspace there is no "Deviation from classic" to point at. */
+  workspace?: boolean;
+}) {
   const { model, issues, error } = state;
   const warnings = issues.filter((i) => i.severity === 'warning');
   const errors = issues.filter((i) => i.severity === 'error');
@@ -91,7 +106,7 @@ function InfoPanel({ state, units }: { state: ViewerState; units: LengthUnit }) 
   return (
     <div
       role="dialog"
-      aria-label="NURBS conversion details"
+      aria-label={workspace ? 'Board build details' : 'NURBS conversion details'}
       data-testid="nurbs-info"
       className="mt-1 max-h-72 w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-md border border-border bg-card/95 px-2 py-1.5 text-xs text-card-foreground shadow-lg"
     >
@@ -130,14 +145,25 @@ function InfoPanel({ state, units }: { state: ViewerState; units: LengthUnit }) 
               <>
                 This is the NURBS board you are editing. Its outline, rocker and deck are the lines
                 you drag, and its cross-sections, which you reshape at the stations, blend smoothly
-                between them. Use <strong>Deviation from classic</strong> to compare it with the
-                board you opened.
+                between them.
+                {!workspace && (
+                  <>
+                    {' '}
+                    Use <strong>Deviation from classic</strong> to compare it with the board you
+                    opened.
+                  </>
+                )}
               </>
             ) : (
               <>
                 The NURBS surface is built from the classic board&apos;s outline, rocker, deck and
                 cross-sections. It matches them at the stations and differs between them by design.
-                Use <strong>Deviation from classic</strong> to see where.
+                {!workspace && (
+                  <>
+                    {' '}
+                    Use <strong>Deviation from classic</strong> to see where.
+                  </>
+                )}
               </>
             )}
           </p>
@@ -206,6 +232,139 @@ function editedStationX(
   return target && isStationTarget(target) ? (doc.stations[target.index]?.x ?? null) : null;
 }
 
+/**
+ * The badge: its label, and the timings of the update on screen as attributes, for the browser
+ * measurement scripts and the end-to-end specs. `hidden` keeps it in the page without drawing it
+ * (the workspace): it is out of the accessibility tree too, as the chips it stands in for are gone.
+ */
+function Badge({
+  state,
+  surface,
+  docMode,
+  hidden = false,
+}: {
+  state: ViewerState;
+  surface: ExternalSurface | null;
+  docMode: boolean;
+  hidden?: boolean;
+}) {
+  const model = state.model;
+  return (
+    <span
+      data-testid="nurbs-badge"
+      data-phase={state.phase}
+      data-showing={surface ? 'nurbs' : 'classic'}
+      // Timings of the update on screen, for the browser measurement script.
+      data-update={model?.sequence}
+      data-round-trip-ms={model ? model.roundTripMs : undefined}
+      data-worker-ms={model ? model.timings.totalMs.toFixed(1) : undefined}
+      data-convert-ms={model ? model.timings.convertMs.toFixed(1) : undefined}
+      data-build-ms={model ? model.timings.buildMs.toFixed(1) : undefined}
+      data-mesh-ms={model ? model.timings.meshMs.toFixed(1) : undefined}
+      data-curvature-ms={model ? model.timings.curvatureMs.toFixed(1) : undefined}
+      data-deviation-ms={model ? model.timings.deviationMs.toFixed(1) : undefined}
+      data-ladders-reused={model ? String(model.mesh.laddersReused) : undefined}
+      data-source={model?.summary.source}
+      data-engine={model?.summary.engine}
+      data-test-board={model?.testBoard ?? undefined}
+      data-vertices={model ? model.mesh.positions.length / 3 : undefined}
+      aria-hidden={hidden || undefined}
+      className={
+        hidden
+          ? 'sr-only'
+          : 'rounded-md border border-amber-500/60 bg-card/90 px-2 py-1 font-medium text-amber-300 shadow-lg'
+      }
+    >
+      {docMode ? 'NURBS (experimental) — editing' : 'NURBS (experimental) — read-only'}
+    </span>
+  );
+}
+
+/**
+ * The workspace's layer: one line over the board in place of the chips, and the hidden badge. The line
+ * holds what a tap does (the Patches look), the build status when there is one, and the "i" button once
+ * there is anything to read behind it (`hasDetails`, as in the tabbed layout): the button counts the
+ * warnings beside it, and says "Details" after a refusal. Before the first build there is no line at all.
+ *
+ * It takes no pointer but at the button and its popover, so a tap or a drag beside it reaches the board.
+ * It stands in the top left; a computed analysis has its legend there, so the line moves to the bottom
+ * left, which only the Patches key uses.
+ */
+function QuietLayer({
+  state,
+  units,
+  analysis,
+  surface,
+  docMode,
+  elapsed,
+  infoOpen,
+  onInfo,
+}: {
+  state: ViewerState;
+  units: LengthUnit;
+  analysis: NonNullable<Board3DViewProps['analysis']>;
+  surface: ExternalSurface | null;
+  docMode: boolean;
+  elapsed: number;
+  infoOpen: boolean;
+  onInfo: (open: boolean) => void;
+}) {
+  const warnings = state.issues.filter((i) => i.severity === 'warning').length;
+  const hasDetails = !!(state.model || state.error || state.issues.length);
+  const refused = !!state.error || state.phase === 'failed';
+  // What the button says beside its icon: how many warnings, or that there is a refusal to read; nothing
+  // when the build is clean, so the button is then the icon alone
+  const detail =
+    warnings > 0 ? `${warnings} warning${warnings === 1 ? '' : 's'}` : refused ? 'Details' : '';
+  const line = workspaceStatusText(state, elapsed);
+  const tapHint = analysis === 'patches' && !!surface?.patch;
+  const legendInCorner = isExactAnalysis(analysis) || analysis === 'ghost-deviation';
+  return (
+    <div
+      data-testid="nurbs-layer"
+      className={`pointer-events-none absolute left-2 right-28 z-[2] flex gap-1 text-xs ${
+        legendInCorner ? 'bottom-2 flex-col-reverse items-start' : 'top-2 flex-col items-start'
+      }`}
+    >
+      <Badge state={state} surface={surface} docMode={docMode} hidden />
+      {(tapHint || line || hasDetails) && (
+        <div className="flex max-w-full flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md border border-border bg-card/85 px-2 py-1 text-muted-foreground shadow-sm">
+          {tapHint && <PatchReadout units={units} quiet />}
+          {line && (
+            <span role="status" data-testid="nurbs-status" className="flex items-center gap-1.5">
+              {state.job && <LoaderCircle aria-hidden="true" className="size-3 animate-spin" />}
+              {line}
+            </span>
+          )}
+          {hasDetails && (
+            <button
+              type="button"
+              aria-label="Board build details"
+              aria-expanded={infoOpen}
+              title={
+                detail
+                  ? `Board build details (${refused ? 'refused' : detail})`
+                  : 'Board build details'
+              }
+              onClick={() => onInfo(!infoOpen)}
+              onKeyDown={(e) => e.key === 'Escape' && onInfo(false)}
+              className="pointer-events-auto inline-flex items-center gap-1 rounded px-1 text-foreground hover:bg-accent pointer-coarse:min-h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center"
+            >
+              <Info aria-hidden="true" className="size-3.5" />
+              {detail}
+            </button>
+          )}
+        </div>
+      )}
+      {infoOpen && hasDetails && (
+        <div className="pointer-events-auto">
+          <InfoPanel state={state} units={units} workspace />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export interface NurbsLayerProps {
   /** The store the editors edit: the classic store, or the section store (then jobs carry its document). */
   store: LayerStore;
@@ -221,6 +380,11 @@ export interface NurbsLayerProps {
   onSurface: (surface: ExternalSurface | null) => void;
   /** Tests inject their own; the app uses the session's shared viewer. */
   viewer?: NurbsViewer;
+  /**
+   * The workspace is showing: the surface of the person's own board is the only one, so the Classic
+   * choice and the test board kept in the browser do not apply, and the chips give way to a quiet line.
+   */
+  workspace?: boolean;
 }
 
 export default function NurbsLayer({
@@ -230,19 +394,23 @@ export default function NurbsLayer({
   engine = 'sections',
   onSurface,
   viewer: injected,
+  workspace = false,
 }: NurbsLayerProps) {
   const viewer = injected ?? sharedViewer();
   const state = useSyncExternalStore(viewer.subscribe, viewer.getState, viewer.getState);
-  const showing = useSyncExternalStore(
+  const chosen = useSyncExternalStore(
     subscribeChoice,
     () => choice,
     () => 'nurbs' as const,
   );
-  const testBoard = useSyncExternalStore(
+  const chosenTest = useSyncExternalStore(
     subscribeTest,
     () => testChoice,
     () => null,
   );
+  // What the tabbed layout kept is not the workspace's to honour (and not erased: that layout still does).
+  const showing: ShownEngine = workspace ? 'nurbs' : chosen;
+  const testBoard: TestBoardName | null = workspace ? null : chosenTest;
   const [infoOpen, setInfoOpen] = useState(false);
   // The section store edits a document (the badge says editing, not read-only).
   const docMode = useSyncExternalStore(
@@ -318,34 +486,28 @@ export default function NurbsLayer({
   const ready = state.phase === 'ready';
   const toggle = useCallback((next: ShownEngine) => setChoice(next), []);
 
+  if (workspace) {
+    return (
+      <QuietLayer
+        state={state}
+        units={units}
+        analysis={analysis}
+        surface={surface}
+        docMode={docMode}
+        elapsed={elapsed}
+        infoOpen={infoOpen}
+        onInfo={setInfoOpen}
+      />
+    );
+  }
+
   return (
     <div
       className="absolute right-2 top-2 z-[2] flex max-w-[calc(100%-1rem)] flex-col items-end gap-1 text-xs"
       data-testid="nurbs-layer"
     >
       <div className="flex items-center gap-1">
-        <span
-          data-testid="nurbs-badge"
-          data-phase={state.phase}
-          data-showing={surface ? 'nurbs' : 'classic'}
-          // Timings of the update on screen, for the browser measurement script.
-          data-update={model?.sequence}
-          data-round-trip-ms={model ? model.roundTripMs : undefined}
-          data-worker-ms={model ? model.timings.totalMs.toFixed(1) : undefined}
-          data-convert-ms={model ? model.timings.convertMs.toFixed(1) : undefined}
-          data-build-ms={model ? model.timings.buildMs.toFixed(1) : undefined}
-          data-mesh-ms={model ? model.timings.meshMs.toFixed(1) : undefined}
-          data-curvature-ms={model ? model.timings.curvatureMs.toFixed(1) : undefined}
-          data-deviation-ms={model ? model.timings.deviationMs.toFixed(1) : undefined}
-          data-ladders-reused={model ? String(model.mesh.laddersReused) : undefined}
-          data-source={model?.summary.source}
-          data-engine={model?.summary.engine}
-          data-test-board={shownTest ?? undefined}
-          data-vertices={model ? model.mesh.positions.length / 3 : undefined}
-          className="rounded-md border border-amber-500/60 bg-card/90 px-2 py-1 font-medium text-amber-300 shadow-lg"
-        >
-          {docMode ? 'NURBS (experimental) — editing' : 'NURBS (experimental) — read-only'}
-        </span>
+        <Badge state={state} surface={surface} docMode={docMode} />
         {hasDetails && (
           <button
             type="button"

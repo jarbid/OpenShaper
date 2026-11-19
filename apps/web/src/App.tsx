@@ -155,6 +155,7 @@ import { specsFromMesh } from './nurbs-specs';
 import { useMeshSpecs } from './use-mesh-specs';
 import { useSpecsWorker } from './use-specs-worker';
 import { useTrace, type TraceView } from './use-trace';
+import { WorkspaceLooks } from './LookControls';
 import { RailPanelSlot } from './workspace/RailPanel';
 import { RailsStep } from './workspace/RailsStep';
 import { RailsWorkspace } from './workspace/RailsWorkspace';
@@ -214,11 +215,14 @@ const ThreeDPane = memo(function ThreeDPane({
   units,
   nurbsEngine,
   surfaceEngine,
+  workspace,
   ...props
 }: Board3DViewProps & {
   units: LengthUnit;
   nurbsEngine: boolean;
   surfaceEngine: NurbsEngine;
+  /** The workspace is showing this pane: its layer is the quiet one. */
+  workspace: boolean;
 }) {
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>(ANALYSIS_IDLE);
   // The NURBS surface for the board on screen, from the (lazy) NURBS layer; always
@@ -254,6 +258,7 @@ const ThreeDPane = memo(function ThreeDPane({
               units={units}
               engine={surfaceEngine}
               onSurface={setSurface}
+              workspace={workspace}
             />
           </Suspense>
         </NurbsBoundary>
@@ -2035,9 +2040,10 @@ function AppShell() {
   const view3dShown = useMemo(
     () => ({
       ...view3d,
-      analysis: effectiveAnalysis(view3d.analysis, nurbsEngine, patchesOffered),
+      // the workspace has no "Deviation from classic" (it reads as the realistic look the material implies)
+      analysis: effectiveAnalysis(view3d.analysis, nurbsEngine && !workspaceOn, patchesOffered),
     }),
-    [view3d, nurbsEngine, patchesOffered],
+    [view3d, nurbsEngine, workspaceOn, patchesOffered],
   );
   const exactUnavailable = exactAnalysisUnavailable(board);
   const ghostUnavailable = ghostDeviationUnavailable(ghost);
@@ -2059,6 +2065,7 @@ function AppShell() {
       units={units}
       nurbsEngine={nurbsEngine}
       surfaceEngine={settings.surfaceEngine}
+      workspace={workspaceOn}
       targetFaceSize={faceSizeFor(view3d.meshQuality)}
       showStringer={view3d.showStringer}
       showSections={view3d.showSections}
@@ -2168,15 +2175,14 @@ function AppShell() {
       />
     );
   };
-  // The workspace has no 3D tab, so its board panel carries all of the 3D tab's controls.
+  // The workspace has no 3D tab: its board panel carries the one Look control and Show instead.
   const workspaceLooks = (
-    <ThreeDControls
+    <WorkspaceLooks
       settings={view3dShown}
       onChange={patchView3d}
       units={units}
       exactUnavailable={exactUnavailable}
       ghostUnavailable={ghostUnavailable}
-      nurbsEngine={nurbsEngine}
       patches={patchesOffered}
     />
   );

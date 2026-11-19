@@ -326,19 +326,26 @@ describe('the sidebar follows the step', () => {
   });
 });
 
-describe('the Patches look', () => {
-  const analysis = () => (screen.getByTitle(/^Surface analysis/) as HTMLSelectElement).value;
+/** The Look button: its `data-look` says the look the board wears. */
+const lookButton = () => screen.getByRole('button', { name: /^Look/ });
+const look = () => lookButton().getAttribute('data-look');
+const chooseLook = (name: string) => {
+  fireEvent.click(lookButton());
+  fireEvent.click(screen.getByRole('menuitemradio', { name }));
+};
 
+describe('the Patches look', () => {
   it('is the board’s look the first time the workspace is entered with No analysis', async () => {
     await openRailsBoard();
-    expect(analysis()).toBe('patches');
+    expect(look()).toBe('patches');
     expect(JSON.parse(localStorage.getItem('bs.workspacePatches')!)).toBe(true);
   });
 
-  it('is never put back once it has been applied: a later choice of No analysis stands', async () => {
+  it('is never put back once it has been applied: a later choice of a realistic look stands', async () => {
     localStorage.setItem('bs.workspacePatches', 'true');
     await openRailsBoard();
-    expect(analysis()).toBe('none');
+    // no analysis is the realistic look of the material
+    expect(look()).toBe('gloss');
   });
 
   it('leaves a look that was chosen before the first entry, and still counts as the first entry', async () => {
@@ -347,16 +354,99 @@ describe('the Patches look', () => {
       view3d: { ...DEFAULT_VIEW_STATE.view3d!, analysis: 'zebra' },
     } as typeof DEFAULT_VIEW_STATE);
     await openRailsBoard();
-    expect(analysis()).toBe('zebra');
+    expect(look()).toBe('zebra');
     expect(JSON.parse(localStorage.getItem('bs.workspacePatches')!)).toBe(true);
   });
 
   it('lets a person choose another look, which stays', async () => {
     await openRailsBoard();
-    fireEvent.change(screen.getByTitle(/^Surface analysis/), { target: { value: 'slope' } });
-    expect(analysis()).toBe('slope');
+    chooseLook('Slope');
+    expect(look()).toBe('slope');
     fireEvent.click(entry('Deck'));
-    expect(analysis()).toBe('slope');
+    expect(look()).toBe('slope');
+  });
+});
+
+describe('the Look and Show controls', () => {
+  it('are the 3D pane’s controls in place of the tabbed layout’s, with the engine chips gone and the badge hidden', async () => {
+    await openRailsBoard();
+    expect(lookButton()).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Show' })).toBeTruthy();
+    // none of the 3D tab's toolbar is there
+    expect(screen.queryByTitle(/^Surface analysis/)).toBeNull();
+    expect(screen.queryByTitle('Lighting')).toBeNull();
+    expect(screen.queryByTitle('Mesh quality')).toBeNull();
+    for (const name of ['Shaded', '+Wire', 'Wire', 'Normals', 'Stringer', 'Sections', 'Apex']) {
+      expect(screen.queryByRole('button', { name }), name).toBeNull();
+    }
+    // the layer is lazy: its badge stays in the page, out of sight and out of the accessibility tree, and
+    // nothing else of the chips is drawn
+    const badge = await screen.findByTestId('nurbs-badge');
+    expect(badge.className).toContain('sr-only');
+    expect(badge.getAttribute('aria-hidden')).toBe('true');
+    expect(badge.getAttribute('data-phase')).toBeTruthy();
+    expect(screen.getByTestId('nurbs-layer')).toBeTruthy();
+    expect(screen.queryAllByText(/NURBS \(experimental\)/)).toEqual([badge]);
+    expect(screen.queryByRole('group', { name: 'Engine shown in the 3D view' })).toBeNull();
+    expect(screen.queryByTestId('nurbs-test-board')).toBeNull();
+    expect(screen.queryByText('Test board')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Classic' })).toBeNull();
+  });
+
+  it('change the board’s settings, and leave the step and the selection alone when the keys move in the menu', async () => {
+    await openRailsBoard();
+    fireEvent.click(entry('Deck'));
+    const before = { step: current(), selection: activeStore.getState().selection };
+    chooseLook('Raw foam');
+    expect(look()).toBe('foam');
+    fireEvent.click(lookButton());
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Neutral' }));
+    for (const key of ['ArrowDown', 'ArrowUp', 'Home', 'End', '3', 'Escape']) {
+      fireEvent.keyDown(document.activeElement!, { key });
+    }
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(current()).toEqual(before.step);
+    expect(activeStore.getState().selection).toEqual(before.selection);
+    fireEvent.click(screen.getByRole('button', { name: 'Show' }));
+    fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Stringer' }));
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Over the surface' }));
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    await waitFor(
+      () => {
+        const saved = JSON.parse(localStorage.getItem('bs.viewState')!).view3d;
+        expect(saved).toMatchObject({
+          analysis: 'none',
+          material: 'foam',
+          lighting: 'neutral',
+          showStringer: true,
+          mode: 'shaded-wire',
+        });
+      },
+      { timeout: 3000 },
+    );
+  });
+
+  it('read a saved “Deviation from classic” as the realistic look the material implies, and leave it stored', async () => {
+    saveViewState({
+      ...DEFAULT_VIEW_STATE,
+      view3d: { ...DEFAULT_VIEW_STATE.view3d!, analysis: 'nurbs-deviation', material: 'foam' },
+    } as typeof DEFAULT_VIEW_STATE);
+    await openRailsBoard();
+    expect(look()).toBe('foam');
+    // the claim of the Patches default only replaces "No analysis": a stored choice is not touched
+    fireEvent.click(lookButton());
+    expect(screen.queryByRole('menuitemradio', { name: /Deviation from classic/ })).toBeNull();
+    expect(
+      screen.getByRole('menuitemradio', { name: 'Raw foam' }).getAttribute('aria-checked'),
+    ).toBe('true');
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
+    await waitFor(
+      () =>
+        expect(JSON.parse(localStorage.getItem('bs.viewState')!).view3d.analysis).toBe(
+          'nurbs-deviation',
+        ),
+      { timeout: 3000 },
+    );
   });
 });
 

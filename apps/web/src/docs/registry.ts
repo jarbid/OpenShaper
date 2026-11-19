@@ -96,7 +96,8 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
     'egg',
     'knifey',
   ]),
-  // The 3D view's Surface analysis menu, by mode id (`ANALYSIS_3D`), 'none' aside.
+  // The 3D view's Surface analysis menu (the Surface group of the workspace's Look menu), by mode id
+  // (`ANALYSIS_3D`), 'none' aside.
   ...entries('analysis-mode', '/docs/editing', [
     'zebra',
     'mean-curvature',

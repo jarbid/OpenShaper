@@ -12,6 +12,9 @@ import DocsEditing from '../pages/docs/Editing';
 import DocsShortcuts from '../pages/docs/Shortcuts';
 import { BUILT_IN_RAILS } from '@openshaper/store/rails';
 import { DESIGN_STEPS, PANEL_ENTRIES } from './steps';
+import { LIGHTS, LOOK_GROUPS, LOOKS } from '../look';
+import { OVERLAYS, WIREFRAME } from '../show';
+import { QUALITY_3D } from '../view3d-settings';
 
 // the page head needs the static-site generator's provider
 vi.mock('../seo/Seo', () => ({ Seo: () => null }));
@@ -52,6 +55,31 @@ describe('the editing page', () => {
     expect(section.textContent).toContain('Rails engine (experimental)');
     expect(section.textContent).toContain('Settings');
     expect(section.textContent).toMatch(/phone/i);
+  });
+
+  it('names every look of the Look menu, the light, and everything in Show, as the menus read them', () => {
+    page(<DocsEditing />);
+    const text = document.getElementById('workspace')!.textContent!;
+    // from the tables the menus are built from: a look, a light or a choice added there is not left out
+    const names = [
+      ...LOOK_GROUPS.map((g) => g.label),
+      ...LOOKS.map((l) => l.label),
+      ...LIGHTS.map((l) => l.label),
+      ...OVERLAYS.map((o) => o.label),
+      ...WIREFRAME.map((w) => w.label),
+      ...QUALITY_3D.map((q) => q.label),
+      'Look',
+      'Show',
+      'Board colour',
+      'Normals',
+      'Mesh quality',
+    ];
+    const missing = names.filter((n) => !text.includes(n));
+    expect(missing).toEqual([]);
+    // what Show cannot do under a look that paints the board itself, and what the workspace leaves out
+    expect(text).toMatch(/realistic looks only/);
+    expect(text).toContain('Test board');
+    expect(text).toContain('Deviation from classic');
   });
 
   it('describes the tap, the divider and the keys', () => {

@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { fmtSmallLen, lengthUnitByKey } from './format';
-import { elapsedText, localizeLengths, refusalHint, statusText } from './nurbs-text';
+import {
+  elapsedText,
+  localizeLengths,
+  refusalHint,
+  statusText,
+  WORKSPACE_BUSY_MS,
+  workspaceStatusText,
+} from './nurbs-text';
 import { VIEWER_IDLE, type ViewerState } from './nurbs-viewer';
 
 describe('localizeLengths', () => {
@@ -59,6 +66,43 @@ describe('statusText', () => {
     );
     expect(statusText(state({ phase: 'ready' }), 'classic', 0)).toBe('Showing classic');
     expect(statusText(VIEWER_IDLE, 'nurbs', 0)).toBe('');
+  });
+});
+
+describe('workspaceStatusText', () => {
+  const state = (patch: Partial<ViewerState>): ViewerState => ({ ...VIEWER_IDLE, ...patch });
+
+  it('has nothing to say while the surface is built and on screen, or before there is a board', () => {
+    expect(workspaceStatusText(state({ phase: 'ready' }), 0)).toBe('');
+    expect(workspaceStatusText(VIEWER_IDLE, 0)).toBe('');
+    // the engine is the only one there: it never says which surface is showing
+    expect(workspaceStatusText(state({ phase: 'ready' }), 0)).not.toMatch(/NURBS|Showing/);
+  });
+
+  it('does not announce an update that finishes within a moment, and says how long a slow one has taken', () => {
+    const busy = state({ phase: 'ready', job: { startedAt: 0 } });
+    expect(workspaceStatusText(busy, 0)).toBe('');
+    expect(workspaceStatusText(busy, WORKSPACE_BUSY_MS - 1)).toBe('');
+    expect(workspaceStatusText(busy, 12_000)).toBe('Building the board… 12 s');
+  });
+
+  it('says at once that the first conversion is building, since the board is plain until it lands', () => {
+    expect(workspaceStatusText(state({ phase: 'converting' }), 0)).toBe('Building the board…');
+    expect(workspaceStatusText(state({ phase: 'converting', job: { startedAt: 0 } }), 0)).toBe(
+      'Building the board…',
+    );
+  });
+
+  it('describes a refusal, and whether a last good shape is kept', () => {
+    expect(workspaceStatusText(state({ phase: 'failed', stale: true }), 0)).toContain(
+      'last good shape stays',
+    );
+    expect(workspaceStatusText(state({ phase: 'failed' }), 0)).toContain('classic mesh is shown');
+    for (const stale of [true, false]) {
+      const text = workspaceStatusText(state({ phase: 'failed', stale }), 0);
+      expect(text).toContain('see details');
+      expect(text).not.toMatch(/NURBS/);
+    }
   });
 });
 

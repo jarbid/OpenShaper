@@ -1,14 +1,21 @@
+import { createHash } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
+import { editorReady } from './helpers';
 import {
+  badge,
   board3d,
+  chooseLook,
   currentStep,
   divider,
   entry,
   list,
+  lookButton,
+  menu,
   openFunboard,
   PANELS,
   seedSwitches,
   selectPoint,
+  showButton,
   STEPS,
   trackErrors,
   updates,
@@ -201,17 +208,16 @@ test.describe('the workspace', () => {
   test('remembers the step, and opens on the Patches look once', async ({ page }) => {
     await seedSwitches(page);
     await openFunboard(page);
-    const look = page.getByTitle(/^Surface analysis/);
-    await expect(look).toHaveValue('patches');
+    await expect(lookButton(page)).toHaveAttribute('data-look', 'patches');
 
     await entry(page, 'Rails').click();
-    await look.selectOption('none');
+    await chooseLook(page, 'Glassed gloss');
     await page.waitForTimeout(1500);
     await page.reload();
     await expect(list(page)).toBeVisible({ timeout: 60_000 });
     expect(await currentStep(page)).toEqual(['Rails']);
-    // the choice of no analysis is not put back to Patches
-    await expect(page.getByTitle(/^Surface analysis/)).toHaveValue('none');
+    // the choice of a realistic look (no analysis) is not put back to Patches
+    await expect(lookButton(page)).toHaveAttribute('data-look', 'gloss');
   });
 
   test('a tap on the board chooses the step for what was tapped, and a tap on nothing changes none', async ({
@@ -228,7 +234,7 @@ test.describe('the workspace', () => {
       }),
     });
     await openFunboard(page);
-    await expect(page.getByTitle(/^Surface analysis/)).toHaveValue('patches');
+    await expect(lookButton(page)).toHaveAttribute('data-look', 'patches');
     await page.waitForTimeout(2500);
 
     const box = (await board3d(page).boundingBox())!;
@@ -262,11 +268,298 @@ test.describe('the workspace', () => {
     ).toBeVisible();
 
     // the patch stays lit (the readout still names it), and a tap on nothing clears it and changes no step.
-    // Empty canvas at the top left: the bottom left is the Patches key, and the right edge holds the chips.
+    // Empty canvas at the top left: the bottom left is the Patches key, and the status line there takes no pointer.
     await entry(page, 'Fins').click();
     await page.mouse.click(box.x + 40, box.y + 40);
     await expect(readout).not.toHaveAttribute('data-patch', /.+/);
     expect(await currentStep(page)).toEqual(['Fins']);
+  });
+});
+
+/** A hash of the middle of the board's canvas: clear of the key, the legend and the status line at its edges. */
+async function middleOfBoard(page: Page) {
+  const box = (await board3d(page).boundingBox())!;
+  return {
+    x: box.x + box.width * 0.3,
+    y: box.y + box.height * 0.3,
+    width: box.width * 0.4,
+    height: box.height * 0.4,
+  };
+}
+type Clip = { x: number; y: number; width: number; height: number };
+const hashOf = async (page: Page, clip: Clip) =>
+  createHash('sha256')
+    .update(await page.screenshot({ clip }))
+    .digest('hex');
+/** A hash of the clip once the board has stopped changing: two shots in a row alike. */
+async function settledHash(page: Page, clip: Clip): Promise<string> {
+  let last = '';
+  for (let i = 0; i < 40; i++) {
+    const now = await hashOf(page, clip);
+    if (now === last) return now;
+    last = now;
+    await page.waitForTimeout(500);
+  }
+  throw new Error('the board kept changing');
+}
+
+test.describe('the Look and Show controls', () => {
+  test.setTimeout(180_000);
+
+  test('are one Look button and Show over the board, with none of the old toolbar and none of the engine chips', async ({
+    page,
+  }) => {
+    const errors = trackErrors(page);
+    await seedSwitches(page);
+    await openFunboard(page);
+    await expect(lookButton(page)).toBeVisible();
+    await expect(showButton(page)).toBeVisible();
+    for (const name of ['Shaded', '+Wire', 'Wire', 'Normals', 'Stringer', 'Sections', 'Apex']) {
+      await expect(page.getByRole('button', { name, exact: true }), name).toHaveCount(0);
+    }
+    for (const title of [/^Surface analysis/, 'Lighting', 'Mesh quality']) {
+      await expect(page.getByTitle(title, { exact: typeof title === 'string' })).toHaveCount(0);
+    }
+    // the engine chips are gone: no toggle, no test board, no label
+    await expect(page.getByRole('button', { name: 'Classic', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'NURBS', exact: true })).toHaveCount(0);
+    await expect(page.getByTestId('nurbs-test-board')).toHaveCount(0);
+    await expect(page.getByText('Test board')).toHaveCount(0);
+    await expect(page.getByText('Showing the NURBS surface')).toHaveCount(0);
+    // the badge is still in the page for the scripts that read it, out of sight and of the accessibility tree
+    await expect(badge(page)).toHaveAttribute('data-engine', 'rails');
+    await expect(badge(page)).toHaveAttribute('data-showing', 'nurbs');
+    await expect(badge(page)).toHaveAttribute('aria-hidden', 'true');
+    expect(await badge(page).boundingBox()).toMatchObject({ width: 1, height: 1 });
+    await expect(page.getByTestId('nurbs-layer')).toBeAttached();
+    // one line says what a tap does, over the empty top left of the board, and takes no pointer
+    const readout = page.getByTestId('patch-readout');
+    await expect(readout).toHaveText('Tap the board to choose a patch');
+    const at = (await readout.boundingBox())!;
+    const canvas = (await board3d(page).boundingBox())!;
+    expect(at.x - canvas.x).toBeLessThan(24);
+    expect(at.y - canvas.y).toBeLessThan(24);
+    expect(
+      await readout.evaluate(
+        (el) => getComputedStyle(el.closest('[data-testid=nurbs-layer]')!).pointerEvents,
+      ),
+    ).toBe('none');
+    expect(errors).toEqual([]);
+  });
+
+  test('Look has the three groups, choosing Zebra repaints the board, and Patches brings it back', async ({
+    page,
+  }) => {
+    await seedSwitches(page);
+    await openFunboard(page);
+    const middle = await middleOfBoard(page);
+    const patches = await settledHash(page, middle);
+
+    await lookButton(page).click();
+    const look = page.getByRole('menu', { name: 'Look' });
+    await expect(look).toBeVisible();
+    for (const group of ['Shaping', 'Surface', 'Realistic']) {
+      await expect(look.getByRole('group', { name: group, exact: true })).toBeVisible();
+    }
+    await expect(look.getByRole('menuitemradio', { name: 'Patches' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    // the light and the board colour are in the Realistic group
+    await expect(look.getByRole('group', { name: 'Light' })).toBeVisible();
+    await expect(look.getByRole('menuitem', { name: 'Board colour' })).toBeVisible();
+    await look.getByRole('menuitemradio', { name: 'Zebra' }).click();
+    await expect(look).toHaveCount(0);
+    await expect(lookButton(page)).toHaveAttribute('data-look', 'zebra');
+    await expect.poll(() => hashOf(page, middle), { timeout: 20_000 }).not.toBe(patches);
+
+    await chooseLook(page, 'Patches');
+    await expect(lookButton(page)).toHaveAttribute('data-look', 'patches');
+    await expect.poll(() => hashOf(page, middle), { timeout: 20_000 }).toBe(patches);
+  });
+
+  test('Show turns the stringer on and off over the look', async ({ page }) => {
+    await seedSwitches(page);
+    await openFunboard(page);
+    const middle = await middleOfBoard(page);
+    const plain = await settledHash(page, middle);
+
+    await showButton(page).click();
+    const show = page.getByRole('menu', { name: 'Show' });
+    for (const group of ['Guides', 'Mesh quality']) {
+      await expect(show.getByRole('group', { name: group })).toBeVisible();
+    }
+    const stringer = show.getByRole('menuitemcheckbox', { name: 'Stringer' });
+    await stringer.click();
+    // a switch leaves the menu open
+    await expect(stringer).toHaveAttribute('aria-checked', 'true');
+    await page.keyboard.press('Escape');
+    await expect(show).toHaveCount(0);
+    // the line is drawn over the Patches look
+    await expect.poll(() => hashOf(page, middle), { timeout: 20_000 }).not.toBe(plain);
+
+    // and off again. Only the menu and the saved choice are asserted: the 3D view repaints when a guide
+    // is added but not when the last is removed, with this menu and with the tabbed layout's buttons
+    await showButton(page).click();
+    await stringer.click();
+    await expect(stringer).toHaveAttribute('aria-checked', 'false');
+    await page.keyboard.press('Escape');
+    await expect
+      .poll(
+        async () =>
+          page.evaluate(
+            () => JSON.parse(localStorage.getItem('bs.viewState') ?? '{}').view3d?.showStringer,
+          ),
+        { timeout: 10_000 },
+      )
+      .toBe(false);
+  });
+
+  test('are kept by the keyboard: Enter opens Look, the arrows move, Escape closes and focus returns, Tab leaves', async ({
+    page,
+  }) => {
+    await seedSwitches(page);
+    await openFunboard(page);
+    expect(await currentStep(page)).toEqual(['Outline']);
+
+    await lookButton(page).focus();
+    await page.keyboard.press('Enter');
+    const look = page.getByRole('menu', { name: 'Look' });
+    await expect(look).toBeVisible();
+    // focus goes in, to the look on screen
+    await expect(look.getByRole('menuitemradio', { name: 'Patches' })).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(look.getByRole('menuitemradio', { name: 'Zebra' })).toBeFocused();
+    await page.keyboard.press('End');
+    await expect(look.getByRole('menuitem', { name: 'Board colour' })).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(look.getByRole('menuitemradio', { name: 'Patches' })).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await expect(look.getByRole('menuitem', { name: 'Board colour' })).toBeFocused();
+    // a digit is not a design step while the menu has the keys
+    await page.keyboard.press('3');
+    expect(await currentStep(page)).toEqual(['Outline']);
+    await page.keyboard.press('Escape');
+    await expect(look).toHaveCount(0);
+    await expect(lookButton(page)).toBeFocused();
+    await expect(lookButton(page)).toHaveAttribute('data-look', 'patches');
+
+    // Enter on a row chooses it, closes the menu and gives focus back
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Enter');
+    await expect(look).toHaveCount(0);
+    await expect(lookButton(page)).toHaveAttribute('data-look', 'zebra');
+    await expect(lookButton(page)).toBeFocused();
+
+    // Tab leaves an open menu, and goes on from its button to the next control
+    await page.keyboard.press('Enter');
+    await expect(look).toBeVisible();
+    await page.keyboard.press('Tab');
+    await expect(look).toHaveCount(0);
+    await expect(showButton(page)).toBeFocused();
+
+    // Show is the same
+    await page.keyboard.press('Enter');
+    const show = page.getByRole('menu', { name: 'Show' });
+    await expect(show.getByRole('menuitemcheckbox', { name: 'Stringer' })).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(show.getByRole('menuitemcheckbox', { name: 'Stringer' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await page.keyboard.press('Escape');
+    await expect(show).toHaveCount(0);
+    await expect(showButton(page)).toBeFocused();
+  });
+
+  test('close on a press outside and give focus back to their own button', async ({ page }) => {
+    await seedSwitches(page);
+    await openFunboard(page);
+    const canvas = (await board3d(page).boundingBox())!;
+    for (const [button, name] of [
+      [lookButton(page), 'Look'],
+      [showButton(page), 'Show'],
+    ] as const) {
+      await button.click();
+      const open = page.getByRole('menu', { name });
+      await expect(open).toBeVisible();
+      // the press goes to the empty left of the board, not to anything with focus of its own
+      await page.mouse.click(canvas.x + canvas.width * 0.08, canvas.y + canvas.height * 0.5);
+      await expect(open).toHaveCount(0);
+      await expect(button, name).toBeFocused();
+      // and the button still opens it again
+      await button.click();
+      await expect(open).toBeVisible();
+      await button.click();
+      await expect(open).toHaveCount(0);
+    }
+  });
+
+  test('ignore a Classic choice made in the tabbed layout, which that layout still keeps', async ({
+    page,
+  }) => {
+    // the NURBS engine alone: the tabbed layout, with its engine chips over the 3D pane
+    await page.addInitScript(() => {
+      if (localStorage.getItem('bs.settings')) return;
+      localStorage.setItem('bs.settings', JSON.stringify({ version: 2, nurbsEngine: true }));
+    });
+    await page.goto('/app');
+    await editorReady(page);
+    await expect(badge(page)).toHaveAttribute('data-phase', 'ready', { timeout: 60_000 });
+    await page.getByRole('button', { name: 'Classic', exact: true }).click();
+    await expect(badge(page)).toHaveAttribute('data-showing', 'classic');
+
+    // then the rails engine, through Settings, and a rails board: the workspace opens
+    await menu(page, 'Edit').click();
+    await page.getByRole('menuitem', { name: 'Settings…' }).click();
+    await page.getByLabel('Rails engine (experimental)').check();
+    await page.getByRole('button', { name: 'Apply' }).click();
+    await menu(page, 'File').click();
+    await page.getByRole('menuitem', { name: 'Funboard', exact: true }).click();
+    await expect(badge(page)).toHaveAttribute('data-engine', 'rails', { timeout: 60_000 });
+    await expect(list(page)).toBeVisible();
+
+    // the workspace shows the surface of the person's own board, and Patches needs it
+    await expect(badge(page)).toHaveAttribute('data-showing', 'nurbs');
+    await expect(lookButton(page)).toHaveAttribute('data-look', 'patches');
+    await expect(page.getByTestId('patch-readout')).toBeVisible();
+
+    // back in the tabbed layout (a phone keeps it) the choice is still in force: it was not erased
+    await page.setViewportSize({ width: 390, height: 844 });
+    const tabs = page.getByRole('group', { name: 'Views' });
+    await expect(tabs).toBeVisible();
+    await tabs.getByRole('button', { name: '3D', exact: true }).click();
+    await expect(badge(page)).toHaveAttribute('data-showing', 'classic');
+  });
+});
+
+test.describe('the Look and Show controls under a coarse pointer', () => {
+  test.use({ viewport: { width: 1023, height: 768 }, hasTouch: true, isMobile: true });
+  test.setTimeout(180_000);
+
+  test('have 44px targets: the buttons and every row of both menus', async ({ page }) => {
+    await seedSwitches(page);
+    await openFunboard(page);
+    for (const button of [lookButton(page), showButton(page)]) {
+      const box = (await button.boundingBox())!;
+      expect(box.height).toBeGreaterThanOrEqual(43.5);
+      expect(box.width).toBeGreaterThanOrEqual(43.5);
+    }
+    for (const [button, name] of [
+      [lookButton(page), 'Look'],
+      [showButton(page), 'Show'],
+    ] as const) {
+      await button.tap();
+      const rows = page.getByRole('menu', { name }).locator('[role^=menuitem]');
+      const count = await rows.count();
+      expect(count).toBeGreaterThan(5);
+      for (let i = 0; i < count; i++) {
+        const box = (await rows.nth(i).boundingBox())!;
+        expect(box.height, `${name} row ${i}`).toBeGreaterThanOrEqual(43.5);
+      }
+      await page.keyboard.press('Escape');
+    }
   });
 });
 

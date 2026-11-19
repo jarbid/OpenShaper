@@ -188,6 +188,47 @@ export default function DocsEditing() {
           you. With the rails engine off nothing about the editor changes, and a phone always keeps
           the view tabs: the workspace is for a tablet or larger.
         </p>
+        <p>
+          <strong>Look and Show.</strong> Over the board, two buttons. <strong>Look</strong> says
+          how the board is painted, with a swatch of its colour, and opens a menu in three groups.{' '}
+          <em>Shaping</em> holds Patches. <em>Surface</em> holds the analysis modes described under{' '}
+          <a href="#analysis">Surface analysis in 3D</a>: Zebra, Mean curvature, Gaussian curvature,
+          Rail radius, Normal change (approx.), Slope and Deviation from ghost, with the deviation
+          band beside the button while it is chosen. <em>Realistic</em> holds Glassed gloss, Raw
+          foam and Matte, and under them the <em>Light</em> (Studio, Shaping bay or Neutral) and the
+          Board colour. The light and the colour are settings of their own: they light the realistic
+          looks and Patches, choosing either leaves the look as it is, and a surface analysis is
+          painted in its own colours. A look that cannot be drawn stays in the list, disabled, with
+          the reason beside it: the three exact curvature modes on a concave tail, Deviation from
+          ghost with no ghost loaded.
+        </p>
+        <p>
+          <strong>Show</strong> holds what is drawn over the look. The <em>Guides</em> are the{' '}
+          <a href="#guides">Stringer, the Stations (the sections&rsquo; rings) and the Apex line</a>
+          , and they are drawn over every look. <em>Wireframe</em> is Off, Over the surface or
+          Alone, and <em>Normals</em> colours the surface by which way it faces. The wireframe and
+          the normals show on the realistic looks only: Patches and the surface analyses paint the
+          board themselves, so under them those four entries are listed disabled, with the reason.
+          The <em>Mesh quality</em> (Draft, Standard or Fine) is the density of the mesh the board
+          is drawn with. Both menus open with a click, or with Enter or the down arrow on the
+          button; the up and down arrows, Home and End move through them, Enter or Space chooses,
+          and Escape, Tab or a click outside closes them and returns focus to their button. A choice
+          of a look closes the menu; the switches and settings in it leave it open for the next.
+        </p>
+        <p>
+          <strong>The status line.</strong> A quiet line over the top left of the board says what a
+          tap does (<em>Tap the board to choose a patch</em>, or the part you chose, in your display
+          unit) and, only while it is true, that the board is being built or that an edit was
+          refused. Its <strong>i</strong> button opens the details of the build: the volume, how
+          closely the stations were fitted and any warnings, which it counts beside it. Where a
+          surface analysis has its legend in the top left, the line moves to the bottom left. The
+          workspace always shows the NURBS surface of your own board, so the{' '}
+          <strong>Classic / NURBS</strong> switch and the <strong>Test board</strong> menu of the
+          tabbed layout are not drawn here; a choice made in them is ignored in the workspace and
+          kept for the tabbed layout. A saved <em>Deviation from classic</em> is not a look the
+          workspace offers: it reads as the realistic look of the material, and stays saved until
+          you choose a look.
+        </p>
         <Terms>
           {DESIGN_STEPS.map((step) => (
             <Term
@@ -232,8 +273,8 @@ export default function DocsEditing() {
           Rails, the straight edge of a tail Tail, and a corner chooses Tail when it is in the tail
           half of the board and Outline when it is in the nose half. The tapped patch stays lit, and
           a tap on nothing changes no step. The first time the workspace opens the board wears the
-          Patches look, if the 3D look was at No analysis; choose another look in the 3D controls
-          and it stays chosen.
+          Patches look, if the 3D look was at No analysis (a realistic look); choose another look
+          with the Look button and it stays chosen.
         </p>
         <p>
           <strong>The divider.</strong> Drag the bar between the board and the drawing, or focus it
@@ -389,7 +430,8 @@ export default function DocsEditing() {
       <Section id="guides" title="Guides in 3D">
         <p>
           The 3D view can draw reference lines directly on the surface. Three buttons in the 3D
-          controls toggle them independently.
+          controls toggle them independently; in the workspace they are the Guides in the{' '}
+          <strong>Show</strong> menu, where Sections is called Stations and Apex is the Apex line.
         </p>
         <Terms>
           <Term name="Stringer">
@@ -422,10 +464,11 @@ export default function DocsEditing() {
       <Section id="analysis" title="Surface analysis in 3D">
         <p>
           The <strong>Surface analysis</strong> menu in the 3D controls repaints the hull to show
-          its shape rather than its finish. Three modes are <em>exact</em>: they fit the hull with
-          the same B-spline surface the <Link to="/docs/export">STEP export</Link> writes &mdash;
-          within 0.15 mm of the 3D hull &mdash; and work out its curvature mathematically at every
-          point, so what you see does not change with zoom or mesh quality. The rest are quick
+          its shape rather than its finish; in the workspace the same modes are the <em>Surface</em>{' '}
+          group of the <strong>Look</strong> menu. Three modes are <em>exact</em>: they fit the hull
+          with the same B-spline surface the <Link to="/docs/export">STEP export</Link> writes
+          &mdash; within 0.15 mm of the 3D hull &mdash; and work out its curvature mathematically at
+          every point, so what you see does not change with zoom or mesh quality. The rest are quick
           effects on the viewport mesh.
         </p>
         <Terms>
@@ -538,11 +581,13 @@ export default function DocsEditing() {
           or ignored.
         </p>
         <p>
-          A <strong>NURBS (experimental) &mdash; editing</strong> badge sits over the 3D view, with
-          a <strong>Classic / NURBS</strong> switch to compare the same board on both, and an{' '}
-          <strong>i</strong> button that lists the volume, how closely the stations were fitted and
-          any warnings. A <strong>Test board</strong> menu shows one of the NURBS model&rsquo;s own
-          test boards (swallow, fish, asymmetric, analytic) on its own; your board is untouched.
+          In the tabbed layout a <strong>NURBS (experimental) &mdash; editing</strong> badge sits
+          over the 3D view, with a <strong>Classic / NURBS</strong> switch to compare the same board
+          on both, and an <strong>i</strong> button that lists the volume, how closely the stations
+          were fitted and any warnings. A <strong>Test board</strong> menu shows one of the NURBS
+          model&rsquo;s own test boards (swallow, fish, asymmetric, analytic) on its own; your board
+          is untouched. The <a href="#workspace">workspace</a> draws none of these: it has one
+          engine, and one quiet status line in their place.
         </p>
         <p>
           Saving, sharing and the autosave write the NURBS board itself (see{' '}
@@ -563,7 +608,8 @@ export default function DocsEditing() {
           cross-section, and flows smoothly between the stations where the classic loft blends them
           linearly, so the two differ by up to a few millimetres between stations. The surface
           analysis modes above all work on it, read from the NURBS surface&rsquo;s own exact
-          derivatives, with no crease at the stations, and the menu gains one more:
+          derivatives, with no crease at the stations, and the menu of the tabbed layout gains one
+          more (the workspace does not offer it):
         </p>
         <Terms>
           <Term name="Deviation from classic">

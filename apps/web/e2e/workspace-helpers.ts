@@ -33,6 +33,17 @@ export const menu = (page: Page, name: string) =>
   page.getByRole('menubar').getByRole('menuitem', { name, exact: true });
 export const badge = (page: Page) => page.getByTestId('nurbs-badge');
 export const list = (page: Page) => page.getByRole('navigation', { name: 'Design steps' });
+/** The Look button over the 3D board: its `data-look` says the look the board wears. */
+export const lookButton = (page: Page) => page.getByRole('button', { name: /^Look/ });
+export const showButton = (page: Page) => page.getByRole('button', { name: 'Show', exact: true });
+/** Choose a look by its name from the Look menu. */
+export async function chooseLook(page: Page, name: string): Promise<void> {
+  await lookButton(page).click();
+  await page
+    .getByRole('menu', { name: 'Look' })
+    .getByRole('menuitemradio', { name, exact: true })
+    .click();
+}
 /** A list entry by its name: its text on the wide list, its label on the icon column. */
 export const entry = (page: Page, name: string) =>
   list(page).getByRole('button', { name, exact: true });

@@ -142,8 +142,9 @@ export default function DocsSpecs() {
             from the bottom: the line a CNC machine flips the blank on. Read against the deck and
             bottom curves, it shows where along the board the rail sits high or low. It updates when
             you let go of a drag. The 3D view draws the line itself on the hull &mdash; switch that
-            on with the <strong>Apex</strong> button among the 3D view&rsquo;s guides &mdash; and
-            the DXF export carries it on its own layer.
+            on with the <strong>Apex</strong> button among the 3D view&rsquo;s guides (Apex line in
+            the workspace&rsquo;s <strong>Show</strong> menu) &mdash; and the DXF export carries it
+            on its own layer.
           </Term>
         </Terms>
       </Section>
@@ -161,13 +162,14 @@ export default function DocsSpecs() {
         </p>
         <Terms>
           <Term name="Deviation from ghost">
-            A mode in the 3D view&rsquo;s <strong>Surface analysis</strong> menu that paints the
-            whole hull by how far it lies from the ghost: red where your board has more foam, blue
-            where it has less, the pale middle of the scale where the two agree. It is measured
-            across the board, in each station&rsquo;s own plane: a point a given distance from the
-            tail is compared with the ghost&rsquo;s cross-section at the same distance from{' '}
-            <em>its</em> tail, and the number is the shortest way from the point to that section. On
-            the deck, bottom and rails that is simply how much foam was added or taken off there.
+            A mode in the 3D view&rsquo;s <strong>Surface analysis</strong> menu (the Surface group
+            of the <strong>Look</strong> menu, in the workspace) that paints the whole hull by how
+            far it lies from the ghost: red where your board has more foam, blue where it has less,
+            the pale middle of the scale where the two agree. It is measured across the board, in
+            each station&rsquo;s own plane: a point a given distance from the tail is compared with
+            the ghost&rsquo;s cross-section at the same distance from <em>its</em> tail, and the
+            number is the shortest way from the point to that section. On the deck, bottom and rails
+            that is simply how much foam was added or taken off there.
           </Term>
         </Terms>
         <p>

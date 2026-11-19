@@ -72,3 +72,28 @@ export const statusText = (
       return '';
   }
 };
+
+/** How long a build runs before the workspace says so: a drag's updates come and go without a word. */
+export const WORKSPACE_BUSY_MS = 1000;
+
+/**
+ * The workspace's one line about the build, in a shaper's words, for what the board is doing when it
+ * is not simply showing. Empty when there is nothing to say: the engine is the only one there, so
+ * "showing the surface" is no news, and a build that finishes within a moment is not announced.
+ */
+export const workspaceStatusText = (state: ViewerState, elapsedMs: number): string => {
+  if (state.job) {
+    if (elapsedMs >= WORKSPACE_BUSY_MS) return `Building the board… ${elapsedText(elapsedMs)}`;
+    return state.phase === 'converting' ? 'Building the board…' : '';
+  }
+  switch (state.phase) {
+    case 'converting':
+      return 'Building the board…';
+    case 'failed':
+      return state.stale
+        ? 'This edit was refused · the last good shape stays (see details)'
+        : 'This board was refused · the classic mesh is shown (see details)';
+    default:
+      return '';
+  }
+};

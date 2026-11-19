@@ -317,7 +317,7 @@ export function OverlayToggle({
  * The deviation map's ± band: a slider over {@link DEVIATION_BAND} (cm), read out in
  * the display unit. Full colour at this much more or less foam than the ghost.
  */
-function DeviationBandControl({
+export function DeviationBandControl({
   band,
   onChange,
   units,
