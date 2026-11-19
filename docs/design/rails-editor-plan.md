@@ -411,6 +411,11 @@ the failing cases kept as skipped tests):
   the engines are on, and the next autosave overwrites it with a conversion of the classic
   board: data loss, with no notice. The held text must stay held, and the person must be told.
 
+The first two of these come from the engine switches and go with them in slice 8. The held
+text that is dropped, and the share link's second toast, do not: they are conditions of
+making the rails engine the default, and of any session saved by a newer version being
+opened by an older one.
+
 From the tests:
 
 - Many tests build and mesh a board; on CI they take 5 to 60 s, and the rails worker

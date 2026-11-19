@@ -332,6 +332,14 @@ const fallbackIssue = (reason: string): NurbsIssue => ({
 const PROBE_SAMPLES = 64;
 
 /**
+ * Points per half of a rails section that is drawn. The points are spread evenly by arc length along about
+ * 60 cm, and a rail's bend is a few millimetres of it: at 64 the bend has two or three points and draws as
+ * facets, at 400 they are 1.5 mm apart, within a quarter of a pixel of the curve at the slice's scale for a
+ * bend of 2 mm radius or more. The probe costs the same at any count (about 0.13 ms a half section).
+ */
+const RAILS_DRAWN_SAMPLES = 400;
+
+/**
  * The sections of `rails` at the station coordinates `xis` (both sides on an asymmetric board, or one whose
  * right side has rail keys of its own). The coordinates are clamped to `[xiMin, xiMax]`, the board's ends in x.
  */
@@ -350,6 +358,10 @@ const railsProbes = (
       xi,
       plus: probeRails(rails, 0, x, PROBE_SAMPLES),
       minus: twoSided ? probeRails(rails, 1, x, PROBE_SAMPLES) : null,
+      fine: {
+        plus: probeRails(rails, 0, x, RAILS_DRAWN_SAMPLES),
+        minus: twoSided ? probeRails(rails, 1, x, RAILS_DRAWN_SAMPLES) : null,
+      },
     };
   });
 };

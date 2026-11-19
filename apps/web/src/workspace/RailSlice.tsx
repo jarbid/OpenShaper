@@ -51,7 +51,11 @@ function useProbeAt(x: number | null): SectionProbe | null {
 }
 
 /** The two halves of a probe: the left is the plus side, the right the minus side (the plus side again on a mirror board). */
-const halvesOf = (p: SectionProbe) => ({ left: p.plus, right: p.minus ?? p.plus });
+const halvesOf = (p: SectionProbe) => {
+  // drawn from the fine polyline when there is one: the coarse one has a rail's bend in two or three points
+  const drawn = p.fine ?? p;
+  return { left: drawn.plus, right: drawn.minus ?? drawn.plus };
+};
 
 interface DrawingProps {
   probe: SectionProbe;
@@ -287,7 +291,7 @@ export const RailSlice = memo(function RailSlice({ units }: { units: LengthUnit 
   // the apex as the dial says it, from the rail the board has at the cursor on the side that is chosen
   const keys = choice?.side === 'minus' && rails.minus ? rails.minus : rails.plus;
   const apex = apexLabel(railAt(keys, at).apex);
-  const half = probe ? measureSlice(probe.plus) : null;
+  const half = probe ? measureSlice(halvesOf(probe).left) : null;
 
   return (
     <section aria-label="Slice of the board" className="flex min-h-0 flex-1 flex-col gap-1">

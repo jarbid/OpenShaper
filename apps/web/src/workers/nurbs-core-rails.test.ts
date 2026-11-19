@@ -255,6 +255,65 @@ describe.each(BOARDS)("engine 'rails' on the %s", (_name, make) => {
     expect(mesh(doc, { ...SETTLED, engine: 'rails' }, [x]).probes[0]!.plus.length).toBe(2 * 64);
   });
 
+  it('gives a rails section a fine polyline to draw, with the rail’s bend in many points', () => {
+    const doc = make();
+    const x = midX(doc);
+    const probed = probeDocument(doc, [x], 'rails');
+    if (!probed.ok) throw new Error(probed.error);
+    const p = probed.probes[0]!;
+    const fine = p.fine!;
+    // the coarse points stay what the store makes its sections from; the fine ones are 400 a half
+    expect(p.plus.length).toBe(2 * 64);
+    expect(fine.plus.length).toBe(2 * 400);
+    expect(fine.plus.every(Number.isFinite)).toBe(true);
+    // the apex is the last bottom point of each, and they agree on where it is
+    expect(fine.plus[2 * 199]).toBeCloseTo(p.plus[2 * 31]!, 6);
+    expect(fine.plus[2 * 199 + 1]).toBeCloseTo(p.plus[2 * 31 + 1]!, 6);
+
+    // no bend is a facet: the polyline turns by a few degrees at a vertex where the coarse one turns by
+    // some thirty at the rail
+    const turn = (flat: readonly number[]): number => {
+      let worst = 0;
+      for (let i = 2; i + 3 < flat.length; i += 2) {
+        const ax = flat[i]! - flat[i - 2]!;
+        const ay = flat[i + 1]! - flat[i - 1]!;
+        const bx = flat[i + 2]! - flat[i]!;
+        const by = flat[i + 3]! - flat[i + 1]!;
+        worst = Math.max(worst, Math.abs(Math.atan2(ax * by - ay * bx, ax * bx + ay * by)));
+      }
+      return (worst * 180) / Math.PI;
+    };
+    // (a board with channels has real corners, so the bound there is relative: the fine polyline turns
+    // by less than half of what the coarse one does)
+    expect(turn(fine.plus)).toBeLessThan(0.5 * turn(p.plus));
+    if (doc.symmetry === 'mirror') expect(turn(fine.plus)).toBeLessThan(8);
+
+    // every coarse point lies on the fine polyline, within a twentieth of a millimetre
+    const distance = (q: readonly [number, number], flat: readonly number[]): number => {
+      let best = Infinity;
+      for (let i = 0; i + 3 < flat.length; i += 2) {
+        const ax = flat[i]!;
+        const ay = flat[i + 1]!;
+        const dx = flat[i + 2]! - ax;
+        const dy = flat[i + 3]! - ay;
+        const len2 = dx * dx + dy * dy;
+        const t =
+          len2 > 0 ? Math.max(0, Math.min(1, ((q[0] - ax) * dx + (q[1] - ay) * dy) / len2)) : 0;
+        best = Math.min(best, Math.hypot(q[0] - (ax + t * dx), q[1] - (ay + t * dy)));
+      }
+      return best;
+    };
+    let worst = 0;
+    for (let i = 0; i + 1 < p.plus.length; i += 2) {
+      worst = Math.max(worst, distance([p.plus[i]!, p.plus[i + 1]!], fine.plus));
+    }
+    expect(worst).toBeLessThan(0.005);
+    // the sections engine has no fine polyline: its sections are smooth splines
+    const sections = probeDocument(doc, [x], 'sections');
+    if (!sections.ok) throw new Error(sections.error);
+    expect(sections.probes[0]!.fine).toBeUndefined();
+  });
+
   it('draws the apex line and plan points of the DXF and PDF from the rails', () => {
     const doc = make();
     const built = buildBoard(doc, { check: false });

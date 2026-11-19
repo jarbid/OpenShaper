@@ -118,6 +118,16 @@ export interface SectionProbe {
   readonly plus: readonly number[];
   /** The minus side of an asymmetric board; null on a mirror board. */
   readonly minus: readonly number[] | null;
+  /**
+   * The same section sampled to be drawn. `plus` and `minus` are the few points the store makes its
+   * sections from; a rail's bend is a few millimetres in a section of tens of centimetres, and
+   * points spread evenly along it leave the bend two or three, which draws as facets. The rails
+   * engine gives this beside them; a section without it is drawn from `plus` and `minus`.
+   */
+  readonly fine?: {
+    readonly plus: readonly number[];
+    readonly minus: readonly number[] | null;
+  };
 }
 
 export interface NurbsTimings {
