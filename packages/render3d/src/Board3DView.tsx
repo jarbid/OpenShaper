@@ -201,37 +201,50 @@ const FLIP_ABOUT_LENGTH = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0)
  * carries position and target but no zoom, so there is nothing of theirs to keep.
  *
  * The fit is by length across the width, which is right for a view from the side and says nothing
- * of the height. A board seen obliquely in a wide, short pane needs it: given `framing` (the board's
- * box and where the camera sits), the fit is by the silhouette, in both directions.
+ * of the height. Given the board's `box`, the fit is by its silhouette instead, in both directions,
+ * as seen from where the camera is when the fit happens (its position about the orbit's target): a
+ * board seen obliquely in a wide, short pane needs it, and a restored pose is fitted the same way.
+ * Only a change of pane, of length or of the orbit's controls refits; the box is read then, so
+ * dragging a width does not rescale the board, as it never did.
  */
-function OrthographicFit({ span, framing }: { span: number; framing?: ObliqueFraming }) {
-  const { camera, size, invalidate } = useThree();
+function OrthographicFit({ span, box }: { span: number; box: BoxSize | null }) {
+  const { camera, controls: orbit, size, invalidate } = useThree();
   const applied = useRef<number | null>(null);
-  // The height decides nothing in a fit by length, so it must not refit one.
-  const height = framing ? size.height : 0;
+  const boxRef = useRef(box);
+  boxRef.current = box;
+  const oblique = box !== null;
+  // Neither the height nor the controls decide anything in a fit by length, so they must not refit one.
+  const height = oblique ? size.height : 0;
+  const controls = oblique ? orbit : null;
   useEffect(() => {
     if (!(camera instanceof OrthographicCamera) || size.width <= 0) return;
-    if (framing && height <= 0) return;
+    const fitted = oblique ? boxRef.current : null;
+    if (oblique && height <= 0) return;
     if (applied.current !== null && Math.abs(camera.zoom - applied.current) > 1e-6) return;
-    const zoom = framing
+    const zoom = fitted
       ? orthographicZoomForBox(
           { width: size.width, height },
-          projectedExtent(framing.box, framing.from),
+          projectedExtent(fitted, eyeAbout(camera.position, controls)),
         )
       : orthographicZoomFor(size.width, span);
     applied.current = zoom;
     camera.zoom = zoom;
     camera.updateProjectionMatrix();
     invalidate();
-  }, [camera, size.width, height, span, framing, invalidate]);
+  }, [camera, controls, size.width, height, span, oblique, invalidate]);
   return null;
 }
 
-/** A board's box and the position it is seen from, for `OrthographicFit`. */
-interface ObliqueFraming {
-  box: BoxSize;
-  from: readonly [number, number, number];
-}
+/**
+ * Where the camera is about the orbit's target: the origin until the controls exist (R3F types
+ * them as a bare event dispatcher; the orbit controls have a `target`).
+ */
+const eyeAbout = (position: Vector3, controls: unknown): [number, number, number] => {
+  const target = (controls as { target?: unknown } | null)?.target;
+  return target instanceof Vector3
+    ? [position.x - target.x, position.y - target.y, position.z - target.z]
+    : [position.x, position.y, position.z];
+};
 
 function ObjectCenteredNavigation({
   initialCamera,
@@ -871,15 +884,11 @@ export function Board3DView({
   const span = board ? boardSpan(board) : 200;
   const d = span * 1.1;
   // A board that opens in three quarters is fitted by its silhouette, not by its length (see
-  // `OrthographicFit`). A restored pose has its own direction, which the fit does not know.
-  const box = board && defaultView === 'threeQuarter' && !initialCamera ? boardBox(board) : null;
-  const [boxX, boxY, boxZ] = [box?.x ?? 0, box?.y ?? 0, box?.z ?? 0];
-  const framing = useMemo<ObliqueFraming | undefined>(
-    () =>
-      boxX > 0
-        ? { box: { x: boxX, y: boxY, z: boxZ }, from: defaultCameraPosition(1, 'threeQuarter') }
-        : undefined,
-    [boxX, boxY, boxZ],
+  // `OrthographicFit`). Whether a pose was restored is no part of the choice: the pose changes with
+  // every orbit, and a fit that followed it would rescale the board under the person's hand.
+  const fitBox = useMemo(
+    () => (board && defaultView === 'threeQuarter' ? boardBox(board) : null),
+    [board, defaultView],
   );
   const resolved: Board3DMode = mode ?? 'shaded';
   const [flipViewSequence, setFlipViewSequence] = useState(0);
@@ -932,7 +941,7 @@ export function Board3DView({
           far: span * 50,
         }}
       >
-        <OrthographicFit span={span} framing={framing} />
+        <OrthographicFit span={span} box={fitBox} />
         <color attach="background" args={[BACKGROUND[lighting]]} />
         <Lights preset={lighting} span={span} />
         {board && (
