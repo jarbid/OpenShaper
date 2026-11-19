@@ -5,10 +5,24 @@
  * and those to a closed mesh with its volume and areas (`meshRails`). Nothing here reads a
  * sections surface.
  */
+import { compileChain, funcEval } from '../chain';
 import { board2Err, board2Ok, makeIssue } from '../issues';
-import { TRIM } from '../params';
-import type { Board2Issue, Board2Result, Chain } from '../types';
-import type { RailsBoard, RailKey } from './board';
+import {
+  RADIUS_MAX,
+  RAIL_DOMAIN,
+  RAILS_COORD_MAX,
+  RAILS_FEATURES_MAX,
+  RAILS_HALF_WIDTH_MAX,
+  RAILS_KEYS_MAX,
+  RAILS_KNOTS_MAX,
+  RAILS_LENGTH_MAX,
+  RAILS_OUTLINE_PATH_MAX,
+  RAILS_STATIONS_MAX,
+  STATION_GAP,
+  TRIM,
+} from '../params';
+import type { Board2Issue, Board2IssueCode, Board2Result, Chain } from '../types';
+import type { RailsBoard, RailKey, StationCurves } from './board';
 import { vertexCurvature } from './curvature';
 import { lawsFromKeys, railsAlong } from './keys';
 import { buildLoft, loftPanels } from './loft';
@@ -91,43 +105,369 @@ const sorted = (xs: readonly number[]): boolean => {
   return true;
 };
 
-/** The structural checks of a rails board: stations, their order and sides, and rail keys. */
+type Located = NonNullable<Board2Issue['at']>;
+
+/** The points of a chain in order along it: each knot's in handle, the knot, its out handle. */
+function* pointsOf(c: Chain): Generator<readonly [number, number]> {
+  for (const k of c.knots) {
+    yield k.in;
+    yield k.p;
+    yield k.out;
+  }
+}
+
+/**
+ * The first fault of a plan, rocker or deck chain, with its code, or null: a number that is not
+ * finite, a coordinate beyond `RAILS_COORD_MAX` either way of the origin. With `plan`, also a point below
+ * the stringer: each side's chain holds its half widths, y >= 0 (the minus side's too: the loop
+ * mirrors it), so a point below y = 0 crosses to the other side (`outline-not-function`, the
+ * sections model's code for an outline that is not a half width). A plan number that is not
+ * finite is `geom`: the loop cannot be built from it, the refusal the loop's own build gives.
+ */
+function lineFault(
+  c: Chain,
+  plan: boolean,
+): { readonly code: Board2IssueCode; readonly message: string } | null {
+  if (c.knots.length > RAILS_KNOTS_MAX) {
+    return {
+      code: 'out-of-range',
+      message: `has ${c.knots.length} knots; the limit is ${RAILS_KNOTS_MAX}`,
+    };
+  }
+  let i = 0;
+  for (const q of pointsOf(c)) {
+    const knot = Math.floor(i++ / 3);
+    if (!Number.isFinite(q[0]) || !Number.isFinite(q[1])) {
+      return {
+        code: plan ? 'geom' : 'out-of-range',
+        message: `knot ${knot} holds a number that is not finite`,
+      };
+    }
+    const r = Math.max(Math.abs(q[0]), Math.abs(q[1]));
+    if (r > RAILS_COORD_MAX) {
+      return {
+        code: 'out-of-range',
+        message: `knot ${knot} is at (${q[0].toPrecision(4)}, ${q[1].toPrecision(4)}): beyond ${RAILS_COORD_MAX} cm of the origin`,
+      };
+    }
+    if (plan && q[1] < 0) {
+      return {
+        code: 'outline-not-function',
+        message: `knot ${knot} is below the stringer (y = ${q[1]}): the outline must not cross it`,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * The first fault of a station curve, or null. A curve runs from the stringer (u = 0) to the
+ * wall (u = 1) with its knots in increasing u, and every control point inside 0 <= u <= 1 (the
+ * sections model's rule): the loft reads it on a u grid as a function of u, and samples each
+ * segment in proportion to its extent in u.
+ */
+function curveFault(c: Chain): string | null {
+  const k = c.knots;
+  if (k.length > RAILS_KNOTS_MAX) return `has ${k.length} knots; the limit is ${RAILS_KNOTS_MAX}`;
+  let i = 0;
+  for (const q of pointsOf(c)) {
+    if (!Number.isFinite(q[0]) || !Number.isFinite(q[1])) {
+      return `knot ${Math.floor(i / 3)} holds a number that is not finite`;
+    }
+    i++;
+  }
+  if (k.length < 2) return 'has fewer than two knots';
+  if (k[0]!.p[0] !== 0) return `starts at u = ${k[0]!.p[0]}, not at the stringer (u = 0)`;
+  const last = k[k.length - 1]!.p[0];
+  if (last !== 1) return `ends at u = ${last}, not at the wall (u = 1)`;
+  for (let j = 1; j < k.length; j++) {
+    if (k[j]!.p[0] < k[j - 1]!.p[0]) return `knot ${j} goes back in u`;
+  }
+  for (let j = 0; j < k.length; j++) {
+    const handles = [...(j > 0 ? [k[j]!.in] : []), ...(j < k.length - 1 ? [k[j]!.out] : [])];
+    for (const h of handles) {
+      if (h[0] < 0 || h[0] > 1) return `knot ${j} has a handle at u = ${h[0]}, outside 0 to 1`;
+    }
+  }
+  return null;
+}
+
+/** The first rail number of `key` outside `RAIL_DOMAIN`, as a phrase, or null. */
+function railFault(key: RailKey): string | null {
+  if (!Number.isFinite(key.x) || Math.abs(key.x) > RAILS_COORD_MAX) {
+    return `is at x = ${key.x}, beyond ${RAILS_COORD_MAX} cm`;
+  }
+  const rail = key.rail as unknown as Readonly<Record<string, unknown>>;
+  for (const name of Object.keys(RAIL_DOMAIN) as (keyof typeof RAIL_DOMAIN)[]) {
+    const v = rail[name];
+    const [lo, hi] = RAIL_DOMAIN[name];
+    if (typeof v !== 'number' || !(v >= lo && v <= hi)) {
+      return `has ${name} ${String(v)}, outside ${lo} to ${hi}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * The checks of a rails board that need nothing built: no more stations, rail keys, knots, corner
+ * radii and features than the reader accepts (so a board that builds can be saved and opened
+ * again), every number finite and within the limits a board is held to (`RAILS_*` in
+ * `params.ts`), the outline on its side of the stringer,
+ * station ids unique, stations in increasing x at least `STATION_GAP` apart, station curves
+ * that run from the stringer to the wall, each side's rail keys present and in order, and each
+ * rail number and corner radius in its range. A side's minus fields are checked whenever they are
+ * present, as the engine reads them whenever they are. Each fault is one issue; a chain, a key
+ * list or a station reports its first fault only, so a large hostile file gives few issues.
+ */
 function checkBoard(board: RailsBoard): Board2Issue[] {
   const issues: Board2Issue[] = [];
+  const err = (code: Board2IssueCode, message: string, at?: Located, value?: number): void => {
+    issues.push(
+      makeIssue(code, message, {
+        ...(at === undefined ? {} : { at }),
+        ...(value === undefined ? {} : { value }),
+      }),
+    );
+  };
   const asym = board.symmetry === 'asymmetric';
-  if (board.stations.length === 0) {
-    issues.push(makeIssue('too-few-sections', 'the board has no station'));
-  } else if (!sorted(board.stations.map((s) => s.x))) {
-    issues.push(makeIssue('station-order', 'the stations are not in increasing x'));
+
+  // the lines: finite, near the origin, the outline on its side of the stringer
+  type Line = readonly [string, Chain, boolean, Located | undefined];
+  const lines: Line[] = [['outline.plus', board.outline.plus, true, { side: 'plus' }]];
+  if (board.outline.minus !== undefined) {
+    lines.push(['outline.minus', board.outline.minus, true, { side: 'minus' }]);
   }
-  if (asym) {
-    for (const s of board.stations) {
-      if (s.minus === undefined) {
-        issues.push(
-          makeIssue(
-            'symmetry-fields',
-            `station '${s.id}' has no minus side on an asymmetric board`,
-            {
-              at: { station: s.id },
-            },
-          ),
+  lines.push(['rocker', board.rocker, false, undefined], ['deck', board.deck, false, undefined]);
+  let linesOk = true;
+  for (const [name, chain, plan, at] of lines) {
+    const fault = lineFault(chain, plan);
+    if (fault === null) continue;
+    linesOk = false;
+    err(fault.code, `${name}: ${fault.message}`, at);
+  }
+  // the outline's size: its extent along x, its widest control point and its control polygon's
+  // length, which bounds the loop's samples
+  if (linesOk) {
+    const plan =
+      board.outline.minus === undefined
+        ? [board.outline.plus]
+        : [board.outline.plus, board.outline.minus];
+    const [lo, hi] = xRange(plan);
+    if (hi - lo > RAILS_LENGTH_MAX) {
+      err(
+        'out-of-range',
+        `the outline is ${(hi - lo).toPrecision(4)} cm long (the limit is ${RAILS_LENGTH_MAX} cm)`,
+        undefined,
+        hi - lo,
+      );
+    }
+    for (const [side, chain] of plan.map((c, i) => [i === 0 ? 'plus' : 'minus', c] as const)) {
+      let wide = 0;
+      for (const q of pointsOf(chain)) wide = Math.max(wide, q[1]);
+      if (wide > RAILS_HALF_WIDTH_MAX) {
+        err(
+          'out-of-range',
+          `outline.${side}: the half width reaches ${wide.toPrecision(4)} cm (the limit is ${RAILS_HALF_WIDTH_MAX} cm)`,
+          { side },
+          wide,
+        );
+      }
+      let path = 0;
+      const k = chain.knots;
+      for (let i = 0; i + 1 < k.length; i++) {
+        const a = k[i]!;
+        const b = k[i + 1]!;
+        path +=
+          Math.hypot(a.out[0] - a.p[0], a.out[1] - a.p[1]) +
+          Math.hypot(b.in[0] - a.out[0], b.in[1] - a.out[1]) +
+          Math.hypot(b.p[0] - b.in[0], b.p[1] - b.in[1]);
+      }
+      if (path > RAILS_OUTLINE_PATH_MAX) {
+        err(
+          'out-of-range',
+          `outline.${side}: its control polygon is ${path.toPrecision(4)} cm long (the limit is ${RAILS_OUTLINE_PATH_MAX} cm)`,
+          { side },
+          path,
         );
       }
     }
   }
+
+  // corner radii: at most one a corner knot, so no more than the reader accepts of knots
+  const radiiFit = Math.max(board.corners.plus.length, board.corners.minus?.length ?? 0);
+  if (radiiFit > RAILS_KNOTS_MAX) {
+    err(
+      'out-of-range',
+      `the corner radii number ${radiiFit} a side; the limit is ${RAILS_KNOTS_MAX}`,
+      undefined,
+      radiiFit,
+    );
+  }
+  const radii: [string, number][] =
+    radiiFit > RAILS_KNOTS_MAX
+      ? []
+      : [
+          ['nose', board.corners.nose],
+          ['tail', board.corners.tail],
+          ...board.corners.plus.map((r, i): [string, number] => [`plus[${i}]`, r]),
+          ...(board.corners.minus ?? []).map((r, i): [string, number] => [`minus[${i}]`, r]),
+        ];
+  for (const [name, r] of radii) {
+    if (!(r >= 0 && r <= RADIUS_MAX)) {
+      err(
+        'out-of-range',
+        `corner radius ${name} is ${r}: it must be from 0 to ${RADIUS_MAX} cm`,
+        undefined,
+        r,
+      );
+      break;
+    }
+  }
+
+  // stations: no more than the reader accepts, which are then the only ones looked at
+  if (board.stations.length === 0) {
+    err('too-few-sections', 'the board has no station');
+  }
+  const stationsFit = board.stations.length <= RAILS_STATIONS_MAX;
+  if (!stationsFit) {
+    err(
+      'out-of-range',
+      `the board has ${board.stations.length} stations; the limit is ${RAILS_STATIONS_MAX}`,
+      undefined,
+      board.stations.length,
+    );
+  }
+  const stations = stationsFit ? board.stations : [];
+  const ids = new Set<string>();
+  stations.forEach((s, i) => {
+    const at = { station: s.id };
+    if (ids.has(s.id)) err('station-id', `station id '${s.id}' is used twice`, at);
+    ids.add(s.id);
+    if (!Number.isFinite(s.x)) {
+      err('out-of-range', `station '${s.id}': x is ${s.x}, not a finite number`, at);
+    } else if (i > 0) {
+      const prev = stations[i - 1]!.x;
+      if (!(s.x > prev)) {
+        err(
+          'station-order',
+          `station '${s.id}': x ${s.x} must be greater than the previous station's ${prev}`,
+          at,
+          s.x,
+        );
+      } else if (s.x - prev < STATION_GAP) {
+        err(
+          'station-order',
+          `station '${s.id}' is ${s.x - prev} cm from the previous station (the least is ${STATION_GAP} cm)`,
+          at,
+          s.x,
+        );
+      }
+    }
+    if (asym && s.minus === undefined) {
+      err('symmetry-fields', `station '${s.id}' has no minus side on an asymmetric board`, at);
+    }
+    const sides: ['plus' | 'minus', StationCurves][] = [['plus', s.plus]];
+    if (s.minus !== undefined) sides.push(['minus', s.minus]);
+    for (const [side, curves] of sides) {
+      for (const which of ['bottom', 'deck'] as const) {
+        const fault = curveFault(curves[which]);
+        if (fault !== null) {
+          err('section-out-of-bounds', `station '${s.id}' (${side} ${which}): the curve ${fault}`, {
+            station: s.id,
+            side,
+          });
+        }
+      }
+    }
+  });
+
+  // bottom features
+  if (board.features.length > RAILS_FEATURES_MAX) {
+    err(
+      'out-of-range',
+      `the board has ${board.features.length} bottom features; the limit is ${RAILS_FEATURES_MAX}`,
+      undefined,
+      board.features.length,
+    );
+  }
+
+  // rail keys
   const sides: ['plus' | 'minus', readonly RailKey[] | undefined][] = [['plus', board.rails.plus]];
   // an asymmetric board needs the minus keys; any board may have them
   if (asym || board.rails.minus !== undefined) sides.push(['minus', board.rails.minus]);
   for (const [side, keys] of sides) {
     if (keys === undefined || keys.length === 0) {
-      issues.push(
-        makeIssue('too-few-sections', `the ${side} side has no rail key`, { at: { side } }),
+      err('too-few-sections', `the ${side} side has no rail key`, { side });
+      continue;
+    }
+    if (keys.length > RAILS_KEYS_MAX) {
+      err(
+        'out-of-range',
+        `the ${side} side has ${keys.length} rail keys; the limit is ${RAILS_KEYS_MAX}`,
+        { side },
+        keys.length,
       );
+      continue;
+    }
+    const bad = keys.findIndex((k) => railFault(k) !== null);
+    if (bad >= 0) {
+      err('out-of-range', `the ${side} side's rail key ${bad} ${railFault(keys[bad]!)!}`, {
+        side,
+        key: bad,
+      });
     } else if (!sorted(keys.map((k) => k.x))) {
+      err('station-order', `the ${side} side's rail keys are not in increasing x`, { side });
+    }
+  }
+  return issues;
+}
+
+/**
+ * The checks of a rails board's stations against its plan and lines, made once the half widths
+ * and the outline's extent are known: each station inside the extent, with some width on each
+ * side where it is not at an end (the outline closes to no width at its ends) and some thickness.
+ */
+function stationIssues(
+  board: RailsBoard,
+  halfWidth: BuiltRails['halfWidth'],
+  xiMin: number,
+  xiMax: number,
+): Board2Issue[] {
+  const issues: Board2Issue[] = [];
+  const rocker = compileChain(board.rocker);
+  const deck = compileChain(board.deck);
+  const r = new Float64Array(3);
+  const d = new Float64Array(3);
+  for (const s of board.stations) {
+    const at = { station: s.id };
+    if (!(s.x >= xiMin && s.x <= xiMax)) {
       issues.push(
-        makeIssue('station-order', `the ${side} side's rail keys are not in increasing x`, {
-          at: { side },
+        makeIssue(
+          'station-order',
+          `station '${s.id}': x ${s.x} is outside the outline's extent [${xiMin}, ${xiMax}]`,
+          { at, value: s.x },
+        ),
+      );
+      continue;
+    }
+    if (s.x > xiMin && s.x < xiMax && !(halfWidth[0](s.x) > 0 && halfWidth[1](s.x) > 0)) {
+      issues.push(
+        makeIssue('station-order', `station '${s.id}': the board has no width at x ${s.x}`, {
+          at,
+          value: s.x,
         }),
+      );
+    }
+    funcEval(rocker, s.x, r, 0);
+    funcEval(deck, s.x, d, 0);
+    const t = d[0]! - r[0]!;
+    if (!(t > 0)) {
+      issues.push(
+        makeIssue(
+          'thickness',
+          `station '${s.id}': the board has no thickness at x ${s.x} (${t} cm)`,
+          { at, value: t },
+        ),
       );
     }
   }
@@ -239,6 +579,10 @@ export function buildRails(
   const [xiMin, xiMax] = xRange(
     filled.minus === undefined ? [filled.plus] : [filled.plus, filled.minus],
   );
+  if (opts.check !== false) {
+    const issues = stationIssues(board, halfWidth, xiMin, xiMax);
+    if (issues.length > 0) return board2Err(issues);
+  }
 
   // the u grid: `loftSpacing` or finer at the widest half width, which the loop reaches
   let widest = 0;
@@ -304,6 +648,13 @@ export interface RailsMesh {
   /** Principal curvatures per vertex (1/cm, convex positive, k1 >= k2), only with `curvature`. */
   readonly k1?: Float32Array;
   readonly k2?: Float32Array;
+  /**
+   * Present, and true, only when the board's mesh budget (`TRIM.panelCellBudget`,
+   * `TRIM.loopSampleBudget`) made the mesh coarser than asked: a board larger than any made.
+   */
+  readonly coarsened?: true;
+  /** The panel grid (cm) used, with `coarsened`. */
+  readonly grid?: number;
 }
 
 /** What `meshRails` is asked. */
@@ -318,33 +669,92 @@ export interface MeshRailsOptions {
   readonly curvature?: boolean;
 }
 
+/** How a mesh is cut: the panel grid, the loop's spacing (the built loop's when absent) and the strips' rows. */
+interface MeshPlan {
+  readonly grid: number;
+  readonly spacing?: number;
+  readonly deckRows: number;
+  readonly tuckRows: number;
+  /** The budget made it coarser than asked. */
+  readonly coarsened: boolean;
+}
+
 /**
- * The kernel mesh of a built board at the quality `opts` asks for (docs/design/trim-blend-
- * engine.md, "Cost"). An STL face size rebuilds the loop no coarser than the face, and the
- * laws on it; the other qualities use the built loop.
+ * The finest grid and loop spacing (cm) the mesh budget allows a built board: its loop's
+ * bounding box over `TRIM.panelCellBudget` cells, and its perimeter over `TRIM.loopSampleBudget`.
  */
-export function trimMeshOf(built: BuiltRails, opts: MeshRailsOptions = {}): TrimMesh {
+function budgetOf(built: BuiltRails): { readonly grid: number; readonly spacing: number } {
+  const loop = built.loop;
+  let x0 = Infinity;
+  let x1 = -Infinity;
+  let y0 = Infinity;
+  let y1 = -Infinity;
+  for (let i = 0; i < loop.n; i++) {
+    x0 = Math.min(x0, loop.x[i]!);
+    x1 = Math.max(x1, loop.x[i]!);
+    y0 = Math.min(y0, loop.y[i]!);
+    y1 = Math.max(y1, loop.y[i]!);
+  }
+  return {
+    grid: Math.sqrt(((x1 - x0) * (y1 - y0)) / TRIM.panelCellBudget),
+    spacing: loop.s[loop.n]! / TRIM.loopSampleBudget,
+  };
+}
+
+/**
+ * The cut of a mesh at the quality `opts` asks for (docs/design/trim-blend-engine.md, "Cost"),
+ * held to the board's budget (`budgetOf`): a grid finer than the budget allows becomes the
+ * budget's, and an STL face size finer than it becomes the coarsest of the two floors, which
+ * sets its grid, loop spacing and rows as if it had been asked.
+ */
+function meshPlan(built: BuiltRails, opts: MeshRailsOptions): MeshPlan {
+  const floor = budgetOf(built);
   const f = opts.maxEdge;
   if (f !== undefined && f > 0) {
-    const spacing = Math.min(TRIM.spacingMax, f);
-    const loop = tryLoop(built.board, spacing) ?? built.loop;
-    const laws = loop === built.loop ? built.laws : lawsOf(built.board, loop);
-    const scale = Math.max(1, TRIM.stlFace / f);
-    return buildTrimMesh(loop, laws, built.panels, Math.min(TRIM.viewGrid, f), {
+    const face = Math.max(f, floor.grid, floor.spacing);
+    const grid = Math.max(Math.min(TRIM.viewGrid, face), floor.grid);
+    const scale = Math.max(1, TRIM.stlFace / face);
+    return {
+      grid,
+      spacing: Math.min(TRIM.spacingMax, face),
       deckRows: Math.max(TRIM.stlDeckRows, Math.ceil(TRIM.stlDeckRows * scale)),
       tuckRows: Math.max(TRIM.stlTuckRows, Math.ceil(TRIM.stlTuckRows * scale)),
-    });
+      coarsened: face !== f || grid !== Math.min(TRIM.viewGrid, f),
+    };
   }
-  if (opts.draft === true) {
-    return buildTrimMesh(built.loop, built.laws, built.panels, TRIM.draftGrid, {
-      deckRows: TRIM.draftDeckRows,
-      tuckRows: TRIM.draftTuckRows,
-    });
+  const [grid, deckRows, tuckRows] =
+    opts.draft === true
+      ? [TRIM.draftGrid, TRIM.draftDeckRows, TRIM.draftTuckRows]
+      : [TRIM.viewGrid, TRIM.deckRows, TRIM.tuckRows];
+  return {
+    grid: Math.max(grid, floor.grid),
+    deckRows,
+    tuckRows,
+    coarsened: floor.grid > grid,
+  };
+}
+
+/** The kernel mesh of a built board cut as `plan` says. An STL's spacing rebuilds the loop no coarser than it, and the laws on it. */
+function meshOf(built: BuiltRails, plan: MeshPlan): TrimMesh {
+  let loop = built.loop;
+  let laws = built.laws;
+  if (plan.spacing !== undefined) {
+    loop = tryLoop(built.board, plan.spacing) ?? built.loop;
+    if (loop !== built.loop) laws = lawsOf(built.board, loop);
   }
-  return buildTrimMesh(built.loop, built.laws, built.panels, TRIM.viewGrid, {
-    deckRows: TRIM.deckRows,
-    tuckRows: TRIM.tuckRows,
+  return buildTrimMesh(loop, laws, built.panels, plan.grid, {
+    deckRows: plan.deckRows,
+    tuckRows: plan.tuckRows,
   });
+}
+
+/**
+ * The kernel mesh of a built board at the quality `opts` asks for (docs/design/trim-blend-
+ * engine.md, "Cost"), within the board's budget (`meshPlan`). An STL face size rebuilds the loop
+ * no coarser than the face, and the laws on it; the other qualities use the built loop.
+ */
+export function trimMeshOf(built: BuiltRails, opts: MeshRailsOptions = {}): TrimMesh {
+  return meshOf(built, meshPlan(built, opts));
 }
 
 /** The area enclosed by a loop, cm² (shoelace). */
@@ -388,7 +798,8 @@ function measure(p: Float32Array, t: Uint32Array): { volume: number; area: numbe
 
 /** Meshes a built rails board, with its volume, plan area and surface area. */
 export function meshRails(built: BuiltRails, opts: MeshRailsOptions = {}): RailsMesh {
-  const mesh = trimMeshOf(built, opts);
+  const plan = meshPlan(built, opts);
+  const mesh = meshOf(built, plan);
   const facets = measure(mesh.positions, mesh.indices);
   const area = facets.area;
   const volume = facets.volume + mesh.panelGap;
@@ -407,5 +818,6 @@ export function meshRails(built: BuiltRails, opts: MeshRailsOptions = {}): Rails
     planArea: loopArea(mesh.loop),
     surfaceArea: area,
     ...(k === undefined ? {} : { k1: k.k1, k2: k.k2 }),
+    ...(plan.coarsened ? { coarsened: true as const, grid: plan.grid } : {}),
   };
 }

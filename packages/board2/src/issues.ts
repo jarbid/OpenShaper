@@ -38,6 +38,7 @@ export const BOARD2_ISSUE_CODES = [
   'section-out-of-bounds',
   'feature-invalid',
   'build-invalid',
+  'out-of-range',
   'section-fit',
   'section-normal',
   'blend-overshoot',

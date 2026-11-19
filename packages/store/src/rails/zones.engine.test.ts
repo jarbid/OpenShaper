@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * `zones.ts` against the engine it mirrors: `railAt` against the laws a built board holds at every
- * loop sample, and `RAIL_LIMITS` against what the engine does to a number outside them (the store
- * may not import engine code, so the numbers are copied there and pinned here); and the engine's
+ * loop sample, and `RAIL_LIMITS` (the engine's own table, shared through its code-free `defaults`)
+ * against what the engine does to a number outside them; and the engine's
  * reading of zones: equal keys hold a rail flat, and a blend between different rails runs without
  * overshoot.
  */

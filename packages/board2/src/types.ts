@@ -221,6 +221,8 @@ export type Board2IssueCode =
   // features and build settings
   | 'feature-invalid'
   | 'build-invalid'
+  // a rails board's numbers: not finite, or beyond the limits a board is held to
+  | 'out-of-range'
   // build-time findings (warnings)
   | 'section-fit'
   | 'section-normal'

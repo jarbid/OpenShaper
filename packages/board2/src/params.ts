@@ -5,7 +5,16 @@
  * `src` lives here (`no-magic-tolerances.test.ts` exempts this file only).
  * Lengths are cm, angles radians.
  */
-import { RADIUS_CROTCH, RADIUS_NOSE, RADIUS_TAIL } from './defaults';
+import {
+  RADIUS_CROTCH,
+  RADIUS_NOSE,
+  RADIUS_TAIL,
+  RAIL_APEX_INSET,
+  RAIL_BAND_MIN,
+  RAIL_EDGE_MAX,
+  RAIL_RHO_INSET,
+} from './defaults';
+import type { RailRanges } from './defaults';
 import type { BuildSettings } from './types';
 
 /** The document's format tag, version and model (the plan's "v2"; classic `.board.json` is already v2). */
@@ -372,10 +381,10 @@ export const TRIM = {
   /** Sharpness of the soft minimum that applies the limit. */
   bandSoftmin: 5,
   /** The narrowest a band or tuck is ever built, cm: a hard edge is a very small blend, never a missing one. */
-  bandMin: 0.05,
+  bandMin: RAIL_BAND_MIN,
   /** The apex is kept this far, as a fraction, from either end of the wall, and a conic's rho this far from 0 and 1. */
-  apexInset: 0.02,
-  rhoInset: 0.05,
+  apexInset: RAIL_APEX_INSET,
+  rhoInset: RAIL_RHO_INSET,
   /**
    * The least thickness (cm) the kernel builds the panels to, so a tip ends in a ball and never
    * a point: a thickness t becomes `(t^p + T^p)^(1/p)` with `T = tipThickness` and
@@ -584,4 +593,121 @@ export const TRIM = {
   probeSlopeStep: 0.05,
   probePanelStep: 0.05,
   probeBlendSteps: 64,
+  /**
+   * The mesh's budget (`trim/native.ts`, `meshRails`): the panel grid is never finer than the
+   * loop's bounding box over `panelCellBudget` cells (the panels' arrays are sized by the box,
+   * so a thin board with a wide spike counts its box), and an STL's loop never samples finer
+   * than its perimeter over `loopSampleBudget`; an STL face size finer than either is coarsened
+   * to it, its rows with it. Only a board larger than any made is affected. The largest made,
+   * the 274 cm longboard (the template and the golden), has a box of 15,851 cm² and a perimeter
+   * of 584 cm: 32,350 box cells at the view grid, 63,406 at an STL face of 0.5 cm (the finest
+   * the app asks), 176,128 at 0.3 cm; and 1,948 perimeter samples at 0.3 cm. So the budget is
+   * 3.9 times the longboard at 0.5 cm and 1.4 times at 0.3 cm, and the loop's 4.1 times at 0.3 cm:
+   * every made board and template meshes byte for byte as without a budget at view, draft and
+   * STL faces of 1, 0.5 and 0.3 cm. A 1,000 by 150 cm board is held to a grid of about 1.1 cm.
+   */
+  panelCellBudget: 250_000,
+  loopSampleBudget: 8000,
 } as const;
+
+/*
+ * Limits of a rails board (`trim/native.ts` `checkBoard`, `trim/doc.ts` `reviveRails`): a file
+ * can be well formed and still describe a board no shaper makes, at a size whose loft and mesh
+ * have no bound. These hold a board to the scale of a surfboard with a wide margin, so a real
+ * board is never refused and a hostile one is refused before it costs anything.
+ */
+
+/**
+ * How far (cm) either coordinate of any point of the outline, rocker or deck, or a rail key's
+ * place, may be from the origin: 10 m, over three times the longest board made (a 3 m longboard).
+ * Each coordinate on its own, so a board as long as `RAILS_LENGTH_MAX` may still have nose rocker.
+ */
+export const RAILS_COORD_MAX = 1000;
+
+/** The longest board (cm) built: the outline's extent along x, which bounds the stations' places. 10 m, as `RAILS_COORD_MAX`. */
+export const RAILS_LENGTH_MAX = 1000;
+
+/**
+ * The widest half width (cm) built: the outline's control points' distance from the stringer.
+ * 150 cm, five times the widest board made (the 3 m longboard's 29 cm half width) and a tandem or
+ * a paddle board's 50 cm with room to spare.
+ */
+export const RAILS_HALF_WIDTH_MAX = 150;
+
+/**
+ * The longest an outline side's control polygon may be, cm: twice `RAILS_LENGTH_MAX`. The polygon
+ * bounds the curve's arc length, and the loop's samples, and the cost of its local feature size
+ * (every sample against every other), grow with it: a side that zigzags across the board is
+ * within every other limit and would build for minutes. A 1,000 by 150 cm board's side is about
+ * 1,300 cm; the boards made and the Shape3D imports tried are at most 1.19 times their length
+ * (326 cm for a 288 cm board).
+ */
+export const RAILS_OUTLINE_PATH_MAX = 2 * RAILS_LENGTH_MAX;
+
+/**
+ * The largest corner radius (cm): a corner rounds the outline within the board's plan, so a radius
+ * cannot usefully exceed the half width; it is held to the widest half width a board may have.
+ * The boards made use 0.2 to 0.8 cm.
+ */
+export const RADIUS_MAX = RAILS_HALF_WIDTH_MAX;
+
+/**
+ * The least distance (cm) between two stations: the sections model's value (the store's station
+ * edits keep stations this far apart, `packages/store/src/sections/edits.ts`). Closer, the loft's
+ * blend along x divides by the gap.
+ */
+export const STATION_GAP = 1e-3;
+
+/**
+ * The range a rail number may hold in a board the engine builds (`checkBoard` refuses one outside
+ * it). It is wider than the build range `RAIL_LIMITS` (`defaults.ts`) wherever a number outside
+ * that is still meaningful, as the engine builds it at the build range's end: a band or a tuck
+ * of 0 (no blend: built at the narrowest) or wider than the board (built at the widest the plan
+ * allows), and a rho or an apex of 0 or 1. A board converted from sections holds such numbers
+ * (a Shape3D import has a tuck and an apex of 0): its rail is read off the sections, not held to
+ * the build range. A band or tuck is a distance across the plan, so it is held to
+ * `RAILS_COORD_MAX` as every plan distance is; below 0 it has no meaning (and the soft minimum
+ * that limits it is not defined). An edge at 90 degrees or beyond has no finite tangent.
+ */
+export const RAIL_DOMAIN: RailRanges = {
+  band: [0, RAILS_COORD_MAX],
+  hardness: [0, 1],
+  tuck: [0, RAILS_COORD_MAX],
+  tuckShape: [0, 1],
+  bottomEdge: [0, RAIL_EDGE_MAX],
+  deckEdge: [0, RAIL_EDGE_MAX],
+  apex: [0, 1],
+};
+
+/*
+ * The reader's limits (`reviveRails`): a document with more items than these is refused as
+ * `doc-malformed` before they are read, so a file's cost has a bound before anything is built.
+ * Each was measured at its limit on a legitimate board (`trim/native.limits.test.ts`, "a board
+ * at each limit"); the numbers are in each entry.
+ */
+
+/**
+ * Stations of a rails board. The boards made have 4 to 8. Each side's bottom and deck are lofted
+ * through every station on a u grid of `TRIM.loftSpacing` across the widest half width, so the
+ * build grows with stations times width: 500 stations on a 1,000 by 150 cm asymmetric board (four
+ * lofts of 3,000 u cells) built in 4.0 s, on a mirror board (two lofts) in 2.1 s; 500 on a
+ * 185 cm board in 0.3 s. Half that number keeps the widest asymmetric board near 2 s.
+ */
+export const RAILS_STATIONS_MAX = 250;
+
+/** Rail keys a side. The boards made have 3 to 7. */
+export const RAILS_KEYS_MAX = 5000;
+
+/**
+ * Knots of one chain (an outline side, the rocker, the deck, a station curve), and corner radii a
+ * side. The boards made have at most 7. The outline sets the number: its pieces are sampled
+ * `pieceSamples` points a Bézier segment whatever the segment's length, and a corner's tangent
+ * points are found among every pair of samples within its reach, so the loop's cost grows with the
+ * square of the knots. A smooth outline side of 400 knots builds in about 1 s and its STL mesh in
+ * about 1.2 s more; at 500, 1.6 s and 1.7 s; at 1,000, 6 s; at 5,000, 156 s. The rocker, the deck
+ * and the station curves cost far less (all ten curves of a board at 5,000 knots built in 0.1 s).
+ */
+export const RAILS_KNOTS_MAX = 400;
+
+/** Bottom features. The boards made have at most 2. */
+export const RAILS_FEATURES_MAX = 64;

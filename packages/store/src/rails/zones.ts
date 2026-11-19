@@ -18,9 +18,11 @@
  * {@link ZONE_MIN_GAP} apart and inside `[0, length]`; no edit breaks that, and an edit that
  * cannot be done as asked does the nearest legal thing and never throws.
  *
- * This module reads no engine code: it takes the engine's types and nothing else of it.
+ * This module reads no engine code: it takes the engine's types and its code-free `defaults`
+ * (plain data, the ranges above), and nothing else of it.
  */
 import type { RailsBoard } from '@openshaper/board2';
+import { RAIL_LIMITS as ENGINE_RAIL_LIMITS } from '@openshaper/board2/defaults';
 import type { RailKey, RailRecipe } from './types';
 
 /** A rail's seven numbers, in the order the engine and the file list them. */
@@ -60,23 +62,13 @@ export const ZONE_SCALES: Readonly<Record<RailNumber, number>> = {
 };
 
 /**
- * The range each number may take, as the engine holds it (`rails.ts` and the `TRIM` entries it
- * reads): the band and the tuck from `bandMin` (0.05 cm, the narrowest blend ever built) to
- * `bandHard * featureCap` (0.9 of the 60 cm the loop caps a feature size at, 54 cm); both rho
- * from `rhoInset` to `1 - rhoInset` (0.05 to 0.95); the apex from `apexInset` to `1 - apexInset`
- * (0.02 to 0.98); and each edge from 0 (tangent: no edge) to 89 degrees, the engine reading an
- * angle only through its tangent, which is infinite at 90 and negative beyond it, with
- * `edgeShort` pinning a steeper shoulder below the apex.
+ * The range each number may take, as the engine holds it as it builds (board2's `RAIL_LIMITS`,
+ * defined once in its code-free `defaults` module): the band and the tuck from 0.05 cm (the
+ * narrowest blend ever built) to 54 cm, both rho from 0.05 to 0.95, the apex from 0.02 to 0.98,
+ * and each edge from 0 (tangent: no edge) to 89 degrees. An edited number is held to it.
  */
-export const RAIL_LIMITS: Readonly<Record<RailNumber, readonly [number, number]>> = {
-  band: [0.05, 54],
-  hardness: [0.05, 0.95],
-  tuck: [0.05, 54],
-  tuckShape: [0.05, 0.95],
-  bottomEdge: [0, 89],
-  deckEdge: [0, 89],
-  apex: [0.02, 0.98],
-};
+export const RAIL_LIMITS: Readonly<Record<RailNumber, readonly [number, number]>> =
+  ENGINE_RAIL_LIMITS;
 
 /** A run of consecutive keys that hold one rail. */
 export interface Zone {

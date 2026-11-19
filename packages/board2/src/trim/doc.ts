@@ -25,6 +25,7 @@
  * text the writer produced.
  */
 import {
+  bad,
   build,
   chain,
   describe,
@@ -40,15 +41,23 @@ import {
   orderedFeature,
   orderedMeta,
   orderedOutline,
-  outline,
   rec,
   str,
 } from '../doc-shape';
 import type { Reader } from '../doc-shape';
 import { deepFreeze } from '../freeze';
 import { board2Err, board2Ok, makeIssue } from '../issues';
-import { BOARD_FORMAT, BOARD_MODEL, RAILS_MODEL, RAILS_VERSION } from '../params';
-import type { Board2Result } from '../types';
+import {
+  BOARD_FORMAT,
+  BOARD_MODEL,
+  RAILS_FEATURES_MAX,
+  RAILS_KEYS_MAX,
+  RAILS_KNOTS_MAX,
+  RAILS_MODEL,
+  RAILS_STATIONS_MAX,
+  RAILS_VERSION,
+} from '../params';
+import type { Board2Result, Chain, Outline } from '../types';
 import type { RailsBoard, RailKey, RailsCorners, RailsStation, StationCurves } from './board';
 import type { RailRecipe } from './rails';
 
@@ -63,8 +72,44 @@ const RAIL_FIELDS = [
   'apex',
 ] as const satisfies readonly (keyof RailRecipe)[];
 
+/**
+ * `v` as a list of at most `max` items. A longer list is reported (`doc-malformed`, with its path
+ * and the limit) and read as empty, so a document of a million items costs no more than its
+ * length to refuse.
+ */
+function capped(
+  r: Reader,
+  v: unknown,
+  path: string,
+  max: number,
+  items: string,
+): readonly unknown[] {
+  const a = list(r, v, path);
+  if (a.length <= max) return a;
+  bad(r, path, `has ${a.length} ${items}; the limit is ${max}`);
+  return [];
+}
+
+/** A chain of at most `RAILS_KNOTS_MAX` knots. */
+function railsChain(r: Reader, v: unknown, path: string): Chain {
+  if (isRecord(v) && Array.isArray(v.knots) && v.knots.length > RAILS_KNOTS_MAX) {
+    capped(r, v.knots, `${path}.knots`, RAILS_KNOTS_MAX, 'knots');
+    return { knots: [] };
+  }
+  return chain(r, v, path);
+}
+
+function railsOutline(r: Reader, v: unknown): Outline {
+  const o = rec(r, v, 'outline', ['plus'], ['minus']);
+  return {
+    plus: railsChain(r, o.plus, 'outline.plus'),
+    ...(o.minus === undefined ? {} : { minus: railsChain(r, o.minus, 'outline.minus') }),
+  };
+}
+
+/** A side's corner radii: one per corner knot of its outline chain, so at most `RAILS_KNOTS_MAX`. */
 function numbers(r: Reader, v: unknown, path: string): number[] {
-  return list(r, v, path).map((x, i) => num(r, x, `${path}[${i}]`));
+  return capped(r, v, path, RAILS_KNOTS_MAX, 'radii').map((x, i) => num(r, x, `${path}[${i}]`));
 }
 
 function corners(r: Reader, v: unknown): RailsCorners {
@@ -80,8 +125,8 @@ function corners(r: Reader, v: unknown): RailsCorners {
 function curves(r: Reader, v: unknown, path: string): StationCurves {
   const o = rec(r, v, path, ['bottom', 'deck']);
   return {
-    bottom: chain(r, o.bottom, `${path}.bottom`),
-    deck: chain(r, o.deck, `${path}.deck`),
+    bottom: railsChain(r, o.bottom, `${path}.bottom`),
+    deck: railsChain(r, o.deck, `${path}.deck`),
   };
 }
 
@@ -111,7 +156,7 @@ function recipe(r: Reader, v: unknown, path: string): RailRecipe {
 }
 
 function railKeys(r: Reader, v: unknown, path: string): RailKey[] {
-  return list(r, v, path).map((kv, i) => {
+  return capped(r, v, path, RAILS_KEYS_MAX, 'rail keys').map((kv, i) => {
     const p = `${path}[${i}]`;
     const o = rec(r, kv, p, ['x', 'rail']);
     return { x: num(r, o.x, `${p}.x`), rail: recipe(r, o.rail, `${p}.rail`) };
@@ -175,13 +220,17 @@ export function reviveRails(input: unknown): Board2Result<RailsBoard> {
     model: RAILS_MODEL,
     meta: meta(r, o.meta),
     symmetry: oneOf(r, o.symmetry, 'symmetry', ['mirror', 'asymmetric'] as const),
-    outline: outline(r, o.outline),
+    outline: railsOutline(r, o.outline),
     corners: corners(r, o.corners),
-    rocker: chain(r, o.rocker, 'rocker'),
-    deck: chain(r, o.deck, 'deck'),
-    stations: list(r, o.stations, 'stations').map((s, i) => station(r, s, `stations[${i}]`)),
+    rocker: railsChain(r, o.rocker, 'rocker'),
+    deck: railsChain(r, o.deck, 'deck'),
+    stations: capped(r, o.stations, 'stations', RAILS_STATIONS_MAX, 'stations').map((s, i) =>
+      station(r, s, `stations[${i}]`),
+    ),
     rails: rails(r, o.rails),
-    features: list(r, o.features, 'features').map((f, i) => feature(r, f, `features[${i}]`)),
+    features: capped(r, o.features, 'features', RAILS_FEATURES_MAX, 'features').map((f, i) =>
+      feature(r, f, `features[${i}]`),
+    ),
     ...(o.fins === undefined ? {} : { fins: json(r, o.fins, 'fins') }),
     build: build(r, o.build),
   };

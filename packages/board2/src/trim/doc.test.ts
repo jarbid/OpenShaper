@@ -3,6 +3,7 @@
 /** The rails board's text: exact JSON round trip, key order, shape errors, never throwing. */
 import { describe, expect, it } from 'vitest';
 import { boardDocToJson, reviveBoardDoc } from '../doc';
+import { RAILS_FEATURES_MAX, RAILS_KEYS_MAX, RAILS_KNOTS_MAX, RAILS_STATIONS_MAX } from '../params';
 import { analyticBoard, asymmetricBoard, fishBoard, swallowBoard } from '../testing';
 import { boardSet } from '../test-support/board-set';
 import type { BoardDoc } from '../types';
@@ -374,5 +375,89 @@ describe('docModel', () => {
     ]) {
       expect(docModel(v)).toBeNull();
     }
+  });
+});
+
+describe('reviveRails holds a document to its limits', () => {
+  /** `n` copies of `item`, each given `f` of its index. */
+  const many = <T>(item: T, n: number, f: (t: T, i: number) => T = (t) => t): T[] =>
+    Array.from({ length: n }, (_, i) => f(item, i));
+  const issuesOf = (d: unknown): string[] => {
+    const r = reviveRails(d);
+    return r.ok ? [] : r.issues.map((i) => `${i.code}: ${i.message}`);
+  };
+
+  it(`takes ${RAILS_STATIONS_MAX} stations and refuses one more`, () => {
+    const d = parsed(mirror);
+    const s = d.stations[0];
+    d.stations = many(s, RAILS_STATIONS_MAX, (t, i) => ({ ...t, id: `s${i}`, x: i }));
+    expect(issuesOf(d)).toEqual([]);
+    d.stations.push({ ...s, id: 'one more' });
+    expect(issuesOf(d)).toEqual([
+      `doc-malformed: stations: has ${RAILS_STATIONS_MAX + 1} stations; the limit is ${RAILS_STATIONS_MAX}`,
+    ]);
+  });
+
+  it(`takes ${RAILS_KEYS_MAX} rail keys a side and refuses one more, on either side`, () => {
+    const d = parsed(asymmetric);
+    d.rails.plus = many(d.rails.plus[0], RAILS_KEYS_MAX, (k, i) => ({ ...k, x: i }));
+    expect(issuesOf(d)).toEqual([]);
+    d.rails.minus = many(d.rails.minus[0], RAILS_KEYS_MAX + 1);
+    expect(issuesOf(d)).toEqual([
+      `doc-malformed: rails.minus: has ${RAILS_KEYS_MAX + 1} rail keys; the limit is ${RAILS_KEYS_MAX}`,
+    ]);
+  });
+
+  it(`takes ${RAILS_KNOTS_MAX} knots a chain and refuses one more, in each chain`, () => {
+    const d = parsed(asymmetric);
+    const knots = (c: { knots: unknown[] }, n: number): void => {
+      c.knots = many(c.knots[0], n);
+    };
+    knots(d.rocker, RAILS_KNOTS_MAX);
+    expect(issuesOf(d)).toEqual([]);
+    knots(d.outline.plus, RAILS_KNOTS_MAX + 1);
+    knots(d.outline.minus, RAILS_KNOTS_MAX + 1);
+    knots(d.rocker, RAILS_KNOTS_MAX + 1);
+    knots(d.deck, RAILS_KNOTS_MAX + 1);
+    knots(d.stations[1].plus.bottom, RAILS_KNOTS_MAX + 1);
+    knots(d.stations[2].minus.deck, RAILS_KNOTS_MAX + 1);
+    const over = `has ${RAILS_KNOTS_MAX + 1} knots; the limit is ${RAILS_KNOTS_MAX}`;
+    expect(issuesOf(d)).toEqual(
+      [
+        'outline.plus.knots',
+        'outline.minus.knots',
+        'rocker.knots',
+        'deck.knots',
+        'stations[1].plus.bottom.knots',
+        'stations[2].minus.deck.knots',
+      ].map((p) => `doc-malformed: ${p}: ${over}`),
+    );
+  });
+
+  it(`refuses more than ${RAILS_KNOTS_MAX} corner radii a side`, () => {
+    const d = parsed(mirror);
+    d.corners.plus = many(0.6, RAILS_KNOTS_MAX + 1);
+    expect(issuesOf(d)).toEqual([
+      `doc-malformed: corners.plus: has ${RAILS_KNOTS_MAX + 1} radii; the limit is ${RAILS_KNOTS_MAX}`,
+    ]);
+  });
+
+  it(`takes ${RAILS_FEATURES_MAX} features and refuses one more`, () => {
+    const d = parsed(toRails(swallowBoard()));
+    const f = d.features[0];
+    d.features = many(f, RAILS_FEATURES_MAX, (t, i) => ({ ...t, id: `f${i}` }));
+    expect(issuesOf(d)).toEqual([]);
+    d.features.push(f);
+    expect(issuesOf(d)).toEqual([
+      `doc-malformed: features: has ${RAILS_FEATURES_MAX + 1} features; the limit is ${RAILS_FEATURES_MAX}`,
+    ]);
+  });
+
+  it('refuses a list of a million stations at once', () => {
+    const d = parsed(mirror);
+    d.stations = many(d.stations[0], 1e6);
+    const t = performance.now();
+    expect(reviveRails(d).ok).toBe(false);
+    expect(performance.now() - t).toBeLessThan(1000);
   });
 });
