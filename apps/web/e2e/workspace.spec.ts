@@ -398,12 +398,12 @@ test.describe('the Look and Show controls', () => {
     // the line is drawn over the Patches look
     await expect.poll(() => hashOf(page, middle), { timeout: 20_000 }).not.toBe(plain);
 
-    // and off again. Only the menu and the saved choice are asserted: the 3D view repaints when a guide
-    // is added but not when the last is removed, with this menu and with the tabbed layout's buttons
+    // and off again: the board is repainted without the line, as it was before it was drawn
     await showButton(page).click();
     await stringer.click();
     await expect(stringer).toHaveAttribute('aria-checked', 'false');
     await page.keyboard.press('Escape');
+    await expect.poll(() => hashOf(page, middle), { timeout: 20_000 }).toBe(plain);
     await expect
       .poll(
         async () =>

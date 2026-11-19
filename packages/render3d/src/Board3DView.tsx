@@ -236,6 +236,19 @@ function OrthographicFit({ span, box }: { span: number; box: BoxSize | null }) {
 }
 
 /**
+ * Asks for a frame when the set of things drawn over the board changes. A guide that is mounted
+ * asks for its own frame, but one that is removed asks for none, and the canvas renders on demand:
+ * the board would keep showing a guide that was turned off until something else repainted it.
+ */
+function RepaintWhenOverlaysChange({ overlays }: { overlays: number }) {
+  const invalidate = useThree((state) => state.invalidate);
+  useEffect(() => {
+    invalidate();
+  }, [overlays, invalidate]);
+  return null;
+}
+
+/**
  * Where the camera is about the orbit's target: the origin until the controls exist (R3F types
  * them as a bare event dispatcher; the orbit controls have a `target`).
  */
@@ -897,6 +910,12 @@ export function Board3DView({
   // An external surface counts only for the hull it was built from.
   const surface = surfaceProp && board && surfaceApplies(surfaceProp, board) ? surfaceProp : null;
   const standalone = surface?.tracking === 'standalone';
+  // What is drawn over the board, as one number that changes when any of it is added or removed.
+  const overlays =
+    (showStringer ? 1 : 0) |
+    (showSections ? 2 : 0) |
+    (showApex ? 4 : 0) |
+    (board && !standalone && board.fins.setup !== 'none' ? 8 : 0);
   // Fins and guides sit on a live surface by its own centre (no hull to wait for), built for a board that
   // follows the drag at a lower priority, so a burst of edits does not build them for each one.
   const liveCentre = surface?.tracking === 'live' ? ownSurfaceCenter(surface) : null;
@@ -942,6 +961,7 @@ export function Board3DView({
         }}
       >
         <OrthographicFit span={span} box={fitBox} />
+        <RepaintWhenOverlaysChange overlays={overlays} />
         <color attach="background" args={[BACKGROUND[lighting]]} />
         <Lights preset={lighting} span={span} />
         {board && (
