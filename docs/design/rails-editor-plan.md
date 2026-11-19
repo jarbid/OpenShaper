@@ -231,7 +231,7 @@ when it lands. Status is as of 2026-11-18.
 | 0   | Engine speed                      | The new engine keeps up with a drag                                                                                                                                                                                   | The budget above on the sample boards                                                                                  | Mostly done. Volume no longer depends on the grid, unchanged parts are reused, the panels have no long triangles. Draft meshing is over 20 ms on three boards, and the section probe costs 8 to 15 ms a request outside the timed part |
 | 1   | **STEP for a rails board**        | Nothing visible. It has to exist before the old engine stops being the one that exports                                                                                                                               | OCCT reads one valid closed solid for every sample board                                                               | Built. 12 of 14 sample boards fit; the made boards are valid in OCCT. The funboard never converges (thirteen minutes, then it gives up): a stall guard and a lower budget first, then the cause                                        |
 | 2   | **Rails boards are the document** | Every board opens in the new format and is built by the new engine alone. In today's layout: outline and rocker as now; the cross-section tab shows a station's deck and bottom curves, editable, and its rail, drawn | Round trip and undo; every export; old files convert; the engine switches are gone                                     | Built behind the two experimental switches, with the old layout. The switches are still there and the classic engine is still the default. A review found defects in how a rails board arrives, is autosaved and is restored (below)   |
-| 3   | **The new layout and the looks**  | The design list, the board always in view, the drawing, the panel. Look with Patches and everything the app has. Tap a patch to choose. Today's tools in their new places                                             | Every step reachable by list, key and tap; tablet layout; no step slower than before                                   | The workspace, the Patches look as its working look (seams, a darker tuck, a key) and a tap that chooses a step are in, behind the two switches. Next: the one Look control                                                            |
+| 3   | **The new layout and the looks**  | The design list, the board always in view, the drawing, the panel. Look with Patches and everything the app has. Tap a patch to choose. Today's tools in their new places                                             | Every step reachable by list, key and tap; tablet layout; no step slower than before                                   | The workspace, the Patches look as its working look (seams, a darker tuck, a key) and a tap that chooses a step are in, behind the two switches, with the one Look control and a Show menu. Next: the plan's step-driven looks         |
 | 4   | **Rail zones**                    | The rail map; zones and blends, dragged on the map and on the board; the rail panel with its three dials, live slice and More; my rails; Tidy rails                                                                   | Any zone edit keeps a closed board; one side or both; a board's rails survive a save, a share link and another machine | Built behind the two experimental switches: the rail map, the slice and the rail panel, on the zone edits built beside the workspace                                                                                                   |
 | 5   | **Deck and bottom shapes**        | Named deck shapes with a crown dial; bottom contours in the Bottom step; Edit curve; the station strip                                                                                                                | A shape applied and then edited as a curve stays the shaper's                                                          | Not started                                                                                                                                                                                                                            |
 | 6   | **Tail and corners**              | The tail picker; a radius handle on every corner, in the plan and on the board                                                                                                                                        | Every tail in the picker gives a closed board at every size in the gallery                                             | Not started                                                                                                                                                                                                                            |
@@ -252,8 +252,8 @@ rails so that the rail map and panel are built once, in their final place.
   decomposed then. To see the workspace: Settings, turn on the NURBS engine and the rails
   engine.
 - **Slice 3 is built in three parts**: (a) the workspace, over today's editors and sidebar;
-  (b) the one Look control; (c) a tap on the board chooses a step. (a) and (c) are in; (b)
-  is next.
+  (b) the one Look control; (c) a tap on the board chooses a step. All three are in; what
+  is left of slice 3 is the plan's step-driven looks (below).
 - **The pure side of rail zones is built beside (a)**, since it needs no layout.
 
 ## Decisions taken while building
@@ -280,6 +280,13 @@ rails so that the rail map and panel are built once, in their final place.
   takes 0.8 of its blend's colour in the shader. The colours, and the key under the 3D view,
   come from one palette module, and every pair of them is tested under normal vision and
   three colour-vision deficiencies.
+- **A board is held to the scale of a board, and the count limits are the reader's and the
+  builder's.** A board that builds must be one the reader takes back, or the app could hold a
+  board it can save and never open. The rail ranges are defined once, in the engine's
+  code-free `defaults` (the store imports them): the range the engine builds to
+  (`RAIL_LIMITS`), and the wider range a board may hold (`RAIL_DOMAIN`), since a board
+  converted from sections can hold a tuck or an apex of 0 and builds. A station curve's rule
+  is the sections model's, not a stricter one that refuses real imports.
 - **A test budget belongs to the package.** Tests that build and mesh boards run 3 to 10
   times slower on a CI runner, and vitest fails a synchronous test that overruns its timeout.
   Web has 30 s, the store 20 s, the engine package 60 s and the others 20 s. Before a push,
@@ -315,6 +322,24 @@ From the engine and the mesh:
   between the first two strip rows (88 strip triangles on the fish).
 - The Diamond Twin's panel has a feature narrower than any grid (5.8 mm off at every grid).
 
+A rails board is bounded (the checks in `checkBoard`, the reader's counts and the mesh's
+budget): no number that is not finite, nothing beyond 1,000 cm of the origin, a length of
+1,000 cm and a half width of 150 cm at most, an outline that does not cross the stringer,
+stations in order and unique, 250 stations, 400 knots a chain, 5,000 rail keys a side and 64
+features at most, and the panel grid never finer than the board's box over 250,000 cells.
+Each is measured at its limit, and the made boards and templates mesh byte for byte as before.
+Still open:
+
+- A tight zigzag of an outline, inside every limit, builds in about 4.5 s. The loop's local
+  feature size compares every sample with every other; binning the samples in cells of twice
+  the feature cap (120 cm) keeps the same candidates and should give identical results, which
+  a before and after dump must prove. The corner search tests every pair of samples within a
+  corner's reach and is the next cost.
+- The station gap is defined in three places (the engine's parameters and two store modules);
+  it could live in the code-free `defaults` with the rail ranges.
+- Feature depth keys have no count limit, and a station curve's heights and the features are
+  checked only to be finite.
+
 From STEP:
 
 - The Diamond Twin and the funboard sample boards pass the 60,000-control budget. Files are 1
@@ -349,9 +374,24 @@ From the Patches look:
 
 From the workspace:
 
-- The 3D toolbar is crowded: two rows of controls, and the status chips stand on the board's
-  nose in a short pane. The one Look control (Shaping, Surface, Realistic; overlays under
-  Show) and a quieter status strip are the next slice-3 work.
+- The 3D controls are one Look button (Shaping, Surface, Realistic) and Show (guides,
+  wireframe, normals, mesh quality), with one line of status over the board; the engine chips
+  are not drawn in the workspace. Still open:
+  - Patches is not yet worn while a design step is open, with the board returning to the last
+    surface or realistic look on Specs, Build or Compare (the plan's rule). Today the first
+    entry claims Patches once and a later choice is never overridden. Building the rule needs
+    a memory of the last non-Patches look (a surface look is lost when Patches replaces the
+    analysis), a pure rule applied when the step changes, and an `onLook` from the shell to
+    the workspace; it replaces `claimPatchesDefault`.
+  - Wireframe and Normals draw on the realistic looks only (the renderer applies its mode to
+    no other), so under Patches and the surface looks they are listed disabled, with the
+    reason. Band lines and zone ends over any look are not offered: only the Patches look
+    draws the seams, from the engine's strips; offering them needs a seam component of its
+    own, two settings with their saved form, and the `Show` rows.
+  - A guide turned off is not repainted until something else repaints: `Guides3D` is mounted
+    conditionally and removing it asks for no frame under on-demand rendering. The tabbed
+    layout's Stringer button has it too.
+  - The details popover still speaks of "NURBS" and "Rails (experimental)".
 - Neither layout meets the 50 ms input-to-frame budget for the 3D board on the machine it was
   measured on (software rendering, shared cores): 30 ms in the workspace against 27 in
   Split. Re-measure on a machine with a GPU before flipping the default.
@@ -370,10 +410,6 @@ the failing cases kept as skipped tests):
 - A rails text of a newer version, or one that is JSON but the wrong shape, is dropped when
   the engines are on, and the next autosave overwrites it with a conversion of the classic
   board: data loss, with no notice. The held text must stay held, and the person must be told.
-- Nothing bounds a rails board that is a valid file: one outline point at a half width of
-  10,000 cm does not finish in 95 s and blocks the worker for every later job; a rocker
-  point of 1e308 gives NaN and an STL is still written. Checks in `checkBoard`, a vertex
-  budget in the mesh and limits in the reader are written up and not yet in.
 
 From the tests:
 
