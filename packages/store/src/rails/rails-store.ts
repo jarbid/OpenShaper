@@ -64,7 +64,6 @@ import {
   type DeckSide,
 } from './deck-shapes';
 import {
-  addStation,
   applyRailsEdit,
   applyRailsMinusEdit,
   moveStation,
@@ -178,8 +177,8 @@ export interface RailsState extends BoardState {
   setDeckShape: (request: DeckShapeRequest, scope: DeckScope, side?: DeckSide) => void;
   /**
    * A station added at `x` whose curves follow both neighbours' even where they are made of different
-   * numbers of knots (`station-insert.ts`); `addCrossSection` is the same with the neighbours' curves
-   * copied in that case. Returns the new station's classic slice index, or -1 for an `x` that cannot
+   * numbers of knots (`station-insert.ts`); `addCrossSection` is the same station under the old
+   * layout's name for it. Returns the new station's classic slice index, or -1 for an `x` that cannot
    * take one. One undo step.
    */
   insertStation: (x: number) => number;
@@ -629,7 +628,7 @@ export const createRailsStore = (): StoreApi<RailsState> =>
       addCrossSection: (position) => {
         const { doc } = get();
         if (!doc) return -1;
-        const result = addStation(doc, position);
+        const result = insertStation(doc, position);
         if (!result) return -1;
         commitDoc(result.doc, 'Add cross-section');
         return result.index;
