@@ -13,8 +13,10 @@ import {
   type DeckStationReading,
   type RailsProjection,
 } from '@openshaper/store/rails';
-import { useMemo, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
+import { probeAt, setWantedProbesFor, useProbes } from '../nurbs-probes';
 import { railsStore } from '../store';
+import type { SectionProbe } from '../workers/nurbs-protocol';
 import type { StationMark } from './station-strip';
 
 const docNow = (): RailsBoard | null => railsStore.getState().doc;
@@ -60,4 +62,24 @@ export function useStationMarks(doc: RailsBoard | null): readonly StationMark[] 
     () => (places === '' ? [] : places.split(',').map((x) => ({ x: Number(x) }))),
     [places],
   );
+}
+
+/** The name the Deck step asks the engine for its section under. */
+const PROBE_OWNER = 'deck';
+
+/**
+ * The engine's section of the board at the place `x` (cm from the tail), asked for while a component is
+ * using it and read when the engine has answered. While the answer to a new edit is on its way the last
+ * answer for the same place stands; null before the first, and for a place the engine was not asked for.
+ */
+export function useStationProbe(x: number | null): SectionProbe | null {
+  useEffect(() => {
+    setWantedProbesFor(PROBE_OWNER, x === null ? [] : [x]);
+  }, [x]);
+  useEffect(() => () => setWantedProbesFor(PROBE_OWNER, []), []);
+  const items = useProbes();
+  const last = useRef<SectionProbe | null>(null);
+  const found = x === null ? undefined : probeAt(items, x);
+  if (found) last.current = found;
+  return found ?? (last.current?.xi === x ? last.current : null);
 }

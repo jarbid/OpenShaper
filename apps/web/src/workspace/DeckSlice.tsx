@@ -18,7 +18,7 @@ import { cmToUnitNumber, fmtLen, type LengthUnit } from '../format';
 import { railsStore } from '../store';
 import { useElementSize } from '../use-element-size';
 import { setDeckStatus, useDeckScope } from './deck-choice';
-import { useDeckStation, useRailsProjection } from './deck-data';
+import { useDeckStation, useRailsProjection, useStationProbe } from './deck-data';
 import { crownOffReason, crownStep, heldNote } from './deck-panel';
 import {
   crownAtPointer,
@@ -50,6 +50,7 @@ export const DeckSlice = memo(function DeckSlice({
 }) {
   const station = useDeckStation(slice);
   const board = useRailsProjection();
+  const probe = useStationProbe(station ? (station.doc.stations[station.index]?.x ?? null) : null);
   const scope = useDeckScope();
   const box = useRef<HTMLDivElement>(null);
   const size = useElementSize(box, FALLBACK);
@@ -86,10 +87,17 @@ export const DeckSlice = memo(function DeckSlice({
       'right',
     ),
   ];
+  // The section behind the curve: the engine's own, from its fine polyline (the store's has 64 points, and a
+  // rail's bend is two or three of them, which draws as a polygon); until the engine has answered, the store's.
+  const drawn = probe ? (probe.fine ?? probe) : null;
   const plusSection = board.crossSections[slice]?.spline;
   const minusSection = half?.crossSections[slice]?.spline ?? plusSection;
-  const left = plusSection ? flattenSpline(plusSection) : null;
-  const right = minusSection ? flattenSpline(minusSection) : null;
+  const left = drawn ? drawn.plus : plusSection ? flattenSpline(plusSection) : null;
+  const right = drawn
+    ? (drawn.minus ?? drawn.plus)
+    : minusSection
+      ? flattenSpline(minusSection)
+      : null;
   const top = toScreen(frame, 0, plus.T, 'right');
   const bottom = toScreen(frame, 0, 0, 'right');
 

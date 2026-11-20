@@ -9,8 +9,10 @@ import { deckCrownRangeAt, deckShapeAt } from '@openshaper/store/rails';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { lengthUnitByKey } from '../format';
+import { publishProbes, resetProbes } from '../nurbs-probes';
 import { activeStore, boardStore, railsStore } from '../store';
 import { key, showRails } from '../test/rails-board';
+import type { SectionProbe } from '../workers/nurbs-protocol';
 import { getDeckStatus, resetDeckChoice, setDeckScope } from './deck-choice';
 import { DeckSlice } from './DeckSlice';
 
@@ -34,6 +36,8 @@ beforeEach(async () => {
 });
 afterEach(() => {
   resetDeckChoice();
+  resetProbes();
+  publishProbes([]);
   activeStore.use(boardStore);
 });
 
@@ -77,6 +81,50 @@ describe('what it draws', () => {
     expect(handle().getAttribute('aria-disabled')).toBe('true');
     expect(handle().title).toContain('drawn by hand');
     expect(handle().tabIndex).toBe(-1);
+  });
+});
+
+/** A half section 10 cm wide and 2.5 cm thick from the bottom at the stringer round the rail and back to the deck, in `n` points. */
+const halfSection = (n: number): number[] => {
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1);
+    out.push(10 * Math.sin((t * Math.PI) / 2), 2.5 * (1 - Math.cos(t * Math.PI)) * 0.5);
+  }
+  return out;
+};
+const probeAtStation = (n: number, fine?: number): SectionProbe => ({
+  xi: doc().stations[STATION]!.x,
+  plus: halfSection(n),
+  minus: null,
+  ...(fine === undefined ? {} : { fine: { plus: halfSection(fine), minus: null } }),
+});
+/** How many points the filled section is drawn through. */
+const sectionPoints = (c: HTMLElement): number =>
+  (c.querySelector('svg path[fill-opacity="0.08"]')!.getAttribute('d')!.match(/[ML]/g) ?? [])
+    .length;
+
+describe('the section behind the deck', () => {
+  it('is drawn from the engine’s fine polyline when it has answered, so a rail’s bend is not a polygon', () => {
+    const { container } = render(<DeckSlice units={CM} slice={SLICE} />);
+    const before = sectionPoints(container);
+    act(() => publishProbes([probeAtStation(64, 400)]));
+    expect(sectionPoints(container)).toBeGreaterThan(700);
+    expect(sectionPoints(container)).toBeGreaterThan(before * 3);
+  });
+
+  it('is drawn from the probe itself when it has no fine polyline', () => {
+    const { container } = render(<DeckSlice units={CM} slice={SLICE} />);
+    act(() => publishProbes([probeAtStation(30)]));
+    // the two halves, each through its 30 points, however many the store's own section has
+    expect(sectionPoints(container)).toBe(60);
+  });
+
+  it('ignores the answer for another place', () => {
+    const { container } = render(<DeckSlice units={CM} slice={SLICE} />);
+    const before = sectionPoints(container);
+    act(() => publishProbes([{ ...probeAtStation(64, 400), xi: 1 }]));
+    expect(sectionPoints(container)).toBe(before);
   });
 });
 
