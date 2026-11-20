@@ -835,6 +835,15 @@ const stepFitMessage = (err: StepFitError, unit: 'mm' | 'cm' | 'in'): string => 
   const digits = unit === 'mm' ? 2 : 3;
   const f = (cm: number): string => `${(cm * per).toFixed(digits)} ${unit}`;
   if (err.kind === 'budget') return `${err.message}`;
+  if (err.kind === 'stalled') {
+    // the fit stopped improving at one place: say which part, how far from the tail and on which side
+    const at = err.place;
+    const where =
+      at === undefined
+        ? ''
+        : ` on the ${at.part}, ${f(at.x)} from the tail${at.y > 0 ? ' on the left' : at.y < 0 ? ' on the right' : ''},`;
+    return `The surface stopped converging${where} at ${f(err.deviation)} from the board, over the ${f(err.tolerance)} tolerance. Try fewer stations there or a smoother shape.`;
+  }
   return `The surface could not be fitted within ${f(err.tolerance)} (it reached ${f(err.deviation)}). Try fewer stations near the tail or a smaller feature.`;
 };
 

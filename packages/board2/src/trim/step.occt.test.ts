@@ -3,13 +3,14 @@
  * OCCT reads the rails board's STEP export (`trim/step.ts`) as one valid closed solid, judged as
  * `step.occt.test.ts` judges the sections board's: one solid, one shell, `isValid`, the B-rep's face,
  * edge and vertex counts; no tolerance growth past twice the declared uncertainty; GProp's volume a 5 %
- * sanity check (12 % on the asymmetric board, measured 10.8 %: see the test) and the volume of OCCT's own fine triangulation within area × deflection of our exact
+ * sanity check (12 % on the asymmetric board, measured 11.0 %: see the test) and the volume of OCCT's own fine triangulation within area × deflection of our exact
  * one; a point inside the board inside and one far away outside. Run by `pnpm test:occt` (never by
  * `pnpm test`).
  *
  * Boards: the swallow (mirror, notch, vee and double concave), the asymmetric board (channels, both
  * halves different), the shortboard golden as it is and with a hard edge in the tail (a 0.5 mm tuck at
- * 30 degrees), the fish and the analytic board. The last three are also the default suite's slower
+ * 30 degrees), the funboard golden (a pin tail 1.2 cm thick), the fish and the analytic board. The last
+ * three are also the default suite's slower
  * cases: their solids are checked here for the fit's tolerance and `checkBrep` too.
  */
 import { checkBrep, massProperties, surfacePoint } from '@openshaper/geom';
@@ -40,6 +41,7 @@ const BOARDS: readonly (readonly [string, () => BuiltRails])[] = [
   ['asymmetric (channels)', () => builtRails(railsBoardOf(asymmetricBoard()))],
   ['shortboard', () => builtRails(shortboard())],
   ['shortboard, hard edge in the tail', () => builtRails(hardTail(shortboard(), 60, 30))],
+  ['funboard', () => builtRails(railsBoardOf(boardSet().find((b) => b.name === 'funboard')!.doc))],
   ['fish', () => builtRails(railsBoardOf(fishBoard()))],
   ['analytic', () => builtRails(railsBoardOf(analyticBoard()))],
 ];
@@ -113,7 +115,7 @@ describe('OCCT reads the rails board STEP as one valid closed solid', () => {
       // no healed gaps: OCCT's tolerances stay within twice the uncertainty the file declares (mm)
       expect(facts.grown).toBeLessThanOrEqual(2 * out.stats.uncertainty);
       // GProp is coarse on B-splines: a 5 % sanity check, as for the sections board. The asymmetric board's
-      // channelled bottom (a 71 × 74 net, trimmed) reads 10.8 % over in GProp while OCCT's own fine mesh
+      // channelled bottom (a 56 × 76 net, trimmed) reads 11.0 % over in GProp while OCCT's own fine mesh
       // is within 0.25 % of ours (the oracle, below): a known exception, held to what was measured.
       const gpropShare = name.startsWith('asymmetric') ? GPROP_CHANNELS : GPROP_SHARE;
       expect(Math.abs(facts.gprop - volumeMm3) / volumeMm3).toBeLessThan(gpropShare);

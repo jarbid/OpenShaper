@@ -11,6 +11,7 @@ import { convertSections } from '../convert';
 import { buildRails, trimMeshOf } from '../native';
 import type { BuiltRails } from '../native';
 import { railPlace, railStrips } from '../solid';
+import type { Panels } from '../solid';
 import type { RailsSolid } from '../step';
 
 /** A sections document converted to a rails board, throwing with the reasons if it is refused. */
@@ -41,6 +42,28 @@ export function hardTail(board: RailsBoard, to: number, degrees: number): RailsB
       ...(board.rails.minus === undefined ? {} : { minus: harden(board.rails.minus) }),
     },
   };
+}
+
+/**
+ * The built board with a plateau on its deck: `lift` cm added where `from` < x < `to` and |y| <
+ * `halfWidth`, a step that no smooth surface follows. Its mesh is built from these panels.
+ */
+export function deckPlateau(
+  built: BuiltRails,
+  plateau: { from: number; to: number; halfWidth: number; lift: number },
+): BuiltRails {
+  const p = built.panels;
+  const on = (x: number, y: number): number =>
+    x > plateau.from && x < plateau.to && Math.abs(y) < plateau.halfWidth ? plateau.lift : 0;
+  const panels: Panels = { ...p, deck: (x, y) => p.deck(x, y) + on(x, y) };
+  if (p.both !== undefined) {
+    const both = p.both;
+    panels.both = (x, y, out) => {
+      both(x, y, out);
+      out[0] = out[0]! + on(x, y);
+    };
+  }
+  return { ...built, panels };
 }
 
 /** The deck panel face and the bottom panel face. */

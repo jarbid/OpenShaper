@@ -328,8 +328,29 @@ export const STEP_RAILS_NEWTON_STEPS = 8;
 export const STEP_RAILS_NEWTON_STEP = 1e-6;
 /** A span along a strip is bisected only while it holds at least this many of the places the fit reads. */
 export const STEP_RAILS_SPAN_DATA = 2;
-/** Control points of the whole solid the fit may grow to before it gives up. */
-export const STEP_RAILS_MAX_CONTROLS = 60000;
+/**
+ * Control points of the whole solid the fit may grow to before it gives up: 1.6 times the largest board
+ * that fits (12,316, the asymmetric test board with channels to its rails; the starter templates reach
+ * 11,125), rounded.
+ */
+export const STEP_RAILS_MAX_CONTROLS = 20000;
+/**
+ * The largest panel net the fit solves: its banded normal equations cost about `nu nv (3 nv + 3)²`
+ * multiply-adds (`nu` controls along x, `nv` across, the band `3 nv + 3` wide), so a net that grows
+ * across costs far more than its control count says. 17 times the largest that fits (2.3e8, the
+ * asymmetric board's 56 × 76 bottom), about 2.5 s of solve.
+ */
+export const STEP_RAILS_MAX_PANEL_WORK = 4e9;
+/**
+ * A refinement (each panel's, the strips') stalls, and the fit stops, when for this many passes running
+ * its largest miss over its limit has not fallen by {@link STEP_RAILS_STALL_SHARE} of the smallest it had
+ * reached when it last did: added knots are no longer closing the miss. Measured on the boards that fit
+ * (the test boards and the starter templates), the longest such run is 3 passes, the shortboard's deck
+ * (1.16 times its limit, then 11.3, 4.56 and 3.05 while new knots settle, then within); 6 is twice that.
+ * The longest run is the same for any share up to 0.2.
+ */
+export const STEP_RAILS_STALL_PASSES = 6;
+export const STEP_RAILS_STALL_SHARE = 0.05;
 
 /**
  * The trim-and-blend kernel (`trim/`, docs/design/trim-blend-plan.md): the outline as a

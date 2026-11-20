@@ -38,10 +38,14 @@
  *
  * **Refinement.** As `step.ts`: fit, measure against the kernel on points the fit did not use, bisect the
  * spans that miss, until the deviation is under {@link STEP_ACCEPT_SHARE} of the tolerance or the passes or
- * the control budget run out. A panel is measured on a dense plan grid inside its band edge. A strip is
- * measured at every loop sample at across-parameters between the fit's, and at the kernel's section
- * halfway between samples; its band edge and apex rows too. A strip's miss is put down to its across spans
- * when that section alone cannot be fitted in the across basis, else to its span along the loop.
+ * the budget run out (the solid's control points, and the work of a panel's next solve), or the miss stops
+ * falling ({@link STEP_RAILS_STALL_PASSES}). A panel pass is held to a few seconds of solve and there are at
+ * most {@link STEP_MAX_PASSES} of them, so a board no net can follow fails within about a minute at worst
+ * (the failures measured take one to four seconds). A panel is measured on a dense plan grid inside
+ * its band edge. A strip is measured at every loop sample at across-parameters between the fit's, and at
+ * the kernel's section halfway between samples; its band edge and apex rows too. A strip's miss is put
+ * down to its across spans when that section alone cannot be fitted in the across basis, else to its
+ * span along the loop.
  */
 import {
   clampedBasis,
@@ -78,6 +82,7 @@ import {
   STEP_RAILS_EDGE_FIT,
   STEP_RAILS_EDGE_GAP,
   STEP_RAILS_MAX_CONTROLS,
+  STEP_RAILS_MAX_PANEL_WORK,
   STEP_RAILS_NEWTON_STEP,
   STEP_RAILS_NEWTON_STEPS,
   STEP_RAILS_PANEL_MARGIN,
@@ -86,10 +91,13 @@ import {
   STEP_RAILS_SMOOTH,
   STEP_RAILS_SPAN_DATA,
   STEP_RAILS_SPLIT_GAP,
+  STEP_RAILS_STALL_PASSES,
+  STEP_RAILS_STALL_SHARE,
   STEP_RAILS_STRIP_START,
   STEP_TOLERANCE,
 } from '../params';
 import { StepFitError } from '../step';
+import type { StepMissPlace } from '../step';
 import type { BuiltRails } from './native';
 import { trimMeshOf } from './native';
 import { railStrips } from './solid';
@@ -126,8 +134,18 @@ export interface RailsSolidReport {
   readonly across: readonly [number, number];
   /** True if the deviation is within the tolerance and every band edge within its gap. */
   readonly withinTolerance: boolean;
-  /** True if the fit stopped because the solid would exceed its control budget. */
+  /**
+   * True if the fit stopped because the solid would exceed its control budget, or a panel's next solve
+   * would exceed {@link STEP_RAILS_MAX_PANEL_WORK}.
+   */
   readonly overBudget: boolean;
+  /**
+   * True if the solid is outside the tolerance because a refinement stopped when its miss had stopped
+   * falling ({@link STEP_RAILS_STALL_PASSES}): a panel, or the strips and their band edges.
+   */
+  readonly stalled: boolean;
+  /** Where the largest deviation is (or, within it, the largest band edge gap): the part and its plan position (cm). */
+  readonly worstAt: StepMissPlace;
 }
 
 export interface RailsSolid {
@@ -420,6 +438,46 @@ function bisect(breaks: number[], spans: ReadonlySet<number>): number {
   return added;
 }
 
+/** The largest miss a measure found, and where: the part and its plan position (cm). */
+interface Miss {
+  d: number;
+  part: StepMissPlace['part'];
+  x: number;
+  y: number;
+}
+
+const noMiss = (part: StepMissPlace['part']): Miss => ({ d: 0, part, x: 0, y: 0 });
+
+/** Keeps `d` at (`x`, `y`) on `part` in `m` if it is the largest yet. */
+function note(m: Miss, d: number, part: StepMissPlace['part'], x: number, y: number): void {
+  if (d > m.d) {
+    m.d = d;
+    m.part = part;
+    m.x = x;
+    m.y = y;
+  }
+}
+
+/**
+ * A refinement's progress, fed its largest miss over its limit after each pass that still misses: true
+ * once that has not fallen by {@link STEP_RAILS_STALL_SHARE} of the smallest it had reached when it last
+ * did for {@link STEP_RAILS_STALL_PASSES} passes running. An early pass may miss by more than the one
+ * before it while the knots move, so the test is against the best reached, not the last pass.
+ */
+function stallTest(): (excess: number) => boolean {
+  let best = Infinity;
+  let since = 0;
+  return (excess) => {
+    if (excess <= (1 - STEP_RAILS_STALL_SHARE) * best) {
+      best = excess;
+      since = 0;
+      return false;
+    }
+    since++;
+    return since >= STEP_RAILS_STALL_PASSES;
+  };
+}
+
 // --- the panels -----------------------------------------------------------------------------
 
 /** Sorted x where the closed polygon (`xs`, `ys`) crosses the line y = `y`. */
@@ -583,7 +641,11 @@ function fitPanel(
 /**
  * Measures a panel on the dense grid inside its band edge (`rim`) and marks the spans to bisect: a
  * cell's miss is put down to x, y or both by the fourth differences of the kernel's own samples along
- * each, as `step.ts` does.
+ * each, as `step.ts` does. A direction in which no five samples in a row of the cell lie inside the rim
+ * has no fourth difference to judge by, and is split too: where the rim cuts a cell to a sliver (at a
+ * pointed tip, inside a band edge a millimetre from the outline), the panel may be steep across the
+ * sliver, and splitting only the other direction would never reach it. The largest miss and where it
+ * is go to `miss`.
  */
 function measurePanel(
   fit: PanelFit,
@@ -591,6 +653,7 @@ function measurePanel(
   rim: { xs: Float64Array; ys: Float64Array },
   limit: number,
   marks: { x: Set<number>; y: Set<number> },
+  miss: Miss,
 ): number {
   const S = STEP_CHECK_SAMPLES;
   const xs = positions(fit.xb, CHECK_FRACS, false);
@@ -609,6 +672,7 @@ function measurePanel(
       patchAt(fit.surface, xs[i]!, ys[j]!, p);
       K[i * ny + j] = z;
       D[i * ny + j] = Math.abs(p[2]! - z);
+      note(miss, D[i * ny + j]!, miss.part, xs[i]!, ys[j]!);
       worst = Math.max(worst, D[i * ny + j]!);
     }
   }
@@ -618,6 +682,7 @@ function measurePanel(
     const y = rim.ys[k]!;
     patchAt(fit.surface, x, y, p);
     const d = Math.abs(p[2]! - height(x, y));
+    note(miss, d, miss.part, x, y);
     worst = Math.max(worst, d);
     if (d > limit) {
       marks.x.add(spanIndex(fit.xb, x));
@@ -625,11 +690,15 @@ function measurePanel(
     }
   }
   const gain = S ** 4 / 384;
+  // a stencil with a point outside the rim reads 0 and is not counted
+  let counted = false;
   const d4 = (i: number, j: number, di: number, dj: number): number => {
     const c = [1, -4, 6, -4, 1];
     let s = 0;
     for (let k = 0; k < 5; k++) s += c[k]! * K[(i + k * di) * ny + j + k * dj]!;
-    return Number.isNaN(s) ? 0 : Math.abs(s);
+    if (Number.isNaN(s)) return 0;
+    counted = true;
+    return Math.abs(s);
   };
   for (let a = 0; a + 1 < fit.xb.length; a++) {
     for (let b = 0; b + 1 < fit.yb.length; b++) {
@@ -640,15 +709,19 @@ function measurePanel(
       if (miss <= limit) continue;
       let pu = 0;
       let pv = 0;
+      counted = false;
       for (let i = a * S; i + 4 < (a + 1) * S; i++) {
         for (let j = b * S; j < (b + 1) * S; j++) pu = Math.max(pu, gain * d4(i, j, 1, 0));
       }
+      const blindU = !counted;
+      counted = false;
       for (let j = b * S; j + 4 < (b + 1) * S; j++) {
         for (let i = a * S; i < (a + 1) * S; i++) pv = Math.max(pv, gain * d4(i, j, 0, 1));
       }
+      const blindV = !counted;
       const none = pu === 0 && pv === 0;
-      if (none || pu >= STEP_DIRECTION_SHARE * pv) marks.x.add(a);
-      if (none || pv >= STEP_DIRECTION_SHARE * pu) marks.y.add(b);
+      if (blindU || none || pu >= STEP_DIRECTION_SHARE * pv) marks.x.add(a);
+      if (blindV || none || pv >= STEP_DIRECTION_SHARE * pu) marks.y.add(b);
     }
   }
   return worst;
@@ -970,7 +1043,10 @@ function fitEdge(
   return out;
 }
 
-/** The largest gap between a band edge's height and its panel's along it, and the spans that miss `gap`. */
+/**
+ * The largest gap between a band edge's height and its panel's along it, and the spans that miss `gap`;
+ * the largest and where it is go to `miss` as a miss of `part`.
+ */
 function edgeGapOf(
   st: Stretch,
   u: ClampedBasis,
@@ -978,6 +1054,8 @@ function edgeGapOf(
   panel: Patch,
   gap: number,
   marks: Set<number>,
+  miss: Miss,
+  part: StepMissPlace['part'],
 ): number {
   const ts = positions(st.breaks, EDGE_CHECK_FRACS, false);
   const e = new Float64Array(3);
@@ -987,6 +1065,7 @@ function edgeGapOf(
     curveAt(u, edge, 3, t, e);
     patchAt(panel, e[0]!, e[1]!, q);
     const d = Math.abs(q[2]! - e[2]!);
+    note(miss, d, part, e[0]!, e[1]!);
     worst = Math.max(worst, d);
     if (d > gap) marks.add(spanIndex(st.breaks, t));
   }
@@ -1174,7 +1253,7 @@ function nearest(patch: Patch, u: number, v: number, q: Float64Array): number {
 /**
  * Measures one strip patch against the kernel: at every place of the stretch (its samples and the kernel's
  * section halfway between them) at across-parameters between the fit's, and along its two rows. Marks
- * the spans to bisect; returns the largest distance.
+ * the spans to bisect; returns the largest distance, and keeps it and its kernel point in `largest`.
  */
 function measureStrip(
   ring: Ring,
@@ -1186,8 +1265,10 @@ function measureStrip(
   limit: number,
   uMarks: Set<number>,
   vMarks: Set<number>,
+  largest: Miss,
 ): number {
   const checks = st.checks;
+  const part = side === 0 ? 'deck blend' : 'tuck';
   const ts = [0, ...positions(vb, CHECK_FRACS, false), 1];
   const fitTs = positions(vb, FIT_FRACS, true);
   const q = new Float64Array(3);
@@ -1205,6 +1286,7 @@ function measureStrip(
       let d = Math.hypot(q[0]! - f[0]!, q[1]! - f[1]!, q[2]! - f[2]!);
       // the same parameter is a first guess; past the limit, the distance is to the nearest point
       if (d > limit) d = nearest(patch, u, t, q);
+      note(largest, d, part, q[0]!, q[1]!);
       miss = Math.max(miss, d);
       if (t === 0) {
         const r = new Float64Array(3);
@@ -1465,8 +1547,12 @@ export function railsSolid(built: BuiltRails, opts: RailsSolidOptions = {}): Rai
   ];
   const heights = [panelHeight(panels, 0), panelHeight(panels, 1)] as const;
   let overBudget = false;
+  /** Which refinements stopped on the stall test: the deck panel, the bottom panel, the strips. */
+  const stalls: [boolean, boolean, boolean] = [false, false, false];
   let panelPasses = 0;
   const done = [false, false];
+  const panelStall = [stallTest(), stallTest()] as const;
+  const panelMiss: [Miss, Miss] = [noMiss('deck'), noMiss('bottom')];
   for (let k = 1; k <= STEP_MAX_PASSES && !(done[0] && done[1]); k++) {
     panelPasses = k;
     opts.onPass?.(++pass);
@@ -1475,9 +1561,15 @@ export function railsSolid(built: BuiltRails, opts: RailsSolidOptions = {}): Rai
       const fit = fits[side];
       fitPanel(fit, heights[side], outline, mirror);
       const marks = { x: new Set<number>(), y: new Set<number>() };
-      fit.deviation = measurePanel(fit, heights[side], rims[side], limit, marks);
+      panelMiss[side] = noMiss(side === 0 ? 'deck' : 'bottom');
+      fit.deviation = measurePanel(fit, heights[side], rims[side], limit, marks, panelMiss[side]);
       if (fit.deviation <= limit || k === STEP_MAX_PASSES) {
         done[side] = true;
+        continue;
+      }
+      if (panelStall[side](fit.deviation / limit)) {
+        done[side] = true;
+        stalls[side] = true;
         continue;
       }
       if (mirror) {
@@ -1489,7 +1581,15 @@ export function railsSolid(built: BuiltRails, opts: RailsSolidOptions = {}): Rai
       if (added === 0) done[side] = true;
     }
     const controls = fits.reduce((s, f) => s + (f.xb.length + 2) * (f.yb.length + 2), 0);
-    if (controls > maxControls) {
+    // the next pass's solves, before they are made: the band is a row of y controls wide
+    const work = (f: PanelFit): number => {
+      const nv = f.yb.length + 2;
+      return (f.xb.length + 2) * nv * (P * nv + P) ** 2;
+    };
+    const tooFine = ([0, 1] as const).some(
+      (s) => !done[s] && work(fits[s]) > STEP_RAILS_MAX_PANEL_WORK,
+    );
+    if (controls > maxControls || tooFine) {
       overBudget = true;
       break;
     }
@@ -1515,12 +1615,18 @@ export function railsSolid(built: BuiltRails, opts: RailsSolidOptions = {}): Rai
   let stripDeviation = Infinity;
   let edgeGap = Infinity;
   let stripPasses = 0;
+  const stripStall = stallTest();
+  let stripMiss = noMiss('deck blend');
+  let gapMiss = noMiss('deck');
+  // panels that already broke the budget, or stalled outside the tolerance, fail the solid whatever the strips do
+  const panelsFailed =
+    overBudget || ([0, 1] as const).some((s) => stalls[s] && fits[s].deviation > tolerance);
   const vertices = ringSplits.map((p) => ({
     deck: vertexOf(p, 0, deckPanel),
     tuck: vertexOf(p, 1, bottomPanel),
     apex: apexOf(p),
   }));
-  // one pass at least, so that a solid is built even when the panels already broke the budget
+  // one pass at least, so that a solid is built even when the panels already failed
   for (let k = 1; k <= STEP_MAX_PASSES; k++) {
     stripPasses = k;
     opts.onPass?.(++pass);
@@ -1533,6 +1639,8 @@ export function railsSolid(built: BuiltRails, opts: RailsSolidOptions = {}): Rai
     let worst = 0;
     let gapWorst = 0;
     let added = 0;
+    stripMiss = noMiss('deck blend');
+    gapMiss = noMiss('deck');
     stretchFits = stretches.map((st, idx) => {
       const j0 = idx;
       const j1 = (idx + 1) % ringSplits.length;
@@ -1568,11 +1676,12 @@ export function railsSolid(built: BuiltRails, opts: RailsSolidOptions = {}): Rai
             limit,
             uMarks,
             vMarks[side],
+            stripMiss,
           ),
         );
         gapWorst = Math.max(
           gapWorst,
-          edgeGapOf(st, f.u, f.edge[side], panelPatches[side], STEP_RAILS_EDGE_GAP, gapMarks),
+          edgeGapOf(st, f.u, f.edge[side], panelPatches[side], STEP_RAILS_EDGE_GAP, gapMarks, gapMiss, side === 0 ? 'deck' : 'bottom'), // prettier-ignore
         );
       }
       if (k < STEP_MAX_PASSES) {
@@ -1594,8 +1703,13 @@ export function railsSolid(built: BuiltRails, opts: RailsSolidOptions = {}): Rai
     });
     stripDeviation = worst;
     edgeGap = gapWorst;
-    if (overBudget || (worst <= limit && gapWorst <= STEP_RAILS_EDGE_GAP)) break;
+    if (panelsFailed || (worst <= limit && gapWorst <= STEP_RAILS_EDGE_GAP)) break;
     if (k === STEP_MAX_PASSES) break;
+    // the strips' miss and the band edges' gap, each over its own limit: the refinement works on both
+    if (stripStall(Math.max(worst / limit, gapWorst / STEP_RAILS_EDGE_GAP))) {
+      stalls[2] = true;
+      break;
+    }
     added += bisect(vb[0], vMarks[0]) + bisect(vb[1], vMarks[1]);
     if (added === 0) break;
     if (controlsOf() > maxControls) {
@@ -1643,6 +1757,25 @@ export function railsSolid(built: BuiltRails, opts: RailsSolidOptions = {}): Rai
   const brep = assemble(deck, bottom, faces, ringCross, acrossBases);
   const controlCount = brep.faces.reduce((s, f) => s + f.surface.u.count * f.surface.v.count, 0);
   const deviation = Math.max(fits[0].deviation, fits[1].deviation, stripDeviation);
+  // A stall is the failure only where the refinement that stalled ended outside the tolerance; the
+  // place reported is then that refinement's miss. Otherwise it is the largest deviation's, or, within
+  // the tolerance but with a band edge off its panel, that gap's.
+  const misses = [panelMiss[0], panelMiss[1], stripMiss];
+  const stalledPanel = ([0, 1] as const).filter((s) => stalls[s] && fits[s].deviation > tolerance);
+  const stalledStrips = stalls[2] && (stripDeviation > tolerance || edgeGap > STEP_RAILS_EDGE_GAP);
+  const stalled = stalledPanel.length > 0 || stalledStrips;
+  const largest = (ms: readonly Miss[]): Miss => ms.reduce((a, b) => (b.d > a.d ? b : a));
+  const gapOnly = (): boolean => stripDeviation <= tolerance && edgeGap > STEP_RAILS_EDGE_GAP;
+  const worstMiss =
+    stalledPanel.length > 0
+      ? largest(stalledPanel.map((s) => panelMiss[s]))
+      : stalledStrips
+        ? gapOnly()
+          ? gapMiss
+          : stripMiss
+        : deviation <= tolerance && edgeGap > STEP_RAILS_EDGE_GAP
+          ? gapMiss
+          : largest(misses);
   return {
     brep,
     deck,
@@ -1663,6 +1796,8 @@ export function railsSolid(built: BuiltRails, opts: RailsSolidOptions = {}): Rai
       across: [vb[0].length - 1, vb[1].length - 1],
       withinTolerance: deviation <= tolerance && edgeGap <= STEP_RAILS_EDGE_GAP && !overBudget,
       overBudget,
+      stalled,
+      worstAt: { part: worstMiss.part, x: worstMiss.x, y: worstMiss.y },
     },
   };
 }
@@ -1695,14 +1830,18 @@ export function railsStep(built: BuiltRails, opts: RailsStepOptions = {}): Rails
   const tolerance = opts.tolerance ?? STEP_TOLERANCE;
   const solid = railsSolid(built, opts);
   if (!solid.report.withinTolerance) {
-    const { deviation, overBudget } = solid.report;
+    const { deviation, overBudget, stalled, worstAt } = solid.report;
+    const mm = (cm: number): string => (cm * 10).toFixed(2);
     throw new StepFitError(
       overBudget
-        ? `The surface needs more detail than the STEP export can fit (over ${opts.maxControls ?? STEP_RAILS_MAX_CONTROLS} control points); try fewer stations or a smaller feature.`
-        : `The surface could not be fitted within ${(tolerance * 10).toFixed(2)} mm (it reached ${(deviation * 10).toFixed(2)} mm).`,
-      overBudget ? 'budget' : 'tolerance',
+        ? `The surface needs more detail than the STEP export can fit (over ${opts.maxControls ?? STEP_RAILS_MAX_CONTROLS} control points, or a panel too fine to solve); try fewer stations or a smaller feature.`
+        : stalled
+          ? `The surface stopped converging at ${mm(deviation)} mm from the kernel, over the ${mm(tolerance)} mm tolerance, on the ${worstAt.part} ${worstAt.x.toFixed(1)} cm from the tail (y ${worstAt.y.toFixed(1)} cm).`
+          : `The surface could not be fitted within ${mm(tolerance)} mm (it reached ${mm(deviation)} mm).`,
+      overBudget ? 'budget' : stalled ? 'stalled' : 'tolerance',
       deviation,
       tolerance,
+      worstAt,
     );
   }
   opts.onWrite?.();

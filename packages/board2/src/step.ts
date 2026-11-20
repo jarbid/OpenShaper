@@ -126,14 +126,29 @@ export interface BoardSolidReport {
   readonly overBudget: boolean;
 }
 
-/** Why a STEP fit failed, as data: the caller words the message in the editor's units. */
+/**
+ * Where a fit's largest miss is: the part of the solid that holds it, and its plan position in cm
+ * (`x` from the tail, `y` across, plus side positive).
+ */
+export interface StepMissPlace {
+  readonly part: 'deck' | 'bottom' | 'deck blend' | 'tuck';
+  readonly x: number;
+  readonly y: number;
+}
+
+/**
+ * Why a STEP fit failed, as data: the caller words the message in the editor's units. `stalled`: the
+ * refinement stopped improving while still over the tolerance, at `place`.
+ */
 export class StepFitError extends Error {
   constructor(
     message: string,
-    readonly kind: 'tolerance' | 'budget',
+    readonly kind: 'tolerance' | 'budget' | 'stalled',
     /** The deviation reached and the tolerance asked for (cm). */
     readonly deviation: number,
     readonly tolerance: number,
+    /** Where the largest miss is, when the fit knows it. */
+    readonly place?: StepMissPlace,
   ) {
     super(message);
     this.name = 'StepFitError';

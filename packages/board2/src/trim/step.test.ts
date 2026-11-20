@@ -1,27 +1,35 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * The STEP solid of a rails board (`trim/step.ts`) on three rails boards converted from the test boards:
+ * The STEP solid of a rails board (`trim/step.ts`) on four rails boards converted from the test boards:
  * the swallow (a mirror board with a notch, a vee and a double concave), the asymmetric board (both
- * halves different, channels reaching the rails) and the shortboard golden with a hard edge in the tail
- * (a 0.5 mm tuck that leaves the bottom at 30 degrees). Each solid passes geom's `checkBrep`, has the
+ * halves different, channels reaching the rails), the shortboard golden with a hard edge in the tail
+ * (a 0.5 mm tuck that leaves the bottom at 30 degrees) and the funboard golden (a pin tail 1.2 cm thick
+ * whose deck band edge runs 1.3 mm inside the outline). Each solid passes geom's `checkBrep`, has the
  * counts Euler asks of N splits (V = 3N, E = 5N, F = 2N + 2), is within the tolerance of the kernel
  * (the fit's own measure, and independently at the kernel's band edges, apex line and panel mesh
  * vertices), and encloses the volume of a fine kernel mesh within 0.1 %. A mirror board's halves are
- * exact mirrors; the file is reproducible; a budget no fit can meet is a `StepFitError`. The fish, the
+ * exact mirrors; the file is reproducible; a budget no fit can meet is a `StepFitError`, and so, in
+ * seconds, is a deck with a step no smooth surface follows (`stalled`, with where it is). The fish, the
  * plain shortboard and the analytic board run in `step.occt.test.ts` (slower).
  */
 import { checkBrep } from '@openshaper/geom';
 import { describe, expect, it } from 'vitest';
-import { STEP_RAILS_EDGE_GAP, STEP_TOLERANCE } from '../params';
+import {
+  STEP_RAILS_EDGE_GAP,
+  STEP_RAILS_MAX_CONTROLS,
+  STEP_RAILS_MAX_PANEL_WORK,
+  STEP_TOLERANCE,
+} from '../params';
 import { StepFitError } from '../step';
 import { boardSet } from '../test-support/board-set';
-import { asymmetricBoard, swallowBoard } from '../testing';
+import { analyticBoard, asymmetricBoard, swallowBoard } from '../testing';
 import type { BuiltRails } from './native';
 import { meshRails } from './native';
 import { railsSolid, railsStep } from './step';
 import type { RailsSolid } from './step';
 import {
   builtRails,
+  deckPlateau,
   hardTail,
   independentDeviation,
   railsBoardOf,
@@ -31,17 +39,19 @@ import {
 const FINE_FACE = 0.25;
 /** Volume against that mesh, as a fraction. */
 const VOLUME_TOL = 1e-3;
+/** The longest a fit that stalls may take to say so (ms); measured 0.5 s. */
+const STALL_TIME = 20_000;
+
+const golden = (name: string) => railsBoardOf(boardSet().find((b) => b.name === name)!.doc);
 
 const BOARDS: readonly { readonly name: string; readonly make: () => BuiltRails }[] = [
   { name: 'swallow', make: () => builtRails(railsBoardOf(swallowBoard())) },
   { name: 'asymmetric (channels)', make: () => builtRails(railsBoardOf(asymmetricBoard())) },
   {
     name: 'shortboard, hard edge in the tail',
-    make: () =>
-      builtRails(
-        hardTail(railsBoardOf(boardSet().find((b) => b.name === 'shortboard')!.doc), 60, 30),
-      ),
+    make: () => builtRails(hardTail(golden('shortboard'), 60, 30)),
   },
+  { name: 'funboard', make: () => builtRails(golden('funboard')) },
 ];
 
 const solved = new Map<string, { built: BuiltRails; solid: RailsSolid }>();
@@ -122,6 +132,41 @@ describe('the STEP solid of a rails board', () => {
     expect(a.text).toContain('.CENTI.');
     expect(a.text).toContain('MANIFOLD_SOLID_BREP');
     expect(a.stats.faces).toBe(a.report.faces);
+  }, 60_000);
+
+  it('a step no smooth surface follows stalls in seconds, and says where', () => {
+    // the analytic board (100 cm long) with a 1.5 mm plateau on its deck 10 cm wide, from 60 cm out
+    // past the nose: a step across the deck at x = 60 and along it at y = ±5
+    const plateau = { from: 60, to: 180, halfWidth: 5, lift: 0.15 };
+    const built = deckPlateau(builtRails(railsBoardOf(analyticBoard())), plateau);
+    const t0 = performance.now();
+    const { report } = railsSolid(built);
+    expect(performance.now() - t0).toBeLessThan(STALL_TIME);
+    expect(report.stalled).toBe(true);
+    expect(report.overBudget).toBe(false);
+    // it stalls well inside the budgets (measured: a 39 × 63 deck net, 3,092 control points), so a
+    // small change elsewhere does not turn it into a budget failure
+    const [nu, nv] = report.panelControls[0];
+    expect(nu * nv * (3 * nv + 3) ** 2).toBeLessThan(0.25 * STEP_RAILS_MAX_PANEL_WORK);
+    expect(report.controlCount).toBeLessThan(0.25 * STEP_RAILS_MAX_CONTROLS);
+    let error: unknown;
+    try {
+      railsStep(built);
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeInstanceOf(StepFitError);
+    const e = error as StepFitError;
+    expect(e.kind).toBe('stalled');
+    expect(e.deviation).toBeGreaterThan(STEP_TOLERANCE);
+    expect(e.tolerance).toBe(STEP_TOLERANCE);
+    // on the deck, on the plateau's edge (cm)
+    expect(e.place?.part).toBe('deck');
+    const { x, y } = e.place!;
+    const onEdge = Math.min(Math.abs(x - plateau.from), Math.abs(Math.abs(y) - plateau.halfWidth));
+    expect(onEdge).toBeLessThan(0.5);
+    expect(x).toBeGreaterThan(plateau.from - 0.5);
+    expect(Math.abs(y)).toBeLessThan(plateau.halfWidth + 0.5);
   }, 60_000);
 
   it('a budget no fit can meet fails with a StepFitError', () => {
