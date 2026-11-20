@@ -235,7 +235,7 @@ when it lands. Status is as of 2026-11-18.
 | 4   | **Rail zones**                    | The rail map; zones and blends, dragged on the map and on the board; the rail panel with its three dials, live slice and More; my rails; Tidy rails                                                                   | Any zone edit keeps a closed board; one side or both; a board's rails survive a save, a share link and another machine | Built behind the two experimental switches: the rail map, the slice and the rail panel, on the zone edits built beside the workspace                                                                                                   |
 | 5   | **Deck and bottom shapes**        | Named deck shapes with a crown dial; bottom contours in the Bottom step; Edit curve; the station strip                                                                                                                | A shape applied and then edited as a curve stays the shaper's                                                          | Not started                                                                                                                                                                                                                            |
 | 6   | **Tail and corners**              | The tail picker; a radius handle on every corner, in the plan and on the board                                                                                                                                        | Every tail in the picker gives a closed board at every size in the gallery                                             | Not started                                                                                                                                                                                                                            |
-| 7   | **A new board**                   | The gallery of types, then a size                                                                                                                                                                                     | Each type opens at the smallest and largest size it allows                                                             | Not started                                                                                                                                                                                                                            |
+| 7   | **A new board**                   | The gallery of types, then a size                                                                                                                                                                                     | Each type opens at the smallest and largest size it allows                                                             | Built behind the two experimental switches: File, New board… asks for a kind of board and then its size. The five named boards stay in the File menu until the old layout goes                                                         |
 | 8   | **The old engine goes**           | Nothing visible                                                                                                                                                                                                       | Nothing imports the chord frame, the notch zone, the caps or the section editor                                        | Not started. The switches go and the rails engine becomes the default here                                                                                                                                                             |
 
 Slices 1 and 2 touched different code and were built side by side. Slice 3 comes before the
@@ -301,6 +301,16 @@ rails so that the rail map and panel are built once, in their final place.
   board (a squash tail's straight edge, a notch wall) as a tail edge, as the loop always
   allowed and the outline never used; a corner is identified as the corner knot nearest the
   tap; the tail and the nose are told apart by position. A round tail is rail.
+- **A new board is a template made at a size by Resize's own scaling.** `sizeRailsBoard` loads the
+  template's rails board into a private rails store and scales it by the factors the Resize section
+  computes, so a board from the gallery is one Resize could have made: the tail stays at x = 0, corner
+  radii stay in cm, and a rail's band and tuck follow the width. The ranges of the five kinds are shaping
+  norms, not the engine's limit: each template scaled to 0.5 to 1.7 times its drawn length, width and
+  thickness, each alone and all three together (240 boards), builds with no issue and a closed mesh, and
+  its volume is the drawn volume times the three factors to 0.1%. A gate test builds each kind at its
+  least and greatest corner. A kind's drawn size and plan outline are generated from its template
+  (`tools/make-nurbs-templates.ts`, committed as `board-type-shapes.ts` and held to the templates by a
+  test), so the dialog loads no template to draw its cards.
 
 ## Open items
 
@@ -373,6 +383,18 @@ From the store and the app:
   skips its curve edits when they are written back.
 - The engine info popover still describes the sections engine's blending for a rails board;
   feeding the engine's sections to the store through the 3D layer has no test of its own.
+
+From the new-board gallery:
+
+- A new board replaces the open one without asking, as choosing a template does. A prompt needs a
+  notion of unsaved edits that the stores do not have.
+- New board… has no shortcut (it needs a row in `shortcuts.ts`, a registry entry and docs), and two sizes
+  of one kind share one entry in the recent list, since the name is the kind's.
+- Offline, the dialog and the templates are precached but the engine's worker is not, so a fresh offline
+  page cannot make a board: the same limit as a template opened from the File menu.
+- On a phone the size step is below five stacked cards; the phone layout is slice 8's.
+- The menubar's menu drops the focus when an item is chosen, so the gallery puts it back on the menu's
+  button itself (`menu-trigger.ts`); the fix for every dialog is `PROPOSALS.md` P47.
 
 From the Patches look:
 

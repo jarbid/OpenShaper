@@ -176,6 +176,16 @@ header's point editor, updated only when the mode changes, and possibly a latch 
 twice to toggle). Effort S–M · risk low (one re-render per mode change) · visible: a
 badge while a key is held, and a new toggle gesture.
 
+**P47 · A menu gives no focus back when an item is chosen or Escape is pressed.** The menubar's
+menu takes the item out of the page when it closes, and the focus, which was on the item,
+falls to the page. A dialog an item opens then notes the page as what had the focus and
+returns it there, so a keyboard user who closes the dialog starts again from the top of the
+page instead of from the menu they came from. The New board gallery works around it for its
+own item (`menu-trigger.ts`, which puts the focus on the menu's button first). Proposal: the
+menu moves the focus to its own button when it closes by choosing an item or by Escape, and
+every dialog opened from a menu then returns there. Effort S · risk low (focus only) · visible:
+where the focus lands after a menu choice.
+
 ## Process and dependencies
 
 **P35 · ✅ Done (ecc7621) — Run the e2e and offline Playwright suites in CI.** Neither runs today, and
