@@ -178,6 +178,7 @@ import {
   type View3DSettings,
 } from './view-toolkit';
 import { longitudinalFor, type MeasurementAxis } from './longitudinal';
+import { openMenuButton } from './menu-trigger';
 import {
   DEFAULT_VIEW_3D,
   effectiveAnalysis,
@@ -197,6 +198,10 @@ const Board3DView = lazy(() =>
 // The experimental NURBS viewer: its own chunk, fetched only with the engine flag on
 // (and it starts its own worker, which carries board2 and geom).
 const NurbsLayer = lazy(() => import('./nurbs-layer'));
+
+// The New board gallery (File > New board…): a chunk of its own, with the kinds of board, their sizes and
+// the code that makes a board at a size; fetched when the dialog is first opened.
+const NewBoardDialog = lazy(() => import('./NewBoardDialog'));
 
 const ANALYSIS_IDLE: AnalysisStatus = { state: 'off' };
 
@@ -770,6 +775,7 @@ function AppShell() {
   const [pdfDialogOpen, setPdfDialogOpen] = useState(false);
   const [stepDialogOpen, setStepDialogOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
   const [stepSettings, setStepSettings] = useState<StepSettings>(() => loadStep());
   const [railBandsDialogOpen, setRailBandsDialogOpen] = useState(false);
   const [railBandsSettings, setRailBandsSettings] = useState<RailBandsSettings>(() =>
@@ -1367,6 +1373,27 @@ function AppShell() {
     railsArrived();
     o.onOpened?.();
   };
+  /**
+   * A board the New board gallery made arrives as a template does: it replaces the open board as the
+   * document, with an empty history, and the same things happen once it is open. The dialog closes.
+   */
+  const openGalleryBoardRef = useRef<(board: RailsBoard, name: string) => void>(() => {});
+  openGalleryBoardRef.current = (board, name) => {
+    setGalleryOpen(false);
+    openRails(board, {
+      recentName: name,
+      onOpened: () => {
+        setGhost(null);
+        track('template_loaded', { template: name });
+        markTemplate();
+      },
+    });
+  };
+  const openGalleryBoard = useCallback(
+    (board: RailsBoard, name: string) => openGalleryBoardRef.current(board, name),
+    [],
+  );
+  const closeGallery = useCallback(() => setGalleryOpen(false), []);
   /** Revive a parsed NURBS document and open it; the reasons are a toast when it is not one. */
   const openSectionsJson = async (json: unknown, o: Omit<SectionsOpen, 'doc'>, label: string) => {
     if (isRailsJson(json)) {
@@ -1706,6 +1733,21 @@ function AppShell() {
 
   const fileMenu: MenuItem[] = [
     { kind: 'label', label: 'New' },
+    // With the NURBS and rails engines on, the gallery: a kind of board, then its size. The named templates
+    // stay below it, as the end-to-end specs and the perf scripts open a board through them.
+    ...(nurbsEngine && settings.surfaceEngine === 'rails'
+      ? [
+          {
+            kind: 'action' as const,
+            label: 'New board…',
+            onSelect: () => {
+              // the item goes with the menu: the dialog gives the focus back to the menu's button
+              openMenuButton()?.focus();
+              setGalleryOpen(true);
+            },
+          },
+        ]
+      : []),
     // With the NURBS engine on the chooser lists the documents of the section model (the same three boards,
     // already converted, and the swallow and fish shortboards); otherwise the classic templates.
     ...(nurbsEngine ? NURBS_TEMPLATES : BOARD_TEMPLATES).map((t) => ({
@@ -2579,6 +2621,12 @@ function AppShell() {
           onSave={handleSaveSettings}
           onClose={() => setSettingsOpen(false)}
         />
+      )}
+
+      {galleryOpen && (
+        <Suspense fallback={null}>
+          <NewBoardDialog units={units} onOpen={openGalleryBoard} onClose={closeGallery} />
+        </Suspense>
       )}
 
       {heldPrompt && !nurbsEngine && (

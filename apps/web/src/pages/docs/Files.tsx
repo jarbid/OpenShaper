@@ -1,10 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { Link } from 'react-router-dom';
+import { BOARD_TYPES } from '../../board-types';
+import type { Range } from '../../board-types';
+import { fmtLen, lengthUnitByKey } from '../../format';
 import { BOARD_TEMPLATES, NURBS_TEMPLATES } from '../../templates';
 import { DocsPage, Section, Term, Terms } from './DocsPage';
 
 /** Starter templates are listed from BOARD_TEMPLATES and NURBS_TEMPLATES so the list can't go stale. */
 const TEMPLATE_NAMES = [...new Set([...BOARD_TEMPLATES, ...NURBS_TEMPLATES].map((t) => t.name))];
+
+const FEET_INCHES = lengthUnitByKey('ftin');
+const MILLIMETRES = lengthUnitByKey('mm');
+
+/** A range in the shaper's feet and inches and in millimetres, from the kind's own numbers so it cannot go stale. */
+const rangeText = (r: Range): string =>
+  `${fmtLen(r.least, FEET_INCHES)} to ${fmtLen(r.greatest, FEET_INCHES)} (${fmtLen(r.least, MILLIMETRES)} to ${fmtLen(r.greatest, MILLIMETRES)})`;
 
 export default function DocsFiles() {
   return (
@@ -14,6 +24,7 @@ export default function DocsFiles() {
       lede="Starter templates, saving and opening, sharing a link, importing from Shape3d and BoardCAD, and where your work is kept."
       toc={[
         { id: 'templates', label: 'Starter templates' },
+        { id: 'new-board', label: 'A new board' },
         { id: 'saving', label: 'Saving & opening' },
         { id: 'nurbs-files', label: 'NURBS boards (experimental)' },
         { id: 'share', label: 'Sharing a link' },
@@ -28,7 +39,8 @@ export default function DocsFiles() {
           Three boards to start from, each real geometry rather than an approximation — inherited
           from BoardCAD, which OpenShaper descends from. With the experimental NURBS engine on, the
           New menu lists the same three already converted to NURBS, and two more with a concave
-          tail.
+          tail. With the rails engine on as well, File → New board… is the way to start a board
+          (next section), and the five stay in the File menu below it.
         </p>
         <Terms>
           {TEMPLATE_NAMES.map((name) => (
@@ -37,6 +49,46 @@ export default function DocsFiles() {
             </Term>
           ))}
         </Terms>
+      </Section>
+
+      <Section id="new-board" title="A new board">
+        <p>
+          With the NURBS and rails engines on, <strong>File → New board…</strong> opens a gallery:
+          one card for each kind of board, with its plan outline, a line on how it rides and the
+          size it is drawn at. Choose a kind with a click, or with the arrow keys and Enter, and the{' '}
+          <strong>Size</strong> step asks for its length, width and thickness in the units chosen in
+          the top bar. Each field shows the range the kind allows. A number typed past an end is
+          held to that end rather than refused, the up and down arrow keys nudge a value (Shift for
+          ten times as much), and feet and inches typed as <code>6'2"</code> are read in any unit.
+          Enter in a field, or <strong>Create board</strong>, opens the board; Esc closes the
+          gallery without making one.
+        </p>
+        <p>
+          The board is the starter template made at that size by the same scaling as{' '}
+          <strong>Board → Resize…</strong>, so it is a board Resize could have made: the outline
+          stretches with the length and the width, the rocker and the deck line with the length and
+          the thickness, the stations and the rails along the board with the length, and each rail's
+          band and tuck with the width. The corner radii stay as drawn. The thickness is the one the
+          specs show, at the middle of the board. The size a card names opens the template itself,
+          unchanged.
+        </p>
+        <p>
+          The new board replaces the one that is open, as choosing a template does, without asking,
+          and starts with an empty undo history, so save a board you want to keep first.
+        </p>
+        <Terms>
+          {BOARD_TYPES.map((t) => (
+            <Term key={t.name} name={t.name}>
+              {t.description} Length {rangeText(t.ranges.length)}, width {rangeText(t.ranges.width)}
+              , thickness {rangeText(t.ranges.thickness)}.
+            </Term>
+          ))}
+        </Terms>
+        <p>
+          The ranges are the usual sizes for each kind. The engine builds every kind well past them
+          (from half to 1.7 times the size it is drawn at, in each dimension), so a range says what
+          the board is, not what the program can do.
+        </p>
       </Section>
 
       <Section id="saving" title="Saving & opening">

@@ -73,6 +73,14 @@ export const HELP_TEXT: Readonly<Record<string, HelpEntry>> = {
     anchor: 'templates',
     keywords: [...TEMPLATE, 'new board', 'preset'],
   },
+  'File/New board…': {
+    description:
+      'Choose a kind of board, set its length, width and thickness, and open it in place of the current board.',
+    route: '/docs/files',
+    anchor: 'new-board',
+    keywords: [...TEMPLATE, 'gallery', 'new board', 'size', 'length', 'width', 'thickness'],
+    addedOn: '2026-11-20',
+  },
   'File/Open…': {
     description: 'Opens a board file from your device: OpenShaper, BoardCAD, Shape3D or SurfCAD.',
     route: '/docs/files',

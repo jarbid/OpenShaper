@@ -5,16 +5,20 @@ import { fileURLToPath } from 'node:url';
 import { reviveBoardDoc, validateBoard } from '@openshaper/board2';
 import { readBoardText } from '@openshaper/io';
 import { describe, expect, it } from 'vitest';
+import { BOARD_TYPE_SHAPES } from '../src/board-type-shapes';
 import { NURBS_TEMPLATES } from '../src/templates';
-import { makeNurbsTemplates } from './make-nurbs-templates';
+import { SHAPES_FILE, makeBoardTypeShapes, makeNurbsTemplates } from './make-nurbs-templates';
 
 const dir = resolve(dirname(fileURLToPath(import.meta.url)), '../src/templates');
 const path = (file: string) => resolve(dir, file);
 
 const made = makeNurbsTemplates();
+const shapes = makeBoardTypeShapes();
+const shapesPath = resolve(dir, '..', SHAPES_FILE);
 
 if (process.env.NURBS_TEMPLATES_WRITE) {
   for (const t of made) writeFileSync(path(t.file), t.text);
+  writeFileSync(shapesPath, shapes);
 }
 
 describe('NURBS starter templates', () => {
@@ -45,5 +49,23 @@ describe('NURBS starter templates', () => {
     expect(made.find((t) => t.name === 'Swallow shortboard')!.text).toContain('"notched"');
     expect(made.find((t) => t.name === 'Fish shortboard')!.text).toContain('"notched"');
     expect(made.find((t) => t.name === 'Shortboard')!.text).toContain('"standard"');
+  });
+});
+
+describe('the board-type data (src/board-type-shapes.ts)', () => {
+  it('is what the generator makes from the templates', () => {
+    expect(readFileSync(shapesPath, 'utf8')).toBe(shapes);
+  });
+
+  it('holds one entry per starter template, drawn from the board it opens as', () => {
+    expect(Object.keys(BOARD_TYPE_SHAPES)).toEqual(made.map((t) => t.name));
+    for (const t of made) {
+      const shape = BOARD_TYPE_SHAPES[t.name]!;
+      expect(shape.length, t.name).toBeGreaterThan(100);
+      expect(shape.plan, t.name).toMatch(/^M/);
+      // a few hundred bytes a picture: the whole file is small too
+      expect(shape.plan.length, t.name).toBeLessThan(400);
+    }
+    expect(readFileSync(shapesPath, 'utf8').length).toBeLessThan(4000);
   });
 });
