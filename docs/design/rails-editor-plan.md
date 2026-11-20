@@ -229,7 +229,7 @@ when it lands. Status is as of 2026-11-18.
 |     | Slice                             | What a shaper gets                                                                                                                                                                                                    | Gate                                                                                                                   | Status                                                                                                                                                                                                                                 |
 | --- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 0   | Engine speed                      | The new engine keeps up with a drag                                                                                                                                                                                   | The budget above on the sample boards                                                                                  | Mostly done. Volume no longer depends on the grid, unchanged parts are reused, the panels have no long triangles. Draft meshing is over 20 ms on three boards, and the section probe costs 8 to 15 ms a request outside the timed part |
-| 1   | **STEP for a rails board**        | Nothing visible. It has to exist before the old engine stops being the one that exports                                                                                                                               | OCCT reads one valid closed solid for every sample board                                                               | Built. 12 of 14 sample boards fit; the made boards are valid in OCCT. The funboard never converges (thirteen minutes, then it gives up): a stall guard and a lower budget first, then the cause                                        |
+| 1   | **STEP for a rails board**        | Nothing visible. It has to exist before the old engine stops being the one that exports                                                                                                                               | OCCT reads one valid closed solid for every sample board                                                               | Built. 12 of 14 sample boards fit; the made boards are valid in OCCT. The funboard converges (7,900 controls, 1.5 s) and a board no net can follow fails in seconds, saying where                                                      |
 | 2   | **Rails boards are the document** | Every board opens in the new format and is built by the new engine alone. In today's layout: outline and rocker as now; the cross-section tab shows a station's deck and bottom curves, editable, and its rail, drawn | Round trip and undo; every export; old files convert; the engine switches are gone                                     | Built behind the two experimental switches, with the old layout. The switches are still there and the classic engine is still the default. A review found defects in how a rails board arrives, is autosaved and is restored (below)   |
 | 3   | **The new layout and the looks**  | The design list, the board always in view, the drawing, the panel. Look with Patches and everything the app has. Tap a patch to choose. Today's tools in their new places                                             | Every step reachable by list, key and tap; tablet layout; no step slower than before                                   | The workspace, the Patches look as its working look (seams, a darker tuck, a key) and a tap that chooses a step are in, behind the two switches, with the one Look control and a Show menu. Next: the plan's step-driven looks         |
 | 4   | **Rail zones**                    | The rail map; zones and blends, dragged on the map and on the board; the rail panel with its three dials, live slice and More; my rails; Tidy rails                                                                   | Any zone edit keeps a closed board; one side or both; a board's rails survive a save, a share link and another machine | Built behind the two experimental switches: the rail map, the slice and the rail panel, on the zone edits built beside the workspace                                                                                                   |
@@ -342,11 +342,21 @@ Still open:
 
 From STEP:
 
-- The Diamond Twin and the funboard sample boards pass the 60,000-control budget. Files are 1
-  to 5 times the old exporter's size and take 0.8 to 4 s on standard boards; the faces are
-  not rational and the band edges are refined to a quarter of a micron. Options: a rational
-  or degree-elevated band edge, patches instead of one net per panel, or a looser tolerance by
-  decision.
+- The fit refines a cell the way the kernel's own samples say, and a cell the band edge cuts
+  to a sliver (at a pointed tip, a millimetre inside the outline) had no sample to judge by in
+  one direction: it was split only the other way and never converged, which is why the
+  funboard ran for 780 s. A direction with no sample to judge by is now split too. The fit
+  stops, with where, when a panel's or the strips' miss stops falling (6 passes without a gain
+  of 5%), and a panel solve is held to 4e9 multiply-adds (about 2.5 s), because a net that
+  grows across the board costs far more than its control count says; the budget is 20,000
+  controls (the largest board that fits needs 12,300). Next to a real step the direction rule
+  can still split the wrong way and the work cap is what ends it. The Diamond Twin sample has
+  not been run with this fit; the app's STEP export does not yet word a stall (`stepFitMessage`
+  is typechecked, not exercised).
+- Files are 1 to 5 times the old exporter's size and take 0.8 to 4 s on standard boards; the
+  faces are not rational and the band edges are refined to a quarter of a micron. Options: a
+  rational or degree-elevated band edge, patches instead of one net per panel, or a looser
+  tolerance by decision.
 - OCCT's volume property is 10.8% over ours on the channel board (its own fine mesh agrees
   within 0.24%); that board's sanity bound is 12%, the others' 5%.
 - The asymmetric nose and tail are one transition face where the kernel's laws jump between

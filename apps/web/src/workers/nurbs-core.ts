@@ -830,7 +830,7 @@ export const probeDocument = (
 };
 
 /** The STEP fit failure, worded in the unit the file is written in (the editor's display unit). */
-const stepFitMessage = (err: StepFitError, unit: 'mm' | 'cm' | 'in'): string => {
+export const stepFitMessage = (err: StepFitError, unit: 'mm' | 'cm' | 'in'): string => {
   const per = unit === 'mm' ? 10 : unit === 'cm' ? 1 : 1 / 2.54;
   const digits = unit === 'mm' ? 2 : 3;
   const f = (cm: number): string => `${(cm * per).toFixed(digits)} ${unit}`;
