@@ -224,7 +224,7 @@ on purpose.
 ## The slices
 
 In the order each depends on the one before. Each leaves the branch working and is usable
-when it lands. Status is as of 2026-11-18.
+when it lands. Status is as of 2026-11-20.
 
 |     | Slice                             | What a shaper gets                                                                                                                                                                                                    | Gate                                                                                                                   | Status                                                                                                                                                                                                                                 |
 | --- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -233,7 +233,7 @@ when it lands. Status is as of 2026-11-18.
 | 2   | **Rails boards are the document** | Every board opens in the new format and is built by the new engine alone. In today's layout: outline and rocker as now; the cross-section tab shows a station's deck and bottom curves, editable, and its rail, drawn | Round trip and undo; every export; old files convert; the engine switches are gone                                     | Built behind the two experimental switches, with the old layout. The switches are still there and the classic engine is still the default. A review found defects in how a rails board arrives, is autosaved and is restored (below)   |
 | 3   | **The new layout and the looks**  | The design list, the board always in view, the drawing, the panel. Look with Patches and everything the app has. Tap a patch to choose. Today's tools in their new places                                             | Every step reachable by list, key and tap; tablet layout; no step slower than before                                   | The workspace, the Patches look as its working look (seams, a darker tuck, a key) and a tap that chooses a step are in, behind the two switches, with the one Look control and a Show menu. Next: the plan's step-driven looks         |
 | 4   | **Rail zones**                    | The rail map; zones and blends, dragged on the map and on the board; the rail panel with its three dials, live slice and More; my rails; Tidy rails                                                                   | Any zone edit keeps a closed board; one side or both; a board's rails survive a save, a share link and another machine | Built behind the two experimental switches: the rail map, the slice and the rail panel, on the zone edits built beside the workspace                                                                                                   |
-| 5   | **Deck and bottom shapes**        | Named deck shapes with a crown dial; bottom contours in the Bottom step; Edit curve; the station strip                                                                                                                | A shape applied and then edited as a curve stays the shaper's                                                          | Not started                                                                                                                                                                                                                            |
+| 5   | **Deck and bottom shapes**        | Named deck shapes with a crown dial; bottom contours in the Bottom step; Edit curve; the station strip                                                                                                                | A shape applied and then edited as a curve stays the shaper's                                                          | The Deck step is built behind the two experimental switches: Flat and Domed with a crown, the station strip, Edit curve. The Bottom step is not started                                                                                |
 | 6   | **Tail and corners**              | The tail picker; a radius handle on every corner, in the plan and on the board                                                                                                                                        | Every tail in the picker gives a closed board at every size in the gallery                                             | Not started                                                                                                                                                                                                                            |
 | 7   | **A new board**                   | The gallery of types, then a size                                                                                                                                                                                     | Each type opens at the smallest and largest size it allows                                                             | Built behind the two experimental switches: File, New board… asks for a kind of board and then its size. The five named boards stay in the File menu until the old layout goes                                                         |
 | 8   | **The old engine goes**           | Nothing visible                                                                                                                                                                                                       | Nothing imports the chord frame, the notch zone, the caps or the section editor                                        | Not started. The switches go and the rails engine becomes the default here                                                                                                                                                             |
@@ -311,6 +311,20 @@ rails so that the rail map and panel are built once, in their final place.
   least and greatest corner. A kind's drawn size and plan outline are generated from its template
   (`tools/make-nurbs-templates.ts`, committed as `board-type-shapes.ts` and held to the templates by a
   test), so the dialog loads no template to draw its cards.
+- **A deck shape is read from the curve and never stored, and a dome is a parabola.** Flat and
+  Domed are what a station's deck curve is to 0.1 mm; anything else is Custom, so a shape applied and
+  then edited as a curve reads Custom and nothing the shaper drew is replaced unless they choose a
+  shape. The crown is the gap under a straightedge laid across the deck from one band edge to the
+  other, measured at the stringer. Curves are stored as fractions of the half width and of the
+  thickness, so a moved station or an edited thickness stretches a stored curve per axis: a circle does
+  not survive that and a parabola does, so a Domed deck stays Domed through every edit that is not the
+  deck's own. A crown runs from 0.05 cm to the deepest dome that keeps the wall 1 mm above the
+  bottom's end with a slope under 60 degrees, and is held there, never refused. Applied to all
+  stations (the default) every station falls the same share of its own thickness at the wall, half of
+  it for a new Domed (the median of the 47 stations of the nine boards measured), and the station
+  that was asked has the crown typed.
+- **The Deck step's drawing is the section from the engine's fine polyline.** The slice behind the
+  curve reads the same 400-point answer as the Rails slice, so a rail's bend is not a polygon.
 
 ## Open items
 
@@ -375,10 +389,12 @@ From STEP:
 
 From the store and the app:
 
-- A station added between two whose curves have the same knot count moves the surface by 0.1
-  to 0.9 mm; where the counts differ the nearer curves are copied and it can move by 4 mm. An
-  exact insert samples the engine's loft at the place and fits the new curves; it goes through
-  `commitDoc`.
+- A station added between two others (`insertStation`, which the strip and the old layout's
+  Add both use) gives the new station the neighbours' curves blended after the one with fewer
+  knots has been split at the other's knot places, so the blend never copies a curve. It moves the
+  surface by 0.9 mm at most on the boards as shipped and 1.3 mm where every deck is Flat (the
+  blend it replaced: 4.1 and 6.4). An exact insert samples the engine's loft at the place and fits
+  the new curves; it goes through `commitDoc`.
 - Rail keys behind a new notch bottom are kept. An asymmetric board's station of no width
   skips its curve edits when they are written back.
 - The engine info popover still describes the sections engine's blending for a rails board;
@@ -395,6 +411,23 @@ From the new-board gallery:
 - On a phone the size step is below five stacked cards; the phone layout is slice 8's.
 - The menubar's menu drops the focus when an item is chosen, so the gallery puts it back on the menu's
   button itself (`menu-trigger.ts`); the fix for every dialog is `PROPOSALS.md` P47.
+
+From the Deck step:
+
+- Every shipped deck is an arc with a steeper roll at the rail, not a parabola, so every starter and
+  every converted board reads Custom at every station and the Deck step opens on the editor. Choosing
+  Domed keeps each station's crown at the band edge and replaces the drawn curve (undo brings it back).
+  Reading a looser dome as Domed would show a crown dial sooner and let a nudge of it replace a
+  hand-drawn curve: a product call.
+- The step opens on the station the shell had, the tail's first, a tip that holds about 1 cm of rail;
+  a board that arrives should choose the station nearest the middle, as a shared board does. It belongs
+  with the arrival rules of slice 8.
+- On a tablet the sheet opens at its peek, so the shape and the crown are one drag away, and an open
+  editor has about 85 px of height. The crown could go in the slice card's header.
+- A crown is one number for both sides. The store takes a side; the panel says when the sides differ
+  and has no control for one.
+- The crown ranges and the default are measured on the nine shipped and made boards, not on the
+  gallery's boards at the ends of their ranges.
 
 From the Patches look:
 
