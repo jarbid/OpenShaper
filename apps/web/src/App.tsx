@@ -156,9 +156,10 @@ import { useMeshSpecs } from './use-mesh-specs';
 import { useSpecsWorker } from './use-specs-worker';
 import { useTrace, type TraceView } from './use-trace';
 import { WorkspaceLooks } from './LookControls';
-import { RailPanelSlot } from './workspace/RailPanel';
+import { DeckStep } from './workspace/DeckStep';
 import { RailsStep } from './workspace/RailsStep';
 import { RailsWorkspace } from './workspace/RailsWorkspace';
+import { StepPanelSlot } from './workspace/StepPanelSlot';
 import { stepById, type StepCurve, type StepId } from './workspace/steps';
 import { claimPatchesDefault, setWorkspaceStep } from './workspace/use-step';
 import {
@@ -2210,6 +2211,24 @@ function AppShell() {
     const { drawing } = stepById(id);
     // the Rails step's drawing is the rail map, not an editor pane
     if (drawing.editor === 'railMap') return <RailsStep units={units} />;
+    // the Deck step draws the slice and the station strip, with the editor for Edit curve and for a drawn curve
+    if (id === 'deck') {
+      const editor = drawing.editor;
+      return (
+        <DeckStep
+          units={units}
+          station={clampedCs}
+          onStation={setCsIndex}
+          renderEditor={(curveControl) => (
+            <EditorPane
+              key={editor}
+              {...editorPaneProps(editor, { title: drawing.title, curve: drawing.curve })}
+              curveControl={curveControl}
+            />
+          )}
+        />
+      );
+    }
     return (
       <EditorPane
         key={drawing.editor}
@@ -2459,7 +2478,8 @@ function AppShell() {
               board={threeDPane}
               looks={workspaceLooks}
               drawingFor={drawingFor}
-              panel={<RailPanelSlot units={units} />}
+              panel={<StepPanelSlot units={units} slice={clampedCs} />}
+              onTapStation={setCsIndex}
               sidebar={isDesktop ? sidebarFor(true) : undefined}
               compact={!isDesktop}
               onSidebar={setSidebar}
@@ -2543,7 +2563,7 @@ function AppShell() {
           peek={sheetPeek}
           canClose={isPhone}
         >
-          {workspaceOn && <RailPanelSlot units={units} fluid />}
+          {workspaceOn && <StepPanelSlot units={units} slice={clampedCs} fluid />}
           {sidebarFor(false)}
         </BottomSheet>
       )}

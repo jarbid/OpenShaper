@@ -106,7 +106,7 @@ const consume = (e: { preventDefault(): void; stopPropagation(): void }) => {
 
 // --- a number field --------------------------------------------------------------------------------
 
-interface NumFieldProps {
+export interface NumFieldProps {
   /** The field's accessible name. */
   label: string;
   /** The number as the field shows it. */
@@ -125,7 +125,15 @@ interface NumFieldProps {
  * field), so the box can be empty or half typed; Escape puts the number back; the up and down arrow keys
  * step it, one undo step for a held key.
  */
-function NumField({ label, shown, parse, onCommit, onStep, suffix, className }: NumFieldProps) {
+export function NumField({
+  label,
+  shown,
+  parse,
+  onCommit,
+  onStep,
+  suffix,
+  className,
+}: NumFieldProps) {
   const [nonce, setNonce] = useState(0);
   const [text, setText] = useSyncedText(shown, `${shown}|${nonce}`);
   const dirty = useRef(false);

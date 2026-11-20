@@ -58,6 +58,12 @@ import {
 } from '../sections/features';
 import type { KeepSide, TailType } from '../sections/shape';
 import {
+  applyDeckShape,
+  type DeckScope,
+  type DeckShapeRequest,
+  type DeckSide,
+} from './deck-shapes';
+import {
   addStation,
   applyRailsEdit,
   applyRailsMinusEdit,
@@ -67,6 +73,7 @@ import {
   scaleRailWidths,
 } from './edits';
 import { halfWidthFn, isNotched } from './measure';
+import { insertStation } from './station-insert';
 import { projectRails } from './project';
 import { setNotchDepth, setSymmetry, setTail } from './shape';
 import type { RailRecipe, RailsSlices } from './types';
@@ -161,6 +168,21 @@ export interface RailsState extends BoardState {
   removeZone: (side: RailSide, zone: number) => void;
   /** Join neighbouring keys within `tolerance` (`TIDY_TOLERANCE` by default; see `tidyRails`). */
   tidyRails: (side: RailSide, tolerance?: number) => void;
+  /**
+   * Apply a deck shape (`deck-shapes.ts`) to the deck curve of the stations in `scope`, on both
+   * sides of the board or the one named. One undo step, and nothing recorded when it changes nothing.
+   * In a drag (`beginEdit` … `endEdit`) every call is computed from the document the drag began with,
+   * so a crown is a function of the pointer: a dial dragged past what the board can hold and back
+   * follows it.
+   */
+  setDeckShape: (request: DeckShapeRequest, scope: DeckScope, side?: DeckSide) => void;
+  /**
+   * A station added at `x` whose curves follow both neighbours' even where they are made of different
+   * numbers of knots (`station-insert.ts`); `addCrossSection` is the same with the neighbours' curves
+   * copied in that case. Returns the new station's classic slice index, or -1 for an `x` that cannot
+   * take one. One undo step.
+   */
+  insertStation: (x: number) => number;
   /** Give the minus side its own rail keys, starting as the plus keys. */
   unlockRailSide: () => void;
   /** Make the two sides one again, keeping the side `keep` names. */
@@ -574,6 +596,30 @@ export const createRailsStore = (): StoreApi<RailsState> =>
         railEdit(`tidyRails:${side}`, 'Tidy rails', (rails, _doc, length) =>
           editSides(rails, side, (keys) => tidyRails(keys, tolerance, length)),
         ),
+      setDeckShape: (request, scope, side) => {
+        const { doc, board } = get();
+        if (!doc || !board) return;
+        const next = applyDeckShape(dragOrigin ?? doc, request, scope, side);
+        if (next === doc) return;
+        commitDoc(
+          next,
+          request.shape === 'flat'
+            ? 'Flat deck'
+            : request.crown === undefined
+              ? 'Domed deck'
+              : 'Deck crown',
+        );
+        // a selected knot of a curve that now has other knots is no longer there
+        const s = get();
+        if (s.board) set(selectionAfterHistory(board, s.board, s.selection, s.selectedFin));
+      },
+      insertStation: (x) => {
+        const { doc } = get();
+        const result = doc && insertStation(doc, x);
+        if (!result) return -1;
+        commitDoc(result.doc, 'Add station');
+        return result.index;
+      },
       unlockRailSide: () => railEdit('unlockRailSide', 'Unlock rail sides', unlockSide),
       linkRailSides: (keep) =>
         railEdit('linkRailSides', 'Link rail sides', (rails, doc) =>

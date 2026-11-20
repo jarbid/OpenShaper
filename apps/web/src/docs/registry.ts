@@ -40,6 +40,7 @@ export type FeatureKind =
   | 'tail-type'
   | 'bottom-feature'
   | 'built-in-rail'
+  | 'deck-shape'
   | 'shortcut';
 
 export interface DocEntry {
@@ -132,6 +133,8 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
     'hard',
     'tip',
   ]),
+  // The deck shapes of the Deck step's panel (`packages/store/src/rails/deck-shapes.ts`); documented in its section.
+  ...entries('deck-shape', '/docs/editing', ['flat', 'domed']),
   ...entries('shortcut', '/docs/shortcuts', [
     'undo',
     'redo',
@@ -146,6 +149,11 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
     'command-palette',
     'cross-section-prev',
     'cross-section-next',
+    // The Deck step's station strip and crown handle: keys of the focused widget, live in the workspace only.
+    'station-strip-choose',
+    'station-strip-move',
+    'station-strip-remove',
+    'crown-handle',
     'cross-section-blur',
     'view-1',
     'view-2',

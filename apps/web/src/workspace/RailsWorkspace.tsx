@@ -44,6 +44,8 @@ export interface RailsWorkspaceProps {
   sidebar?: ReactNode;
   /** Below `lg`: the design list is a column of icons. */
   compact: boolean;
+  /** A tap on the board's deck chooses the station nearest it: given the classic slice index of that station. */
+  onTapStation?: (slice: number) => void;
   /** The shell's sidebar state setter: a step and a panel entry change the sidebar through it. */
   onSidebar: Dispatch<SetStateAction<SidebarState>>;
   /** The tab the sidebar is showing, or null when it is folded away: the list marks it. */
@@ -59,13 +61,14 @@ export function RailsWorkspace({
   panel,
   sidebar,
   compact,
+  onTapStation,
   onSidebar,
   sidebarTab,
   onShowSidebar,
 }: RailsWorkspaceProps) {
   const [step, setStep] = useWorkspaceStep();
   useStepSidebar(step, onSidebar);
-  useTapChoosesStep(setStep);
+  useTapChoosesStep(setStep, onTapStation);
 
   const onPanel = useCallback(
     (panel: PanelId) => {

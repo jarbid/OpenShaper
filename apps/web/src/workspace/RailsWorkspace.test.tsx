@@ -9,6 +9,8 @@ import { useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { setPatchPick } from '../patch-look';
 import { DEFAULT_SIDEBAR_STATE, type SidebarState } from '../sidebar-sections';
+import { activeStore, boardStore, railsStore } from '../store';
+import { key, showRails } from '../test/rails-board';
 import { RailsWorkspace, type RailsWorkspaceProps } from './RailsWorkspace';
 import { resetWorkspaceStep, setWorkspaceStep, STEP_STORAGE_KEY } from './use-step';
 
@@ -200,6 +202,19 @@ describe('a tap on the board', () => {
     expect(drawing()).toBe('rails');
     expect(step('Rails').getAttribute('aria-current')).toBe('step');
     expect(onSidebar).toHaveBeenCalledTimes(1);
+  });
+
+  it('chooses the station nearest a tap on the deck, by its slice index', async () => {
+    await showRails({ plus: [key(20, 0.5)] });
+    const onTapStation = vi.fn();
+    const { drawing } = setup({ onTapStation });
+    const x = railsStore.getState().doc!.stations[3]!.x;
+    act(() => setPatchPick({ patch: 'deck', side: 'plus', x: x + 0.2, y: 2 }));
+    expect(drawing()).toBe('deck');
+    expect(onTapStation).toHaveBeenCalledWith(4);
+    act(() => setPatchPick({ patch: 'bottom', side: 'plus', x, y: 2 }));
+    expect(onTapStation).toHaveBeenCalledTimes(1);
+    activeStore.use(boardStore);
   });
 
   it('changes no step when it lands on nothing', () => {

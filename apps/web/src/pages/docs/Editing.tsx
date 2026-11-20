@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { Link } from 'react-router-dom';
 import { RAIL_PRESETS } from '@openshaper/kernel';
-import { BUILT_IN_RAILS } from '@openshaper/store/rails';
+import { BUILT_IN_RAILS, DECK_SHAPES } from '@openshaper/store/rails';
 import type { ReactNode } from 'react';
 import { NUDGE, shortcutKeys } from '../../shortcuts';
+import { SHAPE_NOTES, shapeLabel } from '../../workspace/deck-panel';
 import { DESIGN_STEPS, PANEL_ENTRIES, type PanelId, type StepId } from '../../workspace/steps';
 import { DocsPage, Section, Term, Terms } from './DocsPage';
 
@@ -26,12 +27,12 @@ const STEP_DOCS: Record<StepId, ReactNode> = {
   ),
   deck: (
     <>
-      One station across the board, in the cross-section editor, editing the station&rsquo;s deck
-      curve; the bottom curve and the closed section are drawn faint as guides. Step through the
-      stations with the arrows in the drawing&rsquo;s header or <code>[</code> and <code>]</code>,
-      and add a station or remove the one shown with the buttons beside them. The Deck | Bottom
-      control of the tabbed layout is not shown: the step decides which curve is edited, and the
-      choice that control remembers is left as it was.
+      The <strong>slice</strong> at the chosen station, to scale, with the deck curve and one
+      handle, the crown, and under it the <strong>station strip</strong>: every station along the
+      board, to add, move or remove. The right-hand column opens with the{' '}
+      <strong>deck panel</strong>: the deck&rsquo;s shape, Flat or Domed, and the crown dial.{' '}
+      <em>Edit curve</em> shows the curve&rsquo;s own knots and handles in the cross-section editor.
+      See <a href="#deck-step">The Deck step</a> below for all of it.
     </>
   ),
   bottom: (
@@ -85,6 +86,7 @@ export default function DocsEditing() {
         { id: 'views', label: 'The views' },
         { id: 'workspace', label: 'The workspace (rails boards)' },
         { id: 'rails-step', label: 'The Rails step: zones and blends' },
+        { id: 'deck-step', label: 'The Deck step: shapes and the crown' },
         { id: 'guides', label: 'Guides in 3D' },
         { id: 'analysis', label: 'Surface analysis in 3D' },
         { id: 'nurbs', label: 'Experimental NURBS engine' },
@@ -269,12 +271,12 @@ export default function DocsEditing() {
         </p>
         <p>
           <strong>Tapping the board.</strong> With the Patches look on, a tap on the board chooses
-          the step that edits what was tapped: the deck chooses Deck, the bottom Bottom, a rail
-          Rails, the straight edge of a tail Tail, and a corner chooses Tail when it is in the tail
-          half of the board and Outline when it is in the nose half. The tapped patch stays lit, and
-          a tap on nothing changes no step. The first time the workspace opens the board wears the
-          Patches look, if the 3D look was at No analysis (a realistic look); choose another look
-          with the Look button and it stays chosen.
+          the step that edits what was tapped: the deck chooses Deck, and the station nearest the
+          tap, the bottom Bottom, a rail Rails, the straight edge of a tail Tail, and a corner
+          chooses Tail when it is in the tail half of the board and Outline when it is in the nose
+          half. The tapped patch stays lit, and a tap on nothing changes no step. The first time the
+          workspace opens the board wears the Patches look, if the 3D look was at No analysis (a
+          realistic look); choose another look with the Look button and it stays chosen.
         </p>
         <p>
           <strong>The divider.</strong> Drag the bar between the board and the drawing, or focus it
@@ -424,6 +426,139 @@ export default function DocsEditing() {
           less than can be seen on a board, so a board from an older file, with a rail at each
           station, comes down to the few zones it really has. It says how many zones it joined, and
           is one undo step.
+        </p>
+      </Section>
+
+      <Section id="deck-step" title="The Deck step: shapes and the crown">
+        <p>
+          The Deck step is about the curve the deck makes across the board at one station: how it
+          falls from the stringer to the rail. It draws that station&rsquo;s <strong>slice</strong>{' '}
+          with the deck curve on it, under it the <strong>station strip</strong>, and the panel
+          beside it names the deck&rsquo;s shape and has one dial, the crown. The shape is read off
+          the curve and never stored, so a deck you draw stays yours: nothing is replaced unless you
+          choose a shape.
+        </p>
+        <Terms>
+          {DECK_SHAPES.map((shape) => (
+            <Term key={shape} name={shapeLabel(shape)}>
+              {SHAPE_NOTES[shape]}
+            </Term>
+          ))}
+          <Term name="Custom">
+            {SHAPE_NOTES.custom} It is a name, not a choice: the menu offers Flat and Domed. Every
+            deck of the starter templates and the made boards is Custom to begin with, because each
+            rolls over faster than a dome near its rail.
+          </Term>
+        </Terms>
+        <h3 className="mt-4 text-base font-semibold">The crown</h3>
+        <p>
+          The <strong>crown</strong> is how far the deck falls from the stringer to the place where
+          the rail starts to roll over it, the rail&rsquo;s band edge: the half width less the
+          rail&rsquo;s band at that station. Lay a straightedge across the deck from one band edge
+          to the other and the crown is the gap under it at the stringer. It is shown in your
+          display unit, as a number you can type, a slider, the arrow keys (a millimetre a press in
+          centimetres, ten with Shift) and a handle on the slice that you drag up and down. All four
+          are one dial, and a drag or a held key is one undo step.
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <strong>Its range</strong> runs from half a millimetre to the most the station holds:
+            the deck keeps a millimetre above the bottom where it meets the rail, and is no steeper
+            than 60 degrees there. The engine itself would build a closed board right down to a deck
+            level with the bottom. A crown typed or dragged past the most is held at the most, and
+            the panel says so; it is never refused.
+          </li>
+          <li>
+            <strong>What is typical</strong> on the boards of the project: a crown of 1.2 to 2.5 cm
+            over the thick part of a board (6 to 7.5 cm at the stringer), which is 25 to 45 percent
+            of the thickness there. A Flat deck made Domed falls 50 percent of the thickness at the
+            rail at each station, the median of the 47 stations measured (28 to 68 percent): a crown
+            of about 2.5 cm on a shortboard.
+          </li>
+          <li>
+            <strong>The rail</strong> goes on being measured from the same band: change the
+            rail&rsquo;s band in the Rails step and the crown, which is read at the band edge, reads
+            a little different, while the deck is still Domed. The dome goes on past the band edge
+            to the rail, so the deck&rsquo;s height there sets how full the rail is: a flatter deck
+            makes a fuller rail. Near the tips, where the engine narrows the band, the crown is read
+            at the band as the rail&rsquo;s numbers give it.
+          </li>
+          <li>
+            <strong>Off</strong> for a Flat deck, which has none, and for a Custom one, where a
+            crown would replace the curve you drew. The panel says which, in a sentence, and the
+            handle on the slice is drawn off.
+          </li>
+        </ul>
+        <h3 className="mt-4 text-base font-semibold">Choosing a shape</h3>
+        <p>
+          Choosing Flat or Domed replaces the deck curve at once, with no question: the undo is the
+          way back, and brings a drawn curve back exactly. Choosing Domed on a drawn deck keeps the
+          crown the deck has at each station and makes the curve the dome through it, so the board
+          changes least; on a Flat deck it gives the typical crown. A station too thin to hold a
+          crown, such as the very tip, stays Flat. Both sides of an asymmetric board get the shape,
+          and a crown typed reaches both as the same number.
+        </p>
+        <h3 className="mt-4 text-base font-semibold">All stations or this one</h3>
+        <p>
+          Under <em>More</em>, <em>Apply to</em> says how far a shape and a crown reach. It starts
+          as <strong>All stations</strong>, since a board&rsquo;s deck is usually one shape from
+          tail to nose. A crown you type is the chosen station&rsquo;s, and every other station
+          falls the same share of its own thickness at the rail, so the whole board has one curve
+          and the tips keep their rails: the same number of centimetres at every station would take
+          the rail to nothing where the board is thin, and so would the same share read at the band
+          edge where the band is wide beside the half width, as at the nose end of some boards.{' '}
+          <strong> This station</strong> changes the chosen station alone and the deck blends
+          between it and its neighbours. The choice is not remembered between sessions.
+        </p>
+        <h3 className="mt-4 text-base font-semibold">Edit curve</h3>
+        <p>
+          <em>Edit curve</em>, in the slice&rsquo;s header and under <em>More</em>, shows the deck
+          curve&rsquo;s own knots and handles in the cross-section editor, for the station you have
+          chosen, and the button takes you back to the shape&rsquo;s one handle. Moving a knot or a
+          handle makes the deck Custom and the panel says so; a Custom curve is always shown with
+          its knots. Choosing a shape again replaces it.
+        </p>
+        <h3 className="mt-4 text-base font-semibold">The station strip</h3>
+        <p>
+          Under the slice, every station as a tick, tail to nose, to the scale of the board and in
+          your display unit, the chosen one marked; the slice is the section there.
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <strong>Choose</strong> a station by tapping its tick, or the strip beside it for the
+            nearest. A tap on the board&rsquo;s deck chooses the station nearest the tap, and{' '}
+            <kbd>[</kbd> and <kbd>]</kbd> step through the stations as they always have.
+          </li>
+          <li>
+            <strong>Move</strong> a station by dragging its tick. It is held between its neighbours,
+            so a drag never turns into the edit of another station. Its curves are kept, and take
+            the width and thickness of the place it moves to. One undo step.
+          </li>
+          <li>
+            <strong>Add</strong> a station with the <em>+</em> that appears under the mouse between
+            ticks, or with <em>Add station</em>, which adds one midway between the chosen station
+            and the next (or the nose). Its curves follow its neighbours&rsquo;: where they have
+            different numbers of knots the curve with fewer is given the knots it lacks, without
+            changing its shape, and the two are blended. On the nine boards measured, as shipped and
+            with every deck made Flat or Domed, that moves the surface by at most 1.4 mm, and by
+            under 1 mm as shipped. The new station is chosen.
+          </li>
+          <li>
+            <strong>Remove</strong> the chosen station with <em>Remove station</em> or Delete. A
+            board keeps at least two stations; below that the button is off and says why.
+          </li>
+          <li>
+            <strong>By keyboard</strong>, with a tick focused: the arrow keys, Home and End choose,
+            Enter and Space choose the tick you are on, Delete removes the chosen station, and Shift
+            with an arrow moves it half a centimetre (five with Ctrl or Cmd too). With the crown
+            handle focused, Down is more crown and Up is less. They are listed with{' '}
+            <Link to="/docs/shortcuts">the other shortcuts</Link>.
+          </li>
+        </ul>
+        <p>
+          Every one of these is an undo step with its name in the history: <em>Flat deck</em>,{' '}
+          <em>Domed deck</em>, <em>Deck crown</em>, <em>Add station</em>,{' '}
+          <em>Move cross-section</em> and <em>Delete cross-section</em>.
         </p>
       </Section>
 

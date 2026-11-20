@@ -267,7 +267,7 @@ const lerp = (a: Pair, b: Pair, t: number): Pair => [
  * way from `a` to `b`; each knot smooth only when both are); otherwise the nearer neighbour's curve
  * itself.
  */
-function blendCurve(a: Chain, b: Chain, t: number): Chain {
+export function blendCurve(a: Chain, b: Chain, t: number): Chain {
   if (a.knots.length !== b.knots.length) return t <= 0.5 ? a : b;
   if (a === b) return a;
   return {
@@ -283,10 +283,18 @@ function blendCurve(a: Chain, b: Chain, t: number): Chain {
   };
 }
 
-function blendCurves(a: StationCurves, b: StationCurves, t: number): StationCurves {
+/** How the curve of a station added between two others is made from theirs (`t` the new station's share of the way from `a` to `b`). */
+export type CurveBlend = (a: Chain, b: Chain, t: number) => Chain;
+
+function blendCurves(
+  a: StationCurves,
+  b: StationCurves,
+  t: number,
+  blend: CurveBlend,
+): StationCurves {
   if (a === b) return a;
-  const bottom = blendCurve(a.bottom, b.bottom, t);
-  const deck = blendCurve(a.deck, b.deck, t);
+  const bottom = blend(a.bottom, b.bottom, t);
+  const deck = blend(a.deck, b.deck, t);
   return bottom === a.bottom && deck === a.deck
     ? a
     : bottom === b.bottom && deck === b.deck
@@ -295,14 +303,15 @@ function blendCurves(a: StationCurves, b: StationCurves, t: number): StationCurv
 }
 
 /**
- * A station added at `x`. Its curves on each side are its neighbours' blended by x
- * ({@link blendCurve}); beyond the first or last station, that station's. Returns the new board and
- * the station's classic slice index (station index + 1), or null for an x outside the board, on top
- * of a station, or on a board with no station to take curves from.
+ * A station added at `x`. Its curves on each side are its neighbours' blended by x with `blend`
+ * ({@link blendCurve} unless one is given); beyond the first or last station, that station's. Returns
+ * the new board and the station's classic slice index (station index + 1), or null for an x outside
+ * the board, on top of a station, or on a board with no station to take curves from.
  */
 export function addStation(
   doc: RailsBoard,
   x: number,
+  blend: CurveBlend = blendCurve,
 ): { readonly doc: RailsBoard; readonly index: number } | null {
   const xi0 = doc.outline.plus.knots[0]!.p[0];
   const L = lengthOf(doc.outline.plus);
@@ -314,10 +323,10 @@ export function addStation(
   const lo = doc.stations[index - 1] ?? doc.stations[index]!;
   const hi = doc.stations[index] ?? lo;
   const t = hi.x > lo.x ? (x - lo.x) / (hi.x - lo.x) : 0;
-  const plus = blendCurves(lo.plus, hi.plus, t);
+  const plus = blendCurves(lo.plus, hi.plus, t, blend);
   const minus =
     doc.symmetry === 'asymmetric' && lo.minus !== undefined && hi.minus !== undefined
-      ? blendCurves(lo.minus, hi.minus, t)
+      ? blendCurves(lo.minus, hi.minus, t, blend)
       : undefined;
   const station: RailsStation = {
     id: stationIdFor(doc.stations),

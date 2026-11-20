@@ -216,6 +216,40 @@ export const SHORTCUTS: readonly Shortcut[] = [
     group: 'Cross-sections',
     match: { keys: [']'], notInField: true },
   },
+  // The Deck step's strip of stations and its crown handle own these keys while they have focus
+  // (`workspace/StationStrip.tsx`, `workspace/DeckSlice.tsx`), so they carry no `match`: they are listed
+  // so `/docs/shortcuts` shows them, as it does the arrow-key nudges.
+  {
+    id: 'station-strip-choose',
+    keys: '← →',
+    label:
+      'Deck step, with a station of the strip focused: choose the previous or next station (Home and End: the first and the last)',
+    group: 'Cross-sections',
+    scope: 'workspace',
+  },
+  {
+    id: 'station-strip-move',
+    keys: '⇧ ← →',
+    label:
+      'Deck step, with a station of the strip focused: move the chosen station half a centimetre along the board (five with ⌘ too)',
+    group: 'Cross-sections',
+    scope: 'workspace',
+  },
+  {
+    id: 'station-strip-remove',
+    keys: 'Delete',
+    label: 'Deck step, with a station of the strip focused: remove the chosen station',
+    group: 'Cross-sections',
+    scope: 'workspace',
+  },
+  {
+    id: 'crown-handle',
+    keys: '↑ ↓',
+    label:
+      'Deck step, with the crown handle focused: ↓ is more crown and ↑ less, a step of the unit each press (⇧ ten times; Home and End: the least and the most)',
+    group: 'Cross-sections',
+    scope: 'workspace',
+  },
   {
     id: 'cross-section-blur',
     keys: 'Esc',

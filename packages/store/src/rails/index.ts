@@ -2,7 +2,8 @@
 /**
  * `@openshaper/store/rails`: the rails store, a `BoardState` over a rails board (board2's
  * `RailsBoard`), its classic projection and its pure document edits, and the rail's zones, dials
- * and built-in rails (`zones.ts`, `dials.ts`, `library.ts`). Imports the types of
+ * and built-in rails (`zones.ts`, `dials.ts`, `library.ts`), and the deck's shapes and crown
+ * (`deck-shapes.ts`). Imports the types of
  * `@openshaper/board2` and its code-free `defaults` module, never engine code, so it can sit in
  * the main chunk.
  */
@@ -71,6 +72,39 @@ export {
   type BuiltInRail,
   type NamedRail,
 } from './library';
+export {
+  BAND_SHARE_MAX,
+  CROWN_MIN,
+  DECK_SHAPES,
+  DEFAULT_WALL_FALL_SHARE,
+  DOME_READ_TOLERANCE,
+  FLAT_TOLERANCE,
+  SIDES_TOLERANCE,
+  WALL_MIN,
+  WALL_SLOPE_MAX,
+  applyDeckShape,
+  bandAt,
+  bandEdge,
+  deckCrownRange,
+  deckCrownRangeAt,
+  deckShapeAt,
+  deckShapeOf,
+  domeFall,
+  domedSpline,
+  flatSpline,
+  heightAt,
+  wallFallFor,
+  type DeckCrownRange,
+  type DeckReading,
+  type DeckScope,
+  type DeckShapeId,
+  type DeckShapeName,
+  type DeckShapeRequest,
+  type DeckSide,
+  type DeckStationReading,
+} from './deck-shapes';
+export { blendMatched, insertStation, splitChainAt, withKnotsLike } from './station-insert';
+export { MIN_STATIONS } from '../sections/edits';
 export { sliceOfStation, stationOfSlice } from './types';
 export type {
   RailKey,
