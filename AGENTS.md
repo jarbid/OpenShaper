@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-OpenShaper is a pnpm/Turborepo monorepo. `apps/web` contains the React/Vite product; `apps/desktop` is its Tauri shell. Shared code lives under `packages/`: `kernel` for geometry, `io` for file formats, `store` for state and undo, `render2d`/`render3d` for views, `export` for generated formats, `units` for measurements, and `ui` for components. The root `worker/` is the Cloudflare analytics proxy. Tests are colocated as `*.test.ts` or `*.test.tsx`; browser flows are in `apps/web/e2e/`. Specifications and golden fixtures live in `docs/specs/`.
+OpenShaper is a pnpm/Turborepo monorepo. `apps/web` contains the React/Vite product; `apps/desktop` is its Tauri shell. Shared code lives under `packages/`: `kernel` for geometry, `io` for file formats, `store` for state and undo, `render2d`/`render3d` for views, `export` for generated formats, `units` for measurements, and `ui` for components. The root `worker/` is the Cloudflare analytics proxy. Tests are colocated as `*.test.ts` or `*.test.tsx`; browser flows are in `apps/web/e2e/`. Specifications and importer fixtures live in `docs/specs/`.
 
 ## Build, Test, and Development Commands
 
@@ -25,7 +25,7 @@ Code is strict TypeScript and ESM. Use two spaces, single quotes, semicolons, tr
 
 ## Testing Guidelines
 
-Vitest covers unit/integration tests, Testing Library covers React, and Playwright covers end-to-end flows. Add colocated regression tests for behavior changes. Kernel geometry must remain golden-pinned: update `docs/specs/golden/`, state tolerances, and never loosen a tolerance merely to pass. Record intentional legacy divergences in `docs/specs/divergences.md`. No numeric coverage threshold is enforced.
+Vitest covers unit/integration tests, Testing Library covers React, and Playwright covers end-to-end flows. Add colocated regression tests for behavior changes. Kernel tests use analytic oracles (closed-form volume, area and curvature, convergence, join continuity); never loosen a tolerance merely to pass. Golden fixtures in `docs/specs/golden/` test the `.brd`/`.s3dx` importers only, and `docs/specs/divergences.md` is a frozen record of the BoardCAD port. Read `.claude/CLAUDE.md` "Changing kernel math" before touching kernel geometry. No numeric coverage threshold is enforced.
 
 ## Commit & Pull Request Guidelines
 
@@ -33,4 +33,4 @@ Recent history follows Conventional Commits with scopes, for example `feat(expor
 
 ## Architecture & Safety
 
-Treat `../boardcad-le` as read-only reference material and never modify it.
+Treat `../boardcad-le` as read-only reference for file formats and shaping vocabulary, not geometry, and never modify it.

@@ -1,6 +1,6 @@
 # Golden reference data
 
-Authoritative fixtures for pinning the TypeScript port (`packages/kernel`,
+Fixtures for testing the `.brd` / `.s3dx` importers (parsing, units, import deviation). They are **not** a kernel oracle: kernel geometry is checked against analytic cases. Originally these pinned the TypeScript port (`packages/kernel`,
 `packages/io`) to the legacy BoardCAD-LE behavior.
 
 ## Files
