@@ -1,21 +1,24 @@
 # OpenShaper — Project Guide
 
-OpenShaper is a modern surfboard CAD/CAM app: a from-scratch rebuild of the legacy
-Java/Swing **BoardCAD-LE** (`../boardcad-le`, kept **untouched** as the reference spec
-source). It runs in the browser (static SPA) and as a Tauri desktop app from one codebase.
-It is a **free, open-source** project licensed **GPL-3.0-or-later** — the same copyleft as
-the BoardCAD it descends from (see `LICENSE` / `NOTICE.md`). No accounts, no backend, no
-paywall: everything runs client-side.
+OpenShaper is a modern surfboard CAD/CAM app. Its geometry is designed from first
+principles for quality: fair, continuous surfaces and exact CAD export. It began as a
+rebuild of the legacy Java/Swing **BoardCAD-LE** (`../boardcad-le`, kept **untouched**,
+read-only) and has since moved well beyond it. BoardCAD-LE is a source of file formats
+and shaping vocabulary, not of geometry: import its files; do not port or preserve its
+algorithms. It runs in the browser (static SPA) and as a Tauri desktop app from one
+codebase. It is a **free, open-source** project licensed **GPL-3.0-or-later** — the same
+copyleft as the BoardCAD it descends from (see `LICENSE` / `NOTICE.md`). No accounts, no
+backend, no paywall: everything runs client-side.
 
-> **Never modify `../boardcad-le`.** It is read-only reference. Mine it for behavior;
-> port the behavior here.
+> **Never modify `../boardcad-le`.** It is read-only reference for file formats and
+> vocabulary.
 
 ## Instruction priority and scope
 
 - This file is the project-wide source of truth. Follow a more-specific `CLAUDE.md`
   for files below its directory; use `AGENTS.md` for generic repository guidance.
-- Resolve conflicts by specificity, then by the instruction that best preserves
-  existing behavior and user intent. Ask only when the choice materially changes
+- Resolve conflicts by specificity, then by the instruction that best serves user
+  intent and geometric quality. Ask only when the choice materially changes
   the design or scope.
 - Read only the files and history needed for the task. Prefer targeted `rg`/`glob`
   searches and narrow file ranges over repository-wide dumps. Do not inspect
@@ -37,7 +40,7 @@ packages/render2d  canvas viewport + 2D editor draw                      depends
 packages/render3d  three.js board mesh + scene                          depends on: kernel
 packages/export PDF/DXF/STL exporters + construction/print templates    depends on: kernel
 packages/ui     design-system components                                 (React)
-docs/specs      extracted legacy specs + golden reference data
+docs/specs      extracted legacy file-format specs + importer fixtures
 ```
 
 ### Non-negotiable principles (these fix the legacy's core problems)
@@ -45,18 +48,18 @@ docs/specs      extracted legacy specs + golden reference data
 1. **Pure kernel.** Geometry/board math is framework-agnostic, side-effect-free, and
    immutable. No `getInstance()` singletons (the legacy `BoardCAD.getInstance()` pattern
    is banned). State lives in `store`, not in globals.
-2. **Golden-data testing rule (two phases).** Every ported kernel function is pinned
-   to a fixture derived from the legacy app (`docs/specs/golden/`).
-   - **Porting phase:** while a subsystem is being ported, legacy output is the only
-     oracle — the port isn't "done" until it matches within a stated tolerance.
-   - **Ported phase:** once trusted, fixtures are characterization tests guarding
-     against _accidental_ drift. They may be deliberately superseded to improve on a
-     legacy quirk, but only with (a) a better oracle (analytic cases / convergence
-     tests), (b) a regenerated fixture, and (c) an entry in
-     `docs/specs/divergences.md` recording what now differs from BoardCAD-LE, why,
-     and by how much. Never weaken a tolerance just to make a change pass.
-     See `docs/specs/golden/README.md` for fixture layout, regeneration commands,
-     and tolerance notes.
+2. **One surface definition, checked against mathematics.**
+   - The board has exactly one surface definition. Views, specs and every export
+     read it. Never add a second representation that is fitted to, sampled from or
+     blended from the first; a change that needs one is a design question for the
+     owner.
+   - Kernel tests use analytic oracles: shapes whose volume, area and curvature are
+     known in closed form, convergence tests, and continuity checks at every join.
+     Never weaken a tolerance just to make a change pass.
+   - Legacy golden files (`docs/specs/golden/`) test the `.brd` and `.s3dx`
+     importers only: parsing, units, and the deviation report of the import. They are
+     not a kernel oracle. `docs/specs/divergences.md` is frozen as the record of the
+     BoardCAD port.
 3. **Parameterize what the legacy hard-coded.** No magic tolerances or fixed integration
    resolutions (legacy `VOLUME_X_SPLITS=10`). Volume/area use adaptive refinement.
 4. **UI never blocks.** Heavy compute (volume, meshing, CAM) runs in Web Workers; the
@@ -105,13 +108,26 @@ CI runs `pnpm typecheck`, `pnpm test`, and `pnpm build` after
   `pnpm exec prettier --write <files>` for specific files, or `pnpm format` for the
   whole repository.
 
+## Changing kernel math
+
+Before code, write in the PR or design note: the formulation, its continuity class,
+behaviour at nose, tail, stringer and apex, every assumption, and known failure
+modes. The owner must be able to explain it back; if not, it is not ready.
+
+- Fix the cause, never the symptom: no clamps, smoothing passes or extra fits to
+  hide a ripple, overshoot or flip.
+- One shared numerics package with conditioned solvers (QR, condition estimates).
+  Do not re-implement basis functions or least squares anywhere else.
+- Measure errors off the samples a fit used, in both directions.
+- One tolerance budget end to end, stated in one named file.
+
 ## Change and verification workflow
 
 - Inspect the relevant package, tests, and existing patterns before editing; keep
   changes scoped to the requested behavior.
 - For kernel, I/O, units, or store changes, add or update colocated regression
-  tests and run the affected package tests. Preserve golden fixtures and stated
-  tolerances.
+  tests and run the affected package tests. Keep stated tolerances; never loosen
+  one just to pass.
 - For web behavior changes, run the affected Vitest tests; use `e2e` or
   `e2e:offline` when the browser, routing, service worker, or prerendered output
   is involved.
@@ -125,9 +141,9 @@ working under `apps/web`).
 
 ## Model delegation
 
-| Use **Opus** for                                                                            | Use **Sonnet** for                            | Use **Haiku** for                                     |
-| ------------------------------------------------------------------------------------------- | --------------------------------------------- | ----------------------------------------------------- |
-| Architecture decisions; geometry algorithm correctness; the kernel port; adversarial review | Feature implementation, UI, I/O, store, tests | Scaffolding, boilerplate, mechanical codegen, renames |
+| Use **Opus** for                                                                                              | Use **Sonnet** for                            | Use **Haiku** for                                     |
+| ------------------------------------------------------------------------------------------------------------- | --------------------------------------------- | ----------------------------------------------------- |
+| Architecture decisions; geometry algorithm correctness; kernel formulation and its review; adversarial review | Feature implementation, UI, I/O, store, tests | Scaffolding, boilerplate, mechanical codegen, renames |
 
 ## User-facing features must be documented
 
