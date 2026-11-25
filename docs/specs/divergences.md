@@ -1,5 +1,9 @@
 # Intentional divergences from BoardCAD-LE
 
+> **Frozen.** This is the historical record of the BoardCAD port. New geometry work is
+> measured against analytic oracles and continuity checks (see `.claude/CLAUDE.md`
+> principle 2), not against legacy output, and needs no ledger row.
+
 The ledger required by CLAUDE.md principle 2 (golden-data rule, ported phase).
 Every place where OpenShaper _deliberately_ differs from legacy behavior gets an
 entry here: what changed, why, the magnitude, and the replacement oracle that
