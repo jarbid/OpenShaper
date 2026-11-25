@@ -1,5 +1,12 @@
 # Trim and blend: the rails engine
 
+> **Status (2026-11-25): decisions made under the old BoardCAD-pinning rules are open.**
+> The project no longer treats BoardCAD-LE or the classic loft as the geometry reference
+> (see `.claude/CLAUDE.md`). Decisions in this note that rest on classic-editor
+> compatibility, matching the classic surface, `geom` being frozen, tolerance stacking or
+> clamping are open for the geometry reassessment, and are not settled. The note is kept
+> as background and design history.
+
 Status: **built** (step 3 of `trim-blend-plan.md`). The app can build its 3D model with it,
 behind a switch. What the editor becomes, and the order from here, is `rails-editor-plan.md`.
 

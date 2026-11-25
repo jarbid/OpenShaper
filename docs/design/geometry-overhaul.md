@@ -1,5 +1,12 @@
 # Geometry overhaul — and what the current app gets first
 
+> **Status (2026-11-25): decisions made under the old BoardCAD-pinning rules are open.**
+> The project no longer treats BoardCAD-LE or the classic loft as the geometry reference
+> (see `.claude/CLAUDE.md`). Decisions in this note that rest on classic-editor
+> compatibility, matching the classic surface, `geom` being frozen, tolerance stacking or
+> clamping are open for the geometry reassessment, and are not settled. The note is kept
+> as background and design history.
+
 Status: **approved plan** (2026-10-10). Phase 0 is in progress on `main`. The
 overhaul (Phases 1–6) lives on `experiment/nurbs-overhaul` and stays there until
 the adoption decision (§7). Decisions taken are recorded in §8.

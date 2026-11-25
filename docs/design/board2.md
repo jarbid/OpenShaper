@@ -1,5 +1,12 @@
 # `@openshaper/board2` — board model v2 (Phase 2 design)
 
+> **Status (2026-11-25): decisions made under the old BoardCAD-pinning rules are open.**
+> The project no longer treats BoardCAD-LE or the classic loft as the geometry reference
+> (see `.claude/CLAUDE.md`). Decisions in this note that rest on classic-editor
+> compatibility, matching the classic surface, `geom` being frozen, tolerance stacking or
+> clamping are open for the geometry reassessment, and are not settled. The note is kept
+> as background and design history.
+
 > **Superseded (2026-10-28)** by [`nurbs-plan.md`](nurbs-plan.md). The rail-law model
 > (band builder, height fields, offset layer) and the S6/S7 converter are being retired in M1;
 > the bottom features, the B-rep/STEP path and the V1 viewer plumbing are kept. This document
