@@ -78,9 +78,11 @@ test.describe('the workspace', () => {
     await expect(page.getByRole('tab', { name: 'Build' })).toHaveAttribute('aria-selected', 'true');
     await expect(section('Fins')).toHaveAttribute('aria-expanded', 'true');
 
+    // Bottom shows the Shape tab with the old Bottom features section shut: the contours are in the panel
     await entry(page, 'Bottom').click();
     await expect(page.getByRole('tab', { name: 'Shape' })).toHaveAttribute('aria-selected', 'true');
-    await expect(section('Bottom features')).toHaveAttribute('aria-expanded', 'true');
+    await expect(section('Bottom features')).toHaveAttribute('aria-expanded', 'false');
+    await expect(page.getByRole('region', { name: 'Bottom panel' })).toBeVisible();
 
     // what a step opened, the next one shuts
     await entry(page, 'Outline').click();

@@ -16,7 +16,7 @@
  * actually happens.
  */
 import { FIN_PROFILES_LIST, FIN_SETUPS, FIN_SYSTEMS, RAIL_PRESETS } from '@openshaper/kernel';
-import { BUILT_IN_RAILS, DECK_SHAPES } from '@openshaper/store/rails';
+import { BUILT_IN_RAILS, CONTOUR_KINDS, DECK_SHAPES } from '@openshaper/store/rails';
 import { describe, expect, it } from 'vitest';
 import { EXPORT_FORMATS } from '../file-io';
 import { SHORTCUTS } from '../shortcuts';
@@ -109,6 +109,14 @@ describe('docs coverage', () => {
 
   it('documents every deck shape of the deck panel', () => {
     expectDocumented('deck-shape', DECK_SHAPES);
+  });
+
+  it('documents every kind of contour of the bottom panel', () => {
+    // the kinds of contour are the kinds of bottom feature, documented under the same names
+    expectDocumented(
+      'bottom-feature',
+      CONTOUR_KINDS.map((k) => k.kind),
+    );
   });
 
   it('documents every keyboard shortcut', () => {

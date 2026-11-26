@@ -154,6 +154,11 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
     'station-strip-move',
     'station-strip-remove',
     'crown-handle',
+    // The Bottom step's handles on the plan from below, the slice and the law lane: keys of the focused widget.
+    'contour-handle',
+    'depth-handle',
+    'contour-law-key',
+    'plan-station',
     'cross-section-blur',
     'view-1',
     'view-2',

@@ -95,8 +95,9 @@ export interface Range {
 
 /** Keys stay this far (cm) inside the station range. */
 const KEY_MARGIN = 0.5;
-/** The least a depth curve spans (cm). */
-const MIN_SPAN = 2;
+/** The least a depth curve spans (cm): a feature is never shorter than this along the board. */
+export const FEATURE_MIN_SPAN = 2;
+const MIN_SPAN = FEATURE_MIN_SPAN;
 /** The least a fraction of the chord. */
 const MIN_FRACTION = 0.05;
 /** Depth is held to this share of the thinnest stringer thickness under the feature, and to this many cm. */
@@ -397,21 +398,40 @@ const freshId = <D extends FeatureDoc>(doc: D, kind: FeatureKind): string => {
   return `${kind}-${n}`;
 };
 
+/**
+ * Where a new feature starts and ends along the board (cm from the tail) and how deep it is (cm), in place of
+ * the kind's own. Each is held to what the board allows ({@link featureLimits}): the ends inside the station
+ * range and the least span apart, the depth between zero and the board's range.
+ */
+export interface NewFeatureOptions {
+  from?: number;
+  to?: number;
+  depth?: number;
+}
+
 /** A new feature of `kind`, enabled, with its defaults fitted to this board. */
 function newFeature<D extends FeatureDoc>(
   doc: D,
   kind: FeatureKind,
   chords?: ChordProvider<D>,
+  options?: NewFeatureOptions,
 ): BottomFeature {
   const d = DEFAULTS[kind];
   const xi0 = firstX(doc.outline.plus);
   const R = lengthOf(doc.outline.plus) - xi0;
   const room = featureRange(doc);
-  const depth = plateau(
-    clamp(xi0 + d.from * R, room.min, room.max - MIN_SPAN),
-    clamp(xi0 + d.to * R, room.min + MIN_SPAN, room.max),
-    d.depth,
-  );
+  const o = options ?? {};
+  const fromGiven = o.from !== undefined && Number.isFinite(o.from);
+  const toGiven = o.to !== undefined && Number.isFinite(o.to);
+  // the start is held first, then the end at least the least span after it
+  const from = fromGiven
+    ? clamp(o.from!, room.min, Math.max(room.min, room.max - MIN_SPAN))
+    : clamp(xi0 + d.from * R, room.min, room.max - MIN_SPAN);
+  const to = toGiven
+    ? clamp(o.to!, Math.min(room.max, from + MIN_SPAN), room.max)
+    : clamp(xi0 + d.to * R, room.min + MIN_SPAN, room.max);
+  const peak = o.depth !== undefined && Number.isFinite(o.depth) ? Math.max(0, o.depth) : d.depth;
+  const depth = plateau(from, Math.max(to, Math.min(room.max, from + MIN_SPAN)), peak);
   const base = { id: freshId(doc, kind), enabled: true, depth };
   let f: BottomFeature;
   switch (kind) {
@@ -500,8 +520,9 @@ export function addFeature<D extends FeatureDoc>(
   doc: D,
   kind: FeatureKind,
   chords?: ChordProvider<D>,
+  options?: NewFeatureOptions,
 ): D {
-  return { ...doc, features: [...doc.features, newFeature(doc, kind, chords)] };
+  return { ...doc, features: [...doc.features, newFeature(doc, kind, chords, options)] };
 }
 
 /** The document without the feature. */
@@ -641,6 +662,49 @@ export function setFeatureKey<D extends FeatureDoc>(
       ...f,
       depth: { keys: keys.map((q, i) => (i === index ? { s, value } : q)) },
     };
+  });
+}
+
+/** Two places along the board this close (cm) are the same place: an end that is asked to stay stays. */
+const SAME_PLACE = 1e-9;
+
+/**
+ * Where a feature runs along the board: its two end keys moved together, the keys between them carried
+ * with the ends so each keeps its share of the span (the curve is stretched or squeezed, never reshaped).
+ * An end that is not given, or is given where it is, stays. Each end is held by the limits the end keys
+ * have one at a time (inside the station range, at least the least span from the other end); when both are
+ * given they are held as a pair: the start first, then the end at least the least span after it. The depth
+ * and the channels are then held to the new run (a thinner or narrower stretch of the board holds less), once,
+ * so a run computed from where a drag began is the same whatever the pointer passed through. Returns `doc`
+ * itself when nothing moves.
+ */
+export function setFeatureExtent<D extends FeatureDoc>(
+  doc: D,
+  id: string,
+  extent: { from?: number; to?: number },
+  chords?: ChordProvider<D>,
+): D {
+  return replace(doc, id, (f) => {
+    const keys = f.depth.keys;
+    const a = keys[0]!.s;
+    const b = keys[keys.length - 1]!.s;
+    const room = featureRange(doc);
+    const finite = (x: number | undefined): x is number => x !== undefined && Number.isFinite(x);
+    const moveFrom = finite(extent.from) && Math.abs(extent.from - a) > SAME_PLACE;
+    const moveTo = finite(extent.to) && Math.abs(extent.to - b) > SAME_PLACE;
+    let from = a;
+    let to = b;
+    if (moveFrom && moveTo) {
+      from = clamp(extent.from!, room.min, Math.max(room.min, room.max - MIN_SPAN));
+      to = clamp(extent.to!, Math.min(room.max, from + MIN_SPAN), room.max);
+    } else if (moveFrom) {
+      from = clamp(extent.from!, room.min, Math.max(room.min, b - MIN_SPAN));
+    } else if (moveTo) {
+      to = clamp(extent.to!, Math.min(room.max, a + MIN_SPAN), room.max);
+    }
+    if (from === a && to === b) return f;
+    // the new run may be over a thinner stretch of the board or a narrower one: hold the depth and the channels to it
+    return fitFeature(doc, { ...f, depth: remap(f.depth, a, b, from, to) }, chords);
   });
 }
 

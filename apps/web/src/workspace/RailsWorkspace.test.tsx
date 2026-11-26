@@ -204,7 +204,7 @@ describe('a tap on the board', () => {
     expect(onSidebar).toHaveBeenCalledTimes(1);
   });
 
-  it('chooses the station nearest a tap on the deck, by its slice index', async () => {
+  it('chooses the station nearest a tap on the deck or the bottom, by its slice index', async () => {
     await showRails({ plus: [key(20, 0.5)] });
     const onTapStation = vi.fn();
     const { drawing } = setup({ onTapStation });
@@ -212,8 +212,13 @@ describe('a tap on the board', () => {
     act(() => setPatchPick({ patch: 'deck', side: 'plus', x: x + 0.2, y: 2 }));
     expect(drawing()).toBe('deck');
     expect(onTapStation).toHaveBeenCalledWith(4);
+    // a tap on the bottom chooses the station nearest too, and a tap on a rail chooses none
     act(() => setPatchPick({ patch: 'bottom', side: 'plus', x, y: 2 }));
-    expect(onTapStation).toHaveBeenCalledTimes(1);
+    expect(drawing()).toBe('bottom');
+    expect(onTapStation).toHaveBeenCalledTimes(2);
+    expect(onTapStation).toHaveBeenLastCalledWith(4);
+    act(() => setPatchPick({ patch: 'rail', side: 'plus', x, y: 2, zone: 0 }));
+    expect(onTapStation).toHaveBeenCalledTimes(2);
     activeStore.use(boardStore);
   });
 

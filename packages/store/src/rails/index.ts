@@ -2,8 +2,8 @@
 /**
  * `@openshaper/store/rails`: the rails store, a `BoardState` over a rails board (board2's
  * `RailsBoard`), its classic projection and its pure document edits, and the rail's zones, dials
- * and built-in rails (`zones.ts`, `dials.ts`, `library.ts`), and the deck's shapes and crown
- * (`deck-shapes.ts`). Imports the types of
+ * and built-in rails (`zones.ts`, `dials.ts`, `library.ts`), the deck's shapes and crown
+ * (`deck-shapes.ts`) and the bottom's contours (`contours.ts`). Imports the types of
  * `@openshaper/board2` and its code-free `defaults` module, never engine code, so it can sit in
  * the main chunk.
  */
@@ -103,6 +103,44 @@ export {
   type DeckSide,
   type DeckStationReading,
 } from './deck-shapes';
+export {
+  CONTOUR_DEFAULTS,
+  CONTOUR_KINDS,
+  EXTENT_DIALS,
+  MAX_CONTOURS,
+  WALL_SHARE,
+  addContour,
+  canAddContour,
+  chordsOf,
+  contourAt,
+  contourBands,
+  contourDepth,
+  contourDepthAt,
+  contourDepthMax,
+  contourDials,
+  contourExtent,
+  contourKeys,
+  contourKindInfo,
+  contourProfile,
+  contourReliefAt,
+  contourShapeAt,
+  contourRoom,
+  contoursOf,
+  moveContour,
+  setContourDepth,
+  setContourExtent,
+  setContourKey,
+  setContourParams,
+  type Band,
+  type Contour,
+  type ContourDial,
+  type ContourDials,
+  type ContourKey,
+  type ContourKind,
+  type ContourKindInfo,
+  type DialInfo,
+  type DialKey,
+} from './contours';
 export { blendMatched, insertStation, splitChainAt, withKnotsLike } from './station-insert';
 export { MIN_STATIONS } from '../sections/edits';
 export { sliceOfStation, stationOfSlice } from './types';

@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-/** The panel slot: the rail panel for the Rails step, the deck panel for the Deck step, nothing for the others. */
+/** The panel slot: the rail panel for the Rails step, the deck panel for the Deck step, the bottom panel for the Bottom step, nothing for the others. */
 import { render, screen } from '@testing-library/react';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { lengthUnitByKey } from '../format';
 import { activeStore, boardStore } from '../store';
 import { key, showRails } from '../test/rails-board';
+import { resetBottomChoice } from './bottom-choice';
 import { resetDeckChoice } from './deck-choice';
 import { StepPanelSlot } from './StepPanelSlot';
 import { resetWorkspaceStep, setWorkspaceStep } from './use-step';
@@ -17,6 +18,7 @@ beforeEach(async () => {
   localStorage.clear();
   resetWorkspaceStep();
   resetDeckChoice();
+  resetBottomChoice();
   await showRails({ plus: [key(20, 0.5), key(100, 0.5), key(170, 0.4)] });
 });
 afterEach(() => {
@@ -40,8 +42,15 @@ describe('StepPanelSlot', () => {
     expect(screen.queryByRole('region', { name: 'Deck panel' })).toBeNull();
   });
 
+  it('shows the bottom panel for the Bottom step', () => {
+    act(() => setWorkspaceStep('bottom'));
+    render(<StepPanelSlot units={CM} slice={3} />);
+    expect(screen.getByRole('region', { name: 'Bottom panel' })).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Deck panel' })).toBeNull();
+  });
+
   it('shows nothing for a step that has no panel of its own', () => {
-    for (const step of ['outline', 'rocker', 'bottom', 'tail', 'fins'] as StepId[]) {
+    for (const step of ['outline', 'rocker', 'tail', 'fins'] as StepId[]) {
       act(() => setWorkspaceStep(step));
       const { container, unmount } = render(<StepPanelSlot units={CM} slice={3} />);
       expect(container.firstChild, step).toBeNull();
@@ -57,6 +66,8 @@ describe('StepPanelSlot', () => {
     expect(screen.getByRole('region', { name: 'Deck panel' })).toBeTruthy();
     act(() => setWorkspaceStep('rails'));
     expect(screen.getByRole('region', { name: 'Rail panel' })).toBeTruthy();
+    act(() => setWorkspaceStep('bottom'));
+    expect(screen.getByRole('region', { name: 'Bottom panel' })).toBeTruthy();
   });
 
   it('fills the width of a sheet for either panel', () => {

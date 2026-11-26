@@ -66,6 +66,11 @@ export interface StepSidebar {
   readonly tab?: TabId;
   /** Sections to open besides what the view opens. They are not marked as the user's own. */
   readonly open?: readonly SectionId[];
+  /**
+   * Sections to shut that the view opens, because the step has a panel of its own that does their work. A
+   * section the user has opened or shut by hand is theirs and is left as they have it.
+   */
+  readonly shut?: readonly SectionId[];
 }
 
 export interface DesignStep {
@@ -128,7 +133,9 @@ export const DESIGN_STEPS: readonly DesignStep[] = [
     icon: ArrowDownToLine,
     key: '4',
     drawing: { editor: 'crossSection', title: 'Cross-section: bottom', curve: 'bottom' },
-    sidebar: { view: 'crossSection', tab: 'shape', open: ['bottomFeatures'] },
+    // the Shape tab, for the control point of a knot in Edit curve; the contours are in the panel above it, so
+    // the old Bottom features section, which the cross-section view opens, is shut
+    sidebar: { view: 'crossSection', tab: 'shape', shut: ['bottomFeatures'] },
   },
   {
     kind: 'design',

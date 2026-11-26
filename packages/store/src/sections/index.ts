@@ -18,6 +18,7 @@ export {
 } from './edits';
 export {
   FEATURE_KINDS,
+  FEATURE_MIN_SPAN,
   addFeature,
   addFeatureKey,
   depthPolyline,
@@ -29,11 +30,13 @@ export {
   removeFeatureKey,
   setFeatureDepth,
   setFeatureEnabled,
+  setFeatureExtent,
   setFeatureKey,
   setFeatureParams,
   type FeatureKind,
   type FeatureParamName,
   type FeatureParams,
+  type NewFeatureOptions,
   type Range as FeatureRange,
 } from './features';
 export {

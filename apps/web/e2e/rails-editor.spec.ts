@@ -67,8 +67,9 @@ test.describe('the rails board as the document', () => {
     await rebuilt(page, n);
     n = await updates(page);
 
-    // Bottom: the same pane, the bottom curve
+    // Bottom: the slice and the plan from below; Edit curve shows the same pane, the bottom curve
     await entry(page, 'Bottom').click();
+    await page.getByRole('button', { name: 'Edit curve' }).first().click();
     await expect(page.getByRole('heading', { name: 'Cross-section: bottom' })).toBeVisible();
     await expect(page.getByRole('group', { name: 'Curve to edit' })).toHaveCount(0);
     const bottom = await selectPoint(page, [0.6, 0.92]);

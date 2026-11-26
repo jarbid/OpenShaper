@@ -116,8 +116,10 @@ describe('a design step', () => {
     }
   });
 
-  it('chooses the tab and sections the brief names for Bottom, Tail and Fins', () => {
-    expect(stepById('bottom').sidebar).toMatchObject({ tab: 'shape', open: ['bottomFeatures'] });
+  it('chooses the tab and sections for Bottom, Tail and Fins', () => {
+    // the contours are in the panel, so the old Bottom features section is shut
+    expect(stepById('bottom').sidebar).toMatchObject({ tab: 'shape', shut: ['bottomFeatures'] });
+    expect(stepById('bottom').sidebar.open).toBeUndefined();
     expect(stepById('tail').sidebar).toMatchObject({ tab: 'shape', open: ['boardShape'] });
     expect(stepById('fins').sidebar).toMatchObject({ tab: 'build', open: ['fins'] });
   });

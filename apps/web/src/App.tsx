@@ -156,6 +156,7 @@ import { useMeshSpecs } from './use-mesh-specs';
 import { useSpecsWorker } from './use-specs-worker';
 import { useTrace, type TraceView } from './use-trace';
 import { WorkspaceLooks } from './LookControls';
+import { BottomStep } from './workspace/BottomStep';
 import { DeckStep } from './workspace/DeckStep';
 import { RailsStep } from './workspace/RailsStep';
 import { RailsWorkspace } from './workspace/RailsWorkspace';
@@ -2216,6 +2217,24 @@ function AppShell() {
       const editor = drawing.editor;
       return (
         <DeckStep
+          units={units}
+          station={clampedCs}
+          onStation={setCsIndex}
+          renderEditor={(curveControl) => (
+            <EditorPane
+              key={editor}
+              {...editorPaneProps(editor, { title: drawing.title, curve: drawing.curve })}
+              curveControl={curveControl}
+            />
+          )}
+        />
+      );
+    }
+    // the Bottom step draws the slice with its contours and the bottom seen from below, with the editor for Edit curve
+    if (id === 'bottom') {
+      const editor = drawing.editor;
+      return (
+        <BottomStep
           units={units}
           station={clampedCs}
           onStation={setCsIndex}

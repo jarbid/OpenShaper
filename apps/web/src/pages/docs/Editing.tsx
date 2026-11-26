@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { Link } from 'react-router-dom';
 import { RAIL_PRESETS } from '@openshaper/kernel';
-import { BUILT_IN_RAILS, DECK_SHAPES } from '@openshaper/store/rails';
+import { BUILT_IN_RAILS, CONTOUR_KINDS, DECK_SHAPES } from '@openshaper/store/rails';
 import type { ReactNode } from 'react';
 import { NUDGE, shortcutKeys } from '../../shortcuts';
 import { SHAPE_NOTES, shapeLabel } from '../../workspace/deck-panel';
@@ -37,8 +37,13 @@ const STEP_DOCS: Record<StepId, ReactNode> = {
   ),
   bottom: (
     <>
-      The same drawing, editing the station&rsquo;s bottom curve. The Shape tab opens with Bottom
-      features, which cut a vee, a concave or channels into the bottom.
+      The <strong>slice</strong> at the chosen station with the contours&rsquo; relief under it,
+      magnified, and the <strong>bottom seen from below</strong> with each contour drawn on it as a
+      band along the board. The right-hand column opens with the <strong>bottom panel</strong>: the
+      board&rsquo;s contours, each with its depth and where along the board it runs, and Add
+      contour. <em>Edit curve</em> shows the station&rsquo;s bottom curve in the cross-section
+      editor. The Shape tab opens for the control point of a knot. See{' '}
+      <a href="#bottom-step">The Bottom step</a> below for all of it.
     </>
   ),
   rails: (
@@ -87,6 +92,7 @@ export default function DocsEditing() {
         { id: 'workspace', label: 'The workspace (rails boards)' },
         { id: 'rails-step', label: 'The Rails step: zones and blends' },
         { id: 'deck-step', label: 'The Deck step: shapes and the crown' },
+        { id: 'bottom-step', label: 'The Bottom step: contours' },
         { id: 'guides', label: 'Guides in 3D' },
         { id: 'analysis', label: 'Surface analysis in 3D' },
         { id: 'nurbs', label: 'Experimental NURBS engine' },
@@ -272,11 +278,12 @@ export default function DocsEditing() {
         <p>
           <strong>Tapping the board.</strong> With the Patches look on, a tap on the board chooses
           the step that edits what was tapped: the deck chooses Deck, and the station nearest the
-          tap, the bottom Bottom, a rail Rails, the straight edge of a tail Tail, and a corner
-          chooses Tail when it is in the tail half of the board and Outline when it is in the nose
-          half. The tapped patch stays lit, and a tap on nothing changes no step. The first time the
-          workspace opens the board wears the Patches look, if the 3D look was at No analysis (a
-          realistic look); choose another look with the Look button and it stays chosen.
+          tap, the bottom Bottom, with the station nearest the tap and the contour it is over, a
+          rail Rails, the straight edge of a tail Tail, and a corner chooses Tail when it is in the
+          tail half of the board and Outline when it is in the nose half. The tapped patch stays
+          lit, and a tap on nothing changes no step. The first time the workspace opens the board
+          wears the Patches look, if the 3D look was at No analysis (a realistic look); choose
+          another look with the Look button and it stays chosen.
         </p>
         <p>
           <strong>The divider.</strong> Drag the bar between the board and the drawing, or focus it
@@ -559,6 +566,153 @@ export default function DocsEditing() {
           Every one of these is an undo step with its name in the history: <em>Flat deck</em>,{' '}
           <em>Domed deck</em>, <em>Deck crown</em>, <em>Add station</em>,{' '}
           <em>Move cross-section</em> and <em>Delete cross-section</em>.
+        </p>
+      </Section>
+
+      <Section id="bottom-step" title="The Bottom step: contours">
+        <p>
+          The Bottom step is about what is cut into the bottom along the board. A{' '}
+          <strong>contour</strong> is a vee, a concave or channels with a <strong>depth</strong>{' '}
+          (how far it raises the bottom into the board at its deepest place) and a{' '}
+          <strong>run</strong> (where along the board it starts and ends, measured from the tail).
+          The panel lists the board&rsquo;s contours, the slice shows what they make at the chosen
+          station, and a plan of the bottom seen from below shows each as a band along the board.
+          The bottom curve of each station stays the one you drew: a contour raises the bottom by
+          its own depth over that curve and never replaces it.
+        </p>
+        <Terms>
+          {CONTOUR_KINDS.map((k) => (
+            <Term key={k.kind} name={k.name}>
+              {k.note} <em>{k.depth.label}</em>: {k.depth.note}
+              {k.second ? (
+                <>
+                  {' '}
+                  <em>{k.second.label}</em>: {k.second.note}
+                </>
+              ) : null}
+              {k.more.length > 0 ? (
+                <> Under More: {k.more.map((d) => d.label.toLowerCase()).join(', ')}.</>
+              ) : null}
+            </Term>
+          ))}
+        </Terms>
+        <h3 className="mt-4 text-base font-semibold">The panel</h3>
+        <p>
+          Each contour is a row: its name, its depth and its run, a switch that keeps it and stops
+          it being built, and Remove. <em>Add contour</em> has the four kinds; a board with none
+          says the bottom is flat and offers the same. A contour&rsquo;s kind is not changed: remove
+          it and add another. For the chosen contour the face has its <strong>Depth</strong>, the
+          one other dial of its kind (a concave&rsquo;s Width, the channels&rsquo; Count) and{' '}
+          <strong>From</strong> and <strong>To</strong>, both measured from the tail. Each number is
+          typed in your display unit; a slider and the arrow keys move it too, and the number is
+          held to what the board allows, with a line saying so. Under <em>More</em> are the
+          contour&rsquo;s other numbers, the keys of its law along the board and <em>Edit curve</em>
+          .
+        </p>
+        <h3 className="mt-4 text-base font-semibold">Depth</h3>
+        <p>
+          Depth is one dial in four ways: the number, a slider, the arrow keys (a fifth of a
+          millimetre, ten times that with Shift) and the handle on the slice, dragged up and down. A
+          drag or a held key is one undo step. It runs from nothing to the most the board holds
+          under the contour:
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>0.3 of the thinnest stringer thickness under the run, and never more than 1.5 cm;</li>
+          <li>
+            and never more than half the board&rsquo;s thickness at its rail, anywhere along the
+            run, so a run over a thin stretch (the tips, a notch&rsquo;s bottom) takes less. On the
+            nine boards of the project, a contour at its greatest depth, at the least, a typical and
+            the greatest run, leaves 47 to 71 percent of the thickness under it, measured to where
+            the rail&rsquo;s tuck starts.
+          </li>
+        </ul>
+        <p>
+          The contours of the project are 2 to 3.5 mm deep. A depth asked for past the most is held
+          at the most and the panel says so; it is never refused. A wider contour is not deeper: a
+          run over the whole board, tips included, holds under 2 mm on a shortboard.
+        </p>
+        <h3 className="mt-4 text-base font-semibold">Where it runs</h3>
+        <p>
+          <strong>From</strong> and <strong>To</strong> are measured from the tail, as the ruler is.
+          Drag the ends on the plan from below, or type them. Moving an end carries the keys between
+          the ends with it, each keeping its share of the run, so the curve is stretched or squeezed
+          and never reshaped; the depth is held to what the board allows where the contour now runs.
+          The ends are held half a centimetre inside the board&rsquo;s tail end and nose, and at
+          least two centimetres apart.
+        </p>
+        <p>
+          <strong>At a notch</strong> (a swallow or a fish) the run starts half a centimetre ahead
+          of the notch bottom at the soonest, so a contour never runs into the notch: the pins stay
+          flat, and the contour fades in from nothing at its tail end. Channels are measured from
+          the rail and kept inside the board&rsquo;s width, so they give way where the board is
+          narrow.
+        </p>
+        <h3 className="mt-4 text-base font-semibold">A new contour</h3>
+        <p>
+          <em>Add contour</em> puts each kind where a shaper cuts it, as shares of the way from the
+          tail to the nose (from the notch bottom on a notched board): a{' '}
+          <strong>single concave</strong> through the middle third, a <strong>vee</strong> out of
+          the tail to the middle, a <strong>double concave</strong> out of the tail to a little past
+          the middle, and <strong>channels</strong> in the tail half from a tenth of the way, no
+          nearer the tip because the board must be wide enough to hold them. The depths are 3 mm (2
+          mm for a vee). The four contours the project&rsquo;s own boards carry sit forward of the
+          middle and are drawn to exercise the engine, so the runs here follow practice rather than
+          what they measure. A contour asked for anywhere with any depth is added, held at the
+          nearest the board allows. A board holds at most 64 contours, the engine&rsquo;s own limit.
+        </p>
+        <h3 className="mt-4 text-base font-semibold">The slice</h3>
+        <p>
+          The section at the chosen station, to scale, with the station&rsquo;s bottom curve drawn
+          on it. A contour is a few millimetres, which is a pixel or two at that scale, so under the
+          section a strip draws what the contours raise the bottom by at this station, across the
+          bottom, with its height <strong>magnified</strong>: the factor is written on the drawing
+          (&ldquo;height &times;10&rdquo;). The chosen contour is in its colour and has one handle,
+          its depth. The handle is off at a station at the ends of the contour or outside it, where
+          there is too little of its depth to set it from there; choose a station along its run.
+        </p>
+        <h3 className="mt-4 text-base font-semibold">The bottom seen from below</h3>
+        <p>
+          The board&rsquo;s plan with the camera under it, the tail on the left as in every drawing
+          along the board. Seen from below the <strong>plus side is the lower one</strong>. Each
+          contour is a <strong>band</strong> along the board where it acts across the bottom: its
+          hollow, the whole bottom for a vee, a line for each channel. The band is shaded by its
+          depth along the run, so the shading is the contour&rsquo;s law along the board; a contour
+          switched off is outlined and not shaded.
+        </p>
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <strong>Choose</strong> a contour by tapping its band (the narrowest where bands lie
+            over one another). Tapping the bare board chooses the station nearest, and the ticks
+            along the foot choose one too. Adding, moving and removing stations is in the Deck step.
+          </li>
+          <li>
+            <strong>Change where it runs</strong> by dragging the handle at either end of the chosen
+            contour, or <strong>slide</strong> it by its middle handle or by the band itself. The
+            number being set is shown in your unit while the pointer is down, and the whole drag is
+            one undo step. With a handle focused the arrow keys move it a centimetre (ten with
+            Shift), and Home and End take it to its least and most.
+          </li>
+          <li>
+            <strong>Its law</strong>, the depth along the board, is drawn under the plan with a
+            handle on each key between the ends: drag one sideways to move it along the board and up
+            and down to set how deep the contour is there. The keys are listed with a number each
+            under <em>More</em>, with Add key and Remove.
+          </li>
+        </ul>
+        <h3 className="mt-4 text-base font-semibold">Edit curve</h3>
+        <p>
+          <em>Edit curve</em>, in the slice&rsquo;s header and under <em>More</em>, shows the bottom
+          curve of the chosen station, its knots and handles, in the cross-section editor, and the
+          button takes you back to the slice and the plan. It edits the one station: a contour
+          already runs the length of the board, and there is no named bottom shape to apply to every
+          station.
+        </p>
+        <p>
+          Every edit is an undo step with its name in the history: <em>Add Single concave</em>,{' '}
+          <em>Set depth of vee</em>, <em>Set extent of channels</em>, <em>Move double concave</em>,{' '}
+          <em>Set channels</em>, <em>Move a key of vee</em>, <em>Disable vee</em> and{' '}
+          <em>Remove vee</em>. A tap on the bottom of the 3D board chooses the Bottom step, the
+          station nearest the tap and the contour it is over.
         </p>
       </Section>
 

@@ -58,6 +58,15 @@ import {
 } from '../sections/features';
 import type { KeepSide, TailType } from '../sections/shape';
 import {
+  addContour,
+  moveContour,
+  setContourDepth,
+  setContourExtent,
+  setContourKey,
+  setContourParams,
+  type ContourKind,
+} from './contours';
+import {
   applyDeckShape,
   type DeckScope,
   type DeckShapeRequest,
@@ -146,6 +155,27 @@ export interface RailsState extends BoardState {
   setFeatureKey: (id: string, index: number, patch: { s?: number; value?: number }) => void;
   addFeatureKey: (id: string, s?: number) => void;
   removeFeatureKey: (id: string, index: number) => void;
+  /**
+   * Contours (`contours.ts`): the same features, edited as a shaper names them. Each is one undo step and
+   * does nothing, recording none, when it changes nothing. In a drag (`beginEdit` … `endEdit`) every call
+   * is computed from the document the drag began with, so a contour's depth, ends or parameters are a
+   * function of the pointer: a depth taken to nothing and back keeps the law along the board, and channels
+   * that gave way to a narrow place come back when the run does.
+   *
+   * `addContour` returns the new contour's id, or null when the board holds the most contours.
+   */
+  addContour: (
+    kind: ContourKind,
+    options?: { from?: number; to?: number; depth?: number },
+  ) => string | null;
+  setContourDepth: (id: string, depth: number) => void;
+  /** Where a contour runs, cm from the tail: an end that is not given stays. */
+  setContourExtent: (id: string, from?: number, to?: number) => void;
+  /** Slide a contour so it starts at `from`, keeping its length. */
+  moveContour: (id: string, from: number) => void;
+  setContourParams: (id: string, patch: FeatureParams) => void;
+  /** One key of a contour's law along the board (the ends are its extent). */
+  setContourKey: (id: string, index: number, patch: { s?: number; value?: number }) => void;
   /**
    * Rail zones (`zones.ts`). Every action is one undo step, part of the open drag inside `beginEdit`
    * … `endEdit`, and does nothing, recording no step, when it changes nothing. `side` is the plus
@@ -306,6 +336,18 @@ export const createRailsStore = (): StoreApi<RailsState> =>
       const f = doc?.features.find((q) => q.id === id);
       if (!doc || !f) return;
       commitDoc(edit(doc), `${verb} ${FEATURE_LABELS[featureKindOf(f)].toLowerCase()}`);
+    };
+
+    /**
+     * A contour edit as one step named "<verb> <kind>". Inside a drag it is computed from the document the
+     * drag began with (`dragOrigin`), so it is a function of the pointer alone.
+     */
+    const contourEdit = (id: string, verb: string, edit: (doc: RailsBoard) => RailsBoard) => {
+      const { doc } = get();
+      const base = dragOrigin ?? doc;
+      const f = base?.features.find((q) => q.id === id);
+      if (!doc || !base || !f) return;
+      commitDoc(edit(base), `${verb} ${FEATURE_LABELS[featureKindOf(f)].toLowerCase()}`);
     };
 
     /**
@@ -566,6 +608,24 @@ export const createRailsStore = (): StoreApi<RailsState> =>
       addFeatureKey: (id, s) => featureEdit(id, (d) => addFeatureKey(d, id, s), 'Add a key to'),
       removeFeatureKey: (id, index) =>
         featureEdit(id, (d) => removeFeatureKey(d, id, index), 'Remove a key from'),
+
+      addContour: (kind, options) => {
+        const { doc } = get();
+        if (!doc) return null;
+        const next = addContour(doc, kind, options);
+        if (next === doc) return null;
+        commitDoc(next, `Add ${FEATURE_LABELS[kind]}`);
+        return next.features[next.features.length - 1]!.id;
+      },
+      setContourDepth: (id, depth) =>
+        contourEdit(id, 'Set depth of', (d) => setContourDepth(d, id, depth)),
+      setContourExtent: (id, from, to) =>
+        contourEdit(id, 'Set extent of', (d) => setContourExtent(d, id, from, to)),
+      moveContour: (id, from) => contourEdit(id, 'Move', (d) => moveContour(d, id, from)),
+      setContourParams: (id, patch) =>
+        contourEdit(id, 'Set', (d) => setContourParams(d, id, patch)),
+      setContourKey: (id, index, patch) =>
+        contourEdit(id, 'Move a key of', (d) => setContourKey(d, id, index, patch)),
 
       setZoneRail: (side, zone, rail) =>
         railEdit(`setZoneRail:${side}:${zone}`, 'Edit rail', (rails) =>

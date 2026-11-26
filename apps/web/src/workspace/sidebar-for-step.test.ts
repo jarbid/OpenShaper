@@ -21,7 +21,10 @@ describe('a design step', () => {
     for (const s of DESIGN_STEPS) {
       const next = sidebarForStep(start, s.id);
       const viewOnly = applyViewChange(start, s.sidebar.view);
-      for (const id of viewOnly.open) expect(next.open, `${s.id}: ${id}`).toContain(id);
+      // what a step shuts is what its own panel does the work of
+      for (const id of viewOnly.open.filter((q) => !s.sidebar.shut?.includes(q))) {
+        expect(next.open, `${s.id}: ${id}`).toContain(id);
+      }
     }
     expect(sidebarForStep(start, 'rocker').open).toEqual(applyViewChange(start, 'rocker').open);
   });
@@ -33,10 +36,16 @@ describe('a design step', () => {
     }
   });
 
-  it('Bottom shows the Shape tab with the bottom features open', () => {
+  it('Bottom shows the Shape tab and leaves the old bottom features section shut: the contours are in the panel', () => {
     const next = sidebarForStep(start, 'bottom');
     expect(next.activeTab).toBe('shape');
-    expect(next.open).toContain('bottomFeatures');
+    expect(next.open).not.toContain('bottomFeatures');
+    // the cross-section view opens it by itself: the step shuts it
+    expect(applyViewChange(start, 'crossSection').open).toContain('bottomFeatures');
+    // a section the user opened by hand is theirs
+    const theirs = toggleSection(start, 'bottomFeatures', true);
+    expect(theirs.open).toContain('bottomFeatures');
+    expect(sidebarForStep(theirs, 'bottom').open).toContain('bottomFeatures');
   });
 
   it('Tail shows the Shape tab with the board shape (the tail) open', () => {

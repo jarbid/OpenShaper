@@ -250,6 +250,40 @@ export const SHORTCUTS: readonly Shortcut[] = [
     group: 'Cross-sections',
     scope: 'workspace',
   },
+  // The Bottom step's handles own these keys while they have focus (`workspace/ContourPlan.tsx`,
+  // `ContourLaw.tsx`, `BottomSlice.tsx`), so they carry no `match`: listed so `/docs/shortcuts` shows them.
+  {
+    id: 'contour-handle',
+    keys: '← →',
+    label:
+      'Bottom step, with the start, middle or end of a contour focused on the plan from below: move it a centimetre along the board (⇧ ten; Home and End: its least and its most)',
+    group: 'Cross-sections',
+    scope: 'workspace',
+  },
+  {
+    id: 'depth-handle',
+    keys: '↑ ↓',
+    label:
+      'Bottom step, with the depth handle focused: ↑ is deeper and ↓ shallower, a fifth of a millimetre each press (⇧ ten times; Home and End: the least and the most)',
+    group: 'Cross-sections',
+    scope: 'workspace',
+  },
+  {
+    id: 'contour-law-key',
+    keys: '← → ↑ ↓',
+    label:
+      'Bottom step, with a key of a contour’s law focused: ← → move it along the board a centimetre, ↑ ↓ set how deep it is there (⇧ ten times)',
+    group: 'Cross-sections',
+    scope: 'workspace',
+  },
+  {
+    id: 'plan-station',
+    keys: '← →',
+    label:
+      'Bottom step, with a station of the plan from below focused: choose the previous or next station (Home and End: the first and the last)',
+    group: 'Cross-sections',
+    scope: 'workspace',
+  },
   {
     id: 'cross-section-blur',
     keys: 'Esc',

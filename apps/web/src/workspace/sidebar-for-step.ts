@@ -34,6 +34,14 @@ function openUntouched(state: SidebarState, ids: readonly SectionId[]): SidebarS
   return { ...state, open: sectionIds().filter((id) => open.has(id)) };
 }
 
+/** Shut the sections the user has not taken over. */
+function shutUntouched(state: SidebarState, ids: readonly SectionId[]): SidebarState {
+  const touched = new Set(state.touched);
+  const gone = new Set(ids.filter((id) => !touched.has(id)));
+  if (!state.open.some((id) => gone.has(id))) return state;
+  return { ...state, open: state.open.filter((id) => !gone.has(id)) };
+}
+
 /**
  * Make a tab the one being worked in, leaving a folded sidebar folded: a step changes what the
  * sidebar shows, it does not ask to see it.
@@ -58,9 +66,10 @@ function unlessSame(before: SidebarState, after: SidebarState): SidebarState {
 
 /** The sidebar for a design step. */
 export function sidebarForStep(state: SidebarState, id: StepId): SidebarState {
-  const { view, tab, open } = stepById(id).sidebar;
+  const { view, tab, open, shut } = stepById(id).sidebar;
   let next = applyViewChange(state, view);
   if (open) next = openUntouched(next, open);
+  if (shut) next = shutUntouched(next, shut);
   if (tab) next = showTab(next, tab);
   return unlessSame(state, next);
 }

@@ -11,7 +11,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getPatchPick, setPatchPick } from '../patch-look';
 import { activeStore, boardStore, railsStore } from '../store';
 import { showRails } from '../test/rails-board';
-import { stationForPick, stepForPick, useTapChoosesStep } from './tap-step';
+import { contoursOf } from '@openshaper/store/rails';
+import { getChosenContour, resetBottomChoice } from './bottom-choice';
+import { contourForPick, stationForPick, stepForPick, useTapChoosesStep } from './tap-step';
 
 const pick = (patch: PatchPick['patch'], x = 50, extra: Partial<PatchPick> = {}): PatchPick => ({
   patch,
@@ -156,8 +158,13 @@ describe('stationForPick', () => {
     expect(stationForPick(pick('deck', 35), stations)).toBe(1);
   });
 
-  it('chooses no station for a tap on anything but the deck, or on nothing, or a board with none', () => {
-    for (const patch of ['bottom', 'rail', 'tailEdge', 'corner'] as const) {
+  it('is the station nearest a tap on the bottom too', () => {
+    expect(stationForPick(pick('bottom', 12), stations)).toBe(1);
+    expect(stationForPick(pick('bottom', 149), stations)).toBe(4);
+  });
+
+  it('chooses no station for a tap on a rail, a tail edge or a corner, or on nothing, or a board with none', () => {
+    for (const patch of ['rail', 'tailEdge', 'corner'] as const) {
       expect(stationForPick(pick(patch, 60), stations), patch).toBeNull();
     }
     expect(stationForPick(null, stations)).toBeNull();
@@ -202,12 +209,12 @@ describe('useTapChoosesStep and the station a tap on the deck is at', () => {
     expect(setStation.mock.calls.map((c) => c[0])).toEqual([2, 4]);
   });
 
-  it('chooses no station for a tap on the bottom or a rail, though it chooses their steps', () => {
+  it('chooses the station nearest a tap on the bottom, and none for a rail, though it chooses both steps', () => {
     const { setStep, setStation } = mount();
-    act(() => setPatchPick(pick('bottom', 80)));
+    act(() => setPatchPick(pick('bottom', stationsNow()[3]!.x)));
     act(() => setPatchPick(pick('rail', 80, { zone: 0 })));
-    expect(setStep).toHaveBeenCalledTimes(2);
-    expect(setStation).not.toHaveBeenCalled();
+    expect(setStep.mock.calls.map((c) => c[0])).toEqual(['bottom', 'rails']);
+    expect(setStation.mock.calls.map((c) => c[0])).toEqual([4]);
   });
 
   it('chooses no station for a tap on nothing, or for a pick made before it mounted', () => {
@@ -223,5 +230,60 @@ describe('useTapChoosesStep and the station a tap on the deck is at', () => {
     renderHook(() => useTapChoosesStep(setStep));
     act(() => setPatchPick(pick('deck', 50)));
     expect(setStep).toHaveBeenCalledWith('deck');
+  });
+});
+
+describe('a tap on the bottom and the contour it is over', () => {
+  beforeEach(async () => {
+    resetBottomChoice();
+    act(() => setPatchPick(null));
+    await showRails({ plus: [] as never });
+  });
+  afterEach(() => {
+    resetBottomChoice();
+    act(() => setPatchPick(null));
+    activeStore.use(boardStore);
+  });
+
+  /** A board with a vee out of the tail and a single concave through the middle third. */
+  const withContours = () => {
+    act(() => {
+      railsStore.getState().addContour('vee');
+      railsStore.getState().addContour('single-concave');
+    });
+    return railsStore.getState().doc!;
+  };
+
+  it('names the narrowest contour that holds the tap, read on the side the tap is on', () => {
+    const doc = withContours();
+    const [vee, concave] = contoursOf(doc);
+    const x =
+      (vee!.from + vee!.to) / 2 > concave!.from ? (concave!.from + vee!.to) / 2 : concave!.from + 5;
+    expect(contourForPick(pick('bottom', x, { y: 0 }), doc)).toBe(concave!.id);
+    expect(contourForPick(pick('bottom', x, { y: 0, side: 'minus' }), doc)).toBe(concave!.id);
+    expect(contourForPick(pick('bottom', vee!.from + 2, { y: 0 }), doc)).toBe(vee!.id);
+    expect(contourForPick(pick('bottom', 1e5, { y: 0 }), doc)).toBeNull();
+    expect(contourForPick(pick('deck', x, { y: 0 }), doc)).toBeNull();
+    expect(contourForPick(null, doc)).toBeNull();
+    expect(contourForPick(pick('bottom', x), null)).toBeNull();
+  });
+
+  it('chooses that contour, the Bottom step and the station nearest, and leaves the choice alone over none', () => {
+    const doc = withContours();
+    const [vee, concave] = contoursOf(doc);
+    const setStep = vi.fn();
+    const setStation = vi.fn();
+    renderHook(() => useTapChoosesStep(setStep, setStation));
+    const x = concave!.from + 5;
+    act(() => setPatchPick(pick('bottom', x, { y: 0 })));
+    expect(getChosenContour()).toBe(concave!.id);
+    expect(setStep).toHaveBeenLastCalledWith('bottom');
+    expect(setStation).toHaveBeenCalledTimes(1);
+    act(() => setPatchPick(pick('bottom', vee!.from + 2, { y: 0 })));
+    expect(getChosenContour()).toBe(vee!.id);
+    // a tap on the bottom where no contour acts changes the contour no more than the step
+    act(() => setPatchPick(pick('bottom', 1e5, { y: 0 })));
+    expect(getChosenContour()).toBe(vee!.id);
+    expect(setStation).toHaveBeenCalledTimes(3);
   });
 });

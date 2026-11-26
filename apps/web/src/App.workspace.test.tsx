@@ -92,7 +92,7 @@ const current = () =>
     .map(nameOf);
 /** The sidebar, so a section header is not taken for the list entry of the same name. */
 const sidebar = () => within(screen.getByRole('complementary', { name: 'Board panels' }));
-const heading = (name: string) => screen.getByRole('heading', { name });
+const heading = (name: string | RegExp) => screen.getByRole('heading', { name });
 const tab = (name: string) => screen.getByRole('tab', { name });
 
 describe('with the NURBS and rails engines on and a rails board open', () => {
@@ -213,7 +213,9 @@ describe('the drawing', () => {
     fireEvent.click(entry('Deck'));
     expect(heading('Cross-section: deck')).toBeTruthy();
     fireEvent.click(entry('Bottom'));
-    expect(heading('Cross-section: bottom')).toBeTruthy();
+    // the Bottom step has a drawing of its own: the slice and the plan from below
+    expect(heading(/^Bottom: station \d+$/)).toBeTruthy();
+    expect(heading('Bottom seen from below')).toBeTruthy();
     // the view state is saved after a pause; what it holds is still the person's choice
     await new Promise((r) => setTimeout(r, 700));
     expect(JSON.parse(localStorage.getItem('bs.viewState')!).railsCurve).toBe('bottom');
@@ -291,14 +293,15 @@ describe('the sidebar follows the step', () => {
     );
   });
 
-  it('shows the Shape tab with the bottom features open for Bottom', async () => {
+  it('shows the Shape tab for Bottom, with the old bottom features shut: the contours are in the panel', async () => {
     setTier('desktop');
     await openRailsBoard();
     fireEvent.click(entry('Bottom'));
     expect(tab('Shape').getAttribute('aria-selected')).toBe('true');
     expect(
       sidebar().getByRole('button', { name: 'Bottom features' }).getAttribute('aria-expanded'),
-    ).toBe('true');
+    ).toBe('false');
+    expect(screen.getByRole('region', { name: 'Bottom panel' })).toBeTruthy();
   });
 
   it('shows the tab of Specs, Build and Compare when they are chosen, and marks the list', async () => {
