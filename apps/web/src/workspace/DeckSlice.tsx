@@ -248,7 +248,7 @@ export const DeckSlice = memo(function DeckSlice({
             : 'cursor-not-allowed border-muted-foreground/60 bg-muted',
           'focus-visible:ring-2 focus-visible:ring-ring',
           // the finger's 44 px, around a 16 px handle
-          'before:absolute before:-inset-3 before:content-[""] pointer-coarse:before:-inset-[14px]',
+          'before:absolute before:-inset-3 before:content-[""] pointer-coarse:before:-inset-[16px]',
         )}
       />
     </div>
