@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { Link } from 'react-router-dom';
 import { RAIL_PRESETS } from '@openshaper/kernel';
-import { BUILT_IN_RAILS, CONTOUR_KINDS, DECK_SHAPES } from '@openshaper/store/rails';
+import { BUILT_IN_RAILS, CONTOUR_KINDS, DECK_SHAPES, TAIL_SHAPES } from '@openshaper/store/rails';
 import type { ReactNode } from 'react';
 import { NUDGE, shortcutKeys } from '../../shortcuts';
 import { SHAPE_NOTES, shapeLabel } from '../../workspace/deck-panel';
+import { SHAPE_NOTES as TAIL_NOTES, shapeLabel as tailLabel } from '../../workspace/tail-panel';
 import { DESIGN_STEPS, PANEL_ENTRIES, type PanelId, type StepId } from '../../workspace/steps';
 import { DocsPage, Section, Term, Terms } from './DocsPage';
 
@@ -56,8 +57,14 @@ const STEP_DOCS: Record<StepId, ReactNode> = {
   ),
   tail: (
     <>
-      The outline again, for the tail. The Shape tab opens with Board shape, where the tail type
-      (standard, swallow or fish), the symmetry and the notch depth are set.
+      The <strong>plan, zoomed on the tail</strong>, with a round handle on each corner and one on
+      the tail&rsquo;s width. The right-hand column opens with the <strong>tail panel</strong>: the
+      tail&rsquo;s shape by name (squash, round, pin, diamond, swallow or fish), its width and, for
+      a swallow or a fish, its notch depth, and under <em>More</em> each corner&rsquo;s radius. The
+      outline&rsquo;s own points stay editable. The sidebar opens on the Specs tab, so the
+      board&rsquo;s numbers, the width twelve inches in among them, are beside the tail&rsquo;s own
+      width; Board shape, with the symmetry, is in the Shape tab. See{' '}
+      <a href="#tail-step">The Tail step</a> below for all of it.
     </>
   ),
   fins: (
@@ -93,6 +100,7 @@ export default function DocsEditing() {
         { id: 'rails-step', label: 'The Rails step: zones and blends' },
         { id: 'deck-step', label: 'The Deck step: shapes and the crown' },
         { id: 'bottom-step', label: 'The Bottom step: contours' },
+        { id: 'tail-step', label: 'The Tail step: shapes, width and corners' },
         { id: 'guides', label: 'Guides in 3D' },
         { id: 'analysis', label: 'Surface analysis in 3D' },
         { id: 'nurbs', label: 'Experimental NURBS engine' },
@@ -279,11 +287,11 @@ export default function DocsEditing() {
           <strong>Tapping the board.</strong> With the Patches look on, a tap on the board chooses
           the step that edits what was tapped: the deck chooses Deck, and the station nearest the
           tap, the bottom Bottom, with the station nearest the tap and the contour it is over, a
-          rail Rails, the straight edge of a tail Tail, and a corner chooses Tail when it is in the
-          tail half of the board and Outline when it is in the nose half. The tapped patch stays
-          lit, and a tap on nothing changes no step. The first time the workspace opens the board
-          wears the Patches look, if the 3D look was at No analysis (a realistic look); choose
-          another look with the Look button and it stays chosen.
+          rail Rails, the straight edge of a tail or a notch&rsquo;s wall Tail, and a corner chooses
+          Tail, and that corner, when it is in the tail half of the board and Outline when it is in
+          the nose half. The tapped patch stays lit, and a tap on nothing changes no step. The first
+          time the workspace opens the board wears the Patches look, if the 3D look was at No
+          analysis (a realistic look); choose another look with the Look button and it stays chosen.
         </p>
         <p>
           <strong>The divider.</strong> Drag the bar between the board and the drawing, or focus it
@@ -713,6 +721,112 @@ export default function DocsEditing() {
           <em>Set channels</em>, <em>Move a key of vee</em>, <em>Disable vee</em> and{' '}
           <em>Remove vee</em>. A tap on the bottom of the 3D board chooses the Bottom step, the
           station nearest the tap and the contour it is over.
+        </p>
+      </Section>
+
+      <Section id="tail-step" title="The Tail step: shapes, width and corners">
+        <p>
+          The Tail step is about the end of the board. It draws the plan zoomed on the tail, with a
+          round handle on each corner and one on the tail&rsquo;s width, and the panel beside it
+          names the tail&rsquo;s shape and has a dial or two. The shape is read off the
+          outline&rsquo;s points and never stored, so a tail you draw stays yours: nothing is
+          replaced unless you choose a shape.
+        </p>
+        <Terms>
+          {TAIL_SHAPES.map((shape) => (
+            <Term key={shape} name={tailLabel(shape)}>
+              {TAIL_NOTES[shape]}
+            </Term>
+          ))}
+          <Term name="Custom">{TAIL_NOTES.custom}</Term>
+        </Terms>
+        <h3 className="mt-4 text-base font-semibold">How a shape is read</h3>
+        <p>
+          The tail&rsquo;s own points are those nearer the tail than 8 percent of the board&rsquo;s
+          length, and for a notch the notch bottom and the tip. The first point past them is the
+          rail&rsquo;s, and a shape never changes it or anything beyond it. A tail is a shape when
+          its own points are exactly what choosing that shape writes, to a tenth of a millimetre;
+          move one and it is Custom, and the panel says so. A few numbers are yours whatever the
+          shape: the way the rail leaves a corner, how far a pin leans out and how far in a
+          diamond&rsquo;s corner stands. A board&rsquo;s length edited, or any point of the rail,
+          the rocker or the deck, leaves the tail the shape it was.
+        </p>
+        <p>
+          Of the starter boards, the Funboard reads Round and the Swallow shortboard and the Fish
+          shortboard read Swallow and Fish. The Shortboard and the Longboard draw their tail end
+          soft, in the curve of a smooth point, and read Custom; so will an older board when it is
+          converted, unless its tail happens to be exactly one of the shapes. Choosing a shape
+          replaces the tail&rsquo;s own points at once, with no question: the undo is the way back,
+          and brings the drawn tail back exactly.
+        </p>
+        <h3 className="mt-4 text-base font-semibold">Tail width</h3>
+        <p>
+          The width is the board&rsquo;s width across the tail&rsquo;s corners: tip to tip on a
+          swallow or a fish, corner to corner on a squash or a diamond. A round or a pin tail has no
+          corner to measure between, so its width is read where the tail ends, 8 percent of the
+          board&rsquo;s length in from the tail. It is not the width twelve inches in that the specs
+          show, which belongs to the rail.
+        </p>
+        <p>
+          Type it in your unit, drag the slider, use the arrow keys in the field (a step of the
+          unit, ten with Shift), or drag the handle on the drawing, which stands just outside the
+          corner so that the outline&rsquo;s own point there is still yours to move. Under a finger
+          the handle&rsquo;s 44-pixel square reaches the corner itself: take the corner from the
+          board&rsquo;s side, or zoom in. A width the board cannot hold is held at the nearest it
+          can, with a line saying so, never refused: a shape stops looking like itself when it is
+          narrower than about an eighth to two fifths of the board&rsquo;s width (the range of each
+          is under the dial) and the widest is held to the rail&rsquo;s own width. The engine builds
+          the board at every width in between, and far beyond them. Choosing another shape gives the
+          tail that shape&rsquo;s usual width for the board (a squash or a diamond about 29 percent
+          of the board&rsquo;s width, a swallow or a fish its usual tips, a round or a pin the width
+          the board has where the tail ends) unless you have typed one. Between a swallow and a fish
+          the tips and the notch stay as they are, and only the walls change.
+        </p>
+        <h3 className="mt-4 text-base font-semibold">Notch depth</h3>
+        <p>
+          A swallow or a fish has a notch, and its depth is how far in from the tail the notch
+          bottom stands, from half a percent to thirty percent of the board&rsquo;s length. The dial
+          is off for the other shapes, with the reason under it. The notch bottom is also a point of
+          the outline: drag it along the centre line to set the depth. A notch is one for the whole
+          board, so choosing a swallow or a fish, or leaving one, reaches both sides of an
+          asymmetric board; stations behind the notch bottom are dropped and an undo restores them.
+        </p>
+        <h3 className="mt-4 text-base font-semibold">Each corner&rsquo;s radius</h3>
+        <p>
+          Under <em>More</em> are the tail&rsquo;s corners from the tail, named by where they are:
+          the notch crotch, the tail point where two sides meet at a slant, and the corners and tips
+          of each side (&ldquo;tail corner, left&rdquo;). A corner has a number, a slider and a
+          round handle on the drawing, and choosing it in any one marks it in the others. Drag the
+          handle outward for a larger radius; it moves as you drag and the radius is written beside
+          it in your unit. Under a finger the handles are 44 pixels wide, and one that would sit on
+          another stands a little off its own line, joined to its corner by a thin line, so that
+          each can be pressed where it is drawn. A tap on a corner of the 3D board chooses that
+          corner; a tap on the tail&rsquo;s edge or a notch&rsquo;s wall chooses the tail with no
+          corner.
+        </p>
+        <p>
+          A board never ends in a point, so the least radius of a tip, or of a pin&rsquo;s or a
+          diamond&rsquo;s point, is 5 millimetres; any other corner can go down to half a
+          millimetre, about the least the engine builds an arc for. The greatest is where the engine
+          still builds the arc as asked: a quarter of the shorter piece of outline beside the
+          corner, over the tangent of half its turn. A corner where the outline turns by less than
+          about 6 degrees is not listed, since there is nothing to round.
+        </p>
+        <h3 className="mt-4 text-base font-semibold">Both sides, or one</h3>
+        <p>
+          A symmetric board has one tail and every edit reaches both sides. Where the two sides of
+          an asymmetric board&rsquo;s tail differ, a choice of <em>Both</em>, <em>Left</em> or{' '}
+          <em>Right</em> appears and says which side an edit reaches; where they agree it does not.
+          Both gives each side the same tail.
+        </p>
+        <p>
+          Every edit is an undo step with its name in the history: <em>Squash tail</em>,{' '}
+          <em>Round tail</em>, <em>Pin tail</em>, <em>Diamond tail</em>, <em>Swallow tail</em>,{' '}
+          <em>Fish tail</em>, <em>Set tail width</em>, <em>Set notch depth</em> and{' '}
+          <em>Set corner radius</em>, and a slider or a handle dragged, or a key held down, is one
+          step. With a handle focused, the arrow keys and Page Up and Down change it, Home and End
+          take it to its least and its most; they are listed with{' '}
+          <Link to="/docs/shortcuts">the other shortcuts</Link>.
         </p>
       </Section>
 

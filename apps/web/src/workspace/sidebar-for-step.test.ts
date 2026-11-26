@@ -48,10 +48,10 @@ describe('a design step', () => {
     expect(sidebarForStep(theirs, 'bottom').open).toContain('bottomFeatures');
   });
 
-  it('Tail shows the Shape tab with the board shape (the tail) open', () => {
+  it('Tail shows the Specs tab, so the Board shape section (with its own tail choice) is not beside the tail panel', () => {
     const next = sidebarForStep(start, 'tail');
-    expect(next.activeTab).toBe('shape');
-    expect(next.open).toContain('boardShape');
+    expect(next.activeTab).toBe('specs');
+    expect(next.touched).toEqual([]);
   });
 
   it('Fins shows the Build tab with the fins open, which the outline view alone would not open', () => {
@@ -103,7 +103,7 @@ describe('a design step', () => {
     const folded: SidebarState = { ...start, collapsed: true };
     const next = sidebarForStep(folded, 'tail');
     expect(next.collapsed).toBe(true);
-    expect(next.activeTab).toBe('shape');
+    expect(next.activeTab).toBe('specs');
   });
 });
 

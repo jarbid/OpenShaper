@@ -49,8 +49,15 @@ describe('StepPanelSlot', () => {
     expect(screen.queryByRole('region', { name: 'Deck panel' })).toBeNull();
   });
 
+  it('shows the tail panel for the Tail step', () => {
+    act(() => setWorkspaceStep('tail'));
+    render(<StepPanelSlot units={CM} slice={3} />);
+    expect(screen.getByRole('region', { name: 'Tail panel' })).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Rail panel' })).toBeNull();
+  });
+
   it('shows nothing for a step that has no panel of its own', () => {
-    for (const step of ['outline', 'rocker', 'tail', 'fins'] as StepId[]) {
+    for (const step of ['outline', 'rocker', 'fins'] as StepId[]) {
       act(() => setWorkspaceStep(step));
       const { container, unmount } = render(<StepPanelSlot units={CM} slice={3} />);
       expect(container.firstChild, step).toBeNull();

@@ -41,6 +41,7 @@ export type FeatureKind =
   | 'bottom-feature'
   | 'built-in-rail'
   | 'deck-shape'
+  | 'tail-shape'
   | 'shortcut';
 
 export interface DocEntry {
@@ -135,6 +136,15 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
   ]),
   // The deck shapes of the Deck step's panel (`packages/store/src/rails/deck-shapes.ts`); documented in its section.
   ...entries('deck-shape', '/docs/editing', ['flat', 'domed']),
+  // The tail shapes of the Tail step's picker (`packages/store/src/rails/tail-shapes.ts`); documented in its section.
+  ...entries('tail-shape', '/docs/editing', [
+    'squash',
+    'round',
+    'pin',
+    'diamond',
+    'swallow',
+    'fish',
+  ]),
   ...entries('shortcut', '/docs/shortcuts', [
     'undo',
     'redo',
@@ -159,6 +169,9 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
     'depth-handle',
     'contour-law-key',
     'plan-station',
+    // The Tail step's round handles: keys of the focused handle, live in the workspace only.
+    'tail-corner-handle',
+    'tail-width-handle',
     'cross-section-blur',
     'view-1',
     'view-2',

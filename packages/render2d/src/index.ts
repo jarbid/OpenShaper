@@ -59,7 +59,12 @@ export {
   type EditorOverlays,
 } from './draw';
 export { reflectSpline } from './sides';
-export { SplineEditor, type SplineEditorProps, type Calibration } from './SplineEditor';
+export {
+  SplineEditor,
+  type Calibration,
+  type EditorFrame,
+  type SplineEditorProps,
+} from './SplineEditor';
 export {
   solveSimilarity,
   scaleFromTypedLength,

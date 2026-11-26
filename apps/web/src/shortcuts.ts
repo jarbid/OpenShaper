@@ -285,6 +285,22 @@ export const SHORTCUTS: readonly Shortcut[] = [
     scope: 'workspace',
   },
   {
+    id: 'tail-corner-handle',
+    keys: '↑ ↓',
+    label:
+      'Tail step, with a corner’s round handle focused: ↑ is a larger radius and ↓ a smaller, a step of the unit each press (⇧ or Page Up and Page Down ten times; Home and End: the least and the most)',
+    group: 'Edit',
+    scope: 'workspace',
+  },
+  {
+    id: 'tail-width-handle',
+    keys: '↑ ↓',
+    label:
+      'Tail step, with the width handle focused: ↑ is a wider tail and ↓ a narrower one, a step of the unit each press (⇧ or Page Up and Page Down ten times; Home and End: the least and the most)',
+    group: 'Edit',
+    scope: 'workspace',
+  },
+  {
     id: 'cross-section-blur',
     keys: 'Esc',
     label: 'Clear the selected point, handle, or station marker',

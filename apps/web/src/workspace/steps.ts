@@ -153,7 +153,9 @@ export const DESIGN_STEPS: readonly DesignStep[] = [
     icon: Fish,
     key: '6',
     drawing: { editor: 'outline', title: 'Outline: tail' },
-    sidebar: { view: 'outline', tab: 'shape', open: ['boardShape'] },
+    // the tail panel has the tail's own controls, so the sidebar shows the board's numbers (the Specs tab) and not the
+    // Board shape section, whose tail choice would stand beside it; that section is in the Shape tab
+    sidebar: { view: 'outline', tab: 'specs' },
   },
   {
     kind: 'design',

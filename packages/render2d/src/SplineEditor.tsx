@@ -24,6 +24,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from 'react';
 import type { StoreApi } from 'zustand/vanilla';
 import { buildContextMenuItems } from './context-menu-items';
@@ -63,11 +64,13 @@ import {
   reframeForSize,
   paneToTurnedCanvas,
   screenToWorld,
+  turnedCanvasToPane,
   turnFitsLarger,
   viewportCenter,
   viewportFromCenter,
   worldToScreen,
   zoomAt,
+  type Bounds,
   type ScreenPoint,
   type ViewCenter,
   type Viewport,
@@ -80,6 +83,20 @@ import {
   worldToImg,
   type SimilarityParams,
 } from './trace-transform';
+
+/**
+ * How a world point (board cm, y up) lies on the pane as the editor draws it now, for something laid over the canvas:
+ * pane pixels from the pane's top-left, the board turned nose-up included. It is new on every pan and zoom.
+ */
+export interface EditorFrame {
+  /** Pixels per cm. */
+  readonly scale: number;
+  /** The pane's size in pixels. */
+  readonly width: number;
+  readonly height: number;
+  readonly toPane: (world: Vec2) => ScreenPoint;
+  readonly fromPane: (pane: ScreenPoint) => Vec2;
+}
 
 export interface SplineEditorProps {
   store: StoreApi<BoardState>;
@@ -216,6 +233,17 @@ export interface SplineEditorProps {
    * so passing this can never shrink anything.
    */
   allowTurn?: boolean;
+  /**
+   * The world box the editor frames in place of its curves' own: for the first fit, a refit and the fit command (a
+   * double-click on empty canvas), and the turn decision. A box that is a new object while the curves are the
+   * same moves nothing: it is read when a fit is made.
+   */
+  frame?: Bounds;
+  /**
+   * Something laid over the canvas, inside the pane: it is given where the world lies on the pane now
+   * ({@link EditorFrame}) and draws and handles its own pointer. It is called on every render of the editor.
+   */
+  overlay?: (frame: EditorFrame) => ReactNode;
   className?: string;
 }
 
@@ -481,6 +509,8 @@ export function SplineEditor({
   initialView,
   onViewChange,
   allowTurn = false,
+  frame,
+  overlay,
   className,
 }: SplineEditorProps) {
   // A split pane draws each half where it is (no mirror) and reflects the minus one; see ./sides.ts.
@@ -599,13 +629,14 @@ export function SplineEditor({
    */
   const bounds = useMemo(() => {
     if (!board) return null;
+    if (frame) return frame;
     const all = targets.flatMap((t) => sampleSpline(viewSpline(board, t, axis)));
     if (all.length === 0) return null;
     let pts = all;
     if (mirrorY) pts = pts.flatMap((p) => [p, { x: p.x, y: -p.y }]);
     if (mirrorX) pts = pts.flatMap((p) => [p, { x: -p.x, y: p.y }]);
     return boundsOf(pts);
-  }, [board, targets, mirrorX, mirrorY, axis]);
+  }, [board, targets, mirrorX, mirrorY, axis, frame]);
 
   /**
    * TURNED: draw the board nose-up, by rotating the canvas ELEMENT rather than the
@@ -651,6 +682,10 @@ export function SplineEditor({
   // last applied one so a later carry-over still starts from the right centre.
   const framedSize = useRef({ w: 0, h: 0 });
   const framedKey = useRef<string | null>(null);
+  // The viewport the last fit made. With a `frame`, a resize of a framing that is still that viewport (nothing has panned or
+  // zoomed it) is fitted again: the frame is the framing the owner asked for, and a pane whose height is still settling would
+  // otherwise leave a tight frame at the scale of its first, smaller size. A framing the user moved is carried over, as always.
+  const fitted = useRef<Viewport | null>(null);
   useEffect(() => {
     if (!board || size.w === 0) return;
     const prev = framedSize.current;
@@ -672,15 +707,32 @@ export function SplineEditor({
       // over would still shift it by half the size delta.
       if (drag.current || pinch.current) return;
       framedSize.current = { w: size.w, h: size.h };
+      if (frame && bounds && vp !== null && vp === fitted.current) {
+        fitted.current = fitToBounds(bounds, size.w, size.h);
+        setVp(fitted.current);
+        return;
+      }
       setVp((cur) => (cur ? reframeForSize(cur, prev.w, prev.h, size.w, size.h) : cur));
       return;
     }
 
     if (!bounds) return;
     framedSize.current = { w: size.w, h: size.h };
-    setVp(fitToBounds(bounds, size.w, size.h));
+    fitted.current = fitToBounds(bounds, size.w, size.h);
+    setVp(fitted.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, board === null, size.w, size.h]);
+
+  // A `frame` that changes (the owner framing something else: another tail shape) is fitted to again, on the same terms as
+  // a resize: while the view is still the last fit and nothing is being dragged. A view the user has moved stays as it is.
+  const frameBox = frame ? `${frame.minX},${frame.maxX},${frame.minY},${frame.maxY}` : '';
+  useEffect(() => {
+    if (!frame || !bounds || size.w === 0 || vp === null || vp !== fitted.current) return;
+    if (drag.current || pinch.current) return;
+    fitted.current = fitToBounds(bounds, size.w, size.h);
+    setVp(fitted.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frameBox]);
 
   // Report the current framing (world center + zoom) for persistence. The
   // callback lives in a ref so a new identity per owner render doesn't refire.
@@ -916,7 +968,8 @@ export function SplineEditor({
   // Re-home the view to fit the curves (shared by double-click and the context menu).
   const fitView = useCallback(() => {
     if (!bounds || size.w === 0) return;
-    setVp(fitToBounds(bounds, size.w, size.h));
+    fitted.current = fitToBounds(bounds, size.w, size.h);
+    setVp(fitted.current);
   }, [bounds, size.w, size.h]);
 
   // Respond to imperative view commands (fit / lifeSize) driven by the seq counter.
@@ -1683,6 +1736,7 @@ export function SplineEditor({
         onDoubleClick={onDoubleClick}
         onWheel={onWheel}
       />
+      {overlay && vp && size.w > 0 && overlay(paneFrame(vp, size, turned))}
       {readout && hover && !calibration && <ReadoutHud rows={readout(hover)} />}
       {calibration && <CalibrationHud text={calibrationHint(calibration)} />}
       {menu && (
@@ -1690,6 +1744,20 @@ export function SplineEditor({
       )}
     </div>
   );
+}
+
+/** Where the world lies on the pane: the canvas's own mapping, turned into the pane's axes when the board is drawn nose-up. */
+function paneFrame(vp: Viewport, size: { w: number; h: number }, turned: boolean): EditorFrame {
+  return {
+    scale: vp.scale,
+    width: turned ? size.h : size.w,
+    height: turned ? size.w : size.h,
+    toPane: (world) => {
+      const canvas = worldToScreen(vp, world);
+      return turned ? turnedCanvasToPane(canvas, size.w) : canvas;
+    },
+    fromPane: (pane) => screenToWorld(vp, turned ? paneToTurnedCanvas(pane, size.w) : pane),
+  };
 }
 
 /** Small corner HUD showing live measurements at the hovered point. */

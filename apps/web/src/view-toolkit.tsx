@@ -15,6 +15,8 @@ import {
 import {
   MEASURE_COLORS,
   SplineEditor,
+  type Bounds,
+  type EditorFrame,
   type EditorOverlays,
   type SectionMarker,
 } from '@openshaper/render2d';
@@ -625,6 +627,8 @@ export function EditorPane({
   railsTargets,
   railsCurve,
   curveControl,
+  frame,
+  overlay,
 }: {
   title: string;
   /** Replaces the pane heading — the split layout puts its pane picker here. */
@@ -667,6 +671,10 @@ export function EditorPane({
   railsCurve?: RailsCurve;
   /** The Deck | Bottom control, kept in the header beside the point editor. */
   curveControl?: React.ReactNode;
+  /** The world box the editor frames instead of its curves' own (the Tail step's zoom on the tail). */
+  frame?: Bounds;
+  /** Something laid over the editor, given where the board lies on the pane (the Tail step's round handles). */
+  overlay?: (frame: EditorFrame) => React.ReactNode;
 }) {
   // Stable across re-renders so the editor's target set (and the SplineEditor
   // re-fit/draw effects keyed on it) only changes when the pane actually changes.
@@ -679,7 +687,9 @@ export function EditorPane({
   // rather than on width so a narrow desktop window does not suddenly rotate under
   // a mouse; whether the turn actually helps is then decided per pane inside
   // `SplineEditor`, which is what keeps it from ever making a pane worse.
-  const allowTurn = useIsCoarsePointer() && kind !== 'crossSection';
+  // a plan the caller frames keeps its orientation: whether the turn fits it larger follows the frame, which changes with the
+  // tail's shape and width, and the plan must not turn under the hand
+  const allowTurn = useIsCoarsePointer() && kind !== 'crossSection' && frame === undefined;
   return (
     // `h-full` is load-bearing: in the quad layouts the pane is a grid item and
     // stretches on its own, but a maximized pane's parent is a plain block, so
@@ -748,6 +758,8 @@ export function EditorPane({
           viewCommand={viewCommand}
           initialView={initialView}
           onViewChange={onViewChange}
+          frame={frame}
+          overlay={overlay}
         />
       </PanelBody>
     </Panel>

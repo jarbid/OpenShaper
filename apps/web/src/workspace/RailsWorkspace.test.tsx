@@ -152,8 +152,7 @@ describe('the sidebar', () => {
     resetWorkspaceStep();
     const { onSidebar } = setup();
     const state = apply(onSidebar.mock.calls[0]![0]);
-    expect(state.activeTab).toBe('shape');
-    expect(state.open).toContain('boardShape');
+    expect(state.activeTab).toBe('specs');
   });
 
   it('is not asked again for a step it already has', () => {

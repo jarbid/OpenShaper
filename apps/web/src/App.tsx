@@ -161,6 +161,7 @@ import { DeckStep } from './workspace/DeckStep';
 import { RailsStep } from './workspace/RailsStep';
 import { RailsWorkspace } from './workspace/RailsWorkspace';
 import { StepPanelSlot } from './workspace/StepPanelSlot';
+import { TailStep } from './workspace/TailStep';
 import { stepById, type StepCurve, type StepId } from './workspace/steps';
 import { claimPatchesDefault, setWorkspaceStep } from './workspace/use-step';
 import {
@@ -2243,6 +2244,25 @@ function AppShell() {
               key={editor}
               {...editorPaneProps(editor, { title: drawing.title, curve: drawing.curve })}
               curveControl={curveControl}
+            />
+          )}
+        />
+      );
+    }
+    // the Tail step draws the outline zoomed on the tail, with a round handle on each corner; its framing is its own
+    if (id === 'tail') {
+      const editor = drawing.editor;
+      return (
+        <TailStep
+          units={units}
+          renderEditor={(tail) => (
+            <EditorPane
+              key="tail"
+              {...editorPaneProps(editor, { title: drawing.title })}
+              initialView={undefined}
+              onViewChange={undefined}
+              frame={tail.frame}
+              overlay={tail.overlay}
             />
           )}
         />

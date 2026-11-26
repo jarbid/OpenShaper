@@ -120,7 +120,8 @@ describe('a design step', () => {
     // the contours are in the panel, so the old Bottom features section is shut
     expect(stepById('bottom').sidebar).toMatchObject({ tab: 'shape', shut: ['bottomFeatures'] });
     expect(stepById('bottom').sidebar.open).toBeUndefined();
-    expect(stepById('tail').sidebar).toMatchObject({ tab: 'shape', open: ['boardShape'] });
+    // the tail panel has its own controls, so the sidebar shows the Specs tab
+    expect(stepById('tail').sidebar).toEqual({ view: 'outline', tab: 'specs' });
     expect(stepById('fins').sidebar).toMatchObject({ tab: 'build', open: ['fins'] });
   });
 });

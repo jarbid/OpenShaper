@@ -84,6 +84,14 @@ import { halfWidthFn, isNotched } from './measure';
 import { insertStation } from './station-insert';
 import { projectRails } from './project';
 import { setNotchDepth, setSymmetry, setTail } from './shape';
+import {
+  applyTailShape,
+  setCornerRadius,
+  tailShapeAt,
+  type TailShapeId,
+  type TailShapeRequest,
+  type TailSide,
+} from './tail-shapes';
 import type { RailRecipe, RailsSlices } from './types';
 import {
   TIDY_TOLERANCE,
@@ -206,6 +214,18 @@ export interface RailsState extends BoardState {
    */
   setDeckShape: (request: DeckShapeRequest, scope: DeckScope, side?: DeckSide) => void;
   /**
+   * Apply a tail shape (`tail-shapes.ts`) to the tail, on both sides of the board or the one named. One undo
+   * step, and nothing recorded when the tail already is the shape at those numbers. In a drag (`beginEdit` …
+   * `endEdit`) every call is computed from the document the drag began with, so a width or a notch depth is a
+   * function of the pointer.
+   */
+  setTailShape: (request: TailShapeRequest, side?: TailSide) => void;
+  /**
+   * Set the radius of a corner of the tail (`setCornerRadius` of `tail-shapes.ts`): a corner knot by its place
+   * among its side's corner knots, or `'tail'` for the notch crotch or the tail point. One undo step per drag.
+   */
+  setCornerRadius: (corner: number | 'tail', radius: number, side?: TailSide) => void;
+  /**
    * A station added at `x` whose curves follow both neighbours' even where they are made of different
    * numbers of knots (`station-insert.ts`); `addCrossSection` is the same station under the old
    * layout's name for it. Returns the new station's classic slice index, or -1 for an `x` that cannot
@@ -286,6 +306,23 @@ const plain = (t: SplineTarget): SplineTarget => {
 /** A target of the plus board as the store names it on the minus half. */
 const onMinus = (t: SplineTarget): SplineTarget =>
   t.kind === 'deck' || t.kind === 'bottom' ? t : { ...t, side: 'minus' };
+
+const TAIL_NAMES: Record<TailShapeId, string> = {
+  squash: 'Squash',
+  round: 'Round',
+  pin: 'Pin',
+  diamond: 'Diamond',
+  swallow: 'Swallow',
+  fish: 'Fish',
+};
+
+/** The name of the undo step of a tail edit: the shape chosen, or the number that was moved on the shape it already has. */
+const tailLabel = (request: TailShapeRequest, was: string): string =>
+  was !== request.shape
+    ? `${TAIL_NAMES[request.shape]} tail`
+    : request.notch !== undefined && request.width === undefined
+      ? 'Set notch depth'
+      : 'Set tail width';
 
 /** The slices of the stations `doc` still has: a station that leaves the document takes its slice with it. */
 function pruneSlices(slices: RailsSlices | null, doc: RailsBoard): RailsSlices | null {
@@ -671,6 +708,22 @@ export const createRailsStore = (): StoreApi<RailsState> =>
         // a selected knot of a curve that now has other knots is no longer there
         const s = get();
         if (s.board) set(selectionAfterHistory(board, s.board, s.selection, s.selectedFin));
+      },
+      setTailShape: (request, side) => {
+        const { doc, board } = get();
+        if (!doc || !board) return;
+        const next = applyTailShape(dragOrigin ?? doc, request, side);
+        if (next === doc) return;
+        const was = tailShapeAt(doc).shape;
+        commitDoc(next, tailLabel(request, was));
+        // the outline's knots are new ones: a selected knot may no longer be there
+        const s = get();
+        if (s.board) set(selectionAfterHistory(board, s.board, s.selection, s.selectedFin));
+      },
+      setCornerRadius: (corner, radius, side) => {
+        const { doc } = get();
+        if (!doc) return;
+        commitDoc(setCornerRadius(doc, corner, radius, side), 'Set corner radius');
       },
       insertStation: (x) => {
         const { doc } = get();

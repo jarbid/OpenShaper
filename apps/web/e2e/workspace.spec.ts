@@ -71,8 +71,9 @@ test.describe('the workspace', () => {
     const section = (name: string) => aside.getByRole('button', { name, exact: true });
 
     await entry(page, 'Tail').click();
-    await expect(page.getByRole('tab', { name: 'Shape' })).toHaveAttribute('aria-selected', 'true');
-    await expect(section('Board shape')).toHaveAttribute('aria-expanded', 'true');
+    // the tail panel has the tail's own controls: the sidebar shows the Specs tab, and Board shape waits in the Shape tab
+    await expect(page.getByRole('tab', { name: 'Specs' })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('region', { name: 'Tail panel' })).toBeVisible();
 
     await entry(page, 'Fins').click();
     await expect(page.getByRole('tab', { name: 'Build' })).toHaveAttribute('aria-selected', 'true');

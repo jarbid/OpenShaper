@@ -269,14 +269,16 @@ describe('the drawing', () => {
 });
 
 describe('the sidebar follows the step', () => {
-  it('shows the Shape tab with Board shape open for Tail', async () => {
+  it('shows the Specs tab for Tail, whose panel has the tail’s own controls, and not Board shape beside it', async () => {
     setTier('desktop');
     await openRailsBoard();
     fireEvent.click(entry('Tail'));
-    expect(tab('Shape').getAttribute('aria-selected')).toBe('true');
-    expect(
-      sidebar().getByRole('button', { name: 'Board shape' }).getAttribute('aria-expanded'),
-    ).toBe('true');
+    expect(tab('Specs').getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('region', { name: 'Tail panel' })).toBeTruthy();
+    // Board shape is in the Shape tab, which is not the one showing
+    expect(sidebar().queryByRole('button', { name: 'Board shape' })).toBeNull();
+    fireEvent.click(tab('Shape'));
+    expect(sidebar().getByRole('button', { name: 'Board shape' })).toBeTruthy();
   });
 
   it('shows the Build tab with the fins open for Fins, and shuts them again for Outline', async () => {
