@@ -240,8 +240,8 @@ when it lands. Status is as of 2026-11-20.
 | 2   | **Rails boards are the document** | Every board opens in the new format and is built by the new engine alone. In today's layout: outline and rocker as now; the cross-section tab shows a station's deck and bottom curves, editable, and its rail, drawn | Round trip and undo; every export; old files convert; the engine switches are gone                                     | Built behind the two experimental switches, with the old layout. The switches are still there and the classic engine is still the default. A review found defects in how a rails board arrives, is autosaved and is restored (below)   |
 | 3   | **The new layout and the looks**  | The design list, the board always in view, the drawing, the panel. Look with Patches and everything the app has. Tap a patch to choose. Today's tools in their new places                                             | Every step reachable by list, key and tap; tablet layout; no step slower than before                                   | The workspace, the Patches look as its working look (seams, a darker tuck, a key) and a tap that chooses a step are in, behind the two switches, with the one Look control and a Show menu. Next: the plan's step-driven looks         |
 | 4   | **Rail zones**                    | The rail map; zones and blends, dragged on the map and on the board; the rail panel with its three dials, live slice and More; my rails; Tidy rails                                                                   | Any zone edit keeps a closed board; one side or both; a board's rails survive a save, a share link and another machine | Built behind the two experimental switches: the rail map, the slice and the rail panel, on the zone edits built beside the workspace                                                                                                   |
-| 5   | **Deck and bottom shapes**        | Named deck shapes with a crown dial; bottom contours in the Bottom step; Edit curve; the station strip                                                                                                                | A shape applied and then edited as a curve stays the shaper's                                                          | The Deck step is built behind the two experimental switches: Flat and Domed with a crown, the station strip, Edit curve. The Bottom step is not started                                                                                |
-| 6   | **Tail and corners**              | The tail picker; a radius handle on every corner, in the plan and on the board                                                                                                                                        | Every tail in the picker gives a closed board at every size in the gallery                                             | Not started                                                                                                                                                                                                                            |
+| 5   | **Deck and bottom shapes**        | Named deck shapes with a crown dial; bottom contours in the Bottom step; Edit curve; the station strip                                                                                                                | A shape applied and then edited as a curve stays the shaper's                                                          | Built behind the two experimental switches: the Deck step (Flat and Domed with a crown, the station strip, Edit curve) and the Bottom step (contours with a depth and a run, the bottom seen from below, Edit curve)                   |
+| 6   | **Tail and corners**              | The tail picker; a radius handle on every corner, in the plan and on the board                                                                                                                                        | Every tail in the picker gives a closed board at every size in the gallery                                             | The Tail step is built behind the two experimental switches: six shapes, a tail width and a radius handle on every corner. Wings, and a handle on the board in 3D, are not built                                                       |
 | 7   | **A new board**                   | The gallery of types, then a size                                                                                                                                                                                     | Each type opens at the smallest and largest size it allows                                                             | Built behind the two experimental switches: File, New board… asks for a kind of board and then its size. The five named boards stay in the File menu until the old layout goes                                                         |
 | 8   | **The old engine goes**           | Nothing visible                                                                                                                                                                                                       | Nothing imports the chord frame, the notch zone, the caps or the section editor                                        | Not started. The switches go and the rails engine becomes the default here                                                                                                                                                             |
 
@@ -332,6 +332,26 @@ rails so that the rail map and panel are built once, in their final place.
   that was asked has the crown typed.
 - **The Deck step's drawing is the section from the engine's fine polyline.** The slice behind the
   curve reads the same 400-point answer as the Rails slice, so a rail's bend is not a polygon.
+- **A contour is a bottom feature in a shaper's words, with a depth and a run.** The four kinds of
+  the section store's features (Single concave, Double concave, Vee, Channels) each have one Depth
+  (how far the bottom is raised into the board, or the rails raised for a vee) and a run, From and
+  To, measured from the tail; a kind's own number is on the face and the rest is under More. A run is
+  edited by moving both end keys together with the keys between them keeping their share of it, and
+  the depth and the channels are then held to the new run once, from where a drag began. The depth is
+  also held to half the wall's thickness over the run, which keeps a contour from crossing the deck
+  (before the bound a vee at its greatest depth over 2 cm at a notch bottom left a negative
+  thickness on the fish and the swallow). The Bottom step's drawing is the section at the station
+  with a magnified strip of the relief, and the bottom seen from below with each run as a band; its
+  panel replaces the old Bottom features section in the workspace.
+- **A tail shape is read from the outline and never stored.** Squash, Round, Pin, Diamond, Swallow
+  and Fish are the tail's own knots equal to what applying the shape writes, to 0.1 mm; anything else
+  is Custom. A shape rewrites only the knots before the first at or past 8% of the length (after the
+  tip for a notched tail) and leaves the rail, the nose, the length and every other curve. The
+  width is the width across the corners (tip to tip on a swallow or a fish; where the tail zone ends
+  for a round or a pin), with a range per shape taken from plan sheets of three boards; the engine
+  builds a closed board at every width from about 4% of the board's width, and every shape builds
+  closed at the least and greatest size of each gallery kind. A corner's radius is held between the
+  engine's least arc and what the board can fit.
 
 ## Open items
 
@@ -400,8 +420,9 @@ From the store and the app:
   Add both use) gives the new station the neighbours' curves blended after the one with fewer
   knots has been split at the other's knot places, so the blend never copies a curve. It moves the
   surface by 0.9 mm at most on the boards as shipped and 1.3 mm where every deck is Flat (the
-  blend it replaced: 4.1 and 6.4). An exact insert samples the engine's loft at the place and fits
-  the new curves; it goes through `commitDoc`.
+  blend it replaced: 4.1 and 6.4). An exact insert would take the new curves from the surface's
+  own definition and not from samples of it, which `.claude/CLAUDE.md` principle 2 forbids without
+  the owner's decision, so it is open.
 - Rail keys behind a new notch bottom are kept. An asymmetric board's station of no width
   skips its curve edits when they are written back.
 - The engine info popover still describes the sections engine's blending for a rails board;
@@ -435,6 +456,37 @@ From the Deck step:
   and has no control for one.
 - The crown ranges and the default are measured on the nine shipped and made boards, not on the
   gallery's boards at the ends of their ranges.
+
+From the Bottom step:
+
+- The panel and the plan draw a contour from two closed forms (the bump and the vee profile) that
+  restate the engine's, because the store may not import engine code; a test holds them to the
+  engine's relief within 5e-4 cm. Principle 2 of `.claude/CLAUDE.md` asks for one surface definition:
+  the alternative is to expose the engine's forms from the code-free `defaults` module, an engine
+  change that is the owner's to decide.
+- Rocker, deck and outline edits made after a contour exists do not hold its depth again, and the
+  shared `refitFeatures` holds channels only; holding the depth there also changes the old layout.
+  A contour out of the tail is capped by the shared stringer rule at 1.7 to 5.4 mm on the boards
+  measured; a rule weighted by the contour's shape would give more, and changes the shared `depthRange`.
+- At a station outside the chosen contour's run the relief strip is empty and its handle off; a line
+  and the marked ticks say where the run is, and the station is not moved for the shaper.
+- On a tablet the drawing pane is about 250 px high and the panel sits in the sheet at its peek.
+
+From the Tail step:
+
+- The starter Shortboard and Longboard read Custom, not Squash and Round: the Shortboard has no corner
+  knot at the tail (its one corner knot is the nose's) and the Longboard's second knot is smooth, while
+  the gallery card says "Round tail". Either accept that or make the canonical shapes equal the
+  starters. The Funboard reads Round.
+- Wings are not built: a wing's step lies about 18% of the length from the tail, past the rail knot, which
+  a shape never rewrites; it needs the tail's own knots to reach past it, a family of three numbers and
+  a closedness matrix like the six shapes'. A handle on the board in 3D is not built either: it needs the
+  corner projected to the screen, a ray-plane drag that does not fight the orbit controls, and WebGL tests.
+- On a tablet under touch the drawing pane is about 186 px high and the panel in the sheet shows three of
+  the six shapes at its peek with the dials below the fold; the width handle of a wide squash, round or
+  swallow leaves the pane. A compact peek (shapes and width on one row), a refit when a handle gesture
+  ends, or a taller pane under touch would fix it.
+- The old Board shape section still duplicates the tail choice in the Shape tab until the old sidebar goes.
 
 From the Patches look:
 
