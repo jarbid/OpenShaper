@@ -5,6 +5,7 @@ import {
   knot,
   knotFromArray,
   noFins,
+  refIdAllocator,
   splineFromKnots,
   vec2,
   type BezierBoard,
@@ -12,6 +13,8 @@ import {
   type FinConfig,
   type FinSetup,
   type Knot,
+  type RefPoint,
+  type Vec2,
 } from '@openshaper/kernel';
 import { decryptBrd, isEncryptedBrd, latin1Decode } from './legacy-crypto';
 import type { ImportWarning } from './import-warning';
@@ -53,8 +56,12 @@ const finConfigFromMeta = (finType: unknown): FinConfig => {
  *   - p32 outline   (half-width vs length; width = 2·y)
  *   - p33 bottom    (rocker curve)        — NOTE: legacy field naming is confusing;
  *   - p34 deck      (deck curve)            we map p33→bottom and p34→deck per BrdReader.
- *   - p35 cross-sections — each `(p36 <pos>` group holds a profile spline, optionally
- *     followed by a `gps : ( (gp [...]) )` guide-point block which we skip.
+ *   - p35 cross-sections — each `(p36 <pos>` group holds a profile spline.
+ *
+ * Any of those curves may be followed by a `gps : ( (gp [x,y])* )` guide-point block:
+ * points in the curve's own plane and coordinates. They become reference points
+ * (`kernel/src/reference-points.ts`): p32 → outline, p33/p34 → rocker bottom/deck,
+ * a p36 section's → section points at that section's position.
  *
  * Each control point is a `(cp [endX,endY,prevX,prevY,nextX,nextY] <cont> <other>)`
  * record matching the kernel `knotFromArray` order.
@@ -74,6 +81,8 @@ export interface ParsedBrd {
   readonly board: BezierBoard;
   /** Scalar `pNN` fields keyed by their legacy semantic name (see FIELD_NAMES). */
   readonly metadata: Record<string, BrdMetadataValue>;
+  /** The file's guide points, when it has any. */
+  readonly referencePoints?: readonly RefPoint[];
   /** Non-fatal issues encountered (e.g. truncated trailing group). */
   readonly warnings: ImportWarning[];
 }
@@ -205,8 +214,14 @@ interface Cursor {
   i: number;
 }
 
+const GP_RE = /^\(gp\s*\[\s*([^,\]]+),([^\]]+)\]\s*\)$/;
+
 /** Consume `(cp ...)` records into a knot list, plus an optional `gps : ( ... )` block. */
-const readControlPoints = (cur: Cursor, warnings: ImportWarning[]): Knot[] => {
+const readControlPoints = (
+  cur: Cursor,
+  warnings: ImportWarning[],
+): { knots: Knot[]; guides: Vec2[] } => {
+  const guides: Vec2[] = [];
   const knots: Knot[] = [];
   // Expect (and skip) an opening "(" line; legacy keys (p32/p33/p34) put it on its own line.
   while (cur.i < cur.lines.length) {
@@ -222,7 +237,16 @@ const readControlPoints = (cur: Cursor, warnings: ImportWarning[]): Knot[] => {
   if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim().startsWith('gps')) {
     cur.i++; // consume "gps : ("
     while (cur.i < cur.lines.length && cur.lines[cur.i]!.trim().startsWith('(gp')) {
-      cur.i++; // skip guide point (not part of the kernel board model)
+      const m = cur.lines[cur.i]!.trim().match(GP_RE);
+      const x = Number(m?.[1]);
+      const y = Number(m?.[2]);
+      if (m && Number.isFinite(x) && Number.isFinite(y)) guides.push(vec2(x, y));
+      else
+        warnings.push({
+          severity: 'dropped',
+          message: `guide point at line ${cur.i + 1} is not a valid point; skipped`,
+        });
+      cur.i++;
     }
     if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === ')') {
       cur.i++; // consume the gps closing ")"
@@ -233,24 +257,27 @@ const readControlPoints = (cur: Cursor, warnings: ImportWarning[]): Knot[] => {
       });
     }
   }
-  return knots;
+  return { knots, guides };
 };
 
-const parseSpline = (cur: Cursor, warnings: ImportWarning[]): Knot[] => {
+const parseSpline = (cur: Cursor, warnings: ImportWarning[]): { knots: Knot[]; guides: Vec2[] } => {
   // The field's "(" opener is on the next line after "pNN : (" handling; skip a lone "(".
   if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === '(') cur.i++;
-  const knots = readControlPoints(cur, warnings);
+  const read = readControlPoints(cur, warnings);
   // Consume the field's closing ")".
   if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === ')') cur.i++;
-  return knots;
+  return read;
 };
 
-const parseCrossSections = (
-  cur: Cursor,
-  warnings: ImportWarning[],
-): { position: number; knots: Knot[] }[] => {
+interface ParsedSection {
+  position: number;
+  knots: Knot[];
+  guides: Vec2[];
+}
+
+const parseCrossSections = (cur: Cursor, warnings: ImportWarning[]): ParsedSection[] => {
   if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === '(') cur.i++;
-  const sections: { position: number; knots: Knot[] }[] = [];
+  const sections: ParsedSection[] = [];
   while (cur.i < cur.lines.length) {
     const line = cur.lines[cur.i]!.trim();
     const m = line.match(P36_RE);
@@ -260,7 +287,9 @@ const parseCrossSections = (
       throw new BrdParseError(`(p36 ...) position not a number at line ${cur.i + 1}: ${line}`);
     }
     cur.i++; // consume "(p36 <pos>"
-    let knots = readControlPoints(cur, warnings);
+    const read = readControlPoints(cur, warnings);
+    const guides = read.guides;
+    let knots = read.knots;
     if (knots.length === 0) {
       // An empty section would break every reader of the board downstream. Keep the
       // station (dropping it would shift which ones are the end markers) as one
@@ -271,7 +300,7 @@ const parseCrossSections = (
         message: `cross-section at position ${pos} had no points; kept as an empty station`,
       });
     }
-    sections.push({ position: pos, knots });
+    sections.push({ position: pos, knots, guides });
     // Consume this section's closing ")".
     if (cur.i < cur.lines.length && cur.lines[cur.i]!.trim() === ')') {
       cur.i++;
@@ -308,7 +337,8 @@ export const parseBrd = (text: string): ParsedBrd => {
   let outline: Knot[] | null = null;
   let bottom: Knot[] | null = null;
   let deck: Knot[] | null = null;
-  let sections: { position: number; knots: Knot[] }[] = [];
+  let sections: ParsedSection[] = [];
+  const guides = { outline: [] as Vec2[], bottom: [] as Vec2[], deck: [] as Vec2[] };
 
   const cur: Cursor = { lines, i: 0 };
 
@@ -340,13 +370,13 @@ export const parseBrd = (text: string): ParsedBrd => {
     // ("p32 : (") or on its own; the spline/cross-section parsers handle a lone "(".
     switch (id) {
       case 32:
-        outline = parseSpline(cur, warnings);
+        ({ knots: outline, guides: guides.outline } = parseSpline(cur, warnings));
         break;
       case 33:
-        bottom = parseSpline(cur, warnings);
+        ({ knots: bottom, guides: guides.bottom } = parseSpline(cur, warnings));
         break;
       case 34:
-        deck = parseSpline(cur, warnings);
+        ({ knots: deck, guides: guides.deck } = parseSpline(cur, warnings));
         break;
       case 35:
         sections = parseCrossSections(cur, warnings);
@@ -381,7 +411,27 @@ export const parseBrd = (text: string): ParsedBrd => {
     finConfigFromMeta(metadata.finType),
   );
 
-  return { board: built, metadata, warnings };
+  const nextId = refIdAllocator([]);
+  const referencePoints: RefPoint[] = [
+    ...guides.outline.map((p): RefPoint => ({ id: nextId(), plane: 'outline', x: p.x, y: p.y })),
+    ...(['bottom', 'deck'] as const).flatMap((curve) =>
+      guides[curve].map(
+        (p): RefPoint => ({ id: nextId(), plane: 'rocker', curve, x: p.x, y: p.y }),
+      ),
+    ),
+    ...sections.flatMap((s) =>
+      s.guides.map(
+        (p): RefPoint => ({ id: nextId(), plane: 'section', station: s.position, x: p.x, y: p.y }),
+      ),
+    ),
+  ];
+
+  return {
+    board: built,
+    metadata,
+    ...(referencePoints.length ? { referencePoints } : {}),
+    warnings,
+  };
 };
 
 /**

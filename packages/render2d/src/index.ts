@@ -58,6 +58,7 @@ export {
   type SectionHandle,
   type EditorOverlays,
 } from './draw';
+export { drawMeasuredStations, drawRefPoints, hitRefPoint, REF_POINT_COLOR } from './ref-points';
 export { reflectSpline } from './sides';
 export {
   SplineEditor,

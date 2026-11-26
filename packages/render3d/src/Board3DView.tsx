@@ -68,6 +68,7 @@ import { Fins3D } from './Fins3D';
 import { Guides3D } from './Guides3D';
 import { PatchSurface } from './PatchSurface';
 import type { PatchPick, PatchSelection, RailZones } from './patches';
+import { RefPoints3D } from './RefPoints3D';
 import {
   objectCenteredRotation,
   rotateViewAboutOrigin,
@@ -151,6 +152,10 @@ export interface Board3DViewProps {
   showApex?: boolean;
   /** Board-length position of the active cross-section, drawn in cyan. */
   activeSectionX?: number | null;
+  /** Draw the board's reference points on the hull (defaults to false). */
+  showRefPoints?: boolean;
+  /** Gap (cm) reference points are judged against, for their colour; omitted = plain. */
+  refTolerance?: number;
   /**
    * Restored orbit pose applied at mount instead of the default framing, so a
    * reloaded session reopens with the camera where it was. Pass a stable
@@ -888,12 +893,16 @@ export function Board3DView({
   showSections = false,
   showApex = false,
   activeSectionX = null,
+  showRefPoints = false,
+  refTolerance,
   initialCamera,
   defaultView,
   onCameraChange,
   className,
 }: Board3DViewProps) {
   const board = useSyncExternalStore(store.subscribe, () => store.getState().board);
+  const refPoints = useSyncExternalStore(store.subscribe, () => store.getState().refPoints);
+  const selectedRef = useSyncExternalStore(store.subscribe, () => store.getState().selectedRef);
   const span = board ? boardSpan(board) : 200;
   const d = span * 1.1;
   // A board that opens in three quarters is fitted by its silhouette, not by its length (see
@@ -915,7 +924,8 @@ export function Board3DView({
     (showStringer ? 1 : 0) |
     (showSections ? 2 : 0) |
     (showApex ? 4 : 0) |
-    (board && !standalone && board.fins.setup !== 'none' ? 8 : 0);
+    (board && !standalone && board.fins.setup !== 'none' ? 8 : 0) |
+    (showRefPoints && refPoints.length > 0 ? 16 : 0);
   // Fins and guides sit on a live surface by its own centre (no hull to wait for), built for a board that
   // follows the drag at a lower priority, so a burst of edits does not build them for each one.
   const liveCentre = surface?.tracking === 'live' ? ownSurfaceCenter(surface) : null;
@@ -987,6 +997,15 @@ export function Board3DView({
             targetFaceSize={targetFaceSize}
             color={finColor}
             surfaceCentre={liveCentre}
+          />
+        )}
+        {board && showRefPoints && refPoints.length > 0 && (
+          <RefPoints3D
+            board={board}
+            targetFaceSize={targetFaceSize}
+            points={refPoints}
+            selectedId={selectedRef}
+            tolerance={refTolerance}
           />
         )}
         {board && !standalone && (showStringer || showSections || showApex) && (

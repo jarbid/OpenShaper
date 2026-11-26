@@ -23,7 +23,7 @@
  */
 import type { BoardDoc, RailsBoard } from '@openshaper/board2';
 import { encodeShareFragment, encodeShareText, shareCodecSupported } from '@openshaper/io';
-import type { BezierBoard } from '@openshaper/kernel';
+import type { BezierBoard, RefPoints } from '@openshaper/kernel';
 import { Button, Input, Panel, PanelBody, PanelHeader, PanelTitle } from '@openshaper/ui';
 import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import type { BoardMeta } from './file-io';
@@ -64,6 +64,11 @@ export interface ShareDialogProps {
    * envelope, the document's text as the payload), not the classic projection `board`.
    */
   sections?: BoardDoc | RailsBoard | null;
+  /**
+   * Travel in a classic board's link, like everything else saved with the board. A NURBS document
+   * holds none, so a link made from `sections` carries none.
+   */
+  refPoints?: RefPoints;
   meta: BoardMeta;
   /** The same setter the sidebar's Board info panel uses. */
   setMeta: Dispatch<SetStateAction<BoardMeta>>;
@@ -74,9 +79,13 @@ export interface ShareDialogProps {
   onClose: () => void;
 }
 
+/** A stable empty default, so an omitted prop does not re-encode the link every render. */
+const NO_REF_POINTS: RefPoints = [];
+
 export function ShareDialog({
   board,
   sections = null,
+  refPoints = NO_REF_POINTS,
   meta,
   setMeta,
   onCopied,
@@ -106,7 +115,7 @@ export function ShareDialog({
     setState({ kind: 'encoding' });
     const fragment = sections
       ? docText(sections, meta).then(encodeShareText)
-      : encodeShareFragment(board, metadata);
+      : encodeShareFragment(board, metadata, refPoints);
     void fragment.then(
       (fragment) => {
         if (!cancelled) setState({ kind: 'ready', url: buildShareUrl(fragment) });
@@ -118,7 +127,7 @@ export function ShareDialog({
     return () => {
       cancelled = true;
     };
-  }, [board, sections, meta, metadata]);
+  }, [board, sections, refPoints, meta, metadata]);
 
   // The manual field only exists once the clipboard has refused, and the point
   // of it is that Ctrl+C works immediately.

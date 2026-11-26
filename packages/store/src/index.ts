@@ -6,6 +6,13 @@ export {
   type Selection,
 } from './board-store';
 export {
+  addRefPoint,
+  addRefPoints,
+  deleteRefPoint,
+  nextRefPointId,
+  refPointDraftAt,
+  refPointInPane,
+  updateRefPoint,
   alignTangentsHorizontal,
   alignTangentsVertical,
   blankLocks,
@@ -44,6 +51,7 @@ export {
   type KnotHandles,
   type LockedAxes,
   type RailsProjection,
+  type RefPointDraft,
   type SidedBoard,
   type SplineTarget,
   type StationHalf,

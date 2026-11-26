@@ -4,7 +4,14 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { Head } from 'vite-react-ssg';
 import { Brandmark, WaveLines } from '../components/marks';
 import { CoffeeIcon } from '../components/Support';
-import { CONTACT_EMAIL, CONTACT_MAILTO, GITHUB_URL, SITE_NAME } from '../seo/site';
+import {
+  CONTACT_EMAIL,
+  CONTACT_MAILTO,
+  GITHUB_URL,
+  INSTAGRAM_HANDLE,
+  INSTAGRAM_URL,
+  SITE_NAME,
+} from '../seo/site';
 import { SUPPORT_URL } from '../support';
 import '../marketing.css';
 
@@ -20,6 +27,26 @@ function GithubIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
       <path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.2.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.8 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.5-2.7 5.5-5.3 5.8.4.4.8 1.1.8 2.2v3.3c0 .4.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5Z" />
+    </svg>
+  );
+}
+
+/** Line-art camera glyph (stroke, like the rest of the marketing iconography). */
+function InstagramIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <rect x="2.5" y="2.5" width="19" height="19" rx="5.5" />
+      <circle cx="12" cy="12" r="4.2" />
+      <circle cx="17.4" cy="6.6" r="0.6" fill="currentColor" stroke="none" />
     </svg>
   );
 }
@@ -91,6 +118,15 @@ export function MarketingLayout() {
             >
               <GithubIcon className="h-5 w-5" />
             </a>
+            <a
+              href={INSTAGRAM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`OpenShaper on Instagram (${INSTAGRAM_HANDLE})`}
+              className="hidden rounded-md p-2 text-muted-foreground transition-colors hover:text-foreground sm:inline-flex"
+            >
+              <InstagramIcon className="h-5 w-5" />
+            </a>
             <Link to="/app" className={cn(buttonVariants({ size: 'sm' }), 'shadow-sm')}>
               Open the app
             </Link>
@@ -141,6 +177,20 @@ export function MarketingLayout() {
                 {CONTACT_EMAIL}
               </a>
             </p>
+            <a
+              href={INSTAGRAM_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group mt-4 inline-flex max-w-sm items-center gap-2.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <InstagramIcon className="size-5 shrink-0 text-primary transition-transform group-hover:-translate-y-px" />
+              <span>
+                Share and tag your board builds with{' '}
+                <span className="font-medium text-foreground group-hover:text-primary">
+                  {INSTAGRAM_HANDLE}
+                </span>
+              </span>
+            </a>
           </div>
 
           <div>
@@ -202,6 +252,16 @@ export function MarketingLayout() {
                   className="text-muted-foreground hover:text-foreground"
                 >
                   Source on GitHub
+                </a>
+              </li>
+              <li>
+                <a
+                  href={INSTAGRAM_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  Instagram {INSTAGRAM_HANDLE}
                 </a>
               </li>
               {SUPPORT_URL && (

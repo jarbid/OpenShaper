@@ -36,6 +36,7 @@ export type SectionId =
   | 'fins'
   | 'weight'
   | 'trace'
+  | 'refPoints'
   | 'history'
   | 'compare';
 
@@ -184,6 +185,14 @@ export const SIDEBAR_SECTIONS: readonly SidebarSection[] = [
     tab: 'reference',
     // The two views that can hold a trace at all.
     relevantTo: ['outline', 'rocker'],
+    defaultOpen: false,
+  },
+  {
+    id: 'refPoints',
+    title: 'Reference points',
+    tab: 'reference',
+    // Measurements are entered on purpose, not implied by a view.
+    relevantTo: [],
     defaultOpen: false,
   },
   { id: 'history', title: 'History', tab: 'reference', relevantTo: [], defaultOpen: false },

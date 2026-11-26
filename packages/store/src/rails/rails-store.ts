@@ -37,7 +37,12 @@ import {
   type SplineActionNames,
   type SplineActions,
 } from '../board-actions';
-import { selectionAfterHistory, type BoardState, type HistoryEntry } from '../board-store';
+import {
+  noReferencePoints,
+  selectionAfterHistory,
+  type BoardState,
+  type HistoryEntry,
+} from '../board-store';
 import { minusHalf, moveKnotEnd, type RailsProjection, type SplineTarget } from '../edits';
 import { createHistory, type HistoryHost } from '../history';
 import {
@@ -350,11 +355,12 @@ export const createRailsStore = (): StoreApi<RailsState> =>
     };
 
     const history = createHistory<RailsState, RailsHistoryEntry>(get, set, {
-      snapshot: (s, label) => (s.doc && s.board ? { doc: s.doc, board: s.board, label } : null),
+      snapshot: (s, label) =>
+        s.doc && s.board ? { doc: s.doc, board: s.board, refPoints: s.refPoints, label } : null,
       restore: (s, entry) => {
         const next = show(entry.doc);
         return {
-          ...selectionAfterHistory(s.board!, next.board!, s.selection, s.selectedFin),
+          ...selectionAfterHistory(s.board!, next.board!, entry.refPoints, s),
           ...next,
         };
       },
@@ -532,6 +538,7 @@ export const createRailsStore = (): StoreApi<RailsState> =>
       adjustThickness: true,
       selection: null,
       selectedFin: null,
+      ...noReferencePoints,
 
       loadDoc: (doc) => {
         dragOrigin = null;
@@ -707,7 +714,7 @@ export const createRailsStore = (): StoreApi<RailsState> =>
         );
         // a selected knot of a curve that now has other knots is no longer there
         const s = get();
-        if (s.board) set(selectionAfterHistory(board, s.board, s.selection, s.selectedFin));
+        if (s.board) set(selectionAfterHistory(board, s.board, s.refPoints, s));
       },
       setTailShape: (request, side) => {
         const { doc, board } = get();
@@ -718,7 +725,7 @@ export const createRailsStore = (): StoreApi<RailsState> =>
         commitDoc(next, tailLabel(request, was));
         // the outline's knots are new ones: a selected knot may no longer be there
         const s = get();
-        if (s.board) set(selectionAfterHistory(board, s.board, s.selection, s.selectedFin));
+        if (s.board) set(selectionAfterHistory(board, s.board, s.refPoints, s));
       },
       setCornerRadius: (corner, radius, side) => {
         const { doc } = get();

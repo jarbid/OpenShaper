@@ -79,6 +79,7 @@ import {
   type TabId,
 } from './sidebar-sections';
 import { activeStore, docStore } from './store';
+import { ReferencePointsPanel } from './ReferencePointsPanel';
 import { MeasurementAxisSelect, OverlayToggle, Sel, SpecRow, UnitSelect } from './view-toolkit';
 import type { Longitudinal, MeasurementAxis } from './longitudinal';
 import { sectionHelp, type ToolbarHelpId } from './help-text';
@@ -218,6 +219,11 @@ export interface SidebarProps {
   onUnitChange?: (key: string) => void;
   /** Converts board-length positions (wide point, centre of mass) for display. */
   longitudinal: Longitudinal;
+  /** Index of the cross-section the section view shows (new section reference points go there). */
+  activeSection: number;
+  /** Gap (cm) reference points are judged against. */
+  refTolerance: number;
+  onRefToleranceChange: (cm: number) => void;
   onMeasurementAxisChange?: (axis: MeasurementAxis) => void;
   /**
    * The NURBS document is open for editing: the Board shape section (symmetry, tail type, notch depth)
@@ -255,9 +261,16 @@ export const Sidebar = memo(function Sidebar({
   onUnitChange,
   longitudinal,
   onMeasurementAxisChange,
+  activeSection,
+  refTolerance,
+  onRefToleranceChange,
   nurbsEngine = false,
 }: SidebarProps) {
   const past = useSyncExternalStore(activeStore.subscribe, () => activeStore.getState().past);
+  const refPointCount = useSyncExternalStore(
+    activeStore.subscribe,
+    () => activeStore.getState().refPoints.length,
+  );
   const fins = useSyncExternalStore(
     activeStore.subscribe,
     () => activeStore.getState().board?.fins ?? null,
@@ -322,6 +335,23 @@ export const Sidebar = memo(function Sidebar({
       />
     ),
     trace: <TraceSection trace={trace} onLoadTrace={onLoadTrace} units={units} />,
+    // Reference points belong to the classic document. A NURBS or rails document holds none (its
+    // classic projection carries an empty list and no action adds one), so the section is not
+    // listed while one is open rather than offering a table that cannot be filled.
+    ...(nurbsEngine
+      ? {}
+      : {
+          refPoints: (
+            <ReferencePointsPanel
+              store={activeStore}
+              units={units}
+              longitudinal={longitudinal}
+              activeSection={activeSection}
+              tolerance={refTolerance}
+              onToleranceChange={onRefToleranceChange}
+            />
+          ),
+        }),
     // Both of these are conditional: an empty undo stack and a board with no ghost
     // have nothing to show, and a header promising otherwise is worse than no header.
     ...(past.length > 0 ? { history: <HistorySection past={past} /> } : {}),
@@ -340,6 +370,7 @@ export const Sidebar = memo(function Sidebar({
     fins: fins ? FIN_SETUP_LABELS[fins.setup] : undefined,
     weight: weight ? fmtWeight(weight.total) : undefined,
     history: `${past.length} step${past.length === 1 ? '' : 's'}`,
+    refPoints: refPointCount > 0 ? `${refPointCount}` : undefined,
   };
 
   const tabs = shownTabs(sidebar);

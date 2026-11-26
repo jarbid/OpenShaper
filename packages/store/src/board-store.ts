@@ -1,16 +1,21 @@
-import type { BezierBoard, RailPresetId, Vec2 } from '@openshaper/kernel';
+import type { BezierBoard, RailPresetId, RefPoints, Vec2 } from '@openshaper/kernel';
 import { adjustCrossSectionsToThicknessAndWidth } from '@openshaper/kernel';
 import { createStore, type StoreApi } from 'zustand/vanilla';
 import type { FinSetup, FinSpec, FinSystem, InterpolationType, Spline } from '@openshaper/kernel';
 import { createFinActions, createSectionShapeActions, createSplineActions } from './board-actions';
 import {
+  addRefPoint,
+  addRefPoints,
+  deleteRefPoint,
   enforceJunctions,
   findTargetSpline,
   insertCrossSection,
   moveCrossSectionPosition,
   removeCrossSection,
+  updateRefPoint,
   withInterpolationType,
   type KnotHandles,
+  type RefPointDraft,
   type SplineTarget,
 } from './edits';
 import { createHistory, type HistoryHost } from './history';
@@ -23,9 +28,14 @@ export interface Selection {
   kind?: 'end' | 'prev' | 'next';
 }
 
-/** One undo/redo step: the board to restore plus the action that produced the change. */
+/**
+ * One undo/redo step: the board and reference points to restore, plus the action that
+ * produced the change. Both live on one timeline, so undo walks back shape edits and
+ * reference-point edits in the order they were made.
+ */
 export interface HistoryEntry {
   board: BezierBoard;
+  refPoints: RefPoints;
   label: string;
 }
 
@@ -51,13 +61,33 @@ export interface BoardState {
   selection: Selection | null;
   /** Index of the selected fin (for the fin inspector / highlight), or null. */
   selectedFin: number | null;
+  /**
+   * Measurements beside the board (`kernel/src/reference-points.ts`). Kept out of
+   * `board`, so geometry, specs and meshing never see them, but undone with it.
+   */
+  refPoints: RefPoints;
+  /** Id of the selected reference point, or null. Exclusive with `selection`/`selectedFin`. */
+  selectedRef: string | null;
 
-  load: (board: BezierBoard) => void;
+  /** Replace the document. Reference points travel with the board's file. */
+  load: (board: BezierBoard, refPoints?: RefPoints) => void;
   /** Toggle whether cross-sections are slaved to the rocker/deck/outline (JC-4-y). */
   setAdjustThickness: (v: boolean) => void;
   select: (selection: Selection | null) => void;
   /** Select a fin by index (clears any control-point selection). */
   selectFin: (index: number | null) => void;
+  /** Select a reference point by id (clears the control-point and fin selection). */
+  selectRef: (id: string | null) => void;
+
+  /** Add a reference point and select it; returns its id ('' when there is no board). */
+  addRefPoint: (draft: RefPointDraft) => string;
+  /** Add several reference points as one undo step (a paste, generated stations). */
+  addRefPoints: (drafts: readonly RefPointDraft[], label: string) => string[];
+  /** Edit a reference point's coordinates and/or label (empty label clears it). */
+  updateRefPoint: (id: string, patch: { x?: number; y?: number; label?: string }) => void;
+  /** Drag a reference point (coalesces inside a `beginEdit` … `endEdit` group). */
+  moveRefPoint: (id: string, at: Vec2) => void;
+  deleteRefPoint: (id: string) => void;
 
   /**
    * Begin a grouped edit (call on drag start): every commit until `endEdit` lands in one
@@ -174,9 +204,13 @@ export interface BoardState {
 export const selectionAfterHistory = (
   from: BezierBoard,
   to: BezierBoard,
-  selection: Selection | null,
-  selectedFin: number | null,
-): { selection: Selection | null; selectedFin: number | null } => {
+  toRefs: RefPoints,
+  {
+    selection,
+    selectedFin,
+    selectedRef,
+  }: Pick<BoardState, 'selection' | 'selectedFin' | 'selectedRef'>,
+): Pick<BoardState, 'selection' | 'selectedFin' | 'selectedRef'> => {
   const knotCount = (b: BezierBoard, t: SplineTarget): number | null =>
     findTargetSpline(b, t)?.knots.length ?? null;
   const keep =
@@ -186,14 +220,45 @@ export const selectionAfterHistory = (
   return {
     selection: keep ? selection : null,
     selectedFin: selectedFin !== null && selectedFin < to.fins.fins.length ? selectedFin : null,
+    // An id names the same point in every snapshot, so it survives whenever it exists.
+    selectedRef:
+      selectedRef !== null && toRefs.some((p) => p.id === selectedRef) ? selectedRef : null,
   };
 };
 
+/**
+ * The reference-point members of {@link BoardState} for a store whose document has none: the
+ * section and rails stores. The list is always empty and every action does nothing, so a pane, the
+ * 3D view or a menu that reads reference points from "the board store" finds nothing to draw or
+ * edit on a NURBS or rails board. Reference points belong to the classic document.
+ */
+export const noReferencePoints: Pick<
+  BoardState,
+  | 'refPoints'
+  | 'selectedRef'
+  | 'selectRef'
+  | 'addRefPoint'
+  | 'addRefPoints'
+  | 'updateRefPoint'
+  | 'moveRefPoint'
+  | 'deleteRefPoint'
+> = {
+  refPoints: [],
+  selectedRef: null,
+  selectRef: () => {},
+  addRefPoint: () => '',
+  addRefPoints: () => [],
+  updateRefPoint: () => {},
+  moveRefPoint: () => {},
+  deleteRefPoint: () => {},
+};
+
 const classicHistoryHost: HistoryHost<BoardState, HistoryEntry> = {
-  snapshot: (s, label) => (s.board ? { board: s.board, label } : null),
+  snapshot: (s, label) => (s.board ? { board: s.board, refPoints: s.refPoints, label } : null),
   restore: (s, entry) => ({
-    ...selectionAfterHistory(s.board!, entry.board, s.selection, s.selectedFin),
+    ...selectionAfterHistory(s.board!, entry.board, entry.refPoints, s),
     board: entry.board,
+    refPoints: entry.refPoints,
   }),
 };
 
@@ -201,7 +266,10 @@ export const createBoardStore = (): StoreApi<BoardState> =>
   createStore<BoardState>((set, get) => {
     const history = createHistory<BoardState, HistoryEntry>(get, set, classicHistoryHost);
 
-    /** Apply an edited board, recording a labelled history step unless mid-drag. */
+    /**
+     * Apply an edited board (the reference points stay as they are), recording a labelled history
+     * step unless mid-drag.
+     */
     const commit = (next: BezierBoard, label: string) => {
       const { board, adjustThickness } = get();
       if (!board) return;
@@ -211,6 +279,13 @@ export const createBoardStore = (): StoreApi<BoardState> =>
       // `adjustThickness` is off (legacy JC-4-y), the sections keep their own profile.
       const settled = adjustThickness ? adjustCrossSectionsToThicknessAndWidth(next) : next;
       history.commit({ board: settled }, label);
+    };
+
+    /** Apply edited reference points (board unchanged); no step when nothing changed. */
+    const commitRefs = (next: RefPoints, label: string) => {
+      const { board, refPoints } = get();
+      if (!board || next === refPoints) return;
+      history.commit({ refPoints: next }, label);
     };
 
     const ctx = { get, set, commit };
@@ -224,22 +299,58 @@ export const createBoardStore = (): StoreApi<BoardState> =>
       adjustThickness: true,
       selection: null,
       selectedFin: null,
+      refPoints: [],
+      selectedRef: null,
 
-      load: (board) => {
+      load: (board, refPoints = []) => {
         const pinned = enforceJunctions(board);
         set({
           board: get().adjustThickness ? adjustCrossSectionsToThicknessAndWidth(pinned) : pinned,
           loadCount: get().loadCount + 1,
+          refPoints,
           past: [],
           future: [],
           editing: false,
           selection: null,
           selectedFin: null,
+          selectedRef: null,
         });
       },
       setAdjustThickness: (v) => set({ adjustThickness: v }),
-      select: (selection) => set({ selection, selectedFin: null }),
-      selectFin: (index) => set({ selectedFin: index, selection: null }),
+      select: (selection) => set({ selection, selectedFin: null, selectedRef: null }),
+      selectFin: (index) => set({ selectedFin: index, selection: null, selectedRef: null }),
+      selectRef: (id) => set({ selectedRef: id, selection: null, selectedFin: null }),
+
+      addRefPoint: (draft) => {
+        if (!get().board) return '';
+        const { points, id } = addRefPoint(get().refPoints, draft);
+        commitRefs(points, 'Add reference point');
+        set({ selectedRef: id, selection: null, selectedFin: null });
+        return id;
+      },
+      addRefPoints: (drafts, label) => {
+        if (!get().board || drafts.length === 0) return [];
+        const { points, ids } = addRefPoints(get().refPoints, drafts);
+        commitRefs(points, label);
+        return ids;
+      },
+      updateRefPoint: (id, patch) =>
+        commitRefs(
+          updateRefPoint(get().refPoints, id, patch),
+          patch.label !== undefined && patch.x === undefined && patch.y === undefined
+            ? 'Rename reference point'
+            : 'Edit reference point',
+        ),
+      moveRefPoint: (id, at) =>
+        commitRefs(updateRefPoint(get().refPoints, id, at), 'Move reference point'),
+      deleteRefPoint: (id) => {
+        const next = deleteRefPoint(get().refPoints, id);
+        if (next === get().refPoints) return;
+        // Delete pressed mid-drag: close the drag's step first (as deleteControlPoint does).
+        if (get().editing) set({ editing: false });
+        commitRefs(next, 'Delete reference point');
+        if (get().selectedRef === id) set({ selectedRef: null });
+      },
 
       beginEdit: history.beginEdit,
       endEdit: history.endEdit,

@@ -11,6 +11,7 @@ import {
 import {
   loftCrossSection,
   getLength,
+  REF_SECTION_TOLERANCE,
   resolveFins,
   type BezierBoard,
   type Spline,
@@ -130,6 +131,7 @@ import {
 import sampleBrd from './sample-board.brd?raw';
 import { depthSeries } from './bottom-features';
 import { activeNurbsDoc, activeStore, boardStore, docOf, railsStore, sectionStore } from './store';
+import { loadRefTolerance, saveRefTolerance } from './ref-tolerance';
 import { probeAt, probeSpline, setWantedProbes, useProbes } from './nurbs-probes';
 import { metaOfDoc, sectionsName } from './section-files';
 import { docText, docTextNow, isRailsJson, isRailsText, readRails } from './rails-files';
@@ -325,6 +327,8 @@ function AppShell() {
   /** The bundled sample, when there is no session (or it cannot be restored). */
   const loadSample = () => {
     try {
+      // The sample's own BoardCAD guide points are left out: they measure someone
+      // else's board, and a first visit should open on a clean shape.
       const { board } = parseBrd(sampleBrd);
       hydrated.current = true;
       boardStore.getState().load(board);
@@ -353,7 +357,11 @@ function AppShell() {
     ): Promise<boolean> => {
       if (session) {
         try {
-          const { board: sBoard, metadata } = readBoardJson(session.boardJson);
+          const {
+            board: sBoard,
+            metadata,
+            referencePoints: sRefs,
+          } = readBoardJson(session.boardJson);
           let sGhost: BezierBoard | null = null;
           if (session.ghostJson) {
             try {
@@ -382,7 +390,7 @@ function AppShell() {
             if (cancelled) return false;
           }
           hydrated.current = true;
-          boardStore.getState().load(sBoard);
+          boardStore.getState().load(sBoard, sRefs);
           if (rails) {
             attachRailsBoard(rails);
             setMeta(metaOfDoc(rails.meta));
@@ -474,6 +482,32 @@ function AppShell() {
   }, []);
   const toggleOverlay = (key: keyof OverlayToggles) => setOverlay(key, !overlayToggles[key]);
   const setTunniOverlay = useCallback((on: boolean) => setOverlay('tunni', on), [setOverlay]);
+  // Reference points: shown by default, so a file that has some shows them; locked by
+  // default, because each one records a measurement and must not move by accident.
+  const [refPointsShown, setRefPointsShown] = useState(true);
+  const [refPointsUnlocked, setRefPointsUnlocked] = useState(false);
+  // The gap each point is judged against (green within, red beyond); a remembered preference.
+  const [refTolerance, setRefToleranceState] = useState(loadRefTolerance);
+  const setRefTolerance = useCallback((cm: number) => {
+    setRefToleranceState(cm);
+    saveRefTolerance(cm);
+  }, []);
+  // Of the board being edited: a NURBS or rails board holds none (its store's list is always empty).
+  const refPoints = useSyncExternalStore(
+    activeStore.subscribe,
+    () => activeStore.getState().refPoints,
+  );
+  // Stations where section points were measured, ticked on the length-wise panes.
+  const measuredStations = useMemo(() => {
+    const out: number[] = [];
+    for (const p of refPoints)
+      if (
+        p.plane === 'section' &&
+        !out.some((x) => Math.abs(x - p.station) <= REF_SECTION_TOLERANCE)
+      )
+        out.push(p.station);
+    return out;
+  }, [refPoints]);
 
   // Specs (and the distribution overlay) read the settled board so they don't
   // re-integrate on every drag move — see useSettledBoard. The integrals run in
@@ -729,7 +763,7 @@ function AppShell() {
     const write = (sectionsJson?: string) => {
       if (seq !== saveSeq.current) return; // a newer snapshot has been taken
       void saveSession({
-        boardJson: writeBoardJson(classic, metadata),
+        boardJson: writeBoardJson(classic, metadata, boardStore.getState().refPoints),
         ...(g ? { ghostJson: writeBoardJson(g) } : {}),
         ...(sectionsJson !== undefined ? { sectionsJson } : {}),
       });
@@ -749,7 +783,7 @@ function AppShell() {
     if (!board || !hydrated.current) return;
     window.clearTimeout(sessionSaveTimer.current);
     sessionSaveTimer.current = window.setTimeout(persistSession, 800);
-  }, [board, meta, ghost, persistSession]);
+  }, [board, refPoints, meta, ghost, persistSession]);
   // A pending save must not outlive the editor. `boardStore` is a module
   // singleton, so a timer left running after unmount would write whatever board
   // the *next* mount holds into the session — the tests unmount between cases,
@@ -1109,6 +1143,12 @@ function AppShell() {
         (kind === 'outline' || kind === 'rocker') && resolvedFins.length ? resolvedFins : undefined,
       finView: kind === 'rocker' ? 'profile' : 'plan',
       featureDepth: kind === 'rocker' ? depthStrip : undefined,
+      // Reference points belong to the classic document: a NURBS or rails board holds none, so the
+      // panes neither draw them nor offer to add one while such a board is open.
+      referencePoints:
+        refPointsShown && !docOpen ? (refPointsUnlocked ? 'unlocked' : 'locked') : undefined,
+      refTolerance,
+      measuredStations: longitudinal && measuredStations.length ? measuredStations : undefined,
     };
   };
 
@@ -1278,7 +1318,7 @@ function AppShell() {
         );
       return;
     }
-    downloadBoard(board, meta);
+    downloadBoard(board, meta, refPoints);
     track('save_board', { format: 'board' });
     markSave();
     // downloadBoard records internally; refresh the menu's snapshot.
@@ -1427,15 +1467,15 @@ function AppShell() {
     // Record in the recent list under the file's base name (extension stripped).
     const baseName = file.name.replace(/\.(board\.json|json|board|brd|s3dx|s3d|srf)$/i, '');
     try {
-      const { board, meta, warnings } = await openBoardFile(file);
+      const { board, meta, refPoints: fileRefs, warnings } = await openBoardFile(file);
       const commit = () => {
-        boardStore.getState().load(board);
+        boardStore.getState().load(board, fileRefs);
         setMeta(meta);
         // Record in the recent list. Re-serialise to canonical .board.json so the snapshot
         // is always in the native format regardless of the source format (.brd etc.)
         const metadata =
           meta && Object.values(meta).some(Boolean) ? (meta as Record<string, unknown>) : undefined;
-        recordRecentBoard(baseName, writeBoardJson(board, metadata));
+        recordRecentBoard(baseName, writeBoardJson(board, metadata, fileRefs));
         setRecentBoards(getRecentBoards());
       };
       // Import is the on-ramp from legacy BoardCAD and was previously
@@ -1572,8 +1612,8 @@ function AppShell() {
         );
         return;
       }
-      const { board: rBoard, metadata } = file;
-      boardStore.getState().load(rBoard);
+      const { board: rBoard, metadata, referencePoints } = file;
+      boardStore.getState().load(rBoard, referencePoints);
       setMeta(toBoardMeta(metadata));
       setGhost(null);
       // Refresh the recent list so this entry bubbles to top (re-record updates savedAt).
@@ -1623,9 +1663,10 @@ function AppShell() {
     }
     const sMeta = toBoardMeta(file.metadata);
     const sBoard = file.board;
+    const sRefs = file.referencePoints;
     // load() resets past/future, so undo cannot reach back past a board that
     // was never edited here.
-    boardStore.getState().load(sBoard);
+    boardStore.getState().load(sBoard, sRefs);
     setMeta(sMeta);
     // Clearing the state is not enough on its own — the autosave that follows
     // rewrites the session record without ghostJson, so a reload cannot
@@ -1638,7 +1679,7 @@ function AppShell() {
     // replaces the older — the same de-duplication every other entry gets.
     recordRecentBoard(
       model ? `${model} (shared)` : 'Shared board',
-      writeBoardJson(sBoard, file.metadata),
+      writeBoardJson(sBoard, file.metadata, sRefs),
     );
     setRecentBoards(getRecentBoards());
     presentSharedBoard();
@@ -1916,7 +1957,15 @@ function AppShell() {
       onSelect: () => {
         if (!board) return;
         noteProjection();
-        downloadBrd(board, meta);
+        const left = downloadBrd(board, meta, refPoints);
+        // .brd keeps a section's points inside that section, so one with no section
+        // at its station has nowhere to go: say so rather than drop it silently.
+        if (left > 0)
+          showToast(
+            `${left} reference point${left === 1 ? ' has' : 's have'} no cross-section at ` +
+              `${left === 1 ? 'its' : 'their'} station and ${left === 1 ? 'was' : 'were'} ` +
+              'not saved in the .brd file.',
+          );
         track('save_board', { format: 'brd' });
         markSave();
       },
@@ -1984,6 +2033,29 @@ function AppShell() {
       checked: overlayToggles.tunni,
       onSelect: () => toggleOverlay('tunni'),
     },
+    // Reference points belong to the classic document: with a NURBS or rails board open there are
+    // none to show or unlock, so neither item is offered.
+    ...(docOpen
+      ? []
+      : [
+          {
+            kind: 'checkbox' as const,
+            label: 'Reference points',
+            checked: refPointsShown,
+            onSelect: () => setRefPointsShown((on) => !on),
+          },
+          // Only meaningful while they are shown, so only offered then.
+          ...(refPointsShown
+            ? [
+                {
+                  kind: 'checkbox' as const,
+                  label: 'Unlock reference points',
+                  checked: refPointsUnlocked,
+                  onSelect: () => setRefPointsUnlocked((on) => !on),
+                },
+              ]
+            : []),
+        ]),
     { kind: 'separator' },
     { kind: 'label', label: 'Zoom' },
     {
@@ -2007,7 +2079,10 @@ function AppShell() {
         // Imperial vs metric vs fractional inches is the clearest read on who
         // the audience actually is — a US shaper working in fractions wants
         // different defaults from a European one in millimetres.
-        track('units_changed', { units: u.key });
+        // `from` makes the switch direction readable (metric → imperial is a
+        // different story from the reverse); re-picking the current unit is
+        // not a change, so it sends nothing.
+        if (u.key !== unitKey) track('units_changed', { units: u.key, from: unitKey });
       },
     })),
   ];
@@ -2116,6 +2191,8 @@ function AppShell() {
       showSections={view3d.showSections}
       showApex={view3d.showApex}
       activeSectionX={activeSectionX}
+      showRefPoints={refPointsShown}
+      refTolerance={refTolerance}
       key={cameraEpoch}
       initialCamera={liveViewState.current.camera3d}
       defaultView={workspaceOn ? 'threeQuarter' : 'side'}
@@ -2323,6 +2400,9 @@ function AppShell() {
       onSidebarChange={setSidebar}
       onUnitChange={isPhone ? setUnitKey : undefined}
       longitudinal={longitudinal}
+      activeSection={clampedCs}
+      refTolerance={refTolerance}
+      onRefToleranceChange={setRefTolerance}
       onMeasurementAxisChange={isPhone ? setMeasurementAxis : undefined}
     />
   );
@@ -2742,6 +2822,7 @@ function AppShell() {
         <ShareDialog
           board={board}
           sections={activeNurbsDoc()}
+          refPoints={refPoints}
           meta={meta}
           setMeta={setMeta}
           onCopied={() => {
@@ -2799,6 +2880,7 @@ function AppShell() {
         <ExportPdf1to1Dialog
           units={units}
           settings={pdf1to1}
+          hasReferencePoints={refPoints.length > 0}
           onExport={(s) => {
             savePdf1to1(s);
             setPdf1to1(s);
@@ -2809,7 +2891,7 @@ function AppShell() {
               slug: slugifyName(meta?.model),
             });
             if (!started) {
-              downloadPdf1to1(board, s, meta, units);
+              downloadPdf1to1(board, s, meta, units, refPoints);
               track('export_board', { format: 'pdf-1to1-custom' });
               markExport();
             }

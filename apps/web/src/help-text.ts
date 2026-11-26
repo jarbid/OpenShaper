@@ -178,6 +178,22 @@ export const HELP_TEXT: Readonly<Record<string, HelpEntry>> = {
     keywords: ['handles', 'tangents', 'balance'],
     addedOn: '2026-10-09',
   },
+  'View/Reference points': {
+    description:
+      'Shows or hides the measurements marked on the 2D views and on the 3D board, each coloured by how close the board is to it.',
+    route: '/docs/editing',
+    anchor: 'reference-points',
+    keywords: ['measurements', 'guide points', 'crosshairs', 'tolerance', 'gap'],
+    addedOn: '2026-11-05',
+  },
+  'View/Unlock reference points': {
+    description:
+      'Lets reference points be dragged in the 2D views; they stay locked otherwise so a measurement cannot move by accident.',
+    route: '/docs/editing',
+    anchor: 'reference-points',
+    keywords: ['measurements', 'guide points', 'drag', 'lock'],
+    addedOn: '2026-11-05',
+  },
   'View/Fit view': {
     description: 'Zooms and pans the 2D view so the whole curve fits on screen.',
     route: '/docs/editing',
@@ -394,6 +410,13 @@ export const HELP_TEXT: Readonly<Record<string, HelpEntry>> = {
     description: 'Images to trace a shape from, behind the outline and rocker views.',
     route: '/docs/files',
     anchor: 'trace',
+  },
+  'section:refPoints': {
+    description:
+      'Measurements taken off a real board, entered in a table and compared with the board on screen.',
+    route: '/docs/editing',
+    anchor: 'reference-points',
+    addedOn: '2026-11-05',
   },
   'section:history': {
     description: 'Every change since the board was opened, to step back to.',

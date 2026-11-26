@@ -31,8 +31,13 @@
  * running byte cap so a small compressed payload cannot expand into a large
  * allocation.
  */
-import type { BezierBoard } from '@openshaper/kernel';
-import { readBoardText, writeBoardJson, type BoardFile } from './board-json';
+import type { BezierBoard, RefPoints } from '@openshaper/kernel';
+import {
+  readBoardText,
+  writeBoardJson,
+  type BoardFile,
+  type ReadBoardJsonResult,
+} from './board-json';
 
 /** Envelope version this module writes. Readers accept only this one. */
 export const SHARE_ENVELOPE_VERSION = 'v1';
@@ -198,8 +203,9 @@ async function pump(
 export async function encodeShareFragment(
   b: BezierBoard,
   metadata?: Record<string, unknown>,
+  referencePoints?: RefPoints,
 ): Promise<string> {
-  return encodeShareText(writeBoardJson(b, metadata));
+  return encodeShareText(writeBoardJson(b, metadata, referencePoints));
 }
 
 /**
@@ -223,9 +229,7 @@ export async function encodeShareText(text: string): Promise<string> {
  *
  * @throws ShareLinkError — and nothing else.
  */
-export async function decodeShareFragment(
-  fragment: string,
-): Promise<{ board: BezierBoard; metadata?: Record<string, unknown> }> {
+export async function decodeShareFragment(fragment: string): Promise<ReadBoardJsonResult> {
   const file = await decodeShareFile(fragment);
   if (file.kind !== 'classic') {
     throw new ShareLinkError(
@@ -233,7 +237,8 @@ export async function decodeShareFragment(
       'This link holds a NURBS board; open it with decodeShareFile.',
     );
   }
-  return file.metadata ? { board: file.board, metadata: file.metadata } : { board: file.board };
+  const { kind: _kind, ...classic } = file;
+  return classic;
 }
 
 /**

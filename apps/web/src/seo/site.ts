@@ -22,6 +22,10 @@ export const OG_IMAGE = '/og-cover.png';
 
 export const GITHUB_URL = 'https://github.com/jarbid/openshaper';
 
+/** Project Instagram — where people share and tag the boards they build. */
+export const INSTAGRAM_HANDLE = '@openshaper';
+export const INSTAGRAM_URL = 'https://www.instagram.com/openshaper/';
+
 /** Contact address for feedback, bugs, feature requests and enquiries. */
 export const CONTACT_EMAIL = 'info@openshaper.com';
 export const CONTACT_MAILTO = `mailto:${CONTACT_EMAIL}`;

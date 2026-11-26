@@ -33,7 +33,12 @@ import {
   type SplineActionNames,
   type SplineActions,
 } from '../board-actions';
-import { selectionAfterHistory, type BoardState, type HistoryEntry } from '../board-store';
+import {
+  noReferencePoints,
+  selectionAfterHistory,
+  type BoardState,
+  type HistoryEntry,
+} from '../board-store';
 import { minusHalf, moveKnotEnd, type SplineTarget } from '../edits';
 import { createHistory, type HistoryHost } from '../history';
 import {
@@ -192,11 +197,12 @@ export const createSectionStore = (): StoreApi<SectionState> =>
     const project = (doc: BoardDoc): BezierBoard => projectDoc(doc, chords);
 
     const history = createHistory<SectionState, SectionHistoryEntry>(get, set, {
-      snapshot: (s, label) => (s.doc && s.board ? { doc: s.doc, board: s.board, label } : null),
+      snapshot: (s, label) =>
+        s.doc && s.board ? { doc: s.doc, board: s.board, refPoints: s.refPoints, label } : null,
       restore: (s, entry) => {
         const board = project(entry.doc);
         return {
-          ...selectionAfterHistory(s.board!, board, s.selection, s.selectedFin),
+          ...selectionAfterHistory(s.board!, board, entry.refPoints, s),
           doc: entry.doc,
           board,
         };
@@ -328,6 +334,7 @@ export const createSectionStore = (): StoreApi<SectionState> =>
       adjustThickness: true,
       selection: null,
       selectedFin: null,
+      ...noReferencePoints,
 
       loadDoc: (doc) => {
         dragOrigin = null;

@@ -150,6 +150,8 @@ export const DOC_ENTRIES: readonly DocEntry[] = [
     'redo',
     'redo-alt',
     'delete-point',
+    'select-next-point',
+    'select-prev-point',
     'toggle-lock',
     'nudge',
     'nudge-shift',
