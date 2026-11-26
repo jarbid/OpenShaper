@@ -134,6 +134,14 @@ export default function DocsFiles() {
             editing, so a reload brings back your NURBS edits. The engine setting picks the one
             shown.
           </Term>
+          <Term name="A saved rails board that will not read">
+            If the rails board saved in your browser cannot be read (it may be from a newer
+            OpenShaper, it may be damaged, or the engine&rsquo;s code did not load), the classic
+            board you opened is shown and a notice says so, with the way to go on. The saved board
+            is kept exactly as it was: the autosave writes it back unchanged and nothing is
+            converted over it, so saving writes a classic file. Reloading tries to read it again;
+            opening or starting another board replaces it.
+          </Term>
           <Term name="Not in the file">
             STL, DXF, PDF 1:1 and STEP are made from the NURBS board itself, with its bottom
             features, both halves of an asymmetric board, a swallow or fish tail and the smooth

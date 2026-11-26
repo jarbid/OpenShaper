@@ -447,9 +447,10 @@ From the Deck step:
   Domed keeps each station's crown at the band edge and replaces the drawn curve (undo brings it back).
   Reading a looser dome as Domed would show a crown dial sooner and let a nudge of it replace a
   hand-drawn curve: a product call.
-- The step opens on the station the shell had, the tail's first, a tip that holds about 1 cm of rail;
-  a board that arrives should choose the station nearest the middle, as a shared board does. It belongs
-  with the arrival rules of slice 8.
+- A board that arrives opens on the station nearest its middle, as a shared board does, where the shell
+  used to keep the tail's first, a tip that holds about 1 cm of rail. One place chooses it
+  (`arrival-station.ts`): the first time the rails store is the document for a load, whichever way the
+  board arrived, and when a shared board is presented. The tabbed layout with a classic board is as it was.
 - On a tablet the sheet opens at its peek, so the shape and the crown are one drag away, and an open
   editor has about 85 px of height. The crown could go in the slice card's header.
 - A crown is one number for both sides. The store takes a side; the panel says when the sides differ
@@ -538,7 +539,18 @@ the failing cases kept as skipped tests):
 The first two of these come from the engine switches and go with them in slice 8. The held
 text that is dropped, and the share link's second toast, do not: they are conditions of
 making the rails engine the default, and of any session saved by a newer version being
-opened by an older one.
+opened by an older one. Both are fixed:
+
+- A rails text that will not read stays held. Neither engine converts the classic board over
+  it (`held-text.ts`, read by `use-section-engine.ts` and `rails-engine.ts`), so the autosave
+  keeps writing it back, and a notice of its own (`HeldRailsNotice.tsx`) says it could not be
+  read, that it is kept unchanged, and how to go on. The hold belongs to the classic board
+  that was restored: any other board opened or started ends it, with the notice; Save writes
+  the classic board shown and leaves the held text. There is no action that discards it. The
+  held prompt, which offers the NURBS engine with the engine off, still appears for an
+  unreadable rails text and its words are about a NURBS board only.
+- A share link of a rails board raises one notice: the shared-board line first (what happened
+  to the board) with the engines line after it (`arrival-notice.ts`).
 
 From the tests:
 

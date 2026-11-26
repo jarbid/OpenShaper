@@ -23,11 +23,16 @@
  *   {@link attachSectionDoc}), with its classic projection as the classic store's board: no conversion.
  *   A session restored with the engine off holds the document's text ({@link holdSectionsText}), and
  *   turning the engine on revives it instead of converting.
+ * - **A rails board that would not read.** A held text that is a rails board (a newer version, the wrong
+ *   shape, or code that would not load) is not a sections document and is not converted over: the
+ *   classic board stays the board, nothing is converting, and the autosave writes the text back unchanged
+ *   (`held-text.ts`). Another board loaded ends the hold.
  *
  * The converter runs in the NURBS worker (`kind: 'convert'`): the main chunk never imports board2. This is
  * the only conversion; edits go to the worker as documents (`nurbs-viewer.ts`).
  */
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import { heldFor, holdText, releaseHeld, useKeptRails, type HeldReason } from './held-text';
 import { loadNurbsCore, readSections } from './section-files';
 import { boardStore, sectionStore } from './store';
 import type { BoardDoc } from '@openshaper/board2';
@@ -55,26 +60,19 @@ const subscribeSync = (l: () => void) => {
   return () => void listeners.delete(l);
 };
 
-/** The text of a saved document waiting for the engine to be turned on, for one load of the classic store. */
-let held: { readonly loadCount: number; readonly text: string } | null = null;
-
 /** Forget what was converted (tests). */
 export const resetSectionEngine = (): void => {
-  held = null;
+  releaseHeld();
   setSync({ convertedFrom: null, refused: null });
 };
 
 /**
  * Keep the text of a saved NURBS document for the classic board just loaded (a session restored while the
- * engine is off). The next autosave writes it back unchanged, and turning the engine on revives it.
+ * engine is off, or one the restore could not read). The next autosave writes it back unchanged, and
+ * turning the engine on revives it, unless it is a rails board's: that is kept as it is. `reason` is why a
+ * rails board's text was not read at restore, for the notice.
  */
-export const holdSectionsText = (text: string): void => {
-  held = { loadCount: boardStore.getState().loadCount, text };
-};
-
-/** The held text for the classic board now open, if any. */
-const heldFor = (loadCount: number): string | null =>
-  held && held.loadCount === loadCount ? held.text : null;
+export const holdSectionsText = (text: string, reason?: HeldReason): void => holdText(text, reason);
 
 /**
  * The section document that belongs to the classic board now open: the section store's, when it was
@@ -111,7 +109,7 @@ export async function prepareSectionDoc(
  */
 export function attachSectionDoc(doc: BoardDoc): void {
   sectionStore.getState().loadDoc(doc);
-  held = null;
+  releaseHeld();
   setSync({ convertedFrom: boardStore.getState().loadCount, refused: null });
   void loadNurbsCore().catch(() => {});
 }
@@ -176,6 +174,8 @@ export function useSectionEngine(engineOn: boolean): SectionEngine {
     () => boardStore.getState().board !== null,
   );
   const current = useSyncExternalStore(subscribeSync, () => sync);
+  // A rails board's text that would not read is held for this board: it is not converted over.
+  const keepsRails = useKeptRails(loadCount) !== null;
 
   const upToDate = current.convertedFrom === loadCount && sectionStore.getState().doc !== null;
   const refused = current.refused?.loadCount === loadCount ? current.refused : null;
@@ -186,7 +186,7 @@ export function useSectionEngine(engineOn: boolean): SectionEngine {
   );
 
   useEffect(() => {
-    if (!engineOn || !hasBoard || upToDate || refused) return;
+    if (!engineOn || !hasBoard || upToDate || refused || keepsRails) return;
     let cancelled = false;
     const cleanups = new Set<() => void>();
     const refuse = (error: string, issues: readonly NurbsIssue[] = []) =>
@@ -228,7 +228,7 @@ export function useSectionEngine(engineOn: boolean): SectionEngine {
           );
           return;
         }
-        held = null; // not a document after all: convert the classic board
+        releaseHeld(); // not a document after all: convert the classic board
       }
       // The client is loaded when a conversion is wanted, so the engine-off page never fetches it.
       const { createNurbsClient, SupersededError } = await import('./nurbs-client');
@@ -273,12 +273,12 @@ export function useSectionEngine(engineOn: boolean): SectionEngine {
       cancelled = true;
       for (const c of cleanups) c();
     };
-  }, [engineOn, hasBoard, loadCount, upToDate, refused]);
+  }, [engineOn, hasBoard, loadCount, upToDate, refused, keepsRails]);
 
   if (!engineOn) return OFF;
   return {
     ready: upToDate,
     refusal,
-    converting: hasBoard && !upToDate && !refused,
+    converting: hasBoard && !upToDate && !refused && !keepsRails,
   };
 }

@@ -21,6 +21,10 @@
  *   store keeps its board and its history.
  * - **Refusal.** A board the converter refuses leaves the store being edited as it was and `ready` false;
  *   the reasons are in `refusal`.
+ * - **A rails board that would not read.** A restored session whose rails text is held unread (a newer
+ *   version, the wrong shape, code that would not load: `held-text.ts`) is not converted over: the classic
+ *   board stays the board and nothing is converting, so the autosave writes the text back unchanged.
+ *   Another board loaded ends the hold.
  * - **Edits while converting.** The store being edited until the rails board is ready is the section
  *   store (or the classic one). An edit made while a conversion runs would be lost when the board
  *   replaced it, so a conversion whose source was edited meanwhile (or is being dragged) is thrown away and
@@ -30,6 +34,7 @@
  */
 import type { RailsBoard } from '@openshaper/board2';
 import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import { useKeptRails } from './held-text';
 import { loadNurbsCore } from './section-files';
 import { activeStore, boardStore, railsStore, sectionStore } from './store';
 import type { NurbsIssue } from './workers/nurbs-protocol';
@@ -128,6 +133,8 @@ export function useRailsEngine(
     () => boardStore.getState().board !== null,
   );
   const current = useSyncExternalStore(subscribeSync, () => sync);
+  // A rails board's text that would not read is held for this board: it is not converted over.
+  const keepsRails = useKeptRails(loadCount) !== null;
 
   const upToDate = current.from === loadCount && railsStore.getState().doc !== null;
   const refused = current.refused?.loadCount === loadCount ? current.refused : null;
@@ -140,7 +147,7 @@ export function useRailsEngine(
   const fromSections = sections.ready;
 
   useEffect(() => {
-    if (!on || !hasBoard || upToDate || refused || waiting) return;
+    if (!on || !hasBoard || upToDate || refused || waiting || keepsRails) return;
     let cancelled = false;
     const cleanups = new Set<() => void>();
     /** The load this conversion is for is no longer the open one, or already has its rails board. */
@@ -222,12 +229,12 @@ export function useRailsEngine(
       cancelled = true;
       for (const c of cleanups) c();
     };
-  }, [on, hasBoard, loadCount, upToDate, refused, waiting, fromSections]);
+  }, [on, hasBoard, loadCount, upToDate, refused, waiting, fromSections, keepsRails]);
 
   if (!on) return OFF;
   return {
     ready: upToDate,
     refusal,
-    converting: hasBoard && !upToDate && !refused,
+    converting: hasBoard && !upToDate && !refused && !keepsRails,
   };
 }

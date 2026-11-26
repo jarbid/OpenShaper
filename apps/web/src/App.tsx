@@ -134,6 +134,10 @@ import { activeNurbsDoc, activeStore, boardStore, docOf, railsStore, sectionStor
 import { loadRefTolerance, saveRefTolerance } from './ref-tolerance';
 import { probeAt, probeSpline, setWantedProbes, useProbes } from './nurbs-probes';
 import { metaOfDoc, sectionsName } from './section-files';
+import { RAILS_ARRIVED_NOTICE, sharedBoardNotice } from './arrival-notice';
+import { useArrivalStation } from './arrival-station';
+import { HeldRailsNotice } from './HeldRailsNotice';
+import type { HeldReason } from './held-text';
 import { docText, docTextNow, isRailsJson, isRailsText, readRails } from './rails-files';
 import { attachRailsBoard, currentRails, openRailsBoard } from './rails-engine';
 import { railsSectionGuides, railsSectionTargets, type RailsCurve } from './rails-section-pane';
@@ -148,7 +152,7 @@ import {
 import { localizeLengths, refusalHint } from './nurbs-text';
 import { SUPPORT_URL } from './support';
 import { BOARD_TEMPLATES, NURBS_TEMPLATES } from './templates';
-import { clampSectionIndex, nearestMidpointSection } from './section-index';
+import { clampSectionIndex } from './section-index';
 import { VIEW_KEYS } from './shortcuts';
 import { useKeyboardShortcuts } from './use-keyboard-shortcuts';
 import { useSettledBoard } from './use-settled-board';
@@ -287,8 +291,11 @@ interface SectionsOpen {
   doc: BoardDoc;
   /** The name it takes in the recent list. */
   recentName: string;
-  /** Called once it is open (a template or a recent board also clears the ghost). */
-  onOpened?: () => void;
+  /**
+   * Called once it is open (a template or a recent board also clears the ghost). `railsNotice` is what a
+   * rails board that turned the engines on said, or null: a caller that raises a notice of its own folds it in.
+   */
+  onOpened?: (railsNotice: string | null) => void;
 }
 
 /** The notice after an import that was repaired: what changed, or nothing to say. */
@@ -372,6 +379,8 @@ function AppShell() {
           }
           let sections: BoardDoc | null = null;
           let rails: RailsBoard | null = null;
+          // Why a rails board in the session was not read (told to the person, who keeps the text as it is).
+          let unread: HeldReason | undefined;
           // A rails board is restored whatever the engine setting is (it turns the engines on).
           const railsText = session.sectionsJson ? isRailsText(session.sectionsJson) : false;
           if (session.sectionsJson && (nurbsOnRef.current || railsText)) {
@@ -380,6 +389,7 @@ function AppShell() {
               if (railsText) {
                 const r = await readRails(json);
                 if (r.ok) rails = r.board;
+                else unread = r.reason;
               } else {
                 const r = await prepareSectionDoc(json);
                 if (r.ok) sections = r.doc;
@@ -400,9 +410,10 @@ function AppShell() {
             setMeta(metaOfDoc(sections.meta));
           } else {
             // Never drop a saved NURBS document: hold it when it is not revived here (engine off, or a
-            // chunk that would not load); the engine revives it, or says why it could not.
+            // chunk that would not load); the engine revives it, or says why it could not. A rails board
+            // that would not read is held as it is, and `HeldRailsNotice` says so.
             if (session.sectionsJson) {
-              holdSectionsText(session.sectionsJson);
+              holdSectionsText(session.sectionsJson, unread);
               if (!nurbsOnRef.current) setHeldPrompt(true);
             }
             setMeta(toBoardMeta(metadata));
@@ -666,6 +677,10 @@ function AppShell() {
     };
   }, [sheetOpen]);
   const [csIndex, setCsIndex] = useState(1);
+  // How many shared boards have been presented (`presentSharedBoard`): each opens on its middle station.
+  const [sharedCount, setSharedCount] = useState(0);
+  // A rails board that arrives, and a shared board, open on the station nearest their middle (arrival-station.ts).
+  useArrivalStation(board, setCsIndex, sharedCount);
   const [focusedSection, setFocusedSection] = useState<number | null>(null);
   // Transient cross-pane scrub: the board-length x being hovered in the rocker/outline,
   // mirrored to the other panes as a vertical guide + an interpolated section preview.
@@ -1374,7 +1389,7 @@ function AppShell() {
       },
       () => {},
     );
-    o.onOpened?.();
+    o.onOpened?.(null);
   };
   const openClassicCopy = (o: SectionsOpen) => {
     boardStore.getState().load(projectDoc(o.doc));
@@ -1383,7 +1398,7 @@ function AppShell() {
     showToast(
       'Opened a classic copy of the NURBS board. The file is not changed; saving writes a classic file.',
     );
-    o.onOpened?.();
+    o.onOpened?.(null);
   };
   const openSections = (o: SectionsOpen) => {
     if (nurbsEngine) commitSections(o);
@@ -1391,12 +1406,14 @@ function AppShell() {
   };
   /**
    * A rails board arrived (a file, a share link, a recent board, a session): both engines go on if they
-   * were not, and one line says so. There is no way back to a sections document, so nothing is held.
+   * were not, and one line says so (returned, for a caller whose own notice would replace it). There is no
+   * way back to a sections document, so nothing is held.
    */
-  const railsArrived = () => {
-    if (nurbsEngine && settings.surfaceEngine === 'rails') return;
+  const railsArrived = (): string | null => {
+    if (nurbsEngine && settings.surfaceEngine === 'rails') return null;
     handleSaveSettings({ ...settings, nurbsEngine: true, surfaceEngine: 'rails' });
-    showToast('This is a rails board, so the NURBS and rails engines are now on.');
+    showToast(RAILS_ARRIVED_NOTICE);
+    return RAILS_ARRIVED_NOTICE;
   };
   const railsArrivedRef = useRef(railsArrived);
   railsArrivedRef.current = railsArrived;
@@ -1413,8 +1430,9 @@ function AppShell() {
       },
       () => {},
     );
-    railsArrived();
-    o.onOpened?.();
+    // Called whether or not the caller wants to hear back: an optional call would not evaluate its arguments.
+    const railsNotice = railsArrived();
+    o.onOpened?.(railsNotice);
   };
   /**
    * A board the New board gallery made arrives as a template does: it replaces the open board as the
@@ -1652,9 +1670,9 @@ function AppShell() {
         file.json,
         {
           recentName: name ? `${name} (shared)` : 'Shared board',
-          onOpened: () => {
+          onOpened: (railsNotice) => {
             setGhost(null);
-            presentSharedBoard();
+            presentSharedBoard(railsNotice);
           },
         },
         'the shared board',
@@ -1684,15 +1702,17 @@ function AppShell() {
     setRecentBoards(getRecentBoards());
     presentSharedBoard();
   };
-  /** What opening a shared board resets, whichever kind it is (it needs the board to be open already). */
-  const presentSharedBoard = () => {
-    const sBoard = boardStore.getState().board;
+  /**
+   * What opening a shared board resets, whichever kind it is (it needs the board to be open already).
+   * `railsNotice` is the line a rails board said when it turned the engines on: one notice carries both.
+   */
+  const presentSharedBoard = (railsNotice: string | null = null) => {
     // A share link never carries a trace, so the recipient's own trace would
     // otherwise sit under a stranger's outline. Hidden, not deleted.
     trace.hideAll();
 
     setPickedView('quad');
-    if (sBoard) setCsIndex(nearestMidpointSection(sBoard));
+    setSharedCount((n) => n + 1);
     // Drop any restored framing so the panes fit this board, not the last one.
     pendingViews2d.current = {};
     liveViewState.current = { ...liveViewState.current, views2d: {} };
@@ -1704,7 +1724,7 @@ function AppShell() {
     hydrated.current = true;
     clearSharedPayload();
     setPendingShare(null);
-    showToast('Shared board opened as an editable copy. Changes stay in this browser.');
+    showToast(sharedBoardNotice(railsNotice));
     // Count only — see docs/design/analytics.md.
     track('shared_board_opened');
   };
@@ -2767,6 +2787,8 @@ function AppShell() {
           <NewBoardDialog units={units} onOpen={openGalleryBoard} onClose={closeGallery} />
         </Suspense>
       )}
+
+      <HeldRailsNotice />
 
       {heldPrompt && !nurbsEngine && (
         <Toast onClick={() => setHeldPrompt(false)}>

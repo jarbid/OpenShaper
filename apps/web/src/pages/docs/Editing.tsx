@@ -201,8 +201,9 @@ export default function DocsEditing() {
           <em>Settings &rsaquo; Experimental</em> turn on both{' '}
           <strong>Engine: NURBS (experimental)</strong> and{' '}
           <strong>Rails engine (experimental)</strong>: the open board becomes a rails board and the
-          workspace opens. Opening a rails board file, or a share link to one, turns both on for
-          you. With the rails engine off nothing about the editor changes, and a phone always keeps
+          workspace opens. Opening a rails board file, or a share link to one, turns both on for you
+          and says so in a notice; a share link&rsquo;s notice also says the board is an editable
+          copy. With the rails engine off nothing about the editor changes, and a phone always keeps
           the view tabs: the workspace is for a tablet or larger.
         </p>
         <p>

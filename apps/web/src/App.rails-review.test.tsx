@@ -18,6 +18,7 @@ import { App } from './App';
 import { resetRailsEngine } from './rails-engine';
 import { getRecentBoards } from './recent-boards';
 import sampleBrd from './sample-board.brd?raw';
+import { isRailsText } from './rails-files';
 import { clearSession, loadSession, saveSession } from './session-store';
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from './settings';
 import { clearSharedPayload, extractSharedFragment } from './share-bootstrap';
@@ -179,6 +180,23 @@ describe('a rails board that arrives by share link with the engines off', () => 
     expect(await screen.findByText(/rails engines are now on/)).toBeTruthy();
   }, 30_000);
 
+  // The one notice of the arrival: what happened to the board first, then the line about the engines, in
+  // the one toast the app has (a second `showToast` would replace the first).
+  it('says both in the one notice: the shared copy, and that the engines were turned on', async () => {
+    const fragment = await encodeShareText(railsFile);
+    window.history.replaceState(null, '', `/app#board=${fragment}`);
+    extractSharedFragment();
+    render(<App />);
+    await editorReady();
+    await waitFor(() => expect(activeStore.target).toBe(railsStore));
+    const notice = await screen.findByText(/Shared board opened as an editable copy/);
+    expect(notice.textContent).toBe(
+      'Shared board opened as an editable copy. Changes stay in this browser. This is a rails board, so the NURBS and rails engines are now on.',
+    );
+    // one element says the engines are on, and it is this one
+    expect(screen.getAllByText(/rails engines are now on/)).toEqual([notice]);
+  }, 30_000);
+
   // Unskip when a rails board that arrives turns the engines on for this visit only: `railsArrived` in
   // `App.tsx` sets a session override (as `?engine=nurbs` does, `nurbs-flag.ts`) instead of calling
   // `handleSaveSettings`.
@@ -208,11 +226,9 @@ describe('a restored session whose rails board will not read', () => {
     expect(session?.sectionsJson).toBe(newer);
   }, 30_000);
 
-  // Unskip when a held rails text survives the engines: in `use-section-engine.ts` a held text that
-  // `isRailsText` recognises is kept (as an `unavailable` one is) instead of `held = null` and a
-  // conversion of the classic board, and `useRailsEngine` does not convert over it either; the restore
-  // in `App.tsx` says that the saved rails board could not be read.
-  it.skip('a newer version with the engines on: the session still holds the text after the engines run', async () => {
+  // A held rails text survives the engines: neither engine converts the classic board over it
+  // (`held-text.ts`), so the autosave keeps writing it back.
+  it('a newer version with the engines on: the session still holds the text after the engines run', async () => {
     saveSettings({ ...DEFAULT_SETTINGS, nurbsEngine: true, surfaceEngine: 'rails' });
     const newer = railsFile.replace(/"version": \d+/, '"version": 99');
     await sessionWith(newer);
@@ -224,13 +240,111 @@ describe('a restored session whose rails board will not read', () => {
     expect(session?.sectionsJson).toBe(newer);
   }, 30_000);
 
-  it.skip('a newer version, engines off, the held prompt accepted: the session still holds the text', async () => {
+  it('a newer version, engines off, the held prompt accepted: the session still holds the text', async () => {
     const newer = railsFile.replace(/"version": \d+/, '"version": 99');
     await sessionWith(newer);
     render(<App />);
     await editorReady();
     fireEvent.click(await screen.findByText(/Turn the NURBS engine on to keep editing it/));
     await new Promise((r) => setTimeout(r, 3000));
+    const session = await sessionAfterFlush();
+    expect(session?.sectionsJson).toBe(newer);
+  }, 30_000);
+
+  // JSON that says it is a rails board (so it is held as one) but is the wrong shape: `reviveRails` refuses it.
+  const wrongShape = () => JSON.stringify({ ...JSON.parse(railsFile), outline: 42 }, null, 2);
+  const enginesOn = () =>
+    saveSettings({ ...DEFAULT_SETTINGS, nurbsEngine: true, surfaceEngine: 'rails' });
+
+  it('the wrong shape with the engines on: the session still holds the text after the engines run', async () => {
+    expect(isRailsText(wrongShape())).toBe(true);
+    enginesOn();
+    await sessionWith(wrongShape());
+    render(<App />);
+    await editorReady();
+    await new Promise((r) => setTimeout(r, 3000));
+    expect(railsStore.getState().doc).toBeNull();
+    expect(activeStore.target).toBe(boardStore);
+    const session = await sessionAfterFlush();
+    expect(session?.sectionsJson).toBe(wrongShape());
+  }, 30_000);
+
+  it.each([
+    ['on', true],
+    ['off', false],
+  ])(
+    'says it could not be read and is kept, with the engines %s',
+    async (_name, on) => {
+      if (on) enginesOn();
+      await sessionWith(railsFile.replace(/"version": \d+/, '"version": 99'));
+      render(<App />);
+      await editorReady();
+      const notice = await screen.findByTestId('rails-held');
+      expect(notice.textContent).toMatch(/rails board saved in this browser could not be read/);
+      expect(notice.textContent).toMatch(/kept unchanged/);
+      expect(notice.textContent).toMatch(/open or start another board to replace/);
+      // a click puts it away
+      fireEvent.click(notice);
+      expect(screen.queryByTestId('rails-held')).toBeNull();
+    },
+    30_000,
+  );
+
+  it('the classic board can be edited meanwhile: the session holds its edits beside the text', async () => {
+    enginesOn();
+    const newer = railsFile.replace(/"version": \d+/, '"version": 99');
+    await sessionWith(newer);
+    render(<App />);
+    await editorReady();
+    const before = writeBoardJson(boardStore.getState().board!);
+    act(() => boardStore.getState().scaleBoard(1.1, 1, 1));
+    const session = await sessionAfterFlush();
+    expect(session?.sectionsJson).toBe(newer);
+    expect(session?.boardJson).not.toBe(before);
+  }, 30_000);
+
+  // A held text must not trap the person: the hold is for the classic board that was restored, so any
+  // other board loaded ends it, and the autosave then writes that board.
+  it('opening another board replaces the held text and puts the notice away', async () => {
+    enginesOn();
+    const newer = railsFile.replace(/"version": \d+/, '"version": 99');
+    await sessionWith(newer);
+    render(<App />);
+    await editorReady();
+    expect(await screen.findByTestId('rails-held')).toBeTruthy();
+    openFile(railsFile);
+    await waitFor(() => expect(activeStore.target).toBe(railsStore));
+    expect(screen.queryByTestId('rails-held')).toBeNull();
+    const session = await sessionAfterFlush();
+    expect(session?.sectionsJson).not.toBe(newer);
+    expect(JSON.parse(session!.sectionsJson!)).toMatchObject({ model: 'rails' });
+    expect(JSON.parse(session!.sectionsJson!)).not.toMatchObject({ version: 99 });
+  }, 60_000);
+
+  it('starting a board from a template replaces the held text and the board is converted as usual', async () => {
+    enginesOn();
+    await sessionWith(railsFile.replace(/"version": \d+/, '"version": 99'));
+    render(<App />);
+    await editorReady();
+    expect(await screen.findByTestId('rails-held')).toBeTruthy();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'File' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Funboard' }));
+    await waitFor(() => expect(activeStore.target).toBe(railsStore), { timeout: 30_000 });
+    expect(screen.queryByTestId('rails-held')).toBeNull();
+    const session = await sessionAfterFlush();
+    expect(JSON.parse(session!.sectionsJson!)).toMatchObject({ model: 'rails' });
+    expect(JSON.parse(session!.sectionsJson!)).not.toMatchObject({ version: 99 });
+  }, 60_000);
+
+  it('saving writes the classic board that is shown and leaves the held text where it is', async () => {
+    enginesOn();
+    const newer = railsFile.replace(/"version": \d+/, '"version": 99');
+    await sessionWith(newer);
+    render(<App />);
+    await editorReady();
+    const saved = saveText();
+    expect(isRailsText(saved)).toBe(false);
+    expect(JSON.parse(saved)).toMatchObject({ format: expect.any(String) });
     const session = await sessionAfterFlush();
     expect(session?.sectionsJson).toBe(newer);
   }, 30_000);
