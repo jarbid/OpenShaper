@@ -13,6 +13,7 @@ import {
   BAND_SHARE_MAX,
   CROWN_MIN,
   DEFAULT_WALL_FALL_SHARE,
+  DOME_CLOSE_MAX,
   DOME_READ_TOLERANCE,
   FLAT_TOLERANCE,
   WALL_MIN,
@@ -200,8 +201,8 @@ describe('reading a deck curve', () => {
     }
   });
 
-  it('reads anything else as Custom, with the curve’s own crown at the band edge', () => {
-    // the end knot of a domed curve moved a millimetre
+  it('reads a deck close to a dome as Domed with its own crown, and anything else as Custom', () => {
+    // the end knot of a domed curve moved a millimetre: no longer a parabola, still a dome
     const base = domedSpline(w, T, 2);
     const k = base.knots;
     const moved = splineFromKnots([
@@ -214,9 +215,18 @@ describe('reading a deck curve', () => {
       ),
     ]);
     const r = deckShapeOf(entryOf(moved, w, T), 2)!;
-    expect(r.shape).toBe('custom');
-    expect(r.wallFall).toBeNull();
+    expect(r.shape).toBe('domed');
+    expect(r.wallFall).toBeCloseTo(T - moved.knots[1]!.end.y, 12);
     expect(r.crown).toBeCloseTo(T - heightAt(moved, bandEdge(w, 2)), 12);
+    // a level middle with a steep edge is not a dome: it reads Custom, with the curve's own crown at the band edge
+    const slab = splineFromKnots([
+      knot(vec2(0, T), vec2(0, T), vec2(0.7 * w, T), true),
+      knot(vec2(w, T - 5), vec2(0.95 * w, T), vec2(w, T - 5), true),
+    ]);
+    const c = deckShapeOf(entryOf(slab, w, T), 2)!;
+    expect(c.shape).toBe('custom');
+    expect(c.wallFall).toBeNull();
+    expect(c.crown).toBeCloseTo(T - heightAt(slab, bandEdge(w, 2)), 12);
     // a curve that stops short of the wall, and one that rises
     const short = splineFromKnots([
       knot(vec2(0, T), vec2(0, T), vec2(3, T), true),
@@ -228,6 +238,25 @@ describe('reading a deck curve', () => {
       knot(vec2(w, T + 1), vec2(w - 4, T + 0.5), vec2(w, T + 1), true),
     ]);
     expect(deckShapeOf(entryOf(up, w, T), 2)?.shape).toBe('custom');
+  });
+
+  it('reads a deck as Domed up to the closeness the constants name, and as Custom beyond it', () => {
+    // the dome of fall F with its middle handle lowered by d moves the curve by about 0.3 d at most
+    const crownAt = (d: number) => {
+      const base = domedSpline(w, T, 2).knots;
+      const lowered = splineFromKnots([
+        base[0]!,
+        knot(
+          base[1]!.end,
+          vec2(base[1]!.tangentToPrev.x, base[1]!.tangentToPrev.y - d),
+          base[1]!.end,
+          true,
+        ),
+      ]);
+      return deckShapeOf(entryOf(lowered, w, T), 2)!.shape;
+    };
+    expect(crownAt(0.2)).toBe('domed');
+    expect(crownAt(3 * DOME_CLOSE_MAX)).toBe('custom');
   });
 
   it('a curve within the tolerances of a shape still reads it, and one beyond them does not', () => {
@@ -246,14 +275,20 @@ describe('reading a deck curve', () => {
     expect(deckShapeOf(entryOf(flatSpline(w, 0), w, 0), 1)).toBeNull();
   });
 
-  it('reads every deck the project ships as Custom: each rolls faster than an arc near its rail', () => {
+  it('reads every deck the project ships as Domed: each is an arc with a roll, close to a dome inside its band edge', () => {
+    let read = 0;
     for (const [name, make] of everyBoard) {
       const doc = make();
       doc.stations.forEach((_, i) => {
         const r = deckShapeAt(doc, i);
-        if (r !== null) expect(r.shape, `${name} station ${i}`).toBe('custom');
+        // a station with a crown the least a Domed deck has, or more
+        if (r !== null && r.crown >= CROWN_MIN) {
+          read++;
+          expect(r.shape, `${name} station ${i}`).toBe('domed');
+        }
       });
     }
+    expect(read).toBeGreaterThanOrEqual(47);
   });
 });
 
@@ -360,7 +395,10 @@ describe.each(everyBoard)('applying a shape to the %s board', (_name, make) => {
     ({ request, all }) => {
       const scope: DeckScope = { station, all };
       const next = applyDeckShape(doc, request(doc, station), scope);
-      expect(next).not.toBe(doc);
+      // a Domed deck kept at the crown it has is left as it is, so the board changes only where a station is not a
+      // dome yet or holds a crown past what it can (a thin tip): every other scenario changes the board
+      const asked = request(doc, station);
+      if (!(asked.shape === 'domed' && asked.crown === undefined)) expect(next).not.toBe(doc);
       const verdict = closedVerdict(next, true);
       expect(verdict.why).toBe('');
       expect(verdict.ok).toBe(true);
@@ -440,7 +478,7 @@ describe.each(everyBoard)(
     const mid = middle(doc);
     const stretch = [0.7, 0.9, 1.1, 1.5];
     const domed = [
-      applyDeckShape(doc, { shape: 'domed' }, { station: mid, all: true }),
+      applyDeckShape(doc, { shape: 'domed', crown: 0.8 }, { station: mid, all: true }),
       applyDeckShape(doc, { shape: 'domed', crown: 1.5 }, { station: mid, all: true }),
       applyDeckShape(doc, { shape: 'domed', crown: Number.MAX_VALUE }, { station: mid, all: true }),
     ];
@@ -684,7 +722,10 @@ describe('the two sides of an asymmetric board', () => {
     );
     expect(plusOnly.stations[station]!.minus).toBe(doc.stations[station]!.minus);
     expect(plusOnly.stations[station]!.plus.deck).not.toBe(doc.stations[station]!.plus.deck);
-    expect(deckShapeAt(plusOnly, station)!.shape).toBe('custom');
+    // the plus side is a dome of 1.4 and the minus side the drawn deck, a close dome of its own crown: two sides, one shape
+    const both = deckShapeAt(plusOnly, station)!;
+    expect(both.shape).toBe('domed');
+    expect(both.sidesDiffer).toBe(true);
     const mirror = everyBoard.find(([n]) => n === 'mirror')![1]();
     expect(applyDeckShape(mirror, { shape: 'flat' }, { station: 1, all: true }, 'minus')).toBe(
       mirror,

@@ -10,7 +10,7 @@ import { useState, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { lengthUnitByKey } from '../format';
 import { activeStore, boardStore, railsStore } from '../store';
-import { key, showRails } from '../test/rails-board';
+import { drawDecksAsSlabs, key, showRails } from '../test/rails-board';
 import { resetDeckChoice, setDeckEditCurve } from './deck-choice';
 import { DeckStep } from './DeckStep';
 import { xToPx, type Frame } from './rail-map';
@@ -65,6 +65,7 @@ afterEach(() => {
 
 describe('what it draws', () => {
   it('is the cross-section editor, with the control for Edit curve, while the deck is a drawn curve', () => {
+    drawDecksAsSlabs();
     render(<Harness />);
     expect(screen.getByTestId('editor')).toBeTruthy();
     expect(screen.queryByTestId('deck-slice')).toBeNull();
@@ -116,7 +117,7 @@ describe('what it draws', () => {
     act(() =>
       railsStore.getState().moveControlPoint({ kind: 'stationDeck', index: 2 }, knots.length - 1, {
         x: end.x,
-        y: end.y - 0.1,
+        y: end.y - 2,
       }),
     );
     expect(screen.getByTestId('editor')).toBeTruthy();

@@ -60,25 +60,35 @@ test.describe('the Deck step', () => {
     await expect(entry(page, 'Deck')).toHaveAttribute('aria-current', 'step');
     await expect(panel(page)).toBeVisible();
 
-    // a drawn deck: Custom by name, the crown off with its reason, the editor with the curve's points in the drawing
-    await expect(shape(page)).toHaveValue('custom');
-    await expect(panel(page)).toContainText('This curve is drawn by hand');
-    await expect(panel(page).getByRole('slider', { name: 'Crown' })).toBeDisabled();
-    await expect(page.getByRole('heading', { name: 'Cross-section: deck' })).toBeVisible();
+    // the board's deck is close to a dome: Domed by name, the dial on, the slice with its one handle
+    await expect(shape(page)).toHaveValue('domed');
+    await expect(panel(page).getByRole('slider', { name: 'Crown' })).toBeEnabled();
+    await expect(page.getByTestId('deck-slice')).toBeVisible();
+    await expect(handle(page)).toBeVisible();
     await expect(lane(page)).toBeVisible();
     await expect(ticks(page)).toHaveCount(5);
     // the thickest station of the board, so the crown has room to move
     await ticks(page).nth(2).click();
     await expect(readout(page)).toContainText('Station 3 of 5');
 
-    // Domed replaces it at once, with no question, and the 3D board is rebuilt and changes
+    // Flat takes the crown off at once, with no question, and the 3D board is rebuilt and changes
     let n = await updates(page);
+    const shipped = await snapshot(page);
+    await shape(page).selectOption('flat');
+    await expect(shape(page)).toHaveValue('flat');
+    await expect(panel(page).getByRole('slider', { name: 'Crown' })).toBeDisabled();
+    await expect(panel(page)).toContainText('A flat deck has no crown');
+    await expect(handle(page)).toHaveAttribute('aria-disabled', 'true');
+    await rebuilt(page, n);
+    n = await updates(page);
+    await changesFrom(page, shipped);
     const flat = await snapshot(page);
+
+    // Domed gives the dome a new Domed has, and the board changes again
     await shape(page).selectOption('domed');
     await expect(shape(page)).toHaveValue('domed');
     await expect(page.getByTestId('deck-slice')).toBeVisible();
     await expect(handle(page)).toBeVisible();
-    await expect(panel(page)).toContainText('Replaced the drawn curves with Domed');
     await rebuilt(page, n);
     n = await updates(page);
     await changesFrom(page, flat);
@@ -126,8 +136,9 @@ test.describe('the Deck step', () => {
     await page.getByRole('button', { name: 'Edit curve' }).first().click();
     await expect(page.getByRole('heading', { name: 'Cross-section: deck' })).toBeVisible();
     await expect(page.getByTestId('deck-slice')).toHaveCount(0);
+    // far enough from a dome (a deck within four millimetres of one still reads Domed)
     const at = await selectPoint(page, [0.6, 0.97], [0.06, 0.95]);
-    await drag(page, at, 40);
+    await drag(page, at, 150);
     await expect(shape(page)).toHaveValue('custom');
     await expect(panel(page)).toContainText('drawn point by point');
     await rebuilt(page, n);
@@ -138,7 +149,7 @@ test.describe('the Deck step', () => {
     await expect(shape(page)).toHaveValue('domed');
     await rebuilt(page, n);
     n = await updates(page);
-    await drag(page, at, 40);
+    await drag(page, at, 150);
     await expect(shape(page)).toHaveValue('custom');
     await shape(page).selectOption('domed');
     await expect(shape(page)).toHaveValue('domed');

@@ -49,7 +49,8 @@ test.describe('the workspace', () => {
 
     await entry(page, 'Deck').click();
     expect(await currentStep(page)).toEqual(['Deck']);
-    await expect(page.getByRole('heading', { name: 'Cross-section: deck' })).toBeVisible();
+    // a deck close to a dome (every board's is) is drawn as its slice with the crown, not as the editor
+    await expect(page.getByRole('heading', { name: /^Deck: station \d+$/ })).toBeVisible();
 
     // Specs, Build and Compare show a tab of the sidebar and leave the step where it is
     await entry(page, 'Build').click();
@@ -257,7 +258,7 @@ test.describe('the workspace', () => {
     await entry(page, 'Outline').click();
     await tapUntil('deck', grid(0.3, 0.55, 0.05, 0.45, 0.7, 0.05));
     expect(await currentStep(page)).toEqual(['Deck']);
-    await expect(page.getByRole('heading', { name: 'Cross-section: deck' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /^Deck: station \d+$/ })).toBeVisible();
 
     await entry(page, 'Outline').click();
     await tapUntil('rail', grid(0.3, 0.7, 0.05, 0.35, 0.85, 0.008));
@@ -609,7 +610,8 @@ test.describe('the tablet and phone layouts', () => {
     await page.keyboard.press('3');
     expect(await currentStep(page)).toEqual(['Deck']);
     const board = (await board3d(page).boundingBox())!;
-    const drawn = (await page.locator('canvas').last().boundingBox())!;
+    // the Deck step draws a slice (an SVG), under the board
+    const drawn = (await page.getByTestId('deck-slice').boundingBox())!;
     expect(drawn.y).toBeGreaterThan(board.y + board.height - 1);
 
     // a panel entry is a request to see the sheet

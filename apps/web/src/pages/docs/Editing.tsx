@@ -452,8 +452,12 @@ export default function DocsEditing() {
           falls from the stringer to the rail. It draws that station&rsquo;s <strong>slice</strong>{' '}
           with the deck curve on it, under it the <strong>station strip</strong>, and the panel
           beside it names the deck&rsquo;s shape and has one dial, the crown. The shape is read off
-          the curve and never stored, so a deck you draw stays yours: nothing is replaced unless you
-          choose a shape.
+          the curve and never stored. A deck that is a dome, or close to one, reads Domed: inside
+          the rail&rsquo;s band edge it stays within three tenths of its crown and four millimetres
+          of the dome that crown makes, which every deck of the starter templates and the made
+          boards does. Moving the crown, or choosing Domed again, replaces such a deck with that
+          dome, and undo brings it back. A deck you have drawn further from a dome reads Custom and
+          stays yours: nothing is replaced unless you choose a shape.
         </p>
         <Terms>
           {DECK_SHAPES.map((shape) => (
@@ -462,9 +466,9 @@ export default function DocsEditing() {
             </Term>
           ))}
           <Term name="Custom">
-            {SHAPE_NOTES.custom} It is a name, not a choice: the menu offers Flat and Domed. Every
-            deck of the starter templates and the made boards is Custom to begin with, because each
-            rolls over faster than a dome near its rail.
+            {SHAPE_NOTES.custom} It is a name, not a choice: the menu offers Flat and Domed. A deck
+            that is not close to a dome inside the rail&rsquo;s band edge, such as one that is level
+            over most of its width and steep at the edge, or has a hollow, reads Custom.
           </Term>
         </Terms>
         <h3 className="mt-4 text-base font-semibold">The crown</h3>
@@ -532,8 +536,8 @@ export default function DocsEditing() {
           <em>Edit curve</em>, in the slice&rsquo;s header and under <em>More</em>, shows the deck
           curve&rsquo;s own knots and handles in the cross-section editor, for the station you have
           chosen, and the button takes you back to the shape&rsquo;s one handle. Moving a knot or a
-          handle makes the deck Custom and the panel says so; a Custom curve is always shown with
-          its knots. Choosing a shape again replaces it.
+          handle far enough from a dome makes the deck Custom and the panel says so; a Custom curve
+          is always shown with its knots. Choosing a shape again replaces it.
         </p>
         <h3 className="mt-4 text-base font-semibold">The station strip</h3>
         <p>

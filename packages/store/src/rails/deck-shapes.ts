@@ -85,6 +85,20 @@ export const FLAT_TOLERANCE = 0.01;
 export const DOME_READ_TOLERANCE = 0.01;
 
 /**
+ * How far a deck may stand from the dome through the stringer's height and its own crown, from the stringer to
+ * the band edge, and still read Domed: three tenths of that crown, and never more than {@link DOME_CLOSE_MAX}.
+ * A drawn deck is an arc and a roll, not a parabola: the 47 stations of the nine boards the project ships and
+ * makes stand 4 to 25 percent of their crowns off one (the thick stations, those over 60 percent of the
+ * board's greatest thickness, 4 to 17 percent), 1.3 to 3.5 millimetres on a deck that falls two centimetres. A
+ * deck with a second hump or a hollow, a level middle with a steep edge, or a knot dragged a centimetre or more
+ * is past it. Past the band edge the deck is under the rail and is not read.
+ */
+export const DOME_CLOSE_SHARE = 0.3;
+
+/** The most (cm) a deck may stand from its dome and still read Domed, whatever its crown: four millimetres, above the 3.5 of the boards the project ships. */
+export const DOME_CLOSE_MAX = 0.4;
+
+/**
  * The steepest the deck may be where it meets the wall: a slope of tan 60 degrees, which a Domed deck
  * of half width `w` reaches at a fall of `w` tan(60 deg) / 2. Past it the dome would stand nearly upright
  * at the rail. The decks of the project fall at 17 degrees at most.
@@ -254,6 +268,13 @@ function deviation(s: Spline, shape: (x: number) => number): number {
   return worst;
 }
 
+/** The greatest vertical distance of the curve's samples out to distance `limit` from the stringer from `shape`. */
+function deviationTo(s: Spline, limit: number, shape: (x: number) => number): number {
+  let worst = 0;
+  for (const p of samples(s)) if (p.x <= limit) worst = Math.max(worst, Math.abs(p.y - shape(p.x)));
+  return worst;
+}
+
 /** What a station's deck curve is. */
 export interface DeckReading {
   readonly shape: DeckShapeName;
@@ -268,7 +289,7 @@ export interface DeckReading {
 
 /**
  * What the deck curve of a station is, on one side: Flat, Domed (with its crown), or Custom (with the
- * curve's own crown). `band` is the rail's band (cm) at the station on that side, which only places
+ * curve's own crown). A Domed deck is a parabola, or a deck close to one ({@link DOME_CLOSE_SHARE}). `band` is the rail's band (cm) at the station on that side, which only places
  * the band edge the crown is read at: the shape itself is read from the curve alone. Null for a
  * station with no width or no thickness, which has no curve to read.
  */
@@ -285,6 +306,17 @@ export function deckShapeOf(entry: StationSplines, band: number): DeckReading | 
     const fall = T - last.y;
     if (fall > 0 && deviation(deck, (x) => T - domeFall(fall, w, x)) <= DOME_READ_TOLERANCE) {
       return { shape: 'domed', crown: domeFall(fall, w, edge), wallFall: fall };
+    }
+    // a close dome: inside the band edge, within a share of its own crown of the dome that crown makes
+    const crown = T - heightAt(deck, edge);
+    if (
+      fall > 0 &&
+      edge > 0 &&
+      crown >= CROWN_MIN &&
+      deviationTo(deck, edge, (x) => T - crown * (x / edge) ** 2) <=
+        Math.max(DOME_READ_TOLERANCE, Math.min(DOME_CLOSE_SHARE * crown, DOME_CLOSE_MAX))
+    ) {
+      return { shape: 'domed', crown, wallFall: fall };
     }
   }
   return { shape: 'custom', crown: Math.max(0, T - heightAt(deck, edge)), wallFall: null };

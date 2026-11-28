@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { lengthUnitByKey } from '../format';
 import { publishProbes, resetProbes } from '../nurbs-probes';
 import { activeStore, boardStore, railsStore } from '../store';
-import { key, showRails } from '../test/rails-board';
+import { drawDecksAsSlabs, key, showRails } from '../test/rails-board';
 import type { SectionProbe } from '../workers/nurbs-protocol';
 import { getDeckStatus, resetDeckChoice, setDeckScope } from './deck-choice';
 import { DeckSlice } from './DeckSlice';
@@ -77,6 +77,7 @@ describe('what it draws', () => {
   });
 
   it('draws a drawn curve with the handle off and the reason on it', () => {
+    drawDecksAsSlabs();
     render(<DeckSlice units={CM} slice={SLICE} />);
     expect(handle().getAttribute('aria-disabled')).toBe('true');
     expect(handle().title).toContain('drawn by hand');

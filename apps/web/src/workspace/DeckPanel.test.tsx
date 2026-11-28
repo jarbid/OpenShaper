@@ -7,6 +7,7 @@
  */
 import type { RailsBoard } from '@openshaper/board2';
 import {
+  CROWN_MIN,
   DEFAULT_WALL_FALL_SHARE,
   bandAt,
   bandEdge,
@@ -19,7 +20,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { lengthUnitByKey } from '../format';
 import { activeStore, boardStore, railsStore } from '../store';
-import { key, showRails } from '../test/rails-board';
+import { drawDecksAsSlabs, key, showRails } from '../test/rails-board';
 import { getDeckEditCurve, getDeckScope, getDeckStatus, resetDeckChoice } from './deck-choice';
 import { DeckPanel } from './DeckPanel';
 
@@ -65,7 +66,15 @@ describe('what it shows', () => {
     expect(screen.queryByRole('region', { name: 'Deck panel' })).toBeNull();
   });
 
-  it('reads a board as it is shipped as Custom: the name is shown, it is not a choice, the dial is off and says why', () => {
+  it('reads a board as it is shipped as Domed: a close dome, with the dial on at the crown the curve has', () => {
+    render(<DeckPanel units={CM} slice={SLICE} />);
+    expect(shapeMenu().value).toBe('domed');
+    expect(slider().disabled).toBe(false);
+    expect(Number.parseFloat(field().value)).toBeCloseTo(reading().crown, 2);
+  });
+
+  it('reads a drawn deck as Custom: the name is shown, it is not a choice, the dial is off and says why', () => {
+    drawDecksAsSlabs();
     render(<DeckPanel units={CM} slice={SLICE} />);
     expect(shapeMenu().value).toBe('custom');
     const options = within(shapeMenu()).getAllByRole('option') as HTMLOptionElement[];
@@ -97,6 +106,7 @@ describe('what it shows', () => {
 
 describe('choosing a shape', () => {
   it('replaces the drawn curves with Domed, one step, and says so; undo brings them back exactly', () => {
+    drawDecksAsSlabs();
     render(<DeckPanel units={CM} slice={SLICE} />);
     const was = doc();
     fireEvent.change(shapeMenu(), { target: { value: 'domed' } });
@@ -116,12 +126,15 @@ describe('choosing a shape', () => {
   });
 
   it('keeps the crown each station has when a drawn curve becomes Domed', () => {
+    drawDecksAsSlabs();
     const before = [0, 1, 2, 3].map((i) => deckShapeAt(doc(), i)?.crown);
     render(<DeckPanel units={CM} slice={SLICE} />);
     fireEvent.change(shapeMenu(), { target: { value: 'domed' } });
     [0, 1, 2, 3].forEach((i) => {
       const r = deckShapeAt(doc(), i);
-      if (r && before[i] !== undefined) expect(r.crown).toBeCloseTo(before[i]!, 9);
+      // a station whose drawn curve had less crown than the least a dome has is given a dome of its own
+      if (r && before[i] !== undefined && before[i]! >= CROWN_MIN)
+        expect(r.crown).toBeCloseTo(before[i]!, 9);
     });
   });
 
@@ -313,6 +326,7 @@ describe('More', () => {
   });
 
   it('has Edit curve pressed and off while the deck is Custom, with the reason', () => {
+    drawDecksAsSlabs();
     render(<DeckPanel units={CM} slice={SLICE} />);
     openMore();
     const button = within(panel()).getByRole('button', { name: 'Edit curve' }) as HTMLButtonElement;
@@ -336,7 +350,7 @@ describe('a deck that is edited as a curve', () => {
         .getState()
         .moveControlPoint({ kind: 'stationDeck', index: STATION }, knots.length - 1, {
           x: end.x,
-          y: end.y - 0.1,
+          y: end.y - 2,
         }),
     );
     expect(shapeMenu().value).toBe('custom');

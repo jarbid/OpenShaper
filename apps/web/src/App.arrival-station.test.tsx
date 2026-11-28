@@ -81,21 +81,46 @@ const fileItem = (name: string) => {
   fireEvent.click(screen.getByRole('menuitem', { name }));
 };
 
-/** The station the cross-section pane's controls name ("3/5"): the chosen one, and how many there are. */
+/** The station strip of the workspace's Deck step, when it is showing. */
+const strip = () => screen.queryByRole('toolbar', { name: 'Stations along the board' });
+
+/**
+ * The station that is chosen, and how many there are: the Deck step's strip says "Station 3 of 5" and the
+ * classic layout's cross-section controls "3/5".
+ */
 function station(): { at: number; of: number } {
+  const region = screen.queryByRole('region', { name: 'Stations' });
+  if (region !== null) {
+    const found = /Station (\d+) of (\d+)/.exec(region.textContent ?? '')!;
+    return { at: Number(found[1]), of: Number(found[2]) };
+  }
   const [at, of] = screen
     .getByText(/^\d+\/\d+$/)
     .textContent!.split('/')
     .map(Number);
   return { at: at!, of: of! };
 }
-/** The tail's first station, by the controls' own button. */
+/** The next station, by the strip's own tick or the classic controls' button. */
+function next(): void {
+  const lane = strip();
+  if (lane !== null) {
+    fireEvent.click(within(lane).getAllByRole('button', { name: /^Station \d/ })[station().at]!);
+  } else {
+    fireEvent.click(screen.getByRole('button', { name: 'Next cross-section' }));
+  }
+}
+/** The tail's first station, by the strip's first tick or the classic controls' button. */
 function moveToFirst(): void {
-  const previous = screen.getByRole('button', { name: 'Previous cross-section' });
-  while (!(previous as HTMLButtonElement).disabled) fireEvent.click(previous);
+  const lane = strip();
+  if (lane !== null) {
+    fireEvent.click(within(lane).getAllByRole('button', { name: /^Station \d/ })[0]!);
+  } else {
+    const previous = screen.getByRole('button', { name: 'Previous cross-section' });
+    while (!(previous as HTMLButtonElement).disabled) fireEvent.click(previous);
+  }
   expect(station().at).toBe(1);
 }
-/** The workspace is showing, open on the Deck step, which has the station controls. */
+/** The workspace is showing, open on the Deck step, which has the station strip. */
 async function onDeckStep(): Promise<void> {
   await waitFor(() => expect(activeStore.target).toBe(railsStore), { timeout: 30_000 });
   const list = await screen.findByRole('navigation', { name: 'Design steps' });
@@ -216,7 +241,7 @@ describe('a rails board that arrives opens on the station nearest its middle', (
 
   it('keeps the station the person chose when the engine is turned off and on again for the same board', async () => {
     await appOnFirstStation();
-    fireEvent.click(screen.getByRole('button', { name: 'Next cross-section' }));
+    next();
     expect(station().at).toBe(2);
     // off and on again: the same board, so the same station
     act(() => activeStore.use(boardStore));

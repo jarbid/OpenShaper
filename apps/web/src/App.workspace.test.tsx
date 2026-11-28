@@ -20,6 +20,7 @@ import { clearSession } from './session-store';
 import { DEFAULT_SETTINGS, saveSettings } from './settings';
 import { clearSharedPayload } from './share-bootstrap';
 import { activeStore, boardStore, railsStore, sectionStore } from './store';
+import { drawDecksAsSlabs } from './test/rails-board';
 import { setTier } from './test/viewport';
 import { resetSectionEngine } from './use-section-engine';
 import { DEFAULT_VIEW_STATE, saveViewState } from './view-state';
@@ -211,7 +212,8 @@ describe('the drawing', () => {
     }
     expect(heading('Rail map')).toBeTruthy();
     fireEvent.click(entry('Deck'));
-    expect(heading('Cross-section: deck')).toBeTruthy();
+    // a board's deck is close to a dome, so the Deck step shows its slice with the crown, not the editor
+    expect(heading(/^Deck: station \d+$/)).toBeTruthy();
     fireEvent.click(entry('Bottom'));
     // the Bottom step has a drawing of its own: the slice and the plan from below
     expect(heading(/^Bottom: station \d+$/)).toBeTruthy();
@@ -223,6 +225,8 @@ describe('the drawing', () => {
 
   it('keeps the station controls of the cross-section pane: stepping, add and remove', async () => {
     await openRailsBoard();
+    // a drawn deck is edited in the pane, with the pane's own station controls
+    act(() => drawDecksAsSlabs());
     fireEvent.click(entry('Deck'));
     expect(screen.getByRole('button', { name: 'Next cross-section' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Previous cross-section' })).toBeTruthy();

@@ -318,10 +318,15 @@ rails so that the rail map and panel are built once, in their final place.
   least and greatest corner. A kind's drawn size and plan outline are generated from its template
   (`tools/make-nurbs-templates.ts`, committed as `board-type-shapes.ts` and held to the templates by a
   test), so the dialog loads no template to draw its cards.
-- **A deck shape is read from the curve and never stored, and a dome is a parabola.** Flat and
-  Domed are what a station's deck curve is to 0.1 mm; anything else is Custom, so a shape applied and
-  then edited as a curve reads Custom and nothing the shaper drew is replaced unless they choose a
-  shape. The crown is the gap under a straightedge laid across the deck from one band edge to the
+- **A deck shape is read from the curve and never stored, and a dome is a parabola.** Flat is level
+  to 0.1 mm. Domed is a parabola to 0.1 mm, or a deck close to one: inside the band edge it stays
+  within three tenths of its crown, and four millimetres, of the dome that crown makes (the project
+  owner's call, 2026-11-28: read a close dome as Domed). The 47 stations of the nine boards measured
+  stand 4 to 25 percent of their crowns off a parabola, 1.3 to 3.5 mm, so every shipped and made deck
+  reads Domed and the step opens on the crown dial. Moving the crown or choosing Domed replaces a close
+  dome with the dome of that crown (undo brings it back), and the wall moves with it by 1.5 to 5 mm on
+  those boards; a deck further from a dome (a level middle with a steep edge, a hollow) reads Custom
+  and stays the shaper's unless they choose a shape. The crown is the gap under a straightedge laid across the deck from one band edge to the
   other, measured at the stringer. Curves are stored as fractions of the half width and of the
   thickness, so a moved station or an edited thickness stretches a stored curve per axis: a circle does
   not survive that and a parabola does, so a Domed deck stays Domed through every edit that is not the
@@ -332,6 +337,9 @@ rails so that the rail map and panel are built once, in their final place.
   that was asked has the crown typed.
 - **The Deck step's drawing is the section from the engine's fine polyline.** The slice behind the
   curve reads the same 400-point answer as the Rails slice, so a rail's bend is not a polygon.
+- **Taken with the project owner, 2026-11-28.** Reference points (new on `main`, in the classic editor
+  only) are dropped when the old editor goes, not ported; a phone gets a view-only layout (the board, its
+  looks and its specs), as planned; and the new editor becomes the default before the old one is removed.
 - **A contour is a bottom feature in a shaper's words, with a depth and a run.** The four kinds of
   the section store's features (Single concave, Double concave, Vee, Channels) each have one Depth
   (how far the bottom is raised into the board, or the rails raised for a vee) and a run, From and
@@ -442,11 +450,9 @@ From the new-board gallery:
 
 From the Deck step:
 
-- Every shipped deck is an arc with a steeper roll at the rail, not a parabola, so every starter and
-  every converted board reads Custom at every station and the Deck step opens on the editor. Choosing
-  Domed keeps each station's crown at the band edge and replaces the drawn curve (undo brings it back).
-  Reading a looser dome as Domed would show a crown dial sooner and let a nudge of it replace a
-  hand-drawn curve: a product call.
+- A nudge of the crown on a close dome replaces its roll with the parabola's, which moves the wall by
+  1.5 to 5 mm on the boards measured; scaling the deck's fall instead would keep the roll and move the
+  wall by the same share. A choice for later if it is seen.
 - A board that arrives opens on the station nearest its middle, as a shared board does, where the shell
   used to keep the tail's first, a tip that holds about 1 cm of rail. One place chooses it
   (`arrival-station.ts`): the first time the rails store is the document for a load, whichever way the

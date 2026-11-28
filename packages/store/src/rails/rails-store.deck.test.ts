@@ -92,16 +92,35 @@ describe('a deck that is drawn stays the shaper’s', () => {
   const station = 2;
   const target = { kind: 'stationDeck', index: station } as const;
 
-  it('reads Custom after a knot is dragged, and choosing a shape replaces it, undoably', () => {
+  it('still reads Domed after a knot is dragged a millimetre, a close dome, and Custom after it is dragged far', () => {
+    const s = storeWith(doc);
+    s.getState().setDeckShape({ shape: 'domed', crown: 1.5 }, { station, all: false });
+    const domed = s.getState().doc!;
+    expect(deckShapeAt(domed, station)!.shape).toBe('domed');
+    const knots = s.getState().board!.stationCurves[station]!.deck.knots;
+    const end = knots[knots.length - 1]!.end;
+    // a millimetre at the wall is no longer a parabola but is still close to a dome
+    s.getState().moveControlPoint(target, knots.length - 1, vec2(end.x, end.y - 0.1));
+    expect(deckShapeAt(s.getState().doc!, station)!.shape).toBe('domed');
+    s.getState().undo();
+    expect(s.getState().doc).toBe(domed);
+    // two centimetres is not
+    s.getState().moveControlPoint(target, knots.length - 1, vec2(end.x, end.y - 2));
+    expect(deckShapeAt(s.getState().doc!, station)!.shape).toBe('custom');
+    s.getState().undo();
+    expect(s.getState().doc).toBe(domed);
+  });
+
+  it('reads Custom after a knot is dragged far, and choosing a shape replaces it, undoably', () => {
     const s = storeWith(doc);
     s.getState().setDeckShape({ shape: 'domed', crown: 1.5 }, { station, all: false });
     const domed = s.getState().doc!;
     expect(deckShapeAt(domed, station)!.shape).toBe('domed');
 
-    // drag the end knot down by a millimetre: the curve is no longer an arc
+    // drag the end knot down by two centimetres: the curve is no longer close to a dome
     const knots = s.getState().board!.stationCurves[station]!.deck.knots;
     const end = knots[knots.length - 1]!.end;
-    s.getState().moveControlPoint(target, knots.length - 1, vec2(end.x, end.y - 0.1));
+    s.getState().moveControlPoint(target, knots.length - 1, vec2(end.x, end.y - 2));
     const drawn = s.getState().doc!;
     expect(drawn).not.toBe(domed);
     expect(deckShapeAt(drawn, station)!.shape).toBe('custom');

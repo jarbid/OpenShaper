@@ -60,6 +60,9 @@ test.describe('the rails board as the document', () => {
     // Deck: the cross-section pane edits the station's deck curve, with no Deck | Bottom control to choose
     await entry(page, 'Deck').click();
     await expect(entry(page, 'Deck')).toHaveAttribute('aria-current', 'step');
+    // a deck close to a dome is drawn as its slice with the crown; Edit curve opens the cross-section pane on the curve
+    await expect(page.getByRole('heading', { name: /^Deck: station \d+$/ })).toBeVisible();
+    await page.getByRole('button', { name: 'Edit curve' }).first().click();
     await expect(page.getByRole('heading', { name: 'Cross-section: deck' })).toBeVisible();
     await expect(page.getByRole('group', { name: 'Curve to edit' })).toHaveCount(0);
     const deck = await selectPoint(page, [0.6, 0.92]);
